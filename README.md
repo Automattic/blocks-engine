@@ -1,2 +1,2 @@
 # blocks-engine
-A collection of tools for block generation
+A collection of skills and tools for block generation
