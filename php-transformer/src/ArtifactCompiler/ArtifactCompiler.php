@@ -229,24 +229,29 @@ final class ArtifactCompiler
     {
         $pages = array();
         foreach ( $artifact['files'] as $file ) {
-            if ( 'html' !== ($file['kind'] ?? '') ) {
+            if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
                 continue;
             }
 
             $path = (string) ($file['path'] ?? '');
+            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path);
+            $slug = $this->slugFromPath($path);
+            $blockMarkup = $path === $entryPath ? $serializedBlocks : $this->htmlDocumentBlockMarkup((string) ($file['content'] ?? ''));
             $pages[] = array_filter(
                 array(
                     'source_path'    => $path,
                     'kind'           => 'html',
                     'role'           => $file['role'] ?? 'document',
                     'entrypoint'     => $path === $entryPath || ! empty($file['entrypoint']),
-                    'slug'           => $this->slugFromPath($path),
-                    'title'          => $this->titleFromHtml((string) ($file['content'] ?? ''), $path),
+                    'slug'           => $slug,
+                    'title'          => $title,
+                    'metadata'       => $this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, 'html'),
+                    'html'           => $file['content'] ?? '',
                     'body_format'    => 'html',
-                    'block_markup'   => $path === $entryPath ? $serializedBlocks : '',
+                    'block_markup'   => $blockMarkup,
                     'bytes'          => $file['bytes'] ?? 0,
                     'mime_type'      => $file['mime_type'] ?? 'text/html',
-                    'asset_references' => $path === $entryPath ? $this->assetReferencePaths($assets) : array(),
+                    'asset_references' => $this->assetReferencePaths($assets),
                     'provenance'     => $file['provenance'] ?? array(),
                 ),
                 static fn (mixed $value): bool => array() !== $value
@@ -262,6 +267,15 @@ final class ArtifactCompiler
                     'entrypoint'   => false,
                     'slug'         => $document['slug'] ?? '',
                     'title'        => $document['title'] ?? '',
+                    'metadata'     => $this->documentMetadata(
+                        (string) ($document['source_path'] ?? ''),
+                        (string) ($document['kind'] ?? 'document'),
+                        'document',
+                        (string) ($document['slug'] ?? ''),
+                        (string) ($document['title'] ?? ''),
+                        (string) ($document['body_format'] ?? ''),
+                        $document
+                    ),
                     'body_format'  => $document['body_format'] ?? '',
                     'block_markup' => $document['block_markup'] ?? '',
                     'provenance'   => $document['provenance'] ?? array(),
@@ -276,11 +290,17 @@ final class ArtifactCompiler
             'entry_path'  => $entryPath,
             'pages'       => $pages,
             'assets'      => $this->compiledSiteAssets($assets),
+            'template_parts' => $this->compiledSiteTemplateParts($artifact['files']),
+            'visual_repair' => $this->compiledSiteVisualRepair($assets),
             'theme'       => array(
                 'stylesheets' => $this->assetPathsByIntentOrRole($assets, 'style', 'stylesheet'),
                 'scripts'     => $this->assetPathsByIntentOrRole($assets, 'behavior', 'script'),
                 'fonts'       => $this->assetPathsByRole($assets, 'font'),
                 'images'      => $this->assetPathsByRole($assets, 'image'),
+                'template_parts' => array_values(array_map(
+                    static fn (array $part): string => (string) ($part['source_path'] ?? ''),
+                    $this->compiledSiteTemplateParts($artifact['files'])
+                )),
                 'block_types' => array_values(array_map(
                     static fn (array $blockType): string => (string) ($blockType['name'] ?? ''),
                     $blockTypes
@@ -292,6 +312,139 @@ final class ArtifactCompiler
                 'input_bytes' => $artifact['bytes'],
             ),
         );
+    }
+
+    private function htmlDocumentBlockMarkup(string $html): string
+    {
+        if ( '' === trim($html) ) {
+            return '';
+        }
+        if ( $this->containsBlockMarkup($html) ) {
+            return $html;
+        }
+
+        return '<!-- wp:html -->' . "\n" . $html . "\n" . '<!-- /wp:html -->';
+    }
+
+    /**
+     * @param array<string, mixed> $document
+     * @return array<string, mixed>
+     */
+    private function documentMetadata(string $sourcePath, string $kind, string $role, string $slug, string $title, string $bodyFormat, array $document = array()): array
+    {
+        return array_filter(
+            array(
+                'source_path' => $sourcePath,
+                'kind'        => $kind,
+                'role'        => $role,
+                'post_type'   => $document['post_type'] ?? ('document' === $role ? 'page' : ''),
+                'slug'        => $slug,
+                'title'       => $title,
+                'excerpt'     => $document['excerpt'] ?? '',
+                'date'        => $document['date'] ?? '',
+                'template'    => $document['template'] ?? '',
+                'taxonomies'  => $document['taxonomies'] ?? array(),
+                'body_format' => $bodyFormat,
+            ),
+            static fn (mixed $value): bool => '' !== $value && array() !== $value
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function compiledSiteTemplateParts(array $files): array
+    {
+        $parts = array();
+        foreach ( $files as $file ) {
+            $path = (string) ($file['path'] ?? '');
+            if ( ! $this->isTemplatePartFile($file) ) {
+                continue;
+            }
+
+            $slug = $this->slugFromPath($path);
+            $parts[] = array_filter(
+                array(
+                    'source_path'  => $path,
+                    'slug'         => $slug,
+                    'title'        => $this->titleFromPath($path),
+                    'area'         => $this->templatePartArea($path, (string) ($file['role'] ?? '')),
+                    'body_format'  => (string) ($file['kind'] ?? ''),
+                    'block_markup' => $this->htmlDocumentBlockMarkup((string) ($file['content'] ?? '')),
+                    'bytes'        => $file['bytes'] ?? 0,
+                    'provenance'   => $file['provenance'] ?? array(),
+                ),
+                static fn (mixed $value): bool => '' !== $value && array() !== $value
+            );
+        }
+
+        return $parts;
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     */
+    private function isTemplatePartFile(array $file): bool
+    {
+        $path = (string) ($file['path'] ?? '');
+        $role = (string) ($file['role'] ?? '');
+        return 'html' === ($file['kind'] ?? '') && ('template-part' === $role || preg_match('#(^|/)(parts|template-parts)/[^/]+\.html?$#i', $path));
+    }
+
+    private function templatePartArea(string $path, string $role): string
+    {
+        if ( preg_match('/\b(header|footer|sidebar|navigation)\b/i', $path . ' ' . $role, $match) ) {
+            return strtolower($match[1]);
+        }
+
+        return 'uncategorized';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assets
+     * @return array<string, mixed>
+     */
+    private function compiledSiteVisualRepair(array $assets): array
+    {
+        $stylesheets = array_values(array_filter($assets, fn (array $asset): bool => $this->isVisualRepairStylesheet($asset)));
+        $css = '';
+        foreach ( $stylesheets as $asset ) {
+            if ( isset($asset['content']) && is_string($asset['content']) ) {
+                $css .= ('' === $css ? '' : "\n") . $asset['content'];
+            }
+        }
+
+        return array_filter(
+            array(
+                'stylesheets' => array_values(array_map(
+                    static fn (array $asset): array => array_filter(
+                        array(
+                            'path'      => $asset['path'] ?? '',
+                            'role'      => $asset['role'] ?? '',
+                            'intent'    => $asset['intent'] ?? '',
+                            'mime_type' => $asset['mime_type'] ?? '',
+                            'bytes'     => $asset['bytes'] ?? 0,
+                        ),
+                        static fn (mixed $value): bool => '' !== $value
+                    ),
+                    $stylesheets
+                )),
+                'css'         => $css,
+            ),
+            static fn (mixed $value): bool => '' !== $value && array() !== $value
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $asset
+     */
+    private function isVisualRepairStylesheet(array $asset): bool
+    {
+        $path = (string) ($asset['path'] ?? '');
+        $role = (string) ($asset['role'] ?? '');
+        $intent = (string) ($asset['intent'] ?? '');
+        return 'css' === ($asset['kind'] ?? '') && ('visual-repair' === $role || 'visual-repair' === $intent || preg_match('/(?:^|[-_\/])visual[-_]repair(?:[-_\/]|\.)/i', $path));
     }
 
     private function titleFromHtml(string $html, string $path): string
@@ -542,6 +695,9 @@ final class ArtifactCompiler
             );
             if ( ! empty($file['content_base64']) ) {
                 $asset['content_base64'] = $file['content_base64'];
+            }
+            if ( 'css' === ($file['kind'] ?? '') && empty($file['binary']) ) {
+                $asset['content'] = $file['content'];
             }
             if ( 'image/svg+xml' === ($file['mime_type'] ?? '') && empty($file['binary']) && $this->isSafeSvgContent((string) ($file['content'] ?? '')) ) {
                 $asset['content'] = $file['content'];

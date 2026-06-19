@@ -34,7 +34,7 @@ Required top-level keys for successful transformations:
 
 `status` is one of `success`, `success_with_warnings`, or `failed`. Artifact compiler callers should use `source_reports.artifact` for normalized input metadata such as entry path, accepted/rejected file counts, MIME/kind/role counts, and source HTML metrics.
 
-Artifact compiler callers that need a compiled site view should read `source_reports.compiled_site`. It exposes a generic `blocks-engine/php-transformer/compiled-site/v1` report with normalized `pages`, `assets`, and `theme` buckets for stylesheets, scripts, fonts, images, and generated block types. Product adapters should map from this report plus the top-level `documents` and `assets` arrays instead of depending on product-specific artifact semantics.
+Artifact compiler callers that need a compiled site view should read `source_reports.compiled_site`. It exposes a generic `blocks-engine/php-transformer/compiled-site/v1` report with normalized `pages`, per-page `metadata`, full page `block_markup`, `assets`, `template_parts`, `visual_repair`, and `theme` buckets for stylesheets, scripts, fonts, images, template parts, and generated block types. Product adapters should map from this report plus the top-level `documents` and `assets` arrays instead of depending on product-specific artifact semantics.
 
 `components` contains inspectable component candidates discovered before materialization. `block_types` contains generated block type artifacts promoted from `block.json` roots. `legacy_mapping` is transitional metadata for consumer-owned migration mappers and is not a long-term package feature commitment.
 
