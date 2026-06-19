@@ -375,6 +375,7 @@ final class HtmlTransformer
                 'tag'             => $tagName,
                 'selector'        => $this->elementSelector($element),
                 'attributes'      => $this->htmlAttributes($element),
+                'controls'        => $this->formControls($element),
                 'text_length'     => strlen(trim($element->textContent ?? '')),
                 'child_count'     => $this->childElementCount($element),
                 'html'            => $this->safeFallbackHtml($element),
@@ -409,7 +410,7 @@ final class HtmlTransformer
         }
 
         if ( $captureUnsupported ) {
-            $fallbacks[] = array_merge(array(
+            $fallback = array(
                 'type'            => 'unsupported_element',
                 'reason'          => 'unsupported_element',
                 'diagnostic_code' => 'html_unsupported_element',
@@ -420,7 +421,14 @@ final class HtmlTransformer
                 'text_length'     => strlen(trim($element->textContent ?? '')),
                 'child_count'     => $this->childElementCount($element),
                 'html'            => $this->safeFallbackHtml($element),
-            ), $this->fallbackProvenance);
+            );
+
+            $control = $this->formControlMetadata($element);
+            if ( array() !== $control ) {
+                $fallback['control'] = $control;
+            }
+
+            $fallbacks[] = array_merge($fallback, $this->fallbackProvenance);
         }
 
         return null;
@@ -944,6 +952,166 @@ final class HtmlTransformer
         }
 
         return $attributes;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function formControls(DOMElement $form): array
+    {
+        $controls = array();
+        foreach ( $form->getElementsByTagName('*') as $control ) {
+            if ( ! $control instanceof DOMElement || ! $this->isFormControlElement($control) ) {
+                continue;
+            }
+
+            $metadata = $this->formControlMetadata($control);
+            if ( array() !== $metadata ) {
+                $controls[] = $metadata;
+            }
+        }
+
+        return $controls;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function formControlMetadata(DOMElement $control): array
+    {
+        if ( ! $this->isFormControlElement($control) ) {
+            return array();
+        }
+
+        $tagName = strtolower($control->tagName);
+        $metadata = array_filter(array(
+            'tag'         => $tagName,
+            'name'        => $this->attr($control, 'name'),
+            'type'        => $this->formControlType($control),
+            'label'       => $this->formControlLabel($control),
+            'placeholder' => $this->attr($control, 'placeholder'),
+        ), static fn (string $value): bool => '' !== $value);
+
+        if ( $control->hasAttribute('required') ) {
+            $metadata['required'] = true;
+        }
+        if ( $control->hasAttribute('disabled') ) {
+            $metadata['disabled'] = true;
+        }
+
+        $value = $this->attr($control, 'value');
+        if ( '' !== $value && 'select' !== $tagName ) {
+            $metadata['value'] = $value;
+        }
+
+        if ( 'select' === $tagName ) {
+            $options = $this->selectOptions($control);
+            if ( array() !== $options ) {
+                $metadata['options'] = $options;
+            }
+        }
+
+        return $metadata;
+    }
+
+    private function isFormControlElement(DOMElement $element): bool
+    {
+        return in_array(strtolower($element->tagName), array( 'button', 'input', 'select', 'textarea' ), true);
+    }
+
+    private function formControlType(DOMElement $control): string
+    {
+        $tagName = strtolower($control->tagName);
+        if ( 'input' === $tagName ) {
+            $type = strtolower(trim($this->attr($control, 'type')));
+            return '' !== $type ? $type : 'text';
+        }
+        if ( 'button' === $tagName ) {
+            $type = strtolower(trim($this->attr($control, 'type')));
+            return '' !== $type ? $type : 'submit';
+        }
+        if ( 'select' === $tagName && $control->hasAttribute('multiple') ) {
+            return 'select-multiple';
+        }
+
+        return $tagName;
+    }
+
+    private function formControlLabel(DOMElement $control): string
+    {
+        $ariaLabel = trim($this->attr($control, 'aria-label'));
+        if ( '' !== $ariaLabel ) {
+            return $ariaLabel;
+        }
+
+        $id = $this->attr($control, 'id');
+        if ( '' !== $id && $control->ownerDocument instanceof DOMDocument ) {
+            foreach ( $control->ownerDocument->getElementsByTagName('label') as $label ) {
+                if ( $label instanceof DOMElement && $id === $this->attr($label, 'for') ) {
+                    return $this->normalizedControlLabelText($label);
+                }
+            }
+        }
+
+        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( 'label' === strtolower($parent->tagName) ) {
+                return $this->normalizedControlLabelText($parent);
+            }
+        }
+
+        return '';
+    }
+
+    private function normalizedControlLabelText(DOMElement $label): string
+    {
+        return trim(preg_replace('/\s+/', ' ', $this->labelTextWithoutControls($label)) ?? '');
+    }
+
+    private function labelTextWithoutControls(DOMNode $node): string
+    {
+        if ( XML_TEXT_NODE === $node->nodeType ) {
+            return $node->textContent ?? '';
+        }
+
+        if ( $node instanceof DOMElement && $this->isFormControlElement($node) ) {
+            return '';
+        }
+
+        $text = '';
+        foreach ( $node->childNodes as $child ) {
+            $text .= $this->labelTextWithoutControls($child);
+        }
+
+        return $text;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function selectOptions(DOMElement $select): array
+    {
+        $options = array();
+        foreach ( $select->getElementsByTagName('option') as $option ) {
+            if ( ! $option instanceof DOMElement ) {
+                continue;
+            }
+
+            $value = $this->attr($option, 'value');
+            $optionMetadata = array(
+                'label' => trim(preg_replace('/\s+/', ' ', $option->textContent ?? '') ?? ''),
+                'value' => '' !== $value ? $value : trim($option->textContent ?? ''),
+            );
+            if ( $option->hasAttribute('selected') ) {
+                $optionMetadata['selected'] = true;
+            }
+            if ( $option->hasAttribute('disabled') ) {
+                $optionMetadata['disabled'] = true;
+            }
+
+            $options[] = $optionMetadata;
+        }
+
+        return $options;
     }
 
     private function convertImageElement(DOMElement $image, ?DOMElement $figure = null): ?array
