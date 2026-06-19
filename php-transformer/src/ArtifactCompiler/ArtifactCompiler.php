@@ -135,7 +135,7 @@ final class ArtifactCompiler
             );
         }
 
-        $result = ( new HtmlTransformer() )->transform($html, array(
+        $result = ( new HtmlTransformer() )->transform($this->safeEntryImageHtml($html, $entryPath, $files), array(
             'source'       => $entryPath,
             'source_scope' => 'artifact-entry',
         ))->toArray();
@@ -165,6 +165,23 @@ final class ArtifactCompiler
         }
 
         return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function safeEntryImageHtml(string $html, string $entryPath, array $files): string
+    {
+        $html = preg_replace_callback('/<img\s+[^>]*src\s*=\s*(["\'])([^"\']+)\1[^>]*>/i', function (array $matches) use ($entryPath, $files): string {
+            $asset = $this->findAssetByHtmlReference((string) $matches[2], $entryPath, $files);
+            if ( is_array($asset) && 'image/svg+xml' === ($asset['mime_type'] ?? '') && ! $this->isSafeImageAsset($asset) ) {
+                return '';
+            }
+
+            return (string) $matches[0];
+        }, $html) ?? $html;
+
+        return preg_replace('/<figure\b[^>]*>\s*<\/figure>/i', '', $html) ?? $html;
     }
 
     /**

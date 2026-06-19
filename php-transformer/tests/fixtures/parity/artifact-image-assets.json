@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "artifact-image-assets",
-  "description": "Compiles artifact entry HTML with safe referenced image assets into core image blocks while preserving asset metadata.",
+  "description": "Compiles artifact entry HTML with safe referenced image assets into core image blocks while preserving image class/dimension metadata and excluding unsafe SVG image markup.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/artifact-image-assets.json",
-    "notes": "Covers artifact-local image reference resolution and safe SVG payload preservation."
+    "notes": "Covers artifact-local image reference resolution, safe SVG payload preservation, unsafe SVG image serialization guards, and generic image primitive fidelity."
   },
   "legacy_comparison": {
     "skip": true,
@@ -18,7 +18,7 @@
       "files": [
         {
           "path": "pages/home.html",
-          "content": "<main><figure><img src=\"../assets/logo.svg\" alt=\"Logo\" width=\"120\" height=\"80\"><figcaption>Brand</figcaption></figure></main>",
+          "content": "<main><figure class=\"hero-logo\"><img class=\"wp-image-42 size-medium rounded\" src=\"../assets/logo.svg\" alt=\"Logo\" width=\"120\" height=\"80\"><figcaption>Brand</figcaption></figure><figure><img src=\"../assets/bad.svg\" alt=\"Bad\"></figure></main>",
           "mime_type": "text/html",
           "role": "entry"
         },
@@ -26,25 +26,41 @@
           "path": "assets/logo.svg",
           "content": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 120 80\"><rect width=\"120\" height=\"80\"/></svg>",
           "mime_type": "image/svg+xml"
+        },
+        {
+          "path": "assets/bad.svg",
+          "content": "<svg xmlns=\"http://www.w3.org/2000/svg\" onload=\"alert(1)\"><rect width=\"1\" height=\"1\"/></svg>",
+          "mime_type": "image/svg+xml"
         }
       ]
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "url": "../assets/logo.svg", "alt": "Logo", "width": "120", "height": "80", "caption": "Brand" } }
+    { "path": "blocks.0", "name": "core/image", "attrs": { "url": "../assets/logo.svg", "alt": "Logo", "width": "120", "height": "80", "caption": "Brand", "className": "hero-logo rounded is-resized", "id": 42, "sizeSlug": "medium" } }
   ],
   "expected_fallbacks": [],
   "expect": [
-    { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "source_reports.artifact.files_by_mime.image/svg+xml", "assert": "equals", "value": 1 },
+    { "path": "status", "assert": "equals", "value": "success_with_warnings" },
+    { "path": "source_reports.artifact.files_by_mime.image/svg+xml", "assert": "equals", "value": 2 },
     { "path": "source_reports.artifact.image_references.0.source_path", "assert": "equals", "value": "pages/home.html" },
     { "path": "source_reports.artifact.image_references.0.selector", "assert": "equals", "value": "img:nth-of-type(1)" },
     { "path": "source_reports.artifact.image_references.0.resolved_path", "assert": "equals", "value": "assets/logo.svg" },
     { "path": "source_reports.artifact.image_references.0.asset_path", "assert": "equals", "value": "assets/logo.svg" },
     { "path": "source_reports.artifact.image_references.0.safe", "assert": "equals", "value": true },
+    { "path": "source_reports.artifact.image_references.1.asset_path", "assert": "equals", "value": "assets/bad.svg" },
+    { "path": "source_reports.artifact.image_references.1.safe", "assert": "equals", "value": false },
     { "path": "assets.0.path", "assert": "equals", "value": "assets/logo.svg" },
     { "path": "assets.0.content", "assert": "contains", "value": "<svg" },
+    { "path": "assets.1.path", "assert": "equals", "value": "assets/bad.svg" },
+    { "path": "assets.1.content", "assert": "equals", "value": null },
+    { "path": "diagnostics.0.code", "assert": "equals", "value": "unsafe_svg_asset" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"id\":42" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"sizeSlug\":\"medium\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-image-42\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image hero-logo rounded is-resized size-medium" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "bad.svg" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "onload" },
     { "path": "metrics.block_count", "assert": "equals", "value": 1 }
   ]
 }
