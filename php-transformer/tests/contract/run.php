@@ -52,9 +52,24 @@ $result  = ( new HtmlTransformer() )->transform($fixture . "\n<ul><li>One</li><l
 
 $assert(TransformerResult::SCHEMA === $result['schema'], 'result exposes schema');
 
-foreach ( array( 'status', 'components', 'block_types', 'source_reports', 'legacy_mapping', 'blocks', 'serialized_blocks', 'documents', 'assets', 'diagnostics', 'fallbacks', 'provenance', 'coverage' ) as $key ) {
+foreach ( array( 'status', 'components', 'block_types', 'source_reports', 'legacy_mapping', 'blocks', 'serialized_blocks', 'documents', 'assets', 'diagnostics', 'fallbacks', 'provenance', 'coverage', 'context' ) as $key ) {
     $assert(array_key_exists($key, $result), "Missing result key: {$key}");
 }
+
+$contextual = ( new HtmlTransformer() )->transform(
+    '<main><h1>Context</h1><aside>Fallback</aside></main>',
+    array(
+        'source'          => 'fixture:contextual-html',
+        'source_scope'    => 'contract-test',
+        'strict'          => true,
+        'allow_fallbacks' => false,
+    )
+)->toArray();
+$assert('failed' === $contextual['status'], 'strict HTML transform fails when fallbacks are disallowed', (string) $contextual['status']);
+$assert(true === ($contextual['context']['strict'] ?? null), 'HTML transform context exposes strict mode');
+$assert(false === ($contextual['context']['allow_fallbacks'] ?? null), 'HTML transform context exposes fallback policy');
+$assert('fixture:contextual-html' === ($contextual['provenance'][0]['source'] ?? ''), 'HTML provenance exposes generic source metadata');
+$assert('contract-test' === ($contextual['provenance'][0]['scope'] ?? ''), 'HTML provenance exposes generic scope metadata');
 
 $compiler = new ArtifactCompiler();
 
@@ -432,6 +447,25 @@ assertSame('forwarded', $optionedResult['blocks'][0]['attrs']['content'], 'conve
 assertSame(2, count($optionCalls), 'convertResult should not call source adapters more than once after explicit toBlocks use.');
 assertSame('toBlocks', $optionCalls[1]['method'], 'convertResult should use the source adapter directly for the block pivot.');
 assertSame(array('marker' => 'forwarded'), $optionCalls[1]['options'], 'convertResult should preserve option arrays.');
+
+$contextualBridgeResult = $bridge->convertResult(
+    '<h2>Context</h2>',
+    'html',
+    'blocks',
+    array(
+        'context' => array(
+            'strict'          => true,
+            'allow_fallbacks' => false,
+        ),
+        'provenance' => array(
+            'source' => 'fixture:format-bridge',
+            'scope'  => 'contract-test',
+        ),
+    )
+)->toArray();
+assertSame(array('strict' => true, 'allow_fallbacks' => false), $contextualBridgeResult['context'], 'convertResult should expose normalized context flags.');
+assertSame('fixture:format-bridge', $contextualBridgeResult['provenance'][0]['source'], 'convertResult should expose generic provenance source metadata.');
+assertSame('contract-test', $contextualBridgeResult['provenance'][0]['scope'], 'convertResult should expose generic provenance scope metadata.');
 
 fwrite(STDOUT, "Format bridge scaffold passed.\n");
 

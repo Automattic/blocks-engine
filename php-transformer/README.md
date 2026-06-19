@@ -16,6 +16,7 @@ PHP Transformer owns reusable transformation primitives:
 - Markdown, HTML, and blocks conversion through a block-array pivot.
 - Generated website artifact normalization.
 - Serializable block output, document output, asset manifests, diagnostics, fallbacks, and provenance.
+- Generic per-call context and provenance metadata for downstream wrappers.
 - WordPress runtime adapters for calls that require WordPress APIs.
 
 PHP Transformer does not own product workflows such as importer admin screens, uploaded ZIP intake, theme activation, Studio-specific orchestration, WordPress.com deployment behavior, or self-improving loop control. Product-specific compatibility wrappers belong in downstream packages, not in the canonical package API.
@@ -48,9 +49,17 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
-$htmlResult = (new HtmlTransformer())->transform('<h1>Hello</h1>')->toArray();
+$htmlResult = (new HtmlTransformer())->transform('<h1>Hello</h1>', array(
+    'source' => 'fixture:home-html',
+    'scope' => 'import-preview',
+))->toArray();
 
-$formatResult = (new FormatBridge())->convertResult('# Hello', 'markdown', 'blocks')->toArray();
+$formatResult = (new FormatBridge())->convertResult('# Hello', 'markdown', 'blocks', array(
+    'context' => array(
+        'strict'          => true,
+        'allow_fallbacks' => false,
+    ),
+))->toArray();
 
 $artifactResult = (new ArtifactCompiler())->compile(array(
     'generated_html' => '<main><h1>Hello</h1></main>',
@@ -60,6 +69,14 @@ $artifactResult = (new ArtifactCompiler())->compile(array(
 ### Diagnostics And Unsupported Paths
 
 Public transformation entrypoints return `TransformerResult` wherever a conversion can partially succeed or needs structured diagnostics. Result diagnostics include a stable `code`, human-readable `message`, and `source` class.
+
+### Transformation Options
+
+Public entrypoints accept a generic options array. `source` and `scope` are copied into provenance metadata so wrappers can identify the caller-owned source without making the transformer package depend on that wrapper. The same values can be nested under `provenance`.
+
+`context.strict` and `context.allow_fallbacks` are normalized into the result `context`. Top-level `strict` and `allow_fallbacks` are also accepted for simple callers. `HtmlTransformer` keeps default fallback behavior unchanged; callers that pass `allow_fallbacks => false` receive `success_with_warnings`, or `failed` when `strict` is also true and unsupported HTML is encountered.
+
+`FormatBridge::convertResult()` forwards the original options array to adapters and exposes the normalized context/provenance metadata on the returned `TransformerResult`.
 
 Use `FormatBridge::convertResult()` for format conversions and unsupported source or target format diagnostics:
 

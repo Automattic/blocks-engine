@@ -19,6 +19,7 @@ final class TransformerResult
      * @param array<int, array<string, mixed>> $fallbacks
      * @param array<int, array<string, mixed>> $provenance
      * @param array<int, array<string, mixed>> $coverage
+     * @param array<string, mixed> $context
      */
     public function __construct(
         public readonly string $status = 'success',
@@ -33,7 +34,8 @@ final class TransformerResult
         public readonly array $diagnostics = array(),
         public readonly array $fallbacks = array(),
         public readonly array $provenance = array(),
-        public readonly array $coverage = array()
+        public readonly array $coverage = array(),
+        public readonly array $context = array()
     ) {
     }
 
@@ -57,6 +59,7 @@ final class TransformerResult
             'fallbacks'         => $this->fallbacks,
             'provenance'        => $this->provenance,
             'coverage'          => $this->coverage,
+            'context'           => $this->context,
         );
     }
 }

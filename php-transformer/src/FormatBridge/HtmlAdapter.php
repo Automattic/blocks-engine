@@ -28,13 +28,11 @@ final class HtmlAdapter implements FormatAdapterInterface
      */
     public function toBlocks(string $content, array $options = array()): array
     {
-        unset($options);
-
         if ( '' === trim($content) ) {
             return array();
         }
 
-        $result = $this->transformer->transform($content)->toArray();
+        $result = $this->transformer->transform($content, $options)->toArray();
 
         return is_array($result['blocks'] ?? null) ? $result['blocks'] : array();
     }

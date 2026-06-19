@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\FormatBridge;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use InvalidArgumentException;
 use Throwable;
@@ -100,21 +101,22 @@ final class FormatBridge
      */
     public function convertResult(string $content, string $from, string $to, array $options = array()): TransformerResult
     {
+        $context    = TransformationOptions::context($options);
         $provenance = array(
-            array(
+            array_merge(array(
                 'source_format' => $from,
                 'target_format' => $to,
                 'input_bytes'   => strlen($content),
                 'transformer'   => self::class,
-            ),
+            ), TransformationOptions::provenance($options)),
         );
 
         if ( ! $this->supports($from) ) {
-            return $this->failedResult('unsupported_source_format', sprintf('No format adapter is registered for source format "%s".', $from), $provenance);
+            return $this->failedResult('unsupported_source_format', sprintf('No format adapter is registered for source format "%s".', $from), $provenance, $context);
         }
 
         if ( ! $this->supports($to) ) {
-            return $this->failedResult('unsupported_target_format', sprintf('No format adapter is registered for target format "%s".', $to), $provenance);
+            return $this->failedResult('unsupported_target_format', sprintf('No format adapter is registered for target format "%s".', $to), $provenance, $context);
         }
 
         try {
@@ -122,7 +124,7 @@ final class FormatBridge
             $targetAdapter = $this->registry->get($to);
 
             if ( null === $sourceAdapter || null === $targetAdapter ) {
-                return $this->failedResult('format_bridge_adapter_missing', 'A required format adapter was not available during conversion.', $provenance);
+                return $this->failedResult('format_bridge_adapter_missing', 'A required format adapter was not available during conversion.', $provenance, $context);
             }
 
             $normalizedContent = $this->normalize($content, $from, $options);
@@ -145,19 +147,21 @@ final class FormatBridge
                         'source'  => self::class,
                     ),
                 ),
-                provenance: $provenance
+                provenance: $provenance,
+                context: $context
             );
         } catch ( InvalidArgumentException $exception ) {
-            return $this->failedResult('format_bridge_validation_failed', $exception->getMessage(), $provenance);
+            return $this->failedResult('format_bridge_validation_failed', $exception->getMessage(), $provenance, $context);
         } catch ( Throwable $throwable ) {
-            return $this->failedResult('format_bridge_conversion_failed', $throwable->getMessage(), $provenance);
+            return $this->failedResult('format_bridge_conversion_failed', $throwable->getMessage(), $provenance, $context);
         }
     }
 
     /**
      * @param array<int, array<string, mixed>> $provenance
+     * @param array{strict: bool, allow_fallbacks: bool} $context
      */
-    private function failedResult(string $code, string $message, array $provenance): TransformerResult
+    private function failedResult(string $code, string $message, array $provenance, array $context): TransformerResult
     {
         return new TransformerResult(
             status: 'failed',
@@ -168,7 +172,8 @@ final class FormatBridge
                     'source'  => self::class,
                 ),
             ),
-            provenance: $provenance
+            provenance: $provenance,
+            context: $context
         );
     }
 }

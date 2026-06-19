@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
@@ -18,14 +19,18 @@ final class HtmlTransformer
         $this->blockFactory = new BlockFactory();
     }
 
-    public function transform(string $html): TransformerResult
+    /**
+     * @param array<string, mixed> $options
+     */
+    public function transform(string $html, array $options = array()): TransformerResult
     {
+        $context    = TransformationOptions::context($options);
         $provenance = array(
-            array(
+            array_merge(array(
                 'source_format' => 'html',
                 'input_bytes'   => strlen($html),
                 'transformer'   => self::class,
-            ),
+            ), TransformationOptions::provenance($options)),
         );
 
         $document = new DOMDocument();
@@ -52,19 +57,21 @@ final class HtmlTransformer
                         'html'            => $html,
                     ),
                 ),
-                provenance: $provenance
+                provenance: $provenance,
+                context: $context
             );
         }
 
         $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {
-            return new TransformerResult(provenance: $provenance);
+            return new TransformerResult(provenance: $provenance, context: $context);
         }
 
         $fallbacks = array();
         $blocks    = $this->convertChildren($body, $fallbacks, true);
 
         return new TransformerResult(
+            status: $this->statusForFallbacks($fallbacks, $context),
             blocks: $blocks,
             serializedBlocks: $this->runtime->serializeBlocks($blocks),
             diagnostics: array(
@@ -82,8 +89,22 @@ final class HtmlTransformer
                     'block_count'      => count($blocks),
                     'fallback_count'   => count($fallbacks),
                 ),
-            )
+            ),
+            context: $context
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @param array{strict: bool, allow_fallbacks: bool} $context
+     */
+    private function statusForFallbacks(array $fallbacks, array $context): string
+    {
+        if ( array() === $fallbacks || $context['allow_fallbacks'] ) {
+            return 'success';
+        }
+
+        return $context['strict'] ? 'failed' : 'success_with_warnings';
     }
 
     /**
