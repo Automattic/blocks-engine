@@ -7,6 +7,35 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
+if ( ! function_exists('serialize_blocks') ) {
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     */
+    function serialize_blocks(array $blocks): string
+    {
+        $serialized = '';
+        foreach ( $blocks as $block ) {
+            $name         = $block['blockName'];
+            $attrs        = empty($block['attrs']) ? '' : ' ' . json_encode($block['attrs'], JSON_UNESCAPED_SLASHES);
+            $innerContent = $block['innerContent'] ?? array();
+            $innerBlocks  = $block['innerBlocks'] ?? array();
+            $inner        = '';
+
+            foreach ( $innerContent as $part ) {
+                if ( null === $part ) {
+                    $inner .= serialize_blocks(array( array_shift($innerBlocks) ));
+                    continue;
+                }
+                $inner .= $part;
+            }
+
+            $serialized .= '<!-- wp:' . substr($name, 5) . $attrs . ' -->' . $inner . '<!-- /wp:' . substr($name, 5) . ' -->';
+        }
+
+        return $serialized;
+    }
+}
+
 $assert = static function (bool $condition, string $message, string $detail = ''): void {
     if ( $condition ) {
         return;
@@ -16,7 +45,8 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     exit(1);
 };
 
-$result = ( new HtmlTransformer() )->transform('<main><h1>Hello</h1></main>')->toArray();
+$fixture = file_get_contents(dirname(__DIR__) . '/fixtures/simple-html.html');
+$result  = ( new HtmlTransformer() )->transform($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><aside>Fallback</aside>")->toArray();
 
 $assert(TransformerResult::SCHEMA === $result['schema'], 'result exposes schema');
 
@@ -97,4 +127,36 @@ $blocks = $compiler->compile(
 $assert(1 === count($blocks['block_types']), 'block.json roots are promoted into block type artifacts');
 $assert('acme/hero' === ($blocks['block_types'][0]['name'] ?? ''), 'block type name is preserved');
 
-fwrite(STDOUT, "Contract scaffold passed.\n");
+assertSame('core/group', $result['blocks'][0]['blockName'], 'main wrapper should preserve multiple supported child blocks in a group.');
+assertSame('core/heading', $result['blocks'][0]['innerBlocks'][0]['blockName'], 'h1 should convert to a heading block.');
+assertSame(1, $result['blocks'][0]['innerBlocks'][0]['attrs']['level'], 'h1 level should be preserved.');
+assertSame('core/paragraph', $result['blocks'][0]['innerBlocks'][1]['blockName'], 'p should convert to a paragraph block.');
+assertSame('core/list', $result['blocks'][1]['blockName'], 'ul should convert to a list block.');
+assertSame('core/list-item', $result['blocks'][1]['innerBlocks'][0]['blockName'], 'li should convert to list-item blocks.');
+assertSame('unsupported_element', $result['fallbacks'][0]['type'], 'unsupported top-level elements should be reported as fallbacks.');
+assertSame('aside', $result['fallbacks'][0]['tag'], 'fallback should identify the unsupported tag.');
+assertContains('html_to_blocks_minimal', array_column($result['diagnostics'], 'code'), 'minimal conversion diagnostic should be present.');
+assertSame('html', $result['provenance'][0]['source_format'], 'source provenance should identify HTML input.');
+
+if ( ! str_contains($result['serialized_blocks'], '<!-- wp:heading {"content":"Hello blocks","level":1} -->') ) {
+    fwrite(STDERR, "Serialized blocks did not include the expected heading block.\n");
+    exit(1);
+}
+
+fwrite(STDOUT, "HTML-to-blocks contract passed.\n");
+
+function assertSame(mixed $expected, mixed $actual, string $message): void
+{
+    if ( $expected !== $actual ) {
+        fwrite(STDERR, $message . "\nExpected: " . var_export($expected, true) . "\nActual: " . var_export($actual, true) . "\n");
+        exit(1);
+    }
+}
+
+function assertContains(mixed $needle, array $haystack, string $message): void
+{
+    if ( ! in_array($needle, $haystack, true) ) {
+        fwrite(STDERR, $message . "\nNeedle: " . var_export($needle, true) . "\nHaystack: " . var_export($haystack, true) . "\n");
+        exit(1);
+    }
+}
