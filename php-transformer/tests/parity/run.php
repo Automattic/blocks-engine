@@ -199,7 +199,12 @@ function runFixture(array $fixture): array
     $input = $fixture['input'];
 
     if ( 'html_transformer.transform' === $fixture['operation'] ) {
-        return ( new HtmlTransformer() )->transform((string) ($input['content'] ?? ''))->toArray();
+        $options = $input['options'] ?? array();
+        if ( ! is_array($options) ) {
+            fail("Fixture {$fixture['name']} HTML transform options must be an object.");
+        }
+
+        return ( new HtmlTransformer() )->transform((string) ($input['content'] ?? ''), $options)->toArray();
     }
 
     if ( 'artifact_compiler.compile' === $fixture['operation'] ) {
@@ -567,6 +572,14 @@ function assertExpectation(array $output, array $expectation, string $fixtureNam
         $expected = (string) ($expectation['value'] ?? '');
         if ( ! is_string($actual) || ! str_contains($actual, $expected) ) {
             failExpectation($fixtureName, $path, $expected, $actual);
+        }
+        return;
+    }
+
+    if ( 'not_contains' === $assertion ) {
+        $expected = (string) ($expectation['value'] ?? '');
+        if ( is_string($actual) && str_contains($actual, $expected) ) {
+            failExpectation($fixtureName, $path, 'not containing ' . $expected, $actual);
         }
         return;
     }
