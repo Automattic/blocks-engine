@@ -112,6 +112,50 @@ git diff --check
 
 Rollback plan: revert the default delegation commit first. If installability is broken, revert the dependency/autoload commit and restore the previous lockfile.
 
+## Release Playbook
+
+Release steps:
+
+1. Replace the review path repository with the tagged transformer constraint, expected `^0.1.0` for the first release.
+2. Confirm `composer.lock` contains the tagged transformer release and no `/Users/...` path repository source.
+3. Run the smoke commands below against the tagged dependency.
+4. Add the raw-handler parity table to the PR body with fixture names, legacy block count, transformer block count, fallback count, and intentional differences.
+5. Tag the wrapper release only after public `html_to_blocks_*` helpers and `HTML_To_Blocks_*` classes keep their old return shapes.
+
+SemVer guidance:
+
+| Change | Version guidance |
+| --- | --- |
+| First transformer-backed wrapper release | `0.1.0`, unless the repo already has a higher compatible release line. |
+| Fixes to delegation, diagnostics mapping, or installability with unchanged public helpers | Patch release. |
+| Additional transformer coverage that keeps old helper return shapes stable | Minor release while `<1.0.0`. |
+| Dropping old helpers/classes or changing raw-handler return shapes | Major release or archive instead of wrapper release. |
+
+Release note text:
+
+```md
+## Transformer-backed HTML compatibility wrapper
+
+This release preserves the existing `html_to_blocks_*` public helpers while delegating eligible HTML conversion to `automattic/blocks-engine-php-transformer`.
+
+- Dependency floor: `automattic/blocks-engine-php-transformer:^0.1.0`.
+- Public API: existing helper functions, plugin bootstrap behavior, fallback hooks, and raw-handler block-array shapes remain supported.
+- Smoke coverage: `composer validate`, `composer test`, representative `html_to_blocks_raw_handler()` fixture comparison, and `git diff --check`.
+- Rollback: pin the previous wrapper release or revert the default delegation commit while preserving inert dependency setup if tests still pass.
+- Exit path: archive after supported callers stop using `html_to_blocks_*`; otherwise keep a deprecation-only thin shim over tagged transformer APIs.
+```
+
+Smoke tests:
+
+```sh
+composer validate
+composer test
+php -r 'require "vendor/autoload.php"; var_export( function_exists( "html_to_blocks_raw_handler" ) );'
+git diff --check
+```
+
+Archive/thin-shim decision gate: archive if no supported product, Composer package, WordPress plugin, hook consumer, or documented integration calls `html_to_blocks_*` or instantiates `HTML_To_Blocks_*`. Keep a thin shim if any supported external consumer still depends on the package name or helpers.
+
 ## Archive Or Thin-Shim Exit
 
 Archive this repository after supported consumers no longer call `html_to_blocks_*`, `HTML_To_Blocks_*`, or the plugin package directly.

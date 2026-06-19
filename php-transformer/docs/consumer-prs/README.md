@@ -101,6 +101,41 @@ Use this sequence so each downstream branch can be reviewed and rolled back inde
 4. Release `chubes4/block-artifact-compiler` with transformer-backed compiler functions and unchanged BAC report fields.
 5. Update `chubes4/static-site-importer` to depend on the compatibility releases first, then switch its internal adapter to direct transformer calls when reports prove equivalent.
 
+## Shared Release Playbook
+
+Use this playbook for each downstream repository after the transformer package is tagged:
+
+1. Replace path repositories and branch aliases with tagged Composer constraints.
+2. Run the repository's smoke tests and the package manager validation command before tagging.
+3. Put the old-versus-transformer fixture comparison table in the PR body or release checklist.
+4. Tag only after public functions, hooks, CLI commands, abilities, and report schemas are confirmed unchanged.
+5. Publish release notes that describe the wrapper status, dependency floor, rollback path, and archive/thin-shim decision point.
+
+SemVer guidance:
+
+| Repository type | Initial transformer-backed release | Patch releases | Minor releases before `1.0.0` | Major releases |
+| --- | --- | --- | --- | --- |
+| Temporary wrapper libraries | `0.1.0` unless an existing scheme requires the next compatible version. | Bug fixes that preserve old public entrypoints and report shapes. | New transformer-backed coverage that keeps old public contracts stable. | Only when dropping old public entrypoints, changing result/report shapes, or requiring callers to use `php-transformer` directly. |
+| Static Site Importer product plugin | Next normal product version. | Product bug fixes and adapter rollback-safe fixes. | New importer capabilities or direct transformer adoption that preserves public ability/CLI schemas. | Only for intentional product contract breaks. |
+
+Do not edit `CHANGELOG.md` as part of these PRs. Put release note text in PR descriptions, GitHub release drafts, or repository-owned release metadata.
+
+Shared release note template:
+
+```md
+## Transformer compatibility release
+
+This release keeps the existing public API stable while routing eligible conversion work through `automattic/blocks-engine-php-transformer`.
+
+- Dependency floor: `automattic/blocks-engine-php-transformer` `<version constraint>`.
+- Public API: existing functions, hooks, CLI commands, abilities, and report shapes remain supported.
+- Smoke coverage: `<commands run>`.
+- Rollback: revert the default delegation switch or pin the previous compatibility release.
+- Exit path: archive this repository when no supported consumers need the old API, or keep a thin shim that only delegates to tagged transformer APIs.
+```
+
+Shared rollback rule: revert the default-switch commit before reverting dependency setup. If rollback reveals a missing transformer contract, stop the downstream release and fix the transformer contract upstream before retrying.
+
 ## Shared Phase-1 Rules
 
 - Keep old public functions, hooks, CLI commands, abilities, report shapes, and plugin entrypoints stable.

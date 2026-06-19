@@ -122,6 +122,50 @@ git diff --check
 
 Rollback plan: revert the adapter-default switch first. If transformer metadata changes break consumers, keep adapter classes but remove metadata additions from reports until the upstream contract is fixed.
 
+## Release Playbook
+
+Release steps:
+
+1. Replace the review path repository with the tagged transformer constraint, expected `^0.1.0` for the first transformer-backed BFB release.
+2. Keep `league/commonmark`, `league/html-to-markdown`, and any existing BFB runtime dependencies pinned by the repo's current policy; only change them when required by the wrapper PR.
+3. Run the smoke commands below against the tagged dependency and record the capability/report comparison table in the PR body.
+4. Confirm Static Site Importer can still call `bfb_convert()`, `bfb_convert_fragment()`, and `bfb_conversion_report()` without code changes.
+5. Tag only after old capability keys and conversion report keys are present with transformer metadata added under new metadata fields.
+
+SemVer guidance:
+
+| Change | Version guidance |
+| --- | --- |
+| First transformer-backed adapter release | `0.1.0`, unless the repo already has a higher compatible release line. |
+| Fixes to adapter delegation, metadata reporting, or Composer installability with unchanged BFB public APIs | Patch release. |
+| Additional format coverage or transformer-backed conversions with unchanged `bfb_*` contracts | Minor release while `<1.0.0`. |
+| Removing `bfb_*`, changing conversion/report return types, or dropping adapter interfaces | Major release or archive once consumers have migrated. |
+
+Release note text:
+
+```md
+## Transformer-backed format bridge compatibility release
+
+This release keeps Block Format Bridge as a compatibility facade while routing eligible conversions through `automattic/blocks-engine-php-transformer` adapters.
+
+- Dependency floor: `automattic/blocks-engine-php-transformer:^0.1.0`.
+- Public API: `bfb_*` functions, adapter interfaces, CLI/ability surfaces, hooks, filters, capability keys, and report shapes remain supported.
+- Smoke coverage: `composer validate`, `composer test`, capability report comparison, Static Site Importer-facing fragment/report fixture comparison, and `git diff --check`.
+- Rollback: revert the adapter-default switch first; pin the previous BFB release if transformer metadata or adapter loading regresses production consumers.
+- Exit path: archive after supported callers use `FormatBridge` directly, or keep a deprecation-only thin shim over tagged transformer APIs.
+```
+
+Smoke tests:
+
+```sh
+composer validate
+composer test
+php -r 'require "vendor/autoload.php"; var_export( function_exists( "bfb_convert" ) && function_exists( "bfb_capabilities" ) );'
+git diff --check
+```
+
+Archive/thin-shim decision gate: archive if Static Site Importer and supported external consumers no longer call `bfb_*`, use `BFB_Format_Adapter`, or depend on BFB CLI/ability/package metadata. Keep a thin shim if any supported external consumer still requires those public entrypoints.
+
 ## Archive Or Thin-Shim Exit
 
 Archive this repository after Static Site Importer and any supported product adapters call `FormatBridge` directly and no supported consumer still requires `bfb_*` functions, `BFB_Format_Adapter`, CLI commands, abilities, or package metadata.

@@ -114,6 +114,50 @@ git diff --check
 
 Rollback plan: revert compiler entrypoint delegation first and keep the mapper commit only if it remains unused and tests pass. Revert the dependency/autoload commit if Composer installability regresses.
 
+## Release Playbook
+
+Release steps:
+
+1. Replace the review path repository with the tagged transformer constraint, expected `^0.1.0` for the first release.
+2. Confirm the BAC mapper is the only place translating transformer envelopes to old BAC report keys.
+3. Run the smoke commands below against the tagged dependency and record the artifact fixture comparison table in the PR body.
+4. Confirm Static Site Importer fixture imports still receive the BAC keys they consume for documents, diagnostics, summaries, and `wordpress_artifacts`.
+5. Tag only after public BAC functions/classes and summary helpers keep their old return shapes.
+
+SemVer guidance:
+
+| Change | Version guidance |
+| --- | --- |
+| First transformer-backed BAC wrapper release | `0.1.0`, unless the repo already has a higher compatible release line. |
+| Fixes to result mapping, diagnostics mapping, or installability with unchanged BAC public APIs | Patch release. |
+| Additional artifact fixture support with unchanged public report shape | Minor release while `<1.0.0`. |
+| Removing BAC functions/classes or changing report keys consumed by products | Major release or archive after consumers migrate. |
+
+Release note text:
+
+```md
+## Transformer-backed artifact compiler compatibility release
+
+This release preserves the existing Block Artifact Compiler public API while delegating eligible website artifact compilation to `automattic/blocks-engine-php-transformer`.
+
+- Dependency floor: `automattic/blocks-engine-php-transformer:^0.1.0`.
+- Public API: BAC functions, classes, summary helpers, CLI/ability surfaces, and report keys consumed by Static Site Importer remain supported.
+- Smoke coverage: `composer validate`, `composer test`, artifact contract-smoke fixture comparison, Static Site Importer report-key check, and `git diff --check`.
+- Rollback: revert compiler entrypoint delegation first; pin the previous BAC release if mapped report fields regress consumers.
+- Exit path: archive after supported import paths call `ArtifactCompiler` directly, or keep a deprecation-only thin shim that maps tagged transformer envelopes to old BAC report keys.
+```
+
+Smoke tests:
+
+```sh
+composer validate
+composer test
+php -r 'require "vendor/autoload.php"; var_export( function_exists( "bac_compile_website_artifact" ) && function_exists( "bac_summarize_result" ) );'
+git diff --check
+```
+
+Archive/thin-shim decision gate: archive if Static Site Importer and supported external consumers no longer call BAC functions/classes, CLI commands, abilities, report helpers, or Composer package metadata. Keep a thin shim if any supported external consumer still requires old BAC entrypoints or report keys.
+
 ## Archive Or Thin-Shim Exit
 
 Archive this repository after Static Site Importer and any supported product import paths call `ArtifactCompiler` directly and no supported consumer still requires BAC functions, BAC classes, CLI commands, abilities, report helpers, or package metadata.

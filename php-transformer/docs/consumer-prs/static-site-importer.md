@@ -207,6 +207,54 @@ git diff --check
 
 Rollback plan: switch the adapter default back to legacy BFB/BAC calls first. If the adapter routing itself caused the regression, revert the product call-site routing commit while preserving fixture comparison artifacts for the upstream blocker.
 
+## Release Playbook
+
+Release steps:
+
+1. Replace transformer and wrapper branch constraints with tagged releases in this order: transformer, H2BC, BFB, BAC, then Static Site Importer.
+2. Confirm `composer.lock` contains tagged releases and no path repository or unpublished branch dependency.
+3. Run the smoke commands below against tagged dependencies with the adapter default still set to the legacy BFB/BAC path.
+4. Add the old-versus-transformer fixture table to the PR body with import report status, fallback count, generated file count, page count, diagnostics count, and intentional differences.
+5. Switch the adapter default only after the tagged dependency run and fixture table show equivalent or better quality gates.
+6. Tag the product release after ability schemas, CLI JSON output, generated file paths, and import report shapes are confirmed stable.
+
+SemVer guidance:
+
+| Change | Version guidance |
+| --- | --- |
+| Adding the adapter while preserving legacy default behavior | Patch release when product behavior is unchanged; otherwise next normal minor/product release. |
+| Switching default adapter path with unchanged ability/CLI/report schemas and no fallback regression | Minor/product release. |
+| Fixing adapter routing or pinned dependency ranges without product contract changes | Patch release. |
+| Changing ability schemas, CLI JSON output, report keys, or import UX contracts | Major/product-breaking release. |
+
+Release note text:
+
+```md
+## Transformer adapter release
+
+This release keeps Static Site Importer as the product owner for import workflows while adding a local adapter for transformer-backed conversion and artifact compilation.
+
+- Dependency floor: `automattic/blocks-engine-php-transformer:^0.1.0` plus tagged compatibility releases for H2BC, BFB, and BAC while the product still consumes wrapper APIs.
+- Public API: admin behavior, WP-CLI commands, Abilities API schemas, generated theme outputs, import reports, and quality gates remain stable.
+- Smoke coverage: `composer validate`, `composer test`, `wp static-site-importer import-theme --help`, `wp static-site-importer import-website-artifact --help`, representative fixture import comparison, and `git diff --check`.
+- Rollback: switch the adapter default back to legacy BFB/BAC calls first; pin the previous product release if call-site routing regresses imports.
+- Exit path: remove wrapper runtime dependencies after supported import paths call tagged transformer APIs directly and fixture reports remain equivalent.
+```
+
+Smoke tests:
+
+```sh
+composer validate
+composer test
+wp static-site-importer import-theme --help
+wp static-site-importer import-website-artifact --help
+wp static-site-importer import-theme <fixture-path> --dry-run --fail-on-quality --max-fallbacks=0
+wp static-site-importer import-website-artifact <artifact-path> --dry-run --fail-on-quality --max-fallbacks=0
+git diff --check
+```
+
+Wrapper dependency decision gate: keep tagged H2BC, BFB, or BAC dependencies while any supported product call path still needs old helper/report shapes. Remove a wrapper dependency only when the SSI adapter calls the matching tagged transformer API directly and the required fixture inventory shows no schema, fallback, generated-file, or diagnostics regression.
+
 ## Wrapper Exit Path
 
 Static Site Importer remains a product plugin in this wave, not an archive candidate. Its exit from the old wrapper stack is complete when product-owned adapters call tagged `php-transformer` APIs directly and BFB/BAC/H2BC are no longer runtime dependencies for supported import paths.
