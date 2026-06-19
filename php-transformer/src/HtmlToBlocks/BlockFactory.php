@@ -46,20 +46,20 @@ final class BlockFactory
         if ( 'core/heading' === $name ) {
             $level = (int) ($attrs['level'] ?? 2);
             $level = max(1, min(6, $level));
-            return '<h' . $level . '>' . ($attrs['content'] ?? '') . '</h' . $level . '>';
+            return '<h' . $level . $this->blockSupportAttrs($attrs) . '>' . ($attrs['content'] ?? '') . '</h' . $level . '>';
         }
 
         if ( 'core/paragraph' === $name ) {
-            return '<p>' . ($attrs['content'] ?? '') . '</p>';
+            return '<p' . $this->blockSupportAttrs($attrs) . '>' . ($attrs['content'] ?? '') . '</p>';
         }
 
         if ( 'core/list-item' === $name ) {
-            return '<li>' . ($attrs['content'] ?? '') . '</li>';
+            return '<li' . $this->blockSupportAttrs($attrs) . '>' . ($attrs['content'] ?? '') . '</li>';
         }
 
         if ( 'core/list' === $name ) {
             $tagName = ! empty($attrs['ordered']) ? 'ol' : 'ul';
-            return array( 'opening' => '<' . $tagName . '>', 'closing' => '</' . $tagName . '>' );
+            return array( 'opening' => '<' . $tagName . $this->blockSupportAttrs($attrs) . '>', 'closing' => '</' . $tagName . '>' );
         }
 
         if ( 'core/quote' === $name ) {
@@ -77,7 +77,7 @@ final class BlockFactory
         }
 
         if ( 'core/preformatted' === $name ) {
-            return '<pre class="wp-block-preformatted">' . ($attrs['content'] ?? '') . '</pre>';
+            return '<pre' . $this->blockSupportAttrs($attrs, 'wp-block-preformatted') . '>' . ($attrs['content'] ?? '') . '</pre>';
         }
 
         if ( 'core/table' === $name ) {
@@ -89,7 +89,7 @@ final class BlockFactory
         }
 
         if ( 'core/buttons' === $name ) {
-            return array( 'opening' => '<div class="wp-block-buttons">', 'closing' => '</div>' );
+            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-buttons') . '>', 'closing' => '</div>' );
         }
 
         if ( 'core/button' === $name ) {
@@ -102,7 +102,7 @@ final class BlockFactory
         }
 
         if ( 'core/group' === $name ) {
-            return array( 'opening' => '<div class="wp-block-group">', 'closing' => '</div>' );
+            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-group') . '>', 'closing' => '</div>' );
         }
 
         return '';
@@ -113,7 +113,7 @@ final class BlockFactory
      */
     private function tableHtml(array $attrs): string
     {
-        $html = '<figure class="wp-block-table"><table>';
+        $html = '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-table') . '><table>';
         foreach ( array( 'head' => 'thead', 'body' => 'tbody', 'foot' => 'tfoot' ) as $attrName => $tagName ) {
             if ( empty($attrs[$attrName]) || ! is_array($attrs[$attrName]) ) {
                 continue;
@@ -153,7 +153,19 @@ final class BlockFactory
 
         $img = '<img' . $this->htmlAttrs($imageAttrs, array( 'alt' )) . '/>';
         $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $attrs['caption'] . '</figcaption>' : '';
-        return '<figure class="wp-block-image">' . $img . $caption . '</figure>';
+        return '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-image') . '>' . $img . $caption . '</figure>';
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function blockSupportAttrs(array $attrs, string $baseClass = ''): string
+    {
+        $classes = trim($baseClass . ' ' . (string) ($attrs['className'] ?? ''));
+        return $this->htmlAttrs(array(
+            'class' => $classes,
+            'style' => (string) ($attrs['style'] ?? ''),
+        ));
     }
 
     /**

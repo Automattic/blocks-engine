@@ -20,7 +20,7 @@
   ],
   "expected_fallbacks": [
     { "type": "unsupported_element", "tag": "custom-card" },
-    { "type": "unsupported_element", "tag": "form" }
+    { "type": "html", "reason": "form_requires_runtime", "tag": "form" }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },

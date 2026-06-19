@@ -316,7 +316,7 @@ assertSame(strlen($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></u
 assertSame(strlen($result['serialized_blocks']), $result['metrics']['output_bytes'], 'HTML metrics should expose output bytes.');
 assertSame(6, $result['metrics']['block_count'], 'HTML metrics should count nested blocks.');
 assertSame(1, $result['metrics']['fallback_count'], 'HTML metrics should expose fallback count.');
-assertSame(1, $result['metrics']['diagnostic_count'], 'HTML metrics should expose diagnostic count.');
+assertSame(count($result['diagnostics']), $result['metrics']['diagnostic_count'], 'HTML metrics should expose diagnostic count.');
 $assert(is_float($result['metrics']['transform_duration_ms'] ?? null), 'HTML metrics expose transform duration');
 
 if ( ! str_contains($result['serialized_blocks'], '<!-- wp:heading {"content":"Hello blocks","level":1} -->') ) {
