@@ -1,0 +1,23 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "markdown-line-ending-normalization",
+  "description": "Normalizes Markdown line endings through the format bridge.",
+  "source_reference": {
+    "repo": "block-format-bridge",
+    "path": "tests/fixtures/markdown/import-grade-article.md",
+    "notes": "Adapted to a small markdown normalization contract for PHP parity."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Legacy markdown conversion depends on bundled adapters that are outside this PHP transformer slice."
+  },
+  "operation": "format_bridge.normalize",
+  "input": {
+    "format": "markdown",
+    "content": "# Title\r\n\r\nBody\r\n"
+  },
+  "expect": [
+    { "path": "normalized", "assert": "equals", "value": "# Title\n\nBody\n" },
+    { "path": "supported_formats", "assert": "equals", "value": ["blocks", "html", "markdown"] }
+  ]
+}

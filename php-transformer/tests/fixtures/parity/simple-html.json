@@ -1,0 +1,28 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "simple-html-heading-paragraph",
+  "description": "Converts simple semantic HTML into heading and paragraph blocks.",
+  "source_reference": {
+    "repo": "html-to-blocks-converter",
+    "path": "tests/RawHandlerFixturesUnitTest.php",
+    "notes": "Adapted to the minimal PHP transformer surface for shared parity coverage."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "The legacy converter comparison depends on WordPress/Gutenberg raw handler runtime behavior."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><h1>Hello blocks</h1><p>This fixture anchors the PHP transformer parity harness.</p></main>"
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/heading" },
+    { "path": "blocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "core/paragraph" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading {\"content\":\"Hello blocks\",\"level\":1} -->" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

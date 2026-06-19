@@ -17,9 +17,11 @@
     "php": ">=8.1"
   },
   "scripts": {
+    "parity": "php tests/parity/run.php",
     "test": [
       "php tests/contract/run.php",
-      "php tests/contract/compatibility-examples.php"
+      "php tests/contract/compatibility-examples.php",
+      "@parity"
     ]
   },
   "config": {

@@ -1,0 +1,26 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "unsupported-html-fallback",
+  "description": "Reports unsupported top-level HTML as fallback metadata without failing the transform.",
+  "source_reference": {
+    "repo": "html-to-blocks-converter",
+    "path": "tests/smoke-unsupported-html-fallback-hook.php",
+    "notes": "Adapted to assert fallback reporting rather than legacy hook behavior."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Legacy fallback hook behavior requires the WordPress plugin runtime."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<aside><p>Fallback content</p></aside>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 0 },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.type", "assert": "equals", "value": "unsupported_element" },
+    { "path": "fallbacks.0.tag", "assert": "equals", "value": "aside" },
+    { "path": "diagnostics.0.code", "assert": "equals", "value": "html_to_blocks_minimal" }
+  ]
+}

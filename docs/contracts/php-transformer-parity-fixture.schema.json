@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Automattic/blocks-engine/docs/contracts/php-transformer-parity-fixture.schema.json",
+  "title": "Blocks Engine PHP Transformer parity fixture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "name", "description", "operation", "input", "expect"],
+  "properties": {
+    "schema": {
+      "const": "blocks-engine/php-transformer/parity-fixture/v1"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repo": { "type": "string" },
+        "path": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    },
+    "legacy_comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "skip": { "type": "boolean" },
+        "reason": { "type": "string" }
+      }
+    },
+    "operation": {
+      "type": "string",
+      "enum": ["html_transformer.transform", "format_bridge.normalize", "artifact_compiler.compile"]
+    },
+    "input": {
+      "type": "object"
+    },
+    "expect": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "assert"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "assert": {
+            "type": "string",
+            "enum": ["equals", "contains", "count"]
+          },
+          "value": {},
+          "count": { "type": "integer", "minimum": 0 }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "assert": { "const": "count" } } },
+            "then": { "required": ["count"] },
+            "else": { "required": ["value"] }
+          }
+        ]
+      }
+    }
+  }
+}
