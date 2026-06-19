@@ -99,3 +99,29 @@ Unsupported or unsafe artifact inputs are reported through diagnostics instead o
 ## Parity Checks
 
 Run the package contract and parity fixtures with `composer test`. The checked-in fixtures assert current transformer behavior.
+
+## Release Consumption
+
+The package lives in a subtree of the Blocks Engine repository. Consumers should require the Composer package name, not copy files from this repository or depend on the repository root:
+
+```sh
+composer require automattic/blocks-engine-php-transformer:^0.1.0
+```
+
+Before the first tag is available, review branches may use a Composer VCS or path repository with an inline alias. Merge-ready downstream PRs should replace those review-only constraints with the tagged package constraint.
+
+Homeboy owns the local release preflight for this package through `php-transformer/homeboy.json`. The only version target is `VERSION`, currently `0.1.0`; release automation should tag from the package subtree after the upstream PRs are merged, without adding wrapper-package names to this package metadata.
+
+Recommended post-merge dry-run:
+
+```sh
+homeboy release php-transformer --dry-run --skip-publish --no-github-release
+```
+
+Recommended first release command after the dry-run passes and the merge commit is ready to tag:
+
+```sh
+homeboy release php-transformer --skip-publish --no-github-release
+```
+
+Use `--skip-publish` because Composer/Packagist consumption should follow the repository tag, and use `--no-github-release` when GitHub Releases are not part of the first package publication path. Do not run release commands from downstream wrapper branches or while path repositories, unpublished branch constraints, or local-only evidence are still required by merge candidates.

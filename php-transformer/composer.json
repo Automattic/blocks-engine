@@ -3,6 +3,17 @@
   "description": "PHP primitives for transforming HTML, Markdown, and website artifacts into WordPress block outputs.",
   "type": "library",
   "license": "GPL-3.0-or-later",
+  "keywords": [
+    "blocks",
+    "html",
+    "markdown",
+    "wordpress"
+  ],
+  "homepage": "https://github.com/Automattic/blocks-engine/tree/trunk/php-transformer",
+  "support": {
+    "issues": "https://github.com/Automattic/blocks-engine/issues",
+    "source": "https://github.com/Automattic/blocks-engine/tree/trunk/php-transformer"
+  },
   "autoload": {
     "psr-4": {
       "Automattic\\BlocksEngine\\PhpTransformer\\": "src/"
