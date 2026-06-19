@@ -1,6 +1,6 @@
 # PHP Transformer
 
-PHP Transformer is the canonical PHP primitive for converting source content and generated website artifacts into WordPress-native block outputs.
+PHP Transformer is a PHP primitive for converting source content and generated website artifacts into WordPress-native block outputs.
 
 This package is intentionally origin-clean: it exposes transformer primitives and result contracts without publishing compatibility wrappers or product adapters for downstream plugins.
 
