@@ -1,0 +1,42 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-unsafe",
+  "description": "Diagnoses unsafe inline SVG and exposes only sanitized bounded fallback metadata.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-unsafe.json",
+    "notes": "Product-neutral fixture for script, event handler, and javascript URL stripping from inline SVG fallback metadata."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<svg viewBox=\"0 0 20 20\" onclick=\"alert(1)\"><script>alert(2)</script><a xlink:href=\"javascript:alert(3)\"><circle onmouseover=\"alert(4)\" cx=\"10\" cy=\"10\" r=\"8\"></circle></a></svg><p>After</p>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/paragraph", "attrs": { "content": "After" } }
+  ],
+  "expected_fallbacks": [
+    { "type": "inline_svg", "reason": "unsafe_inline_svg", "tag": "svg", "diagnostic_code": "html_unsafe_inline_svg", "selector": "svg:nth-of-type(1)", "child_count": 2 }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.attributes.onclick", "assert": "equals", "value": null },
+    { "path": "fallbacks.0.attributes.viewbox", "assert": "equals", "value": "0 0 20 20" },
+    { "path": "fallbacks.0.html", "assert": "contains", "value": "<svg viewbox=\"0 0 20 20\">" },
+    { "path": "fallbacks.0.html", "assert": "contains", "value": "<circle cx=\"10\" cy=\"10\" r=\"8\"></circle>" },
+    { "path": "fallbacks.0.html", "assert": "not_contains", "value": "<script" },
+    { "path": "fallbacks.0.html", "assert": "not_contains", "value": "onclick" },
+    { "path": "fallbacks.0.html", "assert": "not_contains", "value": "onmouseover" },
+    { "path": "fallbacks.0.html", "assert": "not_contains", "value": "javascript:" },
+    { "path": "fallbacks.0.html", "assert": "not_contains", "value": "alert(" },
+    { "path": "fallbacks.0.html_truncated", "assert": "equals", "value": false },
+    { "path": "diagnostics.1.code", "assert": "equals", "value": "html_unsafe_inline_svg" },
+    { "path": "diagnostics.1.reason", "assert": "equals", "value": "unsafe_inline_svg" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+  ]
+}
