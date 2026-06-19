@@ -2,7 +2,9 @@
 
 ## Phase-1 PR Goal
 
-Keep `chubes4/block-artifact-compiler` as the public compatibility package for website artifact compilation while delegating canonical compilation to `Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler`.
+Keep `chubes4/block-artifact-compiler` as a temporary downstream compatibility package for website artifact compilation while delegating canonical compilation to `Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler`.
+
+php-transformer is product-level primitive and old repos are downstream consumers.
 
 Branch: `cook/php-transformer-artifact-wrapper`.
 
@@ -22,7 +24,7 @@ During review, add the transformer path repository and requirement:
   "repositories": [
     {
       "type": "path",
-      "url": "/Users/chubes/Developer/blocks-engine@cook-php-transformer-downstream-prep/php-transformer",
+      "url": "../blocks-engine@cook-php-transformer-migration-no-perma-legacy/php-transformer",
       "options": {
         "symlink": true
       }
@@ -30,7 +32,7 @@ During review, add the transformer path repository and requirement:
   ],
   "require": {
     "php": ">=8.1",
-    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-downstream-prep as 0.1.x-dev"
+    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-migration-no-perma-legacy as 0.1.x-dev"
   }
 }
 ```
@@ -41,8 +43,8 @@ Before merge, replace the path-only development constraint with the first tagged
 
 ```diff
 composer.json
-  + repositories[].type=path url=../blocks-engine@cook-php-transformer-downstream-prep/php-transformer
-  + require.automattic/blocks-engine-php-transformer=dev-cook/php-transformer-downstream-prep as 0.1.x-dev
+  + repositories[].type=path url=../blocks-engine@cook-php-transformer-migration-no-perma-legacy/php-transformer
+  + require.automattic/blocks-engine-php-transformer=dev-cook/php-transformer-migration-no-perma-legacy as 0.1.x-dev
 library.php
   + require vendor/autoload.php before global BAC functions are exposed
 src/Block_Artifact_Compiler.php or equivalent
@@ -84,6 +86,7 @@ README.md
 - `bac_summarize_result()` output remains stable for current import-report summaries.
 - Empty artifact, schema-less artifact, markdown, MDX, nested source, and generated block fixture cases stay covered.
 - Any missing transformer report field is tracked upstream before the BAC wrapper paper-cuts around it.
+- The wrapper does not require `php-transformer` package metadata, namespaces, release labels, or code paths to mention `block-artifact-compiler`.
 
 Acceptance commands:
 
@@ -94,6 +97,12 @@ git diff --check
 ```
 
 Rollback plan: revert compiler entrypoint delegation first and keep the mapper commit only if it remains unused and tests pass. Revert the dependency/autoload commit if Composer installability regresses.
+
+## Archive Or Thin-Shim Exit
+
+Archive this repository after Static Site Importer and any supported product import paths call `ArtifactCompiler` directly and no supported consumer still requires BAC functions, BAC classes, CLI commands, abilities, report helpers, or package metadata.
+
+If external consumers still require the old package name, keep a thin shim that only preserves public BAC entrypoints, loads tagged `php-transformer`, emits deprecation notices where appropriate, and maps tagged transformer envelopes to old report keys. The shim must not add new artifact compilation behavior or require `php-transformer` to carry BAC-specific compatibility branches.
 
 ## Blockers To Resolve Upstream First
 

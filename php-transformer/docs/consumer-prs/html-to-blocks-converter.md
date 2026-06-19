@@ -2,7 +2,9 @@
 
 ## Phase-1 PR Goal
 
-Turn `chubes4/html-to-blocks-converter` into a compatibility package that keeps its current WordPress plugin and function surface while delegating canonical HTML conversion to `Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer`.
+Turn `chubes4/html-to-blocks-converter` into a temporary downstream compatibility package that keeps its current WordPress plugin and function surface while delegating canonical HTML conversion to `Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer`.
+
+php-transformer is product-level primitive and old repos are downstream consumers.
 
 Branch: `cook/php-transformer-html-wrapper`.
 
@@ -21,7 +23,7 @@ During review, add the transformer path repository and requirement:
   "repositories": [
     {
       "type": "path",
-      "url": "/Users/chubes/Developer/blocks-engine@cook-php-transformer-downstream-prep/php-transformer",
+      "url": "../blocks-engine@cook-php-transformer-migration-no-perma-legacy/php-transformer",
       "options": {
         "symlink": true
       }
@@ -29,7 +31,7 @@ During review, add the transformer path repository and requirement:
   ],
   "require": {
     "php": ">=8.1",
-    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-downstream-prep as 0.1.x-dev"
+    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-migration-no-perma-legacy as 0.1.x-dev"
   }
 }
 ```
@@ -40,8 +42,8 @@ Before merge, replace the path-only development constraint with the first tagged
 
 ```diff
 composer.json
-  + repositories[].type=path url=../blocks-engine@cook-php-transformer-downstream-prep/php-transformer
-  + require.automattic/blocks-engine-php-transformer=dev-cook/php-transformer-downstream-prep as 0.1.x-dev
+  + repositories[].type=path url=../blocks-engine@cook-php-transformer-migration-no-perma-legacy/php-transformer
+  + require.automattic/blocks-engine-php-transformer=dev-cook/php-transformer-migration-no-perma-legacy as 0.1.x-dev
 library.php
   + require vendor/autoload.php before legacy function declarations
   ~ html_to_blocks_raw_handler() delegates to HtmlTransformer through a local mapper
@@ -82,6 +84,7 @@ README.md
 - Existing fallback hooks still fire for unsupported HTML fragments.
 - No Static Site Importer or BFB product-specific behavior is added to this repository.
 - The PR body documents any output differences with fixture names and links to upstream transformer issues for missing behavior.
+- The wrapper does not require `php-transformer` package metadata, namespaces, release labels, or code paths to mention `html-to-blocks-converter`.
 
 Acceptance commands:
 
@@ -92,6 +95,12 @@ git diff --check
 ```
 
 Rollback plan: revert the default delegation commit first. If installability is broken, revert the dependency/autoload commit and restore the previous lockfile.
+
+## Archive Or Thin-Shim Exit
+
+Archive this repository after supported consumers no longer call `html_to_blocks_*`, `HTML_To_Blocks_*`, or the plugin package directly.
+
+If external consumers still require the old package name, keep a thin shim that only loads tagged `php-transformer`, emits deprecation notices where appropriate, and delegates public helpers/classes to `HtmlTransformer`. The shim must not add new HTML transformation behavior or require `php-transformer` to carry old-repo-specific compatibility branches.
 
 ## Blockers To Resolve Upstream First
 

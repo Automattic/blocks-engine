@@ -4,6 +4,8 @@ PHP Transformer is the canonical PHP primitive for converting source content and
 
 This package is intentionally origin-clean: it exposes transformer primitives and result contracts without publishing compatibility wrappers or product adapters for downstream plugins.
 
+This package's canonical identity is `automattic/blocks-engine-php-transformer`, exposed through the `Automattic\BlocksEngine\PhpTransformer\` namespace. That identity must not include downstream repository names, legacy package names, or compatibility wrapper promises.
+
 ## Boundary
 
 PHP Transformer owns reusable transformation primitives:
@@ -71,9 +73,11 @@ if ('failed' === $result['status']) {
 
 ## Draft Status
 
-This package is intentionally being introduced as a draft consolidation target. Existing repositories remain valid consumers and compatibility surfaces while implementation migrates into this package.
+This package is intentionally being introduced as a draft consolidation target. Existing repositories remain downstream consumers and temporary compatibility surfaces while implementation migrates into this package; they are not package identity anchors and they do not create a permanent compatibility promise for `php-transformer`.
 
 Transitional migration notes live in [`docs/migration.md`](docs/migration.md). They are local planning evidence for downstream consumers, not package API commitments.
+
+Downstream wrapper branch plans live in [`docs/consumer-prs/`](docs/consumer-prs/). They define branch names, dependency constraints, file-level patch skeletons, acceptance commands, rollback plans, and archive/thin-shim exit paths without changing the downstream repositories from this worktree.
 
 ## Artifact Compiler Fallbacks
 

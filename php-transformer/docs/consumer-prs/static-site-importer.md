@@ -4,6 +4,8 @@
 
 Keep `chubes4/static-site-importer` as the WordPress product plugin while adding a Static Site Importer-owned adapter that can call either the current BFB/BAC functions or `php-transformer` classes behind one local boundary.
 
+php-transformer is product-level primitive and old repos are downstream consumers.
+
 Branch: `cook/php-transformer-adapter`.
 
 Commit sequence:
@@ -23,7 +25,7 @@ During review, add the transformer path repository without removing the compatib
   "repositories": [
     {
       "type": "path",
-      "url": "/Users/chubes/Developer/blocks-engine@cook-php-transformer-downstream-prep/php-transformer",
+      "url": "../blocks-engine@cook-php-transformer-migration-no-perma-legacy/php-transformer",
       "options": {
         "symlink": true
       }
@@ -40,7 +42,7 @@ During review, add the transformer path repository without removing the compatib
   ],
   "require": {
     "php": "^8.1",
-    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-downstream-prep as 0.1.x-dev",
+    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-migration-no-perma-legacy as 0.1.x-dev",
     "chubes4/block-artifact-compiler": "dev-cook/php-transformer-artifact-wrapper",
     "chubes4/block-format-bridge": "dev-cook/php-transformer-format-wrapper"
   }
@@ -53,8 +55,8 @@ Before merge, replace wrapper branch constraints and the transformer path constr
 
 ```diff
 composer.json
-  + repositories[].type=path url=../blocks-engine@cook-php-transformer-downstream-prep/php-transformer
-  + require.automattic/blocks-engine-php-transformer=dev-cook/php-transformer-downstream-prep as 0.1.x-dev
+  + repositories[].type=path url=../blocks-engine@cook-php-transformer-migration-no-perma-legacy/php-transformer
+  + require.automattic/blocks-engine-php-transformer=dev-cook/php-transformer-migration-no-perma-legacy as 0.1.x-dev
   ~ require chubes4/block-format-bridge and chubes4/block-artifact-compiler wrapper branches during review only
 includes/class-static-site-importer-transformer-adapter.php
   + SSI-owned adapter with legacy BFB/BAC default and transformer-backed branches
@@ -163,6 +165,7 @@ The copyable, linted version in `examples/compatibility/static-site-importer-tra
 - Import reports show no fallback-count regression against the same fixtures.
 - Generated theme file paths, page IDs, source cleanup behavior, and commerce dependency gates remain owned by Static Site Importer.
 - The PR includes an old-versus-transformer report table for representative fixtures before changing defaults.
+- Static Site Importer-owned adapters do not require `php-transformer` package metadata, namespaces, release labels, or code paths to mention Static Site Importer, BFB, BAC, or H2BC.
 
 Acceptance commands:
 
@@ -175,6 +178,12 @@ git diff --check
 ```
 
 Rollback plan: switch the adapter default back to legacy BFB/BAC calls first. If the adapter routing itself caused the regression, revert the product call-site routing commit while preserving fixture comparison artifacts for the upstream blocker.
+
+## Wrapper Exit Path
+
+Static Site Importer remains a product plugin in this wave, not an archive candidate. Its exit from the old wrapper stack is complete when product-owned adapters call tagged `php-transformer` APIs directly and BFB/BAC/H2BC are no longer runtime dependencies for supported import paths.
+
+Until then, Static Site Importer may consume thin-shim releases of the old repositories. It must keep product workflow behavior local and must not require `php-transformer` to carry product-specific or old-repo-specific compatibility branches.
 
 ## Required Fixture Inventory
 

@@ -2,7 +2,9 @@
 
 ## Phase-1 PR Goal
 
-Keep `chubes4/block-format-bridge` as the public format-conversion compatibility layer while routing HTML, Markdown, and serialized block conversions through `php-transformer` adapters.
+Keep `chubes4/block-format-bridge` as a temporary downstream format-conversion compatibility layer while routing HTML, Markdown, and serialized block conversions through `php-transformer` adapters.
+
+php-transformer is product-level primitive and old repos are downstream consumers.
 
 Branch: `cook/php-transformer-format-wrapper`.
 
@@ -22,7 +24,7 @@ During review, add the transformer dependency beside the existing package requir
   "repositories": [
     {
       "type": "path",
-      "url": "/Users/chubes/Developer/blocks-engine@cook-php-transformer-downstream-prep/php-transformer",
+      "url": "../blocks-engine@cook-php-transformer-migration-no-perma-legacy/php-transformer",
       "options": {
         "symlink": true
       }
@@ -34,7 +36,7 @@ During review, add the transformer dependency beside the existing package requir
   ],
   "require": {
     "php": "^8.1",
-    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-downstream-prep as 0.1.x-dev",
+    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-migration-no-perma-legacy as 0.1.x-dev",
     "league/commonmark": "^2.5",
     "league/html-to-markdown": "^5.1"
   }
@@ -47,8 +49,8 @@ Before merge, replace the path-only development constraint with the first tagged
 
 ```diff
 composer.json
-  + repositories[].type=path url=../blocks-engine@cook-php-transformer-downstream-prep/php-transformer
-  + require.automattic/blocks-engine-php-transformer=dev-cook/php-transformer-downstream-prep as 0.1.x-dev
+  + repositories[].type=path url=../blocks-engine@cook-php-transformer-migration-no-perma-legacy/php-transformer
+  + require.automattic/blocks-engine-php-transformer=dev-cook/php-transformer-migration-no-perma-legacy as 0.1.x-dev
 library.php or plugin bootstrap
   + require vendor/autoload.php before adapter registry setup
 includes/adapters/*
@@ -92,6 +94,7 @@ README.md
 - Capabilities report includes transformer metadata while preserving old keys.
 - Static Site Importer can keep calling `bfb_convert()` and `bfb_conversion_report()` unchanged during its compatibility phase.
 - The PR does not move import, filesystem, theme, or activation logic into BFB.
+- The wrapper does not require `php-transformer` package metadata, namespaces, release labels, or code paths to mention `block-format-bridge`.
 
 Acceptance commands:
 
@@ -102,6 +105,12 @@ git diff --check
 ```
 
 Rollback plan: revert the adapter-default switch first. If transformer metadata changes break consumers, keep adapter classes but remove metadata additions from reports until the upstream contract is fixed.
+
+## Archive Or Thin-Shim Exit
+
+Archive this repository after Static Site Importer and any supported product adapters call `FormatBridge` directly and no supported consumer still requires `bfb_*` functions, `BFB_Format_Adapter`, CLI commands, abilities, or package metadata.
+
+If external consumers still require the old package name, keep a thin shim that only preserves public BFB entrypoints, loads tagged `php-transformer`, emits deprecation notices where appropriate, and delegates to `FormatBridge` or other tagged transformer APIs. The shim must not add new conversion behavior or require `php-transformer` to carry BFB-specific compatibility branches.
 
 ## Blockers To Resolve Upstream First
 
