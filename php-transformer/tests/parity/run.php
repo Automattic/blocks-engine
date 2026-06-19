@@ -7,6 +7,10 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
+if ( in_array('--legacy-child', $argv ?? array(), true) ) {
+    runLegacyChildProcess();
+}
+
 if ( ! function_exists('serialize_blocks') ) {
     /**
      * @param array<int, array<string, mixed>> $blocks
@@ -235,6 +239,10 @@ function runLegacyComparison(array $fixture, array $currentOutput): array
         return array('status' => 'skipped', 'reason' => (string) ($comparison['reason'] ?? 'fixture metadata skips legacy comparison'));
     }
 
+    if ( true !== ($comparison['safe'] ?? false) ) {
+        return array('status' => 'skipped', 'reason' => 'fixture is not marked legacy_comparison.safe=true');
+    }
+
     if ( ! legacyComparisonsEnabled($comparison) ) {
         return array('status' => 'skipped', 'reason' => 'set BLOCKS_ENGINE_PARITY_LEGACY=1 or legacy_comparison.enabled=true to opt in');
     }
@@ -249,30 +257,36 @@ function runLegacyComparison(array $fixture, array $currentOutput): array
         return array('status' => 'skipped', 'reason' => "set {$repo} path in fixture metadata or " . legacyRepoEnvName($repo));
     }
 
+    if ( ! is_dir($repoPath) ) {
+        return array('status' => 'skipped', 'reason' => "legacy repo path is not a directory: {$repoPath}");
+    }
+
     $bootstrap = (string) ($comparison['bootstrap'] ?? legacyBootstrapForRepo($repo));
-    if ( '' !== $bootstrap && ! loadLegacyBootstrap($repoPath, $bootstrap) ) {
+    if ( '' !== $bootstrap && ! is_file($repoPath . '/' . ltrim($bootstrap, '/')) ) {
         return array('status' => 'skipped', 'reason' => "legacy bootstrap not found: {$repoPath}/{$bootstrap}");
     }
 
     $callable = (string) ($comparison['callable'] ?? legacyCallableForOperation((string) $fixture['operation']));
-    if ( '' === $callable || ! function_exists($callable) ) {
-        return array('status' => 'skipped', 'reason' => "legacy callable is not available after bootstrap: {$callable}");
+    if ( '' === $callable ) {
+        return array('status' => 'skipped', 'reason' => 'fixture operation has no legacy callable mapping');
     }
 
-    $legacyOutput = normalizeComparisonSnapshot(runLegacyCallable($callable, $fixture));
+    $legacyOutput = normalizeComparisonSnapshot(runLegacyInSubprocess($fixture, $repoPath, $bootstrap, $callable));
     $currentSnapshot = normalizeComparisonSnapshot($currentOutput);
     $paths = $comparison['paths'] ?? array();
 
     if ( ! is_array($paths) || array() === $paths ) {
-        return array('status' => 'skipped', 'reason' => 'legacy callable loaded, but fixture does not declare legacy_comparison.paths');
+        return array('status' => 'skipped', 'reason' => 'legacy callable ran, but fixture does not declare legacy_comparison.paths');
     }
 
     foreach ( $paths as $path ) {
-        $path = (string) $path;
-        $legacyValue = valueAtComparisonPath($legacyOutput, $path);
-        $currentValue = valueAtComparisonPath($currentSnapshot, $path);
+        $legacyPath = is_array($path) ? (string) ($path['legacy_path'] ?? $path['path'] ?? '') : (string) $path;
+        $currentPath = is_array($path) ? (string) ($path['current_path'] ?? $path['path'] ?? '') : (string) $path;
+        $label = is_array($path) ? (string) ($path['label'] ?? $currentPath) : $currentPath;
+        $legacyValue = valueAtComparisonPath($legacyOutput, $legacyPath);
+        $currentValue = valueAtComparisonPath($currentSnapshot, $currentPath);
         if ( $legacyValue !== $currentValue ) {
-            failExpectation((string) $fixture['name'], "legacy_comparison.{$path}", $legacyValue, $currentValue);
+            failExpectation((string) $fixture['name'], "legacy_comparison.{$label}", $legacyValue, $currentValue);
         }
     }
 
@@ -342,15 +356,44 @@ function legacyRepoEnvName(string $repo): string
     return 'BLOCKS_ENGINE_PARITY_LEGACY_' . strtoupper(str_replace('-', '_', $repo)) . '_PATH';
 }
 
-function loadLegacyBootstrap(string $repoPath, string $bootstrap): bool
+/**
+ * @param array<string, mixed> $fixture
+ */
+function runLegacyInSubprocess(array $fixture, string $repoPath, string $bootstrap, string $callable): mixed
 {
-    $path = $repoPath . '/' . ltrim($bootstrap, '/');
-    if ( ! is_file($path) ) {
-        return false;
+    $payload = base64_encode((string) json_encode(array(
+        'fixture' => $fixture,
+        'repo_path' => $repoPath,
+        'bootstrap' => $bootstrap,
+        'callable' => $callable,
+    ), JSON_UNESCAPED_SLASHES));
+    $descriptorSpec = array(
+        0 => array('pipe', 'r'),
+        1 => array('pipe', 'w'),
+        2 => array('pipe', 'w'),
+    );
+    $env = array_merge($_ENV, array('BLOCKS_ENGINE_PARITY_LEGACY_CHILD_INPUT' => $payload));
+    $process = proc_open(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' --legacy-child', $descriptorSpec, $pipes, null, $env);
+    if ( ! is_resource($process) ) {
+        fail("Unable to start legacy comparison subprocess for {$fixture['name']}.");
     }
 
-    require_once $path;
-    return true;
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exitCode = proc_close($process);
+
+    $decoded = json_decode((string) $stdout, true);
+    if ( 0 !== $exitCode || ! is_array($decoded) ) {
+        fail("Legacy comparison subprocess failed for {$fixture['name']} with exit code {$exitCode}.\n" . trim((string) $stderr));
+    }
+    if ( ($decoded['status'] ?? '') !== 'ok' ) {
+        fail("Legacy comparison failed for {$fixture['name']}: " . (string) ($decoded['message'] ?? 'unknown error'));
+    }
+
+    return $decoded['output'] ?? null;
 }
 
 /**
@@ -374,6 +417,86 @@ function runLegacyCallable(string $callable, array $fixture): mixed
     }
 
     fail("Fixture {$fixture['name']} declares unsupported legacy operation: {$fixture['operation']}");
+}
+
+function runLegacyChildProcess(): never
+{
+    $payload = getenv('BLOCKS_ENGINE_PARITY_LEGACY_CHILD_INPUT');
+    $decodedPayload = false === $payload ? false : base64_decode($payload, true);
+    $input = false === $decodedPayload ? null : json_decode($decodedPayload, true);
+    if ( ! is_array($input) || ! is_array($input['fixture'] ?? null) ) {
+        legacyChildResponse('error', null, 'invalid legacy child input');
+    }
+
+    installLegacyWordPressStubs();
+
+    $repoPath = (string) ($input['repo_path'] ?? '');
+    $bootstrap = (string) ($input['bootstrap'] ?? '');
+    $callable = (string) ($input['callable'] ?? '');
+    $bootstrapPath = $repoPath . '/' . ltrim($bootstrap, '/');
+    if ( ! is_file($bootstrapPath) ) {
+        legacyChildResponse('error', null, "legacy bootstrap not found: {$bootstrapPath}");
+    }
+
+    require_once $bootstrapPath;
+
+    if ( ! function_exists($callable) ) {
+        legacyChildResponse('error', null, "legacy callable is not available after bootstrap: {$callable}");
+    }
+
+    try {
+        legacyChildResponse('ok', normalizeComparisonSnapshot(runLegacyCallable($callable, $input['fixture'])));
+    } catch ( Throwable $throwable ) {
+        legacyChildResponse('error', null, $throwable->getMessage());
+    }
+}
+
+function legacyChildResponse(string $status, mixed $output = null, string $message = ''): never
+{
+    fwrite(STDOUT, (string) json_encode(array(
+        'status' => $status,
+        'output' => $output,
+        'message' => $message,
+    ), JSON_UNESCAPED_SLASHES));
+    exit('ok' === $status ? 0 : 1);
+}
+
+function installLegacyWordPressStubs(): void
+{
+    if ( ! defined('ABSPATH') ) {
+        define('ABSPATH', sys_get_temp_dir() . '/blocks-engine-parity-wordpress/');
+    }
+    if ( ! class_exists('WP_Error', false) ) {
+        class WP_Error
+        {
+            /** @param array<string, mixed> $data */
+            public function __construct(public string $code = '', public string $message = '', public array $data = array()) {}
+        }
+    }
+    if ( ! function_exists('did_action') ) {
+        function did_action(string $hook): int { return 'plugins_loaded' === $hook ? 1 : 0; }
+    }
+    if ( ! function_exists('doing_action') ) {
+        function doing_action(string $hook): bool { return false; }
+    }
+    if ( ! function_exists('add_action') ) {
+        function add_action(string $hook, callable $callback, int $priority = 10): bool { return true; }
+    }
+    if ( ! function_exists('add_filter') ) {
+        function add_filter(string $hook, callable $callback, int $priority = 10): bool { return true; }
+    }
+    if ( ! function_exists('do_action') ) {
+        function do_action(string $hook, mixed ...$args): void {}
+    }
+    if ( ! function_exists('apply_filters') ) {
+        function apply_filters(string $hook, mixed $value, mixed ...$args): mixed { return $value; }
+    }
+    if ( ! function_exists('has_action') ) {
+        function has_action(string $hook, callable|string|array|null $callback = null): bool|int { return false; }
+    }
+    if ( ! function_exists('trailingslashit') ) {
+        function trailingslashit(string $value): string { return rtrim($value, '/') . '/'; }
+    }
 }
 
 function normalizeComparisonSnapshot(mixed $value): mixed
@@ -403,6 +526,10 @@ function normalizeComparisonSnapshot(mixed $value): mixed
 
 function valueAtComparisonPath(mixed $output, string $path): mixed
 {
+    if ( '' === $path ) {
+        return $output;
+    }
+
     if ( ! is_array($output) ) {
         return null;
     }

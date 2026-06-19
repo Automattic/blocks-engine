@@ -8,8 +8,10 @@
     "notes": "Adapted to a small markdown normalization contract for PHP parity."
   },
   "legacy_comparison": {
-    "skip": true,
-    "reason": "Legacy markdown conversion depends on bundled adapters that are outside this PHP transformer slice."
+    "safe": true,
+    "paths": [
+      { "legacy_path": "", "current_path": "normalized", "label": "normalized markdown" }
+    ]
   },
   "operation": "format_bridge.normalize",
   "input": {
