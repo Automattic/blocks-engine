@@ -102,13 +102,49 @@ Run the package contract and parity fixtures with `composer test`. The checked-i
 
 ## Release Consumption
 
-The package lives in a subtree of the Blocks Engine repository. Consumers should require the Composer package name, not copy files from this repository or depend on the repository root:
+The package lives in a subtree of the Blocks Engine repository. Composer cannot discover a package whose `composer.json` is below the repository root from a plain monorepo VCS tag. After release, consumers need either a subtree-split/Packagist package whose root is `php-transformer/`, or an explicit Composer `package` repository that points at the release archive and maps autoloading to the subtree.
+
+Preferred downstream constraint once the package is published through Packagist or a subtree-split repository:
 
 ```sh
 composer require automattic/blocks-engine-php-transformer:^0.1.0
 ```
 
-Before the first tag is available, review branches may use a Composer VCS or path repository with an inline alias. Merge-ready downstream PRs should replace those review-only constraints with the tagged package constraint.
+If the first release is only available as a Blocks Engine monorepo archive, downstream consumers can avoid local path repositories with this repository entry, replacing `<release-tag>` with the pushed release tag:
+
+```json
+{
+  "repositories": [
+    {
+      "type": "package",
+      "package": {
+        "name": "automattic/blocks-engine-php-transformer",
+        "version": "0.1.0",
+        "type": "library",
+        "dist": {
+          "type": "zip",
+          "url": "https://codeload.github.com/Automattic/blocks-engine/zip/refs/tags/<release-tag>"
+        },
+        "autoload": {
+          "psr-4": {
+            "Automattic\\BlocksEngine\\PhpTransformer\\": "php-transformer/src/"
+          }
+        },
+        "require": {
+          "php": ">=8.1",
+          "league/commonmark": "^2.5",
+          "league/html-to-markdown": "^5.1"
+        }
+      }
+    }
+  ],
+  "require": {
+    "automattic/blocks-engine-php-transformer": "^0.1.0"
+  }
+}
+```
+
+Before the first tag is available, review branches may use a Composer VCS or path repository with an inline alias. Merge-ready downstream PRs should replace those review-only constraints with one of the no-local-path release shapes above.
 
 Homeboy owns the local release preflight for this package through `php-transformer/homeboy.json`. The only version target is `VERSION`, currently `0.1.0`; release automation should tag from the package subtree after the upstream PRs are merged, without adding wrapper-package names to this package metadata.
 
