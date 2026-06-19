@@ -14,8 +14,6 @@ final class AdapterRegistry
      * @param list<string> $supportedFormats
      */
     public function __construct(
-        // Markdown is normalized but not converted by default; real markdown
-        // adapters need CommonMark/html-to-markdown dependencies.
         private array $supportedFormats = array( 'blocks', 'html', 'markdown' )
     ) {
     }

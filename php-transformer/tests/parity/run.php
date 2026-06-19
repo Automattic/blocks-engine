@@ -134,6 +134,15 @@ function runFixture(array $fixture): array
         );
     }
 
+    if ( 'format_bridge.convert' === $fixture['operation'] ) {
+        $bridge = new FormatBridge();
+        return array(
+            'converted' => $bridge->convert((string) ($input['content'] ?? ''), (string) ($input['from'] ?? ''), (string) ($input['to'] ?? '')),
+            'blocks' => $bridge->toBlocks((string) ($input['content'] ?? ''), (string) ($input['from'] ?? '')),
+            'supported_formats' => $bridge->supportedFormats(),
+        );
+    }
+
     fail("Fixture {$fixture['name']} declares unsupported operation: {$fixture['operation']}");
 }
 

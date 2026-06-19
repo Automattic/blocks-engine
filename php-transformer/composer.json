@@ -14,6 +14,8 @@
     }
   },
   "require": {
+    "league/commonmark": "^2.5",
+    "league/html-to-markdown": "^5.1",
     "php": ">=8.1"
   },
   "scripts": {
@@ -25,6 +27,9 @@
     ]
   },
   "config": {
+    "platform": {
+      "php": "8.1.0"
+    },
     "sort-packages": true
   }
 }

@@ -6,7 +6,7 @@ Fixture files live in `php-transformer/tests/fixtures/parity/*.json` and use sch
 
 Each fixture declares:
 
-- `operation`: the public surface exercised by the runner.
+- `operation`: the public surface exercised by the runner, such as `format_bridge.convert`.
 - `input`: operation-specific input data.
 - `expect`: path-based assertions over the PHP output.
 - `source_reference`: optional pointer to the legacy repo/path that inspired the fixture.

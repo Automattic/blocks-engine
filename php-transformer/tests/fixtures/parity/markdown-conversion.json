@@ -1,0 +1,23 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "markdown-conversion",
+  "description": "Converts Markdown through the FormatBridge block pivot into HTML and parsed block output.",
+  "source_reference": {
+    "repo": "block-format-bridge",
+    "path": "includes/class-bfb-markdown-adapter.php",
+    "notes": "Covers the CommonMark to HTML to blocks path in the PHP transformer adapter."
+  },
+  "operation": "format_bridge.convert",
+  "input": {
+    "from": "markdown",
+    "to": "html",
+    "content": "# Title\n\nBody with **strong** text.\n\n- One\n- Two\n"
+  },
+  "expect": [
+    { "path": "converted", "assert": "contains", "value": "<h1>Title</h1>" },
+    { "path": "converted", "assert": "contains", "value": "<strong>strong</strong>" },
+    { "path": "blocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/heading" },
+    { "path": "blocks.2.blockName", "assert": "equals", "value": "core/list" }
+  ]
+}

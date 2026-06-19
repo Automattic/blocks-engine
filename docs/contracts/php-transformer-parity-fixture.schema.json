@@ -36,7 +36,7 @@
     },
     "operation": {
       "type": "string",
-      "enum": ["html_transformer.transform", "format_bridge.normalize", "artifact_compiler.compile"]
+      "enum": ["html_transformer.transform", "format_bridge.normalize", "format_bridge.convert", "artifact_compiler.compile"]
     },
     "input": {
       "type": "object"

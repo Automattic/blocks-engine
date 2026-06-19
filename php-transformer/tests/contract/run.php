@@ -251,14 +251,16 @@ assertSame("# Title\n\nBody\n", $bridge->normalize("# Title\r\n\r\nBody\r\n", 'm
 assertSame('<main><h1>Hello</h1></main>', $bridge->normalize('<main><h1>Hello</h1></main>', 'html'), 'HTML normalization should preserve valid HTML.');
 assertSame('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', $bridge->normalize('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', 'blocks'), 'Serialized blocks should pass validation.');
 assertSame('core/heading', $bridge->toBlocks('<h2>Hello</h2>', 'html')[0]['blockName'], 'HTML input should convert through the default HTML adapter.');
+assertSame('core/heading', $bridge->toBlocks("# Title\n\nBody", 'markdown')[0]['blockName'], 'Markdown input should convert through the default markdown adapter.');
 assertSame('<p>Hello</p>', $bridge->convert('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', 'blocks', 'html'), 'Serialized blocks should render to HTML through the default blocks/html adapters.');
 assertStringContains('<!-- wp:heading {"content":"Hello","level":2} -->', $bridge->convert('<h2>Hello</h2>', 'html', 'blocks'), 'HTML should serialize to block markup through the block pivot.');
+assertStringContains('<h1>Title</h1>', $bridge->convert("# Title\n\nBody", 'markdown', 'html'), 'Markdown should convert to HTML through the block pivot.');
+assertStringContains('# Hello', $bridge->convert('<!-- wp:heading {"content":"Hello","level":1} --><h1>Hello</h1><!-- /wp:heading -->', 'blocks', 'markdown'), 'Serialized blocks should convert to markdown through rendered HTML.');
 assertThrows(static fn () => $bridge->normalize('<!-- wp:paragraph /-->', 'markdown'), 'Declared markdown content contains serialized block comments.');
 assertThrows(static fn () => $bridge->normalize("# Title\n<p>Hello</p>", 'html'), 'Declared HTML content contains markdown markers.');
 assertThrows(static fn () => $bridge->normalize('<p>Hello</p>', 'blocks'), 'Declared blocks content does not contain serialized block comments.');
 assertThrows(static fn () => $bridge->normalize('<!-- wp:paragraph --><p>Hello</p>', 'blocks'), 'Serialized block markup contains an unclosed block comment.');
 assertThrows(static fn () => $bridge->normalize('<!-- wp:paragraph --><p>Hello</p><!-- /wp:heading -->', 'blocks'), 'Mismatched serialized block closing comment.');
-assertSame('', $bridge->convert('# Title', 'markdown', 'html'), 'Markdown conversion remains unavailable until markdown dependencies are added.');
 
 $bridge->registerAdapter(new class implements FormatAdapterInterface {
     public function slug(): string
