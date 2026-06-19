@@ -1,0 +1,85 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-local-link-asset-reports",
+  "description": "Reports artifact-local internal links and asset references without applying product rewrite or import policy.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-local-link-asset-reports.json",
+    "notes": "Covers generic reporting for anchors, images, scripts, linked stylesheets, and stylesheet URL assets."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This generic artifact reference report has no legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "pages/home.html",
+      "files": [
+        {
+          "path": "pages/home.html",
+          "content": "<main><a href=\"about.html\">About</a><a href=\"../assets/menu.pdf\">Menu</a><img src=\"../assets/hero.png\" srcset=\"../assets/hero-small.png 480w, ../assets/hero.png 960w\" alt=\"Hero\"><script src=\"../assets/app.js\"></script><link rel=\"stylesheet\" href=\"../assets/site.css\"></main>",
+          "mime_type": "text/html",
+          "role": "entry"
+        },
+        {
+          "path": "pages/about.html",
+          "content": "<main><h1>About</h1></main>",
+          "mime_type": "text/html"
+        },
+        {
+          "path": "assets/menu.pdf",
+          "content_base64": "JVBERi0xLjQK",
+          "mime_type": "application/pdf"
+        },
+        {
+          "path": "assets/hero.png",
+          "content_base64": "iVBORw0KGgo=",
+          "mime_type": "image/png"
+        },
+        {
+          "path": "assets/hero-small.png",
+          "content_base64": "iVBORw0KGgo=",
+          "mime_type": "image/png"
+        },
+        {
+          "path": "assets/app.js",
+          "content": "document.documentElement.dataset.fixture = 'asset-report';",
+          "mime_type": "application/javascript"
+        },
+        {
+          "path": "assets/site.css",
+          "content": "body{background-image:url('./bg.png')}",
+          "mime_type": "text/css"
+        },
+        {
+          "path": "assets/bg.png",
+          "content_base64": "iVBORw0KGgo=",
+          "mime_type": "image/png"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.artifact.internal_links", "assert": "count", "count": 1 },
+    { "path": "source_reports.artifact.internal_links.0.source_path", "assert": "equals", "value": "pages/home.html" },
+    { "path": "source_reports.artifact.internal_links.0.selector", "assert": "equals", "value": "a:nth-of-type(1)" },
+    { "path": "source_reports.artifact.internal_links.0.target_path", "assert": "equals", "value": "pages/about.html" },
+    { "path": "source_reports.artifact.asset_references", "assert": "count", "count": 7 },
+    { "path": "source_reports.artifact.asset_references.0.element", "assert": "equals", "value": "a" },
+    { "path": "source_reports.artifact.asset_references.0.asset_path", "assert": "equals", "value": "assets/menu.pdf" },
+    { "path": "source_reports.artifact.asset_references.1.element", "assert": "equals", "value": "img" },
+    { "path": "source_reports.artifact.asset_references.1.attribute", "assert": "equals", "value": "src" },
+    { "path": "source_reports.artifact.asset_references.2.attribute", "assert": "equals", "value": "srcset" },
+    { "path": "source_reports.artifact.asset_references.2.asset_path", "assert": "equals", "value": "assets/hero-small.png" },
+    { "path": "source_reports.artifact.asset_references.4.element", "assert": "equals", "value": "script" },
+    { "path": "source_reports.artifact.asset_references.4.asset_path", "assert": "equals", "value": "assets/app.js" },
+    { "path": "source_reports.artifact.asset_references.5.element", "assert": "equals", "value": "link" },
+    { "path": "source_reports.artifact.asset_references.5.asset_path", "assert": "equals", "value": "assets/site.css" },
+    { "path": "source_reports.artifact.asset_references.6.element", "assert": "equals", "value": "style" },
+    { "path": "source_reports.artifact.asset_references.6.asset_path", "assert": "equals", "value": "assets/bg.png" },
+    { "path": "source_reports.artifact.image_references", "assert": "count", "count": 1 },
+    { "path": "source_reports.artifact.image_references.0.asset_path", "assert": "equals", "value": "assets/hero.png" }
+  ]
+}
