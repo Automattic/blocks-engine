@@ -29,8 +29,8 @@ final class ArtifactCompiler
         $entryPath = is_array($entry) ? (string) $entry['path'] : '';
         $html = is_array($entry) ? (string) $entry['content'] : '';
         $assets = $this->assetManifest($normalized['files'], $entryPath);
-        $components = $this->detectComponents($html, $documents['components']);
-        $blockTypes = $this->detectBlockTypes($normalized['files']);
+        $components = $this->detectComponents($normalized['files'], $entryPath, $documents['components']);
+        $blockTypes = $this->detectBlockTypes($normalized['files'], $diagnostics);
         $serializedBlocks = '' === trim($html) ? '' : '<!-- wp:html -->' . "\n" . $html . "\n" . '<!-- /wp:html -->';
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
             $serializedBlocks = (string) $documents['documents'][0]['block_markup'];
@@ -603,7 +603,7 @@ final class ArtifactCompiler
 
     private function sanitizeKey(string $key): string
     {
-        return strtolower(preg_replace('/[^a-z0-9_-]+/', '-', trim($key)) ?? '');
+        return preg_replace('/[^a-z0-9_-]+/', '-', strtolower(trim($key))) ?? '';
     }
 
     /**
@@ -644,24 +644,113 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $sourceDocumentComponents
      * @return array<int, array<string, mixed>>
      */
-    private function detectComponents(string $html, array $sourceDocumentComponents = array()): array
+    private function detectComponents(array $files, string $entryPath, array $sourceDocumentComponents = array()): array
     {
         $components = array();
+        $classes = array();
         foreach ( $sourceDocumentComponents as $component ) {
             $key = 'mdx:' . (string) ($component['source'] ?? '') . ':' . (string) ($component['name'] ?? '');
             $components[$key] = $component;
         }
 
-        if ( ! preg_match_all('/data-component=["\']([^"\']+)["\']/i', $html, $matches) ) {
-            return array_values($components);
+        foreach ( $files as $file ) {
+            if ( in_array($file['kind'], array('jsx', 'tsx'), true) && empty($file['binary']) ) {
+                foreach ( $this->detectJsxFileComponents($file) as $component ) {
+                    $components['jsx-file:' . (string) $component['source'] . ':' . (string) $component['name']] = $component;
+                }
+            }
+
+            if ( 'html' !== $file['kind'] || ! empty($file['binary']) ) {
+                continue;
+            }
+
+            $content = (string) $file['content'];
+            if ( preg_match_all('/data-component\s*=\s*(["\'])([^"\']+)\1/i', $content, $matches) ) {
+                foreach ( $matches[2] as $name ) {
+                    $key = $this->sanitizeKey($name);
+                    if ( '' === $key ) {
+                        continue;
+                    }
+                    $components['explicit:' . $key] = array(
+                        'name'        => $key,
+                        'source'      => $file['path'],
+                        'signal'      => 'data-component',
+                        'occurrences' => ($components['explicit:' . $key]['occurrences'] ?? 0) + 1,
+                        'provenance'  => array('source_path' => $file['path']),
+                    );
+                }
+            }
+
+            if ( preg_match_all('/class\s*=\s*(["\'])([^"\']+)\1/i', $content, $matches) ) {
+                foreach ( $matches[2] as $classList ) {
+                    $classTokens = preg_split('/\s+/', trim($classList));
+                    foreach ( false === $classTokens ? array() : $classTokens as $class ) {
+                        $class = $this->sanitizeKey($class);
+                        if ( '' === $class || strlen($class) < 3 ) {
+                            continue;
+                        }
+                        $classes[$class] = ($classes[$class] ?? 0) + 1;
+                    }
+                }
+            }
         }
 
-        foreach ( array_values(array_unique($matches[1])) as $name ) {
-            $key = 'data-component:' . $this->sanitizeKey($name);
-            $components[$key] = array('name' => $name, 'signal' => 'data-component');
+        foreach ( $classes as $class => $count ) {
+            if ( $count < 2 && ! preg_match('/(?:card|grid|hero|nav|header|footer|feature|testimonial|pricing|product|gallery|section)/', $class) ) {
+                continue;
+            }
+
+            $components['class:' . $class] = array(
+                'name'        => $class,
+                'source'      => $entryPath,
+                'signal'      => 'class-token',
+                'occurrences' => $count,
+                'provenance'  => array('source_path' => $entryPath),
+            );
         }
 
-        return array_values($components);
+        usort(
+            $components,
+            static function (array $left, array $right): int {
+                $occurrenceComparison = ($right['occurrences'] ?? 1) <=> ($left['occurrences'] ?? 1);
+                return 0 !== $occurrenceComparison ? $occurrenceComparison : strcmp((string) $left['name'], (string) $right['name']);
+            }
+        );
+
+        return array_slice($components, 0, 25);
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     * @return array<int, array<string, mixed>>
+     */
+    private function detectJsxFileComponents(array $file): array
+    {
+        $components = array();
+        $content = (string) ($file['content'] ?? '');
+
+        if ( preg_match_all('/(?:export\s+default\s+)?function\s+([A-Z][A-Za-z0-9_]*)\s*\(/', $content, $matches) ) {
+            foreach ( $matches[1] as $name ) {
+                $components[$name] = true;
+            }
+        }
+
+        if ( preg_match_all('/(?:export\s+)?(?:const|let|var)\s+([A-Z][A-Za-z0-9_]*)\s*=\s*(?:\([^)]*\)|[A-Za-z0-9_]+)\s*=>/', $content, $matches) ) {
+            foreach ( $matches[1] as $name ) {
+                $components[$name] = true;
+            }
+        }
+
+        return array_map(
+            fn (string $name): array => array(
+                'name'        => $name,
+                'source'      => (string) ($file['path'] ?? ''),
+                'signal'      => 'jsx-component-file',
+                'occurrences' => 1,
+                'provenance'  => array('source_path' => (string) ($file['path'] ?? '')),
+            ),
+            array_keys($components)
+        );
     }
 
     /**
@@ -874,32 +963,240 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
      */
-    private function detectBlockTypes(array $files): array
+    private function detectBlockTypes(array $files, array &$diagnostics): array
     {
         $blockTypes = array();
+        $blockRoots = array();
+
         foreach ( $files as $file ) {
             if ( 'block.json' !== basename((string) $file['path']) ) {
                 continue;
             }
-            $metadata = json_decode((string) $file['content'], true);
-            if ( ! is_array($metadata) ) {
-                continue;
-            }
             $directory = dirname((string) $file['path']);
+            $directory = '.' === $directory ? '' : $directory;
+            $blockRoots[$directory] = $file;
+        }
+
+        foreach ( $blockRoots as $directory => $blockJsonFile ) {
+            $blockJson = json_decode((string) $blockJsonFile['content'], true);
+            if ( ! is_array($blockJson) ) {
+                $blockJson = array();
+                $diagnostics[] = $this->diagnostic('invalid_block_json', 'warning', 'A generated block.json file could not be decoded.', array('path' => $blockJsonFile['path']));
+            }
+
+            $name = isset($blockJson['name']) && is_string($blockJson['name']) ? trim($blockJson['name']) : '';
+            if ( '' === $name ) {
+                $name = 'generated/' . ('' === $directory ? 'block' : $this->sanitizeKey(basename($directory)));
+                $diagnostics[] = $this->diagnostic('block_json_missing_name', 'warning', 'A generated block.json file did not declare a name; a stable generated name was assigned.', array('path' => $blockJsonFile['path'], 'name' => $name));
+            }
+
+            $blockFiles = $this->filesUnderDirectory($files, $directory);
             $blockTypes[] = array(
                 'schema'          => 'chubes4/wordpress-block-type-artifact/v1',
-                'name'            => is_string($metadata['name'] ?? null) ? $metadata['name'] : '',
-                'directory'       => '.' === $directory ? '' : $directory,
-                'block_json_path' => $file['path'],
-                'metadata'        => $metadata,
+                'name'            => $name,
+                'slug'            => $this->sanitizeKey(basename($name)),
+                'directory'       => $directory,
+                'block_json_path' => $blockJsonFile['path'],
+                'block_json'      => $blockJson,
+                'metadata'        => $this->blockMetadataContract($blockJson),
+                'assets'          => $this->blockAssetContract($blockJson, $blockFiles),
+                'dependencies'    => $this->blockDependencyContract($blockJson, $blockFiles),
                 'provenance'      => array(
-                    'source_hash' => $file['provenance']['hash'],
-                    'files'       => array($file['path']),
+                    'source'      => $blockJsonFile['source'] ?? 'artifact',
+                    'source_hash' => hash('sha256', $this->fileHashPayload($blockFiles)),
+                    'files'       => array_values(array_map(static fn (array $file): string => (string) $file['path'], $blockFiles)),
+                ),
+                'files'           => array_values(
+                    array_map(
+                        static fn (array $file): array => array(
+                            'path'  => $file['path'],
+                            'kind'  => $file['kind'],
+                            'bytes' => $file['bytes'],
+                        ),
+                        $blockFiles
+                    )
                 ),
             );
         }
 
+        usort(
+            $blockTypes,
+            static fn (array $left, array $right): int => strcmp((string) $left['name'], (string) $right['name'])
+        );
+
         return $blockTypes;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function filesUnderDirectory(array $files, string $directory): array
+    {
+        $matched = array();
+        $prefix = '' === $directory ? '' : $directory . '/';
+        foreach ( $files as $file ) {
+            if ( '' === $prefix || str_starts_with((string) $file['path'], $prefix) ) {
+                $matched[] = $file;
+            }
+        }
+
+        return $matched;
+    }
+
+    /**
+     * @param array<string, mixed> $blockJson
+     * @return array<string, mixed>
+     */
+    private function blockMetadataContract(array $blockJson): array
+    {
+        $metadata = array();
+        foreach ( array('apiVersion', 'title', 'category', 'description', 'keywords', 'attributes', 'supports', 'usesContext', 'providesContext', 'textdomain', 'example', 'variations', 'parent', 'ancestor', 'allowedBlocks') as $key ) {
+            if ( array_key_exists($key, $blockJson) ) {
+                $metadata[$key] = $blockJson[$key];
+            }
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @param array<string, mixed> $blockJson
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, array<int, array<string, mixed>>>
+     */
+    private function blockAssetContract(array $blockJson, array $files): array
+    {
+        $assets = array(
+            'render'        => array(),
+            'editor_script' => array(),
+            'script'        => array(),
+            'view_script'   => array(),
+            'editor_style'  => array(),
+            'style'         => array(),
+            'view_style'    => array(),
+        );
+
+        foreach ( array(
+            'render'       => 'render',
+            'editorScript' => 'editor_script',
+            'script'       => 'script',
+            'viewScript'   => 'view_script',
+            'editorStyle'  => 'editor_style',
+            'style'        => 'style',
+            'viewStyle'    => 'view_style',
+        ) as $sourceField => $targetField ) {
+            foreach ( $this->normalizeAssetReferences($blockJson[$sourceField] ?? null, $files, $sourceField) as $reference ) {
+                $assets[$targetField][] = $reference;
+            }
+        }
+
+        return $assets;
+    }
+
+    /**
+     * @param mixed $value
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeAssetReferences(mixed $value, array $files, string $sourceField): array
+    {
+        $references = array();
+        $values = is_array($value) ? array_values($value) : array($value);
+        foreach ( $values as $item ) {
+            if ( ! is_string($item) || '' === trim($item) ) {
+                continue;
+            }
+
+            $item = trim($item);
+            $isFileRef = str_starts_with($item, 'file:');
+            $file = $isFileRef ? $this->findBlockFileByRelativePath($files, substr($item, 5)) : null;
+
+            $reference = array(
+                'reference'    => $item,
+                'source_field' => $sourceField,
+                'type'         => $isFileRef ? 'file' : 'handle',
+            );
+            if ( is_array($file) ) {
+                $reference['path'] = $file['path'];
+                $reference['kind'] = $file['kind'];
+                $reference['bytes'] = $file['bytes'];
+            }
+
+            $references[] = $reference;
+        }
+
+        return $references;
+    }
+
+    /**
+     * @param array<string, mixed> $blockJson
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, mixed>
+     */
+    private function blockDependencyContract(array $blockJson, array $files): array
+    {
+        $declared = array();
+        foreach ( array('editorScript', 'script', 'viewScript', 'editorStyle', 'style', 'viewStyle') as $field ) {
+            if ( array_key_exists($field, $blockJson) ) {
+                $declared[$field] = $blockJson[$field];
+            }
+        }
+
+        $assetFiles = array();
+        foreach ( $files as $file ) {
+            if ( ! str_ends_with((string) $file['path'], '.asset.php') ) {
+                continue;
+            }
+
+            $assetFile = array(
+                'path'  => $file['path'],
+                'kind'  => $file['kind'],
+                'bytes' => $file['bytes'],
+            );
+            $parsed = $this->parseAssetPhpManifest((string) ($file['content'] ?? ''));
+            if ( array() !== $parsed ) {
+                $assetFile['manifest'] = $parsed;
+            }
+            $assetFiles[] = $assetFile;
+        }
+
+        return array(
+            'declared'    => $declared,
+            'asset_files' => $assetFiles,
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function parseAssetPhpManifest(string $content): array
+    {
+        $manifest = array();
+        if ( preg_match('/["\']version["\']\s*=>\s*["\']([^"\']+)["\']/', $content, $version) ) {
+            $manifest['version'] = $version[1];
+        }
+        if ( preg_match('/["\']dependencies["\']\s*=>\s*array\s*\((.*?)\)/s', $content, $dependencies) && preg_match_all('/["\']([^"\']+)["\']/', $dependencies[1], $matches) ) {
+            $manifest['dependencies'] = array_values($matches[1]);
+        }
+
+        return $manifest;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, mixed>|null
+     */
+    private function findBlockFileByRelativePath(array $files, string $relativePath): ?array
+    {
+        $relativePath = ltrim(str_replace('\\', '/', $relativePath), './');
+        foreach ( $files as $file ) {
+            if ( basename((string) $file['path']) === $relativePath || str_ends_with((string) $file['path'], '/' . $relativePath) ) {
+                return $file;
+            }
+        }
+
+        return null;
     }
 
     /**

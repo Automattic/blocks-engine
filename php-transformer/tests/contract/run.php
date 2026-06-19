@@ -67,7 +67,7 @@ $simple = $compiler->compile(
 $assert('success' === $simple['status'], 'simple artifact compiles successfully', (string) $simple['status']);
 $assert('index.html' === ($simple['source_reports']['artifact']['entry_path'] ?? ''), 'generated HTML becomes an index entry');
 $assert(str_contains((string) $simple['serialized_blocks'], '<!-- wp:html -->'), 'HTML is preserved as serialized block markup');
-$assert('Hero' === ($simple['components'][0]['name'] ?? ''), 'component candidates are exposed');
+$assert('hero' === ($simple['components'][0]['name'] ?? ''), 'component candidates are exposed');
 $assert('serialized_blocks' === ($simple['legacy_mapping']['block-artifact-compiler/result/v1']['wordpress_artifacts.block_markup'] ?? ''), 'BAC block markup mapping is documented');
 
 $missing = $compiler->compile(array('files' => array()))->toArray();
@@ -122,13 +122,67 @@ $assert(! empty($binary['assets'][0]['content_base64'] ?? ''), 'binary asset kee
 $blocks = $compiler->compile(
     array(
         'files' => array(
-            'index.html'             => '<main><h1>Block type</h1></main>',
-            'blocks/hero/block.json' => json_encode(array('apiVersion' => 3, 'name' => 'acme/hero', 'title' => 'Hero'), JSON_UNESCAPED_SLASHES),
+            'index.html'                    => '<main><section class="hero"><h1>Block type</h1></section><article class="card product-card" data-component="Product Card">A</article><article class="card product-card">B</article></main>',
+            'blocks/hero/block.json'        => json_encode(
+                array(
+                    'apiVersion'   => 3,
+                    'name'         => 'acme/hero',
+                    'title'        => 'Hero',
+                    'category'     => 'design',
+                    'editorScript' => 'file:./index.js',
+                    'viewScript'   => array('file:./view.js', 'wp-interactivity'),
+                    'style'        => 'file:./style.css',
+                    'editorStyle'  => 'file:./editor.css',
+                    'render'       => 'file:./render.php',
+                    'attributes'   => array(
+                        'headline' => array('type' => 'string'),
+                    ),
+                    'supports'     => array('align' => true),
+                ),
+                JSON_UNESCAPED_SLASHES
+            ),
+            'blocks/hero/index.js'          => 'import metadata from "./block.json";',
+            'blocks/hero/index.asset.php'   => '<?php return array("dependencies" => array("wp-blocks"), "version" => "1");',
+            'blocks/hero/view.js'           => 'console.log("front");',
+            'blocks/hero/style.css'         => '.wp-block-acme-hero{padding:2rem}',
+            'blocks/hero/editor.css'        => '.wp-block-acme-hero{outline:1px solid}',
+            'blocks/hero/render.php'        => '<?php echo $content;',
+            'components/Hero.jsx'           => 'export default function Hero() { return <section />; }',
+            'components/ProductGrid.tsx'    => 'export const ProductGrid = () => <div />;',
         ),
     )
 )->toArray();
 $assert(1 === count($blocks['block_types']), 'block.json roots are promoted into block type artifacts');
-$assert('acme/hero' === ($blocks['block_types'][0]['name'] ?? ''), 'block type name is preserved');
+$heroBlock = $blocks['block_types'][0] ?? array();
+$assert('chubes4/wordpress-block-type-artifact/v1' === ($heroBlock['schema'] ?? ''), 'block type exposes contract schema');
+$assert('acme/hero' === ($heroBlock['name'] ?? ''), 'block type name is preserved');
+$assert('hero' === ($heroBlock['slug'] ?? ''), 'block type slug is normalized');
+$assert('blocks/hero' === ($heroBlock['directory'] ?? ''), 'block type exposes source directory');
+$assert('blocks/hero/block.json' === ($heroBlock['block_json_path'] ?? ''), 'block type exposes block.json path');
+$assert(3 === ($heroBlock['metadata']['apiVersion'] ?? null), 'block metadata preserves apiVersion');
+$assert(array('align' => true) === ($heroBlock['metadata']['supports'] ?? null), 'block metadata preserves supports');
+$assert('blocks/hero/index.js' === ($heroBlock['assets']['editor_script'][0]['path'] ?? ''), 'editor script file reference resolves to generated file');
+$assert('wp-interactivity' === ($heroBlock['assets']['view_script'][1]['reference'] ?? ''), 'script handles are preserved as references');
+$assert('blocks/hero/render.php' === ($heroBlock['assets']['render'][0]['path'] ?? ''), 'render file reference resolves to generated file');
+$assert('blocks/hero/index.asset.php' === ($heroBlock['dependencies']['asset_files'][0]['path'] ?? ''), 'asset php dependency manifests are recorded');
+$assert(array('wp-blocks') === ($heroBlock['dependencies']['asset_files'][0]['manifest']['dependencies'] ?? null), 'asset php dependencies are parsed when simple manifests are present');
+$assert('1' === ($heroBlock['dependencies']['asset_files'][0]['manifest']['version'] ?? ''), 'asset php versions are parsed when simple manifests are present');
+$assert(in_array('blocks/hero/style.css', $heroBlock['provenance']['files'] ?? array(), true), 'block provenance lists source files');
+$assert(! empty($heroBlock['provenance']['source_hash'] ?? ''), 'block type exposes provenance hash');
+$assert(! empty(array_filter($blocks['components'], static fn (array $component): bool => 'ProductGrid' === ($component['name'] ?? '') && 'jsx-component-file' === ($component['signal'] ?? ''))), 'TSX component declarations produce component candidates');
+$assert(! empty(array_filter($blocks['components'], static fn (array $component): bool => 'product-card' === ($component['name'] ?? '') && 'class-token' === ($component['signal'] ?? ''))), 'repeated semantic classes produce component candidates');
+$assert(! empty(array_filter($blocks['components'], static fn (array $component): bool => 'product-card' === ($component['name'] ?? '') && 'data-component' === ($component['signal'] ?? ''))), 'data-component markers produce component candidates');
+
+$unnamedBlock = $compiler->compile(
+    array(
+        'files' => array(
+            'index.html' => '<main>Fallback block</main>',
+            'blocks/fallback/block.json' => '{"title":"Fallback"}',
+        ),
+    )
+)->toArray();
+$assert('generated/fallback' === ($unnamedBlock['block_types'][0]['name'] ?? ''), 'unnamed block.json receives stable generated name');
+$assert(in_array('block_json_missing_name', array_column($unnamedBlock['diagnostics'], 'code'), true), 'unnamed block.json emits a diagnostic');
 
 $normalized = $compiler->compile(
     array(
@@ -206,8 +260,8 @@ $mdx = $compiler->compile(
 $assert('success_with_warnings' === $mdx['status'], 'MDX documents compile with partial-support warnings', (string) $mdx['status']);
 $assert('mdx' === ($mdx['documents'][0]['kind'] ?? ''), 'MDX source document is classified');
 $assert('mdx' === ($mdx['documents'][0]['body_format'] ?? ''), 'MDX body format is exposed');
-$assert('Hero' === ($mdx['components'][0]['name'] ?? ''), 'MDX component candidate is exposed');
-$assert('components/Hero.jsx' === ($mdx['components'][0]['resolved_path'] ?? ''), 'relative MDX imports resolve to artifact files');
+$assert(! empty(array_filter($mdx['components'], static fn (array $component): bool => 'Hero' === ($component['name'] ?? '') && 'mdx-jsx' === ($component['signal'] ?? ''))), 'MDX component candidate is exposed');
+$assert(! empty(array_filter($mdx['components'], static fn (array $component): bool => 'Hero' === ($component['name'] ?? '') && 'components/Hero.jsx' === ($component['resolved_path'] ?? ''))), 'relative MDX imports resolve to artifact files');
 $mdxDiagnosticCodes = array_column($mdx['diagnostics'], 'code');
 $assert(in_array('mdx_source_document_detected', $mdxDiagnosticCodes, true), 'MDX detection diagnostic is emitted');
 $assert(in_array('mdx_import_unresolved', $mdxDiagnosticCodes, true), 'unresolved relative MDX imports are diagnosed');

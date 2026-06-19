@@ -17,7 +17,7 @@
     { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.artifact.entry_path", "assert": "equals", "value": "index.html" },
-    { "path": "components.0.name", "assert": "equals", "value": "Hero" },
+    { "path": "components.0.name", "assert": "equals", "value": "hero" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html -->" },
     { "path": "legacy_mapping.block-artifact-compiler/result/v1.wordpress_artifacts\\.block_markup", "assert": "equals", "value": "serialized_blocks" }
   ]
