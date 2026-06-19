@@ -14,6 +14,65 @@ The package root is `php-transformer/` inside this repository. It should be inst
 
 The public namespace remains `Automattic\BlocksEngine\PhpTransformer\`. Downstream wrappers and product plugins should depend on this namespace through Composer autoloading, not by copying package files or requiring `php-transformer` to know the old repositories.
 
+## Existing Package Name Continuity
+
+These Composer package names are known public entrypoints and should keep resolving during the migration:
+
+| Existing package | Current role | Continuity plan |
+| --- | --- | --- |
+| `chubes4/html-to-blocks-converter` | WordPress plugin and Composer package for HTML-to-block conversion. | Publish compatibility releases that keep `html_to_blocks_*` functions and plugin hooks while delegating to tagged transformer APIs. |
+| `chubes4/block-format-bridge` | WordPress plugin and Composer package for format conversion across HTML, Markdown, and blocks. | Publish compatibility releases that keep `bfb_*`, adapter, REST, CLI, ability, and report contracts while routing internals through transformer adapters. |
+| `chubes4/block-artifact-compiler` | WordPress plugin and Composer package for generated website artifact compilation. | Publish compatibility releases that keep BAC functions/classes and report fields while mapping tagged transformer envelopes to existing shapes. |
+| `chubes4/static-site-importer` | Product plugin that consumes BFB/BAC and owns WordPress import workflows. | Keep as an active product package. Adopt tagged compatibility releases first, then move product-owned adapters to direct transformer calls when parity evidence is available. |
+
+The old names should not be archived at the transformer merge point. Archive decisions wait until tagged compatibility releases have shipped, supported product paths no longer require the old entrypoints, and issue traffic shows no active external dependency on those packages.
+
+### README Banner Language
+
+Use a short banner in the old repository READMEs during the compatibility phase:
+
+```markdown
+> **Continuity notice:** This package name remains supported for existing consumers while the canonical transformation implementation moves to `automattic/blocks-engine-php-transformer`. New reusable transformation primitives should be proposed upstream in Blocks Engine. Compatibility bugs for this package name remain welcome here until a tagged direct-migration path is published.
+```
+
+For Static Site Importer, use product-focused language instead:
+
+```markdown
+> **Dependency notice:** Static Site Importer remains the product plugin for WordPress import workflows. Its lower-level conversion dependencies are moving toward `automattic/blocks-engine-php-transformer` through tagged compatibility releases before direct transformer adoption.
+```
+
+### GitHub Redirect And Issue Template Guidance
+
+Do not close issue trackers or replace them with repository archival banners during the first compatibility wave. Add issue template copy that routes reports by ownership:
+
+| Report type | Open in |
+| --- | --- |
+| Old package installability, public functions, hooks, CLI commands, abilities, README examples, or tagged compatibility regressions. | The old package repository that owns that public surface. |
+| Missing reusable transformer primitive, unstable result-envelope field, fixture parity gap, or package-level transformer API request. | `Automattic/blocks-engine` against `php-transformer`. |
+| Static Site Importer admin UX, upload intake, theme generation, page creation, asset materialization, commerce gates, or import reports. | `chubes4/static-site-importer`. |
+
+Suggested issue template note for wrapper repositories:
+
+```markdown
+This repository remains the support surface for its existing Composer package name and public functions during the compatibility phase. If your report needs a new reusable transformer primitive rather than a wrapper/package fix, link this issue to an upstream `Automattic/blocks-engine` issue for `php-transformer`.
+```
+
+Suggested upstream issue template note for Blocks Engine:
+
+```markdown
+Use this tracker for canonical `php-transformer` package issues: reusable transformer APIs, result envelopes, diagnostics, fixtures, Composer metadata, and migration blockers. Reports about old package entrypoints should link the downstream repository issue that owns the existing public surface.
+```
+
+GitHub repository descriptions for old wrappers can point to the canonical package without using archived or deprecated language: `Compatibility package for existing <package> consumers; canonical transformation primitives live in automattic/blocks-engine-php-transformer.`
+
+### Composer replace/provide Policy
+
+`automattic/blocks-engine-php-transformer` should not declare `replace` for the old package names. It is not a drop-in replacement for their WordPress plugin bootstraps, global functions, hooks, CLI commands, abilities, or product-owned report shapes. A `replace` claim would let Composer satisfy old requirements with a package that does not provide the old runtime surface.
+
+`automattic/blocks-engine-php-transformer` should not declare `provide` for the old package names during the first wave for the same reason. If maintainers later define a virtual package such as `automattic/blocks-engine-transformer-implementation`, it should describe only the reusable transformer contract, not the old wrapper packages.
+
+Old wrapper repositories may require `automattic/blocks-engine-php-transformer` and may optionally add `suggest` entries for related wrappers or product adopters. They should not `replace` each other. A thin-shim release may use `conflict` only for known-bad transformer versions that break its published compatibility contract.
+
 ## Monorepo Install Options
 
 During review, downstream consumers may use either Composer VCS repositories or local path repositories.
@@ -72,6 +131,21 @@ Before `1.0.0`, public PHP class names, constructor signatures, result-envelope 
 Patch releases should be reserved for bug fixes that preserve public package contracts. Breaking downstream-facing contract changes require a new minor version until the package reaches `1.0.0`.
 
 Each release tag should identify the matching downstream compatibility floor in release notes so product teams can choose safe dependency ranges. That floor is a migration aid, not a permanent promise that old repositories remain first-class package surfaces.
+
+## Version Constraints During Continuity
+
+Use explicit review constraints only while PRs are draft:
+
+| Dependency | Review constraint | Merge constraint |
+| --- | --- | --- |
+| `automattic/blocks-engine-php-transformer` | `dev-cook/php-transformer-migration-no-perma-legacy as 0.1.x-dev` | `^0.1.0` after the first transformer tag. |
+| `chubes4/html-to-blocks-converter` | `dev-cook/php-transformer-html-wrapper` for dependent wrapper/product review only. | First tagged compatibility release, expected `^0.1.0` unless maintainers choose a different existing scheme. |
+| `chubes4/block-format-bridge` | `dev-cook/php-transformer-format-wrapper` for Static Site Importer review only. | First tagged compatibility release, expected `^0.1.0` unless maintainers choose a different existing scheme. |
+| `chubes4/block-artifact-compiler` | `dev-cook/php-transformer-artifact-wrapper` for Static Site Importer review only. | First tagged compatibility release, expected `^0.1.0` unless maintainers choose a different existing scheme. |
+
+Review branches may use path repositories for local parity work and VCS repositories for CI. Merge candidates must use tags, not path repositories, unpublished branches, or inline aliases.
+
+Prefer lower-bound compatible constraints such as `^0.1.0` for the compatibility wave so patch releases can carry bug fixes without forcing every product consumer to change constraints. Use an upper bound only when a downstream compatibility release has a known transformer API ceiling that cannot be expressed by Composer's normal pre-1.0 caret semantics.
 
 ## Downstream Release Order
 

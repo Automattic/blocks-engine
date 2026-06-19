@@ -38,6 +38,22 @@ During review, add the transformer path repository and requirement:
 
 Before merge, replace the path-only development constraint with the first tagged transformer release.
 
+Do not add `replace` or `provide` for `chubes4/html-to-blocks-converter` in `automattic/blocks-engine-php-transformer`. The old package name owns plugin activation, Composer file autoloading, `html_to_blocks_*` functions, legacy classes, and hooks. The wrapper should require the tagged transformer release instead.
+
+Recommended merge constraint after the first transformer tag: `automattic/blocks-engine-php-transformer:^0.1.0`. If the wrapper keeps its current package versioning scheme, tag the compatibility release in that scheme and document the minimum transformer version in release notes.
+
+## README And Issue Continuity
+
+Add this banner near the top of the downstream README:
+
+```markdown
+> **Continuity notice:** `chubes4/html-to-blocks-converter` remains supported for existing Composer and WordPress plugin consumers while the canonical HTML transformation implementation moves to `automattic/blocks-engine-php-transformer`. New reusable transform primitives should be proposed upstream in Blocks Engine. Compatibility bugs for `html_to_blocks_*`, plugin hooks, and package installability remain welcome here until a tagged direct-migration path is published.
+```
+
+Add issue template guidance that routes package-name and hook reports here, and routes missing reusable transformer capabilities upstream to `Automattic/blocks-engine`.
+
+Do not archive this repository in the wrapper PR. Keep the issue tracker open until supported consumers no longer require `html_to_blocks_*`, the plugin package, or the old Composer name.
+
 ## File-Level Patch Skeleton
 
 ```diff

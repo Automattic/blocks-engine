@@ -45,6 +45,22 @@ During review, add the transformer dependency beside the existing package requir
 
 Before merge, replace the path-only development constraint with the first tagged transformer release.
 
+Do not add `replace` or `provide` for `chubes4/block-format-bridge` in `automattic/blocks-engine-php-transformer`. BFB owns `bfb_*` functions, adapter registration, REST/CLI/ability behavior, capability reports, and package metadata. The compatibility release should require the tagged transformer package instead.
+
+Recommended merge constraint after the first transformer tag: `automattic/blocks-engine-php-transformer:^0.1.0`. Keep existing BFB constraints for `league/commonmark` and `league/html-to-markdown` until the wrapper no longer owns the compatibility adapter path. If BFB tags an initial transformer-backed compatibility release, document the transformer minimum and any wrapper package floor needed by Static Site Importer.
+
+## README And Issue Continuity
+
+Add this banner near the top of the downstream README:
+
+```markdown
+> **Continuity notice:** `chubes4/block-format-bridge` remains supported for existing Composer and WordPress plugin consumers while the canonical format transformation implementation moves to `automattic/blocks-engine-php-transformer`. New reusable format primitives should be proposed upstream in Blocks Engine. Compatibility bugs for `bfb_*`, adapters, capabilities, REST/CLI/ability surfaces, and package installability remain welcome here until a tagged direct-migration path is published.
+```
+
+Add issue template guidance that keeps reports about BFB public entrypoints in BFB and links upstream issues only when the blocker is a missing reusable transformer API, result-envelope field, diagnostic, or fixture.
+
+Do not archive this repository in the wrapper PR. Keep the issue tracker open until Static Site Importer and supported external consumers no longer require BFB functions, adapters, commands, abilities, or the old Composer name.
+
 ## File-Level Patch Skeleton
 
 ```diff

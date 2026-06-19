@@ -17,6 +17,28 @@ The old repositories are temporary wrappers or product consumers during migratio
 
 The transformer review branch for all four downstream branches is `cook/php-transformer-migration-no-perma-legacy` in `Automattic/blocks-engine`.
 
+## Continuity Banner And Issue Routing
+
+Each old repository should add a README banner during its wrapper PR instead of archiving or deprecating the package immediately:
+
+```markdown
+> **Continuity notice:** This package name remains supported for existing consumers while the canonical transformation implementation moves to `automattic/blocks-engine-php-transformer`. New reusable transformation primitives should be proposed upstream in Blocks Engine. Compatibility bugs for this package name remain welcome here until a tagged direct-migration path is published.
+```
+
+Static Site Importer should use product-specific language:
+
+```markdown
+> **Dependency notice:** Static Site Importer remains the product plugin for WordPress import workflows. Its lower-level conversion dependencies are moving toward `automattic/blocks-engine-php-transformer` through tagged compatibility releases before direct transformer adoption.
+```
+
+Add issue template copy in wrapper repositories that keeps package-name support local while linking upstream transformer gaps:
+
+```markdown
+This repository remains the support surface for its existing Composer package name and public functions during the compatibility phase. If your report needs a new reusable transformer primitive rather than a wrapper/package fix, link this issue to an upstream `Automattic/blocks-engine` issue for `php-transformer`.
+```
+
+Use this routing rule in PR descriptions and issue templates: reports about old public entrypoints stay in the old repository; reports about reusable transformer APIs, result envelopes, diagnostics, fixtures, or Composer metadata go upstream to `Automattic/blocks-engine`; Static Site Importer product workflow reports stay in Static Site Importer.
+
 ## Local Composer Path Repository
 
 Use this path repository in downstream PR branches while reviewing the transformer package before it is tagged:
@@ -53,6 +75,10 @@ Use these constraints while the wrapper branches are under review:
 
 Downstream merge candidates must not depend on `/Users/...` path repositories, unpublished branch constraints, or copied transformer files.
 
+The canonical transformer package should not declare Composer `replace` or `provide` for the old package names. It does not expose their plugin bootstraps, global functions, hooks, CLI commands, abilities, or report shapes. Compatibility wrappers own those surfaces and may require the transformer once a tag is available.
+
+Thin-shim releases may add `conflict` constraints for known-bad transformer versions that break their published compatibility contract. Avoid broad conflicts that block compatible patch releases.
+
 ## Commit Sequence
 
 Use this sequence so each downstream branch can be reviewed and rolled back independently:
@@ -88,6 +114,8 @@ Use this sequence so each downstream branch can be reviewed and rolled back inde
 ## Archive And Thin-Shim Exits
 
 Each old repository must choose one exit once product consumers can depend directly on tagged `php-transformer` contracts:
+
+No repository should be archived during the first compatibility wave. Keep the old package names, issue trackers, and README guidance active until tagged compatibility releases have shipped and supported consumers have a documented direct-transformer migration path.
 
 | Repository | Preferred exit | Thin-shim exit when external consumers remain |
 | --- | --- | --- |

@@ -39,6 +39,22 @@ During review, add the transformer path repository and requirement:
 
 Before merge, replace the path-only development constraint with the first tagged transformer release.
 
+Do not add `replace` or `provide` for `chubes4/block-artifact-compiler` in `automattic/blocks-engine-php-transformer`. BAC owns its plugin/package bootstrap, global functions, legacy class names, report summary helpers, and Static Site Importer-facing report fields. The compatibility release should require the tagged transformer package instead.
+
+Recommended merge constraint after the first transformer tag: `automattic/blocks-engine-php-transformer:^0.1.0`. Tag the BAC compatibility release after the transformer result-envelope fields used by BAC are stable enough to map to old report keys.
+
+## README And Issue Continuity
+
+Add this banner near the top of the downstream README:
+
+```markdown
+> **Continuity notice:** `chubes4/block-artifact-compiler` remains supported for existing Composer and WordPress plugin consumers while the canonical artifact compilation implementation moves to `automattic/blocks-engine-php-transformer`. New reusable compiler primitives should be proposed upstream in Blocks Engine. Compatibility bugs for BAC functions/classes, report fields, summaries, and package installability remain welcome here until a tagged direct-migration path is published.
+```
+
+Add issue template guidance that keeps reports about BAC public entrypoints and report compatibility in BAC, while upstreaming missing reusable artifact compiler APIs, result fields, diagnostics, and fixture gaps to `Automattic/blocks-engine`.
+
+Do not archive this repository in the wrapper PR. Keep the issue tracker open until supported consumers no longer require BAC functions/classes, report helpers, or the old Composer name.
+
 ## File-Level Patch Skeleton
 
 ```diff

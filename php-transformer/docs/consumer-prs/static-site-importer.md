@@ -51,6 +51,34 @@ During review, add the transformer path repository without removing the compatib
 
 Before merge, replace wrapper branch constraints and the transformer path constraint with tagged compatibility releases in this order: transformer, H2BC, BFB, BAC, then Static Site Importer.
 
+Do not use Composer `replace` or `provide` to satisfy `chubes4/block-format-bridge` or `chubes4/block-artifact-compiler` with `automattic/blocks-engine-php-transformer`. Static Site Importer needs the product-facing BFB/BAC compatibility surfaces until its own adapter has proven direct transformer parity.
+
+Recommended merge constraints after compatibility tags are available:
+
+```json
+{
+  "require": {
+    "php": "^8.1",
+    "chubes4/block-artifact-compiler": "^0.1.0",
+    "chubes4/block-format-bridge": "^0.1.0"
+  }
+}
+```
+
+Add `automattic/blocks-engine-php-transformer:^0.1.0` directly only in the commit that introduces and verifies SSI-owned direct transformer adapter paths. Until then, consume transformer behavior through tagged wrapper compatibility releases.
+
+## README And Issue Continuity
+
+Add this banner near the top of the downstream README:
+
+```markdown
+> **Dependency notice:** Static Site Importer remains the product plugin for WordPress import workflows. Its lower-level conversion dependencies are moving toward `automattic/blocks-engine-php-transformer` through tagged compatibility releases before direct transformer adoption. Product workflow bugs for uploads, imports, reports, generated themes, assets, and CLI/ability output remain welcome here.
+```
+
+Issue template guidance should keep product workflow reports in Static Site Importer, route BFB/BAC public surface regressions to those compatibility repositories, and link upstream Blocks Engine issues only for missing reusable transformer APIs or result fields.
+
+Do not archive Static Site Importer. Do not archive H2BC, BFB, or BAC as part of the SSI adapter PR; SSI should first prove it can consume tagged compatibility releases and then direct transformer calls without import-report or fallback regressions.
+
 ## File-Level Patch Skeleton
 
 ```diff
