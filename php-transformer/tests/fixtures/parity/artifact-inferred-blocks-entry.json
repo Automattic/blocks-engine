@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-inferred-blocks-entry",
+  "description": "Accepts serialized WordPress block markup as an artifact entry when kind is inferred from content.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-inferred-blocks-entry.json",
+    "notes": "Covers block comment detection for non-HTML artifact files."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Serialized block artifact entries are covered by the PHP transformer contract."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "files": [
+        {
+          "path": "page.fragment",
+          "content": "<!-- wp:paragraph --><p>Inferred block entry.</p><!-- /wp:paragraph -->"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.artifact.entry_path", "assert": "equals", "value": "page.fragment" },
+    { "path": "source_reports.artifact.files_by_kind.blocks", "assert": "equals", "value": 1 },
+    { "path": "diagnostics", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "equals", "value": "<!-- wp:paragraph --><p>Inferred block entry.</p><!-- /wp:paragraph -->" }
+  ]
+}
