@@ -1,5 +1,3 @@
-# PR Body Draft
-
 ## Summary
 
 This draft introduces `php-transformer` as the origin-clean PHP package for Blocks Engine transformation primitives. The package is `automattic/blocks-engine-php-transformer`, rooted at `php-transformer/`, and exposed through the `Automattic\BlocksEngine\PhpTransformer\` namespace.
@@ -10,7 +8,7 @@ The package owns reusable conversion contracts for HTML, declared content format
 
 This PR should be reviewed as a standalone package, not as a renamed predecessor repository. Existing consumer code paths are downstream migration evidence.
 
-Implementation should collapse into `php-transformer` where the behavior is a reusable primitive. Repository archive decisions are separate: old repositories can be archived only when no product or public consumer still needs their package name, functions, hooks, CLI commands, abilities, or other public entrypoints. If those entrypoints remain in use, the old repository should become a thin shim over tagged transformer APIs instead of adding new transformation logic.
+Implementation should collapse into `php-transformer` where the behavior is a reusable primitive. That does not mean immediate archival of older repositories. They can be archived only when no product or public consumer still needs their package name, functions, hooks, CLI commands, abilities, or other public entrypoints. If those entrypoints remain in use, the old repository should become a thin shim over tagged transformer APIs instead of adding new transformation logic.
 
 ## Current Package API
 
@@ -30,7 +28,7 @@ Other bundled classes are implementation details unless the README explicitly ma
 Expected local checks for this draft:
 
 - `git diff --check`
-- `composer validate` from `php-transformer/`
+- `cd php-transformer && composer validate`
 - `composer test` from `php-transformer/` when validating behavior, fixtures, and parity harnesses
 
 The parity harness validates current transformer output by default. Optional legacy comparisons are local migration evidence only and do not make old repositories part of the package API.
@@ -38,6 +36,7 @@ The parity harness validates current transformer output by default. Optional leg
 ## Next Steps
 
 - Keep the PR in draft until the package is installable and reviewable as a Composer library.
+- Run the first downstream dry-run against H2BC before widening to other consumers.
 - Replace any draft branch constraints in downstream plans with a tagged package constraint before downstream PRs merge.
 - Use downstream wrapper PRs to preserve old public surfaces while moving implementation to tagged transformer APIs.
 - Keep product plugins outside this package; they should consume transformer APIs through product-owned adapters rather than become part of this package.
