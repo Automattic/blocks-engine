@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-embed-iframe-media",
+  "description": "Converts clear URL-based iframe embeds to core/embed and preserves unsafe or non-URL iframe HTML as sanitized fallback metadata.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-embed-iframe-media.json",
+    "notes": "Product-neutral embed and iframe fallback coverage."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<iframe class=\"video-frame\" src=\"https://www.youtube.com/embed/abc123\" title=\"Demo video\"></iframe><iframe src=\"about:blank\" srcdoc=\"<script>alert(1)</script><p>Inline</p>\" onload=\"alert(1)\"></iframe>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/embed", "attrs": { "className": "video-frame", "url": "https://www.youtube.com/watch?v=abc123", "type": "video", "providerNameSlug": "youtube" } }
+  ],
+  "expected_fallbacks": [
+    { "type": "html", "reason": "iframe_embed_fallback", "tag": "iframe", "selector": "iframe:nth-of-type(2)" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-embed is-type-video is-provider-youtube wp-block-embed-youtube video-frame\"><div class=\"wp-block-embed__wrapper\">https://www.youtube.com/watch?v=abc123</div></figure>" },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.html", "assert": "not_contains", "value": "srcdoc" },
+    { "path": "fallbacks.0.html", "assert": "not_contains", "value": "onload" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+  ]
+}
