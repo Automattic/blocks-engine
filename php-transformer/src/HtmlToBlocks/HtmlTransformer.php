@@ -88,7 +88,7 @@ final class HtmlTransformer
         $diagnostics = array(
             array(
                 'code'    => 'html_to_blocks_core_slice',
-                'message' => 'Converted supported core text, media, table, button, shortcode, definition-list, and wrapper elements; unsupported elements are reported as fallbacks.',
+                'message' => 'Converted supported core text, media, table, button, shortcode, definition-list, details, navigation, and wrapper elements; unsupported elements are reported as fallbacks.',
                 'source'  => self::class,
             ),
         );
@@ -115,7 +115,7 @@ final class HtmlTransformer
             provenance: $provenance,
             coverage: array(
                 array(
-                    'supported_blocks' => array( 'core/button', 'core/buttons', 'core/code', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/shortcode', 'core/table' ),
+                    'supported_blocks' => array( 'core/button', 'core/buttons', 'core/code', 'core/details', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/shortcode', 'core/table' ),
                     'block_count'      => count($blocks),
                     'fallback_count'   => count($fallbacks),
                 ),
@@ -319,6 +319,18 @@ final class HtmlTransformer
             return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)));
         }
 
+        if ( 'details' === $tagName ) {
+            $summary = $this->firstChildElement($element, 'summary');
+            $children = $this->convertChildrenWithoutTags($element, $fallbacks, array( 'summary' ));
+            if ( null === $summary && array() === $children ) {
+                return null;
+            }
+
+            return $this->createBlock('core/details', array_filter(array_merge($this->presentationAttributes($element), array(
+                'summary' => $summary instanceof DOMElement ? $this->innerHtml($summary) : '',
+            )), static fn ($value): bool => '' !== $value), $children);
+        }
+
         if ( 'img' === $tagName ) {
             return $this->convertImageElement($element);
         }
@@ -348,7 +360,14 @@ final class HtmlTransformer
             return null;
         }
 
-        if ( in_array($tagName, array( 'article', 'body', 'div', 'main', 'section' ), true) ) {
+        if ( 'nav' === $tagName ) {
+            $navigationLinks = $this->navigationLinks($element);
+            if ( array() !== $navigationLinks ) {
+                return $this->createBlock('core/navigation', $this->presentationAttributes($element), $navigationLinks);
+            }
+        }
+
+        if ( in_array($tagName, array( 'article', 'body', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
             $buttonChildren = $this->buttonChildren($element);
             if ( array() !== $buttonChildren ) {
                 return $this->createBlock('core/buttons', $this->presentationAttributes($element), $buttonChildren);
@@ -443,7 +462,7 @@ final class HtmlTransformer
 
     private function shouldPreserveWrapper(DOMElement $element): bool
     {
-        return in_array(strtolower($element->tagName), array( 'article', 'div', 'main', 'section' ), true) && array() !== $this->presentationAttributes($element);
+        return in_array(strtolower($element->tagName), array( 'article', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) && array() !== $this->presentationAttributes($element);
     }
 
     private function isInlineContentElement(string $tagName): bool
@@ -529,6 +548,38 @@ final class HtmlTransformer
             $html .= $element->ownerDocument->saveHTML($child);
         }
         return trim($html);
+    }
+
+    /**
+     * @param array<int, string> $excludedTags
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<int, array<string, mixed>>
+     */
+    private function convertChildrenWithoutTags(DOMElement $element, array &$fallbacks, array $excludedTags): array
+    {
+        $blocks = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), $excludedTags, true) ) {
+                continue;
+            }
+
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                $text = trim($child->textContent ?? '');
+                if ( '' !== $text ) {
+                    $blocks = array_merge($blocks, $this->convertText($text));
+                }
+                continue;
+            }
+
+            if ( $child instanceof DOMElement ) {
+                $block = $this->convertElement($child, $fallbacks, true);
+                if ( null !== $block ) {
+                    $blocks[] = $block;
+                }
+            }
+        }
+
+        return $blocks;
     }
 
     /**
@@ -748,6 +799,65 @@ final class HtmlTransformer
             'text' => $this->innerHtml($anchor),
             'url'  => $this->attr($anchor, 'href'),
         )), static fn ($value): bool => '' !== $value));
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function navigationLinks(DOMElement $element): array
+    {
+        $links = array();
+        foreach ( $this->directNavigationAnchors($element) as $anchor ) {
+            $links[] = $this->createBlock('core/navigation-link', array_filter(array(
+                'label' => $this->innerHtml($anchor),
+                'url'   => $this->attr($anchor, 'href'),
+                'kind'  => 'custom',
+            ), static fn ($value): bool => '' !== $value));
+        }
+
+        return $links;
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function directNavigationAnchors(DOMElement $element): array
+    {
+        $anchors = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') ) {
+                $anchors[] = $child;
+                continue;
+            }
+
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                foreach ( $child->childNodes as $item ) {
+                    if ( XML_TEXT_NODE === $item->nodeType && '' === trim($item->textContent ?? '') ) {
+                        continue;
+                    }
+
+                    if ( ! $item instanceof DOMElement || 'li' !== strtolower($item->tagName) ) {
+                        return array();
+                    }
+
+                    $anchor = $this->firstChildElement($item, 'a');
+                    if ( ! $anchor instanceof DOMElement || '' === trim($anchor->textContent ?? '') || 1 !== $this->childElementCount($item) ) {
+                        return array();
+                    }
+
+                    $anchors[] = $anchor;
+                }
+                continue;
+            }
+
+            return array();
+        }
+
+        return $anchors;
     }
 
     /**
