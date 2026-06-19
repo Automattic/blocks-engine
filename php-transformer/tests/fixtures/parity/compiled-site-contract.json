@@ -1,0 +1,67 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "compiled-site-contract",
+  "description": "Compiles a generic site artifact into normalized pages, assets, and theme-ish output reports.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/compiled-site-contract.json",
+    "notes": "Covers the upstream compiled-site contract without product adapter semantics."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Compiled-site reporting is an upstream transformer contract with no legacy package equivalent."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "public/index.html",
+      "files": [
+        {
+          "path": "public/index.html",
+          "content": "<main><h1>Compiled Site</h1><p>Generic upstream contract.</p><img src=\"assets/hero.svg\" alt=\"Hero\"></main>"
+        },
+        {
+          "path": "public/about.html",
+          "content": "<main><h1>About The Site</h1><p>Secondary page.</p></main>"
+        },
+        {
+          "path": "public/assets/site.css",
+          "content": "main{max-width:60rem;margin:auto}",
+          "kind": "css"
+        },
+        {
+          "path": "public/assets/site.js",
+          "content": "document.documentElement.dataset.compiledSite='1';",
+          "kind": "js"
+        },
+        {
+          "path": "public/assets/hero.svg",
+          "content": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\"/></svg>",
+          "mime_type": "image/svg+xml"
+        },
+        {
+          "path": "content/guide.md",
+          "content": "---\ntitle: Guide Page\nslug: guide\n---\n\n# Guide Page\n\nMarkdown source page."
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
+    { "path": "status", "assert": "equals", "value": "success_with_warnings" },
+    { "path": "source_reports.artifact.schema", "assert": "equals", "value": "blocks-engine/php-transformer/site-artifact/v1" },
+    { "path": "source_reports.compiled_site.schema", "assert": "equals", "value": "blocks-engine/php-transformer/compiled-site/v1" },
+    { "path": "source_reports.compiled_site.entry_path", "assert": "equals", "value": "public/index.html" },
+    { "path": "source_reports.compiled_site.pages", "assert": "count", "count": 3 },
+    { "path": "source_reports.compiled_site.pages.0.title", "assert": "equals", "value": "Compiled Site" },
+    { "path": "source_reports.compiled_site.pages.0.entrypoint", "assert": "equals", "value": true },
+    { "path": "source_reports.compiled_site.pages.1.slug", "assert": "equals", "value": "about" },
+    { "path": "source_reports.compiled_site.pages.2.slug", "assert": "equals", "value": "guide" },
+    { "path": "source_reports.compiled_site.assets", "assert": "count", "count": 5 },
+    { "path": "source_reports.compiled_site.theme.stylesheets.0", "assert": "equals", "value": "public/assets/site.css" },
+    { "path": "source_reports.compiled_site.theme.scripts.0", "assert": "equals", "value": "public/assets/site.js" },
+    { "path": "source_reports.compiled_site.theme.images.0", "assert": "equals", "value": "public/assets/hero.svg" },
+    { "path": "documents.0.slug", "assert": "equals", "value": "guide" },
+    { "path": "assets.3.path", "assert": "equals", "value": "public/assets/hero.svg" }
+  ]
+}
