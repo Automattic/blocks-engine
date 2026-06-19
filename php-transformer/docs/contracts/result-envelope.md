@@ -20,7 +20,15 @@ Required top-level keys for successful transformations:
   "fallbacks": [],
   "provenance": [],
   "coverage": [],
-  "context": {}
+  "context": {},
+  "metrics": {
+    "input_bytes": 0,
+    "block_count": 0,
+    "fallback_count": 0,
+    "diagnostic_count": 0,
+    "transform_duration_ms": 0.0,
+    "output_bytes": 0
+  }
 }
 ```
 
@@ -33,5 +41,7 @@ Required top-level keys for successful transformations:
 `context` contains normalized per-call behavior flags. The stable keys are `strict` and `allow_fallbacks`. Callers may pass these keys at the top level of the options array or under `context`.
 
 `provenance` entries identify the transformer-owned operation and may include caller-supplied `source` and `scope` strings. These fields are generic metadata for wrappers and product integrations; canonical fixtures should avoid downstream package names.
+
+`metrics` is a generic counters/timing envelope for wrappers and observability. Transformers should populate `input_bytes`, `block_count`, `fallback_count`, `diagnostic_count`, `transform_duration_ms`, and `output_bytes` when the values are available without changing conversion behavior. `block_count` counts parsed block arrays recursively when blocks are produced; artifact-only compilers may report `0` until they materialize parsed block arrays. Product-specific compatibility reports should map from this envelope instead of relying on package-specific events.
 
 Callers may ignore keys they do not need. The package should keep these names stable enough for consumers to share contract fixtures while the draft API settles.

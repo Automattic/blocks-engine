@@ -52,7 +52,7 @@ $result  = ( new HtmlTransformer() )->transform($fixture . "\n<ul><li>One</li><l
 
 $assert(TransformerResult::SCHEMA === $result['schema'], 'result exposes schema');
 
-foreach ( array( 'status', 'components', 'block_types', 'source_reports', 'legacy_mapping', 'blocks', 'serialized_blocks', 'documents', 'assets', 'diagnostics', 'fallbacks', 'provenance', 'coverage', 'context' ) as $key ) {
+foreach ( array( 'status', 'components', 'block_types', 'source_reports', 'legacy_mapping', 'blocks', 'serialized_blocks', 'documents', 'assets', 'diagnostics', 'fallbacks', 'provenance', 'coverage', 'context', 'metrics' ) as $key ) {
     $assert(array_key_exists($key, $result), "Missing result key: {$key}");
 }
 
@@ -83,6 +83,12 @@ $assert('index.html' === ($simple['source_reports']['artifact']['entry_path'] ??
 $assert(str_contains((string) $simple['serialized_blocks'], '<!-- wp:html -->'), 'HTML is preserved as serialized block markup');
 $assert('hero' === ($simple['components'][0]['name'] ?? ''), 'component candidates are exposed');
 $assert(is_array($simple['legacy_mapping'] ?? null), 'migration mapping metadata is exposed');
+$assert(strlen('<main><article data-component="Hero"><h1>Hello artifact</h1></article></main>') === ($simple['metrics']['input_bytes'] ?? null), 'artifact metrics expose input bytes');
+$assert(strlen((string) $simple['serialized_blocks']) === ($simple['metrics']['output_bytes'] ?? null), 'artifact metrics expose output bytes');
+$assert(0 === ($simple['metrics']['block_count'] ?? null), 'artifact metrics expose block count');
+$assert(0 === ($simple['metrics']['fallback_count'] ?? null), 'artifact metrics expose fallback count');
+$assert(0 === ($simple['metrics']['diagnostic_count'] ?? null), 'artifact metrics expose diagnostic count');
+$assert(is_float($simple['metrics']['transform_duration_ms'] ?? null), 'artifact metrics expose transform duration');
 
 $missing = $compiler->compile(array('files' => array()))->toArray();
 $assert('failed' === $missing['status'], 'missing HTML fails explicitly', (string) $missing['status']);
@@ -306,6 +312,12 @@ assertSame('html', $result['fallbacks'][0]['source_format'], 'fallbacks should e
 assertSame('aside', $result['fallbacks'][0]['tag'], 'fallback should identify the unsupported tag.');
 assertContains('html_to_blocks_core_slice', array_column($result['diagnostics'], 'code'), 'expanded core-slice conversion diagnostic should be present.');
 assertSame('html', $result['provenance'][0]['source_format'], 'source provenance should identify HTML input.');
+assertSame(strlen($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><aside>Fallback</aside>"), $result['metrics']['input_bytes'], 'HTML metrics should expose input bytes.');
+assertSame(strlen($result['serialized_blocks']), $result['metrics']['output_bytes'], 'HTML metrics should expose output bytes.');
+assertSame(6, $result['metrics']['block_count'], 'HTML metrics should count nested blocks.');
+assertSame(1, $result['metrics']['fallback_count'], 'HTML metrics should expose fallback count.');
+assertSame(1, $result['metrics']['diagnostic_count'], 'HTML metrics should expose diagnostic count.');
+$assert(is_float($result['metrics']['transform_duration_ms'] ?? null), 'HTML metrics expose transform duration');
 
 if ( ! str_contains($result['serialized_blocks'], '<!-- wp:heading {"content":"Hello blocks","level":1} -->') ) {
     fwrite(STDERR, "Serialized blocks did not include the expected heading block.\n");

@@ -14,6 +14,7 @@ final class ArtifactCompiler
      */
     public function compile(array $artifact): TransformerResult
     {
+        $startedAt = hrtime(true);
         $normalized = ( new ArtifactNormalizer() )->normalize($artifact);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
         $documents = $this->compileSourceDocuments($normalized);
@@ -88,6 +89,14 @@ final class ArtifactCompiler
                     'input_keys'    => array_keys($artifact),
                     'source_hash'   => hash('sha256', $normalized['hash_payload']),
                 ),
+            ),
+            metrics: array(
+                'input_bytes'           => $normalized['bytes'],
+                'block_count'           => 0,
+                'fallback_count'        => 0,
+                'diagnostic_count'      => count($diagnostics),
+                'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
+                'output_bytes'          => strlen($serializedBlocks),
             )
         );
     }

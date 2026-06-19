@@ -78,6 +78,8 @@ Public entrypoints accept a generic options array. `source` and `scope` are copi
 
 `FormatBridge::convertResult()` forwards the original options array to adapters and exposes the normalized context/provenance metadata on the returned `TransformerResult`.
 
+The result envelope includes generic `metrics` for wrapper reporting: `input_bytes`, `block_count`, `fallback_count`, `diagnostic_count`, `transform_duration_ms`, and `output_bytes`.
+
 Use `FormatBridge::convertResult()` for format conversions and unsupported source or target format diagnostics:
 
 ```php

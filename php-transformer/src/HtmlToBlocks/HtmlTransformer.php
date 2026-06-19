@@ -25,6 +25,8 @@ final class HtmlTransformer
     public function transform(string $html, array $options = array()): TransformerResult
     {
         $context    = TransformationOptions::context($options);
+        $context    = TransformationOptions::context($options);
+        $startedAt  = hrtime(true);
         $provenance = array(
             array_merge(array(
                 'source_format' => 'html',
@@ -40,47 +42,57 @@ final class HtmlTransformer
         libxml_use_internal_errors($previous);
 
         if ( ! $loaded ) {
+            $diagnostics = array(
+                array(
+                    'code'    => 'html_parse_failed',
+                    'message' => 'Unable to parse HTML input.',
+                    'source'  => self::class,
+                ),
+            );
+            $fallbacks = array(
+                array(
+                    'type'            => 'html',
+                    'reason'          => 'parse_failed',
+                    'diagnostic_code' => 'html_parse_failed',
+                    'source_format'   => 'html',
+                    'html'            => $html,
+                ),
+            );
+
             return new TransformerResult(
-                diagnostics: array(
-                    array(
-                        'code'    => 'html_parse_failed',
-                        'message' => 'Unable to parse HTML input.',
-                        'source'  => self::class,
-                    ),
-                ),
-                fallbacks: array(
-                    array(
-                        'type'            => 'html',
-                        'reason'          => 'parse_failed',
-                        'diagnostic_code' => 'html_parse_failed',
-                        'source_format'   => 'html',
-                        'html'            => $html,
-                    ),
-                ),
+                diagnostics: $diagnostics,
+                fallbacks: $fallbacks,
                 provenance: $provenance,
-                context: $context
+                context: $context,
+                metrics: $this->metrics($html, array(), '', $fallbacks, $diagnostics, $startedAt)
             );
         }
 
         $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {
-            return new TransformerResult(provenance: $provenance, context: $context);
+            return new TransformerResult(
+                provenance: $provenance,
+                context: $context,
+                metrics: $this->metrics($html, array(), '', array(), array(), $startedAt)
+            );
         }
 
         $fallbacks = array();
         $blocks    = $this->convertChildren($body, $fallbacks, true);
+        $serializedBlocks = $this->runtime->serializeBlocks($blocks);
+        $diagnostics = array(
+            array(
+                'code'    => 'html_to_blocks_core_slice',
+                'message' => 'Converted supported core text, media, table, button, and shortcode elements; unsupported elements are reported as fallbacks.',
+                'source'  => self::class,
+            ),
+        );
 
         return new TransformerResult(
             status: $this->statusForFallbacks($fallbacks, $context),
             blocks: $blocks,
-            serializedBlocks: $this->runtime->serializeBlocks($blocks),
-            diagnostics: array(
-                array(
-                    'code'    => 'html_to_blocks_core_slice',
-                    'message' => 'Converted supported core text, media, table, button, and shortcode elements; unsupported elements are reported as fallbacks.',
-                    'source'  => self::class,
-                ),
-            ),
+            serializedBlocks: $serializedBlocks,
+            diagnostics: $diagnostics,
             fallbacks: $fallbacks,
             provenance: $provenance,
             coverage: array(
@@ -90,8 +102,44 @@ final class HtmlTransformer
                     'fallback_count'   => count($fallbacks),
                 ),
             ),
-            context: $context
+            context: $context,
+            metrics: $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt)
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, int|float>
+     */
+    private function metrics(string $input, array $blocks, string $output, array $fallbacks, array $diagnostics, int $startedAt): array
+    {
+        return array(
+            'input_bytes'           => strlen($input),
+            'block_count'           => $this->countBlocks($blocks),
+            'fallback_count'        => count($fallbacks),
+            'diagnostic_count'      => count($diagnostics),
+            'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
+            'output_bytes'          => strlen($output),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     */
+    private function countBlocks(array $blocks): int
+    {
+        $count = 0;
+
+        foreach ( $blocks as $block ) {
+            ++$count;
+            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $count += $this->countBlocks($block['innerBlocks']);
+            }
+        }
+
+        return $count;
     }
 
     /**
