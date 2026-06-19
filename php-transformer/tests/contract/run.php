@@ -183,6 +183,47 @@ foreach ( $normalized['assets'] as $asset ) {
 $assert('script' === ($scriptAsset['role'] ?? ''), 'JS asset role is exposed in manifest');
 $assert('behavior' === ($scriptAsset['intent'] ?? ''), 'JS asset intent is exposed in manifest');
 
+$documents = $compiler->compile(
+    array(
+        'files' => array(
+            'content/about.md' => "---\ntitle: About Us\nslug: about\npost_type: page\nexcerpt: Short summary\ndate: 2026-06-19\ntemplate: page-wide\ncategories: [News, Updates]\ntags: launch, artifact\n---\n# About\n\nMarkdown body.",
+        ),
+    )
+)->toArray();
+$assert('success_with_warnings' === $documents['status'], 'document-only Markdown compiles with fallback warning', (string) $documents['status']);
+$assert(1 === count($documents['documents']), 'Markdown source document is exposed');
+$assert('content/about.md' === ($documents['documents'][0]['source_path'] ?? ''), 'document source path is preserved');
+$assert('markdown' === ($documents['documents'][0]['body_format'] ?? ''), 'Markdown body format is exposed');
+$assert('About Us' === ($documents['documents'][0]['title'] ?? ''), 'frontmatter title is parsed');
+$assert('about' === ($documents['documents'][0]['slug'] ?? ''), 'frontmatter slug is parsed');
+$assert('page' === ($documents['documents'][0]['post_type'] ?? ''), 'frontmatter post type is parsed');
+$assert('Short summary' === ($documents['documents'][0]['excerpt'] ?? ''), 'frontmatter excerpt is parsed');
+$assert('2026-06-19' === ($documents['documents'][0]['date'] ?? ''), 'frontmatter date is parsed');
+$assert('page-wide' === ($documents['documents'][0]['template'] ?? ''), 'frontmatter template is parsed');
+$assert(array( 'News', 'Updates' ) === ($documents['documents'][0]['taxonomies']['categories'] ?? null), 'frontmatter category list is parsed');
+$assert('launch, artifact' === ($documents['documents'][0]['taxonomies']['tags'] ?? ''), 'frontmatter taxonomy scalar hints are preserved');
+$assert(str_contains((string) ($documents['documents'][0]['block_markup'] ?? ''), '<!-- wp:html -->'), 'Markdown fallback block markup is exposed');
+$assert(str_contains((string) $documents['serialized_blocks'], 'Markdown body.'), 'document fallback supplies serialized blocks when HTML is absent');
+$assert('markdown_adapter_unavailable' === ($documents['documents'][0]['diagnostics'][0]['code'] ?? ''), 'missing Markdown adapter diagnostic is attached to document');
+
+$mdx = $compiler->compile(
+    array(
+        'files' => array(
+            'docs/page.mdx' => "---\ntitle: MDX Page\n---\nimport Hero from '../components/Hero';\nimport { Card as FeatureCard } from './FeatureCard';\n# MDX\n\n<Hero />\n<FeatureCard />\n<MissingThing />",
+            'components/Hero.jsx' => 'export default function Hero() { return <section />; }',
+        ),
+    )
+)->toArray();
+$assert('success_with_warnings' === $mdx['status'], 'MDX documents compile with partial-support warnings', (string) $mdx['status']);
+$assert('mdx' === ($mdx['documents'][0]['kind'] ?? ''), 'MDX source document is classified');
+$assert('mdx' === ($mdx['documents'][0]['body_format'] ?? ''), 'MDX body format is exposed');
+$assert('Hero' === ($mdx['components'][0]['name'] ?? ''), 'MDX component candidate is exposed');
+$assert('components/Hero.jsx' === ($mdx['components'][0]['resolved_path'] ?? ''), 'relative MDX imports resolve to artifact files');
+$mdxDiagnosticCodes = array_column($mdx['diagnostics'], 'code');
+$assert(in_array('mdx_source_document_detected', $mdxDiagnosticCodes, true), 'MDX detection diagnostic is emitted');
+$assert(in_array('mdx_import_unresolved', $mdxDiagnosticCodes, true), 'unresolved relative MDX imports are diagnosed');
+$assert(in_array('mdx_component_unresolved', $mdxDiagnosticCodes, true), 'unimported MDX component references are diagnosed');
+
 $tooLarge = $compiler->compile(
     array(
         'files' => array(

@@ -19,18 +19,22 @@ final class ArtifactCompiler
     {
         $normalized = $this->normalizeArtifact($artifact);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
-        $diagnostics = $normalized['diagnostics'];
+        $documents = $this->compileSourceDocuments($normalized);
+        $diagnostics = array_merge($normalized['diagnostics'], $documents['diagnostics']);
 
-        if ( null === $entry ) {
+        if ( null === $entry && array() === $documents['documents'] ) {
             $diagnostics[] = $this->diagnostic('missing_entry_html', 'error', 'No HTML entry file was available to compile.');
         }
 
         $entryPath = is_array($entry) ? (string) $entry['path'] : '';
         $html = is_array($entry) ? (string) $entry['content'] : '';
         $assets = $this->assetManifest($normalized['files'], $entryPath);
-        $components = $this->detectComponents($html);
+        $components = $this->detectComponents($html, $documents['components']);
         $blockTypes = $this->detectBlockTypes($normalized['files']);
         $serializedBlocks = '' === trim($html) ? '' : '<!-- wp:html -->' . "\n" . $html . "\n" . '<!-- /wp:html -->';
+        if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
+            $serializedBlocks = (string) $documents['documents'][0]['block_markup'];
+        }
         $sourceReports = array(
             'artifact' => array(
                 'schema'          => self::INPUT_SCHEMA,
@@ -78,6 +82,7 @@ final class ArtifactCompiler
                 ),
             ),
             serializedBlocks: $serializedBlocks,
+            documents: $documents['documents'],
             assets: $assets,
             diagnostics: $diagnostics,
             provenance: array(
@@ -200,6 +205,10 @@ final class ArtifactCompiler
                 $normalized['intent'] = $intent;
             }
 
+            if ( 'mdx' === $kind ) {
+                $diagnostics[] = $this->diagnostic('mdx_source_document_detected', 'warning', 'MDX source document support is partial; the source was preserved and inspectable document/component metadata was extracted.', array('path' => $path));
+            }
+
             $bytes += $normalized['bytes'];
             $files[] = $normalized;
         }
@@ -211,6 +220,84 @@ final class ArtifactCompiler
             'bytes'          => $bytes,
             'entrypoints'    => array_values(array_unique($safeEntrypoints)),
             'hash_payload'   => $this->fileHashPayload($files),
+        );
+    }
+
+    /**
+     * @param array{files: array<int, array<string, mixed>>} $artifact
+     * @return array{documents: array<int, array<string, mixed>>, components: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>}
+     */
+    private function compileSourceDocuments(array $artifact): array
+    {
+        $documents = array();
+        $components = array();
+        $diagnostics = array();
+
+        foreach ( $artifact['files'] as $file ) {
+            if ( ! in_array($file['kind'], array('markdown', 'mdx'), true) || ! empty($file['binary']) ) {
+                continue;
+            }
+
+            $parsed = $this->parseFrontmatter((string) $file['content']);
+            $body = $parsed['body'];
+            $frontmatter = $parsed['frontmatter'];
+            $documentDiagnostics = array();
+
+            if ( 'mdx' === $file['kind'] ) {
+                $mdx = $this->extractMdxSemantics($body, $file, $artifact);
+                $body = $mdx['markdown_body'];
+                $components = array_merge($components, $mdx['components']);
+                $documentDiagnostics = array_merge($documentDiagnostics, $mdx['diagnostics']);
+            }
+
+            $conversion = $this->convertMarkdownToBlocks($body);
+            $documentDiagnostics = array_merge($documentDiagnostics, $conversion['diagnostics']);
+            $diagnostics = array_merge($diagnostics, $documentDiagnostics);
+
+            $documents[] = array(
+                'source_path'  => $file['path'],
+                'kind'         => $file['kind'],
+                'post_type'    => $this->frontmatterString($frontmatter, array('post_type', 'type'), 'page'),
+                'slug'         => $this->frontmatterString($frontmatter, array('slug'), $this->slugFromPath((string) $file['path'])),
+                'title'        => $this->frontmatterString($frontmatter, array('title'), $this->titleFromPath((string) $file['path'])),
+                'excerpt'      => $this->frontmatterString($frontmatter, array('excerpt', 'description'), ''),
+                'date'         => $this->frontmatterString($frontmatter, array('date', 'published', 'published_at'), ''),
+                'template'     => $this->frontmatterString($frontmatter, array('template', 'layout'), ''),
+                'taxonomies'   => $this->frontmatterTaxonomies($frontmatter),
+                'frontmatter'  => $frontmatter,
+                'body'         => $body,
+                'body_format'  => 'mdx' === $file['kind'] ? 'mdx' : 'markdown',
+                'block_markup' => $conversion['serialized_blocks'],
+                'diagnostics'  => $documentDiagnostics,
+                'provenance'   => $file['provenance'],
+            );
+        }
+
+        return array(
+            'documents'   => $documents,
+            'components'  => $components,
+            'diagnostics' => $this->dedupeDiagnostics($diagnostics),
+        );
+    }
+
+    /**
+     * @return array{serialized_blocks: string, diagnostics: array<int, array<string, mixed>>}
+     */
+    private function convertMarkdownToBlocks(string $markdown): array
+    {
+        if ( function_exists('bfb_convert') ) {
+            $blockMarkup = (string) bfb_convert($markdown, 'markdown', 'blocks');
+            return array(
+                'serialized_blocks' => $blockMarkup,
+                'diagnostics'       => array(),
+            );
+        }
+
+        return array(
+            'serialized_blocks' => '<!-- wp:html -->' . "\n" . $markdown . "\n" . '<!-- /wp:html -->',
+            'diagnostics'       => array(
+                $this->diagnostic('markdown_adapter_unavailable', 'warning', 'A Markdown adapter is unavailable; preserved source Markdown as a core/html fallback.'),
+            ),
         );
     }
 
@@ -554,18 +641,233 @@ final class ArtifactCompiler
     }
 
     /**
+     * @param array<int, array<string, mixed>> $sourceDocumentComponents
      * @return array<int, array<string, mixed>>
      */
-    private function detectComponents(string $html): array
+    private function detectComponents(string $html, array $sourceDocumentComponents = array()): array
     {
-        if ( ! preg_match_all('/data-component=["\']([^"\']+)["\']/i', $html, $matches) ) {
-            return array();
+        $components = array();
+        foreach ( $sourceDocumentComponents as $component ) {
+            $key = 'mdx:' . (string) ($component['source'] ?? '') . ':' . (string) ($component['name'] ?? '');
+            $components[$key] = $component;
         }
 
-        return array_map(
-            static fn (string $name): array => array('name' => $name, 'signal' => 'data-component'),
-            array_values(array_unique($matches[1]))
+        if ( ! preg_match_all('/data-component=["\']([^"\']+)["\']/i', $html, $matches) ) {
+            return array_values($components);
+        }
+
+        foreach ( array_values(array_unique($matches[1])) as $name ) {
+            $key = 'data-component:' . $this->sanitizeKey($name);
+            $components[$key] = array('name' => $name, 'signal' => 'data-component');
+        }
+
+        return array_values($components);
+    }
+
+    /**
+     * @return array{frontmatter: array<string, mixed>, body: string}
+     */
+    private function parseFrontmatter(string $content): array
+    {
+        if ( ! preg_match('/\A---\s*\R(.*?)\R---\s*\R?/s', $content, $matches) ) {
+            return array(
+                'frontmatter' => array(),
+                'body'        => $content,
+            );
+        }
+
+        $frontmatter = array();
+        $lines = preg_split('/\R/', trim($matches[1]));
+        foreach ( false === $lines ? array() : $lines as $line ) {
+            if ( ! preg_match('/^([A-Za-z0-9_-]+)\s*:\s*(.*)$/', $line, $pair) ) {
+                continue;
+            }
+
+            $value = trim($pair[2], " \t\n\r\0\x0B\"'");
+            if ( preg_match('/^\[(.*)\]$/', $value, $list) ) {
+                $value = array_values(array_filter(array_map(static fn (string $item): string => trim($item, " \t\n\r\0\x0B\"'"), explode(',', $list[1])), static fn (string $item): bool => '' !== $item));
+            }
+
+            $frontmatter[$this->sanitizeKey($pair[1])] = $value;
+        }
+
+        return array(
+            'frontmatter' => $frontmatter,
+            'body'        => substr($content, strlen($matches[0])),
         );
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     * @param array{files: array<int, array<string, mixed>>} $artifact
+     * @return array{markdown_body: string, components: array<int, array<string, mixed>>, diagnostics: array<int, array<string, mixed>>}
+     */
+    private function extractMdxSemantics(string $body, array $file, array $artifact): array
+    {
+        $imports = $this->extractMdxImports($body);
+        $components = array();
+        $diagnostics = array();
+        $sourcePath = (string) $file['path'];
+
+        if ( preg_match_all('/<([A-Z][A-Za-z0-9._-]*)(?:\s[^>]*)?\s*(?:>|\/>)/', $body, $matches) ) {
+            foreach ( $matches[1] as $name ) {
+                $import = $imports[$name] ?? null;
+                $resolved = is_array($import) ? $this->resolveComponentImport((string) $import['path'], $sourcePath, $artifact) : '';
+                $component = array(
+                    'name'        => $name,
+                    'source'      => $sourcePath,
+                    'signal'      => 'mdx-jsx',
+                    'occurrences' => ($components[$name]['occurrences'] ?? 0) + 1,
+                    'provenance'  => array('source_path' => $sourcePath),
+                );
+
+                if ( is_array($import) ) {
+                    $component['import_path'] = $import['path'];
+                }
+                if ( '' !== $resolved ) {
+                    $component['resolved_path'] = $resolved;
+                }
+
+                $components[$name] = $component;
+
+                if ( ! is_array($import) ) {
+                    $diagnostics[] = $this->diagnostic('mdx_component_unresolved', 'warning', 'MDX component reference has no matching import.', array('path' => $sourcePath, 'component' => $name));
+                } elseif ( '' === $resolved && str_starts_with((string) $import['path'], '.') ) {
+                    $diagnostics[] = $this->diagnostic('mdx_import_unresolved', 'warning', 'MDX component import could not be linked to a generated source file.', array('path' => $sourcePath, 'component' => $name, 'import_path' => $import['path']));
+                }
+            }
+        }
+
+        $markdownBody = preg_replace('/^\s*import\s+[^;\r\n]+;?\s*$/m', '', $body) ?? $body;
+        $markdownBody = preg_replace('/^\s*export\s+[^\r\n]+\s*$/m', '', $markdownBody) ?? $markdownBody;
+        $markdownBody = preg_replace('/<([A-Z][A-Za-z0-9._-]*)(?:\s[^>]*)?\s*\/>/', '', $markdownBody) ?? $markdownBody;
+        $markdownBody = preg_replace('/<\/?[A-Z][A-Za-z0-9._-]*(?:\s[^>]*)?>/', '', $markdownBody) ?? $markdownBody;
+
+        return array(
+            'markdown_body' => trim($markdownBody),
+            'components'    => array_values($components),
+            'diagnostics'   => $this->dedupeDiagnostics($diagnostics),
+        );
+    }
+
+    /**
+     * @return array<string, array{path: string}>
+     */
+    private function extractMdxImports(string $body): array
+    {
+        $imports = array();
+        if ( ! preg_match_all('/^\s*import\s+(.+?)\s+from\s+["\']([^"\']+)["\'];?\s*$/m', $body, $matches, PREG_SET_ORDER) ) {
+            return $imports;
+        }
+
+        foreach ( $matches as $match ) {
+            $clause = trim($match[1]);
+            $path = $match[2];
+            if ( preg_match('/^([A-Z][A-Za-z0-9_]*)/', $clause, $default) ) {
+                $imports[$default[1]] = array('path' => $path);
+            }
+            if ( preg_match('/\{([^}]+)\}/', $clause, $named) ) {
+                foreach ( explode(',', $named[1]) as $name ) {
+                    $parts = preg_split('/\s+as\s+/i', trim($name));
+                    $alias = trim((string) end($parts));
+                    if ( preg_match('/^[A-Z][A-Za-z0-9_]*$/', $alias) ) {
+                        $imports[$alias] = array('path' => $path);
+                    }
+                }
+            }
+        }
+
+        return $imports;
+    }
+
+    /**
+     * @param array{files: array<int, array<string, mixed>>} $artifact
+     */
+    private function resolveComponentImport(string $importPath, string $sourcePath, array $artifact): string
+    {
+        if ( ! str_starts_with($importPath, '.') ) {
+            return '';
+        }
+
+        $base = dirname($sourcePath);
+        $path = $this->normalizeRelativeImportPath(('.' === $base ? '' : $base . '/') . $importPath);
+        if ( '' === $path ) {
+            return '';
+        }
+
+        $candidates = array($path);
+        foreach ( array('js', 'jsx', 'ts', 'tsx', 'mdx') as $extension ) {
+            $candidates[] = $path . '.' . $extension;
+            $candidates[] = $path . '/index.' . $extension;
+        }
+
+        foreach ( $artifact['files'] as $file ) {
+            if ( in_array($file['path'], $candidates, true) ) {
+                return (string) $file['path'];
+            }
+        }
+
+        return '';
+    }
+
+    private function normalizeRelativeImportPath(string $path): string
+    {
+        $segments = array();
+        foreach ( explode('/', str_replace('\\', '/', $path)) as $segment ) {
+            if ( '' === $segment || '.' === $segment ) {
+                continue;
+            }
+            if ( '..' === $segment ) {
+                array_pop($segments);
+                continue;
+            }
+            $segments[] = preg_replace('/[^A-Za-z0-9._-]/', '-', $segment);
+        }
+
+        return implode('/', array_filter($segments));
+    }
+
+    /**
+     * @param array<string, mixed> $frontmatter
+     * @param array<int, string> $keys
+     */
+    private function frontmatterString(array $frontmatter, array $keys, string $fallback): string
+    {
+        foreach ( $keys as $key ) {
+            if ( isset($frontmatter[$key]) && is_scalar($frontmatter[$key]) && '' !== trim((string) $frontmatter[$key]) ) {
+                return (string) $frontmatter[$key];
+            }
+        }
+
+        return $fallback;
+    }
+
+    /**
+     * @param array<string, mixed> $frontmatter
+     * @return array<string, mixed>
+     */
+    private function frontmatterTaxonomies(array $frontmatter): array
+    {
+        $taxonomies = array();
+        foreach ( array('category', 'categories', 'tag', 'tags') as $key ) {
+            if ( isset($frontmatter[$key]) ) {
+                $taxonomies[$key] = $frontmatter[$key];
+            }
+        }
+
+        return $taxonomies;
+    }
+
+    private function slugFromPath(string $path): string
+    {
+        $base = preg_replace('/\.[A-Za-z0-9]+$/', '', basename($path));
+        $base = '' === $base || null === $base ? 'document' : $base;
+        return $this->sanitizeKey(str_replace(array('_', '.'), '-', $base));
+    }
+
+    private function titleFromPath(string $path): string
+    {
+        return ucwords(str_replace('-', ' ', $this->slugFromPath($path)));
     }
 
     /**
