@@ -129,6 +129,60 @@ $blocks = $compiler->compile(
 $assert(1 === count($blocks['block_types']), 'block.json roots are promoted into block type artifacts');
 $assert('acme/hero' === ($blocks['block_types'][0]['name'] ?? ''), 'block type name is preserved');
 
+$normalized = $compiler->compile(
+    array(
+        'entry'   => 'public/index.html',
+        'files'   => array(
+            array(
+                'name' => 'public/index.html',
+                'body' => '<main><h1>Aliases</h1></main>',
+            ),
+            'public/index.html' => '<main><h1>Duplicate path</h1></main>',
+            'data/settings.json' => '{"ok":true}',
+            'docs/readme.mdx' => '# Hello',
+        ),
+        'styles'  => 'body { color: rebeccapurple; }',
+        'script'  => 'console.log("artifact");',
+        'outputs' => array(
+            array(
+                'name' => 'assets/icon.svg',
+                'content' => '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+            ),
+        ),
+    )
+)->toArray();
+$assert('public/index.html' === ($normalized['source_reports']['artifact']['entry_path'] ?? ''), 'entry alias selects public index HTML');
+$assetPaths = array_column($normalized['assets'], 'path');
+$assert(in_array('public/index-2.html', $assetPaths, true), 'duplicate paths are deduped deterministically');
+$assert(in_array('style.css', $assetPaths, true), 'styles shorthand becomes a CSS file');
+$assert(in_array('site.js', $assetPaths, true), 'script shorthand becomes a JS file');
+$assert(1 === ($normalized['source_reports']['artifact']['files_by_mime']['text/mdx'] ?? 0), 'MDX MIME is inferred');
+$assert(1 === ($normalized['source_reports']['artifact']['files_by_role']['stylesheet'] ?? 0), 'CSS role is inferred');
+$assert(1 === ($normalized['source_reports']['artifact']['files_by_intent']['behavior'] ?? 0), 'JS intent is inferred');
+$assert(1 === ($normalized['source_reports']['artifact']['files_by_source']['styles'] ?? 0), 'source counts include top-level shorthand source');
+$assert(! empty($normalized['source_reports']['artifact']['source_hash'] ?? ''), 'stable source hash is exposed in source reports');
+$scriptAsset = null;
+foreach ( $normalized['assets'] as $asset ) {
+    if ( 'site.js' === ($asset['path'] ?? '') ) {
+        $scriptAsset = $asset;
+        break;
+    }
+}
+$assert('script' === ($scriptAsset['role'] ?? ''), 'JS asset role is exposed in manifest');
+$assert('behavior' === ($scriptAsset['intent'] ?? ''), 'JS asset intent is exposed in manifest');
+
+$tooLarge = $compiler->compile(
+    array(
+        'files' => array(
+            'index.html' => '<main>OK</main>',
+            'huge.txt' => str_repeat('x', 1048577),
+        ),
+    )
+)->toArray();
+$assert('success_with_warnings' === $tooLarge['status'], 'oversized files are rejected with a warning status');
+$assert(1 === ($tooLarge['source_reports']['artifact']['rejected_count'] ?? null), 'oversized file increments rejected count');
+$assert('artifact_file_too_large' === ($tooLarge['diagnostics'][0]['code'] ?? ''), 'oversized file diagnostic is exposed');
+
 assertSame('core/group', $result['blocks'][0]['blockName'], 'main wrapper should preserve multiple supported child blocks in a group.');
 assertSame('core/heading', $result['blocks'][0]['innerBlocks'][0]['blockName'], 'h1 should convert to a heading block.');
 assertSame(1, $result['blocks'][0]['innerBlocks'][0]['attrs']['level'], 'h1 level should be preserved.');
