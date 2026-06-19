@@ -37,6 +37,11 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.artifact.files_by_mime.image/svg+xml", "assert": "equals", "value": 1 },
+    { "path": "source_reports.artifact.image_references.0.source_path", "assert": "equals", "value": "pages/home.html" },
+    { "path": "source_reports.artifact.image_references.0.selector", "assert": "equals", "value": "img:nth-of-type(1)" },
+    { "path": "source_reports.artifact.image_references.0.resolved_path", "assert": "equals", "value": "assets/logo.svg" },
+    { "path": "source_reports.artifact.image_references.0.asset_path", "assert": "equals", "value": "assets/logo.svg" },
+    { "path": "source_reports.artifact.image_references.0.safe", "assert": "equals", "value": true },
     { "path": "assets.0.path", "assert": "equals", "value": "assets/logo.svg" },
     { "path": "assets.0.content", "assert": "contains", "value": "<svg" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },

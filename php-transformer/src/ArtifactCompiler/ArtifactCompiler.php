@@ -64,6 +64,7 @@ final class ArtifactCompiler
                     'bytes'         => strlen($html),
                     'element_count' => preg_match_all('/<\s*[a-z][a-z0-9:-]*(?:\s|>|\/)/i', $html),
                 ),
+                'image_references' => $this->imageReferenceReport($html, $entryPath, $normalized['files']),
             ),
         );
 
@@ -154,6 +155,40 @@ final class ArtifactCompiler
         }
 
         return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function imageReferenceReport(string $html, string $entryPath, array $files): array
+    {
+        if ( '' === trim($html) || ! preg_match_all('/<img\s+[^>]*src\s*=\s*(["\'])([^"\']+)\1[^>]*>/i', $html, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $references = array();
+        foreach ( $matches as $index => $match ) {
+            $src = (string) $match[2];
+            $asset = $this->findAssetByHtmlReference($src, $entryPath, $files);
+            $reference = array(
+                'source_path'   => $entryPath,
+                'selector'      => 'img:nth-of-type(' . ($index + 1) . ')',
+                'src'           => $src,
+                'resolved_path' => $this->resolveHtmlReferencePath($src, $entryPath),
+            );
+
+            if ( is_array($asset) ) {
+                $reference['asset_path'] = $asset['path'];
+                $reference['mime_type'] = $asset['mime_type'];
+                $reference['bytes'] = $asset['bytes'];
+                $reference['safe'] = $this->isSafeImageAsset($asset);
+            }
+
+            $references[] = $reference;
+        }
+
+        return $references;
     }
 
     /**
@@ -403,7 +438,7 @@ final class ArtifactCompiler
     {
         $reference = strtok($reference, '?#') ?: '';
         $reference = str_replace('\\', '/', trim($reference));
-        if ( '' === $reference || str_starts_with($reference, '/') ) {
+        if ( '' === $reference || str_starts_with($reference, '/') || preg_match('#^[a-z][a-z0-9+.-]*:#i', $reference) ) {
             return '';
         }
 
