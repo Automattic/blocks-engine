@@ -94,7 +94,9 @@ final class HtmlTransformer
                     'code'    => $fallback['diagnostic_code'],
                     'message' => $fallback['message'] ?? 'HTML element preserved as fallback metadata.',
                     'source'  => self::class,
+                    'reason'  => $fallback['reason'] ?? null,
                     'tag'     => $fallback['tag'] ?? null,
+                    'selector' => $fallback['selector'] ?? null,
                 );
             }
         }
@@ -332,6 +334,10 @@ final class HtmlTransformer
                 'message'         => 'Form HTML requires runtime behavior and was preserved as safe fallback metadata.',
                 'source_format'   => 'html',
                 'tag'             => $tagName,
+                'selector'        => $this->elementSelector($element),
+                'attributes'      => $this->htmlAttributes($element),
+                'text_length'     => strlen(trim($element->textContent ?? '')),
+                'child_count'     => $this->childElementCount($element),
                 'html'            => $this->safeFallbackHtml($element),
             );
             return null;
@@ -363,6 +369,10 @@ final class HtmlTransformer
                 'diagnostic_code' => 'html_unsupported_element',
                 'source_format'   => 'html',
                 'tag'             => $tagName,
+                'selector'        => $this->elementSelector($element),
+                'attributes'      => $this->htmlAttributes($element),
+                'text_length'     => strlen(trim($element->textContent ?? '')),
+                'child_count'     => $this->childElementCount($element),
                 'html'            => $this->outerHtml($element),
             );
         }
@@ -439,6 +449,51 @@ final class HtmlTransformer
     private function hasClass(DOMElement $element, string $className): bool
     {
         return in_array($className, preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array(), true);
+    }
+
+    private function elementSelector(DOMElement $element): string
+    {
+        $parts = array();
+        $current = $element;
+        while ( $current instanceof DOMElement && 'body' !== strtolower($current->tagName) ) {
+            $tagName = strtolower($current->tagName);
+            $index = 1;
+            for ( $sibling = $current->previousSibling; $sibling instanceof DOMNode; $sibling = $sibling->previousSibling ) {
+                if ( $sibling instanceof DOMElement && strtolower($sibling->tagName) === $tagName ) {
+                    ++$index;
+                }
+            }
+            array_unshift($parts, $tagName . ':nth-of-type(' . $index . ')');
+            $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null;
+        }
+
+        return implode(' > ', $parts);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function htmlAttributes(DOMElement $element): array
+    {
+        $attributes = array();
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $attributes[$attribute->nodeName] = $attribute->nodeValue ?? '';
+        }
+
+        ksort($attributes);
+        return $attributes;
+    }
+
+    private function childElementCount(DOMElement $element): int
+    {
+        $count = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                ++$count;
+            }
+        }
+
+        return $count;
     }
 
     private function closestTagName(DOMElement $element): ?string

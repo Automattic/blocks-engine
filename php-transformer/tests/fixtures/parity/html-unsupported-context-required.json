@@ -19,13 +19,15 @@
     { "path": "blocks.0", "name": "core/heading", "attrs": { "content": "Supported sibling", "level": 2 } }
   ],
   "expected_fallbacks": [
-    { "type": "unsupported_element", "tag": "custom-card" },
-    { "type": "html", "reason": "form_requires_runtime", "tag": "form" }
+    { "type": "unsupported_element", "reason": "unsupported_element", "tag": "custom-card", "selector": "main:nth-of-type(1) > custom-card:nth-of-type(1)", "child_count": 1 },
+    { "type": "html", "reason": "form_requires_runtime", "tag": "form", "selector": "main:nth-of-type(1) > form:nth-of-type(1)", "child_count": 1 }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "fallbacks", "assert": "count", "count": 2 },
+    { "path": "diagnostics.1.selector", "assert": "equals", "value": "main:nth-of-type(1) > custom-card:nth-of-type(1)" },
+    { "path": "diagnostics.2.reason", "assert": "equals", "value": "form_requires_runtime" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 2 }
   ]
 }
