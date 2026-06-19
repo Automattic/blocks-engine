@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 final class ArtifactCompiler
 {
-    private const INPUT_SCHEMA = 'block-artifact-compiler/website-artifact/v1';
+    private const INPUT_SCHEMA = 'blocks-engine/php-transformer/site-artifact/v1';
 
     /**
      * @param array<string, mixed> $artifact
@@ -67,6 +67,7 @@ final class ArtifactCompiler
                 'image_references' => $this->imageReferenceReport($html, $entryPath, $normalized['files']),
             ),
         );
+        $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks);
 
         return new TransformerResult(
             status: $this->statusFromDiagnostics($diagnostics),
@@ -198,6 +199,150 @@ final class ArtifactCompiler
         }
 
         return $references;
+    }
+
+    /**
+     * @param array{files: array<int, array<string, mixed>>, bytes: int, hash_payload: string} $artifact
+     * @param array<int, array<string, mixed>> $documents
+     * @param array<int, array<string, mixed>> $assets
+     * @param array<int, array<string, mixed>> $blockTypes
+     * @return array<string, mixed>
+     */
+    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array $assets, array $blockTypes, string $serializedBlocks): array
+    {
+        $pages = array();
+        foreach ( $artifact['files'] as $file ) {
+            if ( 'html' !== ($file['kind'] ?? '') ) {
+                continue;
+            }
+
+            $path = (string) ($file['path'] ?? '');
+            $pages[] = array_filter(
+                array(
+                    'source_path'    => $path,
+                    'kind'           => 'html',
+                    'role'           => $file['role'] ?? 'document',
+                    'entrypoint'     => $path === $entryPath || ! empty($file['entrypoint']),
+                    'slug'           => $this->slugFromPath($path),
+                    'title'          => $this->titleFromHtml((string) ($file['content'] ?? ''), $path),
+                    'body_format'    => 'html',
+                    'block_markup'   => $path === $entryPath ? $serializedBlocks : '',
+                    'bytes'          => $file['bytes'] ?? 0,
+                    'mime_type'      => $file['mime_type'] ?? 'text/html',
+                    'asset_references' => $path === $entryPath ? $this->assetReferencePaths($assets) : array(),
+                    'provenance'     => $file['provenance'] ?? array(),
+                ),
+                static fn (mixed $value): bool => array() !== $value
+            );
+        }
+
+        foreach ( $documents as $document ) {
+            $pages[] = array_filter(
+                array(
+                    'source_path'  => $document['source_path'] ?? '',
+                    'kind'         => $document['kind'] ?? 'document',
+                    'role'         => 'document',
+                    'entrypoint'   => false,
+                    'slug'         => $document['slug'] ?? '',
+                    'title'        => $document['title'] ?? '',
+                    'body_format'  => $document['body_format'] ?? '',
+                    'block_markup' => $document['block_markup'] ?? '',
+                    'provenance'   => $document['provenance'] ?? array(),
+                ),
+                static fn (mixed $value): bool => array() !== $value
+            );
+        }
+
+        return array(
+            'schema'      => 'blocks-engine/php-transformer/compiled-site/v1',
+            'source_hash' => hash('sha256', $artifact['hash_payload']),
+            'entry_path'  => $entryPath,
+            'pages'       => $pages,
+            'assets'      => $this->compiledSiteAssets($assets),
+            'theme'       => array(
+                'stylesheets' => $this->assetPathsByIntentOrRole($assets, 'style', 'stylesheet'),
+                'scripts'     => $this->assetPathsByIntentOrRole($assets, 'behavior', 'script'),
+                'fonts'       => $this->assetPathsByRole($assets, 'font'),
+                'images'      => $this->assetPathsByRole($assets, 'image'),
+                'block_types' => array_values(array_map(
+                    static fn (array $blockType): string => (string) ($blockType['name'] ?? ''),
+                    $blockTypes
+                )),
+            ),
+            'totals'      => array(
+                'pages'       => count($pages),
+                'assets'      => count($assets),
+                'input_bytes' => $artifact['bytes'],
+            ),
+        );
+    }
+
+    private function titleFromHtml(string $html, string $path): string
+    {
+        if ( preg_match('/<h1\b[^>]*>(.*?)<\/h1>/is', $html, $match) || preg_match('/<title\b[^>]*>(.*?)<\/title>/is', $html, $match) ) {
+            $title = trim(html_entity_decode(strip_tags($match[1]), ENT_QUOTES | ENT_HTML5));
+            if ( '' !== $title ) {
+                return $title;
+            }
+        }
+
+        return $this->titleFromPath($path);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assets
+     * @return array<int, array<string, mixed>>
+     */
+    private function compiledSiteAssets(array $assets): array
+    {
+        return array_values(array_map(
+            static fn (array $asset): array => array_filter(
+                array(
+                    'path'      => $asset['path'] ?? '',
+                    'kind'      => $asset['kind'] ?? '',
+                    'role'      => $asset['role'] ?? '',
+                    'intent'    => $asset['intent'] ?? '',
+                    'mime_type' => $asset['mime_type'] ?? '',
+                    'bytes'     => $asset['bytes'] ?? 0,
+                    'binary'    => $asset['binary'] ?? false,
+                ),
+                static fn (mixed $value): bool => '' !== $value
+            ),
+            $assets
+        ));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assets
+     * @return array<int, string>
+     */
+    private function assetReferencePaths(array $assets): array
+    {
+        return array_values(array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $assets));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assets
+     * @return array<int, string>
+     */
+    private function assetPathsByIntentOrRole(array $assets, string $intent, string $role): array
+    {
+        return array_values(array_map(
+            static fn (array $asset): string => (string) ($asset['path'] ?? ''),
+            array_filter($assets, static fn (array $asset): bool => $intent === ($asset['intent'] ?? '') || $role === ($asset['role'] ?? ''))
+        ));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assets
+     * @return array<int, string>
+     */
+    private function assetPathsByRole(array $assets, string $role): array
+    {
+        return array_values(array_map(
+            static fn (array $asset): string => (string) ($asset['path'] ?? ''),
+            array_filter($assets, static fn (array $asset): bool => $role === ($asset['role'] ?? ''))
+        ));
     }
 
     /**
