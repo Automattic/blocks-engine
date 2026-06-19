@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 final class ArtifactCompiler
 {
@@ -18,7 +19,7 @@ final class ArtifactCompiler
         $normalized = ( new ArtifactNormalizer() )->normalize($artifact);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
         $documents = $this->compileSourceDocuments($normalized);
-        $diagnostics = array_merge($normalized['diagnostics'], $documents['diagnostics']);
+        $diagnostics = array_merge($normalized['diagnostics'], $documents['diagnostics'], $this->svgAssetDiagnostics($normalized['files']));
 
         if ( null === $entry && array() === $documents['documents'] ) {
             $diagnostics[] = $this->diagnostic('missing_entry_html', 'error', 'No HTML entry file was available to compile.');
@@ -29,7 +30,12 @@ final class ArtifactCompiler
         $assets = $this->assetManifest($normalized['files'], $entryPath);
         $components = $this->detectComponents($normalized['files'], $entryPath, $documents['components']);
         $blockTypes = $this->detectBlockTypes($normalized['files'], $diagnostics);
-        $serializedBlocks = '' === trim($html) ? '' : '<!-- wp:html -->' . "\n" . $html . "\n" . '<!-- /wp:html -->';
+        $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files']);
+        $diagnostics = array_merge($diagnostics, $entryBlocks['diagnostics']);
+        $serializedBlocks = $entryBlocks['serialized_blocks'];
+        if ( '' === $serializedBlocks && '' !== trim($html) ) {
+            $serializedBlocks = '<!-- wp:html -->' . "\n" . $html . "\n" . '<!-- /wp:html -->';
+        }
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
             $serializedBlocks = (string) $documents['documents'][0]['block_markup'];
         }
@@ -79,10 +85,12 @@ final class ArtifactCompiler
                     'provenance'                        => 'provenance',
                 ),
             ),
+            blocks: $entryBlocks['blocks'],
             serializedBlocks: $serializedBlocks,
             documents: $documents['documents'],
             assets: $assets,
             diagnostics: $diagnostics,
+            fallbacks: $entryBlocks['fallbacks'],
             provenance: array(
                 array(
                     'source_format' => 'artifact',
@@ -92,13 +100,72 @@ final class ArtifactCompiler
             ),
             metrics: array(
                 'input_bytes'           => $normalized['bytes'],
-                'block_count'           => 0,
-                'fallback_count'        => 0,
+                'block_count'           => $this->countBlocks($entryBlocks['blocks']),
+                'fallback_count'        => count($entryBlocks['fallbacks']),
                 'diagnostic_count'      => count($diagnostics),
                 'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
                 'output_bytes'          => strlen($serializedBlocks),
             )
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>}
+     */
+    private function compileEntryBlocks(string $html, string $entryPath, array $files): array
+    {
+        if ( '' === trim($html) || ! $this->entryHtmlReferencesImageAsset($html, $entryPath, $files) ) {
+            return array(
+                'blocks'            => array(),
+                'serialized_blocks' => '',
+                'diagnostics'       => array(),
+                'fallbacks'         => array(),
+            );
+        }
+
+        $result = ( new HtmlTransformer() )->transform($html, array(
+            'source'       => $entryPath,
+            'source_scope' => 'artifact-entry',
+        ))->toArray();
+
+        return array(
+            'blocks'            => is_array($result['blocks'] ?? null) ? $result['blocks'] : array(),
+            'serialized_blocks' => (string) ($result['serialized_blocks'] ?? ''),
+            'diagnostics'       => $this->entryTransformDiagnostics(is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array()),
+            'fallbacks'         => is_array($result['fallbacks'] ?? null) ? $result['fallbacks'] : array(),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function entryHtmlReferencesImageAsset(string $html, string $entryPath, array $files): bool
+    {
+        if ( ! preg_match_all('/<img\s+[^>]*src\s*=\s*(["\'])([^"\']+)\1/i', $html, $matches) ) {
+            return false;
+        }
+
+        foreach ( $matches[2] as $src ) {
+            $asset = $this->findAssetByHtmlReference((string) $src, $entryPath, $files);
+            if ( is_array($asset) && str_starts_with((string) ($asset['mime_type'] ?? ''), 'image/') && $this->isSafeImageAsset($asset) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<int, array<string, mixed>>
+     */
+    private function entryTransformDiagnostics(array $diagnostics): array
+    {
+        return array_values(array_filter(
+            $diagnostics,
+            static fn (array $diagnostic): bool => 'html_to_blocks_core_slice' !== ($diagnostic['code'] ?? '')
+        ));
     }
 
     /**
@@ -253,6 +320,9 @@ final class ArtifactCompiler
             if ( ! empty($file['content_base64']) ) {
                 $asset['content_base64'] = $file['content_base64'];
             }
+            if ( 'image/svg+xml' === ($file['mime_type'] ?? '') && empty($file['binary']) && $this->isSafeSvgContent((string) ($file['content'] ?? '')) ) {
+                $asset['content'] = $file['content'];
+            }
             if ( ! empty($file['intent']) ) {
                 $asset['intent'] = $file['intent'];
             }
@@ -260,6 +330,116 @@ final class ArtifactCompiler
         }
 
         return $assets;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function svgAssetDiagnostics(array $files): array
+    {
+        $diagnostics = array();
+        foreach ( $files as $file ) {
+            if ( 'image/svg+xml' !== ($file['mime_type'] ?? '') || empty($file['content']) || $this->isSafeSvgContent((string) $file['content']) ) {
+                continue;
+            }
+
+            $diagnostics[] = $this->diagnostic('unsafe_svg_asset', 'warning', 'An SVG image asset contains scriptable markup and its inline content was not exposed.', array('path' => $file['path']));
+        }
+
+        return $diagnostics;
+    }
+
+    /**
+     * @param array<string, mixed> $asset
+     */
+    private function isSafeImageAsset(array $asset): bool
+    {
+        if ( 'image/svg+xml' !== ($asset['mime_type'] ?? '') ) {
+            return true;
+        }
+
+        return ! empty($asset['content']) && $this->isSafeSvgContent((string) $asset['content']);
+    }
+
+    private function isSafeSvgContent(string $content): bool
+    {
+        if ( '' === trim($content) ) {
+            return false;
+        }
+
+        if ( ! preg_match('/<svg(?:\s|>)/i', $content) ) {
+            return false;
+        }
+
+        return ! preg_match('/<\s*script\b|\son[a-z]+\s*=|javascript\s*:/i', $content);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, mixed>|null
+     */
+    private function findAssetByHtmlReference(string $reference, string $entryPath, array $files): ?array
+    {
+        if ( '' === trim($reference) || preg_match('#^[a-z][a-z0-9+.-]*:#i', $reference) ) {
+            return null;
+        }
+
+        $path = $this->resolveHtmlReferencePath($reference, $entryPath);
+        if ( '' === $path ) {
+            return null;
+        }
+
+        foreach ( $files as $file ) {
+            if ( $path === ($file['path'] ?? '') ) {
+                return $file;
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveHtmlReferencePath(string $reference, string $entryPath): string
+    {
+        $reference = strtok($reference, '?#') ?: '';
+        $reference = str_replace('\\', '/', trim($reference));
+        if ( '' === $reference || str_starts_with($reference, '/') ) {
+            return '';
+        }
+
+        $base = '' === $entryPath || ! str_contains($entryPath, '/') ? '' : dirname($entryPath) . '/';
+        $parts = array();
+        foreach ( explode('/', $base . $reference) as $part ) {
+            if ( '' === $part || '.' === $part ) {
+                continue;
+            }
+            if ( '..' === $part ) {
+                if ( array() === $parts ) {
+                    return '';
+                }
+                array_pop($parts);
+                continue;
+            }
+            $parts[] = $part;
+        }
+
+        return implode('/', $parts);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     */
+    private function countBlocks(array $blocks): int
+    {
+        $count = 0;
+        foreach ( $blocks as $block ) {
+            ++$count;
+            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $count += $this->countBlocks($block['innerBlocks']);
+            }
+        }
+
+        return $count;
     }
 
     /**
