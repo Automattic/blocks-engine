@@ -17,7 +17,10 @@
     "php": ">=8.1"
   },
   "scripts": {
-    "test": "php tests/contract/run.php"
+    "test": [
+      "php tests/contract/run.php",
+      "php tests/contract/compatibility-examples.php"
+    ]
   },
   "config": {
     "sort-packages": true
