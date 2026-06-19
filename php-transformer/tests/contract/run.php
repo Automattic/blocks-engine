@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatAdapterInterface;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 if ( ! function_exists('serialize_blocks') ) {
@@ -221,6 +222,20 @@ assertSame('core/buttons', $rich['blocks'][6]['blockName'], 'multiple links in a
 assertSame('core/button', $rich['blocks'][6]['innerBlocks'][0]['blockName'], 'button wrapper should contain button blocks.');
 assertSame('core/shortcode', $rich['blocks'][7]['blockName'], 'standalone shortcode text should convert to shortcode.');
 assertSame('custom-card', $rich['fallbacks'][0]['tag'], 'unsupported nested elements should be captured as fallbacks.');
+
+$blockFactory = new BlockFactory();
+$nestedList = $blockFactory->create(
+    'core/list',
+    array( 'ordered' => true ),
+    array(
+        $blockFactory->create('core/list-item', array( 'content' => 'First' )),
+        $blockFactory->create('core/list-item', array( 'content' => '<strong>Second</strong>' )),
+    )
+);
+assertSame('core/list', $nestedList['blockName'], 'extracted block factory should preserve block names.');
+assertSame('<ol></ol>', $nestedList['innerHTML'], 'extracted block factory should preserve wrapper HTML.');
+assertSame(array( '<ol>', null, null, '</ol>' ), $nestedList['innerContent'], 'extracted block factory should preserve nested innerContent placeholders.');
+assertSame('<li><strong>Second</strong></li>', $nestedList['innerBlocks'][1]['innerHTML'], 'extracted block factory should preserve child block HTML.');
 
 if ( ! str_contains($result['serialized_blocks'], '<!-- wp:heading {"content":"Hello blocks","level":1} -->') ) {
     fwrite(STDERR, "Serialized blocks did not include the expected heading block.\n");
