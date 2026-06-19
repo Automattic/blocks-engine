@@ -9,6 +9,8 @@ final class FormatBridge
         private readonly AdapterRegistry $registry = new AdapterRegistry(),
         private readonly Normalizer $normalizer = new Normalizer()
     ) {
+        $this->registry->register(new BlocksAdapter());
+        $this->registry->register(new HtmlAdapter());
     }
 
     public function registerAdapter(FormatAdapterInterface $adapter): void
@@ -40,10 +42,6 @@ final class FormatBridge
     {
         $this->normalize($content, $from, $options);
 
-        if ( 'blocks' === $from ) {
-            return array();
-        }
-
         $adapter = $this->registry->get($from);
 
         return $adapter ? $adapter->toBlocks($content, $options) : array();
@@ -60,7 +58,9 @@ final class FormatBridge
 
         $blocks = $this->toBlocks($content, $from, $options);
         if ( 'blocks' === $to ) {
-            return '';
+            $adapter = $this->registry->get($to);
+
+            return $adapter ? $adapter->fromBlocks($blocks, $options) : '';
         }
 
         $adapter = $this->registry->get($to);

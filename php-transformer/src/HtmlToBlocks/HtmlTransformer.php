@@ -25,19 +25,6 @@ final class HtmlTransformer
             ),
         );
 
-        if ( ! $this->runtime->hasWordPress() ) {
-            return new TransformerResult(
-                diagnostics: array(
-                    array(
-                        'code'    => 'wordpress_runtime_unavailable',
-                        'message' => 'HTML-to-blocks conversion requires WordPress serialize_blocks().',
-                        'source'  => self::class,
-                    ),
-                ),
-                provenance: $provenance
-            );
-        }
-
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
         $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
