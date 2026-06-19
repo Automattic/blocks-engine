@@ -1,0 +1,28 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "ssi-mixed-source-markdown",
+  "description": "Converts a nested Markdown source document shape from the Static Site Importer mixed-source fixture.",
+  "source_reference": {
+    "repo": "static-site-importer",
+    "path": "tests/fixtures/mixed-source-site/content/story.md",
+    "notes": "Covers the Markdown document body path only; SSI owns source discovery, route maps, and MDX skipped diagnostics."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Mixed-source import report and link-rewrite assertions require the Static Site Importer WordPress runtime."
+  },
+  "operation": "format_bridge.convert",
+  "input": {
+    "from": "markdown",
+    "to": "html",
+    "content": "# Markdown Story\n\nThis page came from a nested Markdown source document.\n\n[Read the notes](notes.markdown)\n"
+  },
+  "expect": [
+    { "path": "converted", "assert": "contains", "value": "<h1>Markdown Story</h1>" },
+    { "path": "converted", "assert": "contains", "value": "href=\"notes.markdown\"" },
+    { "path": "blocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/heading" },
+    { "path": "blocks.2.attrs.content", "assert": "contains", "value": "notes.markdown" },
+    { "path": "supported_formats", "assert": "equals", "value": ["blocks", "html", "markdown"] }
+  ]
+}

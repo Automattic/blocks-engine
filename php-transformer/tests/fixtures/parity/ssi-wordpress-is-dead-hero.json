@@ -1,0 +1,38 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "ssi-wordpress-is-dead-hero",
+  "description": "Converts a compact WordPress Is Dead hero/actions slice from Static Site Importer into supported core blocks.",
+  "source_reference": {
+    "repo": "static-site-importer",
+    "path": "tests/fixtures/wordpress-is-dead/index.html",
+    "notes": "Representative hero, rich paragraph, and CTA row only; avoids copying the five-page static site fixture."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "The SSI smoke covers theme generation, link rewrites, CSS preservation, and navigation entities outside this transformer contract."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"hero\"><div class=\"container\"><span class=\"eyebrow\">A Public Service Announcement</span><h1><span class=\"strike\">WordPress</span><br>is officially dead.</h1><p class=\"lede\">Generated from a <em>single sentence</em>. No <code>wp-admin</code>.</p><div class=\"cta-row\"><a class=\"btn primary\" href=\"manifesto.html\">Read the Manifesto</a><a class=\"btn ghost\" href=\"proof.html\">See The Proof</a></div></div></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "level": 1 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Generated from a <em>single sentence</em>. No <code>wp-admin</code>." } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.2.innerBlocks.0", "name": "core/button", "attrs": { "text": "Read the Manifesto", "url": "manifesto.html" } },
+    { "path": "blocks.0.innerBlocks.2.innerBlocks.1", "name": "core/button", "attrs": { "text": "See The Proof", "url": "proof.html" } }
+  ],
+  "expected_fallbacks": [
+    { "type": "unsupported_element", "tag": "span" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "WordPress" },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.html", "assert": "contains", "value": "eyebrow" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+  ]
+}

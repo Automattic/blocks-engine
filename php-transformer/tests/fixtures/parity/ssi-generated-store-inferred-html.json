@@ -1,0 +1,37 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "ssi-generated-store-inferred-html",
+  "description": "Converts compact generated-store product-card HTML inferred from the Static Site Importer fixture into core blocks without store-runtime validation.",
+  "source_reference": {
+    "repo": "static-site-importer",
+    "path": "tests/fixtures/generated-store-inferred/index.html",
+    "notes": "Compact transformer-level fixture covering visible product-card structure and actions, not WooCommerce dependency or product inference validation."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "The Static Site Importer fixture asserts import/report/WooCommerce behavior outside the PHP transformer contract."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"collection products\"><h2>Field Gear</h2><article class=\"product-card\" data-product-slug=\"signal-hoodie\"><img src=\"assets/signal-hoodie.jpg\" alt=\"Signal Hoodie\"><h3>Signal Hoodie</h3><p class=\"price\">$64.00</p><a href=\"#signal-hoodie\">Add to cart</a></article><article class=\"product-card\"><h3>Field Notes</h3><p class=\"price\">$12</p><button type=\"button\">Add to cart</button></article></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Field Gear", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/image", "attrs": { "url": "assets/signal-hoodie.jpg", "alt": "Signal Hoodie" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Signal Hoodie", "level": 3 } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.3", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.2.innerBlocks.2", "name": "core/buttons" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Signal Hoodie" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "#signal-hoodie" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

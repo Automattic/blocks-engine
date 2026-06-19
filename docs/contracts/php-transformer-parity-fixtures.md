@@ -51,3 +51,13 @@ composer parity
 ```
 
 `composer test` includes the parity harness.
+
+## Static Site Importer Source Fixtures
+
+Fixtures prefixed with `ssi-` are compact contract slices inspired by representative Static Site Importer fixtures. They intentionally avoid copying full generated sites or large assets. These cases assert transformer-level behavior only:
+
+- HTML-to-block conversion for representative hero/action and product-card structures.
+- Markdown conversion for nested mixed-source documents.
+- Artifact compilation for website artifact bundles and store manifest files as preserved data assets.
+
+Static Site Importer remains responsible for source discovery, route/link rewrites, import reports, product manifest validation, WooCommerce dependency handling, generated theme files, navigation entities, and visual/semantic parity gates.

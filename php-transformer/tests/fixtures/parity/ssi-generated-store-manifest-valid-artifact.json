@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "ssi-generated-store-manifest-valid-artifact",
+  "description": "Compiles a compact generated-store artifact with a valid products manifest preserved as data.",
+  "source_reference": {
+    "repo": "static-site-importer",
+    "path": "tests/fixtures/generated-store-valid/",
+    "notes": "Compact artifact fixture derived from the valid store fixture without copying product imagery or import-only checks."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Static Site Importer validates products.json and WooCommerce seeding outside the PHP transformer artifact contract."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "schema": "block-artifact-compiler/website-artifact/v1",
+      "entrypoint": "index.html",
+      "files": [
+        { "path": "index.html", "content": "<main><section class=\"products\"><article class=\"product-card\" data-product-slug=\"signal-hoodie\"><h2>Signal Hoodie</h2><p>$64.00</p></article><article class=\"product-card\" data-product-slug=\"field-notes\"><h2>Field Notes</h2><p>$12.00</p></article></section></main>" },
+        { "path": "products.json", "content": "{\"schema_version\":1,\"products\":[{\"name\":\"Signal Hoodie\",\"slug\":\"signal-hoodie\",\"regular_price\":\"64.00\",\"categories\":[\"Apparel\"]}]}" }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "components.0.name", "assert": "equals", "value": "product-card" },
+    { "path": "components.0.occurrences", "assert": "equals", "value": 2 },
+    { "path": "source_reports.artifact.files_by_kind.html", "assert": "equals", "value": 1 },
+    { "path": "source_reports.artifact.files_by_kind.json", "assert": "equals", "value": 1 },
+    { "path": "assets.0.role", "assert": "equals", "value": "data" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Signal Hoodie" }
+  ]
+}
