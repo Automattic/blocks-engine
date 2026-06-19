@@ -1,0 +1,22 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "blocks-to-markdown-conversion",
+  "description": "Converts serialized block markup to Markdown through rendered HTML.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "includes/class-bfb-markdown-adapter.php",
+    "notes": "Covers the rendered blocks to html-to-markdown path in the PHP transformer adapter."
+  },
+  "operation": "format_bridge.convert",
+  "input": {
+    "from": "blocks",
+    "to": "markdown",
+    "content": "<!-- wp:heading {\"content\":\"Hello\",\"level\":1} --><h1>Hello</h1><!-- /wp:heading --><!-- wp:paragraph {\"content\":\"Body\"} --><p>Body</p><!-- /wp:paragraph -->"
+  },
+  "expect": [
+    { "path": "converted", "assert": "contains", "value": "# Hello" },
+    { "path": "converted", "assert": "contains", "value": "Body" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "supported_formats", "assert": "equals", "value": ["blocks", "html", "markdown"] }
+  ]
+}

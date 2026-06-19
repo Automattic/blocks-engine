@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "generated-store-manifest-invalid-artifact",
+  "description": "Preserves an invalid generated-store products.json as artifact data while compiling the HTML entry.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/generated-store-invalid/products.json",
+    "notes": "Transformer-level artifact fixture only preserves and classifies manifest data; products own schema validation diagnostics."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Products manifest validation belongs to consuming product and WooCommerce import flows, not the artifact compiler contract."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        { "path": "index.html", "content": "<main><section class=\"products\"><article class=\"product-card\"><h2>Invalid Store</h2><p>$19</p></article></section></main>" },
+        { "path": "products.json", "content": "{\"schema_version\":2,\"products\":[{\"name\":\"\",\"slug\":\"Invalid Slug\",\"regular_price\":19,\"categories\":\"Accessories\"}]}" }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.artifact.entry_path", "assert": "equals", "value": "index.html" },
+    { "path": "source_reports.artifact.file_count", "assert": "equals", "value": 2 },
+    { "path": "source_reports.artifact.files_by_kind.json", "assert": "equals", "value": 1 },
+    { "path": "assets.0.path", "assert": "equals", "value": "products.json" },
+    { "path": "assets.0.kind", "assert": "equals", "value": "json" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Invalid Store" }
+  ]
+}

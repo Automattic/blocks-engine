@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "website-artifact-bundle",
+  "description": "Compiles a compact product website-artifact-bundle shape used by fixture coverage.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/website-artifact-bundle.json",
+    "notes": "Covers a compact html/css/js artifact shape without copying larger generated assets."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "html": "<main><section class=\"hero\"><h1>Website Artifact Fixture</h1><p>Compiled before product materialization.</p></section></main>",
+      "css": ".hero{padding:4rem;background:#f6f2ea;color:#1b1b1b}",
+      "js": "document.documentElement.dataset.fixture = 'website-artifact';"
+    }
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.artifact.entry_path", "assert": "equals", "value": "index.html" },
+    { "path": "source_reports.artifact.files_by_intent.style", "assert": "equals", "value": 1 },
+    { "path": "source_reports.artifact.files_by_intent.behavior", "assert": "equals", "value": 1 },
+    { "path": "assets", "assert": "count", "count": 2 },
+    { "path": "assets.0.path", "assert": "equals", "value": "style.css" },
+    { "path": "assets.1.path", "assert": "equals", "value": "site.js" },
+    { "path": "components.0.name", "assert": "equals", "value": "hero" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Website Artifact Fixture" }
+  ]
+}

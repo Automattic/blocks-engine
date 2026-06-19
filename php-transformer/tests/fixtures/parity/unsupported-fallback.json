@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "unsupported-html-fallback",
+  "description": "Reports unsupported top-level HTML as fallback metadata without failing the transform.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/smoke-unsupported-html-fallback-hook.php",
+    "notes": "Adapted to assert fallback reporting rather than downstream hook behavior."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Fallback hook behavior requires the WordPress plugin runtime."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<aside><p>Fallback content</p></aside>"
+  },
+  "expected_blocks": [],
+  "expected_fallbacks": [
+    { "type": "unsupported_element", "reason": "unsupported_element", "tag": "aside", "selector": "aside:nth-of-type(1)", "child_count": 1 }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 0 },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.type", "assert": "equals", "value": "unsupported_element" },
+    { "path": "fallbacks.0.tag", "assert": "equals", "value": "aside" },
+    { "path": "fallbacks.0.selector", "assert": "equals", "value": "aside:nth-of-type(1)" },
+    { "path": "diagnostics.1.selector", "assert": "equals", "value": "aside:nth-of-type(1)" },
+    { "path": "diagnostics.0.code", "assert": "equals", "value": "html_to_blocks_core_slice" }
+  ]
+}

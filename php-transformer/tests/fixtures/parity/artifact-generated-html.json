@@ -1,0 +1,23 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-generated-html-entry",
+  "description": "Compiles generated HTML artifact input into the shared transformer result shape.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-generated-html.json",
+    "notes": "Covers the artifact compiler contract smoke path."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "generated_html": "<main><article data-component=\"Hero\"><h1>Hello artifact</h1></article></main>"
+    }
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.artifact.entry_path", "assert": "equals", "value": "index.html" },
+    { "path": "components.0.name", "assert": "equals", "value": "hero" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html -->" }
+  ]
+}

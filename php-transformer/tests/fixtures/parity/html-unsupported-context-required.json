@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-unsupported-context-required",
+  "description": "Captures unsupported and context-required HTML as fallback metadata while preserving supported siblings.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/smoke-unsupported-html-fallback-hook.php",
+    "notes": "The PHP transformer reports unsupported elements as fallbacks rather than invoking downstream WordPress hooks."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Fallback hook behavior requires the WordPress plugin runtime."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><h2>Supported sibling</h2><custom-card><span>Unsupported nested content</span></custom-card><form><input name=\"email\"></form></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/heading", "attrs": { "content": "Supported sibling", "level": 2 } }
+  ],
+  "expected_fallbacks": [
+    { "type": "unsupported_element", "reason": "unsupported_element", "tag": "custom-card", "selector": "main:nth-of-type(1) > custom-card:nth-of-type(1)", "child_count": 1 },
+    { "type": "html", "reason": "form_requires_runtime", "tag": "form", "selector": "main:nth-of-type(1) > form:nth-of-type(1)", "child_count": 1 }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 2 },
+    { "path": "diagnostics.1.selector", "assert": "equals", "value": "main:nth-of-type(1) > custom-card:nth-of-type(1)" },
+    { "path": "diagnostics.2.reason", "assert": "equals", "value": "form_requires_runtime" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 2 }
+  ]
+}
