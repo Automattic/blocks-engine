@@ -30,6 +30,32 @@ PHP Transformer does not own product workflows such as importer admin screens, u
 - `WordPress` - runtime adapters around WordPress functions.
 - `Contract` - shared result envelopes and diagnostics.
 
+## Public API Surface
+
+Consumers should treat these classes as the public entrypoints for the current package:
+
+- `Contract\TransformerResult` - stable result envelope. Use `toArray()` when passing results across process, HTTP, fixture, or compatibility boundaries.
+- `HtmlToBlocks\HtmlTransformer` - converts supported HTML elements into WordPress block arrays and serialized block markup. Unsupported top-level HTML is reported in `fallbacks`.
+- `FormatBridge\FormatBridge` - normalizes and converts declared `html`, `markdown`, and serialized `blocks` content. `convertResult()` is the preferred public entrypoint when callers need diagnostics instead of exceptions.
+- `ArtifactCompiler\ArtifactCompiler` - normalizes generated website artifact bundles into the shared result envelope, including block markup, source reports, assets, components, documents, and block type artifacts.
+- `WordPress\Runtime` - adapter for WordPress functions used by the transformer when running inside or outside WordPress.
+
+The remaining classes in `src/HtmlToBlocks` and `src/FormatBridge` are implementation details unless they are explicitly injected through a public constructor or `FormatBridge::registerAdapter()`. `FormatBridge\FormatAdapterInterface` is public for adapter authors; concrete bundled adapters may change as the bridge expands.
+
+### Diagnostics And Unsupported Paths
+
+Public entrypoints return `TransformerResult` wherever a conversion can partially succeed or needs structured diagnostics. Result diagnostics include a stable `code`, human-readable `message`, and `source` class. Convenience methods such as `FormatBridge::normalize()`, `FormatBridge::toBlocks()`, and `FormatBridge::convert()` keep throwing `InvalidArgumentException` for invalid declared formats or malformed inputs.
+
+Use `FormatBridge::convertResult()` when unsupported source or target formats should be reported as envelope diagnostics:
+
+```php
+$result = (new FormatBridge())->convertResult($html, 'html', 'blocks')->toArray();
+
+if ('failed' === $result['status']) {
+    $diagnosticCode = $result['diagnostics'][0]['code'] ?? '';
+}
+```
+
 ## Draft Status
 
 This package is intentionally being introduced as a draft consolidation target. Existing repositories remain valid consumers and compatibility surfaces while implementation migrates into this package.

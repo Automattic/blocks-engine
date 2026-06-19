@@ -323,11 +323,26 @@ assertSame('<p>Hello</p>', $bridge->convert('<!-- wp:paragraph --><p>Hello</p><!
 assertStringContains('<!-- wp:heading {"content":"Hello","level":2} -->', $bridge->convert('<h2>Hello</h2>', 'html', 'blocks'), 'HTML should serialize to block markup through the block pivot.');
 assertStringContains('<h1>Title</h1>', $bridge->convert("# Title\n\nBody", 'markdown', 'html'), 'Markdown should convert to HTML through the block pivot.');
 assertStringContains('# Hello', $bridge->convert('<!-- wp:heading {"content":"Hello","level":1} --><h1>Hello</h1><!-- /wp:heading -->', 'blocks', 'markdown'), 'Serialized blocks should convert to markdown through rendered HTML.');
+assertSame(true, $bridge->supports('html'), 'Format bridge should expose adapter support checks.');
+assertSame(false, $bridge->supports('xml'), 'Format bridge support checks should require a registered adapter.');
+$htmlToBlocksResult = $bridge->convertResult('<h2>Hello</h2>', 'html', 'blocks')->toArray();
+assertSame('success', $htmlToBlocksResult['status'], 'Format bridge result conversion should succeed for public default adapters.');
+assertSame('blocks-engine/php-transformer/result/v1', $htmlToBlocksResult['schema'], 'Format bridge result conversion should use the shared result envelope.');
+assertSame('core/heading', $htmlToBlocksResult['blocks'][0]['blockName'], 'Format bridge result conversion should expose block arrays.');
+assertStringContains('<!-- wp:heading {"content":"Hello","level":2} -->', $htmlToBlocksResult['serialized_blocks'], 'Format bridge result conversion should expose serialized blocks for block targets.');
+assertSame('blocks', $htmlToBlocksResult['documents'][0]['format'], 'Format bridge result conversion should expose target document format.');
+$unsupportedSourceResult = $bridge->convertResult('<p>Hello</p>', 'xml', 'html')->toArray();
+assertSame('failed', $unsupportedSourceResult['status'], 'Unsupported source formats should fail through diagnostics.');
+assertSame('unsupported_source_format', $unsupportedSourceResult['diagnostics'][0]['code'], 'Unsupported source diagnostics should identify the source format.');
+$unsupportedTargetResult = $bridge->convertResult('<p>Hello</p>', 'html', 'xml')->toArray();
+assertSame('failed', $unsupportedTargetResult['status'], 'Unsupported target formats should fail through diagnostics.');
+assertSame('unsupported_target_format', $unsupportedTargetResult['diagnostics'][0]['code'], 'Unsupported target diagnostics should identify the target format.');
 assertThrows(static fn () => $bridge->normalize('<!-- wp:paragraph /-->', 'markdown'), 'Declared markdown content contains serialized block comments.');
 assertThrows(static fn () => $bridge->normalize("# Title\n<p>Hello</p>", 'html'), 'Declared HTML content contains markdown markers.');
 assertThrows(static fn () => $bridge->normalize('<p>Hello</p>', 'blocks'), 'Declared blocks content does not contain serialized block comments.');
 assertThrows(static fn () => $bridge->normalize('<!-- wp:paragraph --><p>Hello</p>', 'blocks'), 'Serialized block markup contains an unclosed block comment.');
 assertThrows(static fn () => $bridge->normalize('<!-- wp:paragraph --><p>Hello</p><!-- /wp:heading -->', 'blocks'), 'Mismatched serialized block closing comment.');
+assertThrows(static fn () => $bridge->convert('<p>Hello</p>', 'html', 'xml'), 'No format adapter is registered for format "xml".');
 
 $bridge->registerAdapter(new class implements FormatAdapterInterface {
     public function slug(): string

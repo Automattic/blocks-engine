@@ -3,6 +3,10 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\FormatBridge;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use InvalidArgumentException;
+use Throwable;
+
 final class FormatBridge
 {
     public function __construct(
@@ -25,6 +29,11 @@ final class FormatBridge
     public function supportedFormats(): array
     {
         return $this->registry->slugs();
+    }
+
+    public function supports(string $format): bool
+    {
+        return null !== $this->registry->get($format);
     }
 
     /**
@@ -61,11 +70,88 @@ final class FormatBridge
         if ( 'blocks' === $to ) {
             $adapter = $this->registry->get($to);
 
-            return $adapter ? $adapter->fromBlocks($blocks, $options) : '';
+            if ( null === $adapter ) {
+                throw new InvalidArgumentException(sprintf('No format adapter is registered for format "%s".', $to));
+            }
+
+            return $adapter->fromBlocks($blocks, $options);
         }
 
         $adapter = $this->registry->get($to);
 
-        return $adapter ? $adapter->fromBlocks($blocks, $options) : '';
+        if ( null === $adapter ) {
+            throw new InvalidArgumentException(sprintf('No format adapter is registered for format "%s".', $to));
+        }
+
+        return $adapter->fromBlocks($blocks, $options);
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     */
+    public function convertResult(string $content, string $from, string $to, array $options = array()): TransformerResult
+    {
+        $provenance = array(
+            array(
+                'source_format' => $from,
+                'target_format' => $to,
+                'input_bytes'   => strlen($content),
+                'transformer'   => self::class,
+            ),
+        );
+
+        if ( ! $this->supports($from) ) {
+            return $this->failedResult('unsupported_source_format', sprintf('No format adapter is registered for source format "%s".', $from), $provenance);
+        }
+
+        if ( ! $this->supports($to) ) {
+            return $this->failedResult('unsupported_target_format', sprintf('No format adapter is registered for target format "%s".', $to), $provenance);
+        }
+
+        try {
+            $output = $this->convert($content, $from, $to, $options);
+            $blocks = $this->toBlocks($content, $from, $options);
+
+            return new TransformerResult(
+                blocks: array_values($blocks),
+                serializedBlocks: 'blocks' === $to ? $output : '',
+                documents: array(
+                    array(
+                        'format'  => $to,
+                        'content' => $output,
+                    ),
+                ),
+                diagnostics: array(
+                    array(
+                        'code'    => 'format_bridge_conversion_completed',
+                        'message' => sprintf('Converted %s content to %s through the format bridge.', $from, $to),
+                        'source'  => self::class,
+                    ),
+                ),
+                provenance: $provenance
+            );
+        } catch ( InvalidArgumentException $exception ) {
+            return $this->failedResult('format_bridge_validation_failed', $exception->getMessage(), $provenance);
+        } catch ( Throwable $throwable ) {
+            return $this->failedResult('format_bridge_conversion_failed', $throwable->getMessage(), $provenance);
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $provenance
+     */
+    private function failedResult(string $code, string $message, array $provenance): TransformerResult
+    {
+        return new TransformerResult(
+            status: 'failed',
+            diagnostics: array(
+                array(
+                    'code'    => $code,
+                    'message' => $message,
+                    'source'  => self::class,
+                ),
+            ),
+            provenance: $provenance
+        );
     }
 }
