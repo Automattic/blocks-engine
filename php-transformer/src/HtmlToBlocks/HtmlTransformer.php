@@ -366,6 +366,11 @@ final class HtmlTransformer
             return $this->createBlock('core/buttons', array(), array( $this->createBlock('core/button', array_merge($this->presentationAttributes($element), array( 'text' => $this->innerHtml($element) )), array(), $element) ), $element);
         }
 
+        if ( 'svg' === $tagName ) {
+            $this->captureInlineSvgFallback($element, $fallbacks);
+            return null;
+        }
+
         if ( 'form' === $tagName ) {
             $fallbacks[] = array_merge(array(
                 'type'            => 'html',
@@ -835,7 +840,74 @@ final class HtmlTransformer
 
     private function safeFallbackHtml(DOMElement $element): string
     {
-        return trim(preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $this->outerHtml($element)) ?? '');
+        $html = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $this->outerHtml($element)) ?? '';
+        $html = preg_replace('/\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
+        $html = preg_replace('/\s+(?:href|src|xlink:href)\s*=\s*("\s*javascript:[^"]*"|\'\s*javascript:[^\']*\'|javascript:[^\s>]+)/i', '', $html) ?? '';
+
+        return trim($html);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function captureInlineSvgFallback(DOMElement $element, array &$fallbacks): void
+    {
+        $rawHtml = $this->outerHtml($element);
+        $safe = $this->isSafeSvgContent($rawHtml);
+        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+
+        $fallbacks[] = array_merge(array(
+            'type'            => 'inline_svg',
+            'reason'          => $safe ? 'inline_svg_fallback' : 'unsafe_inline_svg',
+            'diagnostic_code' => $safe ? 'html_inline_svg_fallback' : 'html_unsafe_inline_svg',
+            'message'         => $safe ? 'Inline SVG was preserved as sanitized bounded fallback metadata.' : 'Inline SVG contains scriptable content and was preserved only as sanitized bounded fallback metadata.',
+            'source_format'   => 'html',
+            'tag'             => 'svg',
+            'selector'        => $this->elementSelector($element),
+            'attributes'      => $this->safeSvgAttributes($element),
+            'text_length'     => strlen(trim($element->textContent ?? '')),
+            'child_count'     => $this->childElementCount($element),
+            'html'            => $boundedHtml['html'],
+            'html_bytes'      => $boundedHtml['bytes'],
+            'html_truncated'  => $boundedHtml['truncated'],
+        ), $this->fallbackProvenance);
+    }
+
+    /**
+     * @return array{html: string, bytes: int, truncated: bool}
+     */
+    private function boundedFallbackHtml(string $html): array
+    {
+        $bytes = strlen($html);
+        if ( $bytes > 2000 ) {
+            return array(
+                'html'      => substr($html, 0, 2000) . '...',
+                'bytes'     => $bytes,
+                'truncated' => true,
+            );
+        }
+
+        return array(
+            'html'      => $html,
+            'bytes'     => $bytes,
+            'truncated' => false,
+        );
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function safeSvgAttributes(DOMElement $element): array
+    {
+        $attributes = array();
+        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+            if ( preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:/i', $value) ) {
+                continue;
+            }
+            $attributes[$name] = strlen($value) > 200 ? substr($value, 0, 200) . '...' : $value;
+        }
+
+        return $attributes;
     }
 
     private function convertImageElement(DOMElement $image, ?DOMElement $figure = null): ?array
