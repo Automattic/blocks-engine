@@ -5,11 +5,11 @@
   "source_reference": {
     "repo": "html-to-blocks-converter",
     "path": "tests/smoke-unsupported-html-fallback-hook.php",
-    "notes": "Adapted to assert fallback reporting rather than legacy hook behavior."
+    "notes": "Adapted to assert fallback reporting rather than downstream hook behavior."
   },
   "legacy_comparison": {
     "skip": true,
-    "reason": "Legacy fallback hook behavior requires the WordPress plugin runtime."
+    "reason": "Fallback hook behavior requires the WordPress plugin runtime."
   },
   "operation": "html_transformer.transform",
   "input": {

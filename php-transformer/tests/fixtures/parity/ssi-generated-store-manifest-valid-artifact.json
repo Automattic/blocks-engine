@@ -9,7 +9,7 @@
   },
   "legacy_comparison": {
     "skip": true,
-    "reason": "Static Site Importer validates products.json and WooCommerce seeding outside the PHP transformer artifact contract."
+    "reason": "The consuming product validates products.json and WooCommerce seeding outside the PHP transformer artifact contract."
   },
   "operation": "artifact_compiler.compile",
   "input": {

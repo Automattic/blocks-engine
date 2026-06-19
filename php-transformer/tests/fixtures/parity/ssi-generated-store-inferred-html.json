@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "ssi-generated-store-inferred-html",
-  "description": "Converts compact generated-store product-card HTML inferred from the Static Site Importer fixture into core blocks without store-runtime validation.",
+  "description": "Converts compact generated-store product-card HTML inferred from a product fixture into core blocks without store-runtime validation.",
   "source_reference": {
     "repo": "static-site-importer",
     "path": "tests/fixtures/generated-store-inferred/index.html",
@@ -9,7 +9,7 @@
   },
   "legacy_comparison": {
     "skip": true,
-    "reason": "The Static Site Importer fixture asserts import/report/WooCommerce behavior outside the PHP transformer contract."
+    "reason": "The product fixture asserts import/report/WooCommerce behavior outside the PHP transformer contract."
   },
   "operation": "html_transformer.transform",
   "input": {

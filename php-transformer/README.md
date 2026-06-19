@@ -2,12 +2,7 @@
 
 PHP Transformer is the canonical PHP primitive for converting source content and generated website artifacts into WordPress-native block outputs.
 
-This package starts as the convergence point for the existing transformer stack:
-
-- [`chubes4/html-to-blocks-converter`](https://github.com/chubes4/html-to-blocks-converter)
-- [`chubes4/block-format-bridge`](https://github.com/chubes4/block-format-bridge)
-- [`chubes4/block-artifact-compiler`](https://github.com/chubes4/block-artifact-compiler)
-- [`chubes4/static-site-importer`](https://github.com/chubes4/static-site-importer)
+This package is intentionally origin-clean: it exposes transformer primitives and result contracts without publishing compatibility wrappers or product adapters for downstream plugins.
 
 ## Boundary
 
@@ -78,7 +73,7 @@ if ('failed' === $result['status']) {
 
 This package is intentionally being introduced as a draft consolidation target. Existing repositories remain valid consumers and compatibility surfaces while implementation migrates into this package.
 
-Downstream wrapper branch plans live in [`docs/consumer-prs/`](docs/consumer-prs/). They define branch names, dependency constraints, file-level patch skeletons, acceptance commands, and rollback plans without changing the downstream repositories from this worktree.
+Transitional migration notes live in [`docs/migration.md`](docs/migration.md). They are local planning evidence for downstream consumers, not package API commitments.
 
 ## Artifact Compiler Fallbacks
 
@@ -88,4 +83,4 @@ Unsupported or unsafe artifact inputs are reported through diagnostics instead o
 
 ## Parity Checks
 
-Run the package contract and parity fixtures with `composer test`. Optional old-repository comparisons are disabled by default and can be enabled locally with `BLOCKS_ENGINE_PARITY_LEGACY=1` plus one or more `BLOCKS_ENGINE_PARITY_LEGACY_<REPO>_PATH` variables. See `docs/html-transform-coverage.md` for the supported variables and skip/fail behavior.
+Run the package contract and parity fixtures with `composer test`. The checked-in fixtures assert current transformer behavior. Optional local migration comparisons against existing consumers are disabled by default and documented separately in [`docs/html-transform-coverage.md`](docs/html-transform-coverage.md).

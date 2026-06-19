@@ -4,7 +4,7 @@ The PHP transformer HTML slice is covered by JSON parity fixtures in `tests/fixt
 
 Run the coverage fixtures with `composer parity` or as part of `composer test`.
 
-Legacy repository comparisons are opt-in and are not required by default CI. Set `BLOCKS_ENGINE_PARITY_LEGACY=1` plus the repo-specific path for the legacy package you want to compare:
+Local migration comparisons are opt-in and are not required by default CI. They are evidence for downstream migration PRs, not a package feature or long-term legacy support promise. Set `BLOCKS_ENGINE_PARITY_LEGACY=1` plus the repo-specific path for the existing package you want to compare:
 
 ```sh
 BLOCKS_ENGINE_PARITY_LEGACY=1 \
@@ -12,7 +12,7 @@ BLOCKS_ENGINE_PARITY_LEGACY_BLOCK_FORMAT_BRIDGE_PATH=/Users/chubes/Developer/blo
 composer parity
 ```
 
-Supported path variables are:
+Supported local path variables are:
 
 | Repository | Environment variable |
 | --- | --- |
@@ -20,7 +20,7 @@ Supported path variables are:
 | `block-format-bridge` | `BLOCKS_ENGINE_PARITY_LEGACY_BLOCK_FORMAT_BRIDGE_PATH` |
 | `block-artifact-compiler` | `BLOCKS_ENGINE_PARITY_LEGACY_BLOCK_ARTIFACT_COMPILER_PATH` |
 
-Legacy code runs in an isolated PHP subprocess so old global functions, classes, constants, and bundled dependencies do not leak into the current transformer test process. Fixtures must opt in with `legacy_comparison.safe=true`; fixtures that require WordPress/Gutenberg runtime behavior should keep an explicit `skip` reason. The runner prints skipped comparisons with the reason, and any loaded safe comparison fails the parity run when the normalized legacy snapshot differs from the current transformer snapshot.
+Migration comparison code runs in an isolated PHP subprocess so old global functions, classes, constants, and bundled dependencies do not leak into the current transformer test process. Fixtures must opt in with `legacy_comparison.safe=true`; fixtures that require WordPress/Gutenberg runtime behavior should keep an explicit `skip` reason. The runner prints skipped comparisons with the reason, and any loaded safe comparison fails the parity run when the normalized migration snapshot differs from the current transformer snapshot.
 
 ## Fixture Matrix
 

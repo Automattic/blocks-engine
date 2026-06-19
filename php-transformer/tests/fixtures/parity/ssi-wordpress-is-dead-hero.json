@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "ssi-wordpress-is-dead-hero",
-  "description": "Converts a compact WordPress Is Dead hero/actions slice from Static Site Importer into supported core blocks.",
+  "description": "Converts a compact WordPress Is Dead hero/actions product fixture slice into supported core blocks.",
   "source_reference": {
     "repo": "static-site-importer",
     "path": "tests/fixtures/wordpress-is-dead/index.html",
@@ -9,7 +9,7 @@
   },
   "legacy_comparison": {
     "skip": true,
-    "reason": "The SSI smoke covers theme generation, link rewrites, CSS preservation, and navigation entities outside this transformer contract."
+    "reason": "The product smoke covers theme generation, link rewrites, CSS preservation, and navigation entities outside this transformer contract."
   },
   "operation": "html_transformer.transform",
   "input": {

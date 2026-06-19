@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "ssi-website-artifact-bundle",
-  "description": "Compiles the compact website-artifact-bundle shape used by Static Site Importer fixture coverage.",
+  "description": "Compiles a compact product website-artifact-bundle shape used by fixture coverage.",
   "source_reference": {
     "repo": "static-site-importer",
     "path": "tests/fixtures/website-artifact-bundle/artifact.json",

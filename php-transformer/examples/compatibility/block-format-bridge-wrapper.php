@@ -6,14 +6,13 @@ use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 /*
  * Downstream-only compatibility example.
  *
- * Copy these wrappers into a Block Format Bridge consumer during migration.
- * The transformer package intentionally does not publish legacy global
- * functions itself.
+ * Copy these wrappers into a downstream consumer during migration. They are
+ * example code for consumer PRs, not product API shipped by this package.
  */
 
 if ( ! function_exists( 'bfb_capabilities' ) ) {
     /**
-     * Compatibility wrapper for Block Format Bridge capability discovery.
+     * Downstream wrapper example for capability discovery.
      *
      * @return array<string, mixed> Machine-readable conversion capability report.
      */
@@ -45,7 +44,7 @@ if ( ! function_exists( 'bfb_capabilities' ) ) {
 
 if ( ! function_exists( 'bfb_convert' ) ) {
     /**
-     * Compatibility wrapper for Block Format Bridge's universal converter.
+     * Downstream wrapper example for a universal converter.
      *
      * @param array<string, mixed> $options Per-call conversion options.
      */
@@ -56,7 +55,7 @@ if ( ! function_exists( 'bfb_convert' ) ) {
 
 if ( ! function_exists( 'bfb_normalize' ) ) {
     /**
-     * Compatibility wrapper for declared-format normalization.
+     * Downstream wrapper example for declared-format normalization.
      *
      * @param array<string, mixed> $options Normalization options.
      */
@@ -67,7 +66,7 @@ if ( ! function_exists( 'bfb_normalize' ) ) {
 
 if ( ! function_exists( 'bfb_to_blocks' ) ) {
     /**
-     * Compatibility wrapper for callers that need the block-array pivot.
+     * Downstream wrapper example for callers that need the block-array pivot.
      *
      * @param array<string, mixed> $options Per-call conversion options.
      * @return array<int, array<string, mixed>> parse_blocks()-compatible block arrays.
@@ -79,7 +78,7 @@ if ( ! function_exists( 'bfb_to_blocks' ) ) {
 
 if ( ! function_exists( 'bfb_convert_fragment' ) ) {
     /**
-     * Compatibility wrapper for scoped HTML fragment conversion.
+     * Downstream wrapper example for scoped HTML fragment conversion.
      *
      * @param array<string, mixed> $options Per-call conversion and provenance options.
      * @return array<string, mixed> Fragment conversion envelope.

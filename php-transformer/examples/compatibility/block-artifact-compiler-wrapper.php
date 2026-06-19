@@ -6,18 +6,17 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 /*
  * Downstream-only compatibility example.
  *
- * Copy these wrappers into a Block Artifact Compiler consumer during migration.
- * The transformer package intentionally does not publish legacy global
- * functions itself.
+ * Copy these wrappers into a downstream consumer during migration. They are
+ * example code for consumer PRs, not product API shipped by this package.
  */
 
 if ( ! function_exists( 'bac_compile_website_artifact' ) ) {
     /**
-     * Compatibility wrapper for the website artifact compiler function.
+     * Downstream wrapper example for a website artifact compiler function.
      *
      * @param array<string, mixed> $artifact Website artifact input.
      * @param array<string, mixed> $options Compiler options retained for the future transformer options contract.
-     * @return array<string, mixed> Old compiler-compatible result envelope.
+     * @return array<string, mixed> Consumer-owned result envelope.
      */
     function bac_compile_website_artifact( array $artifact, array $options = array() ): array {
         unset( $options );
@@ -28,10 +27,10 @@ if ( ! function_exists( 'bac_compile_website_artifact' ) ) {
 
 if ( ! function_exists( 'bac_compile_fragment' ) ) {
     /**
-     * Compatibility wrapper for single-fragment compilation.
+     * Downstream wrapper example for single-fragment compilation.
      *
      * @param array<string, mixed> $options Compiler options.
-     * @return array<string, mixed> Old compiler-compatible result envelope.
+     * @return array<string, mixed> Consumer-owned result envelope.
      */
     function bac_compile_fragment( string $content, string $source = 'fragment', string $format = 'html', array $options = array() ): array {
         $path = trim( $source ) !== '' ? $source : 'fragment';
@@ -53,7 +52,7 @@ if ( ! function_exists( 'bac_compile_fragment' ) ) {
 
 if ( ! function_exists( 'bac_summarize_result' ) ) {
     /**
-     * Compatibility wrapper for compact compiler summaries.
+     * Downstream wrapper example for compact compiler summaries.
      *
      * @param array<string, mixed> $compiled Compiler result envelope.
      * @return array<string, mixed> Compact summary.

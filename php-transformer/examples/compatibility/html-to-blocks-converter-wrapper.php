@@ -6,15 +6,15 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 /*
  * Downstream-only compatibility example.
  *
- * Copy these wrappers into an h2bc consumer during migration. The transformer
- * package intentionally does not publish legacy global functions itself.
+ * Copy these wrappers into a downstream consumer during migration. They are
+ * example code for consumer PRs, not product API shipped by this package.
  */
 
 if ( ! function_exists( 'html_to_blocks_raw_handler' ) ) {
     /**
-     * Compatibility wrapper for html-to-blocks-converter consumers.
+     * Downstream wrapper example for consumers that keep an existing raw handler.
      *
-     * @param array<string, mixed> $args Old raw-handler arguments. The `HTML` key carries source HTML.
+     * @param array<string, mixed> $args Raw-handler arguments. The `HTML` key carries source HTML.
      * @return array<int, array<string, mixed>> parse_blocks()-compatible block arrays.
      */
     function html_to_blocks_raw_handler( array $args ): array {
@@ -32,7 +32,7 @@ if ( ! function_exists( 'html_to_blocks_raw_handler' ) ) {
 
 if ( ! function_exists( 'html_to_blocks_convert' ) ) {
     /**
-     * Compatibility wrapper for direct HTML conversion callers.
+     * Downstream wrapper example for direct HTML conversion callers.
      *
      * @param string $html Source HTML.
      * @param array<string, mixed> $args Conversion context retained for the future transformer options contract.

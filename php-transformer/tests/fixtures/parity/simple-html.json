@@ -9,7 +9,7 @@
   },
   "legacy_comparison": {
     "skip": true,
-    "reason": "The legacy converter comparison depends on WordPress/Gutenberg raw handler runtime behavior."
+    "reason": "The migration comparison depends on WordPress/Gutenberg raw handler runtime behavior."
   },
   "operation": "html_transformer.transform",
   "input": {

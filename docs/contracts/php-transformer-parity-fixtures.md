@@ -9,30 +9,14 @@ Each fixture declares:
 - `operation`: the public surface exercised by the runner, such as `format_bridge.convert`.
 - `input`: operation-specific input data.
 - `expect`: path-based assertions over the PHP output.
-- `source_reference`: optional pointer to the legacy repo/path that inspired the fixture.
-- `legacy_comparison`: optional metadata for legacy parity checks.
+- `source_reference`: optional migration note for the source fixture that inspired the case.
+- `legacy_comparison`: optional local-only migration evidence metadata.
 
-Expectation paths are dot-separated. Use `\\.` for literal dots inside output keys, for example `legacy_mapping.block-artifact-compiler/result/v1.wordpress_artifacts\\.block_markup`.
+Expectation paths are dot-separated. Use `\\.` for literal dots inside output keys, for example `legacy_mapping.consumer/result/v1.consumer_artifacts\\.block_markup`.
 
-`legacy_comparison.skip` records cases that need a WordPress runtime, Gutenberg parser, REST callback, bundled dependency, or other legacy environment before a direct comparison is meaningful. The PHP runner still validates the current transformer output for those fixtures; it only skips direct legacy comparison with the recorded reason.
+`legacy_comparison.skip` records cases where local migration evidence needs runtime context before a direct comparison is meaningful. The PHP runner still validates the current transformer output for those fixtures; it only skips optional migration comparison with the recorded reason.
 
-Legacy comparison is dev/local-only and opt-in. The harness never loads old repos unless either `BLOCKS_ENGINE_PARITY_LEGACY=1` is set or the fixture declares `legacy_comparison.enabled: true`.
-
-When enabled, the runner resolves the legacy repo path from fixture metadata first, then from repo-specific environment variables:
-
-- `BLOCKS_ENGINE_PARITY_LEGACY_HTML_TO_BLOCKS_CONVERTER_PATH`
-- `BLOCKS_ENGINE_PARITY_LEGACY_BLOCK_FORMAT_BRIDGE_PATH`
-- `BLOCKS_ENGINE_PARITY_LEGACY_BLOCK_ARTIFACT_COMPILER_PATH`
-
-By default, operations map to the legacy repo `library.php` bootstrap and public callable that matches the source reference:
-
-- `html_transformer.transform`: `html-to-blocks-converter` / `html_to_blocks_convert`
-- `format_bridge.normalize`: `block-format-bridge` / `bfb_normalize`
-- `artifact_compiler.compile`: `block-artifact-compiler` / `bac_compile_website_artifact`
-
-Fixtures may override `repo`, `path`, `bootstrap`, `callable`, and `paths` inside `legacy_comparison`. `paths` lists normalized snapshot paths that are safe to compare across legacy and current envelopes. Normalization sorts associative keys and converts CRLF line endings to LF so local snapshots are stable.
-
-If comparison is not enabled, the repo path is missing, the bootstrap file is unavailable, the callable is not loaded by the explicit bootstrap, or the fixture has no comparison `paths`, the harness skips that legacy comparison and prints the reason. These skips do not fail CI.
+Migration comparison is dev/local-only and opt-in. It is evidence for downstream migrations, not a package feature or long-term support promise. See `php-transformer/docs/html-transform-coverage.md` for the local commands and environment variables.
 
 Run the harness from `php-transformer`:
 
@@ -40,24 +24,14 @@ Run the harness from `php-transformer`:
 composer parity
 ```
 
-To run local legacy checks against adjacent read-only source checkouts:
-
-```sh
-BLOCKS_ENGINE_PARITY_LEGACY=1 \
-BLOCKS_ENGINE_PARITY_LEGACY_HTML_TO_BLOCKS_CONVERTER_PATH=/path/to/html-to-blocks-converter \
-BLOCKS_ENGINE_PARITY_LEGACY_BLOCK_FORMAT_BRIDGE_PATH=/path/to/block-format-bridge \
-BLOCKS_ENGINE_PARITY_LEGACY_BLOCK_ARTIFACT_COMPILER_PATH=/path/to/block-artifact-compiler \
-composer parity
-```
-
 `composer test` includes the parity harness.
 
-## Static Site Importer Source Fixtures
+## Product Source Fixtures
 
-Fixtures prefixed with `ssi-` are compact contract slices inspired by representative Static Site Importer fixtures. They intentionally avoid copying full generated sites or large assets. These cases assert transformer-level behavior only:
+Fixtures prefixed with `ssi-` are compact contract slices inspired by representative product fixtures. They intentionally avoid copying full generated sites or large assets. These cases assert transformer-level behavior only:
 
 - HTML-to-block conversion for representative hero/action and product-card structures.
 - Markdown conversion for nested mixed-source documents.
-- Artifact compilation for website artifact bundles and store manifest files as preserved data assets.
+- Artifact compilation for website artifact bundles and manifest files as preserved data assets.
 
-Static Site Importer remains responsible for source discovery, route/link rewrites, import reports, product manifest validation, WooCommerce dependency handling, generated theme files, navigation entities, and visual/semantic parity gates.
+The consuming product remains responsible for source discovery, route/link rewrites, import reports, product manifest validation, generated theme files, navigation entities, and visual/semantic parity gates.

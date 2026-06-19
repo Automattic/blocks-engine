@@ -9,10 +9,10 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
  * Static Site Importer-owned adapter contract example.
  *
  * This class should live in Static Site Importer when adopted. It keeps product
- * workflows insulated from whether conversion is served by legacy wrappers or
- * native php-transformer classes, and it maps TransformerResult arrays into the
- * BAC-shaped report envelope that Static Site Importer currently records. The
- * transformer package intentionally does not publish this downstream adapter itself.
+ * workflows insulated from whether conversion is served by consumer wrappers or
+ * native php-transformer classes, and it maps TransformerResult arrays into a
+ * product-owned report envelope. The transformer package intentionally does not
+ * publish this downstream adapter itself.
  */
 final class Static_Site_Importer_Transformer_Adapter {
     /**

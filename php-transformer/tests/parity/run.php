@@ -11,7 +11,7 @@ if ( in_array('--legacy-child', $argv ?? array(), true) ) {
     runLegacyChildProcess();
 }
 
-$runLegacyComparisons = in_array('--legacy-comparison', $argv ?? array(), true);
+$runMigrationComparisons = in_array('--migration-comparison', $argv ?? array(), true) || in_array('--legacy-comparison', $argv ?? array(), true);
 
 if ( ! function_exists('serialize_blocks') ) {
     /**
@@ -52,8 +52,8 @@ if ( false === $fixtures || array() === $fixtures ) {
 }
 
 $ran = 0;
-$legacySkipped = 0;
-$legacyCompared = 0;
+$migrationSkipped = 0;
+$migrationCompared = 0;
 
 foreach ( $fixtures as $fixturePath ) {
     $fixture = loadFixture($fixturePath);
@@ -65,22 +65,22 @@ foreach ( $fixtures as $fixturePath ) {
     }
     assertStructuredCoverage($output, $fixture);
 
-    if ( $runLegacyComparisons ) {
-        $legacyResult = runLegacyComparison($fixture, $output);
-        if ( 'compared' === $legacyResult['status'] ) {
-            ++$legacyCompared;
+    if ( $runMigrationComparisons ) {
+        $migrationResult = runLegacyComparison($fixture, $output);
+        if ( 'compared' === $migrationResult['status'] ) {
+            ++$migrationCompared;
         }
-        if ( 'skipped' === $legacyResult['status'] ) {
-            ++$legacySkipped;
-            fwrite(STDOUT, "Skipped legacy comparison for {$fixture['name']}: {$legacyResult['reason']}\n");
+        if ( 'skipped' === $migrationResult['status'] ) {
+            ++$migrationSkipped;
+            fwrite(STDOUT, "Skipped migration comparison for {$fixture['name']}: {$migrationResult['reason']}\n");
         }
     }
 
     ++$ran;
 }
 
-if ( $runLegacyComparisons ) {
-    fwrite(STDOUT, "PHP transformer parity fixtures passed: {$ran} fixture(s), {$legacyCompared} legacy comparison(s), {$legacySkipped} legacy comparison(s) skipped.\n");
+if ( $runMigrationComparisons ) {
+    fwrite(STDOUT, "PHP transformer parity fixtures passed: {$ran} fixture(s), {$migrationCompared} migration comparison(s), {$migrationSkipped} migration comparison(s) skipped.\n");
 } else {
     fwrite(STDOUT, "PHP transformer parity fixtures passed: {$ran} fixture(s).\n");
 }
@@ -240,24 +240,24 @@ function runLegacyComparison(array $fixture, array $currentOutput): array
 {
     $comparison = $fixture['legacy_comparison'] ?? array();
     if ( ! is_array($comparison) ) {
-        return array('status' => 'skipped', 'reason' => 'fixture does not declare legacy_comparison metadata');
+        return array('status' => 'skipped', 'reason' => 'fixture does not declare migration comparison metadata');
     }
 
     if ( true === ($comparison['skip'] ?? false) ) {
-        return array('status' => 'skipped', 'reason' => (string) ($comparison['reason'] ?? 'fixture metadata skips legacy comparison'));
+        return array('status' => 'skipped', 'reason' => (string) ($comparison['reason'] ?? 'fixture metadata skips migration comparison'));
     }
 
     if ( true !== ($comparison['safe'] ?? false) ) {
-        return array('status' => 'skipped', 'reason' => 'fixture is not marked legacy_comparison.safe=true');
+        return array('status' => 'skipped', 'reason' => 'fixture is not marked safe for migration comparison');
     }
 
     if ( ! legacyComparisonsEnabled($comparison) ) {
-        return array('status' => 'skipped', 'reason' => 'set BLOCKS_ENGINE_PARITY_LEGACY=1 or legacy_comparison.enabled=true to opt in');
+        return array('status' => 'skipped', 'reason' => 'set BLOCKS_ENGINE_PARITY_LEGACY=1 or legacy_comparison.enabled=true to opt in to local migration comparison');
     }
 
     $repo = (string) ($comparison['repo'] ?? legacyRepoForOperation((string) $fixture['operation']));
     if ( '' === $repo ) {
-        return array('status' => 'skipped', 'reason' => 'fixture operation has no legacy repo mapping');
+        return array('status' => 'skipped', 'reason' => 'fixture operation has no migration repo mapping');
     }
 
     $repoPath = legacyRepoPath($repo, $comparison);
@@ -266,17 +266,17 @@ function runLegacyComparison(array $fixture, array $currentOutput): array
     }
 
     if ( ! is_dir($repoPath) ) {
-        return array('status' => 'skipped', 'reason' => "legacy repo path is not a directory: {$repoPath}");
+        return array('status' => 'skipped', 'reason' => "migration repo path is not a directory: {$repoPath}");
     }
 
     $bootstrap = (string) ($comparison['bootstrap'] ?? legacyBootstrapForRepo($repo));
     if ( '' !== $bootstrap && ! is_file($repoPath . '/' . ltrim($bootstrap, '/')) ) {
-        return array('status' => 'skipped', 'reason' => "legacy bootstrap not found: {$repoPath}/{$bootstrap}");
+        return array('status' => 'skipped', 'reason' => "migration bootstrap not found: {$repoPath}/{$bootstrap}");
     }
 
     $callable = (string) ($comparison['callable'] ?? legacyCallableForOperation((string) $fixture['operation']));
     if ( '' === $callable ) {
-        return array('status' => 'skipped', 'reason' => 'fixture operation has no legacy callable mapping');
+        return array('status' => 'skipped', 'reason' => 'fixture operation has no migration callable mapping');
     }
 
     $legacyOutput = normalizeComparisonSnapshot(runLegacyInSubprocess($fixture, $repoPath, $bootstrap, $callable));
@@ -284,7 +284,7 @@ function runLegacyComparison(array $fixture, array $currentOutput): array
     $paths = $comparison['paths'] ?? array();
 
     if ( ! is_array($paths) || array() === $paths ) {
-        return array('status' => 'skipped', 'reason' => 'legacy callable ran, but fixture does not declare legacy_comparison.paths');
+        return array('status' => 'skipped', 'reason' => 'migration callable ran, but fixture does not declare comparison paths');
     }
 
     foreach ( $paths as $path ) {
@@ -294,7 +294,7 @@ function runLegacyComparison(array $fixture, array $currentOutput): array
         $legacyValue = valueAtComparisonPath($legacyOutput, $legacyPath);
         $currentValue = valueAtComparisonPath($currentSnapshot, $currentPath);
         if ( $legacyValue !== $currentValue ) {
-            failExpectation((string) $fixture['name'], "legacy_comparison.{$label}", $legacyValue, $currentValue);
+            failExpectation((string) $fixture['name'], "migration_comparison.{$label}", $legacyValue, $currentValue);
         }
     }
 
@@ -383,7 +383,7 @@ function runLegacyInSubprocess(array $fixture, string $repoPath, string $bootstr
     $env = array_merge($_ENV, array('BLOCKS_ENGINE_PARITY_LEGACY_CHILD_INPUT' => $payload));
     $process = proc_open(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' --legacy-child', $descriptorSpec, $pipes, null, $env);
     if ( ! is_resource($process) ) {
-        fail("Unable to start legacy comparison subprocess for {$fixture['name']}.");
+        fail("Unable to start migration comparison subprocess for {$fixture['name']}.");
     }
 
     fclose($pipes[0]);
@@ -395,10 +395,10 @@ function runLegacyInSubprocess(array $fixture, string $repoPath, string $bootstr
 
     $decoded = json_decode((string) $stdout, true);
     if ( 0 !== $exitCode || ! is_array($decoded) ) {
-        fail("Legacy comparison subprocess failed for {$fixture['name']} with exit code {$exitCode}.\n" . trim((string) $stderr));
+        fail("Migration comparison subprocess failed for {$fixture['name']} with exit code {$exitCode}.\n" . trim((string) $stderr));
     }
     if ( ($decoded['status'] ?? '') !== 'ok' ) {
-        fail("Legacy comparison failed for {$fixture['name']}: " . (string) ($decoded['message'] ?? 'unknown error'));
+        fail("Migration comparison failed for {$fixture['name']}: " . (string) ($decoded['message'] ?? 'unknown error'));
     }
 
     return $decoded['output'] ?? null;
@@ -424,7 +424,7 @@ function runLegacyCallable(string $callable, array $fixture): mixed
         return $callable(is_array($artifact) ? $artifact : array());
     }
 
-    fail("Fixture {$fixture['name']} declares unsupported legacy operation: {$fixture['operation']}");
+    fail("Fixture {$fixture['name']} declares unsupported migration operation: {$fixture['operation']}");
 }
 
 function runLegacyChildProcess(): never
@@ -433,7 +433,7 @@ function runLegacyChildProcess(): never
     $decodedPayload = false === $payload ? false : base64_decode($payload, true);
     $input = false === $decodedPayload ? null : json_decode($decodedPayload, true);
     if ( ! is_array($input) || ! is_array($input['fixture'] ?? null) ) {
-        legacyChildResponse('error', null, 'invalid legacy child input');
+        legacyChildResponse('error', null, 'invalid migration child input');
     }
 
     installLegacyWordPressStubs();
@@ -443,13 +443,13 @@ function runLegacyChildProcess(): never
     $callable = (string) ($input['callable'] ?? '');
     $bootstrapPath = $repoPath . '/' . ltrim($bootstrap, '/');
     if ( ! is_file($bootstrapPath) ) {
-        legacyChildResponse('error', null, "legacy bootstrap not found: {$bootstrapPath}");
+        legacyChildResponse('error', null, "migration bootstrap not found: {$bootstrapPath}");
     }
 
     require_once $bootstrapPath;
 
     if ( ! function_exists($callable) ) {
-        legacyChildResponse('error', null, "legacy callable is not available after bootstrap: {$callable}");
+        legacyChildResponse('error', null, "migration callable is not available after bootstrap: {$callable}");
     }
 
     try {

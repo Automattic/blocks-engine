@@ -1,6 +1,6 @@
-# Current Repository Map
+# Transitional Repository Map
 
-The first migration wave treats the existing open source repositories as source inputs and future consumers of `php-transformer`.
+The first migration wave treats the existing open source repositories as source inputs and future consumers of `php-transformer`. This document is migration context only; the package API does not depend on these repository names.
 
 | Repository | Current role | Target role |
 | --- | --- | --- |

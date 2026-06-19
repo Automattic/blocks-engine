@@ -9,7 +9,7 @@
   },
   "legacy_comparison": {
     "skip": true,
-    "reason": "Products manifest validation belongs to Static Site Importer and WooCommerce import flows, not the artifact compiler contract."
+    "reason": "Products manifest validation belongs to consuming product and WooCommerce import flows, not the artifact compiler contract."
   },
   "operation": "artifact_compiler.compile",
   "input": {

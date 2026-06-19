@@ -30,9 +30,9 @@
       "php tests/contract/runtime-wordpress-stubs.php",
       "php tests/contract/run.php"
     ],
-    "test:examples": "php tests/contract/compatibility-examples.php",
+    "test:examples": "php tests/contract/downstream-examples.php",
     "test:parity": "php tests/parity/run.php",
-    "test:migration:legacy-parity": "BLOCKS_ENGINE_PARITY_LEGACY=1 php tests/parity/run.php --legacy-comparison"
+    "test:migration:legacy-parity": "BLOCKS_ENGINE_PARITY_LEGACY=1 php tests/parity/run.php --migration-comparison"
   },
   "config": {
     "platform": {
