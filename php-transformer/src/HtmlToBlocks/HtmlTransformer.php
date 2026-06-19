@@ -19,6 +19,11 @@ final class HtmlTransformer
      */
     private array $fallbackProvenance = array();
 
+    /**
+     * @var array<int, array<string, mixed>>
+     */
+    private array $presentationProvenance = array();
+
     public function __construct(private readonly Runtime $runtime = new Runtime())
     {
         $this->blockFactory = new BlockFactory();
@@ -32,6 +37,7 @@ final class HtmlTransformer
         $context                  = TransformationOptions::context($options);
         $startedAt                = hrtime(true);
         $this->fallbackProvenance = TransformationOptions::provenance($options);
+        $this->presentationProvenance = array();
         $provenance               = array(
             array_merge(array(
                 'source_format' => 'html',
@@ -113,6 +119,11 @@ final class HtmlTransformer
             diagnostics: $diagnostics,
             fallbacks: $fallbacks,
             provenance: $provenance,
+            sourceReports: array(
+                'html' => array(
+                    'presentation_signals' => $this->presentationProvenance,
+                ),
+            ),
             coverage: array(
                 array(
                     'supported_blocks' => array( 'core/button', 'core/buttons', 'core/code', 'core/details', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/shortcode', 'core/table' ),
@@ -220,7 +231,7 @@ final class HtmlTransformer
             return $this->createBlock('core/heading', array_merge($this->presentationAttributes($element), array(
                 'content' => $content,
                 'level'   => (int) $matches[1],
-            )));
+            )), array(), $element);
         }
 
         if ( 'p' === $tagName ) {
@@ -230,7 +241,7 @@ final class HtmlTransformer
                 return $textBlocks[0] ?? null;
             }
 
-            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )));
+            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
         }
 
         if ( $this->isInlineContentElement($tagName) ) {
@@ -246,7 +257,7 @@ final class HtmlTransformer
             $items = array();
             foreach ( $element->childNodes as $child ) {
                 if ( $child instanceof DOMElement && 'li' === strtolower($child->tagName) ) {
-                    $items[] = $this->createBlock('core/list-item', array_merge($this->presentationAttributes($child), array( 'content' => $this->innerHtml($child) )));
+                    $items[] = $this->createBlock('core/list-item', array_merge($this->presentationAttributes($child), array( 'content' => $this->innerHtml($child) )), array(), $child);
                 }
             }
 
@@ -254,7 +265,7 @@ final class HtmlTransformer
                 return null;
             }
 
-            return $this->createBlock('core/list', array_merge($this->presentationAttributes($element), 'ol' === $tagName ? array( 'ordered' => true ) : array()), $items);
+            return $this->createBlock('core/list', array_merge($this->presentationAttributes($element), 'ol' === $tagName ? array( 'ordered' => true ) : array()), $items, $element);
         }
 
         if ( 'dl' === $tagName ) {
@@ -263,7 +274,7 @@ final class HtmlTransformer
                 return null;
             }
 
-            return $this->createBlock('core/list', $this->presentationAttributes($element), $items);
+            return $this->createBlock('core/list', $this->presentationAttributes($element), $items, $element);
         }
 
         if ( 'blockquote' === $tagName ) {
@@ -283,7 +294,7 @@ final class HtmlTransformer
                 return $this->createBlock('core/pullquote', array_filter(array_merge($this->presentationAttributes($element), array(
                     'value'    => $value,
                     'citation' => $citation,
-                )), static fn ($value): bool => '' !== $value));
+                )), static fn ($value): bool => '' !== $value), array(), $element);
             }
 
             $innerBlocks = $this->convertChildren($element, $fallbacks);
@@ -291,7 +302,7 @@ final class HtmlTransformer
                 $innerBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $value ));
             }
 
-            return $this->createBlock('core/quote', array_filter(array_merge($this->presentationAttributes($element), array( 'citation' => $citation )), static fn ($value): bool => '' !== $value), $innerBlocks);
+            return $this->createBlock('core/quote', array_filter(array_merge($this->presentationAttributes($element), array( 'citation' => $citation )), static fn ($value): bool => '' !== $value), $innerBlocks, $element);
         }
 
         if ( 'figure' === $tagName ) {
@@ -309,14 +320,14 @@ final class HtmlTransformer
         if ( 'pre' === $tagName ) {
             $code = $this->firstChildElement($element, 'code');
             if ( $code instanceof DOMElement ) {
-                return $this->createBlock('core/code', array_merge($this->presentationAttributes($element), array( 'content' => $code->textContent ?? '' )));
+                return $this->createBlock('core/code', array_merge($this->presentationAttributes($element), array( 'content' => $code->textContent ?? '' )), array(), $element);
             }
 
-            return $this->createBlock('core/preformatted', array_merge($this->presentationAttributes($element), array( 'content' => $this->innerHtml($element) )));
+            return $this->createBlock('core/preformatted', array_merge($this->presentationAttributes($element), array( 'content' => $this->innerHtml($element) )), array(), $element);
         }
 
         if ( 'table' === $tagName ) {
-            return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)));
+            return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
         }
 
         if ( 'details' === $tagName ) {
@@ -336,11 +347,11 @@ final class HtmlTransformer
         }
 
         if ( 'a' === $tagName && '' !== trim($element->textContent ?? '') ) {
-            return $this->createBlock('core/buttons', array(), array( $this->buttonBlockFromAnchor($element) ));
+            return $this->createBlock('core/buttons', array(), array( $this->buttonBlockFromAnchor($element) ), $element);
         }
 
         if ( 'button' === $tagName ) {
-            return $this->createBlock('core/buttons', array(), array( $this->createBlock('core/button', array_merge($this->presentationAttributes($element), array( 'text' => $this->innerHtml($element) ))) ));
+            return $this->createBlock('core/buttons', array(), array( $this->createBlock('core/button', array_merge($this->presentationAttributes($element), array( 'text' => $this->innerHtml($element) )), array(), $element) ), $element);
         }
 
         if ( 'form' === $tagName ) {
@@ -370,18 +381,18 @@ final class HtmlTransformer
         if ( in_array($tagName, array( 'article', 'body', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
             $buttonChildren = $this->buttonChildren($element);
             if ( array() !== $buttonChildren ) {
-                return $this->createBlock('core/buttons', $this->presentationAttributes($element), $buttonChildren);
+                return $this->createBlock('core/buttons', $this->presentationAttributes($element), $buttonChildren, $element);
             }
 
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( 1 === count($children) ) {
                 if ( $this->shouldPreserveWrapper($element) && 'core/group' !== ($children[0]['blockName'] ?? '') ) {
-                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children);
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
                 }
                 return $children[0];
             }
             if ( array() !== $children ) {
-                return $this->createBlock('core/group', $this->presentationAttributes($element), $children);
+                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
             }
             return null;
         }
@@ -424,8 +435,12 @@ final class HtmlTransformer
      * @param array<int, array<string, mixed>> $innerBlocks
      * @return array<string, mixed>
      */
-    private function createBlock(string $name, array $attrs = array(), array $innerBlocks = array()): array
+    private function createBlock(string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array
     {
+        if ( $sourceElement instanceof DOMElement ) {
+            $this->recordPresentationProvenance($name, $attrs, $sourceElement);
+        }
+
         return $this->blockFactory->create($name, $attrs, $innerBlocks);
     }
 
@@ -450,14 +465,64 @@ final class HtmlTransformer
     }
 
     /**
-     * @return array<string, string>
+     * @return array<string, mixed>
      */
     private function presentationAttributes(DOMElement $element): array
     {
         return array_filter(array(
             'className' => $this->attr($element, 'class'),
             'style'     => $this->attr($element, 'style'),
-        ), static fn (string $value): bool => '' !== trim($value));
+            'layout'    => $this->layoutAttribute($element),
+        ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function layoutAttribute(DOMElement $element): array
+    {
+        $declared = trim($this->attr($element, 'data-layout'));
+        if ( '' === $declared ) {
+            $declared = trim($this->attr($element, 'data-wp-layout'));
+        }
+
+        if ( '' !== $declared ) {
+            $decoded = json_decode($declared, true);
+            $type = is_array($decoded) ? (string) ($decoded['type'] ?? '') : $declared;
+            if ( in_array($type, array( 'constrained', 'flex', 'flow', 'grid' ), true) ) {
+                return array( 'type' => $type );
+            }
+        }
+
+        $style = strtolower($this->attr($element, 'style'));
+        if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style) ) {
+            return array( 'type' => 'flex' );
+        }
+        if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $style) ) {
+            return array( 'type' => 'grid' );
+        }
+
+        return array();
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function recordPresentationProvenance(string $blockName, array $attrs, DOMElement $element): void
+    {
+        $signals = array_intersect_key($attrs, array_flip(array( 'className', 'style', 'layout' )));
+        $signals = array_filter($signals, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+        if ( array() === $signals ) {
+            return;
+        }
+
+        $this->presentationProvenance[] = array(
+            'block_name'        => $blockName,
+            'tag'               => strtolower($element->tagName),
+            'selector'          => $this->elementSelector($element),
+            'signals'           => $signals,
+            'source_attributes' => array_intersect_key($this->htmlAttributes($element), array_flip(array( 'class', 'style', 'data-layout', 'data-wp-layout' ))),
+        );
     }
 
     private function shouldPreserveWrapper(DOMElement $element): bool
@@ -667,7 +732,7 @@ final class HtmlTransformer
                 $prefix = '' !== trim($term) ? '<strong>' . $term . '</strong>' : '';
                 $items[] = $this->createBlock('core/list-item', array_merge($this->presentationAttributes($child), array(
                     'content' => trim($prefix . ( '' !== $prefix && '' !== trim($description) ? ' ' : '' ) . $description),
-                )));
+                )), array(), $child);
             }
         }
 
@@ -712,7 +777,7 @@ final class HtmlTransformer
             }
         }
 
-        return $this->createBlock('core/image', $attrs);
+        return $this->createBlock('core/image', $attrs, array(), $figure ?? $image);
     }
 
     private function safeImageUrl(string $url): string
@@ -798,7 +863,7 @@ final class HtmlTransformer
         return $this->createBlock('core/button', array_filter(array_merge($this->presentationAttributes($anchor), array(
             'text' => $this->innerHtml($anchor),
             'url'  => $this->attr($anchor, 'href'),
-        )), static fn ($value): bool => '' !== $value));
+        )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $anchor);
     }
 
     /**

@@ -41,5 +41,6 @@ Product-shaped fixtures are compact contract slices inspired by representative p
 - HTML-to-block conversion for representative hero/action and product-card structures.
 - Markdown conversion for nested mixed-source documents.
 - Artifact compilation for website artifact bundles and manifest files as preserved data assets.
+- Generic HTML wrapper presentation provenance for useful class, style, and layout signals. Supported blocks keep these signals in block attributes, while `source_reports.html.presentation_signals` records the source selector, tag, captured signals, and source attributes that produced them.
 
 The consuming product remains responsible for source discovery, route/link rewrites, import reports, product manifest validation, generated theme files, navigation entities, and visual/semantic parity gates.
