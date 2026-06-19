@@ -3,6 +3,13 @@ declare(strict_types=1);
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
+/*
+ * Downstream-only compatibility example.
+ *
+ * Copy these wrappers into an h2bc consumer during migration. The transformer
+ * package intentionally does not publish legacy global functions itself.
+ */
+
 if ( ! function_exists( 'html_to_blocks_raw_handler' ) ) {
     /**
      * Compatibility wrapper for html-to-blocks-converter consumers.

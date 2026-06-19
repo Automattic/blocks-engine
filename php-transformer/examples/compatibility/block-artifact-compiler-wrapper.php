@@ -3,6 +3,14 @@ declare(strict_types=1);
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 
+/*
+ * Downstream-only compatibility example.
+ *
+ * Copy these wrappers into a Block Artifact Compiler consumer during migration.
+ * The transformer package intentionally does not publish legacy global
+ * functions itself.
+ */
+
 if ( ! function_exists( 'bac_compile_website_artifact' ) ) {
     /**
      * Compatibility wrapper for the website artifact compiler function.

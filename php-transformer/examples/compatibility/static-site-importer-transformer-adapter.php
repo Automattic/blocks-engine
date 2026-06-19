@@ -9,7 +9,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
  *
  * This class should live in Static Site Importer when adopted. It keeps product
  * workflows insulated from whether conversion is served by legacy wrappers or
- * native php-transformer classes.
+ * native php-transformer classes. The transformer package intentionally does
+ * not publish this downstream adapter itself.
  */
 final class Static_Site_Importer_Transformer_Adapter {
     public function html_to_block_markup( string $html, array $options = array() ): string {
