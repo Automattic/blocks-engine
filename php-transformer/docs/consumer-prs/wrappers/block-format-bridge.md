@@ -15,7 +15,7 @@
 
 ## Adapter Skeleton
 
-See `examples/compatibility/block-format-bridge-wrapper.php` for a copyable wrapper sketch.
+See `docs/consumer-prs/examples/block-format-bridge-wrapper.php` for a copyable migration wrapper sketch.
 
 ## Migration Notes
 

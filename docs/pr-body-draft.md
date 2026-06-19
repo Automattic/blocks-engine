@@ -8,7 +8,7 @@ The package owns reusable conversion contracts for HTML, declared content format
 
 ## Direction
 
-This PR should be reviewed as a standalone package, not as a renamed old repository. Existing HTML converter, format bridge, artifact compiler, and Static Site Importer code paths are downstream consumers and migration evidence.
+This PR should be reviewed as a standalone package, not as a renamed predecessor repository. Existing consumer code paths are downstream migration evidence.
 
 Implementation should collapse into `php-transformer` where the behavior is a reusable primitive. Repository archive decisions are separate: old repositories can be archived only when no product or public consumer still needs their package name, functions, hooks, CLI commands, abilities, or other public entrypoints. If those entrypoints remain in use, the old repository should become a thin shim over tagged transformer APIs instead of adding new transformation logic.
 
@@ -40,7 +40,7 @@ The parity harness validates current transformer output by default. Optional leg
 - Keep the PR in draft until the package is installable and reviewable as a Composer library.
 - Replace any draft branch constraints in downstream plans with a tagged package constraint before downstream PRs merge.
 - Use downstream wrapper PRs to preserve old public surfaces while moving implementation to tagged transformer APIs.
-- Keep Static Site Importer as a product plugin; it should consume transformer APIs through product-owned adapters rather than become part of this package.
+- Keep product plugins outside this package; they should consume transformer APIs through product-owned adapters rather than become part of this package.
 - Track missing primitives upstream in `php-transformer` instead of adding downstream workarounds.
 
 ## AI assistance

@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
-  "name": "ssi-mixed-source-markdown",
+  "name": "mixed-source-markdown",
   "description": "Converts a nested Markdown source document shape from a mixed-source product fixture.",
   "source_reference": {
-    "repo": "static-site-importer",
+    "repo": "php-transformer",
     "path": "tests/fixtures/mixed-source-site/content/story.md",
-    "notes": "Covers the Markdown document body path only; SSI owns source discovery, route maps, and MDX skipped diagnostics."
+    "notes": "Covers the Markdown document body path only; products own source discovery, route maps, and skipped diagnostics."
   },
   "legacy_comparison": {
     "skip": true,

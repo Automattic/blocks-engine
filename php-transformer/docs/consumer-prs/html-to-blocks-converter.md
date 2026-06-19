@@ -109,7 +109,7 @@ The downstream adapter lives in `html-to-blocks-converter`; do not add old-repo-
 7. Keep the legacy transform registry/classes loaded so tests and any external inspection keep working. New conversion behavior should not call `HTML_To_Blocks_Transform_Registry::get_raw_transforms()` except in a temporary fallback path explicitly covered by tests.
 8. If a fixture needs behavior that `HtmlTransformer` does not expose yet, stop and add the missing generic upstream API/fixture in `php-transformer` first. Do not add downstream shims for missing transformer features.
 
-`examples/compatibility/html-to-blocks-converter-wrapper.php` is the copyable minimal shape. The real downstream patch should preserve more of `raw-handler.php` than the example because the old repo owns WordPress hooks, shortcode splitting, normalization, fallback actions, and versioned plugin/package loading.
+`docs/consumer-prs/examples/html-to-blocks-converter-wrapper.php` is the copyable minimal migration shape. The real downstream patch should preserve more of `raw-handler.php` than the example because the old repo owns WordPress hooks, shortcode splitting, normalization, fallback actions, and versioned plugin/package loading.
 
 ## Public Function Mapping
 

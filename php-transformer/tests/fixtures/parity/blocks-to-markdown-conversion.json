@@ -3,7 +3,7 @@
   "name": "blocks-to-markdown-conversion",
   "description": "Converts serialized block markup to Markdown through rendered HTML.",
   "source_reference": {
-    "repo": "block-format-bridge",
+    "repo": "php-transformer",
     "path": "includes/class-bfb-markdown-adapter.php",
     "notes": "Covers the rendered blocks to html-to-markdown path in the PHP transformer adapter."
   },

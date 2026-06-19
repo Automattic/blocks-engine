@@ -1,6 +1,6 @@
-# PHP Transformer Packaging And Draft Exit Criteria
+# Downstream Packaging Migration Evidence
 
-This document makes the draft PR's packaging and merge-readiness requirements concrete without introducing implementation classes.
+This document records downstream packaging migration evidence. It is not canonical package API documentation for `automattic/blocks-engine-php-transformer`.
 
 ## Composer Package
 

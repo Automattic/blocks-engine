@@ -7,11 +7,11 @@ if ( is_readable( $autoload ) ) {
     require_once $autoload;
 }
 
-$examples = glob( $root . '/examples/compatibility/*.php' );
+$examples = glob( $root . '/docs/consumer-prs/examples/*.php' );
 $autoload = $root . '/vendor/autoload.php';
 
 if ( false === $examples || array() === $examples ) {
-    fwrite( STDERR, "No downstream examples found.\n" );
+    fwrite( STDERR, "No downstream migration examples found.\n" );
     exit( 1 );
 }
 
@@ -28,7 +28,7 @@ foreach ( $examples as $example ) {
 $smoke = static function (string $label, string $example, string $body) use ( $autoload ): void {
     $script = tempnam( sys_get_temp_dir(), 'blocks-engine-downstream-' );
     if ( false === $script ) {
-        fwrite( STDERR, "Unable to create downstream smoke script for {$label}.\n" );
+        fwrite( STDERR, "Unable to create downstream migration smoke script for {$label}.\n" );
         exit( 1 );
     }
 
@@ -40,7 +40,7 @@ $smoke = static function (string $label, string $example, string $body) use ( $a
     unlink( $script );
 
     if ( 0 !== $status ) {
-        fwrite( STDERR, "Downstream example smoke failed for {$label}.\n" . implode( "\n", $output ) . "\n" );
+        fwrite( STDERR, "Downstream migration example smoke failed for {$label}.\n" . implode( "\n", $output ) . "\n" );
         exit( 1 );
     }
 };
@@ -129,4 +129,4 @@ PHP
     }
 }
 
-fwrite( STDOUT, "Downstream examples linted and smoke-called.\n" );
+fwrite( STDOUT, "Downstream migration examples linted and smoke-called.\n" );

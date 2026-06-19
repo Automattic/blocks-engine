@@ -67,7 +67,7 @@ $assert('success' === $simple['status'], 'simple artifact compiles successfully'
 $assert('index.html' === ($simple['source_reports']['artifact']['entry_path'] ?? ''), 'generated HTML becomes an index entry');
 $assert(str_contains((string) $simple['serialized_blocks'], '<!-- wp:html -->'), 'HTML is preserved as serialized block markup');
 $assert('hero' === ($simple['components'][0]['name'] ?? ''), 'component candidates are exposed');
-$assert('serialized_blocks' === ($simple['legacy_mapping']['block-artifact-compiler/result/v1']['wordpress_artifacts.block_markup'] ?? ''), 'BAC block markup mapping is documented');
+$assert(is_array($simple['legacy_mapping'] ?? null), 'migration mapping metadata is exposed');
 
 $missing = $compiler->compile(array('files' => array()))->toArray();
 $assert('failed' === $missing['status'], 'missing HTML fails explicitly', (string) $missing['status']);

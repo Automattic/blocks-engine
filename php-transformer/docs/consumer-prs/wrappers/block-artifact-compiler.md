@@ -14,7 +14,7 @@
 
 ## Adapter Skeleton
 
-See `examples/compatibility/block-artifact-compiler-wrapper.php` for a copyable wrapper sketch.
+See `docs/consumer-prs/examples/block-artifact-compiler-wrapper.php` for a copyable migration wrapper sketch.
 
 ## Migration Notes
 

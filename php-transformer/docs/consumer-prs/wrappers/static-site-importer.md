@@ -93,4 +93,4 @@ The adapter PR should include an old-versus-adapter report table for these fixtu
 
 ## Adapter Skeleton
 
-See `examples/compatibility/static-site-importer-transformer-adapter.php` for a copyable Static Site Importer-owned adapter contract example.
+See `docs/consumer-prs/examples/static-site-importer-transformer-adapter.php` for a copyable Static Site Importer-owned adapter contract example.

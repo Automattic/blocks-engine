@@ -22,7 +22,7 @@
     "parity": "@test:parity",
     "test": [
       "@test:canonical",
-      "@test:examples",
+      "@test:migration-examples",
       "@test:parity"
     ],
     "test:canonical": [
@@ -30,7 +30,7 @@
       "php tests/contract/runtime-wordpress-stubs.php",
       "php tests/contract/run.php"
     ],
-    "test:examples": "php tests/contract/downstream-examples.php",
+    "test:migration-examples": "php tests/contract/migration-examples.php",
     "test:parity": "php tests/parity/run.php",
     "test:migration:legacy-parity": "BLOCKS_ENGINE_PARITY_LEGACY=1 php tests/parity/run.php --migration-comparison"
   },

@@ -4,7 +4,7 @@ PHP Transformer is the canonical PHP primitive for converting source content and
 
 This package is intentionally origin-clean: it exposes transformer primitives and result contracts without publishing compatibility wrappers or product adapters for downstream plugins.
 
-This package's canonical identity is `automattic/blocks-engine-php-transformer`, exposed through the `Automattic\BlocksEngine\PhpTransformer\` namespace. That identity must not include downstream repository names, legacy package names, or compatibility wrapper promises.
+This package's canonical identity is `automattic/blocks-engine-php-transformer`, exposed through the `Automattic\BlocksEngine\PhpTransformer\` namespace. That identity is independent from downstream repository names, package names, and compatibility wrapper promises.
 
 > **Package continuity:** Existing downstream packages remain support surfaces during migration. This package is the canonical implementation target, not an immediate Composer `replace` for those packages and not a signal to archive them.
 
@@ -18,7 +18,7 @@ PHP Transformer owns reusable transformation primitives:
 - Serializable block output, document output, asset manifests, diagnostics, fallbacks, and provenance.
 - WordPress runtime adapters for calls that require WordPress APIs.
 
-PHP Transformer does not own product workflows such as importer admin screens, uploaded ZIP intake, theme activation, Studio-specific orchestration, WordPress.com deployment behavior, or self-improving loop control. Product-specific compatibility wrappers belong in downstream packages or in `examples/compatibility/`, not in the canonical package API.
+PHP Transformer does not own product workflows such as importer admin screens, uploaded ZIP intake, theme activation, Studio-specific orchestration, WordPress.com deployment behavior, or self-improving loop control. Product-specific compatibility wrappers belong in downstream packages, not in the canonical package API.
 
 ## Namespace Map
 
@@ -75,15 +75,15 @@ if ('failed' === $result['status']) {
 
 ## Draft Status
 
-This package is intentionally being introduced as a draft consolidation target. Existing repositories remain downstream consumers and temporary compatibility surfaces while implementation migrates into this package; they are not package identity anchors and they do not create a permanent compatibility promise for `php-transformer`.
+This package is intentionally being introduced as a draft consolidation target. Migration materials document downstream adoption paths; they are not package identity anchors and they do not create a permanent compatibility promise for `php-transformer`.
 
 Transitional migration notes live in [`docs/migration.md`](docs/migration.md). They are local planning evidence for downstream consumers, not package API commitments.
 
-Repository consolidation policy lives in [`docs/current-repo-map.md`](docs/current-repo-map.md). It documents repo-by-repo fate, keep-open versus archive criteria, issue routing, and package discoverability for old downstream entrypoints.
+Repository consolidation policy lives in [`docs/current-repo-map.md`](docs/current-repo-map.md). It is migration evidence for downstream entrypoints and is not part of the canonical package API.
 
 Review the package boundary and draft readiness through [`docs/pr-review-guide.md`](docs/pr-review-guide.md). The guide frames `php-transformer` as a standalone product primitive and separates the canonical API from transitional migration material.
 
-Downstream wrapper branch plans live in [`docs/consumer-prs/`](docs/consumer-prs/). They define branch names, dependency constraints, file-level patch skeletons, acceptance commands, rollback plans, and archive/thin-shim exit paths without changing the downstream repositories from this worktree.
+Downstream migration plans live in [`docs/consumer-prs/`](docs/consumer-prs/). They define branch names, dependency constraints, file-level patch skeletons, acceptance commands, rollback plans, and archive/thin-shim exit paths without changing downstream repositories from this worktree.
 
 ## Artifact Compiler Fallbacks
 

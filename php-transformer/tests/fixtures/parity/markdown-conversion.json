@@ -3,8 +3,8 @@
   "name": "markdown-conversion",
   "description": "Converts Markdown through the FormatBridge block pivot into HTML and parsed block output.",
   "source_reference": {
-    "repo": "block-format-bridge",
-    "path": "includes/class-bfb-markdown-adapter.php",
+    "repo": "php-transformer",
+    "path": "src/FormatBridge/MarkdownAdapter.php",
     "notes": "Covers the CommonMark to HTML to blocks path in the PHP transformer adapter."
   },
   "operation": "format_bridge.convert",

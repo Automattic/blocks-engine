@@ -3,7 +3,7 @@
   "name": "html-core-text-structure",
   "description": "Converts core text and structure HTML into heading, paragraph, list, quote, pullquote, code, and preformatted blocks.",
   "source_reference": {
-    "repo": "html-to-blocks-converter",
+    "repo": "php-transformer",
     "path": "tests/smoke-core-block-transform-matrix.php",
     "notes": "Structured fixture coverage for supported core text transforms currently implemented by the PHP transformer."
   },

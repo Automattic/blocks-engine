@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
-  "name": "ssi-generated-store-manifest-invalid-artifact",
+  "name": "generated-store-manifest-invalid-artifact",
   "description": "Preserves an invalid generated-store products.json as artifact data while compiling the HTML entry.",
   "source_reference": {
-    "repo": "static-site-importer",
+    "repo": "php-transformer",
     "path": "tests/fixtures/generated-store-invalid/products.json",
-    "notes": "Transformer-level artifact fixture only preserves and classifies manifest data; SSI owns schema validation diagnostics."
+    "notes": "Transformer-level artifact fixture only preserves and classifies manifest data; products own schema validation diagnostics."
   },
   "legacy_comparison": {
     "skip": true,
@@ -14,7 +14,6 @@
   "operation": "artifact_compiler.compile",
   "input": {
     "artifact": {
-      "schema": "block-artifact-compiler/website-artifact/v1",
       "entrypoint": "index.html",
       "files": [
         { "path": "index.html", "content": "<main><section class=\"products\"><article class=\"product-card\"><h2>Invalid Store</h2><p>$19</p></article></section></main>" },

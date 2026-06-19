@@ -35,6 +35,9 @@ Migration comparison code runs in an isolated PHP subprocess so old global funct
 | Buttons | `html-core-media-actions.json` | `core/buttons` containing `core/button` children |
 | Shortcodes | `html-core-media-actions.json` | `core/shortcode` for standalone shortcode text |
 | Unsupported fallback | `unsupported-fallback.json`, `html-unsupported-context-required.json` | Unsupported elements are reported in `fallbacks` and do not fail supported siblings |
+| Website artifact bundle | `website-artifact-bundle.json` | HTML, CSS, and JS artifact inputs compile into the shared result envelope |
+| Generated store artifacts | `generated-store-inferred-html.json`, `generated-store-manifest-valid-artifact.json`, `generated-store-manifest-invalid-artifact.json` | Product-shaped generated artifacts preserve files, manifests, components, and diagnostics without owning product validation |
+| Mixed source markdown | `mixed-source-markdown.json` | Markdown documents compile into transformer document output |
 
 ## Current Boundaries
 

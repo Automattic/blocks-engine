@@ -1,17 +1,16 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
-  "name": "ssi-website-artifact-bundle",
+  "name": "website-artifact-bundle",
   "description": "Compiles a compact product website-artifact-bundle shape used by fixture coverage.",
   "source_reference": {
-    "repo": "static-site-importer",
-    "path": "tests/fixtures/website-artifact-bundle/artifact.json",
-    "notes": "Uses the source fixture's html/css/js artifact shape without copying larger generated assets."
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/website-artifact-bundle.json",
+    "notes": "Covers a compact html/css/js artifact shape without copying larger generated assets."
   },
   "operation": "artifact_compiler.compile",
   "input": {
     "artifact": {
-      "schema": "block-artifact-compiler/website-artifact/v1",
-      "html": "<main><section class=\"hero\"><h1>Website Artifact Fixture</h1><p>Compiled before SSI materialization.</p></section></main>",
+      "html": "<main><section class=\"hero\"><h1>Website Artifact Fixture</h1><p>Compiled before product materialization.</p></section></main>",
       "css": ".hero{padding:4rem;background:#f6f2ea;color:#1b1b1b}",
       "js": "document.documentElement.dataset.fixture = 'website-artifact';"
     }

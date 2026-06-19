@@ -164,7 +164,7 @@ final class Static_Site_Importer_Transformer_Adapter {
 }
 ```
 
-The copyable, linted version in `examples/compatibility/static-site-importer-transformer-adapter.php` includes the full `TransformerResult` to BAC result mapper. SSI should keep that mapper local so product reports stay stable while transformer internals evolve.
+The copyable, linted version in `docs/consumer-prs/examples/static-site-importer-transformer-adapter.php` includes the full `TransformerResult` to BAC result mapper. SSI should keep that mapper local so product reports stay stable while transformer internals evolve.
 
 ## Public Function And Call Mapping
 

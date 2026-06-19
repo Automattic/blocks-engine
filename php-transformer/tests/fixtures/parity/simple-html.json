@@ -3,9 +3,9 @@
   "name": "simple-html-heading-paragraph",
   "description": "Converts simple semantic HTML into heading and paragraph blocks.",
   "source_reference": {
-    "repo": "html-to-blocks-converter",
-    "path": "tests/RawHandlerFixturesUnitTest.php",
-    "notes": "Adapted to the minimal PHP transformer surface for shared parity coverage."
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/simple-html.json",
+    "notes": "Covers the minimal PHP transformer surface for shared parity coverage."
   },
   "legacy_comparison": {
     "skip": true,

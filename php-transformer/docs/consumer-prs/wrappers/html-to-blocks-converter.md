@@ -14,7 +14,7 @@
 
 ## Adapter Skeleton
 
-See `examples/compatibility/html-to-blocks-converter-wrapper.php` for a copyable wrapper sketch.
+See `docs/consumer-prs/examples/html-to-blocks-converter-wrapper.php` for a copyable migration wrapper sketch.
 
 ## Migration Notes
 

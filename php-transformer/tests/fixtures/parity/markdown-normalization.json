@@ -3,7 +3,7 @@
   "name": "markdown-line-ending-normalization",
   "description": "Normalizes Markdown line endings through the format bridge.",
   "source_reference": {
-    "repo": "block-format-bridge",
+    "repo": "php-transformer",
     "path": "tests/fixtures/markdown/import-grade-article.md",
     "notes": "Adapted to a small markdown normalization contract for PHP parity."
   },

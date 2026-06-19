@@ -3,7 +3,7 @@
   "name": "html-core-media-actions",
   "description": "Converts media, table, button, and shortcode HTML into the currently supported core blocks.",
   "source_reference": {
-    "repo": "html-to-blocks-converter",
+    "repo": "php-transformer",
     "path": "tests/smoke-core-block-transform-matrix.php",
     "notes": "Structured fixture coverage for supported media/action transforms currently implemented by the PHP transformer."
   },

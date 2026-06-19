@@ -1,9 +1,9 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
-  "name": "ssi-generated-store-inferred-html",
+  "name": "generated-store-inferred-html",
   "description": "Converts compact generated-store product-card HTML inferred from a product fixture into core blocks without store-runtime validation.",
   "source_reference": {
-    "repo": "static-site-importer",
+    "repo": "php-transformer",
     "path": "tests/fixtures/generated-store-inferred/index.html",
     "notes": "Compact transformer-level fixture covering visible product-card structure and actions, not WooCommerce dependency or product inference validation."
   },

@@ -2,7 +2,7 @@
 
 The parity harness uses JSON fixtures to lock the shared contract for PHP transformer outputs while implementation slices continue to evolve independently.
 
-php-transformer is product-level primitive and old repos are downstream consumers. Legacy comparison fixtures are downstream migration evidence; they do not make old repositories part of the canonical package identity and they do not require `php-transformer` to carry permanent old-repo compatibility code.
+php-transformer is a product-level primitive and downstream repositories are consumers. Migration comparison fixtures are downstream evidence; they do not make downstream repositories part of the canonical package identity and they do not require `php-transformer` to carry permanent compatibility code.
 
 Fixture files live in `php-transformer/tests/fixtures/parity/*.json` and use schema `blocks-engine/php-transformer/parity-fixture/v1`. The JSON Schema is documented in `docs/contracts/php-transformer-parity-fixture.schema.json`.
 
@@ -18,23 +18,13 @@ Expectation paths are dot-separated. Use `\\.` for literal dots inside output ke
 
 `legacy_comparison.skip` records cases where local migration evidence needs runtime context before a direct comparison is meaningful. The PHP runner still validates the current transformer output for those fixtures; it only skips optional migration comparison with the recorded reason.
 
-Migration comparison is dev/local-only and opt-in. It is evidence for downstream migrations, not a package feature or long-term support promise. The harness never loads downstream repositories unless either `BLOCKS_ENGINE_PARITY_LEGACY=1` is set or the fixture declares `legacy_comparison.enabled: true`. These comparisons are temporary consumer checks for migration branches and should be removed or archived once the old repositories become thin shims or are archived.
+Migration comparison is dev/local-only and opt-in. It is evidence for downstream migrations, not a package feature or long-term support promise. The harness never loads downstream repositories unless either `BLOCKS_ENGINE_PARITY_LEGACY=1` is set or the fixture declares `legacy_comparison.enabled: true`. These comparisons are temporary consumer checks for migration branches and should be removed or archived once consumers no longer need them.
 
-When enabled, the runner resolves the legacy repo path from fixture metadata first, then from repo-specific environment variables:
+When enabled, the runner resolves the migration repo path from fixture metadata first, then from operation-specific environment variables. Downstream repository names, bootstrap files, and public callables are migration evidence; keep those details in `php-transformer/docs/consumer-prs/` rather than in canonical fixture docs.
 
-- `BLOCKS_ENGINE_PARITY_LEGACY_HTML_TO_BLOCKS_CONVERTER_PATH`
-- `BLOCKS_ENGINE_PARITY_LEGACY_BLOCK_FORMAT_BRIDGE_PATH`
-- `BLOCKS_ENGINE_PARITY_LEGACY_BLOCK_ARTIFACT_COMPILER_PATH`
+Fixtures may override `repo`, `path`, `bootstrap`, `callable`, and `paths` inside `legacy_comparison`. `paths` lists normalized snapshot paths that are safe to compare across migration and current envelopes. Normalization sorts associative keys and converts CRLF line endings to LF so local snapshots are stable.
 
-By default, operations map to the legacy repo `library.php` bootstrap and public callable that matches the source reference:
-
-- `html_transformer.transform`: `html-to-blocks-converter` / `html_to_blocks_convert`
-- `format_bridge.normalize`: `block-format-bridge` / `bfb_normalize`
-- `artifact_compiler.compile`: `block-artifact-compiler` / `bac_compile_website_artifact`
-
-Fixtures may override `repo`, `path`, `bootstrap`, `callable`, and `paths` inside `legacy_comparison`. `paths` lists normalized snapshot paths that are safe to compare across legacy and current envelopes. Normalization sorts associative keys and converts CRLF line endings to LF so local snapshots are stable.
-
-If comparison is not enabled, the repo path is missing, the bootstrap file is unavailable, the callable is not loaded by the explicit bootstrap, or the fixture has no comparison `paths`, the harness skips that legacy comparison and prints the reason. These skips do not fail CI.
+If comparison is not enabled, the repo path is missing, the bootstrap file is unavailable, the callable is not loaded by the explicit bootstrap, or the fixture has no comparison `paths`, the harness skips that migration comparison and prints the reason. These skips do not fail CI.
 
 Run the harness from `php-transformer`:
 
@@ -46,7 +36,7 @@ composer parity
 
 ## Product Source Fixtures
 
-Fixtures prefixed with `ssi-` are compact contract slices inspired by representative product fixtures. They intentionally avoid copying full generated sites or large assets. These cases assert transformer-level behavior only:
+Product-shaped fixtures are compact contract slices inspired by representative product inputs. They intentionally avoid copying full generated sites or large assets. These cases assert transformer-level behavior only:
 
 - HTML-to-block conversion for representative hero/action and product-card structures.
 - Markdown conversion for nested mixed-source documents.

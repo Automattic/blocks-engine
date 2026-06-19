@@ -1,9 +1,9 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
-  "name": "ssi-wordpress-is-dead-hero",
+  "name": "wordpress-is-dead-hero",
   "description": "Converts a compact WordPress Is Dead hero/actions product fixture slice into supported core blocks.",
   "source_reference": {
-    "repo": "static-site-importer",
+    "repo": "php-transformer",
     "path": "tests/fixtures/wordpress-is-dead/index.html",
     "notes": "Representative hero, rich paragraph, and CTA row only; avoids copying the five-page static site fixture."
   },

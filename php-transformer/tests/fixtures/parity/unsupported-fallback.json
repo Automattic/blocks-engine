@@ -3,7 +3,7 @@
   "name": "unsupported-html-fallback",
   "description": "Reports unsupported top-level HTML as fallback metadata without failing the transform.",
   "source_reference": {
-    "repo": "html-to-blocks-converter",
+    "repo": "php-transformer",
     "path": "tests/smoke-unsupported-html-fallback-hook.php",
     "notes": "Adapted to assert fallback reporting rather than downstream hook behavior."
   },

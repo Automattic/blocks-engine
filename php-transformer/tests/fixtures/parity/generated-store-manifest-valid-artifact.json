@@ -1,9 +1,9 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
-  "name": "ssi-generated-store-manifest-valid-artifact",
+  "name": "generated-store-manifest-valid-artifact",
   "description": "Compiles a compact generated-store artifact with a valid products manifest preserved as data.",
   "source_reference": {
-    "repo": "static-site-importer",
+    "repo": "php-transformer",
     "path": "tests/fixtures/generated-store-valid/",
     "notes": "Compact artifact fixture derived from the valid store fixture without copying product imagery or import-only checks."
   },
@@ -14,7 +14,6 @@
   "operation": "artifact_compiler.compile",
   "input": {
     "artifact": {
-      "schema": "block-artifact-compiler/website-artifact/v1",
       "entrypoint": "index.html",
       "files": [
         { "path": "index.html", "content": "<main><section class=\"products\"><article class=\"product-card\" data-product-slug=\"signal-hoodie\"><h2>Signal Hoodie</h2><p>$64.00</p></article><article class=\"product-card\" data-product-slug=\"field-notes\"><h2>Field Notes</h2><p>$12.00</p></article></section></main>" },

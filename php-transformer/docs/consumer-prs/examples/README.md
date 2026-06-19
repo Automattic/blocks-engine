@@ -1,6 +1,6 @@
-# Compatibility Examples
+# Downstream Migration Examples
 
-These files are downstream-only sketches for wrapper and product PRs. They are copy/adapt references, not package API shipped by `automattic/blocks-engine-php-transformer`.
+These files are downstream-only migration sketches for wrapper and product PRs. They are copy/adapt references, not package API shipped by `automattic/blocks-engine-php-transformer`.
 
 Use them with the release playbooks in `php-transformer/docs/consumer-prs/`:
 
@@ -19,4 +19,4 @@ Before using an example in a release branch:
 4. Replace review path repositories with tagged release constraints before merge.
 5. Treat missing transformer primitives as upstream blockers, not local workaround space.
 
-Smoke checks for copied examples should include `composer validate`, the downstream test suite, one direct public-entrypoint invocation, and `git diff --check`.
+Smoke checks for copied migration examples should include `composer validate`, the downstream test suite, one direct public-entrypoint invocation, and `git diff --check`.
