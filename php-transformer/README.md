@@ -60,6 +60,8 @@ if ('failed' === $result['status']) {
 
 This package is intentionally being introduced as a draft consolidation target. Existing repositories remain valid consumers and compatibility surfaces while implementation migrates into this package.
 
+Downstream wrapper branch plans live in [`docs/consumer-prs/`](docs/consumer-prs/). They define branch names, dependency constraints, file-level patch skeletons, acceptance commands, and rollback plans without changing the downstream repositories from this worktree.
+
 ## Artifact Compiler Fallbacks
 
 The artifact compiler accepts loose generated-site bundles and normalizes them into an explicit result envelope. HTML entries are preserved as `core/html` serialized block markup, Markdown falls back to `core/html` when a Markdown adapter is not loaded, and MDX support is partial: source documents are preserved while imports and JSX component references are exposed as inspectable metadata and warnings.

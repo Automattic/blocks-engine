@@ -4,6 +4,15 @@
 
 Keep `chubes4/block-artifact-compiler` as the public compatibility package for website artifact compilation while delegating canonical compilation to `Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler`.
 
+Branch: `cook/php-transformer-artifact-wrapper`.
+
+Commit sequence:
+
+1. `Add transformer dependency for artifact compiler review`: add the path repository, requirement, and autoload wiring without changing public output.
+2. `Add BAC result mapper for transformer output`: introduce a BAC-owned mapper from `TransformerResult::toArray()` to existing BAC report fields.
+3. `Delegate compiler entrypoints`: route `Block_Artifact_Compiler` and global functions through the transformer plus mapper.
+4. `Lock artifact parity coverage`: update contract smoke fixtures and README examples for the compatibility facade.
+
 ## Composer Change
 
 During review, add the transformer path repository and requirement:
@@ -13,7 +22,7 @@ During review, add the transformer path repository and requirement:
   "repositories": [
     {
       "type": "path",
-      "url": "/Users/chubes/Developer/blocks-engine@cook-php-transformer-consumer-prep/php-transformer",
+      "url": "/Users/chubes/Developer/blocks-engine@cook-php-transformer-downstream-prep/php-transformer",
       "options": {
         "symlink": true
       }
@@ -21,12 +30,30 @@ During review, add the transformer path repository and requirement:
   ],
   "require": {
     "php": ">=8.1",
-    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-consumer-prep"
+    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-downstream-prep as 0.1.x-dev"
   }
 }
 ```
 
 Before merge, replace the path-only development constraint with the first tagged transformer release.
+
+## File-Level Patch Skeleton
+
+```diff
+composer.json
+  + repositories[].type=path url=../blocks-engine@cook-php-transformer-downstream-prep/php-transformer
+  + require.automattic/blocks-engine-php-transformer=dev-cook/php-transformer-downstream-prep as 0.1.x-dev
+library.php
+  + require vendor/autoload.php before global BAC functions are exposed
+src/Block_Artifact_Compiler.php or equivalent
+  ~ compile() and compile_fragment() delegate to ArtifactCompiler through a BAC mapper
+src/*Result*Mapper*.php or includes/report helpers
+  + local mapper preserving current BAC report keys consumed by Static Site Importer
+tests/contract-smoke.php
+  ~ compare legacy report fields against transformer-backed report fields
+README.md
+  ~ describe BAC as a compatibility facade and list tagged dependency requirement
+```
 
 ## Public Function Mapping
 
@@ -57,6 +84,16 @@ Before merge, replace the path-only development constraint with the first tagged
 - `bac_summarize_result()` output remains stable for current import-report summaries.
 - Empty artifact, schema-less artifact, markdown, MDX, nested source, and generated block fixture cases stay covered.
 - Any missing transformer report field is tracked upstream before the BAC wrapper paper-cuts around it.
+
+Acceptance commands:
+
+```sh
+composer validate
+composer test
+git diff --check
+```
+
+Rollback plan: revert compiler entrypoint delegation first and keep the mapper commit only if it remains unused and tests pass. Revert the dependency/autoload commit if Composer installability regresses.
 
 ## Blockers To Resolve Upstream First
 

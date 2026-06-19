@@ -4,6 +4,16 @@
 
 Keep `chubes4/static-site-importer` as the WordPress product plugin while adding a Static Site Importer-owned adapter that can call either the current BFB/BAC functions or `php-transformer` classes behind one local boundary.
 
+Branch: `cook/php-transformer-adapter`.
+
+Commit sequence:
+
+1. `Add transformer review dependency for importer adapter`: add path repositories and requirements without changing product behavior.
+2. `Add Static Site Importer transformer adapter`: add an SSI-owned adapter that defaults to legacy BFB/BAC calls.
+3. `Route product conversions through adapter`: replace scattered direct BFB/BAC calls with adapter calls while keeping reports unchanged.
+4. `Add legacy versus transformer report comparisons`: capture fixture tables for import reports, fallback counts, generated files, and ability/CLI outputs.
+5. `Enable transformer adapter path`: switch defaults only after transformer and compatibility wrapper releases are tagged.
+
 ## Composer Change
 
 During review, add the transformer path repository without removing the compatibility packages immediately:
@@ -13,7 +23,7 @@ During review, add the transformer path repository without removing the compatib
   "repositories": [
     {
       "type": "path",
-      "url": "/Users/chubes/Developer/blocks-engine@cook-php-transformer-consumer-prep/php-transformer",
+      "url": "/Users/chubes/Developer/blocks-engine@cook-php-transformer-downstream-prep/php-transformer",
       "options": {
         "symlink": true
       }
@@ -30,14 +40,33 @@ During review, add the transformer path repository without removing the compatib
   ],
   "require": {
     "php": "^8.1",
-    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-consumer-prep",
-    "chubes4/block-artifact-compiler": "dev-main",
-    "chubes4/block-format-bridge": "dev-main"
+    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-downstream-prep as 0.1.x-dev",
+    "chubes4/block-artifact-compiler": "dev-cook/php-transformer-artifact-wrapper",
+    "chubes4/block-format-bridge": "dev-cook/php-transformer-format-wrapper"
   }
 }
 ```
 
-Before merge, replace `dev-main` and the transformer path constraint with tagged compatibility releases in this order: transformer, H2BC, BFB, BAC, then Static Site Importer.
+Before merge, replace wrapper branch constraints and the transformer path constraint with tagged compatibility releases in this order: transformer, H2BC, BFB, BAC, then Static Site Importer.
+
+## File-Level Patch Skeleton
+
+```diff
+composer.json
+  + repositories[].type=path url=../blocks-engine@cook-php-transformer-downstream-prep/php-transformer
+  + require.automattic/blocks-engine-php-transformer=dev-cook/php-transformer-downstream-prep as 0.1.x-dev
+  ~ require chubes4/block-format-bridge and chubes4/block-artifact-compiler wrapper branches during review only
+includes/class-static-site-importer-transformer-adapter.php
+  + SSI-owned adapter with legacy BFB/BAC default and transformer-backed branches
+includes/class-static-site-importer-theme-generator.php
+  ~ replace direct bfb_* and bac_* calls with adapter calls
+includes/abilities* and includes/cli*
+  ~ keep public schemas stable while sourcing reports through the adapter
+tests/smoke-*.php and tests/fixtures/*
+  + old-versus-transformer comparison assertions for reports and fallback counts
+README.md or docs/*
+  ~ document dependency release order and rollback switch
+```
 
 ## Product Boundary
 
@@ -134,6 +163,18 @@ The copyable, linted version in `examples/compatibility/static-site-importer-tra
 - Import reports show no fallback-count regression against the same fixtures.
 - Generated theme file paths, page IDs, source cleanup behavior, and commerce dependency gates remain owned by Static Site Importer.
 - The PR includes an old-versus-transformer report table for representative fixtures before changing defaults.
+
+Acceptance commands:
+
+```sh
+composer validate
+composer test
+wp static-site-importer import-theme --help
+wp static-site-importer import-website-artifact --help
+git diff --check
+```
+
+Rollback plan: switch the adapter default back to legacy BFB/BAC calls first. If the adapter routing itself caused the regression, revert the product call-site routing commit while preserving fixture comparison artifacts for the upstream blocker.
 
 ## Required Fixture Inventory
 

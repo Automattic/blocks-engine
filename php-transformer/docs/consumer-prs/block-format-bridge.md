@@ -4,6 +4,15 @@
 
 Keep `chubes4/block-format-bridge` as the public format-conversion compatibility layer while routing HTML, Markdown, and serialized block conversions through `php-transformer` adapters.
 
+Branch: `cook/php-transformer-format-wrapper`.
+
+Commit sequence:
+
+1. `Add transformer dependency for format bridge review`: add the path repository, requirement, and autoload wiring without changing adapter defaults.
+2. `Add transformer-backed BFB adapters`: add BFB-owned adapters that implement current BFB interfaces and delegate internally.
+3. `Preserve capability and report contracts`: add transformer metadata and fixture comparisons while keeping old report keys stable.
+4. `Switch eligible conversions to transformer adapters`: change defaults only after current conversion tests and Static Site Importer-facing report checks pass.
+
 ## Composer Change
 
 During review, add the transformer dependency beside the existing package requirements:
@@ -13,7 +22,7 @@ During review, add the transformer dependency beside the existing package requir
   "repositories": [
     {
       "type": "path",
-      "url": "/Users/chubes/Developer/blocks-engine@cook-php-transformer-consumer-prep/php-transformer",
+      "url": "/Users/chubes/Developer/blocks-engine@cook-php-transformer-downstream-prep/php-transformer",
       "options": {
         "symlink": true
       }
@@ -25,7 +34,7 @@ During review, add the transformer dependency beside the existing package requir
   ],
   "require": {
     "php": "^8.1",
-    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-consumer-prep",
+    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-downstream-prep as 0.1.x-dev",
     "league/commonmark": "^2.5",
     "league/html-to-markdown": "^5.1"
   }
@@ -33,6 +42,24 @@ During review, add the transformer dependency beside the existing package requir
 ```
 
 Before merge, replace the path-only development constraint with the first tagged transformer release.
+
+## File-Level Patch Skeleton
+
+```diff
+composer.json
+  + repositories[].type=path url=../blocks-engine@cook-php-transformer-downstream-prep/php-transformer
+  + require.automattic/blocks-engine-php-transformer=dev-cook/php-transformer-downstream-prep as 0.1.x-dev
+library.php or plugin bootstrap
+  + require vendor/autoload.php before adapter registry setup
+includes/adapters/*
+  + transformer-backed BFB_Format_Adapter implementations
+includes/capabilities* or report helpers
+  ~ add transformer package/version metadata without removing current keys
+tests/*
+  + conversion/report parity cases for HTML, Markdown, blocks, and unsupported fragments
+README.md
+  ~ document BFB as compatibility facade over transformer adapters
+```
 
 ## Public Function Mapping
 
@@ -65,6 +92,16 @@ Before merge, replace the path-only development constraint with the first tagged
 - Capabilities report includes transformer metadata while preserving old keys.
 - Static Site Importer can keep calling `bfb_convert()` and `bfb_conversion_report()` unchanged during its compatibility phase.
 - The PR does not move import, filesystem, theme, or activation logic into BFB.
+
+Acceptance commands:
+
+```sh
+composer validate
+composer test
+git diff --check
+```
+
+Rollback plan: revert the adapter-default switch first. If transformer metadata changes break consumers, keep adapter classes but remove metadata additions from reports until the upstream contract is fixed.
 
 ## Blockers To Resolve Upstream First
 

@@ -4,6 +4,14 @@
 
 Turn `chubes4/html-to-blocks-converter` into a compatibility package that keeps its current WordPress plugin and function surface while delegating canonical HTML conversion to `Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer`.
 
+Branch: `cook/php-transformer-html-wrapper`.
+
+Commit sequence:
+
+1. `Add transformer package dependency for review`: add the path repository, requirement, and autoload include while preserving current behavior.
+2. `Add HtmlTransformer compatibility wrapper`: route public conversion functions through a wrapper mapper behind the existing function names.
+3. `Compare raw-handler parity fixtures`: add old-versus-transformer fixtures and document any intentional differences in the PR body.
+
 ## Composer Change
 
 During review, add the transformer path repository and requirement:
@@ -13,7 +21,7 @@ During review, add the transformer path repository and requirement:
   "repositories": [
     {
       "type": "path",
-      "url": "/Users/chubes/Developer/blocks-engine@cook-php-transformer-consumer-prep/php-transformer",
+      "url": "/Users/chubes/Developer/blocks-engine@cook-php-transformer-downstream-prep/php-transformer",
       "options": {
         "symlink": true
       }
@@ -21,12 +29,30 @@ During review, add the transformer path repository and requirement:
   ],
   "require": {
     "php": ">=8.1",
-    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-consumer-prep"
+    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-downstream-prep as 0.1.x-dev"
   }
 }
 ```
 
 Before merge, replace the path-only development constraint with the first tagged transformer release.
+
+## File-Level Patch Skeleton
+
+```diff
+composer.json
+  + repositories[].type=path url=../blocks-engine@cook-php-transformer-downstream-prep/php-transformer
+  + require.automattic/blocks-engine-php-transformer=dev-cook/php-transformer-downstream-prep as 0.1.x-dev
+library.php
+  + require vendor/autoload.php before legacy function declarations
+  ~ html_to_blocks_raw_handler() delegates to HtmlTransformer through a local mapper
+  ~ html_to_blocks_convert() preserves filters/actions around transformer output
+tests/fixtures/*
+  + representative raw-handler parity fixtures
+tests/*
+  + assertions comparing legacy block-array shape to transformer-backed output
+README.md
+  ~ document compatibility facade status and tagged dependency requirement
+```
 
 ## Public Function Mapping
 
@@ -56,6 +82,16 @@ Before merge, replace the path-only development constraint with the first tagged
 - Existing fallback hooks still fire for unsupported HTML fragments.
 - No Static Site Importer or BFB product-specific behavior is added to this repository.
 - The PR body documents any output differences with fixture names and links to upstream transformer issues for missing behavior.
+
+Acceptance commands:
+
+```sh
+composer validate
+composer test
+git diff --check
+```
+
+Rollback plan: revert the default delegation commit first. If installability is broken, revert the dependency/autoload commit and restore the previous lockfile.
 
 ## Blockers To Resolve Upstream First
 

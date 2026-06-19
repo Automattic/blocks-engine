@@ -9,3 +9,4 @@ Blocks Engine is a collection of tools for generating, transforming, and materia
 ## Release Planning
 
 - [`docs/packaging.md`](docs/packaging.md) - Composer package naming, installation modes, dependency prefixing, wrapper release order, draft-exit criteria, and product acceptance gates.
+- [`php-transformer/docs/consumer-prs/`](php-transformer/docs/consumer-prs/) - Downstream wrapper branch plans, patch skeletons, acceptance commands, dependency constraints, and rollback plans.

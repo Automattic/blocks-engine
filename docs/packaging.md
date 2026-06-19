@@ -25,7 +25,7 @@ Use a VCS repository when the consumer branch runs outside this machine or in CI
     }
   ],
   "require": {
-    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-packaging-plan"
+    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-downstream-prep as 0.1.x-dev"
   }
 }
 ```
@@ -37,14 +37,14 @@ Use a path repository for local wrapper and product PRs while the transformer pa
   "repositories": [
     {
       "type": "path",
-      "url": "../blocks-engine@cook-php-transformer-packaging-plan/php-transformer",
+      "url": "../blocks-engine@cook-php-transformer-downstream-prep/php-transformer",
       "options": {
         "symlink": true
       }
     }
   ],
   "require": {
-    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-packaging-plan"
+    "automattic/blocks-engine-php-transformer": "dev-cook/php-transformer-downstream-prep as 0.1.x-dev"
   }
 }
 ```
@@ -89,7 +89,7 @@ The PR can leave draft when the package is reviewable as a releasable Composer l
 - The README states package boundaries, draft status, and where wrapper/product migration plans live.
 - Contract docs cover result envelopes and parity fixtures for downstream wrapper checks.
 - Packaging docs define VCS/path repository use, versioning, prefixing ownership, and release order.
-- Wrapper PR plans identify the first downstream acceptance signal for HTML conversion, format bridging, artifact compilation, and Static Site Importer adoption.
+- Wrapper PR plans identify branch names, commit sequence, file-level patch skeletons, dependency constraints, acceptance commands, rollback plans, and the first downstream acceptance signal for HTML conversion, format bridging, artifact compilation, and Static Site Importer adoption.
 - No product-specific implementation behavior is required for the transformer package to install and run its own tests.
 - Known blockers are tracked in docs or issues, not hidden as downstream workarounds.
 
