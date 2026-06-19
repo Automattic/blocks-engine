@@ -64,12 +64,12 @@ final class BlockFactory
 
         if ( 'core/quote' === $name ) {
             $closing = '' !== ($attrs['citation'] ?? '') ? '<cite>' . $attrs['citation'] . '</cite></blockquote>' : '</blockquote>';
-            return array( 'opening' => '<blockquote class="wp-block-quote">', 'closing' => $closing );
+            return array( 'opening' => '<blockquote' . $this->blockSupportAttrs($attrs, 'wp-block-quote') . '>', 'closing' => $closing );
         }
 
         if ( 'core/pullquote' === $name ) {
             $citation = '' !== ($attrs['citation'] ?? '') ? '<cite>' . $attrs['citation'] . '</cite>' : '';
-            return '<figure class="wp-block-pullquote"><blockquote>' . ($attrs['value'] ?? '') . $citation . '</blockquote></figure>';
+            return '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-pullquote') . '><blockquote>' . ($attrs['value'] ?? '') . $citation . '</blockquote></figure>';
         }
 
         if ( 'core/code' === $name ) {
@@ -197,7 +197,7 @@ final class BlockFactory
      */
     private function blockSupportAttrs(array $attrs, string $baseClass = ''): string
     {
-        $classes = trim($baseClass . ' ' . (string) ($attrs['className'] ?? ''));
+        $classes = $this->mergeClassNames($baseClass, (string) ($attrs['className'] ?? ''));
         return $this->htmlAttrs(array(
             'class' => $classes,
             'style' => (string) ($attrs['style'] ?? ''),

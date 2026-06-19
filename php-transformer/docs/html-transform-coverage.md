@@ -10,10 +10,10 @@ Run the coverage fixtures with `composer parity` or as part of `composer test`.
 | --- | --- | --- |
 | Heading and paragraph | `simple-html.json`, `html-core-text-structure.json` | `core/heading`, `core/paragraph` |
 | Lists | `html-core-text-structure.json` | `core/list`, `core/list-item` |
-| Quotes | `html-core-text-structure.json` | `core/quote`, `core/pullquote` |
+| Quotes | `html-core-text-structure.json`, `html-figure-quote-media.json` | `core/quote`, `core/pullquote`, figure-wrapped testimonial quotes with `figcaption` citation |
 | Code | `html-core-text-structure.json` | `core/code`, `core/preformatted` |
 | Tables | `html-core-media-actions.json` | `core/table` with head/body/caption attrs |
-| Images | `html-core-media-actions.json` | `core/image` with URL, alt, dimensions, caption attrs |
+| Images | `html-core-media-actions.json`, `html-figure-quote-media.json` | `core/image` with URL, alt, dimensions, caption, identity, size, and class attrs |
 | Buttons | `html-core-media-actions.json` | `core/buttons` containing `core/button` children |
 | Shortcodes | `html-core-media-actions.json` | `core/shortcode` for standalone shortcode text |
 | Wrapper provenance and safety | `html-provenance-wrapper-safety.json` | Presentational semantic wrappers are preserved as `core/group`; unsupported fallback records include selector/source metadata and sanitized fallback HTML |
