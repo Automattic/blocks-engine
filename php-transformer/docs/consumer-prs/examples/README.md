@@ -1,6 +1,6 @@
 # Downstream Migration Examples
 
-These files are downstream-only migration sketches for wrapper and product PRs. They are copy/adapt references, not package API shipped by `automattic/blocks-engine-php-transformer`.
+These files are downstream-only migration sketches for wrapper and product PRs. They are copy/adapt references, not package API shipped by `automattic/blocks-engine-php-transformer`, and they are not examples for installed package usage.
 
 Use them with the release playbooks in `php-transformer/docs/consumer-prs/`:
 

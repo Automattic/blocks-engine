@@ -37,6 +37,34 @@ The first migration wave treats the existing open source repositories as source 
 
 Move canonical library behavior into `php-transformer`; keep product behavior and existing public integration surfaces outside the package until callers migrate deliberately.
 
+Detailed repository fate, issue-routing, and discoverability notes live in [`consumer-prs/current-repo-map.md`](consumer-prs/current-repo-map.md).
+
+## Optional Local Evidence Checks
+
+Downstream example wrappers are intentionally not installed package examples. They live under [`consumer-prs/examples/`](consumer-prs/examples/) as copy/adapt sketches for consumer PRs. Lint and smoke-call them only when reviewing those migration plans:
+
+```sh
+composer test:migration:examples
+```
+
+Local migration comparisons are opt-in and are not required by default CI. They are evidence for downstream migration PRs, not a package feature or long-term legacy support promise. Set `BLOCKS_ENGINE_PARITY_LEGACY=1` plus the repo-specific path for the existing package you want to compare:
+
+```sh
+BLOCKS_ENGINE_PARITY_LEGACY=1 \
+BLOCKS_ENGINE_PARITY_LEGACY_BLOCK_FORMAT_BRIDGE_PATH=/Users/chubes/Developer/block-format-bridge \
+composer test:migration:legacy-parity
+```
+
+Supported local path variables are:
+
+| Repository | Environment variable |
+| --- | --- |
+| `html-to-blocks-converter` | `BLOCKS_ENGINE_PARITY_LEGACY_HTML_TO_BLOCKS_CONVERTER_PATH` |
+| `block-format-bridge` | `BLOCKS_ENGINE_PARITY_LEGACY_BLOCK_FORMAT_BRIDGE_PATH` |
+| `block-artifact-compiler` | `BLOCKS_ENGINE_PARITY_LEGACY_BLOCK_ARTIFACT_COMPILER_PATH` |
+
+Migration comparison code runs in an isolated PHP subprocess so old global functions, classes, constants, and bundled dependencies do not leak into the current transformer test process. Fixtures must opt in with `legacy_comparison.safe=true`; fixtures that require WordPress/Gutenberg runtime behavior should keep an explicit `skip` reason. The runner prints skipped comparisons with the reason, and any loaded safe comparison fails the parity run when the normalized migration snapshot differs from the current transformer snapshot.
+
 ## Wrapper Release Order
 
 Release downstream wrappers after the transformer package has a tag that contains the result-envelope and namespace contracts they consume.

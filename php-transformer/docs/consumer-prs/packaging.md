@@ -159,7 +159,7 @@ Release downstream wrappers after the transformer package has a tag that contain
 
 ## Archive And Thin-Shim Exit Paths
 
-Old repositories are downstream entrypoints and consumers, not dependencies or identity anchors for `php-transformer`. The full repo-by-repo fate, keep-open criteria, archive criteria, issue routing, and package discoverability policy lives in [`php-transformer/docs/current-repo-map.md`](../php-transformer/docs/current-repo-map.md).
+Old repositories are downstream entrypoints and consumers, not dependencies or identity anchors for `php-transformer`. The full repo-by-repo fate, keep-open criteria, archive criteria, issue routing, and package discoverability policy lives in [`current-repo-map.md`](current-repo-map.md).
 
 Old repositories have two acceptable exits after product consumers move to tagged `php-transformer` contracts:
 

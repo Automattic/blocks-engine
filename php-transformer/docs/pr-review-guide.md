@@ -43,7 +43,7 @@ Current limits reviewers should expect:
 - Markdown and blocks conversion paths are present as shared primitives, but deeper product policy belongs to consumers.
 - Generated artifact compilation is focused on normalization, source reporting, assets, components, documents, block type artifacts, diagnostics, and provenance.
 - WordPress runtime calls are behind an adapter boundary so package behavior can be tested with and without WordPress loaded.
-- Migration parity fixtures and compatibility sketches are acceptance scaffolding for migration, not permanent product architecture.
+- Migration parity fixtures and compatibility sketches are acceptance scaffolding, not permanent product architecture.
 
 ## Review Focus Areas
 
@@ -54,24 +54,9 @@ Useful review should focus on the standalone primitive:
 - Is the result envelope stable, serializable, and expressive enough for diagnostics, fallbacks, provenance, assets, documents, and block output?
 - Do unsupported and partial-success paths produce reviewable diagnostics instead of hidden behavior?
 - Are contract fixtures and parity fixtures aligned with the package API rather than with one downstream product's private shape?
-- Are compatibility wrappers thin enough to prove adoption paths without making downstream repositories the long-term architecture?
+- Are compatibility wrappers thin enough to prove adoption paths without making downstream consumers the long-term architecture?
 - Are draft limitations documented honestly so follow-up work can be scoped without blocking review of the primitive itself?
 
 Review should avoid asking this package to absorb downstream product responsibilities. Importers, Studio, WordPress.com, and generation loops can consume this primitive while keeping their own UX, orchestration, persistence, and deployment decisions.
 
-## Why Migration Details Are Transitional
-
-Migration repositories are downstream entrypoints and early consumers. Their wrapper plans, legacy mappings, and parity comparisons exist to make adoption safe and reviewable.
-
-They are transitional because the long-term product surface is the Blocks Engine package contract:
-
-- Existing public integrations may need compatibility wrappers while callers migrate deliberately.
-- Migration result mappings help reviewers compare behavior, but new consumers should target the shared result envelope.
-- Consumer PR notes document rollout order, rollback plans, and acceptance commands; they are not part of the transformer API.
-- Once consumers depend on the package directly, migration scaffolding can shrink or move out of the core review path.
-
-They are not transitional because they are dependencies of `php-transformer` or because their names define package identity. The transformer must remain installable and understandable without downstream migration code, and downstream repositories should delegate to tagged transformer APIs when they need to preserve public entrypoints.
-
-Reviewers should use [`current-repo-map.md`](current-repo-map.md) for migration evidence and consolidation policy. That material is intentionally separate from the canonical package API.
-
-The draft PR is ready for human review when reviewers can evaluate `php-transformer` as the reusable transformation primitive, with migration material serving only as evidence that predecessor behavior has a path into the new contract.
+The draft PR is ready for human review when reviewers can evaluate `php-transformer` as the reusable transformation primitive. Migration material is supporting evidence only and lives in [`migration.md`](migration.md) and [`consumer-prs/`](consumer-prs/).
