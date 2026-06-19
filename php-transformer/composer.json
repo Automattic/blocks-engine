@@ -1,0 +1,25 @@
+{
+  "name": "automattic/blocks-engine-php-transformer",
+  "description": "PHP primitives for transforming HTML, Markdown, and website artifacts into WordPress block outputs.",
+  "type": "library",
+  "license": "GPL-3.0-or-later",
+  "autoload": {
+    "psr-4": {
+      "Automattic\\BlocksEngine\\PhpTransformer\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Automattic\\BlocksEngine\\PhpTransformer\\Tests\\": "tests/"
+    }
+  },
+  "require": {
+    "php": ">=8.1"
+  },
+  "scripts": {
+    "test": "php tests/contract/run.php"
+  },
+  "config": {
+    "sort-packages": true
+  }
+}

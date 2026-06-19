@@ -1,0 +1,48 @@
+<?php
+declare(strict_types=1);
+
+namespace Automattic\BlocksEngine\PhpTransformer\Contract;
+
+final class TransformerResult
+{
+    public const SCHEMA = 'blocks-engine/php-transformer/result/v1';
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, mixed>> $documents
+     * @param array<int, array<string, mixed>> $assets
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @param array<int, array<string, mixed>> $provenance
+     * @param array<int, array<string, mixed>> $coverage
+     */
+    public function __construct(
+        public readonly array $blocks = array(),
+        public readonly string $serializedBlocks = '',
+        public readonly array $documents = array(),
+        public readonly array $assets = array(),
+        public readonly array $diagnostics = array(),
+        public readonly array $fallbacks = array(),
+        public readonly array $provenance = array(),
+        public readonly array $coverage = array()
+    ) {
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function toArray(): array
+    {
+        return array(
+            'schema'            => self::SCHEMA,
+            'blocks'            => $this->blocks,
+            'serialized_blocks' => $this->serializedBlocks,
+            'documents'         => $this->documents,
+            'assets'            => $this->assets,
+            'diagnostics'       => $this->diagnostics,
+            'fallbacks'         => $this->fallbacks,
+            'provenance'        => $this->provenance,
+            'coverage'          => $this->coverage,
+        );
+    }
+}
