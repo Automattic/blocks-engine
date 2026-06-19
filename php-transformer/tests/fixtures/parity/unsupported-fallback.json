@@ -15,6 +15,10 @@
   "input": {
     "content": "<aside><p>Fallback content</p></aside>"
   },
+  "expected_blocks": [],
+  "expected_fallbacks": [
+    { "type": "unsupported_element", "tag": "aside" }
+  ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 0 },

@@ -15,6 +15,12 @@
   "input": {
     "content": "<main><h1>Hello blocks</h1><p>This fixture anchors the PHP transformer parity harness.</p></main>"
   },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Hello blocks", "level": 1 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "This fixture anchors the PHP transformer parity harness." } }
+  ],
+  "expected_fallbacks": [],
   "expect": [
     { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
     { "path": "status", "assert": "equals", "value": "success" },

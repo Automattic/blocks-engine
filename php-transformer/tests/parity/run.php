@@ -57,6 +57,7 @@ foreach ( $fixtures as $fixturePath ) {
     foreach ( $fixture['expect'] as $expectation ) {
         assertExpectation($output, $expectation, $fixture['name']);
     }
+    assertStructuredCoverage($output, $fixture);
 
     $legacyResult = runLegacyComparison($fixture, $output);
     if ( 'compared' === $legacyResult['status'] ) {
@@ -71,6 +72,72 @@ foreach ( $fixtures as $fixturePath ) {
 }
 
 fwrite(STDOUT, "PHP transformer parity fixtures passed: {$ran} fixture(s), {$legacyCompared} legacy comparison(s), {$legacySkipped} legacy comparison(s) skipped.\n");
+
+/**
+ * @param array<string, mixed> $output
+ * @param array<string, mixed> $fixture
+ */
+function assertStructuredCoverage(array $output, array $fixture): void
+{
+    foreach ( array( 'expected_blocks', 'expected_fallbacks' ) as $key ) {
+        if ( isset($fixture[$key]) && ! is_array($fixture[$key]) ) {
+            fail("Fixture {$fixture['name']} {$key} must be an array.");
+        }
+    }
+
+    foreach ( $fixture['expected_blocks'] ?? array() as $expectedBlock ) {
+        if ( ! is_array($expectedBlock) ) {
+            fail("Fixture {$fixture['name']} expected_blocks entries must be objects.");
+        }
+
+        $path = (string) ($expectedBlock['path'] ?? '');
+        $block = valueAtPath($output, $path);
+        if ( ! is_array($block) ) {
+            failExpectation((string) $fixture['name'], $path, 'block object', $block);
+        }
+
+        if ( isset($expectedBlock['name']) && $expectedBlock['name'] !== ($block['blockName'] ?? null) ) {
+            failExpectation((string) $fixture['name'], $path . '.blockName', $expectedBlock['name'], $block['blockName'] ?? null);
+        }
+
+        $attrs = $expectedBlock['attrs'] ?? array();
+        if ( ! is_array($attrs) ) {
+            fail("Fixture {$fixture['name']} expected block attrs must be an object.");
+        }
+        foreach ( $attrs as $attrName => $expectedValue ) {
+            $actualValue = is_array($block['attrs'] ?? null) ? ($block['attrs'][$attrName] ?? null) : null;
+            if ( $expectedValue !== $actualValue ) {
+                failExpectation((string) $fixture['name'], $path . '.attrs.' . (string) $attrName, $expectedValue, $actualValue);
+            }
+        }
+    }
+
+    $expectedFallbacks = $fixture['expected_fallbacks'] ?? null;
+    if ( null === $expectedFallbacks ) {
+        return;
+    }
+
+    $fallbacks = $output['fallbacks'] ?? array();
+    if ( ! is_array($fallbacks) ) {
+        failExpectation((string) $fixture['name'], 'fallbacks', 'fallback array', $fallbacks);
+    }
+
+    if ( count($expectedFallbacks) !== count($fallbacks) ) {
+        failExpectation((string) $fixture['name'], 'fallbacks', count($expectedFallbacks), count($fallbacks));
+    }
+
+    foreach ( $expectedFallbacks as $index => $expectedFallback ) {
+        if ( ! is_array($expectedFallback) ) {
+            fail("Fixture {$fixture['name']} expected_fallbacks entries must be objects.");
+        }
+        foreach ( $expectedFallback as $key => $expectedValue ) {
+            $actualValue = $fallbacks[$index][$key] ?? null;
+            if ( $expectedValue !== $actualValue ) {
+                failExpectation((string) $fixture['name'], 'fallbacks.' . $index . '.' . (string) $key, $expectedValue, $actualValue);
+            }
+        }
+    }
+}
 
 /**
  * @return array<string, mixed>

@@ -1,0 +1,38 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-core-text-structure",
+  "description": "Converts core text and structure HTML into heading, paragraph, list, quote, pullquote, code, and preformatted blocks.",
+  "source_reference": {
+    "repo": "html-to-blocks-converter",
+    "path": "tests/smoke-core-block-transform-matrix.php",
+    "notes": "Structured fixture coverage for supported core text transforms currently implemented by the PHP transformer."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "The legacy converter comparison depends on WordPress/Gutenberg raw handler runtime behavior."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><h2>Section title</h2><p>Intro <strong>copy</strong>.</p><ul><li>One</li><li><strong>Two</strong></li></ul><blockquote><p>Quote me</p><cite>Author</cite></blockquote><figure class=\"wp-block-pullquote\"><blockquote><p>Pull me</p><cite>Source</cite></blockquote></figure><pre><code>&lt;strong&gt;Code&lt;/strong&gt;</code></pre><pre>Line one<br>Line two</pre></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Section title", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Intro <strong>copy</strong>." } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/list" },
+    { "path": "blocks.0.innerBlocks.2.innerBlocks.0", "name": "core/list-item", "attrs": { "content": "One" } },
+    { "path": "blocks.0.innerBlocks.2.innerBlocks.1", "name": "core/list-item", "attrs": { "content": "<strong>Two</strong>" } },
+    { "path": "blocks.0.innerBlocks.3", "name": "core/quote", "attrs": { "citation": "Author" } },
+    { "path": "blocks.0.innerBlocks.4", "name": "core/pullquote", "attrs": { "citation": "Source", "value": "<p>Pull me</p>" } },
+    { "path": "blocks.0.innerBlocks.5", "name": "core/code", "attrs": { "content": "<strong>Code</strong>" } },
+    { "path": "blocks.0.innerBlocks.6", "name": "core/preformatted", "attrs": { "content": "Line one<br>Line two" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 7 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

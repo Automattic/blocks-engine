@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-core-media-actions",
+  "description": "Converts media, table, button, and shortcode HTML into the currently supported core blocks.",
+  "source_reference": {
+    "repo": "html-to-blocks-converter",
+    "path": "tests/smoke-core-block-transform-matrix.php",
+    "notes": "Structured fixture coverage for supported media/action transforms currently implemented by the PHP transformer."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "The legacy converter comparison depends on WordPress/Gutenberg raw handler runtime behavior."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Blocks</td></tr></tbody><caption>Inventory</caption></table><figure><img src=\"https://example.com/image.jpg\" alt=\"Example\" width=\"640\" height=\"480\"><figcaption>Caption</figcaption></figure><div><a href=\"https://example.com/start\">Start</a><a href=\"https://example.com/more\">More</a></div>[gallery ids=\"1,2\"]"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/table", "attrs": { "caption": "Inventory" } },
+    { "path": "blocks.1", "name": "core/image", "attrs": { "url": "https://example.com/image.jpg", "alt": "Example", "width": "640", "height": "480", "caption": "Caption" } },
+    { "path": "blocks.2", "name": "core/buttons" },
+    { "path": "blocks.2.innerBlocks.0", "name": "core/button", "attrs": { "text": "Start", "url": "https://example.com/start" } },
+    { "path": "blocks.2.innerBlocks.1", "name": "core/button", "attrs": { "text": "More", "url": "https://example.com/more" } },
+    { "path": "blocks.3", "name": "core/shortcode", "attrs": { "text": "[gallery ids=\"1,2\"]" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 4 },
+    { "path": "blocks.0.attrs.head.0.cells.0.content", "assert": "equals", "value": "Name" },
+    { "path": "blocks.0.attrs.body.0.cells.0.content", "assert": "equals", "value": "Blocks" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
