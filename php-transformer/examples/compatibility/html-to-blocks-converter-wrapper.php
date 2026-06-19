@@ -10,6 +10,43 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
  * example code for consumer PRs, not product API shipped by this package.
  */
 
+if ( ! function_exists( 'html_to_blocks_transformer' ) ) {
+    function html_to_blocks_transformer(): HtmlTransformer {
+        static $transformer = null;
+
+        if ( ! $transformer instanceof HtmlTransformer ) {
+            $transformer = new HtmlTransformer();
+        }
+
+        return $transformer;
+    }
+}
+
+if ( ! function_exists( 'html_to_blocks_create_unsupported_html_fallback_block' ) ) {
+    /**
+     * Downstream fallback bridge preserving the old hook and core/html shape.
+     *
+     * @param string $element_html Unsupported HTML fragment.
+     * @param array<string, mixed> $context Fallback context.
+     * @return array<string, mixed> parse_blocks()-compatible block array.
+     */
+    function html_to_blocks_create_unsupported_html_fallback_block( string $element_html, array $context = array() ): array {
+        $block = array(
+            'blockName'    => 'core/html',
+            'attrs'        => array( 'content' => $element_html ),
+            'innerBlocks'  => array(),
+            'innerHTML'    => $element_html,
+            'innerContent' => array( $element_html ),
+        );
+
+        if ( function_exists( 'do_action' ) ) {
+            do_action( 'html_to_blocks_unsupported_html_fallback', $element_html, $context, $block );
+        }
+
+        return $block;
+    }
+}
+
 if ( ! function_exists( 'html_to_blocks_raw_handler' ) ) {
     /**
      * Downstream wrapper example for consumers that keep an existing raw handler.
@@ -24,9 +61,7 @@ if ( ! function_exists( 'html_to_blocks_raw_handler' ) ) {
             return array();
         }
 
-        $result = ( new HtmlTransformer() )->transform( $html );
-
-        return $result->blocks;
+        return html_to_blocks_convert( $html, $args );
     }
 }
 
@@ -39,8 +74,26 @@ if ( ! function_exists( 'html_to_blocks_convert' ) ) {
      * @return array<int, array<string, mixed>> parse_blocks()-compatible block arrays.
      */
     function html_to_blocks_convert( string $html, array $args = array() ): array {
-        unset( $args );
+        $result = html_to_blocks_transformer()->transform( $html );
+        $blocks = $result->blocks;
 
-        return html_to_blocks_raw_handler( array( 'HTML' => $html ) );
+        foreach ( $result->fallbacks as $fallback ) {
+            if ( ! is_array( $fallback ) || empty( $fallback['html'] ) ) {
+                continue;
+            }
+
+            $blocks[] = html_to_blocks_create_unsupported_html_fallback_block(
+                (string) $fallback['html'],
+                array(
+                    'reason'               => 'no_transform',
+                    'tag_name'             => strtoupper( (string) ( $fallback['tag'] ?? '' ) ),
+                    'source'               => HtmlTransformer::class,
+                    'transformer_fallback' => $fallback,
+                    'args'                 => $args,
+                )
+            );
+        }
+
+        return $blocks;
     }
 }
