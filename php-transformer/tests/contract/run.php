@@ -5,6 +5,8 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatAdapterInterface;
+use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 if ( ! function_exists('serialize_blocks') ) {
@@ -145,6 +147,59 @@ if ( ! str_contains($result['serialized_blocks'], '<!-- wp:heading {"content":"H
 
 fwrite(STDOUT, "HTML-to-blocks contract passed.\n");
 
+$bridge = new FormatBridge();
+
+assertSame(array( 'blocks', 'html', 'markdown' ), $bridge->supportedFormats(), 'Default supported formats should be stable.');
+assertSame("# Title\n\nBody\n", $bridge->normalize("# Title\r\n\r\nBody\r\n", 'markdown'), 'Markdown line endings should normalize to LF.');
+assertSame('<main><h1>Hello</h1></main>', $bridge->normalize('<main><h1>Hello</h1></main>', 'html'), 'HTML normalization should preserve valid HTML.');
+assertSame('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', $bridge->normalize('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', 'blocks'), 'Serialized blocks should pass validation.');
+assertThrows(static fn () => $bridge->normalize('<!-- wp:paragraph /-->', 'markdown'), 'Declared markdown content contains serialized block comments.');
+assertThrows(static fn () => $bridge->normalize("# Title\n<p>Hello</p>", 'html'), 'Declared HTML content contains markdown markers.');
+assertThrows(static fn () => $bridge->normalize('<p>Hello</p>', 'blocks'), 'Declared blocks content does not contain serialized block comments.');
+assertThrows(static fn () => $bridge->normalize('<!-- wp:paragraph --><p>Hello</p>', 'blocks'), 'Serialized block markup contains an unclosed block comment.');
+assertThrows(static fn () => $bridge->normalize('<!-- wp:paragraph --><p>Hello</p><!-- /wp:heading -->', 'blocks'), 'Mismatched serialized block closing comment.');
+
+$bridge->registerAdapter(new class implements FormatAdapterInterface {
+    public function slug(): string
+    {
+        return 'plain';
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function toBlocks(string $content, array $options = array()): array
+    {
+        return array(
+            array(
+                'blockName'    => 'core/paragraph',
+                'attrs'        => array(),
+                'innerBlocks'  => array(),
+                'innerHTML'    => '<p>' . $content . '</p>',
+                'innerContent' => array( '<p>' . $content . '</p>' ),
+            ),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     */
+    public function fromBlocks(array $blocks, array $options = array()): string
+    {
+        return 'plain output';
+    }
+
+    public function detect(string $content): bool
+    {
+        return '' !== trim($content);
+    }
+});
+
+assertSame(array( 'blocks', 'html', 'markdown', 'plain' ), $bridge->supportedFormats(), 'Registered adapters should extend supported formats.');
+assertSame('plain output', $bridge->convert('<p>Hello</p>', 'html', 'plain'), 'Conversion stubs should hand block pivot to registered target adapters.');
+
+fwrite(STDOUT, "Format bridge scaffold passed.\n");
+
 function assertSame(mixed $expected, mixed $actual, string $message): void
 {
     if ( $expected !== $actual ) {
@@ -159,4 +214,23 @@ function assertContains(mixed $needle, array $haystack, string $message): void
         fwrite(STDERR, $message . "\nNeedle: " . var_export($needle, true) . "\nHaystack: " . var_export($haystack, true) . "\n");
         exit(1);
     }
+}
+
+function assertThrows(callable $callback, string $expectedMessage): void
+{
+    try {
+        $callback();
+    } catch ( \InvalidArgumentException $exception ) {
+        if ( $expectedMessage === $exception->getMessage() ) {
+            return;
+        }
+
+        fwrite(STDERR, "Unexpected exception message.\n");
+        fwrite(STDERR, 'Expected: ' . $expectedMessage . "\n");
+        fwrite(STDERR, 'Actual: ' . $exception->getMessage() . "\n");
+        exit(1);
+    }
+
+    fwrite(STDERR, 'Expected exception: ' . $expectedMessage . "\n");
+    exit(1);
 }
