@@ -2,6 +2,11 @@
 declare(strict_types=1);
 
 $root = dirname( __DIR__, 2 );
+$autoload = $root . '/vendor/autoload.php';
+if ( is_readable( $autoload ) ) {
+    require_once $autoload;
+}
+
 $examples = glob( $root . '/examples/compatibility/*.php' );
 $autoload = $root . '/vendor/autoload.php';
 
@@ -107,12 +112,18 @@ PHP
             $example,
             $assertions . <<<'PHP'
 $adapter = new Static_Site_Importer_Transformer_Adapter();
-$markup = $adapter->html_to_block_markup( '<h2>Hello</h2>' );
-$assert( str_contains( $markup, '<!-- wp:heading' ), 'SSI adapter converts HTML to block markup' );
+$fragment = $adapter->convert_fragment( '<main><h1>SSI Adapter</h1></main>', array( 'source_id' => 'main:index.html' ) );
+$assert( 'html' === ( $fragment['from'] ?? '' ) && 'blocks' === ( $fragment['to'] ?? '' ), 'SSI adapter returns BFB-compatible conversion direction' );
+$assert( 'main:index.html' === ( $fragment['scope']['source_id'] ?? '' ), 'SSI adapter preserves fragment scope' );
 $compiled = $adapter->compile_website_artifact( array( 'generated_html' => '<main><h1>Hello</h1></main>' ) );
-$assert( isset( $compiled['schema'] ), 'SSI adapter compiles website artifact' );
+$assert( 'block-artifact-compiler/result/v1' === ( $compiled['schema'] ?? '' ), 'SSI adapter compiles website artifact to BAC schema' );
+foreach ( array( 'block_markup', 'blocks', 'block_tree', 'block_types', 'components', 'documents', 'files' ) as $key ) {
+    $assert( array_key_exists( $key, $compiled['wordpress_artifacts'] ?? array() ), "SSI adapter BAC mapping includes {$key}" );
+}
 $summary = $adapter->summarize_result( $compiled );
 $assert( isset( $summary['block_count'] ), 'SSI adapter summarizes compiler result' );
+$html = $adapter->blocks_to_html( (string) ( $compiled['wordpress_artifacts']['block_markup'] ?? '' ) );
+$assert( '' !== trim( $html ), 'SSI adapter renders blocks to HTML' );
 PHP
         );
     }

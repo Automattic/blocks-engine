@@ -64,29 +64,31 @@ use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 final class Static_Site_Importer_Transformer_Adapter {
-    public function html_to_block_markup( string $html, array $options = array() ): string {
+    public function convert_fragment( string $html, array $options = array() ): array {
         if ( class_exists( HtmlTransformer::class ) ) {
-            $result = ( new HtmlTransformer() )->transform( $html );
-            return '' !== $result->serializedBlocks ? $result->serializedBlocks : serialize_blocks( $result->blocks );
+            $result = ( new HtmlTransformer() )->transform( $html )->toArray();
+            return $this->to_bfb_fragment_envelope( $result, $html, $options );
         }
 
-        return function_exists( 'bfb_convert' ) ? bfb_convert( $html, 'html', 'blocks', $options ) : '';
-    }
-
-    public function convert( string $content, string $from, string $to, array $options = array() ): string {
-        if ( class_exists( FormatBridge::class ) ) {
-            return ( new FormatBridge() )->convert( $content, $from, $to, $options );
-        }
-
-        return function_exists( 'bfb_convert' ) ? bfb_convert( $content, $from, $to, $options ) : '';
+        return function_exists( 'bfb_convert_fragment' ) ? bfb_convert_fragment( $html, $options ) : array();
     }
 
     public function compile_website_artifact( array $artifact, array $options = array() ): array {
         if ( class_exists( ArtifactCompiler::class ) ) {
-            return ( new ArtifactCompiler() )->compile( $artifact )->toArray();
+            return $this->to_bac_result( ( new ArtifactCompiler() )->compile( $artifact )->toArray() );
         }
 
         return function_exists( 'bac_compile_website_artifact' ) ? bac_compile_website_artifact( $artifact, $options ) : array();
+    }
+
+    public function blocks_to_html( array|string $blocks, array $options = array() ): string {
+        if ( class_exists( FormatBridge::class ) ) {
+            return is_string( $blocks )
+                ? ( new FormatBridge() )->convert( $blocks, 'blocks', 'html', $options )
+                : ( new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime() )->renderBlocks( array_values( $blocks ) );
+        }
+
+        return is_string( $blocks ) && function_exists( 'bfb_convert' ) ? bfb_convert( $blocks, 'blocks', 'html', $options ) : '';
     }
 
     public function summarize_result( array $compiled ): array {
@@ -103,12 +105,14 @@ final class Static_Site_Importer_Transformer_Adapter {
 }
 ```
 
+The copyable, linted version in `examples/compatibility/static-site-importer-transformer-adapter.php` includes the full `TransformerResult` to BAC result mapper. SSI should keep that mapper local so product reports stay stable while transformer internals evolve.
+
 ## Public Function And Call Mapping
 
 | Current Static Site Importer surface | Current dependency | Adapter target | Phase-1 behavior |
 | --- | --- | --- | --- |
-| `Static_Site_Importer_Theme_Generator::import_theme()` | `bfb_convert()` and conversion reports | `Static_Site_Importer_Transformer_Adapter::html_to_block_markup()` / `convert()` | Keep import result and quality report shape unchanged. |
-| `Static_Site_Importer_Theme_Generator::import_website_artifact()` | `bac_compile_website_artifact()` | `compile_website_artifact()` | Map transformer result arrays into existing BAC-compatible import args. |
+| `Static_Site_Importer_Theme_Generator::import_theme()` | `bfb_convert_fragment()`, `bfb_convert()`, and conversion reports | `Static_Site_Importer_Transformer_Adapter::convert_fragment()` / `blocks_to_html()` | Keep import result and quality report shape unchanged. |
+| `Static_Site_Importer_Theme_Generator::import_website_artifact()` | `bac_compile_website_artifact()` | `compile_website_artifact()` | Map transformer result arrays into existing BAC-compatible import args and report payloads. |
 | `Static_Site_Importer_Source_Page::from_wordpress_document_artifact()` | BAC document artifact fields | Transformer document artifact fields through BAC-compatible mapper | Keep accepted document artifact fields stable. |
 | `static-site-importer/import-theme` ability | Theme generator return array | Adapter hidden behind theme generator | Keep input and output schemas stable. |
 | `static-site-importer/import-website-artifact` ability | BAC compile result and theme generator | Adapter hidden behind ability callback | Keep ability contract stable and report transformer metadata only inside reports. |
@@ -130,6 +134,16 @@ final class Static_Site_Importer_Transformer_Adapter {
 - Import reports show no fallback-count regression against the same fixtures.
 - Generated theme file paths, page IDs, source cleanup behavior, and commerce dependency gates remain owned by Static Site Importer.
 - The PR includes an old-versus-transformer report table for representative fixtures before changing defaults.
+
+## Required Fixture Inventory
+
+Run and compare these fixtures before changing adapter defaults:
+
+| Fixture | Test or source path | Required comparison |
+| --- | --- | --- |
+| `wordpress-is-dead` | `tests/smoke-wordpress-is-dead-fixture.php` and `tests/fixtures/wordpress-is-dead` | Legacy versus adapter import report, fallback count, generated templates/parts, navigation, CSS bridge output, visual/semantic targets. |
+| `mixed-source-site` | `tests/smoke-mixed-source-fixture.php`, `tests/smoke-mixed-source-link-rewrites.php`, and `tests/fixtures/mixed-source-site` | Source-document counts, Markdown page creation, skipped MDX diagnostics, rewritten links, conversion fragment keys. |
+| `website-artifact-bundle` | `tests/fixtures/website-artifact-bundle/artifact.json` | BAC result envelope fields, `wordpress_artifacts` mapping, provenance, diagnostics, summary fields, materialized CSS/JS/file artifacts. |
 
 ## Blockers To Resolve Upstream First
 
