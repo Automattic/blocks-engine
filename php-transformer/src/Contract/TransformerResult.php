@@ -8,6 +8,10 @@ final class TransformerResult
     public const SCHEMA = 'blocks-engine/php-transformer/result/v1';
 
     /**
+     * @param array<int, array<string, mixed>> $components
+     * @param array<int, array<string, mixed>> $blockTypes
+     * @param array<string, mixed> $sourceReports
+     * @param array<string, mixed> $legacyMapping
      * @param array<int, array<string, mixed>> $blocks
      * @param array<int, array<string, mixed>> $documents
      * @param array<int, array<string, mixed>> $assets
@@ -17,6 +21,11 @@ final class TransformerResult
      * @param array<int, array<string, mixed>> $coverage
      */
     public function __construct(
+        public readonly string $status = 'success',
+        public readonly array $components = array(),
+        public readonly array $blockTypes = array(),
+        public readonly array $sourceReports = array(),
+        public readonly array $legacyMapping = array(),
         public readonly array $blocks = array(),
         public readonly string $serializedBlocks = '',
         public readonly array $documents = array(),
@@ -35,6 +44,11 @@ final class TransformerResult
     {
         return array(
             'schema'            => self::SCHEMA,
+            'status'            => $this->status,
+            'components'        => $this->components,
+            'block_types'       => $this->blockTypes,
+            'source_reports'    => $this->sourceReports,
+            'legacy_mapping'    => $this->legacyMapping,
             'blocks'            => $this->blocks,
             'serialized_blocks' => $this->serializedBlocks,
             'documents'         => $this->documents,
