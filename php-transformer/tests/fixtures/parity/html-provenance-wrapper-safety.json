@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<section class=\"hero-shell\" style=\"padding: 2rem;\" data-layout=\"constrained\"><h2>Only child</h2></section><svg class=\"badge\"><script>alert(1)</script><circle cx=\"1\" cy=\"1\" r=\"1\"></circle></svg>",
+    "content": "<section class=\"hero-shell\" style=\"padding: 2rem;\" data-layout=\"constrained\" onclick=\"alert(1)\"><h2>Only child</h2></section><svg class=\"badge\"><script>alert(1)</script><circle cx=\"1\" cy=\"1\" r=\"1\"></circle></svg>",
     "options": {
       "source": "fixture:html-provenance-wrapper-safety",
       "source_scope": "parity"
@@ -40,7 +40,18 @@
     { "path": "source_reports.html.presentation_signals.0.signals.style", "assert": "equals", "value": "padding: 2rem;" },
     { "path": "source_reports.html.presentation_signals.0.signals.layout.type", "assert": "equals", "value": "constrained" },
     { "path": "source_reports.html.presentation_signals.0.source_attributes.data-layout", "assert": "equals", "value": "constrained" },
+    { "path": "source_reports.html.source_provenance", "assert": "count", "count": 2 },
+    { "path": "source_reports.html.source_provenance.0.block_path", "assert": "equals", "value": "blocks.0" },
+    { "path": "source_reports.html.source_provenance.0.block_name", "assert": "equals", "value": "core/group" },
+    { "path": "source_reports.html.source_provenance.0.selector", "assert": "equals", "value": "section:nth-of-type(1)" },
+    { "path": "source_reports.html.source_provenance.0.source_attributes.class", "assert": "equals", "value": "hero-shell" },
+    { "path": "source_reports.html.source_provenance.0.source_fragment", "assert": "contains", "value": "<section class=\"hero-shell\"" },
+    { "path": "source_reports.html.source_provenance.0.source_fragment", "assert": "not_contains", "value": "onclick" },
+    { "path": "source_reports.html.source_provenance.1.block_path", "assert": "equals", "value": "blocks.0.innerBlocks.0" },
+    { "path": "source_reports.html.source_provenance.1.block_name", "assert": "equals", "value": "core/heading" },
+    { "path": "source_reports.html.source_provenance.1.selector", "assert": "equals", "value": "section:nth-of-type(1) > h2:nth-of-type(1)" },
     { "path": "diagnostics.1.selector", "assert": "equals", "value": "svg:nth-of-type(1)" },
-    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 },
+    { "path": "coverage.0.source_provenance_count", "assert": "equals", "value": 2 }
   ]
 }
