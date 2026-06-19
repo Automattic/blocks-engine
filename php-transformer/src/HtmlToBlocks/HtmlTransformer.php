@@ -14,6 +14,11 @@ final class HtmlTransformer
 {
     private readonly BlockFactory $blockFactory;
 
+    /**
+     * @var array<string, string>
+     */
+    private array $fallbackProvenance = array();
+
     public function __construct(private readonly Runtime $runtime = new Runtime())
     {
         $this->blockFactory = new BlockFactory();
@@ -24,15 +29,15 @@ final class HtmlTransformer
      */
     public function transform(string $html, array $options = array()): TransformerResult
     {
-        $context    = TransformationOptions::context($options);
-        $context    = TransformationOptions::context($options);
-        $startedAt  = hrtime(true);
-        $provenance = array(
+        $context                  = TransformationOptions::context($options);
+        $startedAt                = hrtime(true);
+        $this->fallbackProvenance = TransformationOptions::provenance($options);
+        $provenance               = array(
             array_merge(array(
                 'source_format' => 'html',
                 'input_bytes'   => strlen($html),
                 'transformer'   => self::class,
-            ), TransformationOptions::provenance($options)),
+            ), $this->fallbackProvenance),
         );
 
         $document = new DOMDocument();
@@ -50,13 +55,13 @@ final class HtmlTransformer
                 ),
             );
             $fallbacks = array(
-                array(
+                array_merge(array(
                     'type'            => 'html',
                     'reason'          => 'parse_failed',
                     'diagnostic_code' => 'html_parse_failed',
                     'source_format'   => 'html',
                     'html'            => $html,
-                ),
+                ), $this->fallbackProvenance),
             );
 
             return new TransformerResult(
@@ -327,7 +332,7 @@ final class HtmlTransformer
         }
 
         if ( 'form' === $tagName ) {
-            $fallbacks[] = array(
+            $fallbacks[] = array_merge(array(
                 'type'            => 'html',
                 'reason'          => 'form_requires_runtime',
                 'diagnostic_code' => 'html_form_fallback',
@@ -339,7 +344,7 @@ final class HtmlTransformer
                 'text_length'     => strlen(trim($element->textContent ?? '')),
                 'child_count'     => $this->childElementCount($element),
                 'html'            => $this->safeFallbackHtml($element),
-            );
+            ), $this->fallbackProvenance);
             return null;
         }
 
@@ -351,7 +356,7 @@ final class HtmlTransformer
 
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( 1 === count($children) ) {
-                if ( $this->shouldPreserveWrapper($element) ) {
+                if ( $this->shouldPreserveWrapper($element) && 'core/group' !== ($children[0]['blockName'] ?? '') ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), $children);
                 }
                 return $children[0];
@@ -363,7 +368,7 @@ final class HtmlTransformer
         }
 
         if ( $captureUnsupported ) {
-            $fallbacks[] = array(
+            $fallbacks[] = array_merge(array(
                 'type'            => 'unsupported_element',
                 'reason'          => 'unsupported_element',
                 'diagnostic_code' => 'html_unsupported_element',
@@ -373,8 +378,8 @@ final class HtmlTransformer
                 'attributes'      => $this->htmlAttributes($element),
                 'text_length'     => strlen(trim($element->textContent ?? '')),
                 'child_count'     => $this->childElementCount($element),
-                'html'            => $this->outerHtml($element),
-            );
+                'html'            => $this->safeFallbackHtml($element),
+            ), $this->fallbackProvenance);
         }
 
         return null;
@@ -438,7 +443,7 @@ final class HtmlTransformer
 
     private function shouldPreserveWrapper(DOMElement $element): bool
     {
-        return 'div' === strtolower($element->tagName) && array() !== $this->presentationAttributes($element);
+        return in_array(strtolower($element->tagName), array( 'article', 'div', 'main', 'section' ), true) && array() !== $this->presentationAttributes($element);
     }
 
     private function isInlineContentElement(string $tagName): bool

@@ -16,6 +16,7 @@ Run the coverage fixtures with `composer parity` or as part of `composer test`.
 | Images | `html-core-media-actions.json` | `core/image` with URL, alt, dimensions, caption attrs |
 | Buttons | `html-core-media-actions.json` | `core/buttons` containing `core/button` children |
 | Shortcodes | `html-core-media-actions.json` | `core/shortcode` for standalone shortcode text |
+| Wrapper provenance and safety | `html-provenance-wrapper-safety.json` | Presentational semantic wrappers are preserved as `core/group`; unsupported fallback records include selector/source metadata and sanitized fallback HTML |
 | Unsupported fallback | `unsupported-fallback.json`, `html-unsupported-context-required.json` | Unsupported elements are reported in `fallbacks` and do not fail supported siblings |
 | Website artifact bundle | `website-artifact-bundle.json` | HTML, CSS, and JS artifact inputs compile into the shared result envelope |
 | Compiled site contract | `compiled-site-contract.json` | Generic site artifacts expose normalized pages, assets, and theme buckets in `source_reports.compiled_site` |
@@ -27,5 +28,5 @@ Run the coverage fixtures with `composer parity` or as part of `composer test`.
 | Category | Status | Notes |
 | --- | --- | --- |
 | Supported | Heading, paragraph, unordered/ordered list, quote, pullquote, code, preformatted, table, image, buttons/button, shortcode | Fixtures assert the block names and representative attrs currently emitted by `HtmlTransformer`. |
-| Unsupported fallback | Unknown/custom elements, form controls, other unsupported top-level HTML | Fallbacks use `type: unsupported_element`, include the source tag, and increment `coverage.0.fallback_count`. |
+| Unsupported fallback | Unknown/custom elements, SVG markup, form controls, other unsupported top-level HTML | Fallbacks use `type: unsupported_element`, include the source tag, selector, caller source/scope when provided, sanitized HTML, and increment `coverage.0.fallback_count`. |
 | Context-required | Interactive/form behavior, embeds, advanced layout semantics, raw-handler hooks | These require WordPress/Gutenberg runtime context or richer product converter behavior and remain outside the PHP transformer's supported slice. |

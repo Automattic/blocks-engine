@@ -1,0 +1,40 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-provenance-wrapper-safety",
+  "description": "Preserves presentational semantic wrappers and carries source provenance plus safe fallback HTML for unsupported elements.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-provenance-wrapper-safety.json",
+    "notes": "Product-neutral fixture for HTML selector/source provenance and fallback safety."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"hero-shell\"><h2>Only child</h2></section><svg class=\"badge\"><script>alert(1)</script><circle cx=\"1\" cy=\"1\" r=\"1\"></circle></svg>",
+    "options": {
+      "source": "fixture:html-provenance-wrapper-safety",
+      "source_scope": "parity"
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "hero-shell" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Only child", "level": 2 } }
+  ],
+  "expected_fallbacks": [
+    { "type": "unsupported_element", "reason": "unsupported_element", "tag": "svg", "diagnostic_code": "html_unsupported_element", "selector": "svg:nth-of-type(1)", "source": "fixture:html-provenance-wrapper-safety", "scope": "parity" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.html", "assert": "contains", "value": "<svg class=\"badge\">" },
+    { "path": "fallbacks.0.html", "assert": "not_contains", "value": "<script>" },
+    { "path": "provenance.0.source", "assert": "equals", "value": "fixture:html-provenance-wrapper-safety" },
+    { "path": "provenance.0.scope", "assert": "equals", "value": "parity" },
+    { "path": "diagnostics.1.selector", "assert": "equals", "value": "svg:nth-of-type(1)" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+  ]
+}
