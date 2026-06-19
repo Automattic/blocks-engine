@@ -49,6 +49,17 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 
 $fixture = file_get_contents(dirname(__DIR__) . '/fixtures/simple-html.html');
 $result  = ( new HtmlTransformer() )->transform($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><aside>Fallback</aside>")->toArray();
+$rich    = ( new HtmlTransformer() )->transform(
+    '<blockquote><p>Quote me</p><cite>Author</cite></blockquote>' .
+    '<figure class="wp-block-pullquote"><blockquote><p>Pull me</p><cite>Source</cite></blockquote></figure>' .
+    '<pre><code>&lt;strong&gt;Code&lt;/strong&gt;</code></pre>' .
+    '<pre>Line one<br>Line two</pre>' .
+    '<table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Blocks</td></tr></tbody><caption>Inventory</caption></table>' .
+    '<figure><img src="https://example.com/image.jpg" alt="Example" width="640" height="480"><figcaption>Caption</figcaption></figure>' .
+    '<div><a href="https://example.com/start">Start</a><a href="https://example.com/more">More</a></div>' .
+    '[gallery ids="1,2"]' .
+    '<custom-card><span>Unsupported nested</span></custom-card>'
+)->toArray();
 
 $assert(TransformerResult::SCHEMA === $result['schema'], 'result exposes schema');
 
@@ -191,8 +202,25 @@ assertSame('core/list', $result['blocks'][1]['blockName'], 'ul should convert to
 assertSame('core/list-item', $result['blocks'][1]['innerBlocks'][0]['blockName'], 'li should convert to list-item blocks.');
 assertSame('unsupported_element', $result['fallbacks'][0]['type'], 'unsupported top-level elements should be reported as fallbacks.');
 assertSame('aside', $result['fallbacks'][0]['tag'], 'fallback should identify the unsupported tag.');
-assertContains('html_to_blocks_minimal', array_column($result['diagnostics'], 'code'), 'minimal conversion diagnostic should be present.');
+assertContains('html_to_blocks_core_slice', array_column($result['diagnostics'], 'code'), 'expanded core-slice conversion diagnostic should be present.');
 assertSame('html', $result['provenance'][0]['source_format'], 'source provenance should identify HTML input.');
+
+assertSame('core/quote', $rich['blocks'][0]['blockName'], 'blockquote should convert to quote.');
+assertSame('Author', $rich['blocks'][0]['attrs']['citation'], 'quote citation should be preserved.');
+assertSame('core/pullquote', $rich['blocks'][1]['blockName'], 'pullquote figure should convert to pullquote.');
+assertSame('Source', $rich['blocks'][1]['attrs']['citation'], 'pullquote citation should be preserved.');
+assertSame('core/code', $rich['blocks'][2]['blockName'], 'pre code should convert to code.');
+assertSame('<strong>Code</strong>', $rich['blocks'][2]['attrs']['content'], 'code content should preserve literal text.');
+assertSame('core/preformatted', $rich['blocks'][3]['blockName'], 'plain pre should convert to preformatted.');
+assertSame('core/table', $rich['blocks'][4]['blockName'], 'table should convert to table.');
+assertSame('Inventory', $rich['blocks'][4]['attrs']['caption'], 'table caption should be preserved.');
+assertSame('core/image', $rich['blocks'][5]['blockName'], 'figure image should convert to image.');
+assertSame('Example', $rich['blocks'][5]['attrs']['alt'], 'image alt text should be preserved.');
+assertSame('Caption', $rich['blocks'][5]['attrs']['caption'], 'image caption should be preserved.');
+assertSame('core/buttons', $rich['blocks'][6]['blockName'], 'multiple links in a wrapper should convert to buttons.');
+assertSame('core/button', $rich['blocks'][6]['innerBlocks'][0]['blockName'], 'button wrapper should contain button blocks.');
+assertSame('core/shortcode', $rich['blocks'][7]['blockName'], 'standalone shortcode text should convert to shortcode.');
+assertSame('custom-card', $rich['fallbacks'][0]['tag'], 'unsupported nested elements should be captured as fallbacks.');
 
 if ( ! str_contains($result['serialized_blocks'], '<!-- wp:heading {"content":"Hello blocks","level":1} -->') ) {
     fwrite(STDERR, "Serialized blocks did not include the expected heading block.\n");
