@@ -141,19 +141,39 @@ final class BlockFactory
      */
     private function imageHtml(array $attrs): string
     {
+        $figureAttrs = $attrs;
+        if ( ! empty($attrs['sizeSlug']) ) {
+            $figureAttrs['className'] = $this->mergeClassNames((string) ($figureAttrs['className'] ?? ''), 'size-' . (string) $attrs['sizeSlug']);
+        }
+
         $imageAttrs = array(
             'src'    => $attrs['url'] ?? '',
             'alt'    => $attrs['alt'] ?? '',
             'title'  => $attrs['title'] ?? '',
             'srcset' => $attrs['srcset'] ?? '',
             'sizes'  => $attrs['sizes'] ?? '',
-            'width'  => $attrs['width'] ?? '',
-            'height' => $attrs['height'] ?? '',
+            'width'  => (string) ($attrs['width'] ?? ''),
+            'height' => (string) ($attrs['height'] ?? ''),
+            'class'  => ! empty($attrs['id']) ? 'wp-image-' . (string) $attrs['id'] : '',
         );
 
         $img = '<img' . $this->htmlAttrs($imageAttrs, array( 'alt' )) . '/>';
         $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $attrs['caption'] . '</figcaption>' : '';
-        return '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-image') . '>' . $img . $caption . '</figure>';
+        return '<figure' . $this->blockSupportAttrs($figureAttrs, 'wp-block-image') . '>' . $img . $caption . '</figure>';
+    }
+
+    private function mergeClassNames(string ...$classNames): string
+    {
+        $classes = array();
+        foreach ( $classNames as $className ) {
+            foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
+                if ( '' !== $class && ! in_array($class, $classes, true) ) {
+                    $classes[] = $class;
+                }
+            }
+        }
+
+        return implode(' ', $classes);
     }
 
     /**

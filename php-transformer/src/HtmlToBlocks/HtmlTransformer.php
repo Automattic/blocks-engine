@@ -628,17 +628,31 @@ final class HtmlTransformer
         return trim(preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $this->outerHtml($element)) ?? '');
     }
 
-    private function convertImageElement(DOMElement $image, ?DOMElement $figure = null): array
+    private function convertImageElement(DOMElement $image, ?DOMElement $figure = null): ?array
     {
-        $attrs = array_filter(array_merge($this->presentationAttributes($figure ?? $image), array(
-            'url'    => $this->attr($image, 'src'),
+        $url = $this->safeImageUrl($this->attr($image, 'src'));
+        if ( '' === $url ) {
+            return null;
+        }
+
+        $attrs = $this->imagePresentationAttributes($image, $figure);
+        $width = $this->attr($image, 'width');
+        $height = $this->attr($image, 'height');
+        if ( '' !== $width || '' !== $height ) {
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'is-resized');
+        }
+
+        $attrs = array_filter(array_merge($attrs, array(
+            'url'    => $url,
             'alt'    => $this->attr($image, 'alt'),
             'title'  => $this->attr($image, 'title'),
             'srcset' => $this->attr($image, 'srcset'),
             'sizes'  => $this->attr($image, 'sizes'),
-            'width'  => $this->attr($image, 'width'),
-            'height' => $this->attr($image, 'height'),
+            'width'  => $width,
+            'height' => $height,
         )), static fn ($value): bool => '' !== $value);
+
+        $attrs = array_filter(array_merge($attrs, $this->imageIdentityAttributes($image)), static fn ($value): bool => '' !== $value);
 
         if ( $figure instanceof DOMElement ) {
             $caption = $this->firstChildElement($figure, 'figcaption');
@@ -648,6 +662,84 @@ final class HtmlTransformer
         }
 
         return $this->createBlock('core/image', $attrs);
+    }
+
+    private function safeImageUrl(string $url): string
+    {
+        if ( ! preg_match('#^data:image/svg\+xml(?:[;,][^,]*)?,#i', $url) ) {
+            return $url;
+        }
+
+        $parts = explode(',', $url, 2);
+        if ( 2 !== count($parts) ) {
+            return '';
+        }
+
+        $metadata = strtolower($parts[0]);
+        $svg = str_contains($metadata, ';base64') ? base64_decode($parts[1], true) : rawurldecode($parts[1]);
+        if ( false === $svg || ! $this->isSafeSvgContent($svg) ) {
+            return '';
+        }
+
+        return $url;
+    }
+
+    private function isSafeSvgContent(string $content): bool
+    {
+        return '' !== trim($content) && preg_match('/<svg(?:\s|>)/i', $content) && ! preg_match('/<\s*script\b|\son[a-z]+\s*=|javascript\s*:/i', $content);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function imagePresentationAttributes(DOMElement $image, ?DOMElement $figure): array
+    {
+        $attrs = $this->presentationAttributes($figure ?? $image);
+        if ( $figure instanceof DOMElement ) {
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->nonCoreImageClassName($image));
+        }
+
+        return array_filter($attrs, static fn (string $value): bool => '' !== trim($value));
+    }
+
+    /**
+     * @return array<string, int|string>
+     */
+    private function imageIdentityAttributes(DOMElement $image): array
+    {
+        $attrs = array();
+        $className = $this->attr($image, 'class');
+        if ( preg_match('/(?:^|\s)wp-image-(\d+)(?:\s|$)/', $className, $matches) ) {
+            $attrs['id'] = (int) $matches[1];
+        }
+        if ( preg_match('/(?:^|\s)size-([a-z0-9_-]+)(?:\s|$)/i', $className, $matches) ) {
+            $attrs['sizeSlug'] = strtolower($matches[1]);
+        }
+
+        return $attrs;
+    }
+
+    private function nonCoreImageClassName(DOMElement $image): string
+    {
+        $classes = array_filter(preg_split('/\s+/', trim($this->attr($image, 'class'))) ?: array(), static function (string $className): bool {
+            return ! preg_match('/^(?:wp-image-\d+|size-[a-z0-9_-]+)$/i', $className);
+        });
+
+        return implode(' ', $classes);
+    }
+
+    private function mergeClassNames(string ...$classNames): string
+    {
+        $classes = array();
+        foreach ( $classNames as $className ) {
+            foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
+                if ( '' !== $class && ! in_array($class, $classes, true) ) {
+                    $classes[] = $class;
+                }
+            }
+        }
+
+        return implode(' ', $classes);
     }
 
     private function buttonBlockFromAnchor(DOMElement $anchor): array
