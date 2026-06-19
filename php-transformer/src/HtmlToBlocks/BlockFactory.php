@@ -84,6 +84,13 @@ final class BlockFactory
             return $this->tableHtml($attrs);
         }
 
+        if ( 'core/details' === $name ) {
+            return array(
+                'opening' => '<details' . $this->blockSupportAttrs($attrs, 'wp-block-details') . '><summary>' . ($attrs['summary'] ?? '') . '</summary>',
+                'closing' => '</details>',
+            );
+        }
+
         if ( 'core/image' === $name ) {
             return $this->imageHtml($attrs);
         }
@@ -95,6 +102,15 @@ final class BlockFactory
         if ( 'core/button' === $name ) {
             $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
             return '<div class="wp-block-button"><a class="wp-block-button__link wp-element-button"' . $href . '>' . ($attrs['text'] ?? '') . '</a></div>';
+        }
+
+        if ( 'core/navigation' === $name ) {
+            return array( 'opening' => '<nav' . $this->blockSupportAttrs($attrs, 'wp-block-navigation') . '>', 'closing' => '</nav>' );
+        }
+
+        if ( 'core/navigation-link' === $name ) {
+            $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
+            return '<a class="wp-block-navigation-item__content"' . $href . '>' . ($attrs['label'] ?? '') . '</a>';
         }
 
         if ( 'core/shortcode' === $name ) {

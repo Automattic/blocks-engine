@@ -1,0 +1,41 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-interactive-chrome-primitives",
+  "description": "Converts generic details, safe navigation links, and static header/footer chrome into core block primitives without fallback metadata.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-interactive-chrome-primitives.json",
+    "notes": "Product-neutral fixture for upstream HTML primitive migration gaps."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header class=\"site-header\"><h1>Brand</h1><nav class=\"primary-nav\"><ul><li><a href=\"/docs\">Docs</a></li><li><a href=\"/pricing\">Pricing</a></li></ul></nav></header><main><details class=\"faq\" open><summary>What ships?</summary><p>Native primitives.</p></details></main><footer class=\"site-footer\"><p><a href=\"/contact\">Contact</a></p></footer>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Brand", "level": 1 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "primary-nav" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Docs", "url": "/docs", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Pricing", "url": "/pricing", "kind": "custom" } },
+    { "path": "blocks.1", "name": "core/details", "attrs": { "summary": "What ships?", "className": "faq" } },
+    { "path": "blocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Native primitives." } },
+    { "path": "blocks.2", "name": "core/group", "attrs": { "className": "site-footer" } },
+    { "path": "blocks.2.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "<a href=\"/contact\">Contact</a>" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.1.innerBlocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:details" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
