@@ -85,12 +85,16 @@ Release downstream wrappers after the transformer package has a tag that contain
 
 ## Archive And Thin-Shim Exit Paths
 
+Old repositories are downstream entrypoints and consumers, not dependencies or identity anchors for `php-transformer`. The full repo-by-repo fate, keep-open criteria, archive criteria, issue routing, and package discoverability policy lives in [`php-transformer/docs/current-repo-map.md`](../php-transformer/docs/current-repo-map.md).
+
 Old repositories have two acceptable exits after product consumers move to tagged `php-transformer` contracts:
 
 - Archive the old repository when no active product or public consumer still requires its functions, hooks, CLI commands, abilities, or package name.
 - Keep a thin shim when external consumers still require the old package name or public entrypoints; the shim should own only Composer metadata, autoloading, deprecation notices, and direct delegation to tagged `php-transformer` APIs.
 
 Thin shims must not grow new transformation logic, new product behavior, or repo-specific branches inside `php-transformer`. Any missing primitive blocks the downstream PR until the transformer contract is fixed upstream.
+
+Do not archive popular old repositories as an immediate cleanup step. Keep them open while they still provide meaningful package discovery, issue routing, public entrypoint compatibility, or migration guidance. Archiving is safe only after active callers have moved, replacement package instructions are published, issue trackers are redirected, and maintainers agree the repository is no longer useful as a signpost.
 
 Static Site Importer should not require unpublished wrapper branches on merge. If it still needs unpublished wrapper behavior, the transformer PR remains draft or the affected Static Site Importer scope stays out of the merge path.
 
@@ -102,6 +106,7 @@ The PR can leave draft when the package is reviewable as a releasable Composer l
 - The README states package boundaries, draft status, and where wrapper/product migration plans live.
 - Contract docs cover result envelopes and parity fixtures for downstream wrapper checks.
 - Packaging docs define VCS/path repository use, versioning, prefixing ownership, and release order.
+- Repository-map docs define keep-open versus archive criteria, repo-by-repo fate, issue routing, and package discoverability for old downstream entrypoints.
 - Wrapper PR plans identify branch names, commit sequence, file-level patch skeletons, dependency constraints, acceptance commands, rollback plans, archive/thin-shim exits, and the first downstream acceptance signal for HTML conversion, format bridging, artifact compilation, and Static Site Importer adoption.
 - No product-specific implementation behavior is required for the transformer package to install and run its own tests.
 - Known blockers are tracked in docs or issues, not hidden as downstream workarounds.

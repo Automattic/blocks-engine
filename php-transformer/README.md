@@ -77,6 +77,8 @@ This package is intentionally being introduced as a draft consolidation target. 
 
 Transitional migration notes live in [`docs/migration.md`](docs/migration.md). They are local planning evidence for downstream consumers, not package API commitments.
 
+Repository consolidation policy lives in [`docs/current-repo-map.md`](docs/current-repo-map.md). It documents repo-by-repo fate, keep-open versus archive criteria, issue routing, and package discoverability for old downstream entrypoints.
+
 Review the package boundary and draft readiness through [`docs/pr-review-guide.md`](docs/pr-review-guide.md). The guide frames `php-transformer` as a standalone product primitive and separates the canonical API from transitional migration material.
 
 Downstream wrapper branch plans live in [`docs/consumer-prs/`](docs/consumer-prs/). They define branch names, dependency constraints, file-level patch skeletons, acceptance commands, rollback plans, and archive/thin-shim exit paths without changing the downstream repositories from this worktree.

@@ -61,7 +61,7 @@ Review should avoid asking this package to absorb downstream product responsibil
 
 ## Why Migration Details Are Transitional
 
-The old repositories are source inputs and early consumers. Their wrapper plans, legacy mappings, and parity comparisons exist to make adoption safe and reviewable.
+The old repositories are downstream entrypoints and early consumers. Their wrapper plans, legacy mappings, and parity comparisons exist to make adoption safe and reviewable.
 
 They are transitional because the long-term product surface is the Blocks Engine package contract:
 
@@ -69,5 +69,9 @@ They are transitional because the long-term product surface is the Blocks Engine
 - Legacy result mappings help reviewers compare behavior, but new consumers should target the shared result envelope.
 - Consumer PR notes document rollout order, rollback plans, and acceptance commands; they are not part of the transformer API.
 - Once consumers depend on the package directly, migration scaffolding can shrink or move out of the core review path.
+
+They are not transitional because they are dependencies of `php-transformer` or because their names define package identity. The transformer must remain installable and understandable without old repository code, and old repositories should delegate downstream to tagged transformer APIs when they need to preserve public entrypoints.
+
+Reviewers should use [`current-repo-map.md`](current-repo-map.md) for the consolidation policy: popular old repositories stay open while they provide discoverability, issue routing, compatibility releases, or migration guidance; archiving is safe only after active callers, package metadata, issue trackers, and replacement instructions have moved to the new contract.
 
 The draft PR is ready for human review when reviewers can evaluate `php-transformer` as the reusable transformation primitive, with migration material serving only as evidence that predecessor behavior has a path into the new contract.
