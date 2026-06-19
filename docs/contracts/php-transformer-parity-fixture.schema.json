@@ -65,7 +65,7 @@
           "path": { "type": "string", "minLength": 1 },
           "assert": {
             "type": "string",
-            "enum": ["equals", "contains", "count"]
+            "enum": ["equals", "contains", "not_contains", "count"]
           },
           "value": {},
           "count": { "type": "integer", "minimum": 0 }

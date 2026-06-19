@@ -24,6 +24,13 @@ final class HtmlTransformer
      */
     private array $presentationProvenance = array();
 
+    /**
+     * @var array<int, array<string, mixed>>
+     */
+    private array $sourceProvenance = array();
+
+    private int $nextSourceProvenanceId = 1;
+
     public function __construct(private readonly Runtime $runtime = new Runtime())
     {
         $this->blockFactory = new BlockFactory();
@@ -38,6 +45,8 @@ final class HtmlTransformer
         $startedAt                = hrtime(true);
         $this->fallbackProvenance = TransformationOptions::provenance($options);
         $this->presentationProvenance = array();
+        $this->sourceProvenance = array();
+        $this->nextSourceProvenanceId = 1;
         $provenance               = array(
             array_merge(array(
                 'source_format' => 'html',
@@ -90,6 +99,7 @@ final class HtmlTransformer
 
         $fallbacks   = array();
         $blocks      = $this->convertChildren($body, $fallbacks, true);
+        $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
         $diagnostics = array(
             array(
@@ -122,6 +132,7 @@ final class HtmlTransformer
             sourceReports: array(
                 'html' => array(
                     'presentation_signals' => $this->presentationProvenance,
+                    'source_provenance'    => $sourceProvenance,
                 ),
             ),
             coverage: array(
@@ -129,6 +140,7 @@ final class HtmlTransformer
                     'supported_blocks' => array( 'core/button', 'core/buttons', 'core/code', 'core/details', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/shortcode', 'core/table' ),
                     'block_count'      => count($blocks),
                     'fallback_count'   => count($fallbacks),
+                    'source_provenance_count' => count($sourceProvenance),
                 ),
             ),
             context: $context,
@@ -339,7 +351,7 @@ final class HtmlTransformer
 
             return $this->createBlock('core/details', array_filter(array_merge($this->presentationAttributes($element), array(
                 'summary' => $summary instanceof DOMElement ? $this->innerHtml($summary) : '',
-            )), static fn ($value): bool => '' !== $value), $children);
+            )), static fn ($value): bool => '' !== $value), $children, $element);
         }
 
         if ( 'img' === $tagName ) {
@@ -374,7 +386,7 @@ final class HtmlTransformer
         if ( 'nav' === $tagName ) {
             $navigationLinks = $this->navigationLinks($element);
             if ( array() !== $navigationLinks ) {
-                return $this->createBlock('core/navigation', $this->presentationAttributes($element), $navigationLinks);
+                return $this->createBlock('core/navigation', $this->presentationAttributes($element), $navigationLinks, $element);
             }
         }
 
@@ -438,10 +450,63 @@ final class HtmlTransformer
     private function createBlock(string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array
     {
         if ( $sourceElement instanceof DOMElement ) {
+            $provenanceId = $this->nextSourceProvenanceId++;
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
+            $this->sourceProvenance[$provenanceId] = $this->sourceProvenanceEntry($name, $sourceElement);
         }
 
-        return $this->blockFactory->create($name, $attrs, $innerBlocks);
+        $block = $this->blockFactory->create($name, $attrs, $innerBlocks);
+        if ( isset($provenanceId) ) {
+            $block['_source_provenance_id'] = $provenanceId;
+        }
+
+        return $block;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<int, array<string, mixed>>
+     */
+    private function sourceProvenanceForBlocks(array &$blocks): array
+    {
+        $resolved = array();
+        $this->resolveSourceProvenancePaths($blocks, 'blocks', $resolved);
+        return $resolved;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, mixed>> $resolved
+     */
+    private function resolveSourceProvenancePaths(array &$blocks, string $path, array &$resolved): void
+    {
+        foreach ( $blocks as $index => &$block ) {
+            $blockPath = $path . '.' . $index;
+            $provenanceId = $block['_source_provenance_id'] ?? null;
+            if ( is_int($provenanceId) && isset($this->sourceProvenance[$provenanceId]) ) {
+                $resolved[] = array_merge(array( 'block_path' => $blockPath ), $this->sourceProvenance[$provenanceId]);
+            }
+            unset($block['_source_provenance_id']);
+
+            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $this->resolveSourceProvenancePaths($block['innerBlocks'], $blockPath . '.innerBlocks', $resolved);
+            }
+        }
+        unset($block);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function sourceProvenanceEntry(string $blockName, DOMElement $element): array
+    {
+        return array(
+            'block_name'        => $blockName,
+            'tag'               => strtolower($element->tagName),
+            'selector'          => $this->elementSelector($element),
+            'source_attributes' => $this->safeSourceAttributes($element),
+            'source_fragment'   => $this->safeSourceFragment($element),
+        );
     }
 
     private function innerHtml(DOMElement $element): string
@@ -571,6 +636,35 @@ final class HtmlTransformer
 
         ksort($attributes);
         return $attributes;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function safeSourceAttributes(DOMElement $element): array
+    {
+        $safe = array();
+        $allowed = array_flip(array( 'alt', 'class', 'data-layout', 'data-wp-layout', 'height', 'href', 'id', 'open', 'src', 'style', 'title', 'width' ));
+        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+            if ( isset($allowed[$name]) && ! preg_match('/^\s*javascript\s*:/i', $value) ) {
+                $safe[$name] = $value;
+            }
+        }
+
+        return $safe;
+    }
+
+    private function safeSourceFragment(DOMElement $element): string
+    {
+        $html = $this->safeFallbackHtml($element);
+        $html = preg_replace('/\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
+        $html = preg_replace('/\s+(href|src)\s*=\s*("\s*javascript:[^"]*"|\'\s*javascript:[^\']*\'|javascript:[^\s>]+)/i', '', $html) ?? '';
+
+        if ( strlen($html) > 500 ) {
+            return substr($html, 0, 500) . '...';
+        }
+
+        return $html;
     }
 
     private function childElementCount(DOMElement $element): int
@@ -877,7 +971,7 @@ final class HtmlTransformer
                 'label' => $this->innerHtml($anchor),
                 'url'   => $this->attr($anchor, 'href'),
                 'kind'  => 'custom',
-            ), static fn ($value): bool => '' !== $value));
+            ), static fn ($value): bool => '' !== $value), array(), $anchor);
         }
 
         return $links;

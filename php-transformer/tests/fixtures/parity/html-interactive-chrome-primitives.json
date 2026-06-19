@@ -36,6 +36,13 @@
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:details" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link" },
+    { "path": "source_reports.html.source_provenance", "assert": "count", "count": 9 },
+    { "path": "source_reports.html.source_provenance.3.block_path", "assert": "equals", "value": "blocks.0.innerBlocks.1.innerBlocks.0" },
+    { "path": "source_reports.html.source_provenance.3.block_name", "assert": "equals", "value": "core/navigation-link" },
+    { "path": "source_reports.html.source_provenance.3.selector", "assert": "equals", "value": "header:nth-of-type(1) > nav:nth-of-type(1) > ul:nth-of-type(1) > li:nth-of-type(1) > a:nth-of-type(1)" },
+    { "path": "source_reports.html.source_provenance.5.block_path", "assert": "equals", "value": "blocks.1" },
+    { "path": "source_reports.html.source_provenance.5.block_name", "assert": "equals", "value": "core/details" },
+    { "path": "source_reports.html.source_provenance.5.selector", "assert": "equals", "value": "main:nth-of-type(1) > details:nth-of-type(1)" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }
