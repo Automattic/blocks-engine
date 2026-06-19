@@ -77,6 +77,18 @@ Old wrapper repositories may require `automattic/blocks-engine-php-transformer` 
 
 During review, downstream consumers may use either Composer VCS repositories or local path repositories.
 
+After the transformer release is tagged, downstream consumers should remove custom repository entries and require the package by tag constraint:
+
+```json
+{
+  "require": {
+    "automattic/blocks-engine-php-transformer": "^0.1.0"
+  }
+}
+```
+
+The package is rooted at `php-transformer/`; release and packaging checks should run from that directory. Do not package the full Blocks Engine repository as the Composer artifact, and do not move the transformer files into a downstream repository to make Composer resolution easier.
+
 Use a VCS repository when the consumer branch runs outside this machine or in CI:
 
 ```json
@@ -125,6 +137,26 @@ Downstream wrappers must support their current unprefixed development installs. 
 ## Versioning
 
 The first tagged release should be `0.1.0` unless maintainers choose a repo-wide release scheme before merge.
+
+Release readiness preflight before tagging:
+
+```sh
+cd "$BLOCKS_ENGINE_WORKTREE/php-transformer"
+composer validate --strict
+composer test
+
+cd "$BLOCKS_ENGINE_WORKTREE"
+homeboy component show php-transformer
+homeboy release php-transformer --dry-run --skip-publish --no-github-release
+```
+
+Recommended release command after upstream PRs are merged and the dry-run passes:
+
+```sh
+homeboy release php-transformer --skip-publish --no-github-release
+```
+
+Run the release from the merged Blocks Engine branch that should own the tag, not from a downstream wrapper branch. Keep `VERSION` as the Homeboy-managed package version source.
 
 Before `1.0.0`, public PHP class names, constructor signatures, result-envelope keys, diagnostic codes, and Composer package metadata may change between minor versions, but each change must include downstream migration notes and fixture updates.
 
