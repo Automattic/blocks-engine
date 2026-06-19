@@ -6,7 +6,7 @@ This package is intentionally origin-clean: it exposes transformer primitives an
 
 This package's canonical identity is `automattic/blocks-engine-php-transformer`, exposed through the `Automattic\BlocksEngine\PhpTransformer\` namespace. That identity must not include downstream repository names, legacy package names, or compatibility wrapper promises.
 
-> **Package continuity:** Existing package names such as `chubes4/html-to-blocks-converter`, `chubes4/block-format-bridge`, `chubes4/block-artifact-compiler`, and `chubes4/static-site-importer` remain downstream support surfaces during migration. This package is the canonical implementation target, not an immediate Composer `replace` for those packages and not a signal to archive them.
+> **Package continuity:** Existing downstream packages remain support surfaces during migration. This package is the canonical implementation target, not an immediate Composer `replace` for those packages and not a signal to archive them.
 
 ## Boundary
 

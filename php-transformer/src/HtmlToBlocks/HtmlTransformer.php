@@ -45,8 +45,11 @@ final class HtmlTransformer
                 ),
                 fallbacks: array(
                     array(
-                        'type' => 'html',
-                        'html' => $html,
+                        'type'            => 'html',
+                        'reason'          => 'parse_failed',
+                        'diagnostic_code' => 'html_parse_failed',
+                        'source_format'   => 'html',
+                        'html'            => $html,
                     ),
                 ),
                 provenance: $provenance
@@ -241,9 +244,12 @@ final class HtmlTransformer
 
         if ( $captureUnsupported ) {
             $fallbacks[] = array(
-                'type' => 'unsupported_element',
-                'tag'  => $tagName,
-                'html' => $this->outerHtml($element),
+                'type'            => 'unsupported_element',
+                'reason'          => 'unsupported_element',
+                'diagnostic_code' => 'html_unsupported_element',
+                'source_format'   => 'html',
+                'tag'             => $tagName,
+                'html'            => $this->outerHtml($element),
             );
         }
 

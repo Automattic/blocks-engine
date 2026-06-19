@@ -27,4 +27,6 @@ Required top-level keys for successful transformations:
 
 `components` contains inspectable component candidates discovered before materialization. `block_types` contains generated block type artifacts promoted from `block.json` roots. `legacy_mapping` is transitional metadata for consumer-owned migration mappers and is not a long-term package feature commitment.
 
+`blocks` is always a list-shaped array of parsed WordPress block arrays when exposed through `TransformerResult` or `FormatBridge::toBlocks()`. `fallbacks` entries should include stable generic metadata such as `type`, `reason`, `diagnostic_code`, `source_format`, and the preserved source fragment needed by callers to inspect or replay unsupported content.
+
 Callers may ignore keys they do not need. The package should keep these names stable enough for consumers to share contract fixtures while the draft API settles.

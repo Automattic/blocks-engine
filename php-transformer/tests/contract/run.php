@@ -285,6 +285,9 @@ assertSame('core/paragraph', $result['blocks'][0]['innerBlocks'][1]['blockName']
 assertSame('core/list', $result['blocks'][1]['blockName'], 'ul should convert to a list block.');
 assertSame('core/list-item', $result['blocks'][1]['innerBlocks'][0]['blockName'], 'li should convert to list-item blocks.');
 assertSame('unsupported_element', $result['fallbacks'][0]['type'], 'unsupported top-level elements should be reported as fallbacks.');
+assertSame('unsupported_element', $result['fallbacks'][0]['reason'], 'fallbacks should expose a stable generic reason.');
+assertSame('html_unsupported_element', $result['fallbacks'][0]['diagnostic_code'], 'fallbacks should expose a diagnostic code for cross-process consumers.');
+assertSame('html', $result['fallbacks'][0]['source_format'], 'fallbacks should expose the source format.');
 assertSame('aside', $result['fallbacks'][0]['tag'], 'fallback should identify the unsupported tag.');
 assertContains('html_to_blocks_core_slice', array_column($result['diagnostics'], 'code'), 'expanded core-slice conversion diagnostic should be present.');
 assertSame('html', $result['provenance'][0]['source_format'], 'source provenance should identify HTML input.');
@@ -373,6 +376,62 @@ $bridge->registerAdapter(new class implements FormatAdapterInterface {
 assertSame(array( 'blocks', 'html', 'markdown', 'plain' ), $bridge->supportedFormats(), 'Registered adapters should extend supported formats.');
 $plainResult = $bridge->convertResult('<p>Hello</p>', 'html', 'plain')->toArray();
 assertSame('plain output', $plainResult['documents'][0]['content'], 'Conversion stubs should hand block pivot to registered target adapters.');
+
+$optionCalls = array();
+$bridge->registerAdapter(new class($optionCalls) implements FormatAdapterInterface {
+    /**
+     * @param array<int, array<string, mixed>> $calls
+     */
+    public function __construct(private array &$calls)
+    {
+    }
+
+    public function slug(): string
+    {
+        return 'optioned';
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    public function toBlocks(string $content, array $options = array()): array
+    {
+        $this->calls[] = array('method' => 'toBlocks', 'options' => $options);
+
+        return array(
+            'sparse-key' => array(
+                'blockName'    => 'core/paragraph',
+                'attrs'        => array('content' => $options['marker'] ?? ''),
+                'innerBlocks'  => array(),
+                'innerHTML'    => '<p>' . $content . '</p>',
+                'innerContent' => array('<p>' . $content . '</p>'),
+            ),
+        );
+    }
+
+    /**
+     * @param array<int|string, array<string, mixed>> $blocks
+     */
+    public function fromBlocks(array $blocks, array $options = array()): string
+    {
+        $this->calls[] = array('method' => 'fromBlocks', 'options' => $options, 'block_keys' => array_keys($blocks));
+
+        return (string) ($options['marker'] ?? '');
+    }
+
+    public function detect(string $content): bool
+    {
+        return '' !== trim($content);
+    }
+});
+
+$optionedBlocks = $bridge->toBlocks('Optioned', 'optioned', array('marker' => 'forwarded'));
+assertSame(array(0), array_keys($optionedBlocks), 'FormatBridge::toBlocks should return list-shaped block arrays.');
+$optionedResult = $bridge->convertResult('Optioned', 'optioned', 'plain', array('marker' => 'forwarded'))->toArray();
+assertSame('forwarded', $optionedResult['blocks'][0]['attrs']['content'], 'convertResult should forward options to source adapters.');
+assertSame(2, count($optionCalls), 'convertResult should not call source adapters more than once after explicit toBlocks use.');
+assertSame('toBlocks', $optionCalls[1]['method'], 'convertResult should use the source adapter directly for the block pivot.');
+assertSame(array('marker' => 'forwarded'), $optionCalls[1]['options'], 'convertResult should preserve option arrays.');
 
 fwrite(STDOUT, "Format bridge scaffold passed.\n");
 

@@ -60,7 +60,7 @@ final class FormatBridge
 
         $adapter = $this->registry->get($from);
 
-        return $adapter ? $adapter->toBlocks($content, $options) : array();
+        return $adapter ? array_values($adapter->toBlocks($content, $options)) : array();
     }
 
     /**
@@ -118,11 +118,19 @@ final class FormatBridge
         }
 
         try {
-            $output = $this->convert($content, $from, $to, $options);
-            $blocks = $this->toBlocks($content, $from, $options);
+            $sourceAdapter = $this->registry->get($from);
+            $targetAdapter = $this->registry->get($to);
+
+            if ( null === $sourceAdapter || null === $targetAdapter ) {
+                return $this->failedResult('format_bridge_adapter_missing', 'A required format adapter was not available during conversion.', $provenance);
+            }
+
+            $normalizedContent = $this->normalize($content, $from, $options);
+            $blocks = array_values($sourceAdapter->toBlocks($normalizedContent, $options));
+            $output = $from === $to ? $normalizedContent : $targetAdapter->fromBlocks($blocks, $options);
 
             return new TransformerResult(
-                blocks: array_values($blocks),
+                blocks: $blocks,
                 serializedBlocks: 'blocks' === $to ? $output : '',
                 documents: array(
                     array(
