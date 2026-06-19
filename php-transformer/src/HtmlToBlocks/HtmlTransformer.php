@@ -290,26 +290,20 @@ final class HtmlTransformer
         }
 
         if ( 'blockquote' === $tagName ) {
-            $citation = '';
-            foreach ( $element->childNodes as $child ) {
-                if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'cite', 'footer' ), true) ) {
-                    $citation = $this->innerHtml($child);
-                }
-            }
-
+            $citation = $this->citationFromElement($element);
             $value = $this->innerHtmlWithoutTags($element, array( 'cite', 'footer' ));
             if ( '' === trim($this->runtime->stripAllTags($value)) ) {
                 return null;
             }
 
-            if ( $this->hasClass($element, 'wp-block-pullquote') || $this->closestTagName($element) === 'figure' ) {
+            if ( $this->hasClass($element, 'wp-block-pullquote') ) {
                 return $this->createBlock('core/pullquote', array_filter(array_merge($this->presentationAttributes($element), array(
                     'value'    => $value,
                     'citation' => $citation,
                 )), static fn ($value): bool => '' !== $value), array(), $element);
             }
 
-            $innerBlocks = $this->convertChildren($element, $fallbacks);
+            $innerBlocks = $this->convertChildrenWithoutTags($element, $fallbacks, array( 'cite', 'footer' ));
             if ( array() === $innerBlocks ) {
                 $innerBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $value ));
             }
@@ -325,7 +319,7 @@ final class HtmlTransformer
 
             $blockquote = $this->firstChildElement($element, 'blockquote');
             if ( $blockquote instanceof DOMElement ) {
-                return $this->convertElement($blockquote, $fallbacks, $captureUnsupported);
+                return $this->convertFigureBlockquote($element, $blockquote, $fallbacks);
             }
         }
 
@@ -714,6 +708,48 @@ final class HtmlTransformer
         return trim($html);
     }
 
+    private function citationFromElement(DOMElement $element): string
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'cite', 'footer', 'figcaption' ), true) ) {
+                return $this->innerHtml($child);
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function convertFigureBlockquote(DOMElement $figure, DOMElement $blockquote, array &$fallbacks): ?array
+    {
+        $citation = $this->citationFromElement($blockquote);
+        $caption = $this->firstChildElement($figure, 'figcaption');
+        if ( '' === $citation && $caption instanceof DOMElement ) {
+            $citation = $this->innerHtml($caption);
+        }
+
+        $value = $this->innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' ));
+        if ( '' === trim($this->runtime->stripAllTags($value)) ) {
+            return null;
+        }
+
+        $attrs = array_filter(array_merge($this->presentationAttributes($figure), array( 'citation' => $citation )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value);
+
+        if ( $this->hasClass($figure, 'wp-block-pullquote') || $this->hasClass($blockquote, 'wp-block-pullquote') ) {
+            return $this->createBlock('core/pullquote', array_merge($attrs, array( 'value' => $value )), array(), $figure);
+        }
+
+        $innerBlocks = $this->convertChildrenWithoutTags($blockquote, $fallbacks, array( 'cite', 'footer' ));
+        if ( array() === $innerBlocks ) {
+            $innerBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $value ));
+        }
+
+        return $this->createBlock('core/quote', $attrs, $innerBlocks, $figure);
+    }
+
     /**
      * @param array<int, string> $excludedTags
      * @param array<int, array<string, mixed>> $fallbacks
@@ -934,7 +970,7 @@ final class HtmlTransformer
             'height' => $height,
         )), static fn ($value): bool => '' !== $value);
 
-        $attrs = array_filter(array_merge($attrs, $this->imageIdentityAttributes($image)), static fn ($value): bool => '' !== $value);
+        $attrs = array_filter(array_merge($attrs, $this->imageIdentityAttributes($image, $figure)), static fn ($value): bool => '' !== $value);
 
         if ( $figure instanceof DOMElement ) {
             $caption = $this->firstChildElement($figure, 'figcaption');
@@ -978,19 +1014,19 @@ final class HtmlTransformer
     {
         $attrs = $this->presentationAttributes($figure ?? $image);
         if ( $figure instanceof DOMElement ) {
-            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->nonCoreImageClassName($image));
+            $attrs['className'] = $this->mergeClassNames($this->nonCoreImageFigureClassName($figure), $this->nonCoreImageClassName($image));
         }
 
-        return array_filter($attrs, static fn (string $value): bool => '' !== trim($value));
+        return array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
     }
 
     /**
      * @return array<string, int|string>
      */
-    private function imageIdentityAttributes(DOMElement $image): array
+    private function imageIdentityAttributes(DOMElement $image, ?DOMElement $figure = null): array
     {
         $attrs = array();
-        $className = $this->attr($image, 'class');
+        $className = trim($this->attr($image, 'class') . ' ' . ( $figure instanceof DOMElement ? $this->attr($figure, 'class') : '' ));
         if ( preg_match('/(?:^|\s)wp-image-(\d+)(?:\s|$)/', $className, $matches) ) {
             $attrs['id'] = (int) $matches[1];
         }
@@ -1005,6 +1041,15 @@ final class HtmlTransformer
     {
         $classes = array_filter(preg_split('/\s+/', trim($this->attr($image, 'class'))) ?: array(), static function (string $className): bool {
             return ! preg_match('/^(?:wp-image-\d+|size-[a-z0-9_-]+)$/i', $className);
+        });
+
+        return implode(' ', $classes);
+    }
+
+    private function nonCoreImageFigureClassName(DOMElement $figure): string
+    {
+        $classes = array_filter(preg_split('/\s+/', trim($this->attr($figure, 'class'))) ?: array(), static function (string $className): bool {
+            return ! preg_match('/^(?:wp-block-image|size-[a-z0-9_-]+)$/i', $className);
         });
 
         return implode(' ', $classes);
