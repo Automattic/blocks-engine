@@ -11,6 +11,8 @@ if ( in_array('--legacy-child', $argv ?? array(), true) ) {
     runLegacyChildProcess();
 }
 
+$runLegacyComparisons = in_array('--legacy-comparison', $argv ?? array(), true);
+
 if ( ! function_exists('serialize_blocks') ) {
     /**
      * @param array<int, array<string, mixed>> $blocks
@@ -63,19 +65,25 @@ foreach ( $fixtures as $fixturePath ) {
     }
     assertStructuredCoverage($output, $fixture);
 
-    $legacyResult = runLegacyComparison($fixture, $output);
-    if ( 'compared' === $legacyResult['status'] ) {
-        ++$legacyCompared;
-    }
-    if ( 'skipped' === $legacyResult['status'] ) {
-        ++$legacySkipped;
-        fwrite(STDOUT, "Skipped legacy comparison for {$fixture['name']}: {$legacyResult['reason']}\n");
+    if ( $runLegacyComparisons ) {
+        $legacyResult = runLegacyComparison($fixture, $output);
+        if ( 'compared' === $legacyResult['status'] ) {
+            ++$legacyCompared;
+        }
+        if ( 'skipped' === $legacyResult['status'] ) {
+            ++$legacySkipped;
+            fwrite(STDOUT, "Skipped legacy comparison for {$fixture['name']}: {$legacyResult['reason']}\n");
+        }
     }
 
     ++$ran;
 }
 
-fwrite(STDOUT, "PHP transformer parity fixtures passed: {$ran} fixture(s), {$legacyCompared} legacy comparison(s), {$legacySkipped} legacy comparison(s) skipped.\n");
+if ( $runLegacyComparisons ) {
+    fwrite(STDOUT, "PHP transformer parity fixtures passed: {$ran} fixture(s), {$legacyCompared} legacy comparison(s), {$legacySkipped} legacy comparison(s) skipped.\n");
+} else {
+    fwrite(STDOUT, "PHP transformer parity fixtures passed: {$ran} fixture(s).\n");
+}
 
 /**
  * @param array<string, mixed> $output

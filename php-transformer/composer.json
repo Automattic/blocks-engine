@@ -19,14 +19,20 @@
     "php": ">=8.1"
   },
   "scripts": {
-    "parity": "php tests/parity/run.php",
+    "parity": "@test:parity",
     "test": [
+      "@test:canonical",
+      "@test:examples",
+      "@test:parity"
+    ],
+    "test:canonical": [
       "php tests/contract/runtime-no-wordpress.php",
       "php tests/contract/runtime-wordpress-stubs.php",
-      "php tests/contract/run.php",
-      "php tests/contract/compatibility-examples.php",
-      "@parity"
-    ]
+      "php tests/contract/run.php"
+    ],
+    "test:examples": "php tests/contract/compatibility-examples.php",
+    "test:parity": "php tests/parity/run.php",
+    "test:migration:legacy-parity": "BLOCKS_ENGINE_PARITY_LEGACY=1 php tests/parity/run.php --legacy-comparison"
   },
   "config": {
     "platform": {
