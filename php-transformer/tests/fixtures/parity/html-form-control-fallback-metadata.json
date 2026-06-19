@@ -1,0 +1,60 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-form-control-fallback-metadata",
+  "description": "Reports generic form-control metadata while preserving safe HTML fallback output.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-form-control-fallback-metadata.json",
+    "notes": "Product-neutral fixture for form/input/select/textarea/button fallback metadata."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<form action=\"/contact\" method=\"post\"><label for=\"email\">Email address</label><input id=\"email\" name=\"email\" type=\"email\" required placeholder=\"you@example.com\"><label>Plan <select name=\"plan\"><option value=\"basic\">Basic</option><option value=\"pro\" selected>Pro</option></select></label><textarea name=\"message\" aria-label=\"Message\"></textarea><button name=\"intent\" value=\"send\">Send</button><script>alert(1)</script></form><input name=\"standalone\" value=\"outside\">"
+  },
+  "expected_blocks": [],
+  "expected_fallbacks": [
+    { "type": "html", "reason": "form_requires_runtime", "tag": "form", "diagnostic_code": "html_form_fallback", "child_count": 6 },
+    { "type": "unsupported_element", "reason": "unsupported_element", "tag": "input", "diagnostic_code": "html_unsupported_element", "child_count": 0 }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 0 },
+    { "path": "fallbacks", "assert": "count", "count": 2 },
+    { "path": "fallbacks.0.html", "assert": "contains", "value": "<form action=\"/contact\" method=\"post\">" },
+    { "path": "fallbacks.0.html", "assert": "not_contains", "value": "<script>" },
+    { "path": "fallbacks.0.controls", "assert": "count", "count": 4 },
+    { "path": "fallbacks.0.controls.0.tag", "assert": "equals", "value": "input" },
+    { "path": "fallbacks.0.controls.0.name", "assert": "equals", "value": "email" },
+    { "path": "fallbacks.0.controls.0.type", "assert": "equals", "value": "email" },
+    { "path": "fallbacks.0.controls.0.label", "assert": "equals", "value": "Email address" },
+    { "path": "fallbacks.0.controls.0.required", "assert": "equals", "value": true },
+    { "path": "fallbacks.0.controls.0.placeholder", "assert": "equals", "value": "you@example.com" },
+    { "path": "fallbacks.0.controls.1.tag", "assert": "equals", "value": "select" },
+    { "path": "fallbacks.0.controls.1.name", "assert": "equals", "value": "plan" },
+    { "path": "fallbacks.0.controls.1.type", "assert": "equals", "value": "select" },
+    { "path": "fallbacks.0.controls.1.label", "assert": "equals", "value": "Plan" },
+    { "path": "fallbacks.0.controls.1.options", "assert": "count", "count": 2 },
+    { "path": "fallbacks.0.controls.1.options.0.label", "assert": "equals", "value": "Basic" },
+    { "path": "fallbacks.0.controls.1.options.0.value", "assert": "equals", "value": "basic" },
+    { "path": "fallbacks.0.controls.1.options.1.label", "assert": "equals", "value": "Pro" },
+    { "path": "fallbacks.0.controls.1.options.1.value", "assert": "equals", "value": "pro" },
+    { "path": "fallbacks.0.controls.1.options.1.selected", "assert": "equals", "value": true },
+    { "path": "fallbacks.0.controls.2.tag", "assert": "equals", "value": "textarea" },
+    { "path": "fallbacks.0.controls.2.name", "assert": "equals", "value": "message" },
+    { "path": "fallbacks.0.controls.2.type", "assert": "equals", "value": "textarea" },
+    { "path": "fallbacks.0.controls.2.label", "assert": "equals", "value": "Message" },
+    { "path": "fallbacks.0.controls.3.tag", "assert": "equals", "value": "button" },
+    { "path": "fallbacks.0.controls.3.name", "assert": "equals", "value": "intent" },
+    { "path": "fallbacks.0.controls.3.type", "assert": "equals", "value": "submit" },
+    { "path": "fallbacks.0.controls.3.value", "assert": "equals", "value": "send" },
+    { "path": "fallbacks.1.control.tag", "assert": "equals", "value": "input" },
+    { "path": "fallbacks.1.control.name", "assert": "equals", "value": "standalone" },
+    { "path": "fallbacks.1.control.type", "assert": "equals", "value": "text" },
+    { "path": "fallbacks.1.control.value", "assert": "equals", "value": "outside" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 2 }
+  ]
+}
