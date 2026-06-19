@@ -116,6 +116,15 @@ final class ArtifactCompiler
      */
     private function compileEntryBlocks(string $html, string $entryPath, array $files): array
     {
+        if ( $this->containsBlockMarkup($html) ) {
+            return array(
+                'blocks'            => array(),
+                'serialized_blocks' => $html,
+                'diagnostics'       => array(),
+                'fallbacks'         => array(),
+            );
+        }
+
         if ( '' === trim($html) || ! $this->entryHtmlReferencesImageAsset($html, $entryPath, $files) ) {
             return array(
                 'blocks'            => array(),
@@ -290,25 +299,42 @@ final class ArtifactCompiler
     {
         foreach ( $entrypoints as $entrypoint ) {
             foreach ( $files as $file ) {
-                if ( $entrypoint === $file['path'] && 'html' === $file['kind'] && empty($file['binary']) ) {
+                if ( $entrypoint === $file['path'] && $this->isEntryFile($file) ) {
                     return $file;
                 }
             }
         }
         foreach ( array('index.html', 'index.htm', 'static-site/index.html', 'public/index.html') as $preferred ) {
             foreach ( $files as $file ) {
-                if ( $preferred === strtolower((string) $file['path']) && empty($file['binary']) ) {
+                if ( $preferred === strtolower((string) $file['path']) && $this->isEntryFile($file) ) {
                     return $file;
                 }
             }
         }
         foreach ( $files as $file ) {
-            if ( 'html' === $file['kind'] && empty($file['binary']) ) {
+            if ( $this->isEntryFile($file) ) {
                 return $file;
             }
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     */
+    private function isEntryFile(array $file): bool
+    {
+        if ( ! empty($file['binary']) ) {
+            return false;
+        }
+
+        return 'html' === ($file['kind'] ?? '') || 'blocks' === ($file['kind'] ?? '') || $this->containsBlockMarkup((string) ($file['content'] ?? ''));
+    }
+
+    private function containsBlockMarkup(string $content): bool
+    {
+        return str_contains($content, '<!-- wp:');
     }
 
     /**

@@ -90,7 +90,7 @@ final class ArtifactNormalizer
             $kind = $this->kind((string) ($file['kind'] ?? $file['type'] ?? ''), $path, $payload['content'], $mimeType);
             $role = $this->role((string) ($file['role'] ?? ''), $kind, $mimeType, $path);
             $intent = $this->intent((string) ($file['intent'] ?? ''), $kind, $role);
-            $binary = $payload['binary'] || $this->isBinaryMimeType($mimeType);
+            $binary = $payload['binary'] || ( ! $this->isTextKind($kind) && $this->isBinaryMimeType($mimeType) );
             $contentBase64 = $payload['content_base64'];
             if ( $binary && '' === $contentBase64 ) {
                 $contentBase64 = base64_encode($payload['content']);
@@ -315,6 +315,11 @@ final class ArtifactNormalizer
     private function isBinaryMimeType(string $mimeType): bool
     {
         return ! str_starts_with($mimeType, 'text/') && ! in_array($mimeType, array('application/json', 'application/javascript', 'image/svg+xml'), true);
+    }
+
+    private function isTextKind(string $kind): bool
+    {
+        return in_array($kind, array('html', 'css', 'js', 'jsx', 'tsx', 'json', 'markdown', 'mdx', 'blocks'), true);
     }
 
     private function role(string $role, string $kind, string $mimeType, string $path): string

@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-blocks-entry",
+  "description": "Accepts an explicit serialized WordPress block markup artifact entry.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-blocks-entry.json",
+    "notes": "Covers the artifact compiler entry contract for kind blocks."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Serialized block artifact entries are covered by the PHP transformer contract."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "content.blocks",
+      "files": [
+        {
+          "path": "content.blocks",
+          "kind": "blocks",
+          "content": "<!-- wp:heading {\"level\":2} --><h2>Block artifact heading</h2><!-- /wp:heading --><!-- wp:paragraph --><p>Block artifact body.</p><!-- /wp:paragraph -->"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.artifact.entry_path", "assert": "equals", "value": "content.blocks" },
+    { "path": "source_reports.artifact.files_by_kind.blocks", "assert": "equals", "value": 1 },
+    { "path": "diagnostics", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "equals", "value": "<!-- wp:heading {\"level\":2} --><h2>Block artifact heading</h2><!-- /wp:heading --><!-- wp:paragraph --><p>Block artifact body.</p><!-- /wp:paragraph -->" }
+  ]
+}
