@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 /**
  * Normalizes loose website artifact envelopes into compiler-ready file records.
  *
- * @internal
+ * @internal Artifact normalization is owned by ArtifactCompiler.
  */
 final class ArtifactNormalizer
 {

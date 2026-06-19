@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+/**
+ * @internal Block construction is owned by HtmlTransformer.
+ */
 final class BlockFactory
 {
     /**

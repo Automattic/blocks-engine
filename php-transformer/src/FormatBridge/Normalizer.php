@@ -5,6 +5,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\FormatBridge;
 
 use InvalidArgumentException;
 
+/**
+ * @internal Declared-format normalization is owned by FormatBridge.
+ */
 final class Normalizer
 {
     /**

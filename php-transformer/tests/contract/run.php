@@ -7,7 +7,6 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatAdapterInterface;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 if ( ! function_exists('serialize_blocks') ) {
@@ -290,20 +289,6 @@ assertSame('aside', $result['fallbacks'][0]['tag'], 'fallback should identify th
 assertContains('html_to_blocks_core_slice', array_column($result['diagnostics'], 'code'), 'expanded core-slice conversion diagnostic should be present.');
 assertSame('html', $result['provenance'][0]['source_format'], 'source provenance should identify HTML input.');
 
-$blockFactory = new BlockFactory();
-$nestedList = $blockFactory->create(
-    'core/list',
-    array( 'ordered' => true ),
-    array(
-        $blockFactory->create('core/list-item', array( 'content' => 'First' )),
-        $blockFactory->create('core/list-item', array( 'content' => '<strong>Second</strong>' )),
-    )
-);
-assertSame('core/list', $nestedList['blockName'], 'extracted block factory should preserve block names.');
-assertSame('<ol></ol>', $nestedList['innerHTML'], 'extracted block factory should preserve wrapper HTML.');
-assertSame(array( '<ol>', null, null, '</ol>' ), $nestedList['innerContent'], 'extracted block factory should preserve nested innerContent placeholders.');
-assertSame('<li><strong>Second</strong></li>', $nestedList['innerBlocks'][1]['innerHTML'], 'extracted block factory should preserve child block HTML.');
-
 if ( ! str_contains($result['serialized_blocks'], '<!-- wp:heading {"content":"Hello blocks","level":1} -->') ) {
     fwrite(STDERR, "Serialized blocks did not include the expected heading block.\n");
     exit(1);
@@ -313,18 +298,23 @@ fwrite(STDOUT, "HTML-to-blocks contract passed.\n");
 
 $bridge = new FormatBridge();
 
-assertSame(array( 'blocks', 'html', 'markdown' ), $bridge->supportedFormats(), 'Default supported formats should be stable.');
-assertSame("# Title\n\nBody\n", $bridge->normalize("# Title\r\n\r\nBody\r\n", 'markdown'), 'Markdown line endings should normalize to LF.');
-assertSame('<main><h1>Hello</h1></main>', $bridge->normalize('<main><h1>Hello</h1></main>', 'html'), 'HTML normalization should preserve valid HTML.');
-assertSame('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', $bridge->normalize('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', 'blocks'), 'Serialized blocks should pass validation.');
-assertSame('core/heading', $bridge->toBlocks('<h2>Hello</h2>', 'html')[0]['blockName'], 'HTML input should convert through the default HTML adapter.');
-assertSame('core/heading', $bridge->toBlocks("# Title\n\nBody", 'markdown')[0]['blockName'], 'Markdown input should convert through the default markdown adapter.');
-assertSame('<p>Hello</p>', $bridge->convert('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', 'blocks', 'html'), 'Serialized blocks should render to HTML through the default blocks/html adapters.');
-assertStringContains('<!-- wp:heading {"content":"Hello","level":2} -->', $bridge->convert('<h2>Hello</h2>', 'html', 'blocks'), 'HTML should serialize to block markup through the block pivot.');
-assertStringContains('<h1>Title</h1>', $bridge->convert("# Title\n\nBody", 'markdown', 'html'), 'Markdown should convert to HTML through the block pivot.');
-assertStringContains('# Hello', $bridge->convert('<!-- wp:heading {"content":"Hello","level":1} --><h1>Hello</h1><!-- /wp:heading -->', 'blocks', 'markdown'), 'Serialized blocks should convert to markdown through rendered HTML.');
+assertSame(array( 'blocks', 'html', 'markdown' ), $bridge->supportedFormats(), 'Default supported formats should be stable for adapter authors.');
 assertSame(true, $bridge->supports('html'), 'Format bridge should expose adapter support checks.');
 assertSame(false, $bridge->supports('xml'), 'Format bridge support checks should require a registered adapter.');
+$markdownNormalizeResult = $bridge->convertResult("# Title\r\n\r\nBody\r\n", 'markdown', 'markdown')->toArray();
+assertSame("# Title\n\nBody\n", $markdownNormalizeResult['documents'][0]['content'], 'Markdown line endings should normalize to LF through the result envelope.');
+$htmlNormalizeResult = $bridge->convertResult('<main><h1>Hello</h1></main>', 'html', 'html')->toArray();
+assertSame('<main><h1>Hello</h1></main>', $htmlNormalizeResult['documents'][0]['content'], 'HTML normalization should preserve valid HTML through the result envelope.');
+$blocksNormalizeResult = $bridge->convertResult('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', 'blocks', 'blocks')->toArray();
+assertSame('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', $blocksNormalizeResult['documents'][0]['content'], 'Serialized blocks should pass validation through the result envelope.');
+$markdownToBlocksResult = $bridge->convertResult("# Title\n\nBody", 'markdown', 'blocks')->toArray();
+assertSame('core/heading', $markdownToBlocksResult['blocks'][0]['blockName'], 'Markdown input should convert through the default markdown adapter.');
+$blocksToHtmlResult = $bridge->convertResult('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', 'blocks', 'html')->toArray();
+assertSame('<p>Hello</p>', $blocksToHtmlResult['documents'][0]['content'], 'Serialized blocks should render to HTML through the default blocks/html adapters.');
+$markdownToHtmlResult = $bridge->convertResult("# Title\n\nBody", 'markdown', 'html')->toArray();
+assertStringContains('<h1>Title</h1>', $markdownToHtmlResult['documents'][0]['content'], 'Markdown should convert to HTML through the block pivot.');
+$blocksToMarkdownResult = $bridge->convertResult('<!-- wp:heading {"content":"Hello","level":1} --><h1>Hello</h1><!-- /wp:heading -->', 'blocks', 'markdown')->toArray();
+assertStringContains('# Hello', $blocksToMarkdownResult['documents'][0]['content'], 'Serialized blocks should convert to markdown through rendered HTML.');
 $htmlToBlocksResult = $bridge->convertResult('<h2>Hello</h2>', 'html', 'blocks')->toArray();
 assertSame('success', $htmlToBlocksResult['status'], 'Format bridge result conversion should succeed for public default adapters.');
 assertSame('blocks-engine/php-transformer/result/v1', $htmlToBlocksResult['schema'], 'Format bridge result conversion should use the shared result envelope.');
@@ -381,7 +371,8 @@ $bridge->registerAdapter(new class implements FormatAdapterInterface {
 });
 
 assertSame(array( 'blocks', 'html', 'markdown', 'plain' ), $bridge->supportedFormats(), 'Registered adapters should extend supported formats.');
-assertSame('plain output', $bridge->convert('<p>Hello</p>', 'html', 'plain'), 'Conversion stubs should hand block pivot to registered target adapters.');
+$plainResult = $bridge->convertResult('<p>Hello</p>', 'html', 'plain')->toArray();
+assertSame('plain output', $plainResult['documents'][0]['content'], 'Conversion stubs should hand block pivot to registered target adapters.');
 
 fwrite(STDOUT, "Format bridge scaffold passed.\n");
 

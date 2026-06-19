@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\FormatBridge;
 
+/**
+ * @internal Adapter storage is an implementation detail of FormatBridge.
+ */
 final class AdapterRegistry
 {
     /**

@@ -6,6 +6,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
+/**
+ * @internal Bundled adapters are implementation details of FormatBridge.
+ */
 final class HtmlAdapter implements FormatAdapterInterface
 {
     public function __construct(

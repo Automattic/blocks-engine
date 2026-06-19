@@ -38,6 +38,9 @@ final class FormatBridge
 
     /**
      * @param array<string, mixed> $options
+     *
+     * Transitional helper for compatibility wrappers that must preserve string
+     * return types. New callers should use convertResult().
      */
     public function normalize(string $content, string $format, array $options = array()): string
     {
@@ -47,6 +50,9 @@ final class FormatBridge
     /**
      * @param array<string, mixed> $options
      * @return array<int|string, array<string, mixed>>
+     *
+     * Transitional helper for compatibility wrappers that must preserve block
+     * array return types. New callers should use convertResult().
      */
     public function toBlocks(string $content, string $from, array $options = array()): array
     {
@@ -59,6 +65,9 @@ final class FormatBridge
 
     /**
      * @param array<string, mixed> $options
+     *
+     * Transitional helper for compatibility wrappers that must preserve string
+     * return types. New callers should use convertResult().
      */
     public function convert(string $content, string $from, string $to, array $options = array()): string
     {

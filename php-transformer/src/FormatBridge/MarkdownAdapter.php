@@ -7,6 +7,9 @@ use League\CommonMark\GithubFlavoredMarkdownConverter;
 use League\HTMLToMarkdown\HtmlConverter;
 use Throwable;
 
+/**
+ * @internal Bundled adapters are implementation details of FormatBridge.
+ */
 final class MarkdownAdapter implements FormatAdapterInterface
 {
     public function __construct(
