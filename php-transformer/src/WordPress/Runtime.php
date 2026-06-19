@@ -5,9 +5,21 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
 
 final class Runtime
 {
+    /**
+     * @var array<int, array<string, mixed>>
+     */
+    private array $diagnostics = array();
+
     public function hasWordPress(): bool
     {
-        return $this->canParseBlocks() || $this->canSerializeBlocks() || function_exists('render_block');
+        return $this->canParseBlocks()
+            || $this->canSerializeBlocks()
+            || $this->canRenderBlock()
+            || $this->canStripAllTags()
+            || $this->canParseShortcodeAttributes()
+            || $this->canEncodeJson()
+            || $this->canEscapeHtml()
+            || $this->canEscapeAttribute();
     }
 
     public function canParseBlocks(): bool
@@ -20,14 +32,56 @@ final class Runtime
         return function_exists('serialize_blocks');
     }
 
+    public function canRenderBlock(): bool
+    {
+        return function_exists('render_block');
+    }
+
+    public function canStripAllTags(): bool
+    {
+        return function_exists('wp_strip_all_tags');
+    }
+
+    public function canParseShortcodeAttributes(): bool
+    {
+        return function_exists('shortcode_parse_atts');
+    }
+
+    public function canEncodeJson(): bool
+    {
+        return function_exists('wp_json_encode');
+    }
+
+    public function canEscapeHtml(): bool
+    {
+        return function_exists('esc_html');
+    }
+
+    public function canEscapeAttribute(): bool
+    {
+        return function_exists('esc_attr');
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function diagnostics(): array
+    {
+        return $this->diagnostics;
+    }
+
     /**
      * @return array<int, array<string, mixed>>
      */
     public function parseBlocks(string $content): array
     {
+        $this->diagnostics = array();
+
         if ( $this->canParseBlocks() ) {
             return parse_blocks($content);
         }
+
+        $this->addDiagnostic('wordpress_parse_blocks_unavailable', 'parse_blocks() is unavailable; using the PHP transformer serialized-block fallback.');
 
         $blocks = $this->parseSerializedBlocks($content);
         if ( array() !== $blocks ) {
@@ -50,9 +104,13 @@ final class Runtime
      */
     public function serializeBlocks(array $blocks): string
     {
+        $this->diagnostics = array();
+
         if ( $this->canSerializeBlocks() ) {
             return serialize_blocks($blocks);
         }
+
+        $this->addDiagnostic('wordpress_serialize_blocks_unavailable', 'serialize_blocks() is unavailable; using the PHP transformer serialized-block fallback.');
 
         $serialized = '';
         foreach ( $blocks as $block ) {
@@ -67,9 +125,13 @@ final class Runtime
      */
     public function renderBlock(array $block): string
     {
-        if ( function_exists('render_block') ) {
+        $this->diagnostics = array();
+
+        if ( $this->canRenderBlock() ) {
             return render_block($block);
         }
+
+        $this->addDiagnostic('wordpress_render_block_unavailable', 'render_block() is unavailable; rendering static block HTML only.');
 
         return $this->renderStaticBlock($block);
     }
@@ -79,12 +141,146 @@ final class Runtime
      */
     public function renderBlocks(array $blocks): string
     {
+        $this->diagnostics = array();
+
         $html = '';
         foreach ( $blocks as $block ) {
-            $html .= $this->renderBlock($block);
+            if ( $this->canRenderBlock() ) {
+                $html .= render_block($block);
+                continue;
+            }
+
+            $html .= $this->renderStaticBlock($block);
+        }
+
+        if ( ! $this->canRenderBlock() && array() !== $blocks ) {
+            $this->addDiagnostic('wordpress_render_block_unavailable', 'render_block() is unavailable; rendering static block HTML only.');
         }
 
         return $html;
+    }
+
+    public function stripAllTags(string $text, bool $removeBreaks = false): string
+    {
+        $this->diagnostics = array();
+
+        if ( $this->canStripAllTags() ) {
+            return wp_strip_all_tags($text, $removeBreaks);
+        }
+
+        $this->addDiagnostic('wordpress_strip_all_tags_unavailable', 'wp_strip_all_tags() is unavailable; using the PHP strip_tags() fallback.');
+
+        $text = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $text) ?? $text;
+        $text = strip_tags($text);
+
+        return $removeBreaks ? preg_replace('/[\r\n\t ]+/', ' ', $text) ?? $text : $text;
+    }
+
+    public function containsShortcode(string $text): bool
+    {
+        return array() !== $this->parseShortcodes($text);
+    }
+
+    public function isShortcodeOnly(string $text): bool
+    {
+        $text = trim($text);
+        if ( '' === $text ) {
+            return false;
+        }
+
+        $shortcodes = $this->parseShortcodes($text);
+        if ( 1 !== count($shortcodes) ) {
+            return false;
+        }
+
+        return $shortcodes[0]['raw'] === $text;
+    }
+
+    public function preserveShortcodeText(string $text): string
+    {
+        return trim($text);
+    }
+
+    /**
+     * @return array<int, array{name: string, attrs: array<string, mixed>, content: string|null, raw: string}>
+     */
+    public function parseShortcodes(string $text): array
+    {
+        if ( ! preg_match_all('/\[([A-Za-z][A-Za-z0-9_-]*)([^\]\/]*(?:\/(?!\])[^\]\/]*)*?)(\/)?\](?:(.*?)\[\/\1\])?/s', $text, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $shortcodes = array();
+        foreach ( $matches as $match ) {
+            $raw = $match[0];
+            if ( str_starts_with($raw, '[[') ) {
+                continue;
+            }
+
+            $shortcodes[] = array(
+                'name'    => $match[1],
+                'attrs'   => $this->parseShortcodeAttributes(trim($match[2] ?? '')),
+                'content' => array_key_exists(4, $match) && '' !== $match[4] ? $match[4] : null,
+                'raw'     => $raw,
+            );
+        }
+
+        return $shortcodes;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function parseShortcodeAttributes(string $text): array
+    {
+        if ( '' === $text ) {
+            return array();
+        }
+
+        if ( $this->canParseShortcodeAttributes() ) {
+            $attrs = shortcode_parse_atts($text);
+            return is_array($attrs) ? $attrs : array();
+        }
+
+        $attrs = array();
+        if ( preg_match_all('/([A-Za-z0-9_-]+)\s*=\s*("([^"]*)"|\'([^\']*)\'|([^\s]+))|"([^"]*)"|\'([^\']*)\'|(\S+)/', $text, $matches, PREG_SET_ORDER) ) {
+            foreach ( $matches as $match ) {
+                if ( '' !== ($match[1] ?? '') ) {
+                    $attrs[$match[1]] = $match[3] ?? $match[4] ?? $match[5] ?? '';
+                    continue;
+                }
+
+                $attrs[] = $match[6] ?? $match[7] ?? $match[8] ?? '';
+            }
+        }
+
+        return $attrs;
+    }
+
+    /**
+     * @param mixed $data
+     */
+    public function encodeJson(mixed $data, int $flags = 0): string
+    {
+        $flags |= JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
+
+        if ( $this->canEncodeJson() ) {
+            $json = wp_json_encode($data, $flags);
+        } else {
+            $json = json_encode($data, $flags);
+        }
+
+        return false === $json ? '' : $json;
+    }
+
+    public function escapeHtml(string $text): string
+    {
+        return $this->canEscapeHtml() ? esc_html($text) : htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+
+    public function escapeAttribute(string $text): string
+    {
+        return $this->canEscapeAttribute() ? esc_attr($text) : htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
     /**
@@ -98,7 +294,7 @@ final class Runtime
         }
 
         $name  = str_starts_with($blockName, 'core/') ? substr($blockName, 5) : $blockName;
-        $attrs = empty($block['attrs']) ? '' : ' ' . json_encode($block['attrs'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $attrs = empty($block['attrs']) ? '' : ' ' . $this->encodeJson($block['attrs']);
         $inner = $this->renderStaticBlock($block);
 
         if ( '' === $inner ) {
@@ -244,5 +440,14 @@ final class Runtime
         }
 
         return isset($block['innerHTML']) ? (string) $block['innerHTML'] : '';
+    }
+
+    private function addDiagnostic(string $code, string $message): void
+    {
+        $this->diagnostics[] = array(
+            'code'    => $code,
+            'message' => $message,
+            'source'  => self::class,
+        );
     }
 }

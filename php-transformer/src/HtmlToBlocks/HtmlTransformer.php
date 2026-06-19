@@ -123,7 +123,7 @@ final class HtmlTransformer
 
         if ( preg_match('/^h([1-6])$/', $tagName, $matches) ) {
             $content = $this->innerHtml($element);
-            if ( '' === trim(strip_tags($content)) ) {
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 return null;
             }
 
@@ -135,7 +135,7 @@ final class HtmlTransformer
 
         if ( 'p' === $tagName ) {
             $content = $this->innerHtml($element);
-            if ( '' === trim(strip_tags($content)) ) {
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 $textBlocks = $this->convertText(trim($element->textContent ?? ''));
                 return $textBlocks[0] ?? null;
             }
@@ -167,7 +167,7 @@ final class HtmlTransformer
             }
 
             $value = $this->innerHtmlWithoutTags($element, array( 'cite', 'footer' ));
-            if ( '' === trim(strip_tags($value)) ) {
+            if ( '' === trim($this->runtime->stripAllTags($value)) ) {
                 return null;
             }
 
@@ -256,12 +256,12 @@ final class HtmlTransformer
     private function convertText(string $text): array
     {
         $blocks = array();
-        if ( preg_match('/^\[[A-Za-z][A-Za-z0-9_-]*(?:\s[^\]]*)?\](?:.*\[\/[A-Za-z][A-Za-z0-9_-]*\])?$/s', trim($text)) ) {
-            $blocks[] = $this->createBlock('core/shortcode', array( 'text' => trim($text) ));
+        if ( $this->runtime->isShortcodeOnly($text) ) {
+            $blocks[] = $this->createBlock('core/shortcode', array( 'text' => $this->runtime->preserveShortcodeText($text) ));
             return $blocks;
         }
 
-        $blocks[] = $this->createBlock('core/paragraph', array( 'content' => htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ));
+        $blocks[] = $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($text) ));
         return $blocks;
     }
 

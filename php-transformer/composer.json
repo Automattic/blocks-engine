@@ -21,6 +21,8 @@
   "scripts": {
     "parity": "php tests/parity/run.php",
     "test": [
+      "php tests/contract/runtime-no-wordpress.php",
+      "php tests/contract/runtime-wordpress-stubs.php",
       "php tests/contract/run.php",
       "php tests/contract/compatibility-examples.php",
       "@parity"
