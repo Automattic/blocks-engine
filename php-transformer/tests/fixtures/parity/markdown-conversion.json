@@ -18,6 +18,14 @@
     { "path": "converted", "assert": "contains", "value": "<strong>strong</strong>" },
     { "path": "blocks", "assert": "count", "count": 3 },
     { "path": "blocks.0.blockName", "assert": "equals", "value": "core/heading" },
-    { "path": "blocks.2.blockName", "assert": "equals", "value": "core/list" }
+    { "path": "blocks.2.blockName", "assert": "equals", "value": "core/list" },
+    { "path": "result.schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
+    { "path": "result.status", "assert": "equals", "value": "success" },
+    { "path": "result.documents.0.format", "assert": "equals", "value": "html" },
+    { "path": "result.documents.0.content", "assert": "contains", "value": "<h1>Title</h1>" },
+    { "path": "result.blocks.0.blockName", "assert": "equals", "value": "core/heading" },
+    { "path": "result.diagnostics.0.code", "assert": "equals", "value": "format_bridge_conversion_completed" },
+    { "path": "result.provenance.0.source_format", "assert": "equals", "value": "markdown" },
+    { "path": "result.provenance.0.target_format", "assert": "equals", "value": "html" }
   ]
 }
