@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -80,21 +81,33 @@ final class HtmlTransformer
                 ), $this->fallbackProvenance),
             );
 
+            $metrics = $this->metrics($html, array(), '', $fallbacks, $diagnostics, $startedAt);
+            $sourceReports = array(
+                'conversion_report' => ConversionReportProjection::fromResultParts('html', array(), $fallbacks, array(), array(), $provenance, $metrics),
+            );
+
             return new TransformerResult(
                 diagnostics: $diagnostics,
+                sourceReports: $sourceReports,
                 fallbacks: $fallbacks,
                 provenance: $provenance,
                 context: $context,
-                metrics: $this->metrics($html, array(), '', $fallbacks, $diagnostics, $startedAt)
+                metrics: $metrics
             );
         }
 
         $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {
+            $metrics = $this->metrics($html, array(), '', array(), array(), $startedAt);
+            $sourceReports = array(
+                'conversion_report' => ConversionReportProjection::fromResultParts('html', array(), array(), array(), array(), $provenance, $metrics),
+            );
+
             return new TransformerResult(
+                sourceReports: $sourceReports,
                 provenance: $provenance,
                 context: $context,
-                metrics: $this->metrics($html, array(), '', array(), array(), $startedAt)
+                metrics: $metrics
             );
         }
 
@@ -123,6 +136,15 @@ final class HtmlTransformer
             }
         }
 
+        $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
+        $sourceReports = array(
+            'html' => array(
+                'presentation_signals' => $this->presentationProvenance,
+                'source_provenance'    => $sourceProvenance,
+            ),
+        );
+        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('html', $blocks, $fallbacks, $sourceReports, array(), $provenance, $metrics);
+
         return new TransformerResult(
             status: $this->statusForFallbacks($fallbacks, $context),
             blocks: $blocks,
@@ -130,12 +152,7 @@ final class HtmlTransformer
             diagnostics: $diagnostics,
             fallbacks: $fallbacks,
             provenance: $provenance,
-            sourceReports: array(
-                'html' => array(
-                    'presentation_signals' => $this->presentationProvenance,
-                    'source_provenance'    => $sourceProvenance,
-                ),
-            ),
+            sourceReports: $sourceReports,
             coverage: array(
                 array(
                     'supported_blocks' => array( 'core/button', 'core/buttons', 'core/code', 'core/details', 'core/embed', 'core/gallery', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/shortcode', 'core/table' ),
@@ -145,7 +162,7 @@ final class HtmlTransformer
                 ),
             ),
             context: $context,
-            metrics: $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt)
+            metrics: $metrics
         );
     }
 

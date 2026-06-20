@@ -80,6 +80,9 @@
     { "path": "source_reports.compiled_site.template_parts.0.block_markup", "assert": "contains", "value": "<header>" },
     { "path": "source_reports.compiled_site.visual_repair.stylesheets.0.path", "assert": "equals", "value": "public/assets/visual-repair.css" },
     { "path": "source_reports.compiled_site.visual_repair.css", "assert": "contains", "value": "min-height:100vh" },
+    { "path": "source_reports.conversion_report.presentation_gaps.0.type", "assert": "equals", "value": "presentation_stylesheet" },
+    { "path": "source_reports.conversion_report.presentation_gaps.0.path", "assert": "equals", "value": "public/assets/visual-repair.css" },
+    { "path": "source_reports.conversion_report.metrics.fallback_count", "assert": "equals", "value": 0 },
     { "path": "documents.0.slug", "assert": "equals", "value": "guide" },
     { "path": "assets.5.path", "assert": "equals", "value": "public/assets/hero.svg" }
   ]

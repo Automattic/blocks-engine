@@ -37,6 +37,10 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "<li class=\"wp-block-navigation-item wp-block-navigation-link\"><a class=\"wp-block-navigation-item__content\" href=\"/alpha\"><span class=\"wp-block-navigation-item__label\">Alpha</span></a></li>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<li class=\"wp-block-navigation-item wp-block-navigation-link\"><a class=\"wp-block-navigation-item__content\"><span class=\"wp-block-navigation-item__label\">Unsafe</span></a></li>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "javascript:alert" },
+    { "path": "source_reports.conversion_report.navigation_candidates", "assert": "count", "count": 2 },
+    { "path": "source_reports.conversion_report.navigation_candidates.0.label", "assert": "equals", "value": "Alpha" },
+    { "path": "source_reports.conversion_report.navigation_candidates.0.url", "assert": "equals", "value": "/alpha" },
+    { "path": "source_reports.conversion_report.navigation_candidates.1.label", "assert": "equals", "value": "Unsafe" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }

@@ -36,6 +36,8 @@ Required top-level keys for successful transformations:
 
 Artifact compiler callers that need a compiled site view should read `source_reports.compiled_site`. It exposes a generic `blocks-engine/php-transformer/compiled-site/v1` report with normalized `pages`, per-page `metadata`, full page `block_markup`, `assets`, `template_parts`, `visual_repair`, and `theme` buckets for stylesheets, scripts, fonts, images, template parts, and generated block types. Product adapters should map from this report plus the top-level `documents` and `assets` arrays instead of depending on product-specific artifact semantics.
 
+Transformers may expose `source_reports.conversion_report` as a generic `blocks-engine/php-transformer/conversion-report/v1` projection over the same result envelope. It summarizes fallback diagnostics, source paths/selectors, artifact-local asset references, navigation candidates, presentation-gap signals, and metrics without applying product rewrite, import, routing, or visual-parity policy.
+
 `components` contains inspectable component candidates discovered before materialization. `block_types` contains generated block type artifacts promoted from `block.json` roots. `legacy_mapping` is transitional metadata for consumer-owned migration mappers and is not a long-term package feature commitment.
 
 `blocks` is always a list-shaped array of parsed WordPress block arrays when exposed through `TransformerResult` or `FormatBridge::toBlocks()`. `fallbacks` entries should include stable generic metadata such as `type`, `reason`, `diagnostic_code`, `source_format`, and the preserved source fragment needed by callers to inspect or replay unsupported content.
