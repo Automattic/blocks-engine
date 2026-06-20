@@ -229,6 +229,7 @@ function runFixture(array $fixture): array
         return array(
             'converted' => $bridge->convert((string) ($input['content'] ?? ''), (string) ($input['from'] ?? ''), (string) ($input['to'] ?? '')),
             'blocks' => $bridge->toBlocks((string) ($input['content'] ?? ''), (string) ($input['from'] ?? '')),
+            'result' => $bridge->convertResult((string) ($input['content'] ?? ''), (string) ($input['from'] ?? ''), (string) ($input['to'] ?? ''))->toArray(),
             'supported_formats' => $bridge->supportedFormats(),
         );
     }

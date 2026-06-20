@@ -18,6 +18,10 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.artifact.entry_path", "assert": "equals", "value": "index.html" },
     { "path": "components.0.name", "assert": "equals", "value": "hero" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html -->" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<h1>Hello artifact</h1>" },
+    { "path": "source_reports.artifact.html.element_count", "assert": "equals", "value": 3 },
+    { "path": "source_reports.conversion_report.metrics.fallback_count", "assert": "equals", "value": 0 },
+    { "path": "provenance.0.source_format", "assert": "equals", "value": "artifact" }
   ]
 }

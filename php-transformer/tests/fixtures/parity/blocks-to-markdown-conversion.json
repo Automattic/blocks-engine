@@ -17,6 +17,12 @@
     { "path": "converted", "assert": "contains", "value": "# Hello" },
     { "path": "converted", "assert": "contains", "value": "Body" },
     { "path": "blocks", "assert": "count", "count": 2 },
-    { "path": "supported_formats", "assert": "equals", "value": ["blocks", "html", "markdown"] }
+    { "path": "supported_formats", "assert": "equals", "value": ["blocks", "html", "markdown"] },
+    { "path": "result.schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
+    { "path": "result.status", "assert": "equals", "value": "success" },
+    { "path": "result.documents.0.format", "assert": "equals", "value": "markdown" },
+    { "path": "result.documents.0.content", "assert": "contains", "value": "# Hello" },
+    { "path": "result.provenance.0.source_format", "assert": "equals", "value": "blocks" },
+    { "path": "result.provenance.0.target_format", "assert": "equals", "value": "markdown" }
   ]
 }
