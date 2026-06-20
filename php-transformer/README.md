@@ -6,6 +6,8 @@ This package is intentionally origin-clean: it exposes transformer primitives an
 
 This package's canonical identity is `automattic/blocks-engine-php-transformer`, exposed through the `Automattic\BlocksEngine\PhpTransformer\` namespace.
 
+For local WordPress consumers, the same directory can also be installed as a plugin. The plugin bootstrap is intentionally thin: it loads the canonical library and exposes helper functions that return the same result envelopes as the class APIs.
+
 ## Boundary
 
 PHP Transformer owns reusable transformation primitives:
@@ -64,6 +66,31 @@ $artifactResult = (new ArtifactCompiler())->compile(array(
     'generated_html' => '<main><h1>Hello</h1></main>',
 ))->toArray();
 ```
+
+### WordPress Plugin Usage
+
+Install or symlink the `php-transformer/` directory into `wp-content/plugins/blocks-engine-php-transformer/`, run `composer install --no-dev` inside the plugin directory when Markdown conversion is needed, and activate **Blocks Engine PHP Transformer**.
+
+The plugin does not register product workflows. It only makes the canonical transformer available to WordPress plugins that want to depend on it before Composer distribution is settled.
+
+```php
+$result = blocks_engine_php_transformer_transform_html('<h1>Hello</h1>', array(
+    'source' => 'plugin:consumer',
+    'scope'  => 'import-preview',
+));
+
+$artifact = blocks_engine_php_transformer_compile_artifact(array(
+    'generated_html' => '<main><h1>Hello</h1></main>',
+));
+```
+
+Available plugin helpers:
+
+- `blocks_engine_php_transformer_version()`
+- `blocks_engine_php_transformer_path()`
+- `blocks_engine_php_transformer_transform_html()`
+- `blocks_engine_php_transformer_convert_format()`
+- `blocks_engine_php_transformer_compile_artifact()`
 
 ### Diagnostics And Unsupported Paths
 
