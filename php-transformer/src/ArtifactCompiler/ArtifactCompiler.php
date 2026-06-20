@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 final class ArtifactCompiler
@@ -839,19 +840,35 @@ final class ArtifactCompiler
      */
     private function convertMarkdownToBlocks(string $markdown): array
     {
-        if ( function_exists('bfb_convert') ) {
-            $blockMarkup = (string) bfb_convert($markdown, 'markdown', 'blocks');
+        $result = ( new FormatBridge() )->convertResult(
+            $markdown,
+            'markdown',
+            'blocks',
+            array(
+                'source'  => 'artifact_compiler',
+                'context' => array(
+                    'source_format' => 'markdown',
+                    'target_format' => 'blocks',
+                ),
+            )
+        )->toArray();
+
+        if ( 'failed' !== (string) ( $result['status'] ?? '' ) ) {
             return array(
-                'serialized_blocks' => $blockMarkup,
-                'diagnostics'       => array(),
+                'serialized_blocks' => (string) ( $result['serialized_blocks'] ?? '' ),
+                'diagnostics'       => array_values(array_filter(
+                    is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array(),
+                    static fn (array $diagnostic): bool => 'format_bridge_conversion_completed' !== (string) ($diagnostic['code'] ?? '')
+                )),
             );
         }
 
+        $diagnostics = is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array();
+        $diagnostics[] = $this->diagnostic('markdown_adapter_unavailable', 'warning', 'A Markdown adapter is unavailable; preserved source Markdown as a core/html fallback.');
+
         return array(
             'serialized_blocks' => '<!-- wp:html -->' . "\n" . $markdown . "\n" . '<!-- /wp:html -->',
-            'diagnostics'       => array(
-                $this->diagnostic('markdown_adapter_unavailable', 'warning', 'A Markdown adapter is unavailable; preserved source Markdown as a core/html fallback.'),
-            ),
+            'diagnostics'       => $diagnostics,
         );
     }
 

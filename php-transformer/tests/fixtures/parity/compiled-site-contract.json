@@ -59,7 +59,7 @@
   },
   "expect": [
     { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
-    { "path": "status", "assert": "equals", "value": "success_with_warnings" },
+    { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.artifact.schema", "assert": "equals", "value": "blocks-engine/php-transformer/site-artifact/v1" },
     { "path": "source_reports.compiled_site.schema", "assert": "equals", "value": "blocks-engine/php-transformer/compiled-site/v1" },
     { "path": "source_reports.compiled_site.entry_path", "assert": "equals", "value": "public/index.html" },
@@ -71,6 +71,7 @@
     { "path": "source_reports.compiled_site.pages.1.block_markup", "assert": "contains", "value": "<!-- wp:html -->" },
     { "path": "source_reports.compiled_site.pages.2.slug", "assert": "equals", "value": "guide" },
     { "path": "source_reports.compiled_site.pages.2.metadata.template", "assert": "equals", "value": "page-guide" },
+    { "path": "source_reports.compiled_site.pages.2.block_markup", "assert": "contains", "value": "<!-- wp:heading" },
     { "path": "source_reports.compiled_site.assets", "assert": "count", "count": 7 },
     { "path": "source_reports.compiled_site.theme.stylesheets.0", "assert": "equals", "value": "public/assets/site.css" },
     { "path": "source_reports.compiled_site.theme.scripts.0", "assert": "equals", "value": "public/assets/site.js" },
