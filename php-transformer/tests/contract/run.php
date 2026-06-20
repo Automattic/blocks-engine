@@ -253,7 +253,7 @@ $documents = $compiler->compile(
         ),
     )
 )->toArray();
-$assert('success_with_warnings' === $documents['status'], 'document-only Markdown compiles with fallback warning', (string) $documents['status']);
+$assert('success' === $documents['status'], 'document-only Markdown compiles through canonical Markdown adapter', (string) $documents['status']);
 $assert(1 === count($documents['documents']), 'Markdown source document is exposed');
 $assert('content/about.md' === ($documents['documents'][0]['source_path'] ?? ''), 'document source path is preserved');
 $assert('markdown' === ($documents['documents'][0]['body_format'] ?? ''), 'Markdown body format is exposed');
@@ -265,9 +265,9 @@ $assert('2026-06-19' === ($documents['documents'][0]['date'] ?? ''), 'frontmatte
 $assert('page-wide' === ($documents['documents'][0]['template'] ?? ''), 'frontmatter template is parsed');
 $assert(array( 'News', 'Updates' ) === ($documents['documents'][0]['taxonomies']['categories'] ?? null), 'frontmatter category list is parsed');
 $assert('launch, artifact' === ($documents['documents'][0]['taxonomies']['tags'] ?? ''), 'frontmatter taxonomy scalar hints are preserved');
-$assert(str_contains((string) ($documents['documents'][0]['block_markup'] ?? ''), '<!-- wp:html -->'), 'Markdown fallback block markup is exposed');
+$assert(str_contains((string) ($documents['documents'][0]['block_markup'] ?? ''), '<!-- wp:heading'), 'Markdown heading block markup is exposed');
 $assert(str_contains((string) $documents['serialized_blocks'], 'Markdown body.'), 'document fallback supplies serialized blocks when HTML is absent');
-$assert('markdown_adapter_unavailable' === ($documents['documents'][0]['diagnostics'][0]['code'] ?? ''), 'missing Markdown adapter diagnostic is attached to document');
+$assert(array() === ($documents['documents'][0]['diagnostics'] ?? null), 'Markdown document conversion does not depend on ambient wrapper diagnostics');
 
 $mdx = $compiler->compile(
     array(
