@@ -55,9 +55,10 @@ final class HtmlTransformer
             ), $this->fallbackProvenance),
         );
 
+        $normalizedHtml = $this->normalizeHtml5VoidElements($html);
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
-        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $normalizedHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
 
@@ -104,7 +105,7 @@ final class HtmlTransformer
         $diagnostics = array(
             array(
                 'code'    => 'html_to_blocks_core_slice',
-                'message' => 'Converted supported core text, media, table, button, shortcode, definition-list, details, navigation, and wrapper elements; unsupported elements are reported as fallbacks.',
+                'message' => 'Converted supported core text, media, gallery, embed, table, button, shortcode, definition-list, details, navigation, and wrapper elements; unsupported elements are reported as fallbacks.',
                 'source'  => self::class,
             ),
         );
@@ -137,7 +138,7 @@ final class HtmlTransformer
             ),
             coverage: array(
                 array(
-                    'supported_blocks' => array( 'core/button', 'core/buttons', 'core/code', 'core/details', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/shortcode', 'core/table' ),
+                    'supported_blocks' => array( 'core/button', 'core/buttons', 'core/code', 'core/details', 'core/embed', 'core/gallery', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/shortcode', 'core/table' ),
                     'block_count'      => count($blocks),
                     'fallback_count'   => count($fallbacks),
                     'source_provenance_count' => count($sourceProvenance),
@@ -181,6 +182,11 @@ final class HtmlTransformer
         }
 
         return $count;
+    }
+
+    private function normalizeHtml5VoidElements(string $html): string
+    {
+        return preg_replace('/<source\b([^>]*?)(?<!\/)\s*>/i', '<source$1></source>', $html) ?? $html;
     }
 
     /**
@@ -312,9 +318,19 @@ final class HtmlTransformer
         }
 
         if ( 'figure' === $tagName ) {
+            $gallery = $this->galleryBlockFromElement($element, $fallbacks);
+            if ( null !== $gallery ) {
+                return $gallery;
+            }
+
             $image = $this->firstChildElement($element, 'img');
             if ( $image instanceof DOMElement ) {
                 return $this->convertImageElement($image, $element);
+            }
+
+            $picture = $this->firstChildElement($element, 'picture');
+            if ( $picture instanceof DOMElement ) {
+                return $this->convertPictureElement($picture, $element);
             }
 
             $blockquote = $this->firstChildElement($element, 'blockquote');
@@ -350,6 +366,14 @@ final class HtmlTransformer
 
         if ( 'img' === $tagName ) {
             return $this->convertImageElement($element);
+        }
+
+        if ( 'picture' === $tagName ) {
+            return $this->convertPictureElement($element);
+        }
+
+        if ( 'iframe' === $tagName ) {
+            return $this->convertIframeElement($element, $fallbacks);
         }
 
         if ( 'a' === $tagName && '' !== trim($element->textContent ?? '') ) {
@@ -391,6 +415,11 @@ final class HtmlTransformer
         }
 
         if ( in_array($tagName, array( 'article', 'body', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+            $gallery = $this->galleryBlockFromElement($element, $fallbacks);
+            if ( null !== $gallery ) {
+                return $gallery;
+            }
+
             $buttonChildren = $this->buttonChildren($element);
             if ( array() !== $buttonChildren ) {
                 return $this->createBlock('core/buttons', $this->presentationAttributes($element), $buttonChildren, $element);
@@ -651,7 +680,7 @@ final class HtmlTransformer
     private function safeSourceAttributes(DOMElement $element): array
     {
         $safe = array();
-        $allowed = array_flip(array( 'alt', 'class', 'data-layout', 'data-wp-layout', 'height', 'href', 'id', 'open', 'src', 'style', 'title', 'width' ));
+        $allowed = array_flip(array( 'alt', 'class', 'data-layout', 'data-wp-layout', 'height', 'href', 'id', 'media', 'open', 'sizes', 'src', 'srcset', 'style', 'title', 'type', 'width' ));
         foreach ( $this->htmlAttributes($element) as $name => $value ) {
             if ( isset($allowed[$name]) && ! preg_match('/^\s*javascript\s*:/i', $value) ) {
                 $safe[$name] = $value;
@@ -887,6 +916,7 @@ final class HtmlTransformer
         $html = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $this->outerHtml($element)) ?? '';
         $html = preg_replace('/\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
         $html = preg_replace('/\s+(?:href|src|xlink:href)\s*=\s*("\s*javascript:[^"]*"|\'\s*javascript:[^\']*\'|javascript:[^\s>]+)/i', '', $html) ?? '';
+        $html = preg_replace('/\s+srcdoc\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
 
         return trim($html);
     }
@@ -1114,7 +1144,79 @@ final class HtmlTransformer
         return $options;
     }
 
-    private function convertImageElement(DOMElement $image, ?DOMElement $figure = null): ?array
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function galleryBlockFromElement(DOMElement $element, array &$fallbacks): ?array
+    {
+        $images = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( 'figcaption' === $tagName ) {
+                continue;
+            }
+
+            if ( 'figure' === $tagName ) {
+                $image = $this->firstChildElement($child, 'img');
+                if ( $image instanceof DOMElement ) {
+                    $images[] = $this->convertImageElement($image, $child);
+                    continue;
+                }
+
+                $picture = $this->firstChildElement($child, 'picture');
+                if ( $picture instanceof DOMElement ) {
+                    $images[] = $this->convertPictureElement($picture, $child);
+                    continue;
+                }
+            }
+
+            if ( 'img' === $tagName ) {
+                $images[] = $this->convertImageElement($child);
+                continue;
+            }
+
+            if ( 'picture' === $tagName ) {
+                $images[] = $this->convertPictureElement($child);
+                continue;
+            }
+
+            return null;
+        }
+
+        $images = array_values(array_filter($images));
+        if ( count($images) < 2 ) {
+            return null;
+        }
+
+        $attrs = $this->presentationAttributes($element);
+        $caption = $this->firstChildElement($element, 'figcaption');
+        if ( $caption instanceof DOMElement ) {
+            $attrs['caption'] = $this->innerHtml($caption);
+        }
+
+        return $this->createBlock('core/gallery', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $images, $element);
+    }
+
+    private function convertPictureElement(DOMElement $picture, ?DOMElement $figure = null): ?array
+    {
+        $image = $this->firstChildElement($picture, 'img');
+        if ( ! $image instanceof DOMElement ) {
+            return null;
+        }
+
+        return $this->convertImageElement($image, $figure ?? $picture, $picture);
+    }
+
+    private function convertImageElement(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null): ?array
     {
         $url = $this->safeImageUrl($this->attr($image, 'src'));
         if ( '' === $url ) {
@@ -1122,8 +1224,12 @@ final class HtmlTransformer
         }
 
         $attrs = $this->imagePresentationAttributes($image, $figure);
+        if ( null !== $picture && ! $figure instanceof DOMElement ) {
+            $attrs = array_merge($this->presentationAttributes($picture), $attrs);
+        }
         $width = $this->attr($image, 'width');
         $height = $this->attr($image, 'height');
+        $sourceAttrs = $picture instanceof DOMElement ? $this->pictureSourceAttributes($picture) : array();
         if ( '' !== $width || '' !== $height ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'is-resized');
         }
@@ -1132,8 +1238,8 @@ final class HtmlTransformer
             'url'    => $url,
             'alt'    => $this->attr($image, 'alt'),
             'title'  => $this->attr($image, 'title'),
-            'srcset' => $this->attr($image, 'srcset'),
-            'sizes'  => $this->attr($image, 'sizes'),
+            'srcset' => '' !== $this->attr($image, 'srcset') ? $this->attr($image, 'srcset') : (string) ($sourceAttrs['srcset'] ?? ''),
+            'sizes'  => '' !== $this->attr($image, 'sizes') ? $this->attr($image, 'sizes') : (string) ($sourceAttrs['sizes'] ?? ''),
             'width'  => $width,
             'height' => $height,
         )), static fn ($value): bool => '' !== $value);
@@ -1148,6 +1254,122 @@ final class HtmlTransformer
         }
 
         return $this->createBlock('core/image', $attrs, array(), $figure ?? $image);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function pictureSourceAttributes(DOMElement $picture): array
+    {
+        foreach ( $picture->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'source' !== strtolower($child->tagName) ) {
+                continue;
+            }
+
+            $srcset = $this->attr($child, 'srcset');
+            if ( '' === $srcset || preg_match('/javascript\s*:/i', $srcset) ) {
+                continue;
+            }
+
+            return array_filter(array(
+                'srcset' => $srcset,
+                'sizes'  => $this->attr($child, 'sizes'),
+            ), static fn (string $value): bool => '' !== $value);
+        }
+
+        return array();
+    }
+
+    private function safeEmbedUrl(string $url): string
+    {
+        $url = trim($url);
+        if ( '' === $url || ! preg_match('#^https?://#i', $url) ) {
+            return '';
+        }
+
+        return preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ? '' : $url;
+    }
+
+    private function canonicalEmbedUrl(string $url): string
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        $path = (string) parse_url($url, PHP_URL_PATH);
+
+        if ( str_ends_with($host, 'youtube.com') && preg_match('~^/embed/([^/?#]+)~', $path, $matches) ) {
+            return 'https://www.youtube.com/watch?v=' . $matches[1];
+        }
+
+        if ( 'youtu.be' === $host && '' !== trim($path, '/') ) {
+            return 'https://www.youtube.com/watch?v=' . trim($path, '/');
+        }
+
+        if ( str_ends_with($host, 'vimeo.com') && preg_match('#/(?:video/)?(\d+)#', $path, $matches) ) {
+            return 'https://vimeo.com/' . $matches[1];
+        }
+
+        return $url;
+    }
+
+    private function embedProviderSlug(string $url): string
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        if ( str_ends_with($host, 'youtube.com') || 'youtu.be' === $host ) {
+            return 'youtube';
+        }
+        if ( str_ends_with($host, 'vimeo.com') ) {
+            return 'vimeo';
+        }
+
+        return '';
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function safeEmbedAttributes(DOMElement $element): array
+    {
+        $safe = array();
+        $allowed = array_flip(array( 'allow', 'allowfullscreen', 'class', 'height', 'loading', 'referrerpolicy', 'sandbox', 'src', 'title', 'width' ));
+        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+            if ( isset($allowed[$name]) && ! preg_match('/javascript\s*:/i', $value) ) {
+                $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
+            }
+        }
+
+        return $safe;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function convertIframeElement(DOMElement $iframe, array &$fallbacks): ?array
+    {
+        $url = $this->safeEmbedUrl($this->attr($iframe, 'src'));
+        if ( '' !== $url ) {
+            return $this->createBlock('core/embed', array_filter(array_merge($this->presentationAttributes($iframe), array(
+                'url'              => $this->canonicalEmbedUrl($url),
+                'type'             => 'video',
+                'providerNameSlug' => $this->embedProviderSlug($url),
+            )), static fn ($value): bool => '' !== $value), array(), $iframe);
+        }
+
+        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($iframe));
+        $fallbacks[] = array_merge(array(
+            'type'            => 'html',
+            'reason'          => 'iframe_embed_fallback',
+            'diagnostic_code' => 'html_iframe_embed_fallback',
+            'message'         => 'Iframe embed HTML was preserved as sanitized bounded fallback metadata.',
+            'source_format'   => 'html',
+            'tag'             => 'iframe',
+            'selector'        => $this->elementSelector($iframe),
+            'attributes'      => $this->safeEmbedAttributes($iframe),
+            'html'            => $boundedHtml['html'],
+            'html_bytes'      => $boundedHtml['bytes'],
+            'html_truncated'  => $boundedHtml['truncated'],
+        ), $this->fallbackProvenance);
+
+        return null;
     }
 
     private function safeImageUrl(string $url): string

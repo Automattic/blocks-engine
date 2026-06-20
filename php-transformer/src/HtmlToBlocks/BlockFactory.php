@@ -95,6 +95,15 @@ final class BlockFactory
             return $this->imageHtml($attrs);
         }
 
+        if ( 'core/gallery' === $name ) {
+            $caption = ! empty($attrs['caption']) ? '<figcaption class="blocks-gallery-caption wp-element-caption">' . $attrs['caption'] . '</figcaption>' : '';
+            return array( 'opening' => '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-gallery') . '>', 'closing' => $caption . '</figure>' );
+        }
+
+        if ( 'core/embed' === $name ) {
+            return $this->embedHtml($attrs);
+        }
+
         if ( 'core/buttons' === $name ) {
             return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-buttons') . '>', 'closing' => '</div>' );
         }
@@ -176,6 +185,27 @@ final class BlockFactory
         $img = '<img' . $this->htmlAttrs($imageAttrs, array( 'alt' )) . '/>';
         $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $attrs['caption'] . '</figcaption>' : '';
         return '<figure' . $this->blockSupportAttrs($figureAttrs, 'wp-block-image') . '>' . $img . $caption . '</figure>';
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function embedHtml(array $attrs): string
+    {
+        $url = htmlspecialchars((string) ($attrs['url'] ?? ''), ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $classes = array('wp-block-embed');
+        if ( ! empty($attrs['type']) ) {
+            $classes[] = 'is-type-' . (string) $attrs['type'];
+        }
+        if ( ! empty($attrs['providerNameSlug']) ) {
+            $classes[] = 'is-provider-' . (string) $attrs['providerNameSlug'];
+            $classes[] = 'wp-block-embed-' . (string) $attrs['providerNameSlug'];
+        }
+
+        $figureAttrs = $attrs;
+        $figureAttrs['className'] = $this->mergeClassNames(implode(' ', $classes), (string) ($attrs['className'] ?? ''));
+
+        return '<figure' . $this->blockSupportAttrs($figureAttrs) . '><div class="wp-block-embed__wrapper">' . $url . '</div></figure>';
     }
 
     private function mergeClassNames(string ...$classNames): string
