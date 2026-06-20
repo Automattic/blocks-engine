@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<main><div class=\"decorative-placeholder\" style=\"min-height:48px\" aria-hidden=\"true\"></div><div class=\"media-shell\"><img src=\"logo.svg\" alt=\"Logo\" width=\"120\" height=\"80\"></div><dl><dt>Term</dt><dd>Definition</dd></dl><ul class=\"checks\"><li>Parent<ul><li><span class=\"accent\">Child</span></li></ul></li></ul><section class=\"local-widget\"><h2>Signup</h2><form action=\"/signup\"><label>Email <input name=\"email\" placeholder=\"you@example.com\"></label></form><script type=\"module\" src=\"/widget.js\">hydrate()</script></section><figure class=\"code-window\"><figcaption>theme.json</figcaption><pre><code class=\"language-json\">{&quot;version&quot;:2}</code></pre></figure><div class=\"code-frame\" data-filename=\"functions.php\"><pre><code class=\"language-php\">&lt;?php add_action();</code></pre></div></main>"
+    "content": "<main><div class=\"decorative-placeholder\" style=\"min-height:48px\" aria-hidden=\"true\"></div><div class=\"media-shell\"><img src=\"logo.svg\" alt=\"Logo\" width=\"120\" height=\"80\"></div><dl><dt>Term</dt><dd>Definition</dd></dl><ul class=\"checks\"><li>Parent<ul><li><span class=\"accent\">Child</span></li></ul></li></ul><section class=\"local-widget\"><h2>Signup</h2><form action=\"/signup\"><label>Email <input name=\"email\" placeholder=\"you@example.com\"></label><label><input type=\"checkbox\" name=\"agree\" value=\"yes\" required> Agree</label></form><script type=\"module\" src=\"/widget.js\">hydrate()</script></section><figure class=\"code-window\"><figcaption>theme.json</figcaption><pre><code class=\"language-json\">{&quot;version&quot;:2}</code></pre></figure><div class=\"code-frame\" data-filename=\"functions.php\"><pre><code class=\"language-php\">&lt;?php add_action();</code></pre></div></main>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
@@ -45,10 +45,15 @@
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 7 },
     { "path": "fallbacks", "assert": "count", "count": 2 },
     { "path": "fallbacks.0.controls.0.placeholder", "assert": "equals", "value": "you@example.com" },
+    { "path": "fallbacks.0.controls.1.type", "assert": "equals", "value": "checkbox" },
+    { "path": "fallbacks.0.controls.1.label", "assert": "equals", "value": "Agree" },
+    { "path": "fallbacks.0.controls.1.required", "assert": "equals", "value": true },
     { "path": "fallbacks.0.context.parent_tag", "assert": "equals", "value": "section" },
     { "path": "fallbacks.1.attributes.src", "assert": "equals", "value": "/widget.js" },
     { "path": "fallbacks.1.context.parent_tag", "assert": "equals", "value": "section" },
     { "path": "fallbacks.1.html", "assert": "equals", "value": "" },
+    { "path": "fallbacks.1.body", "assert": "equals", "value": "hydrate()" },
+    { "path": "fallbacks.1.body_truncated", "assert": "equals", "value": false },
     { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image is-resized\"><img src=\"logo.svg\" alt=\"Logo\" width=\"120\" height=\"80\"/></figure>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<li>Parent<!-- wp:list -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "theme.json" },

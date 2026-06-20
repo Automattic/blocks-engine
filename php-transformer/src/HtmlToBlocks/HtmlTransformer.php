@@ -1202,6 +1202,7 @@ final class HtmlTransformer
     private function captureScriptFallback(DOMElement $element, array &$fallbacks): void
     {
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+        $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
         $fallbacks[] = array_merge(array(
             'type'            => 'html',
             'reason'          => 'script_requires_runtime',
@@ -1218,6 +1219,9 @@ final class HtmlTransformer
             'html'            => $boundedHtml['html'],
             'html_bytes'      => $boundedHtml['bytes'],
             'html_truncated'  => $boundedHtml['truncated'],
+            'body'            => $boundedBody['text'],
+            'body_bytes'      => $boundedBody['bytes'],
+            'body_truncated'  => $boundedBody['truncated'],
         ), $this->fallbackProvenance);
     }
 
@@ -1253,6 +1257,27 @@ final class HtmlTransformer
 
         return array(
             'html'      => $html,
+            'bytes'     => $bytes,
+            'truncated' => false,
+        );
+    }
+
+    /**
+     * @return array{text: string, bytes: int, truncated: bool}
+     */
+    private function boundedFallbackText(string $text): array
+    {
+        $bytes = strlen($text);
+        if ( $bytes > 2000 ) {
+            return array(
+                'text'      => substr($text, 0, 2000) . '...',
+                'bytes'     => $bytes,
+                'truncated' => true,
+            );
+        }
+
+        return array(
+            'text'      => $text,
             'bytes'     => $bytes,
             'truncated' => false,
         );
