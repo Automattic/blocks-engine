@@ -54,6 +54,10 @@ final class BlockFactory
         }
 
         if ( 'core/list-item' === $name ) {
+            if ( array() !== $innerBlocks ) {
+                return array( 'opening' => '<li' . $this->blockSupportAttrs($attrs) . '>' . ($attrs['content'] ?? ''), 'closing' => '</li>' );
+            }
+
             return '<li' . $this->blockSupportAttrs($attrs) . '>' . ($attrs['content'] ?? '') . '</li>';
         }
 
