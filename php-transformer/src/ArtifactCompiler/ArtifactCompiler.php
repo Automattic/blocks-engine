@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
@@ -71,6 +72,22 @@ final class ArtifactCompiler
             ),
         );
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks);
+        $provenance = array(
+            array(
+                'source_format' => 'artifact',
+                'input_keys'    => array_keys($artifact),
+                'source_hash'   => hash('sha256', $normalized['hash_payload']),
+            ),
+        );
+        $metrics = array(
+            'input_bytes'           => $normalized['bytes'],
+            'block_count'           => $this->countBlocks($entryBlocks['blocks']),
+            'fallback_count'        => count($entryBlocks['fallbacks']),
+            'diagnostic_count'      => count($diagnostics),
+            'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
+            'output_bytes'          => strlen($serializedBlocks),
+        );
+        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $entryBlocks['fallbacks'], $sourceReports, $assets, $provenance, $metrics);
 
         return new TransformerResult(
             status: $this->statusFromDiagnostics($diagnostics),
@@ -96,21 +113,8 @@ final class ArtifactCompiler
             assets: $assets,
             diagnostics: $diagnostics,
             fallbacks: $entryBlocks['fallbacks'],
-            provenance: array(
-                array(
-                    'source_format' => 'artifact',
-                    'input_keys'    => array_keys($artifact),
-                    'source_hash'   => hash('sha256', $normalized['hash_payload']),
-                ),
-            ),
-            metrics: array(
-                'input_bytes'           => $normalized['bytes'],
-                'block_count'           => $this->countBlocks($entryBlocks['blocks']),
-                'fallback_count'        => count($entryBlocks['fallbacks']),
-                'diagnostic_count'      => count($diagnostics),
-                'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
-                'output_bytes'          => strlen($serializedBlocks),
-            )
+            provenance: $provenance,
+            metrics: $metrics
         );
     }
 

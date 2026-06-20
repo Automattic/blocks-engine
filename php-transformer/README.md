@@ -15,6 +15,7 @@ PHP Transformer owns reusable transformation primitives:
 - Generated website artifact normalization.
 - Serializable block output, document output, asset manifests, diagnostics, fallbacks, and provenance.
 - Generic per-call context and provenance metadata for downstream wrappers.
+- Generic conversion report projections for fallback diagnostics, source selectors, asset references, navigation candidates, presentation signals, and metrics.
 - WordPress runtime adapters for calls that require WordPress APIs.
 
 PHP Transformer does not own product workflows such as importer admin screens, uploaded ZIP intake, theme activation, Studio-specific orchestration, WordPress.com deployment behavior, or self-improving loop control. Product-specific compatibility wrappers belong in downstream packages, not in the canonical package API.
@@ -77,6 +78,8 @@ Public entrypoints accept a generic options array. `source` and `scope` are copi
 `FormatBridge::convertResult()` forwards the original options array to adapters and exposes the normalized context/provenance metadata on the returned `TransformerResult`.
 
 The result envelope includes generic `metrics` for wrapper reporting: `input_bytes`, `block_count`, `fallback_count`, `diagnostic_count`, `transform_duration_ms`, and `output_bytes`.
+
+`source_reports.conversion_report` exposes a compact generic projection for wrappers that previously reconstructed report slices from lower-level result fields. It includes fallback diagnostics, source/selector summaries, asset references, navigation candidates, presentation-gap signals, and metrics. It remains product-neutral: callers still own route rewrites, media imports, theme assembly, navigation entity creation, visual repair policy, and acceptance gates.
 
 Use `FormatBridge::convertResult()` for format conversions and unsupported source or target format diagnostics:
 

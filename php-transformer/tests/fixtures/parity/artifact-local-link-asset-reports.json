@@ -80,6 +80,14 @@
     { "path": "source_reports.artifact.asset_references.6.element", "assert": "equals", "value": "style" },
     { "path": "source_reports.artifact.asset_references.6.asset_path", "assert": "equals", "value": "assets/bg.png" },
     { "path": "source_reports.artifact.image_references", "assert": "count", "count": 1 },
-    { "path": "source_reports.artifact.image_references.0.asset_path", "assert": "equals", "value": "assets/hero.png" }
+    { "path": "source_reports.artifact.image_references.0.asset_path", "assert": "equals", "value": "assets/hero.png" },
+    { "path": "source_reports.conversion_report.schema", "assert": "equals", "value": "blocks-engine/php-transformer/conversion-report/v1" },
+    { "path": "source_reports.conversion_report.source_summary.entry_path", "assert": "equals", "value": "pages/home.html" },
+    { "path": "source_reports.conversion_report.source_summary.file_count", "assert": "equals", "value": 8 },
+    { "path": "source_reports.conversion_report.selector_summary.source_paths", "assert": "count", "count": 2 },
+    { "path": "source_reports.conversion_report.asset_refs", "assert": "count", "count": 7 },
+    { "path": "source_reports.conversion_report.asset_refs.5.asset_path", "assert": "equals", "value": "assets/site.css" },
+    { "path": "source_reports.conversion_report.navigation_candidates", "assert": "count", "count": 1 },
+    { "path": "source_reports.conversion_report.navigation_candidates.0.target_path", "assert": "equals", "value": "pages/about.html" }
   ]
 }
