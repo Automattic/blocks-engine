@@ -73,7 +73,11 @@ final class BlockFactory
         }
 
         if ( 'core/code' === $name ) {
-            return '<pre class="wp-block-code"><code>' . htmlspecialchars((string) ($attrs['content'] ?? ''), ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</code></pre>';
+            $content = (string) ($attrs['content'] ?? '');
+            if ( ! preg_match('/<(?:span|mark|b|strong|i|em)\b/i', $content) ) {
+                $content = htmlspecialchars($content, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            }
+            return '<pre class="wp-block-code"><code>' . $content . '</code></pre>';
         }
 
         if ( 'core/preformatted' === $name ) {

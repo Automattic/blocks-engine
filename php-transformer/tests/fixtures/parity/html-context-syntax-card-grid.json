@@ -1,0 +1,50 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-context-syntax-card-grid",
+  "description": "Preserves generic raw-source context, syntax spans, fallback event metadata, figure attribution, and card/grid structure signals.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-context-syntax-card-grid.json",
+    "notes": "Product-neutral fixture for upstream parity gaps surfaced by migration consumers."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section id=\"features\" class=\"cards-grid\" data-source-kind=\"static\" style=\"display:grid\"><h2>Features</h2><pre><code class=\"language-js\"><span class=\"token keyword\">const</span> count = <span data-token=\"number\">2</span>;</code></pre><article class=\"feature-card\"><p>First card</p></article><article class=\"feature-card\"><p>Second card</p></article><x-widget onclick=\"hydrate()\" data-action=\"open\"><span>Runtime widget</span></x-widget></section><figure class=\"testimonial\"><blockquote><p>Readable output.</p><footer><cite>Casey</cite> Engineer</footer></blockquote></figure>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "cards-grid", "style": "display:grid", "layout": { "type": "grid" } } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Features", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/code", "attrs": { "className": "language-js", "content": "<span class=\"token keyword\">const</span> count = <span data-token=\"number\">2</span>;" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/group", "attrs": { "className": "feature-card" } },
+    { "path": "blocks.0.innerBlocks.3", "name": "core/group", "attrs": { "className": "feature-card" } },
+    { "path": "blocks.1", "name": "core/quote", "attrs": { "className": "testimonial", "citation": "<cite>Casey</cite> Engineer" } }
+  ],
+  "expected_fallbacks": [
+    { "type": "unsupported_element", "reason": "unsupported_element", "diagnostic_code": "html_unsupported_element", "tag": "x-widget" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 4 },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.context.parent_tag", "assert": "equals", "value": "section" },
+    { "path": "fallbacks.0.context.nearest_heading", "assert": "equals", "value": "Features" },
+    { "path": "fallbacks.0.context.data_attributes.data-action", "assert": "equals", "value": "open" },
+    { "path": "fallbacks.0.events.0.type", "assert": "equals", "value": "declared" },
+    { "path": "fallbacks.0.events.1.type", "assert": "equals", "value": "click" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<code><span class=\"token keyword\">const</span> count = <span data-token=\"number\">2</span>;</code>" },
+    { "path": "source_reports.html.source_provenance.0.context.structure_signals.grid_like", "assert": "equals", "value": true },
+    { "path": "source_reports.html.source_provenance.0.context.structure_signals.repeated_card_children", "assert": "equals", "value": 2 },
+    { "path": "source_reports.html.structure_signals.2.signals.grid_like", "assert": "equals", "value": true },
+    { "path": "source_reports.html.structure_signals.2.signals.repeated_card_children", "assert": "equals", "value": 2 },
+    { "path": "source_reports.conversion_report.fallback_diagnostics.0.events.1.type", "assert": "equals", "value": "click" },
+    { "path": "source_reports.conversion_report.presentation_gaps.0.type", "assert": "equals", "value": "source_presentation_signal" },
+    { "path": "source_reports.conversion_report.presentation_gaps", "assert": "count", "count": 8 },
+    { "path": "source_reports.conversion_report.presentation_gaps.7.type", "assert": "equals", "value": "source_structure_signal" },
+    { "path": "source_reports.conversion_report.presentation_gaps.7.signals.grid_like", "assert": "equals", "value": true }
+  ]
+}

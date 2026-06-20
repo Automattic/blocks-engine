@@ -120,6 +120,8 @@ final class ConversionReportProjection
                     'tag'             => $fallback['tag'] ?? '',
                     'selector'        => $fallback['selector'] ?? '',
                     'child_count'     => $fallback['child_count'] ?? null,
+                    'context'         => $fallback['context'] ?? array(),
+                    'events'          => $fallback['events'] ?? array(),
                     'html_bytes'      => $fallback['html_bytes'] ?? (isset($fallback['html']) && is_string($fallback['html']) ? strlen($fallback['html']) : null),
                     'html_truncated'  => $fallback['html_truncated'] ?? null,
                 ),
@@ -190,6 +192,23 @@ final class ConversionReportProjection
             $gaps[] = array_filter(
                 array(
                     'type'       => 'source_presentation_signal',
+                    'block_name' => $signal['block_name'] ?? '',
+                    'tag'        => $signal['tag'] ?? '',
+                    'selector'   => $signal['selector'] ?? '',
+                    'signals'    => $signal['signals'] ?? array(),
+                ),
+                static fn (mixed $value): bool => '' !== $value && array() !== $value
+            );
+        }
+
+        $structureSignals = is_array($html['structure_signals'] ?? null) ? $html['structure_signals'] : array();
+        foreach ( $structureSignals as $signal ) {
+            if ( ! is_array($signal) ) {
+                continue;
+            }
+            $gaps[] = array_filter(
+                array(
+                    'type'       => 'source_structure_signal',
                     'block_name' => $signal['block_name'] ?? '',
                     'tag'        => $signal['tag'] ?? '',
                     'selector'   => $signal['selector'] ?? '',
