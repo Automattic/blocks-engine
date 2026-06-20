@@ -296,12 +296,7 @@ final class HtmlTransformer
         }
 
         if ( 'ul' === $tagName || 'ol' === $tagName ) {
-            $items = array();
-            foreach ( $element->childNodes as $child ) {
-                if ( $child instanceof DOMElement && 'li' === strtolower($child->tagName) ) {
-                    $items[] = $this->createBlock('core/list-item', array_merge($this->presentationAttributes($child), array( 'content' => $this->innerHtml($child) )), array(), $child);
-                }
-            }
+            $items = $this->listItems($element, $fallbacks);
 
             if ( array() === $items ) {
                 return null;
@@ -345,6 +340,11 @@ final class HtmlTransformer
             $gallery = $this->galleryBlockFromElement($element, $fallbacks);
             if ( null !== $gallery ) {
                 return $gallery;
+            }
+
+            $codeWindow = $this->codeWindowBlockFromElement($element, $fallbacks);
+            if ( null !== $codeWindow ) {
+                return $codeWindow;
             }
 
             $image = $this->firstChildElement($element, 'img');
@@ -426,6 +426,11 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( 'script' === $tagName ) {
+            $this->captureScriptFallback($element, $fallbacks);
+            return null;
+        }
+
         if ( 'form' === $tagName ) {
             $fallbacks[] = array_merge(array(
                 'type'            => 'html',
@@ -464,6 +469,11 @@ final class HtmlTransformer
                 return $gallery;
             }
 
+            $codeWindow = $this->codeWindowBlockFromElement($element, $fallbacks);
+            if ( null !== $codeWindow ) {
+                return $codeWindow;
+            }
+
             $buttonChildren = $this->buttonChildren($element);
             if ( array() !== $buttonChildren ) {
                 return $this->createBlock('core/buttons', $this->presentationAttributes($element), $buttonChildren, $element);
@@ -478,6 +488,9 @@ final class HtmlTransformer
             }
             if ( array() !== $children ) {
                 return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+            }
+            if ( $this->shouldPreserveEmptyVisualElement($element) ) {
+                return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
             }
             return null;
         }
@@ -706,6 +719,15 @@ final class HtmlTransformer
     private function shouldPreserveWrapper(DOMElement $element): bool
     {
         return in_array(strtolower($element->tagName), array( 'article', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) && ( array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
+    }
+
+    private function shouldPreserveEmptyVisualElement(DOMElement $element): bool
+    {
+        if ( '' !== trim($element->textContent ?? '') || 0 !== $this->childElementCount($element) ) {
+            return false;
+        }
+
+        return $this->shouldPreserveWrapper($element) || in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true) || 'true' === strtolower($this->attr($element, 'aria-hidden'));
     }
 
     private function isInlineContentElement(string $tagName): bool
@@ -1103,6 +1125,39 @@ final class HtmlTransformer
         return $items;
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<int, array<string, mixed>>
+     */
+    private function listItems(DOMElement $list, array &$fallbacks): array
+    {
+        $items = array();
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+                continue;
+            }
+
+            $nested = array();
+            foreach ( $child->childNodes as $itemChild ) {
+                if ( $itemChild instanceof DOMElement && in_array(strtolower($itemChild->tagName), array( 'ul', 'ol' ), true) ) {
+                    $nestedBlock = $this->convertElement($itemChild, $fallbacks, true);
+                    if ( null !== $nestedBlock ) {
+                        $nested[] = $nestedBlock;
+                    }
+                }
+            }
+
+            $content = $this->innerHtmlWithoutTags($child, array( 'ul', 'ol' ));
+            if ( '' === trim($this->runtime->stripAllTags($content)) && array() === $nested ) {
+                continue;
+            }
+
+            $items[] = $this->createBlock('core/list-item', array_merge($this->presentationAttributes($child), array( 'content' => $content )), $nested, $child);
+        }
+
+        return $items;
+    }
+
     private function safeFallbackHtml(DOMElement $element): string
     {
         $html = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $this->outerHtml($element)) ?? '';
@@ -1139,6 +1194,47 @@ final class HtmlTransformer
             'html_bytes'      => $boundedHtml['bytes'],
             'html_truncated'  => $boundedHtml['truncated'],
         ), $this->fallbackProvenance);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function captureScriptFallback(DOMElement $element, array &$fallbacks): void
+    {
+        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+        $fallbacks[] = array_merge(array(
+            'type'            => 'html',
+            'reason'          => 'script_requires_runtime',
+            'diagnostic_code' => 'html_script_fallback',
+            'message'         => 'Script HTML requires runtime behavior and was preserved as scoped safe fallback metadata.',
+            'source_format'   => 'html',
+            'tag'             => 'script',
+            'selector'        => $this->elementSelector($element),
+            'attributes'      => $this->safeScriptAttributes($element),
+            'context'         => $this->sourceContext($element),
+            'events'          => $this->eventMetadata($element),
+            'text_length'     => strlen(trim($element->textContent ?? '')),
+            'child_count'     => $this->childElementCount($element),
+            'html'            => $boundedHtml['html'],
+            'html_bytes'      => $boundedHtml['bytes'],
+            'html_truncated'  => $boundedHtml['truncated'],
+        ), $this->fallbackProvenance);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function safeScriptAttributes(DOMElement $element): array
+    {
+        $safe = array();
+        $allowed = array_flip(array( 'async', 'class', 'defer', 'id', 'src', 'type' ));
+        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+            if ( isset($allowed[$name]) && ! preg_match('/javascript\s*:/i', $value) ) {
+                $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
+            }
+        }
+
+        return $safe;
     }
 
     /**
@@ -1793,6 +1889,59 @@ final class HtmlTransformer
         }
 
         return $code->textContent ?? '';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function codeWindowBlockFromElement(DOMElement $element, array &$fallbacks): ?array
+    {
+        $pre = $this->firstChildElement($element, 'pre');
+        if ( ! $pre instanceof DOMElement ) {
+            return null;
+        }
+
+        $code = $this->firstChildElement($pre, 'code');
+        if ( ! $code instanceof DOMElement ) {
+            return null;
+        }
+
+        $label = $this->codeWindowLabel($element, $pre);
+        if ( '' === $label && ! $this->hasClass($element, 'code-window') && ! $this->hasClass($element, 'code-frame') ) {
+            return null;
+        }
+
+        $children = array();
+        if ( '' !== $label ) {
+            $children[] = $this->createBlock('core/paragraph', array( 'content' => $label ));
+        }
+        $children[] = $this->createBlock('core/code', array_merge($this->codePresentationAttributes($pre, $code), array( 'content' => $this->codeContent($code) )), array(), $pre);
+
+        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+    }
+
+    private function codeWindowLabel(DOMElement $element, DOMElement $pre): string
+    {
+        foreach ( array( 'data-label', 'data-title', 'data-filename', 'aria-label' ) as $attribute ) {
+            $value = trim($this->attr($element, $attribute));
+            if ( '' !== $value ) {
+                return htmlspecialchars($value, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            }
+        }
+
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || $child->isSameNode($pre) ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( 'figcaption' === $tagName || 'header' === $tagName || $this->hasClass($child, 'code-label') || $this->hasClass($child, 'filename') || $this->hasClass($child, 'window-title') ) {
+                return $this->innerHtml($child);
+            }
+        }
+
+        return '';
     }
 
     private function sanitizedSyntaxHtml(DOMElement $element): string
