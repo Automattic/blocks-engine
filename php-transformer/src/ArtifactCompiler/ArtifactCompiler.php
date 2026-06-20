@@ -258,7 +258,7 @@ final class ArtifactCompiler
      */
     private function htmlReferenceCandidates(string $html, string $sourcePath): array
     {
-        if ( '' === trim($html) || ! preg_match_all('/<\s*(a|img|script|link)\b([^>]*)>/i', $html, $matches, PREG_SET_ORDER) ) {
+        if ( '' === trim($html) || ! preg_match_all('/<\s*(a|audio|img|script|link|source|video)\b([^>]*)>/i', $html, $matches, PREG_SET_ORDER) ) {
             return array();
         }
 
@@ -313,9 +313,12 @@ final class ArtifactCompiler
     {
         $attributesByElement = array(
             'a'      => array('href'),
+            'audio'  => array('src'),
             'img'    => array('src', 'srcset'),
             'script' => array('src'),
             'link'   => array('href'),
+            'source' => array('src', 'srcset'),
+            'video'  => array('src', 'poster'),
         );
 
         return array_values(array_filter(

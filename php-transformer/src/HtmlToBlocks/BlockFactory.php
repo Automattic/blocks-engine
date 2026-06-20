@@ -88,6 +88,18 @@ final class BlockFactory
             return $this->tableHtml($attrs);
         }
 
+        if ( 'core/separator' === $name ) {
+            return '<hr' . $this->blockSupportAttrs($attrs, 'wp-block-separator') . ' />';
+        }
+
+        if ( 'core/columns' === $name ) {
+            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-columns') . '>', 'closing' => '</div>' );
+        }
+
+        if ( 'core/column' === $name ) {
+            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-column') . '>', 'closing' => '</div>' );
+        }
+
         if ( 'core/details' === $name ) {
             return array(
                 'opening' => '<details' . $this->blockSupportAttrs($attrs, 'wp-block-details') . '><summary>' . ($attrs['summary'] ?? '') . '</summary>',
@@ -106,6 +118,22 @@ final class BlockFactory
 
         if ( 'core/embed' === $name ) {
             return $this->embedHtml($attrs);
+        }
+
+        if ( 'core/file' === $name ) {
+            return $this->fileHtml($attrs);
+        }
+
+        if ( 'core/video' === $name ) {
+            return $this->mediaHtml('video', $attrs);
+        }
+
+        if ( 'core/audio' === $name ) {
+            return $this->mediaHtml('audio', $attrs);
+        }
+
+        if ( 'core/html' === $name ) {
+            return (string) ($attrs['content'] ?? '');
         }
 
         if ( 'core/buttons' === $name ) {
@@ -210,6 +238,43 @@ final class BlockFactory
         $figureAttrs['className'] = $this->mergeClassNames(implode(' ', $classes), (string) ($attrs['className'] ?? ''));
 
         return '<figure' . $this->blockSupportAttrs($figureAttrs) . '><div class="wp-block-embed__wrapper">' . $url . '</div></figure>';
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function fileHtml(array $attrs): string
+    {
+        $href = (string) ($attrs['href'] ?? $attrs['url'] ?? '');
+        $text = (string) ($attrs['text'] ?? ($href !== '' ? basename(parse_url($href, PHP_URL_PATH) ?: $href) : ''));
+        $linkAttrs = array(
+            'href' => $href,
+        );
+
+        $downloadButton = '';
+        if ( ! empty($attrs['showDownloadButton']) ) {
+            $downloadButton = '<a class="wp-block-file__button wp-element-button" href="' . htmlspecialchars($href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" download>Download</a>';
+        }
+
+        return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-file') . '><a' . $this->htmlAttrs($linkAttrs) . '>' . $text . '</a>' . $downloadButton . '</div>';
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function mediaHtml(string $tagName, array $attrs): string
+    {
+        $mediaAttrs = array(
+            'src'      => (string) ($attrs['src'] ?? ''),
+            'poster'   => (string) ($attrs['poster'] ?? ''),
+            'preload'  => (string) ($attrs['preload'] ?? ''),
+            'width'    => (string) ($attrs['width'] ?? ''),
+            'height'   => (string) ($attrs['height'] ?? ''),
+            'controls' => ! empty($attrs['controls']) ? 'controls' : '',
+        );
+        $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $attrs['caption'] . '</figcaption>' : '';
+
+        return '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-' . $tagName) . '><' . $tagName . $this->htmlAttrs($mediaAttrs) . '></' . $tagName . '>' . $caption . '</figure>';
     }
 
     private function mergeClassNames(string ...$classNames): string

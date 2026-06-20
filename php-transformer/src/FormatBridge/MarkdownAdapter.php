@@ -58,6 +58,10 @@ final class MarkdownAdapter implements FormatAdapterInterface
 
         $html = $this->normalizePreBlocks($html);
         $markdown = $this->htmlToMarkdown($html, $options);
+        $placeholders = $this->emptyDynamicBlockPlaceholders($blocks);
+        if ( array() !== $placeholders ) {
+            $markdown = trim($markdown . "\n\n" . implode("\n\n", $placeholders));
+        }
 
         return trim((string) preg_replace("/\n{3,}/", "\n\n", $markdown));
     }
@@ -129,5 +133,90 @@ final class MarkdownAdapter implements FormatAdapterInterface
             $converter->getEnvironment()->addConverter(new \League\HTMLToMarkdown\Converter\TableConverter());
         } catch ( Throwable ) {
         }
+    }
+
+    /**
+     * @param array<int|string, array<string, mixed>> $blocks
+     * @return array<int, string>
+     */
+    private function emptyDynamicBlockPlaceholders(array $blocks): array
+    {
+        $placeholders = array();
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            $innerBlocks = $block['innerBlocks'] ?? array();
+            if ( is_array($innerBlocks) && array() !== $innerBlocks ) {
+                $placeholders = array_merge($placeholders, $this->emptyDynamicBlockPlaceholders($innerBlocks));
+            }
+
+            $blockName = (string) ($block['blockName'] ?? '');
+            if ( '' === $blockName || $this->hasStaticHtml($block) || $this->isKnownStaticCoreBlock($blockName) ) {
+                continue;
+            }
+
+            $attrs = empty($block['attrs']) || ! is_array($block['attrs']) ? '' : ' ' . (json_encode($block['attrs'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '{}');
+            $name = str_starts_with($blockName, 'core/') ? substr($blockName, 5) : $blockName;
+            $placeholders[] = '<!-- wp:' . $name . $attrs . ' /-->';
+        }
+
+        return $placeholders;
+    }
+
+    /**
+     * @param array<string, mixed> $block
+     */
+    private function hasStaticHtml(array $block): bool
+    {
+        if ( '' !== trim((string) ($block['innerHTML'] ?? '')) ) {
+            return true;
+        }
+
+        $innerContent = $block['innerContent'] ?? array();
+        if ( ! is_array($innerContent) ) {
+            return false;
+        }
+
+        foreach ( $innerContent as $part ) {
+            if ( null !== $part && '' !== trim((string) $part) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isKnownStaticCoreBlock(string $blockName): bool
+    {
+        return in_array($blockName, array(
+            'core/audio',
+            'core/button',
+            'core/buttons',
+            'core/code',
+            'core/column',
+            'core/columns',
+            'core/details',
+            'core/embed',
+            'core/file',
+            'core/gallery',
+            'core/group',
+            'core/heading',
+            'core/html',
+            'core/image',
+            'core/list',
+            'core/list-item',
+            'core/navigation',
+            'core/navigation-link',
+            'core/paragraph',
+            'core/preformatted',
+            'core/pullquote',
+            'core/quote',
+            'core/separator',
+            'core/shortcode',
+            'core/table',
+            'core/video',
+        ), true);
     }
 }

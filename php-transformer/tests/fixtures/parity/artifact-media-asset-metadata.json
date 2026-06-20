@@ -1,0 +1,45 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-media-asset-metadata",
+  "description": "Reports generic audio, video, poster, source, and document asset metadata from artifact-local references.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-media-asset-metadata.json",
+    "notes": "Product-neutral asset metadata reporting for media and document files."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream artifact metadata fixture has no legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "content": "<main><video src=\"assets/movie.mp4\" poster=\"assets/poster.jpg\"></video><audio><source src=\"assets/clip.mp3\" type=\"audio/mpeg\"></audio><a href=\"assets/menu.pdf\">Menu</a></main>",
+          "mime_type": "text/html",
+          "role": "entry"
+        },
+        { "path": "assets/movie.mp4", "content_base64": "AAAA", "mime_type": "video/mp4" },
+        { "path": "assets/poster.jpg", "content_base64": "/9j/", "mime_type": "image/jpeg" },
+        { "path": "assets/clip.mp3", "content_base64": "SUQz", "mime_type": "audio/mpeg" },
+        { "path": "assets/menu.pdf", "content_base64": "JVBERi0xLjQK", "mime_type": "application/pdf" }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.artifact.files_by_role.video", "assert": "equals", "value": 1 },
+    { "path": "source_reports.artifact.files_by_role.audio", "assert": "equals", "value": 1 },
+    { "path": "source_reports.artifact.files_by_role.document", "assert": "equals", "value": 1 },
+    { "path": "source_reports.artifact.asset_references", "assert": "count", "count": 4 },
+    { "path": "source_reports.artifact.asset_references.0.element", "assert": "equals", "value": "video" },
+    { "path": "source_reports.artifact.asset_references.0.asset_path", "assert": "equals", "value": "assets/movie.mp4" },
+    { "path": "source_reports.artifact.asset_references.1.attribute", "assert": "equals", "value": "poster" },
+    { "path": "source_reports.artifact.asset_references.2.element", "assert": "equals", "value": "source" },
+    { "path": "source_reports.artifact.asset_references.2.role", "assert": "equals", "value": "audio" },
+    { "path": "source_reports.artifact.asset_references.3.role", "assert": "equals", "value": "document" }
+  ]
+}
