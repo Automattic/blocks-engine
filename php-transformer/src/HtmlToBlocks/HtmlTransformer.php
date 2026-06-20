@@ -124,7 +124,7 @@ final class HtmlTransformer
         $diagnostics = array(
             array(
                 'code'    => 'html_to_blocks_core_slice',
-                'message' => 'Converted supported core text, media, gallery, embed, table, button, shortcode, definition-list, details, navigation, and wrapper elements; unsupported elements are reported as fallbacks.',
+                'message' => 'Converted supported core text, layout, media, gallery, embed, file, table, button, shortcode, definition-list, details, navigation, and wrapper elements; unsupported elements are reported as fallbacks.',
                 'source'  => self::class,
             ),
         );
@@ -162,7 +162,7 @@ final class HtmlTransformer
             sourceReports: $sourceReports,
             coverage: array(
                 array(
-                    'supported_blocks' => array( 'core/button', 'core/buttons', 'core/code', 'core/details', 'core/embed', 'core/gallery', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/shortcode', 'core/table' ),
+                    'supported_blocks' => array( 'core/audio', 'core/button', 'core/buttons', 'core/code', 'core/column', 'core/columns', 'core/details', 'core/embed', 'core/file', 'core/gallery', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/separator', 'core/shortcode', 'core/table', 'core/video' ),
                     'block_count'      => count($blocks),
                     'fallback_count'   => count($fallbacks),
                     'source_provenance_count' => count($sourceProvenance),
@@ -376,6 +376,10 @@ final class HtmlTransformer
             return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
         }
 
+        if ( 'hr' === $tagName ) {
+            return $this->createBlock('core/separator', $this->presentationAttributes($element), array(), $element);
+        }
+
         if ( 'details' === $tagName ) {
             $summary = $this->firstChildElement($element, 'summary');
             $children = $this->convertChildrenWithoutTags($element, $fallbacks, array( 'summary' ));
@@ -400,7 +404,16 @@ final class HtmlTransformer
             return $this->convertIframeElement($element, $fallbacks);
         }
 
+        if ( in_array($tagName, array( 'audio', 'video' ), true) ) {
+            return $this->convertMediaElement($element);
+        }
+
         if ( 'a' === $tagName && '' !== trim($element->textContent ?? '') ) {
+            $fileBlock = $this->fileBlockFromAnchor($element);
+            if ( null !== $fileBlock ) {
+                return $fileBlock;
+            }
+
             return $this->createBlock('core/buttons', array(), array( $this->buttonBlockFromAnchor($element) ), $element);
         }
 
@@ -441,6 +454,11 @@ final class HtmlTransformer
         }
 
         if ( in_array($tagName, array( 'article', 'body', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+            $columns = $this->columnsBlockFromElement($element, $fallbacks);
+            if ( null !== $columns ) {
+                return $columns;
+            }
+
             $gallery = $this->galleryBlockFromElement($element, $fallbacks);
             if ( null !== $gallery ) {
                 return $gallery;
@@ -1380,6 +1398,113 @@ final class HtmlTransformer
         }
 
         return $this->createBlock('core/gallery', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $images, $element);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function columnsBlockFromElement(DOMElement $element, array &$fallbacks): ?array
+    {
+        if ( ! $this->looksLikeColumnsContainer($element) ) {
+            return null;
+        }
+
+        $columns = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+
+            $children = $this->convertChildren($child, $fallbacks, true);
+            $columns[] = $this->createBlock('core/column', $this->presentationAttributes($child), $children, $child);
+        }
+
+        if ( count($columns) < 2 ) {
+            return null;
+        }
+
+        return $this->createBlock('core/columns', $this->presentationAttributes($element), $columns, $element);
+    }
+
+    private function looksLikeColumnsContainer(DOMElement $element): bool
+    {
+        if ( $this->hasClass($element, 'wp-block-columns') ) {
+            return true;
+        }
+
+        $className = strtolower($this->attr($element, 'class'));
+        $style = strtolower($this->attr($element, 'style'));
+
+        return (bool) preg_match('/(?:^|[\s_-])columns?(?:$|[\s_-])/', $className)
+            || preg_match('/(?:^|;)\s*(?:display\s*:\s*(?:inline-)?flex|grid-template-columns\s*:)/', $style);
+    }
+
+    private function convertMediaElement(DOMElement $element): ?array
+    {
+        $tagName = strtolower($element->tagName);
+        $src = $this->safeMediaUrl($this->attr($element, 'src'));
+        if ( '' === $src ) {
+            $source = $this->firstChildElement($element, 'source');
+            $src = $source instanceof DOMElement ? $this->safeMediaUrl($this->attr($source, 'src')) : '';
+        }
+        if ( '' === $src ) {
+            return null;
+        }
+
+        $attrs = array_filter(array_merge($this->presentationAttributes($element), array(
+            'src'      => $src,
+            'poster'   => 'video' === $tagName ? $this->attr($element, 'poster') : '',
+            'preload'  => $this->attr($element, 'preload'),
+            'width'    => $this->attr($element, 'width'),
+            'height'   => $this->attr($element, 'height'),
+            'controls' => $element->hasAttribute('controls'),
+        )), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
+
+        return $this->createBlock('core/' . $tagName, $attrs, array(), $element);
+    }
+
+    private function safeMediaUrl(string $url): string
+    {
+        $url = trim($url);
+        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
+            return '';
+        }
+
+        return $url;
+    }
+
+    private function fileBlockFromAnchor(DOMElement $anchor): ?array
+    {
+        $href = $this->safeFileUrl($this->attr($anchor, 'href'));
+        if ( '' === $href ) {
+            return null;
+        }
+
+        $attrs = array_filter(array_merge($this->presentationAttributes($anchor), array(
+            'href'               => $href,
+            'url'                => $href,
+            'text'               => $this->innerHtml($anchor),
+            'showDownloadButton' => $anchor->hasAttribute('download'),
+        )), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
+
+        return $this->createBlock('core/file', $attrs, array(), $anchor);
+    }
+
+    private function safeFileUrl(string $url): string
+    {
+        $url = trim($url);
+        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
+            return '';
+        }
+
+        $path = (string) parse_url($url, PHP_URL_PATH);
+        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        return in_array($extension, array( 'doc', 'docx', 'odp', 'ods', 'odt', 'pdf', 'ppt', 'pptx', 'rtf', 'txt', 'xls', 'xlsx', 'zip' ), true) ? $url : '';
     }
 
     private function convertPictureElement(DOMElement $picture, ?DOMElement $figure = null): ?array

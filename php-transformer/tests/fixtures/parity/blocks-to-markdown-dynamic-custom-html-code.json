@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "blocks-to-markdown-dynamic-custom-html-code",
+  "description": "Converts static custom block HTML and code blocks to Markdown while preserving empty dynamic block comments and raw core/html output.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/blocks-to-markdown-dynamic-custom-html-code.json",
+    "notes": "Product-neutral blocks-to-Markdown coverage for custom, dynamic, raw HTML, and code escaping behavior."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream FormatBridge fixture has no legacy comparison."
+  },
+  "operation": "format_bridge.convert",
+  "input": {
+    "from": "blocks",
+    "to": "markdown",
+    "content": "<!-- wp:code {\"content\":\"\\u003cdiv\\u003eUnsafe & text\\u003c/div\\u003e\"} --><pre class=\"wp-block-code\"><code>&lt;div&gt;Unsafe &amp; text&lt;/div&gt;</code></pre><!-- /wp:code --><!-- wp:acme/card {\"title\":\"Card\"} --><section><h2>Card</h2><p>Body</p></section><!-- /wp:acme/card --><!-- wp:latest-posts {\"postsToShow\":3} /--><!-- wp:html --><div class=\"raw\"><span>Raw HTML</span></div><!-- /wp:html -->"
+  },
+  "expect": [
+    { "path": "blocks", "assert": "count", "count": 4 },
+    { "path": "blocks.1.blockName", "assert": "equals", "value": "acme/card" },
+    { "path": "blocks.2.blockName", "assert": "equals", "value": "core/latest-posts" },
+    { "path": "converted", "assert": "contains", "value": "<div>Unsafe & text</div>" },
+    { "path": "converted", "assert": "not_contains", "value": "&lt;div&gt;Unsafe" },
+    { "path": "converted", "assert": "contains", "value": "## Card" },
+    { "path": "converted", "assert": "contains", "value": "Body" },
+    { "path": "converted", "assert": "contains", "value": "<!-- wp:latest-posts {\"postsToShow\":3} /-->" },
+    { "path": "converted", "assert": "contains", "value": "Raw HTML" }
+  ]
+}

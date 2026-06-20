@@ -304,6 +304,13 @@ final class ArtifactNormalizer
             'gif' => 'image/gif',
             'webp' => 'image/webp',
             'avif' => 'image/avif',
+            'mp3' => 'audio/mpeg',
+            'm4a' => 'audio/mp4',
+            'wav' => 'audio/wav',
+            'mp4' => 'video/mp4',
+            'mov' => 'video/quicktime',
+            'webm' => 'video/webm',
+            'pdf' => 'application/pdf',
             'woff' => 'font/woff',
             'woff2' => 'font/woff2',
             'ttf' => 'font/ttf',
@@ -339,6 +346,15 @@ final class ArtifactNormalizer
         }
         if ( str_starts_with($mimeType, 'image/') ) {
             return 'image';
+        }
+        if ( str_starts_with($mimeType, 'audio/') ) {
+            return 'audio';
+        }
+        if ( str_starts_with($mimeType, 'video/') ) {
+            return 'video';
+        }
+        if ( 'application/pdf' === $mimeType ) {
+            return 'document';
         }
         if ( str_starts_with($mimeType, 'font/') ) {
             return 'font';

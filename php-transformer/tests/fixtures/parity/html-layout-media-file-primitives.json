@@ -1,0 +1,37 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-layout-media-file-primitives",
+  "description": "Converts generic separator, columns, audio, video, and file-link HTML into core blocks without product-specific policy.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-layout-media-file-primitives.json",
+    "notes": "Product-neutral coverage for layout and media primitives."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"wp-block-columns\"><div class=\"wp-block-column left\"><h2>Left</h2><p>Copy</p></div><div class=\"wp-block-column right\"><hr class=\"is-style-wide\"></div></div><video controls poster=\"/poster.jpg\" src=\"/movie.mp4\" width=\"640\"></video><audio controls><source src=\"/clip.mp3\" type=\"audio/mpeg\"></audio><a href=\"/docs/menu.pdf\" download>Menu PDF</a>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/columns", "attrs": { "className": "wp-block-columns" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "wp-block-column left" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Left", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/separator", "attrs": { "className": "is-style-wide" } },
+    { "path": "blocks.1", "name": "core/video", "attrs": { "src": "/movie.mp4", "poster": "/poster.jpg", "width": "640", "controls": true } },
+    { "path": "blocks.2", "name": "core/audio", "attrs": { "src": "/clip.mp3", "controls": true } },
+    { "path": "blocks.3", "name": "core/file", "attrs": { "href": "/docs/menu.pdf", "url": "/docs/menu.pdf", "text": "Menu PDF", "showDownloadButton": true } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 4 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:separator" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:file" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:video" }
+  ]
+}
