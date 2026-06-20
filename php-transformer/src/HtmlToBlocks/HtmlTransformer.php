@@ -342,10 +342,10 @@ final class HtmlTransformer
         if ( 'pre' === $tagName ) {
             $code = $this->firstChildElement($element, 'code');
             if ( $code instanceof DOMElement ) {
-                return $this->createBlock('core/code', array_merge($this->presentationAttributes($element), array( 'content' => $code->textContent ?? '' )), array(), $element);
+                return $this->createBlock('core/code', array_merge($this->codePresentationAttributes($element, $code), array( 'content' => $code->textContent ?? '' )), array(), $element);
             }
 
-            return $this->createBlock('core/preformatted', array_merge($this->presentationAttributes($element), array( 'content' => $this->innerHtml($element) )), array(), $element);
+            return $this->createBlock('core/preformatted', array_merge($this->presentationAttributes($element), array( 'content' => $this->innerHtmlPreservingWhitespace($element) )), array(), $element);
         }
 
         if ( 'table' === $tagName ) {
@@ -553,6 +553,16 @@ final class HtmlTransformer
         }
 
         return trim($html);
+    }
+
+    private function innerHtmlPreservingWhitespace(DOMElement $element): string
+    {
+        $html = '';
+        foreach ( $element->childNodes as $child ) {
+            $html .= $element->ownerDocument->saveHTML($child);
+        }
+
+        return $html;
     }
 
     private function outerHtml(DOMElement $element): string
@@ -1468,6 +1478,20 @@ final class HtmlTransformer
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    private function codePresentationAttributes(DOMElement $pre, DOMElement $code): array
+    {
+        $attrs = $this->presentationAttributes($pre);
+        $codeClassName = $this->attr($code, 'class');
+        if ( '' !== trim($codeClassName) ) {
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $codeClassName);
+        }
+
+        return array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     private function navigationLinks(DOMElement $element): array
@@ -1476,12 +1500,22 @@ final class HtmlTransformer
         foreach ( $this->directNavigationAnchors($element) as $anchor ) {
             $links[] = $this->createBlock('core/navigation-link', array_filter(array(
                 'label' => $this->innerHtml($anchor),
-                'url'   => $this->attr($anchor, 'href'),
+                'url'   => $this->safeNavigationUrl($this->attr($anchor, 'href')),
                 'kind'  => 'custom',
             ), static fn ($value): bool => '' !== $value), array(), $anchor);
         }
 
         return $links;
+    }
+
+    private function safeNavigationUrl(string $url): string
+    {
+        $url = trim($url);
+        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
+            return '';
+        }
+
+        return $url;
     }
 
     /**

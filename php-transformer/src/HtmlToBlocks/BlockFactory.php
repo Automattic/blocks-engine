@@ -114,12 +114,12 @@ final class BlockFactory
         }
 
         if ( 'core/navigation' === $name ) {
-            return array( 'opening' => '<nav' . $this->blockSupportAttrs($attrs, 'wp-block-navigation') . '>', 'closing' => '</nav>' );
+            return array( 'opening' => '<nav' . $this->blockSupportAttrs($attrs, 'wp-block-navigation') . '><ul class="wp-block-navigation__container">', 'closing' => '</ul></nav>' );
         }
 
         if ( 'core/navigation-link' === $name ) {
             $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-            return '<a class="wp-block-navigation-item__content"' . $href . '>' . ($attrs['label'] ?? '') . '</a>';
+            return '<li' . $this->blockSupportAttrs($attrs, 'wp-block-navigation-item wp-block-navigation-link') . '><a class="wp-block-navigation-item__content"' . $href . '><span class="wp-block-navigation-item__label">' . ($attrs['label'] ?? '') . '</span></a></li>';
         }
 
         if ( 'core/shortcode' === $name ) {

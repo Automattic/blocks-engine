@@ -1,0 +1,42 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-code-pre-nav-shape",
+  "description": "Converts generic code, preformatted, inline code, and navigation HTML into safe core block output shapes.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-code-pre-nav-shape.json",
+    "notes": "Product-neutral fixture for code/preformatted and navigation output shape coverage."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><pre class=\"code-frame\"><code class=\"language-php\">&lt;?php echo &quot;Hi&quot;;</code></pre><pre>  alpha\n    beta\n</pre><p>Use <code>inline()</code> safely.</p><code>standalone()</code><nav class=\"primary\"><a href=\"/alpha\">Alpha</a><a href=\"javascript:alert(1)\">Unsafe</a></nav></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/code", "attrs": { "content": "<?php echo \"Hi\";", "className": "code-frame language-php" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/preformatted", "attrs": { "content": "  alpha\n    beta\n" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/paragraph", "attrs": { "content": "Use <code>inline()</code> safely." } },
+    { "path": "blocks.0.innerBlocks.3", "name": "core/paragraph", "attrs": { "content": "<code>standalone()</code>" } },
+    { "path": "blocks.0.innerBlocks.4", "name": "core/navigation", "attrs": { "className": "primary" } },
+    { "path": "blocks.0.innerBlocks.4.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Alpha", "url": "/alpha", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.4.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Unsafe", "kind": "custom" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 5 },
+    { "path": "blocks.0.innerBlocks.4.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks.0.innerBlocks.4.innerBlocks.1.attrs.url", "assert": "equals", "value": null },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<ul class=\"wp-block-navigation__container\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<li class=\"wp-block-navigation-item wp-block-navigation-link\"><a class=\"wp-block-navigation-item__content\" href=\"/alpha\"><span class=\"wp-block-navigation-item__label\">Alpha</span></a></li>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<li class=\"wp-block-navigation-item wp-block-navigation-link\"><a class=\"wp-block-navigation-item__content\"><span class=\"wp-block-navigation-item__label\">Unsafe</span></a></li>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "javascript:alert" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
