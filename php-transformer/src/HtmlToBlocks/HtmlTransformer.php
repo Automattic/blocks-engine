@@ -30,6 +30,11 @@ final class HtmlTransformer
      */
     private array $sourceProvenance = array();
 
+    /**
+     * @var array<int, array<string, mixed>>
+     */
+    private array $structureProvenance = array();
+
     private int $nextSourceProvenanceId = 1;
 
     public function __construct(private readonly Runtime $runtime = new Runtime())
@@ -47,6 +52,7 @@ final class HtmlTransformer
         $this->fallbackProvenance = TransformationOptions::provenance($options);
         $this->presentationProvenance = array();
         $this->sourceProvenance = array();
+        $this->structureProvenance = array();
         $this->nextSourceProvenanceId = 1;
         $provenance               = array(
             array_merge(array(
@@ -141,6 +147,7 @@ final class HtmlTransformer
             'html' => array(
                 'presentation_signals' => $this->presentationProvenance,
                 'source_provenance'    => $sourceProvenance,
+                'structure_signals'    => $this->structureProvenance,
             ),
         );
         $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('html', $blocks, $fallbacks, $sourceReports, array(), $provenance, $metrics);
@@ -359,7 +366,7 @@ final class HtmlTransformer
         if ( 'pre' === $tagName ) {
             $code = $this->firstChildElement($element, 'code');
             if ( $code instanceof DOMElement ) {
-                return $this->createBlock('core/code', array_merge($this->codePresentationAttributes($element, $code), array( 'content' => $code->textContent ?? '' )), array(), $element);
+                return $this->createBlock('core/code', array_merge($this->codePresentationAttributes($element, $code), array( 'content' => $this->codeContent($code) )), array(), $element);
             }
 
             return $this->createBlock('core/preformatted', array_merge($this->presentationAttributes($element), array( 'content' => $this->innerHtmlPreservingWhitespace($element) )), array(), $element);
@@ -416,6 +423,8 @@ final class HtmlTransformer
                 'tag'             => $tagName,
                 'selector'        => $this->elementSelector($element),
                 'attributes'      => $this->htmlAttributes($element),
+                'context'         => $this->sourceContext($element),
+                'events'          => $this->eventMetadata($element),
                 'controls'        => $this->formControls($element),
                 'text_length'     => strlen(trim($element->textContent ?? '')),
                 'child_count'     => $this->childElementCount($element),
@@ -464,6 +473,8 @@ final class HtmlTransformer
                 'tag'             => $tagName,
                 'selector'        => $this->elementSelector($element),
                 'attributes'      => $this->htmlAttributes($element),
+                'context'         => $this->sourceContext($element),
+                'events'          => $this->eventMetadata($element),
                 'text_length'     => strlen(trim($element->textContent ?? '')),
                 'child_count'     => $this->childElementCount($element),
                 'html'            => $this->safeFallbackHtml($element),
@@ -505,6 +516,7 @@ final class HtmlTransformer
         if ( $sourceElement instanceof DOMElement ) {
             $provenanceId = $this->nextSourceProvenanceId++;
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
+            $this->recordStructureProvenance($name, $attrs, $sourceElement);
             $this->sourceProvenance[$provenanceId] = $this->sourceProvenanceEntry($name, $sourceElement);
         }
 
@@ -559,6 +571,7 @@ final class HtmlTransformer
             'selector'          => $this->elementSelector($element),
             'source_attributes' => $this->safeSourceAttributes($element),
             'source_fragment'   => $this->safeSourceFragment($element),
+            'context'           => $this->sourceContext($element),
         );
     }
 
@@ -653,9 +666,28 @@ final class HtmlTransformer
         );
     }
 
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function recordStructureProvenance(string $blockName, array $attrs, DOMElement $element): void
+    {
+        $signals = $this->structureSignals($element, $attrs);
+        if ( array() === $signals ) {
+            return;
+        }
+
+        $this->structureProvenance[] = array(
+            'block_name'        => $blockName,
+            'tag'               => strtolower($element->tagName),
+            'selector'          => $this->elementSelector($element),
+            'signals'           => $signals,
+            'source_attributes' => array_intersect_key($this->htmlAttributes($element), array_flip(array( 'class', 'id', 'role', 'style', 'data-layout', 'data-wp-layout' ))),
+        );
+    }
+
     private function shouldPreserveWrapper(DOMElement $element): bool
     {
-        return in_array(strtolower($element->tagName), array( 'article', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) && array() !== $this->presentationAttributes($element);
+        return in_array(strtolower($element->tagName), array( 'article', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) && ( array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
     }
 
     private function isInlineContentElement(string $tagName): bool
@@ -715,6 +747,121 @@ final class HtmlTransformer
         }
 
         return $safe;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function sourceContext(DOMElement $element): array
+    {
+        return array_filter(array(
+            'selector'                => $this->elementSelector($element),
+            'parent_tag'              => $element->parentNode instanceof DOMElement && 'body' !== strtolower($element->parentNode->tagName) ? strtolower($element->parentNode->tagName) : '',
+            'ancestor_tags'           => $this->ancestorTags($element),
+            'nearest_heading'         => $this->nearestPreviousHeadingText($element),
+            'role'                    => $this->attr($element, 'role'),
+            'id'                      => $this->attr($element, 'id'),
+            'class_names'             => $this->classNames($element),
+            'data_attributes'         => $this->safeDataAttributes($element),
+            'structure_signals'       => $this->structureSignals($element, array()),
+            'interactive_attributes'  => $this->interactiveAttributes($element),
+        ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function ancestorTags(DOMElement $element): array
+    {
+        $tags = array();
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement && 'body' !== strtolower($parent->tagName); $parent = $parent->parentNode ) {
+            $tags[] = strtolower($parent->tagName);
+        }
+
+        return $tags;
+    }
+
+    private function nearestPreviousHeadingText(DOMElement $element): string
+    {
+        for ( $node = $element->previousSibling; $node instanceof DOMNode; $node = $node->previousSibling ) {
+            if ( $node instanceof DOMElement && preg_match('/^h[1-6]$/i', $node->tagName) ) {
+                return trim(preg_replace('/\s+/', ' ', $node->textContent ?? '') ?? '');
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function classNames(DOMElement $element): array
+    {
+        return array_values(array_filter(preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array()));
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function safeDataAttributes(DOMElement $element): array
+    {
+        $data = array();
+        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+            if ( preg_match('/^data-[a-z0-9_-]+$/i', $name) && strlen($value) <= 300 && ! preg_match('/javascript\s*:/i', $value) ) {
+                $data[$name] = $value;
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * @return array<string, bool|string>
+     */
+    private function interactiveAttributes(DOMElement $element): array
+    {
+        return array_filter(array(
+            'tabindex'      => $this->attr($element, 'tabindex'),
+            'aria-expanded' => $this->attr($element, 'aria-expanded'),
+            'aria-controls' => $this->attr($element, 'aria-controls'),
+            'has_events'    => array() !== $this->eventMetadata($element),
+        ), static fn (mixed $value): bool => false !== $value && '' !== $value);
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function structureSignals(DOMElement $element, array $attrs): array
+    {
+        $className = strtolower(trim($this->attr($element, 'class') . ' ' . (string) ($attrs['className'] ?? '')));
+        $style = strtolower(trim($this->attr($element, 'style') . ';' . (string) ($attrs['style'] ?? '')));
+        $signals = array();
+
+        if ( preg_match('/(?:^|[\s_-])(?:card|tile|panel|item)(?:$|[\s_-])/', $className) || 'article' === strtolower($element->tagName) ) {
+            $signals['card_like'] = true;
+        }
+        if ( preg_match('/(?:^|[\s_-])(?:cards|grid|tiles|columns|collection|gallery)(?:$|[\s_-])/', $className) || preg_match('/(?:^|;)\s*(?:display\s*:\s*grid|grid-template-columns\s*:)/', $style) ) {
+            $signals['grid_like'] = true;
+        }
+
+        $itemCount = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->isCardLikeElement($child) ) {
+                ++$itemCount;
+            }
+        }
+        if ( 1 < $itemCount ) {
+            $signals['repeated_card_children'] = $itemCount;
+        }
+
+        return $signals;
+    }
+
+    private function isCardLikeElement(DOMElement $element): bool
+    {
+        $className = strtolower($this->attr($element, 'class'));
+        return 'article' === strtolower($element->tagName) || (bool) preg_match('/(?:^|[\s_-])(?:card|tile|panel|item)(?:$|[\s_-])/', $className);
     }
 
     private function safeSourceFragment(DOMElement $element): string
@@ -966,6 +1113,8 @@ final class HtmlTransformer
             'tag'             => 'svg',
             'selector'        => $this->elementSelector($element),
             'attributes'      => $this->safeSvgAttributes($element),
+            'context'         => $this->sourceContext($element),
+            'events'          => $this->eventMetadata($element),
             'text_length'     => strlen(trim($element->textContent ?? '')),
             'child_count'     => $this->childElementCount($element),
             'html'            => $boundedHtml['html'],
@@ -1391,6 +1540,8 @@ final class HtmlTransformer
             'tag'             => 'iframe',
             'selector'        => $this->elementSelector($iframe),
             'attributes'      => $this->safeEmbedAttributes($iframe),
+            'context'         => $this->sourceContext($iframe),
+            'events'          => $this->eventMetadata($iframe),
             'html'            => $boundedHtml['html'],
             'html_bytes'      => $boundedHtml['bytes'],
             'html_truncated'  => $boundedHtml['truncated'],
@@ -1506,6 +1657,80 @@ final class HtmlTransformer
         }
 
         return array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+    }
+
+    private function codeContent(DOMElement $code): string
+    {
+        foreach ( $code->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                return $this->sanitizedSyntaxHtml($code);
+            }
+        }
+
+        return $code->textContent ?? '';
+    }
+
+    private function sanitizedSyntaxHtml(DOMElement $element): string
+    {
+        $html = '';
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                $html .= htmlspecialchars($child->textContent ?? '', ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( in_array($tagName, array( 'span', 'mark', 'b', 'strong', 'i', 'em' ), true) ) {
+                $attrs = array_intersect_key($this->htmlAttributes($child), array_flip(array( 'class', 'data-token', 'title' )));
+                $attrs = array_filter($attrs, static fn (string $value): bool => '' !== $value && strlen($value) <= 200 && ! preg_match('/javascript\s*:/i', $value));
+                $html .= '<' . $tagName . $this->htmlAttributeString($attrs) . '>' . $this->sanitizedSyntaxHtml($child) . '</' . $tagName . '>';
+                continue;
+            }
+
+            $html .= htmlspecialchars($child->textContent ?? '', ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+
+        return $html;
+    }
+
+    /**
+     * @param array<string, string> $attrs
+     */
+    private function htmlAttributeString(array $attrs): string
+    {
+        $html = '';
+        foreach ( $attrs as $name => $value ) {
+            $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        return $html;
+    }
+
+    /**
+     * @return array<int, array<string, string>>
+     */
+    private function eventMetadata(DOMElement $element): array
+    {
+        $events = array();
+        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+            if ( preg_match('/^on([a-z]+)$/i', $name, $matches) ) {
+                $events[] = array(
+                    'type'      => strtolower($matches[1]),
+                    'attribute' => strtolower($name),
+                );
+            }
+            if ( preg_match('/^data-(?:action|on|event)$/i', $name) && '' !== trim($value) ) {
+                $events[] = array(
+                    'type'      => 'declared',
+                    'attribute' => $name,
+                );
+            }
+        }
+
+        return $events;
     }
 
     /**

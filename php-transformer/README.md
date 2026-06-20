@@ -106,7 +106,11 @@ Public entrypoints accept a generic options array. `source` and `scope` are copi
 
 The result envelope includes generic `metrics` for wrapper reporting: `input_bytes`, `block_count`, `fallback_count`, `diagnostic_count`, `transform_duration_ms`, and `output_bytes`.
 
-`source_reports.conversion_report` exposes a compact generic projection for wrappers that previously reconstructed report slices from lower-level result fields. It includes fallback diagnostics, source/selector summaries, asset references, navigation candidates, presentation-gap signals, and metrics. It remains product-neutral: callers still own route rewrites, media imports, theme assembly, navigation entity creation, visual repair policy, and acceptance gates.
+`source_reports.html.source_provenance` exposes bounded source context for converted blocks: selector, safe source attributes, sanitized source fragment, ancestor context, nearby heading text, safe `data-*` attributes, and generic structure hints such as card-like or grid-like wrappers. `source_reports.html.structure_signals` records those card/grid/static layout hints separately so callers can inspect them without relying on block attributes.
+
+`source_reports.conversion_report` exposes a compact generic projection for wrappers that previously reconstructed report slices from lower-level result fields. It includes fallback diagnostics, sanitized fallback context, event attribute projections, source/selector summaries, asset references, navigation candidates, presentation and structure signals, and metrics. It remains product-neutral: callers still own route rewrites, media imports, theme assembly, navigation entity creation, visual repair policy, and acceptance gates.
+
+`HtmlTransformer` preserves syntax-highlight spans inside `<pre><code>` when they use safe inline tags and bounded attributes, while plain code remains escaped as text. Figure-wrapped testimonials and quote shapes are normalized to core quote or pullquote blocks with attribution from `cite`, `footer`, or `figcaption` content.
 
 Use `FormatBridge::convertResult()` for format conversions and unsupported source or target format diagnostics:
 
