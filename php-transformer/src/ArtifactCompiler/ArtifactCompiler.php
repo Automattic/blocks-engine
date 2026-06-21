@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 
 final class ArtifactCompiler
 {
@@ -73,6 +74,7 @@ final class ArtifactCompiler
             ),
         );
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks);
+        $sourceReports['materialization_plan'] = ( new MaterializationPlanBuilder() )->fromCompiledSite($sourceReports['compiled_site']);
         $provenance = array(
             array(
                 'source_format' => 'artifact',
@@ -117,6 +119,20 @@ final class ArtifactCompiler
             provenance: $provenance,
             metrics: $metrics
         );
+    }
+
+    /**
+     * Compile a standalone source fragment through the canonical format bridge.
+     *
+     * @param array<string,mixed> $options Transformer context/provenance options.
+     */
+    public function compileFragment(string $content, string $source = 'fragment', string $format = 'html', array $options = array()): TransformerResult
+    {
+        $bridge = new FormatBridge();
+        return $bridge->convertResult($content, $format, 'blocks', array_merge(array(
+            'source'       => $source,
+            'source_scope' => 'artifact-fragment',
+        ), $options));
     }
 
     /**
