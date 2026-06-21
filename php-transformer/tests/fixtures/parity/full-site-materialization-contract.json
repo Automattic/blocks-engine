@@ -1,0 +1,158 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "full-site-materialization-contract",
+  "description": "Compiles a bounded generic full-site artifact into pages, template parts, writable assets, routes, navigation, menus, visual repair CSS, and source reports.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/full-site-materialization-contract.json",
+    "notes": "Covers the generic full-site materialization contract without product adapter semantics."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Full-site materialization reporting is an upstream transformer contract with no legacy package equivalent."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "site/index.html",
+      "files": [
+        {
+          "path": "site/index.html",
+          "content": "<main><h1>Full Site Artifact</h1><p>A generic compiled site entry.</p><img src=\"assets/logo.png\" alt=\"Site logo\"></main>",
+          "mime_type": "text/html",
+          "role": "entry"
+        },
+        {
+          "path": "site/about.html",
+          "content": "<main><h1>About</h1><p>Secondary content page.</p></main>",
+          "mime_type": "text/html"
+        },
+        {
+          "path": "site/contact.html",
+          "content": "<main><h1>Contact</h1><p>Nested route page.</p></main>",
+          "mime_type": "text/html"
+        },
+        {
+          "path": "site/parts/header.html",
+          "content": "<header><nav><a href=\"/\">Home</a><a href=\"/about.html\">About</a><a href=\"/contact/\">Contact</a></nav><img src=\"../assets/logo.png\" alt=\"Logo\"></header>",
+          "mime_type": "text/html",
+          "role": "template-part"
+        },
+        {
+          "path": "site/parts/footer.html",
+          "content": "<footer><p>Reusable footer content.</p></footer>",
+          "mime_type": "text/html",
+          "role": "template-part"
+        },
+        {
+          "path": "site/assets/site.css",
+          "content": "main{max-width:64rem;margin:0 auto}.brand{letter-spacing:.02em}",
+          "mime_type": "text/css",
+          "kind": "css"
+        },
+        {
+          "path": "site/assets/visual-repair.css",
+          "content": ".wp-site-blocks{min-height:100vh}.wp-block-image img{height:auto}",
+          "mime_type": "text/css",
+          "kind": "css",
+          "intent": "visual-repair"
+        },
+        {
+          "path": "site/assets/site.js",
+          "content": "document.documentElement.dataset.fullSiteArtifact='ready';",
+          "mime_type": "application/javascript",
+          "kind": "js"
+        },
+        {
+          "path": "site/assets/logo.png",
+          "content_base64": "iVBORw0KGgo=",
+          "mime_type": "image/png",
+          "role": "image"
+        },
+        {
+          "path": "site/assets/inter.woff2",
+          "content_base64": "d09GRgABAAAAAA==",
+          "mime_type": "font/woff2",
+          "role": "font"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.artifact.schema", "assert": "equals", "value": "blocks-engine/php-transformer/site-artifact/v1" },
+    { "path": "source_reports.artifact.entry_path", "assert": "equals", "value": "site/index.html" },
+    { "path": "source_reports.artifact.files_by_role.template-part", "assert": "equals", "value": 2 },
+    { "path": "source_reports.artifact.files_by_mime.image/png", "assert": "equals", "value": 1 },
+    { "path": "source_reports.artifact.files_by_mime.font/woff2", "assert": "equals", "value": 1 },
+    { "path": "source_reports.compiled_site.schema", "assert": "equals", "value": "blocks-engine/php-transformer/compiled-site/v1" },
+    { "path": "source_reports.compiled_site.entry_path", "assert": "equals", "value": "site/index.html" },
+    { "path": "source_reports.compiled_site.pages", "assert": "count", "count": 3 },
+    { "path": "source_reports.compiled_site.pages.0.title", "assert": "equals", "value": "Full Site Artifact" },
+    { "path": "source_reports.compiled_site.pages.0.entrypoint", "assert": "equals", "value": true },
+    { "path": "source_reports.compiled_site.pages.1.slug", "assert": "equals", "value": "about" },
+    { "path": "source_reports.compiled_site.pages.2.slug", "assert": "equals", "value": "contact" },
+    { "path": "source_reports.compiled_site.template_parts", "assert": "count", "count": 2 },
+    { "path": "source_reports.compiled_site.template_parts.0.source_path", "assert": "equals", "value": "site/parts/header.html" },
+    { "path": "source_reports.compiled_site.template_parts.0.area", "assert": "equals", "value": "header" },
+    { "path": "source_reports.compiled_site.template_parts.1.area", "assert": "equals", "value": "footer" },
+    { "path": "source_reports.compiled_site.assets", "assert": "count", "count": 9 },
+    { "path": "source_reports.compiled_site.visual_repair.stylesheets.0.path", "assert": "equals", "value": "site/assets/visual-repair.css" },
+    { "path": "source_reports.compiled_site.visual_repair.css", "assert": "contains", "value": "min-height:100vh" },
+    { "path": "source_reports.compiled_site.theme.stylesheets.0", "assert": "equals", "value": "site/assets/site.css" },
+    { "path": "source_reports.compiled_site.theme.scripts.0", "assert": "equals", "value": "site/assets/site.js" },
+    { "path": "source_reports.compiled_site.theme.images.0", "assert": "equals", "value": "site/assets/logo.png" },
+    { "path": "source_reports.compiled_site.theme.fonts.0", "assert": "equals", "value": "site/assets/inter.woff2" },
+    { "path": "source_reports.materialization_plan.schema", "assert": "equals", "value": "blocks-engine/php-transformer/materialization-plan/v1" },
+    { "path": "source_reports.materialization_plan.pages", "assert": "count", "count": 3 },
+    { "path": "source_reports.materialization_plan.routes", "assert": "count", "count": 3 },
+    { "path": "source_reports.materialization_plan.routes.0.target_path", "assert": "equals", "value": "/" },
+    { "path": "source_reports.materialization_plan.routes.1.target_path", "assert": "equals", "value": "/about" },
+    { "path": "source_reports.materialization_plan.routes.2.target_path", "assert": "equals", "value": "/contact" },
+    { "path": "source_reports.materialization_plan.navigation_links", "assert": "count", "count": 3 },
+    { "path": "source_reports.materialization_plan.navigation_links.0.kind", "assert": "equals", "value": "navigation_link" },
+    { "path": "source_reports.materialization_plan.navigation_links.0.source_path", "assert": "equals", "value": "site/parts/header.html" },
+    { "path": "source_reports.materialization_plan.navigation_links.0.target_path", "assert": "equals", "value": "/" },
+    { "path": "source_reports.materialization_plan.navigation_links.1.label", "assert": "equals", "value": "About" },
+    { "path": "source_reports.materialization_plan.navigation_links.1.target_slug", "assert": "equals", "value": "about" },
+    { "path": "source_reports.materialization_plan.navigation_links.2.target_path", "assert": "equals", "value": "/contact" },
+    { "path": "source_reports.materialization_plan.menus", "assert": "count", "count": 1 },
+    { "path": "source_reports.materialization_plan.menus.0.kind", "assert": "equals", "value": "menu" },
+    { "path": "source_reports.materialization_plan.menus.0.source_path", "assert": "equals", "value": "site/parts/header.html" },
+    { "path": "source_reports.materialization_plan.menus.0.items", "assert": "equals", "value": 3 },
+    { "path": "source_reports.materialization_plan.template_part_writes", "assert": "count", "count": 2 },
+    { "path": "source_reports.materialization_plan.template_part_writes.0.type", "assert": "equals", "value": "wp_template_part" },
+    { "path": "source_reports.materialization_plan.template_part_writes.0.content", "assert": "contains", "value": "<header>" },
+    { "path": "source_reports.materialization_plan.template_part_writes.1.area", "assert": "equals", "value": "footer" },
+    { "path": "source_reports.materialization_plan.assets.4.path", "assert": "equals", "value": "site/assets/site.css" },
+    { "path": "source_reports.materialization_plan.assets.4.content_encoding", "assert": "equals", "value": "text" },
+    { "path": "source_reports.materialization_plan.assets.4.media_type", "assert": "equals", "value": "text/css" },
+    { "path": "source_reports.materialization_plan.assets.4.content", "assert": "contains", "value": "max-width:64rem" },
+    { "path": "source_reports.materialization_plan.assets.7.path", "assert": "equals", "value": "site/assets/logo.png" },
+    { "path": "source_reports.materialization_plan.assets.7.content_encoding", "assert": "equals", "value": "base64" },
+    { "path": "source_reports.materialization_plan.assets.7.content_base64", "assert": "equals", "value": "iVBORw0KGgo=" },
+    { "path": "source_reports.materialization_plan.assets.7.media_type", "assert": "equals", "value": "image/png" },
+    { "path": "source_reports.materialization_plan.assets.8.path", "assert": "equals", "value": "site/assets/inter.woff2" },
+    { "path": "source_reports.materialization_plan.assets.8.content_base64", "assert": "equals", "value": "d09GRgABAAAAAA==" },
+    { "path": "source_reports.materialization_plan.visual_repair_css", "assert": "contains", "value": "wp-block-image" },
+    { "path": "source_reports.materialization_plan.asset_rewrite_candidates", "assert": "count", "count": 0 },
+    { "path": "source_reports.materialization_plan.theme.visual_repair_css", "assert": "contains", "value": "min-height:100vh" },
+    { "path": "source_reports.materialization_plan.totals.pages", "assert": "equals", "value": 3 },
+    { "path": "source_reports.materialization_plan.totals.routes", "assert": "equals", "value": 3 },
+    { "path": "source_reports.materialization_plan.totals.navigation_links", "assert": "equals", "value": 3 },
+    { "path": "source_reports.materialization_plan.totals.menus", "assert": "equals", "value": 1 },
+    { "path": "source_reports.materialization_plan.totals.template_parts", "assert": "equals", "value": 2 },
+    { "path": "source_reports.materialization_plan.totals.assets", "assert": "equals", "value": 9 },
+    { "path": "source_reports.conversion_report.schema", "assert": "equals", "value": "blocks-engine/php-transformer/conversion-report/v1" },
+    { "path": "source_reports.conversion_report.source_summary.entry_path", "assert": "equals", "value": "site/index.html" },
+    { "path": "source_reports.conversion_report.source_summary.file_count", "assert": "equals", "value": 10 },
+    { "path": "source_reports.conversion_report.asset_refs", "assert": "count", "count": 2 },
+    { "path": "source_reports.conversion_report.selector_summary.source_paths", "assert": "count", "count": 2 },
+    { "path": "source_reports.conversion_report.presentation_gaps.0.type", "assert": "equals", "value": "presentation_stylesheet" },
+    { "path": "source_reports.conversion_report.presentation_gaps.0.path", "assert": "equals", "value": "site/assets/visual-repair.css" },
+    { "path": "source_reports.conversion_report.metrics.fallback_count", "assert": "equals", "value": 0 },
+    { "path": "documents", "assert": "count", "count": 0 },
+    { "path": "assets.7.path", "assert": "equals", "value": "site/assets/logo.png" }
+  ]
+}
