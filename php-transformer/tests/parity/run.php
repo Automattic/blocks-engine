@@ -64,6 +64,7 @@ foreach ( $fixtures as $fixturePath ) {
         assertExpectation($output, $expectation, $fixture['name']);
     }
     assertStructuredCoverage($output, $fixture);
+    assertArtifactReportConsistency($output, $fixture);
 
     if ( $runMigrationComparisons ) {
         $migrationResult = runLegacyComparison($fixture, $output);
@@ -83,6 +84,67 @@ if ( $runMigrationComparisons ) {
     fwrite(STDOUT, "PHP transformer parity fixtures passed: {$ran} fixture(s), {$migrationCompared} migration comparison(s), {$migrationSkipped} migration comparison(s) skipped.\n");
 } else {
     fwrite(STDOUT, "PHP transformer parity fixtures passed: {$ran} fixture(s).\n");
+}
+
+/**
+ * @param array<string, mixed> $output
+ * @param array<string, mixed> $fixture
+ */
+function assertArtifactReportConsistency(array $output, array $fixture): void
+{
+    if ( 'artifact_compiler.compile' !== ($fixture['operation'] ?? '') ) {
+        return;
+    }
+
+    $sourceReports = $output['source_reports'] ?? array();
+    if ( ! is_array($sourceReports) ) {
+        fail("Fixture {$fixture['name']} output source_reports must be an object.");
+    }
+
+    $materializationPlan = $sourceReports['materialization_plan'] ?? array();
+    $conversionReport = $sourceReports['conversion_report'] ?? array();
+    if ( ! is_array($materializationPlan) || ! is_array($conversionReport) ) {
+        fail("Fixture {$fixture['name']} artifact output must include materialization and conversion reports.");
+    }
+
+    $totals = $materializationPlan['totals'] ?? array();
+    $summary = $conversionReport['source_summary'] ?? array();
+    if ( ! is_array($totals) || ! is_array($summary) ) {
+        fail("Fixture {$fixture['name']} materialization totals and conversion source summary must be objects.");
+    }
+
+    $summaryKeys = array(
+        'pages' => 'page_count',
+        'assets' => 'asset_count',
+        'routes' => 'route_count',
+        'navigation_links' => 'navigation_link_count',
+        'menus' => 'menu_count',
+    );
+    foreach ( $summaryKeys as $totalKey => $summaryKey ) {
+        if ( ($totals[$totalKey] ?? null) !== ($summary[$summaryKey] ?? null) ) {
+            failExpectation((string) $fixture['name'], "source_reports.conversion_report.source_summary.{$summaryKey}", $totals[$totalKey] ?? null, $summary[$summaryKey] ?? null);
+        }
+    }
+
+    foreach ( array('pages', 'routes', 'navigation_links', 'menus', 'template_parts', 'template_part_writes', 'assets') as $listKey ) {
+        if ( ! array_key_exists($listKey, $materializationPlan) || ! is_array($materializationPlan[$listKey]) ) {
+            fail("Fixture {$fixture['name']} materialization_plan.{$listKey} must be an array.");
+        }
+    }
+
+    $countedTotals = array(
+        'pages' => count($materializationPlan['pages']),
+        'routes' => count($materializationPlan['routes']),
+        'navigation_links' => count($materializationPlan['navigation_links']),
+        'menus' => count($materializationPlan['menus']),
+        'template_parts' => count($materializationPlan['template_parts']),
+        'assets' => count($materializationPlan['assets']),
+    );
+    foreach ( $countedTotals as $totalKey => $count ) {
+        if ( $count !== ($totals[$totalKey] ?? null) ) {
+            failExpectation((string) $fixture['name'], "source_reports.materialization_plan.totals.{$totalKey}", $count, $totals[$totalKey] ?? null);
+        }
+    }
 }
 
 /**
