@@ -138,6 +138,8 @@ Downstream wrappers must support their current unprefixed development installs. 
 
 The first tagged release should be `0.1.0` unless maintainers choose a repo-wide release scheme before merge.
 
+The package does not declare a Composer `version` field. Composer derives immutable release versions from tags; the checked-in `VERSION` file and plugin header are Homeboy release targets that should match the first tag. The `dev-trunk` branch alias is only a pre-release convenience for review and Packagist metadata, not a substitute for the first `0.1.0` tag.
+
 Release readiness preflight before tagging:
 
 ```sh
