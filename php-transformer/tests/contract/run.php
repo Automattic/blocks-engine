@@ -72,6 +72,30 @@ $assert(false === ($contextual['context']['allow_fallbacks'] ?? null), 'HTML tra
 $assert('fixture:contextual-html' === ($contextual['provenance'][0]['source'] ?? ''), 'HTML provenance exposes generic source metadata');
 $assert('contract-test' === ($contextual['provenance'][0]['scope'] ?? ''), 'HTML provenance exposes generic scope metadata');
 
+$assetMetadataOptions = array(
+    'context' => array(
+        'asset_metadata' => array(
+            'assets/hero.jpg' => array(
+                'id'  => 42,
+                'url' => 'https://example.test/wp-content/uploads/hero.jpg',
+            ),
+        ),
+    ),
+);
+$resolvedImage = ( new HtmlTransformer() )->transform('<main><img src="assets/hero.jpg" alt="Hero alt"></main>', $assetMetadataOptions)->toArray();
+$resolvedImageAttrs = $resolvedImage['blocks'][0]['attrs'] ?? array();
+$assert(42 === ($resolvedImageAttrs['id'] ?? null), 'HTML image transform applies resolved asset id from context metadata');
+$assert('https://example.test/wp-content/uploads/hero.jpg' === ($resolvedImageAttrs['url'] ?? ''), 'HTML image transform applies resolved asset URL from context metadata');
+$assert('Hero alt' === ($resolvedImageAttrs['alt'] ?? ''), 'HTML image transform preserves original alt text while resolving asset metadata');
+$assert(str_contains((string) ($resolvedImage['serialized_blocks'] ?? ''), 'src="https://example.test/wp-content/uploads/hero.jpg"'), 'HTML image transform serializes resolved asset URL');
+$assert(str_contains((string) ($resolvedImage['serialized_blocks'] ?? ''), 'class="wp-image-42"'), 'HTML image transform serializes resolved image id class');
+
+$bridgeImageBlocks = ( new FormatBridge() )->toBlocks('<main><img src="assets/hero.jpg" alt="Hero alt"></main>', 'html', $assetMetadataOptions);
+$bridgeImageAttrs = $bridgeImageBlocks[0]['attrs'] ?? array();
+$assert(42 === ($bridgeImageAttrs['id'] ?? null), 'FormatBridge HTML adapter applies resolved asset id from context metadata');
+$assert('https://example.test/wp-content/uploads/hero.jpg' === ($bridgeImageAttrs['url'] ?? ''), 'FormatBridge HTML adapter applies resolved asset URL from context metadata');
+$assert('Hero alt' === ($bridgeImageAttrs['alt'] ?? ''), 'FormatBridge HTML adapter preserves original alt text while resolving asset metadata');
+
 $compiler = new ArtifactCompiler();
 
 $simple = $compiler->compile(
