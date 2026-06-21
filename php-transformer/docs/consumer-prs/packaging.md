@@ -152,13 +152,13 @@ homeboy component show php-transformer
 homeboy release php-transformer --dry-run --skip-publish --no-github-release
 ```
 
-Recommended release command after upstream PRs are merged and the dry-run passes:
+Operator-only release command after upstream PRs are merged, the dry-run passes, and the exact release commit is accepted:
 
 ```sh
 homeboy release php-transformer --skip-publish --no-github-release
 ```
 
-Run the release from the merged Blocks Engine branch that should own the tag, not from a downstream wrapper branch. Keep `VERSION` as the Homeboy-managed package version source.
+Run `composer test:packaging` separately when you only need to re-check Composer installability. Run release commands from the merged Blocks Engine branch that should own the tag, not from a downstream wrapper branch. Do not run release commands from review worktrees, draft downstream branches, or while path repositories, unpublished branch constraints, or local-only proof are still required by merge candidates. Keep `VERSION` as the Homeboy-managed package version source.
 
 Before `1.0.0`, public PHP class names, constructor signatures, result-envelope keys, diagnostic codes, and Composer package metadata may change between minor versions, but each change must include downstream migration notes and fixture updates.
 
@@ -224,7 +224,7 @@ The PR can leave draft when the package is reviewable as a releasable Composer l
 Maintainers can merge the transformer package when these checks are true:
 
 - Composer can install `automattic/blocks-engine-php-transformer` from the package directory and from the repository branch used for review.
-- Package tests pass through the documented Composer script.
+- Package tests, including `composer test:packaging`, pass through the documented Composer scripts.
 - Fixture documentation explains how downstream wrappers compare old behavior with transformer-backed behavior.
 - The public namespace and result-envelope keys needed by phase-1 wrappers are stable enough to tag.
 - The PR description includes the intended initial version, downstream release order, and the no-permanent-compatibility stance for old repositories.
