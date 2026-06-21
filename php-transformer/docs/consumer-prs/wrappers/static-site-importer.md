@@ -7,7 +7,7 @@
 | Current Static Site Importer path | Current dependency | Target dependency |
 | --- | --- | --- |
 | `Static_Site_Importer_Theme_Generator::import_theme()` | `bfb_convert()` for fragment/page/template conversion | Adapter service that calls `FormatBridge`/`HtmlTransformer` and returns the old serialized block strings until the report schema changes. |
-| `Static_Site_Importer_Theme_Generator::import_website_artifact()` | `bac_compile_website_artifact()` and `bac_summarize_result()` | Adapter service that calls `ArtifactCompiler` and translates `TransformerResult` into the existing import report fields. |
+| `Static_Site_Importer_Theme_Generator::import_website_artifact()` | `bac_compile_website_artifact()` and `bac_summarize_result()` | Adapter service that calls `ArtifactCompiler` and consumes the canonical `TransformerResult` envelope. |
 | Conversion report recording | BFB and BAC result envelopes | A `TransformerResult` to import-report mapper owned by Static Site Importer. |
 | CLI/ability output | Static Site Importer result arrays | No direct transformer exposure; keep CLI and ability contracts stable. |
 
@@ -44,24 +44,23 @@ The adapter should be the only Static Site Importer class that knows whether the
 
 ### `compile_website_artifact()`
 
-`compile_website_artifact()` returns the current BAC result envelope, not the raw `TransformerResult` envelope. That keeps `Static_Site_Importer_Theme_Generator::import_website_artifact()` and `record_website_artifact_compiler_result()` stable while php-transformer becomes the compiler implementation.
+`compile_website_artifact()` returns the canonical `TransformerResult` envelope from `ArtifactCompiler::compile()`. Static Site Importer should map that envelope into product-owned import reports locally instead of preserving BAC-shaped schema names in the transformer integration boundary.
 
-| BAC result key | TransformerResult source |
+| Result key | TransformerResult source |
 | --- | --- |
-| `schema` | Literal `block-artifact-compiler/result/v1`. |
+| `schema` | Literal `blocks-engine/php-transformer/result/v1`. |
 | `status` | `status`. |
-| `input` | `source_reports.artifact`, preserving `entry_path`, counts, file maps, original schema, and nested `source_report`. |
-| `wordpress_artifacts.block_markup` | `serialized_blocks`. |
-| `wordpress_artifacts.blocks` | `blocks`. |
-| `wordpress_artifacts.block_tree` | Adapter-derived compact block count/depth report. |
-| `wordpress_artifacts.block_types` | `block_types`. |
-| `wordpress_artifacts.components` | `components`. |
-| `wordpress_artifacts.documents` | `documents`. |
-| `wordpress_artifacts.files` | `assets`. |
-| `provenance.source_hash` | First transformer provenance row `source_hash`, falling back to `source_reports.artifact.source_hash`. |
-| `provenance.source` | Artifact `entry_path`, falling back to `website_artifact`. |
+| `source_reports.artifact.schema` | Literal `blocks-engine/php-transformer/site-artifact/v1`. |
+| `source_reports.artifact` | Entry path, counts, file maps, original schema, source hash, and input summary. |
+| `serialized_blocks` | Serialized block output. |
+| `blocks` | Parse-block-compatible arrays. |
+| `block_types` | Block type artifacts. |
+| `components` | Component candidates. |
+| `documents` | Source document artifacts. |
+| `assets` | Normalized asset manifest. |
+| `provenance` | Transformer provenance rows. |
 | `diagnostics` | `diagnostics`. |
-| `bfb_report` | Compact status, serialized blocks, diagnostics, and fallbacks for current SSI report payloads. |
+| `fallbacks` | Fallback rows for unsupported or partial transforms. |
 
 ### `blocks_to_html()`
 
@@ -78,8 +77,8 @@ Use these Static Site Importer fixtures to compare the legacy BFB/BAC path again
 | Fixture | SSI reference | Adapter surfaces | Acceptance focus |
 | --- | --- | --- | --- |
 | `wordpress-is-dead` | `tests/fixtures/wordpress-is-dead`, exercised by `tests/smoke-wordpress-is-dead-fixture.php` | `convert_fragment()`, `blocks_to_html()` | Multi-page HTML import, header/footer extraction, navigation rewriting, CSS preservation, zero empty HTML fallback regressions, visual/semantic comparison target reporting. |
-| `mixed-source-site` | `tests/fixtures/mixed-source-site`, exercised by `tests/smoke-mixed-source-fixture.php` and `tests/smoke-mixed-source-link-rewrites.php` | `convert_fragment()` for HTML fragments, BAC-compatible document/report mapping for Markdown documents | Markdown page creation, skipped MDX diagnostics, link rewrites away from `.md`, source-document report counts. |
-| `website-artifact-bundle` | `tests/fixtures/website-artifact-bundle/artifact.json` | `compile_website_artifact()`, `summarize_result()` | BAC-compatible result envelope, `wordpress_artifacts.block_markup`, materializable CSS/JS/file artifacts, provenance, diagnostics, and import-report summary fields. |
+| `mixed-source-site` | `tests/fixtures/mixed-source-site`, exercised by `tests/smoke-mixed-source-fixture.php` and `tests/smoke-mixed-source-link-rewrites.php` | `convert_fragment()` for HTML fragments, transformer document/report mapping for Markdown documents | Markdown page creation, skipped MDX diagnostics, link rewrites away from `.md`, source-document report counts. |
+| `website-artifact-bundle` | `tests/fixtures/website-artifact-bundle/artifact.json` | `compile_website_artifact()`, `summarize_result()` | Canonical result envelope, `serialized_blocks`, materializable CSS/JS/file artifacts, provenance, diagnostics, and import-report summary fields. |
 
 The adapter PR should include an old-versus-adapter report table for these fixtures before switching the adapter default to transformer-backed conversion.
 

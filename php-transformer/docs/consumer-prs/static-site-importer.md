@@ -134,7 +134,7 @@ final class Static_Site_Importer_Transformer_Adapter {
 
     public function compile_website_artifact( array $artifact, array $options = array() ): array {
         if ( class_exists( ArtifactCompiler::class ) ) {
-            return $this->to_bac_result( ( new ArtifactCompiler() )->compile( $artifact )->toArray() );
+            return ( new ArtifactCompiler() )->compile( $artifact )->toArray();
         }
 
         return function_exists( 'bac_compile_website_artifact' ) ? bac_compile_website_artifact( $artifact, $options ) : array();
@@ -164,15 +164,15 @@ final class Static_Site_Importer_Transformer_Adapter {
 }
 ```
 
-The copyable, linted version in `docs/consumer-prs/examples/static-site-importer-transformer-adapter.php` includes the full `TransformerResult` to BAC result mapper. SSI should keep that mapper local so product reports stay stable while transformer internals evolve.
+The copyable, linted version in `docs/consumer-prs/examples/static-site-importer-transformer-adapter.php` returns the canonical transformer result envelope and includes summary helpers SSI can adapt into product-owned import reports.
 
 ## Public Function And Call Mapping
 
 | Current Static Site Importer surface | Current dependency | Adapter target | Phase-1 behavior |
 | --- | --- | --- | --- |
 | `Static_Site_Importer_Theme_Generator::import_theme()` | `bfb_convert_fragment()`, `bfb_convert()`, and conversion reports | `Static_Site_Importer_Transformer_Adapter::convert_fragment()` / `blocks_to_html()` | Keep import result and quality report shape unchanged. |
-| `Static_Site_Importer_Theme_Generator::import_website_artifact()` | `bac_compile_website_artifact()` | `compile_website_artifact()` | Map transformer result arrays into existing BAC-compatible import args and report payloads. |
-| `Static_Site_Importer_Source_Page::from_wordpress_document_artifact()` | BAC document artifact fields | Transformer document artifact fields through BAC-compatible mapper | Keep accepted document artifact fields stable. |
+| `Static_Site_Importer_Theme_Generator::import_website_artifact()` | `bac_compile_website_artifact()` | `compile_website_artifact()` | Consume canonical transformer result arrays and map them into product-owned import args and report payloads. |
+| `Static_Site_Importer_Source_Page::from_wordpress_document_artifact()` | BAC document artifact fields | Transformer document artifact fields through SSI-owned mapper | Keep accepted document artifact fields stable. |
 | `static-site-importer/import-theme` ability | Theme generator return array | Adapter hidden behind theme generator | Keep input and output schemas stable. |
 | `static-site-importer/import-website-artifact` ability | BAC compile result and theme generator | Adapter hidden behind ability callback | Keep ability contract stable and report transformer metadata only inside reports. |
 | `wp static-site-importer import-theme` | Ability output | Ability output unchanged | Keep CLI flags and JSON shape stable. |
@@ -269,7 +269,7 @@ Run and compare these fixtures before changing adapter defaults:
 | --- | --- | --- |
 | `wordpress-is-dead` | `tests/smoke-wordpress-is-dead-fixture.php` and `tests/fixtures/wordpress-is-dead` | Legacy versus adapter import report, fallback count, generated templates/parts, navigation, CSS bridge output, visual/semantic targets. |
 | `mixed-source-site` | `tests/smoke-mixed-source-fixture.php`, `tests/smoke-mixed-source-link-rewrites.php`, and `tests/fixtures/mixed-source-site` | Source-document counts, Markdown page creation, skipped MDX diagnostics, rewritten links, conversion fragment keys. |
-| `website-artifact-bundle` | `tests/fixtures/website-artifact-bundle/artifact.json` | BAC result envelope fields, `wordpress_artifacts` mapping, provenance, diagnostics, summary fields, materialized CSS/JS/file artifacts. |
+| `website-artifact-bundle` | `tests/fixtures/website-artifact-bundle/artifact.json` | Canonical result envelope fields, `serialized_blocks`, assets, provenance, diagnostics, summary fields, materialized CSS/JS/file artifacts. |
 
 ## Blockers To Resolve Upstream First
 

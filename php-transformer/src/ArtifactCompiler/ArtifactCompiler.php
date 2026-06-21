@@ -11,7 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder
 
 final class ArtifactCompiler
 {
-    private const INPUT_SCHEMA = 'blocks-engine/php-transformer/site-artifact/v1';
+    public const INPUT_SCHEMA = 'blocks-engine/php-transformer/site-artifact/v1';
 
     /**
      * @param array<string, mixed> $artifact

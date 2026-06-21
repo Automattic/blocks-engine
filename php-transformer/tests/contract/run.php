@@ -145,11 +145,14 @@ $compiler = new ArtifactCompiler();
 
 $simple = $compiler->compile(
     array(
+        'schema'         => ArtifactCompiler::INPUT_SCHEMA,
         'generated_html' => '<main><article data-component="Hero"><h1>Hello artifact</h1></article></main>',
     )
 )->toArray();
 TransformerResult::assertCanonicalEnvelope($simple);
 $assert('success' === $simple['status'], 'simple artifact compiles successfully', (string) $simple['status']);
+$assert(ArtifactCompiler::INPUT_SCHEMA === ($simple['source_reports']['artifact']['schema'] ?? ''), 'artifact report exposes canonical site artifact schema');
+$assert(ArtifactCompiler::INPUT_SCHEMA === ($simple['source_reports']['artifact']['original_schema'] ?? ''), 'canonical site artifact input schema is accepted and preserved');
 $assert('index.html' === ($simple['source_reports']['artifact']['entry_path'] ?? ''), 'generated HTML becomes an index entry');
 $assert(str_contains((string) $simple['serialized_blocks'], '<!-- wp:html -->'), 'HTML is preserved as serialized block markup');
 $assert('hero' === ($simple['components'][0]['name'] ?? ''), 'component candidates are exposed');

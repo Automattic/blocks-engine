@@ -116,13 +116,14 @@ $fragment = $adapter->convert_fragment( '<main><h1>SSI Adapter</h1></main>', arr
 $assert( 'html' === ( $fragment['from'] ?? '' ) && 'blocks' === ( $fragment['to'] ?? '' ), 'SSI adapter returns BFB-compatible conversion direction' );
 $assert( 'main:index.html' === ( $fragment['scope']['source_id'] ?? '' ), 'SSI adapter preserves fragment scope' );
 $compiled = $adapter->compile_website_artifact( array( 'generated_html' => '<main><h1>Hello</h1></main>' ) );
-$assert( 'block-artifact-compiler/result/v1' === ( $compiled['schema'] ?? '' ), 'SSI adapter compiles website artifact to BAC schema' );
-foreach ( array( 'block_markup', 'blocks', 'block_tree', 'block_types', 'components', 'documents', 'files' ) as $key ) {
-    $assert( array_key_exists( $key, $compiled['wordpress_artifacts'] ?? array() ), "SSI adapter BAC mapping includes {$key}" );
+$assert( 'blocks-engine/php-transformer/result/v1' === ( $compiled['schema'] ?? '' ), 'SSI adapter compiles site artifact to canonical transformer result schema' );
+$assert( 'blocks-engine/php-transformer/site-artifact/v1' === ( $compiled['source_reports']['artifact']['schema'] ?? '' ), 'SSI adapter reports canonical site artifact input schema' );
+foreach ( array( 'serialized_blocks', 'blocks', 'block_types', 'components', 'documents', 'assets' ) as $key ) {
+    $assert( array_key_exists( $key, $compiled ), "SSI adapter canonical result includes {$key}" );
 }
 $summary = $adapter->summarize_result( $compiled );
 $assert( isset( $summary['block_count'] ), 'SSI adapter summarizes compiler result' );
-$html = $adapter->blocks_to_html( (string) ( $compiled['wordpress_artifacts']['block_markup'] ?? '' ) );
+$html = $adapter->blocks_to_html( (string) ( $compiled['serialized_blocks'] ?? '' ) );
 $assert( '' !== trim( $html ), 'SSI adapter renders blocks to HTML' );
 PHP
         );
