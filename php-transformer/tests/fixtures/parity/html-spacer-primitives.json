@@ -1,0 +1,37 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-spacer-primitives",
+  "description": "Converts clear empty spacer-like HTML into core/spacer while preserving surrounding layout wrappers.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-spacer-primitives.json",
+    "notes": "Product-neutral fixture for upstream spacer HTML parity."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"layout\"><h2>Before</h2><div class=\"spacer\" style=\"height: 48px\"></div><div class=\"wp-block-columns\"><div><p>Left</p></div><div><p>Right</p></div></div><div class=\"wp-block-spacer extra\" style=\"height:2rem\"></div></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "layout" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Before", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/spacer", "attrs": { "className": "spacer", "height": "48px" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/columns", "attrs": { "className": "wp-block-columns" } },
+    { "path": "blocks.0.innerBlocks.2.innerBlocks.0", "name": "core/column" },
+    { "path": "blocks.0.innerBlocks.2.innerBlocks.1", "name": "core/column" },
+    { "path": "blocks.0.innerBlocks.3", "name": "core/spacer", "attrs": { "className": "wp-block-spacer extra", "height": "2rem" } }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 4 },
+    { "path": "blocks.0.innerBlocks.1.innerHTML", "assert": "contains", "value": "class=\"wp-block-spacer spacer\"" },
+    { "path": "blocks.0.innerBlocks.1.innerHTML", "assert": "contains", "value": "style=\"height:48px\"" },
+    { "path": "blocks.0.innerBlocks.1.innerHTML", "assert": "contains", "value": "aria-hidden=\"true\"" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.supported_blocks.23", "assert": "equals", "value": "core/spacer" }
+  ]
+}

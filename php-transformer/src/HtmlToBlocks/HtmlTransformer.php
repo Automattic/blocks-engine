@@ -124,7 +124,7 @@ final class HtmlTransformer
         $diagnostics = array(
             array(
                 'code'    => 'html_to_blocks_core_slice',
-                'message' => 'Converted supported core text, layout, media, gallery, embed, file, table, button, shortcode, definition-list, details, navigation, and wrapper elements; unsupported elements are reported as fallbacks.',
+                'message' => 'Converted supported core text, layout, media, gallery, embed, file, table, button, shortcode, spacer, definition-list, details, navigation, and wrapper elements; unsupported elements are reported as fallbacks.',
                 'source'  => self::class,
             ),
         );
@@ -162,7 +162,7 @@ final class HtmlTransformer
             sourceReports: $sourceReports,
             coverage: array(
                 array(
-                    'supported_blocks' => array( 'core/audio', 'core/button', 'core/buttons', 'core/code', 'core/column', 'core/columns', 'core/details', 'core/embed', 'core/file', 'core/gallery', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/separator', 'core/shortcode', 'core/table', 'core/video' ),
+                    'supported_blocks' => array( 'core/audio', 'core/button', 'core/buttons', 'core/code', 'core/column', 'core/columns', 'core/details', 'core/embed', 'core/file', 'core/gallery', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/separator', 'core/shortcode', 'core/spacer', 'core/table', 'core/video' ),
                     'block_count'      => count($blocks),
                     'fallback_count'   => count($fallbacks),
                     'source_provenance_count' => count($sourceProvenance),
@@ -459,6 +459,11 @@ final class HtmlTransformer
         }
 
         if ( in_array($tagName, array( 'article', 'body', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+            $spacer = $this->spacerBlockFromElement($element);
+            if ( null !== $spacer ) {
+                return $spacer;
+            }
+
             $columns = $this->columnsBlockFromElement($element, $fallbacks);
             if ( null !== $columns ) {
                 return $columns;
@@ -1563,6 +1568,45 @@ final class HtmlTransformer
 
         return (bool) preg_match('/(?:^|[\s_-])columns?(?:$|[\s_-])/', $className)
             || preg_match('/(?:^|;)\s*(?:display\s*:\s*(?:inline-)?flex|grid-template-columns\s*:)/', $style);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function spacerBlockFromElement(DOMElement $element): ?array
+    {
+        if ( '' !== trim($element->textContent ?? '') || 0 !== $this->childElementCount($element) ) {
+            return null;
+        }
+
+        $height = $this->spacerHeightFromStyle($this->attr($element, 'style'));
+        if ( '' === $height ) {
+            return null;
+        }
+
+        if ( ! $this->hasClass($element, 'wp-block-spacer') && ! $this->hasClass($element, 'spacer') ) {
+            return null;
+        }
+
+        $attrs = $this->presentationAttributes($element);
+        $attrs['height'] = $height;
+        unset($attrs['style']);
+
+        return $this->createBlock('core/spacer', $attrs, array(), $element);
+    }
+
+    private function spacerHeightFromStyle(string $style): string
+    {
+        if ( ! preg_match('/(?:^|;)\s*height\s*:\s*([^;]+)/i', $style, $matches) ) {
+            return '';
+        }
+
+        $height = trim($matches[1]);
+        if ( '' === $height || preg_match('/[{}]/', $height) || strlen($height) > 80 ) {
+            return '';
+        }
+
+        return $height;
     }
 
     private function convertMediaElement(DOMElement $element): ?array

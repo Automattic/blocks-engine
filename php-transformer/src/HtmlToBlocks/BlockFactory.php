@@ -96,6 +96,13 @@ final class BlockFactory
             return '<hr' . $this->blockSupportAttrs($attrs, 'wp-block-separator') . ' />';
         }
 
+        if ( 'core/spacer' === $name ) {
+            $height = (string) ($attrs['height'] ?? '');
+            $style = trim('' !== $height ? 'height:' . $height : (string) ($attrs['style'] ?? ''));
+            $attrs['style'] = $style;
+            return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-spacer') . ' aria-hidden="true"></div>';
+        }
+
         if ( 'core/columns' === $name ) {
             return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-columns') . '>', 'closing' => '</div>' );
         }
