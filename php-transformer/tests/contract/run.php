@@ -48,14 +48,34 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     exit(1);
 };
 
+$assertInvalidCanonicalEnvelope = static function (array $result, string $expectedMessage, string $message, bool $requireMaterializationPlan = false) use ($assert): void {
+    try {
+        TransformerResult::assertCanonicalEnvelope($result, $requireMaterializationPlan);
+    } catch ( \InvalidArgumentException $exception ) {
+        $assert(str_contains($exception->getMessage(), $expectedMessage), $message, $exception->getMessage());
+        return;
+    }
+
+    $assert(false, $message, 'Canonical envelope validation unexpectedly passed.');
+};
+
 $fixture = file_get_contents(dirname(__DIR__) . '/fixtures/simple-html.html');
 $result  = ( new HtmlTransformer() )->transform($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><aside>Fallback</aside>")->toArray();
 
 $assert(TransformerResult::SCHEMA === $result['schema'], 'result exposes schema');
+TransformerResult::assertCanonicalEnvelope($result);
 
-foreach ( array( 'status', 'components', 'block_types', 'source_reports', 'legacy_mapping', 'blocks', 'serialized_blocks', 'documents', 'assets', 'diagnostics', 'fallbacks', 'provenance', 'coverage', 'context', 'metrics' ) as $key ) {
+foreach ( array( 'status', 'components', 'block_types', 'source_reports', 'blocks', 'serialized_blocks', 'documents', 'assets', 'diagnostics', 'fallbacks', 'provenance', 'coverage', 'context', 'metrics' ) as $key ) {
     $assert(array_key_exists($key, $result), "Missing result key: {$key}");
 }
+$assert(! array_key_exists('legacy_mapping', $result), 'canonical result omits compatibility-only legacy mapping');
+$assertInvalidCanonicalEnvelope(array_merge($result, array('legacy_mapping' => array())), 'legacy_mapping', 'canonical validation rejects legacy mapping aliases');
+
+$missingConversionReport = $result;
+unset($missingConversionReport['source_reports']['conversion_report']);
+$assertInvalidCanonicalEnvelope($missingConversionReport, 'source_reports.conversion_report', 'canonical validation rejects results without conversion reports');
+
+$assertInvalidCanonicalEnvelope($result, 'source_reports.materialization_plan', 'canonical validation can require materialization plans for downstream artifact consumers', true);
 
 $contextual = ( new HtmlTransformer() )->transform(
     '<main><h1>Context</h1><aside>Fallback</aside></main>',
@@ -118,11 +138,12 @@ $simple = $compiler->compile(
         'generated_html' => '<main><article data-component="Hero"><h1>Hello artifact</h1></article></main>',
     )
 )->toArray();
+TransformerResult::assertCanonicalEnvelope($simple);
 $assert('success' === $simple['status'], 'simple artifact compiles successfully', (string) $simple['status']);
 $assert('index.html' === ($simple['source_reports']['artifact']['entry_path'] ?? ''), 'generated HTML becomes an index entry');
 $assert(str_contains((string) $simple['serialized_blocks'], '<!-- wp:html -->'), 'HTML is preserved as serialized block markup');
 $assert('hero' === ($simple['components'][0]['name'] ?? ''), 'component candidates are exposed');
-$assert(is_array($simple['legacy_mapping'] ?? null), 'migration mapping metadata is exposed');
+$assert(! array_key_exists('legacy_mapping', $simple), 'artifact result omits compatibility-only legacy mapping');
 $assert(strlen('<main><article data-component="Hero"><h1>Hello artifact</h1></article></main>') === ($simple['metrics']['input_bytes'] ?? null), 'artifact metrics expose input bytes');
 $assert(strlen((string) $simple['serialized_blocks']) === ($simple['metrics']['output_bytes'] ?? null), 'artifact metrics expose output bytes');
 $assert(0 === ($simple['metrics']['block_count'] ?? null), 'artifact metrics expose block count');
@@ -133,6 +154,14 @@ $assert(MaterializationPlanBuilder::SCHEMA === ($simple['source_reports']['mater
 $assert('index.html' === ($simple['source_reports']['materialization_plan']['entry_path'] ?? ''), 'materialization plan exposes entry path');
 $assert(1 === ($simple['source_reports']['materialization_plan']['totals']['pages'] ?? null), 'materialization plan counts pages');
 $assert('index' === ($simple['source_reports']['materialization_plan']['pages'][0]['slug'] ?? ''), 'materialization plan exposes page slug');
+
+$missingMaterializationPlan = $simple;
+unset($missingMaterializationPlan['source_reports']['materialization_plan']);
+$assertInvalidCanonicalEnvelope($missingMaterializationPlan, 'source_reports.materialization_plan', 'canonical validation rejects artifact results without materialization plans');
+
+$formatResult = ( new FormatBridge() )->convertResult('# Format report', 'markdown', 'blocks')->toArray();
+TransformerResult::assertCanonicalEnvelope($formatResult);
+$assert('blocks-engine/php-transformer/conversion-report/v1' === ($formatResult['source_reports']['conversion_report']['schema'] ?? ''), 'format bridge exposes canonical conversion report');
 
 $staticSite = $compiler->compile(
     array(

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 
+use InvalidArgumentException;
+
 final class TransformerResult
 {
     public const SCHEMA = 'blocks-engine/php-transformer/result/v1';
@@ -11,7 +13,6 @@ final class TransformerResult
      * @param array<int, array<string, mixed>> $components
      * @param array<int, array<string, mixed>> $blockTypes
      * @param array<string, mixed> $sourceReports
-     * @param array<string, mixed> $legacyMapping
      * @param array<int, array<string, mixed>> $blocks
      * @param array<int, array<string, mixed>> $documents
      * @param array<int, array<string, mixed>> $assets
@@ -27,7 +28,6 @@ final class TransformerResult
         public readonly array $components = array(),
         public readonly array $blockTypes = array(),
         public readonly array $sourceReports = array(),
-        public readonly array $legacyMapping = array(),
         public readonly array $blocks = array(),
         public readonly string $serializedBlocks = '',
         public readonly array $documents = array(),
@@ -46,13 +46,12 @@ final class TransformerResult
      */
     public function toArray(): array
     {
-        return array(
+        $result = array(
             'schema'            => self::SCHEMA,
             'status'            => $this->status,
             'components'        => $this->components,
             'block_types'       => $this->blockTypes,
             'source_reports'    => $this->sourceReports,
-            'legacy_mapping'    => $this->legacyMapping,
             'blocks'            => $this->blocks,
             'serialized_blocks' => $this->serializedBlocks,
             'documents'         => $this->documents,
@@ -64,5 +63,53 @@ final class TransformerResult
             'context'           => $this->context,
             'metrics'           => $this->metrics,
         );
+
+        self::assertCanonicalEnvelope($result);
+
+        return $result;
+    }
+
+    /**
+     * Validate the public result shape downstream wrappers should depend on.
+     *
+     * @param array<string, mixed> $result
+     */
+    public static function assertCanonicalEnvelope(array $result, bool $requireMaterializationPlan = false): void
+    {
+        foreach ( array( 'schema', 'status', 'source_reports', 'blocks', 'serialized_blocks', 'documents', 'assets', 'diagnostics', 'fallbacks', 'provenance', 'coverage', 'context', 'metrics' ) as $key ) {
+            if ( ! array_key_exists($key, $result) ) {
+                throw new InvalidArgumentException(sprintf('Canonical transformer result is missing "%s".', $key));
+            }
+        }
+
+        if ( self::SCHEMA !== $result['schema'] ) {
+            throw new InvalidArgumentException('Canonical transformer result has an unsupported schema.');
+        }
+
+        if ( array_key_exists('legacy_mapping', $result) ) {
+            throw new InvalidArgumentException('Canonical transformer result must not expose compatibility-only legacy_mapping.');
+        }
+
+        if ( ! is_array($result['source_reports']) ) {
+            throw new InvalidArgumentException('Canonical transformer result source_reports must be an array.');
+        }
+
+        $sourceReports = $result['source_reports'];
+        $conversionReport = $sourceReports['conversion_report'] ?? null;
+        if ( ! is_array($conversionReport) ) {
+            throw new InvalidArgumentException('Canonical transformer result is missing source_reports.conversion_report.');
+        }
+
+        if ( ConversionReportProjection::SCHEMA !== ($conversionReport['schema'] ?? null) ) {
+            throw new InvalidArgumentException('Canonical transformer result has an unsupported conversion report schema.');
+        }
+
+        $artifactLike = isset($sourceReports['artifact']) || isset($sourceReports['compiled_site']) || 'artifact' === ($conversionReport['source_format'] ?? null);
+        if ( $requireMaterializationPlan || $artifactLike ) {
+            $materializationPlan = $sourceReports['materialization_plan'] ?? null;
+            if ( ! is_array($materializationPlan) ) {
+                throw new InvalidArgumentException('Canonical artifact result is missing source_reports.materialization_plan.');
+            }
+        }
     }
 }
