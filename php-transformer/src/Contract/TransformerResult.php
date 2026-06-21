@@ -76,7 +76,7 @@ final class TransformerResult
      */
     public static function assertCanonicalEnvelope(array $result, bool $requireMaterializationPlan = false): void
     {
-        foreach ( array( 'schema', 'status', 'source_reports', 'blocks', 'serialized_blocks', 'documents', 'assets', 'diagnostics', 'fallbacks', 'provenance', 'coverage', 'context', 'metrics' ) as $key ) {
+        foreach ( array( 'schema', 'status', 'components', 'block_types', 'source_reports', 'blocks', 'serialized_blocks', 'documents', 'assets', 'diagnostics', 'fallbacks', 'provenance', 'coverage', 'context', 'metrics' ) as $key ) {
             if ( ! array_key_exists($key, $result) ) {
                 throw new InvalidArgumentException(sprintf('Canonical transformer result is missing "%s".', $key));
             }
@@ -90,11 +90,31 @@ final class TransformerResult
             throw new InvalidArgumentException('Canonical transformer result must not expose compatibility-only legacy_mapping.');
         }
 
+        foreach ( array( 'conversion_report', 'materialization_plan' ) as $key ) {
+            if ( array_key_exists($key, $result) ) {
+                throw new InvalidArgumentException(sprintf('Canonical transformer result must expose %s only under source_reports.', $key));
+            }
+        }
+
+        if ( ! in_array($result['status'], array( 'success', 'success_with_warnings', 'failed' ), true) ) {
+            throw new InvalidArgumentException('Canonical transformer result has an unsupported status.');
+        }
+
+        foreach ( array( 'components', 'block_types', 'blocks', 'documents', 'assets', 'diagnostics', 'fallbacks', 'provenance', 'coverage', 'context', 'metrics' ) as $key ) {
+            if ( ! is_array($result[$key]) ) {
+                throw new InvalidArgumentException(sprintf('Canonical transformer result %s must be an array.', $key));
+            }
+        }
+
         if ( ! is_array($result['source_reports']) ) {
             throw new InvalidArgumentException('Canonical transformer result source_reports must be an array.');
         }
 
         $sourceReports = $result['source_reports'];
+        if ( array_key_exists('legacy_mapping', $sourceReports) ) {
+            throw new InvalidArgumentException('Canonical transformer result source_reports must not expose compatibility-only legacy_mapping.');
+        }
+
         $conversionReport = $sourceReports['conversion_report'] ?? null;
         if ( ! is_array($conversionReport) ) {
             throw new InvalidArgumentException('Canonical transformer result is missing source_reports.conversion_report.');
@@ -104,11 +124,31 @@ final class TransformerResult
             throw new InvalidArgumentException('Canonical transformer result has an unsupported conversion report schema.');
         }
 
+        if ( ! is_string($conversionReport['source_format'] ?? null) || '' === $conversionReport['source_format'] ) {
+            throw new InvalidArgumentException('Canonical transformer result conversion report is missing source_format.');
+        }
+
+        foreach ( array( 'source_summary', 'selector_summary', 'fallback_diagnostics', 'asset_refs', 'navigation_candidates', 'presentation_gaps', 'metrics' ) as $key ) {
+            if ( array_key_exists($key, $conversionReport) && ! is_array($conversionReport[$key]) ) {
+                throw new InvalidArgumentException(sprintf('Canonical transformer result conversion report %s must be an array.', $key));
+            }
+        }
+
         $artifactLike = isset($sourceReports['artifact']) || isset($sourceReports['compiled_site']) || 'artifact' === ($conversionReport['source_format'] ?? null);
         if ( $requireMaterializationPlan || $artifactLike ) {
             $materializationPlan = $sourceReports['materialization_plan'] ?? null;
             if ( ! is_array($materializationPlan) ) {
                 throw new InvalidArgumentException('Canonical artifact result is missing source_reports.materialization_plan.');
+            }
+
+            if ( 'blocks-engine/php-transformer/materialization-plan/v1' !== ($materializationPlan['schema'] ?? null) ) {
+                throw new InvalidArgumentException('Canonical artifact result has an unsupported materialization plan schema.');
+            }
+
+            foreach ( array( 'pages', 'routes', 'navigation_links', 'menus', 'template_parts', 'template_part_writes', 'assets', 'theme', 'asset_rewrite_candidates', 'rewrite_candidates', 'totals' ) as $key ) {
+                if ( ! array_key_exists($key, $materializationPlan) || ! is_array($materializationPlan[$key]) ) {
+                    throw new InvalidArgumentException(sprintf('Canonical artifact result materialization plan %s must be an array.', $key));
+                }
             }
         }
     }

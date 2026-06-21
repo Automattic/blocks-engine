@@ -70,6 +70,16 @@ foreach ( array( 'status', 'components', 'block_types', 'source_reports', 'block
 }
 $assert(! array_key_exists('legacy_mapping', $result), 'canonical result omits compatibility-only legacy mapping');
 $assertInvalidCanonicalEnvelope(array_merge($result, array('legacy_mapping' => array())), 'legacy_mapping', 'canonical validation rejects legacy mapping aliases');
+$assertInvalidCanonicalEnvelope(array_merge($result, array('conversion_report' => $result['source_reports']['conversion_report'])), 'only under source_reports', 'canonical validation rejects top-level conversion report aliases');
+$assertInvalidCanonicalEnvelope(array_merge($result, array('materialization_plan' => array())), 'only under source_reports', 'canonical validation rejects top-level materialization plan aliases');
+
+$invalidStatus = $result;
+$invalidStatus['status'] = 'ok';
+$assertInvalidCanonicalEnvelope($invalidStatus, 'unsupported status', 'canonical validation rejects unsupported status values');
+
+$invalidConversionReport = $result;
+$invalidConversionReport['source_reports']['conversion_report']['source_format'] = '';
+$assertInvalidCanonicalEnvelope($invalidConversionReport, 'source_format', 'canonical validation rejects conversion reports without a source format');
 
 $missingConversionReport = $result;
 unset($missingConversionReport['source_reports']['conversion_report']);
@@ -159,6 +169,17 @@ $missingMaterializationPlan = $simple;
 unset($missingMaterializationPlan['source_reports']['materialization_plan']);
 $assertInvalidCanonicalEnvelope($missingMaterializationPlan, 'source_reports.materialization_plan', 'canonical validation rejects artifact results without materialization plans');
 
+$invalidMaterializationPlan = $simple;
+$invalidMaterializationPlan['source_reports']['materialization_plan']['schema'] = 'legacy/materialization-plan/v1';
+$assertInvalidCanonicalEnvelope($invalidMaterializationPlan, 'materialization plan schema', 'canonical validation rejects materialization plans with unsupported schemas');
+
+$incompleteMaterializationPlan = $simple;
+unset($incompleteMaterializationPlan['source_reports']['materialization_plan']['routes']);
+$assertInvalidCanonicalEnvelope($incompleteMaterializationPlan, 'materialization plan routes', 'canonical validation rejects incomplete materialization plans');
+
+$rebuiltPlan = ( new MaterializationPlanBuilder() )->fromResult($simple);
+$assert($simple['source_reports']['materialization_plan'] === $rebuiltPlan, 'materialization plan builder preserves canonical plans from result envelopes');
+
 $formatResult = ( new FormatBridge() )->convertResult('# Format report', 'markdown', 'blocks')->toArray();
 TransformerResult::assertCanonicalEnvelope($formatResult);
 $assert('blocks-engine/php-transformer/conversion-report/v1' === ($formatResult['source_reports']['conversion_report']['schema'] ?? ''), 'format bridge exposes canonical conversion report');
@@ -214,14 +235,14 @@ $assert(! empty($logoAssetPlanRow['hash'] ?? ''), 'materialization plan asset ro
 $assert('text' === ($cssAssetPlanRow['content_encoding'] ?? ''), 'materialization plan asset rows expose text content encoding');
 $assert('.wp-site-blocks{min-height:100vh}' === ($cssAssetPlanRow['content'] ?? ''), 'materialization plan asset rows expose text payloads for writable assets');
 
-$productsPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(
+$neutralPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(
     array(
         'products' => array(
             array('sku' => 'shirt-001', 'name' => 'Shirt'),
         ),
     )
 );
-$assert('shirt-001' === ($productsPlan['products'][0]['sku'] ?? ''), 'materialization plan preserves compiled site products manifest when present');
+$assert(! array_key_exists('products', $neutralPlan), 'materialization plan omits product-specific manifest buckets');
 
 $fragment = $compiler->compileFragment('<main><h2>Fragment</h2><p>Copy</p></main>', 'fixture:fragment')->toArray();
 $assert('success' === $fragment['status'], 'fragment compiles successfully', (string) $fragment['status']);
