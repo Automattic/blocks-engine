@@ -15,6 +15,13 @@ final class MaterializationPlanBuilder
     public function fromResult(TransformerResult|array $result): array
     {
         $data = $result instanceof TransformerResult ? $result->toArray() : $result;
+        TransformerResult::assertCanonicalEnvelope($data);
+
+        $materializationPlan = $data['source_reports']['materialization_plan'] ?? array();
+        if ( is_array($materializationPlan) && array() !== $materializationPlan ) {
+            return $materializationPlan;
+        }
+
         $compiledSite = $data['source_reports']['compiled_site'] ?? array();
         return is_array($compiledSite) ? $this->fromCompiledSite($compiledSite) : $this->emptyPlan();
     }
@@ -50,7 +57,6 @@ final class MaterializationPlanBuilder
             'visual_repair_css' => (string) ($visualRepair['css'] ?? ''),
             'asset_rewrite_candidates' => $assetRewriteCandidates,
             'rewrite_candidates' => $assetRewriteCandidates,
-            'products'       => is_array($compiledSite['products'] ?? null) ? $compiledSite['products'] : array(),
             'totals'         => array(
                 'pages'          => count($pages),
                 'routes'         => count($routes),
@@ -60,10 +66,6 @@ final class MaterializationPlanBuilder
                 'assets'         => count($assets),
             ),
         );
-
-        if ( array() === $plan['products'] ) {
-            unset($plan['products']);
-        }
 
         return $plan;
     }

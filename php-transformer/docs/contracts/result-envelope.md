@@ -10,8 +10,12 @@ Required top-level keys for successful transformations:
   "status": "success",
   "components": [],
   "block_types": [],
-  "source_reports": {},
-  "legacy_mapping": {},
+  "source_reports": {
+    "conversion_report": {
+      "schema": "blocks-engine/php-transformer/conversion-report/v1",
+      "source_format": "html"
+    }
+  },
   "blocks": [],
   "serialized_blocks": "",
   "documents": [],
@@ -42,7 +46,7 @@ The materialization plan also includes product-neutral `routes`, `navigation_lin
 
 Transformers may expose `source_reports.conversion_report` as a generic `blocks-engine/php-transformer/conversion-report/v1` projection over the same result envelope. It summarizes fallback diagnostics, source paths/selectors, artifact-local asset references, navigation candidates, presentation-gap signals, and metrics without applying product rewrite, import, routing, or visual-parity policy. For artifact compiles, `source_summary` mirrors canonical materialization counts such as `page_count`, `asset_count`, `route_count`, `navigation_link_count`, and `menu_count` so wrappers can validate report consistency without re-deriving write plans from product-specific assumptions.
 
-`components` contains inspectable component candidates discovered before materialization. `block_types` contains generated block type artifacts promoted from `block.json` roots. `legacy_mapping` is transitional metadata for consumer-owned migration mappers and is not a long-term package feature commitment.
+`components` contains inspectable component candidates discovered before materialization. `block_types` contains generated block type artifacts promoted from `block.json` roots. Canonical result envelopes must not expose `legacy_mapping`; consumer-owned migration mappers should derive compatibility data at their own boundary.
 
 `blocks` is always a list-shaped array of parsed WordPress block arrays when exposed through `TransformerResult` or `FormatBridge::toBlocks()`. `fallbacks` entries should include stable generic metadata such as `type`, `reason`, `diagnostic_code`, `source_format`, and the preserved source fragment needed by callers to inspect or replay unsupported content.
 
