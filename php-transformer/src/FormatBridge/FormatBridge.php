@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\FormatBridge;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use InvalidArgumentException;
@@ -130,8 +131,25 @@ final class FormatBridge
             $normalizedContent = $this->normalize($content, $from, $options);
             $blocks = array_values($sourceAdapter->toBlocks($normalizedContent, $options));
             $output = $from === $to ? $normalizedContent : $targetAdapter->fromBlocks($blocks, $options);
+            $metrics = array(
+                'input_bytes'      => strlen($content),
+                'output_bytes'     => strlen($output),
+                'block_count'      => count($blocks),
+                'fallback_count'   => 0,
+                'diagnostic_count' => 1,
+            );
+            $sourceReports = array(
+                'format_bridge' => array(
+                    'source_format' => $from,
+                    'target_format' => $to,
+                    'input_bytes'   => strlen($content),
+                    'output_bytes'  => strlen($output),
+                ),
+            );
+            $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts($from, $blocks, array(), $sourceReports, array(), $provenance, $metrics);
 
             return new TransformerResult(
+                sourceReports: $sourceReports,
                 blocks: $blocks,
                 serializedBlocks: 'blocks' === $to ? $output : '',
                 documents: array(
@@ -148,7 +166,8 @@ final class FormatBridge
                     ),
                 ),
                 provenance: $provenance,
-                context: $context
+                context: $context,
+                metrics: $metrics
             );
         } catch ( InvalidArgumentException $exception ) {
             return $this->failedResult('format_bridge_validation_failed', $exception->getMessage(), $provenance, $context);
@@ -163,8 +182,26 @@ final class FormatBridge
      */
     private function failedResult(string $code, string $message, array $provenance, array $context): TransformerResult
     {
+        $metrics = array(
+            'input_bytes'      => (int) ($provenance[0]['input_bytes'] ?? 0),
+            'block_count'      => 0,
+            'fallback_count'   => 0,
+            'diagnostic_count' => 1,
+            'output_bytes'     => 0,
+        );
+        $sourceFormat = (string) ($provenance[0]['source_format'] ?? 'unknown');
+        $sourceReports = array(
+            'format_bridge' => array(
+                'source_format' => $sourceFormat,
+                'target_format' => (string) ($provenance[0]['target_format'] ?? ''),
+                'error_code'    => $code,
+            ),
+        );
+        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts($sourceFormat, array(), array(), $sourceReports, array(), $provenance, $metrics);
+
         return new TransformerResult(
             status: 'failed',
+            sourceReports: $sourceReports,
             diagnostics: array(
                 array(
                     'code'    => $code,
@@ -173,7 +210,8 @@ final class FormatBridge
                 ),
             ),
             provenance: $provenance,
-            context: $context
+            context: $context,
+            metrics: $metrics
         );
     }
 }
