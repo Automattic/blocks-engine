@@ -139,7 +139,8 @@ $staticSite = $compiler->compile(
         'entrypoint' => 'index.html',
         'files'      => array(
             'index.html' => '<main><img src="assets/logo.png" alt="Logo"></main>',
-            'parts/header.html' => '<header><img src="assets/logo.png" alt="Logo"></header>',
+            'parts/header.html' => '<header><nav><a href="/">Home</a><a href="/about.html">About</a></nav><img src="assets/logo.png" alt="Logo"></header>',
+            'about.html' => '<main><h1>About</h1></main>',
             'assets/logo.png' => array(
                 'content_base64' => base64_encode("\x89PNG\r\n\x1a\n"),
                 'mime_type'      => 'image/png',
@@ -153,6 +154,13 @@ $assert('parts/header.html' === ($staticPlan['template_part_writes'][0]['source_
 $assert('wp_template_part' === ($staticPlan['template_part_writes'][0]['type'] ?? ''), 'template part writes identify the WordPress write target');
 $assert(str_contains((string) ($staticPlan['visual_repair_css'] ?? ''), 'min-height:100vh'), 'materialization plan exposes visual repair CSS');
 $assert(! empty(array_filter($staticPlan['asset_rewrite_candidates'] ?? array(), static fn (array $candidate): bool => 'template_part' === ($candidate['scope'] ?? '') && 'assets/logo.png' === ($candidate['asset_path'] ?? ''))), 'materialization plan exposes template part asset rewrite candidates');
+$assert('/' === ($staticPlan['routes'][0]['target_path'] ?? ''), 'materialization plan exposes entry route path');
+$assert('/about' === ($staticPlan['routes'][1]['target_path'] ?? ''), 'materialization plan exposes document route path');
+$assert('navigation_link' === ($staticPlan['navigation_links'][0]['kind'] ?? ''), 'materialization plan exposes generic navigation link rows');
+$assert('About' === ($staticPlan['navigation_links'][1]['label'] ?? ''), 'materialization plan exposes navigation link labels');
+$assert('/about' === ($staticPlan['navigation_links'][1]['target_path'] ?? ''), 'materialization plan exposes navigation target paths');
+$assert('menu' === ($staticPlan['menus'][0]['kind'] ?? ''), 'materialization plan exposes generic menu rows');
+$assert(2 === ($staticPlan['menus'][0]['items'] ?? null), 'materialization plan counts menu items');
 $logoAssetPlanRow = null;
 $cssAssetPlanRow = null;
 foreach ( $staticPlan['assets'] ?? array() as $assetPlanRow ) {

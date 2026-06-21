@@ -29,6 +29,9 @@ final class MaterializationPlanBuilder
         $templateParts = $this->templateParts((array) ($compiledSite['template_parts'] ?? array()));
         $assets = $this->assets((array) ($compiledSite['assets'] ?? array()));
         $visualRepair = is_array($compiledSite['visual_repair'] ?? null) ? $compiledSite['visual_repair'] : array();
+        $routes = $this->routes($pages);
+        $navigationLinks = $this->navigationLinks($pages, $templateParts, $routes);
+        $menus = $this->menus($navigationLinks);
         $assetRewriteCandidates = $this->assetRewriteCandidates($pages, $templateParts, $assets);
 
         $plan = array(
@@ -37,6 +40,9 @@ final class MaterializationPlanBuilder
             'source_hash'    => (string) ($compiledSite['source_hash'] ?? ''),
             'entry_path'     => (string) ($compiledSite['entry_path'] ?? ''),
             'pages'          => $pages,
+            'routes'         => $routes,
+            'navigation_links' => $navigationLinks,
+            'menus'          => $menus,
             'template_parts' => $templateParts,
             'template_part_writes' => $this->templatePartWrites($templateParts),
             'assets'         => $assets,
@@ -47,6 +53,9 @@ final class MaterializationPlanBuilder
             'products'       => is_array($compiledSite['products'] ?? null) ? $compiledSite['products'] : array(),
             'totals'         => array(
                 'pages'          => count($pages),
+                'routes'         => count($routes),
+                'navigation_links' => count($navigationLinks),
+                'menus'          => count($menus),
                 'template_parts' => count($templateParts),
                 'assets'         => count($assets),
             ),
@@ -67,13 +76,16 @@ final class MaterializationPlanBuilder
         return array(
             'schema' => self::SCHEMA,
             'pages' => array(),
+            'routes' => array(),
+            'navigation_links' => array(),
+            'menus' => array(),
             'template_parts' => array(),
             'template_part_writes' => array(),
             'assets' => array(),
             'theme' => array(),
             'asset_rewrite_candidates' => array(),
             'rewrite_candidates' => array(),
-            'totals' => array('pages' => 0, 'template_parts' => 0, 'assets' => 0),
+            'totals' => array('pages' => 0, 'routes' => 0, 'navigation_links' => 0, 'menus' => 0, 'template_parts' => 0, 'assets' => 0),
         );
     }
 
@@ -100,6 +112,108 @@ final class MaterializationPlanBuilder
             ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
         }
         return $planned;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $pages
+     * @return array<int,array<string,mixed>>
+     */
+    private function routes(array $pages): array
+    {
+        $routes = array();
+        foreach ( $pages as $index => $page ) {
+            $sourcePath = (string) ($page['source_path'] ?? '');
+            $targetSlug = (string) ($page['slug'] ?? '');
+            if ( '' === $targetSlug && '' !== $sourcePath ) {
+                $targetSlug = $this->slugFromPath($sourcePath);
+            }
+
+            $routes[] = array_filter(array(
+                'kind'        => 'route',
+                'source_path' => $sourcePath,
+                'target_path' => $this->routePath($page),
+                'target_slug' => $targetSlug,
+                'title'       => (string) ($page['title'] ?? ''),
+                'parent_source_path' => (string) (($page['metadata']['parent_source_path'] ?? '') ?: ''),
+                'source_relation' => ! empty($page['entrypoint']) ? 'entrypoint' : 'document',
+                'order'       => $index,
+            ), static fn (mixed $value): bool => '' !== $value);
+        }
+
+        return $routes;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $templateParts
+     * @param array<int,array<string,mixed>> $routes
+     * @return array<int,array<string,mixed>>
+     */
+    private function navigationLinks(array $pages, array $templateParts, array $routes): array
+    {
+        $links = array();
+        $targetSlugsByPath = array();
+        foreach ( $routes as $route ) {
+            $targetPath = (string) ($route['target_path'] ?? '');
+            if ( '' !== $targetPath ) {
+                $targetSlugsByPath[$targetPath] = (string) ($route['target_slug'] ?? '');
+            }
+        }
+
+        foreach ( array('template_part' => $templateParts, 'page' => $pages) as $kind => $documents ) {
+            foreach ( $documents as $document ) {
+                $sourcePath = (string) ($document['source_path'] ?? '');
+                $sourceRelation = 'template_part' === $kind ? 'template_part_navigation' : 'page_navigation';
+                foreach ( $this->anchorLinks((string) ($document['block_markup'] ?? '')) as $index => $anchor ) {
+                    $targetPath = $this->targetPathFromHref($anchor['href']);
+                    $links[] = array_filter(array(
+                        'kind'        => 'navigation_link',
+                        'source_path' => $sourcePath,
+                        'menu_source_path' => $sourcePath,
+                        'target_path' => $targetPath,
+                        'target_slug' => $targetSlugsByPath[$targetPath] ?? $this->slugFromHref($anchor['href']),
+                        'label'       => $anchor['label'],
+                        'title'       => $anchor['label'],
+                        'parent_source_path' => '',
+                        'source_relation' => $sourceRelation,
+                        'order'       => $index,
+                    ), static fn (mixed $value): bool => '' !== $value);
+                }
+            }
+        }
+
+        return $this->dedupeRows($links);
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $navigationLinks
+     * @return array<int,array<string,mixed>>
+     */
+    private function menus(array $navigationLinks): array
+    {
+        $menus = array();
+        $orders = array();
+        foreach ( $navigationLinks as $link ) {
+            $sourcePath = (string) ($link['menu_source_path'] ?? $link['source_path'] ?? '');
+            if ( '' === $sourcePath ) {
+                continue;
+            }
+            if ( ! isset($menus[$sourcePath]) ) {
+                $orders[$sourcePath] = count($orders);
+                $menus[$sourcePath] = array(
+                    'kind'        => 'menu',
+                    'source_path' => $sourcePath,
+                    'target_slug' => $this->slugFromPath($sourcePath),
+                    'title'       => $this->titleFromPath($sourcePath),
+                    'source_relation' => 'navigation_links',
+                    'order'       => $orders[$sourcePath],
+                    'items'       => 0,
+                );
+            }
+            ++$menus[$sourcePath]['items'];
+        }
+
+        return array_values($menus);
     }
 
     /**
@@ -244,5 +358,121 @@ final class MaterializationPlanBuilder
         }
 
         return $candidates;
+    }
+
+    /**
+     * @param array<string,mixed> $page
+     */
+    private function routePath(array $page): string
+    {
+        $sourcePath = (string) ($page['source_path'] ?? '');
+        $slug = (string) ($page['slug'] ?? '');
+        if ( ! empty($page['entrypoint']) || preg_match('#(^|/)index\.[A-Za-z0-9]+$#', $sourcePath) ) {
+            return '/';
+        }
+
+        return '/' . trim('' !== $slug ? $slug : $this->slugFromPath($sourcePath), '/');
+    }
+
+    /**
+     * @return array<int,array{href:string,label:string}>
+     */
+    private function anchorLinks(string $markup): array
+    {
+        if ( '' === trim($markup) || ! preg_match_all('/<nav\b[^>]*>(.*?)<\/nav>/is', $markup, $navMatches) ) {
+            return array();
+        }
+
+        $links = array();
+        foreach ( $navMatches[1] as $navHtml ) {
+            if ( ! preg_match_all('/<a\b([^>]*)>(.*?)<\/a>/is', (string) $navHtml, $anchorMatches, PREG_SET_ORDER) ) {
+                continue;
+            }
+            foreach ( $anchorMatches as $anchorMatch ) {
+                $href = $this->attributeValue((string) $anchorMatch[1], 'href');
+                $label = trim(html_entity_decode(strip_tags((string) $anchorMatch[2]), ENT_QUOTES | ENT_HTML5));
+                if ( '' === $href || '' === $label ) {
+                    continue;
+                }
+                $links[] = array(
+                    'href'  => $href,
+                    'label' => $label,
+                );
+            }
+        }
+
+        return $links;
+    }
+
+    private function attributeValue(string $attributes, string $name): string
+    {
+        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*(["\'])(.*?)\1/is', $attributes, $match) ) {
+            return html_entity_decode((string) $match[2], ENT_QUOTES | ENT_HTML5);
+        }
+
+        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*([^\s"\'>]+)/is', $attributes, $match) ) {
+            return html_entity_decode((string) $match[1], ENT_QUOTES | ENT_HTML5);
+        }
+
+        return '';
+    }
+
+    private function targetPathFromHref(string $href): string
+    {
+        $path = (string) (parse_url($href, PHP_URL_PATH) ?: '');
+        if ( '' === $path ) {
+            return '';
+        }
+
+        $path = '/' . ltrim($path, '/');
+        $path = preg_replace('#/index\.[A-Za-z0-9]+$#', '/', $path) ?? $path;
+        $path = preg_replace('/\.[A-Za-z0-9]+$/', '', $path) ?? $path;
+        if ( '/' !== $path ) {
+            $path = rtrim($path, '/');
+        }
+
+        return '' === $path ? '/' : $path;
+    }
+
+    private function slugFromHref(string $href): string
+    {
+        $targetPath = $this->targetPathFromHref($href);
+        if ( '/' === $targetPath ) {
+            return 'index';
+        }
+
+        return $this->slugFromPath($targetPath);
+    }
+
+    private function slugFromPath(string $path): string
+    {
+        $base = preg_replace('/\.[A-Za-z0-9]+$/', '', basename($path));
+        $base = '' === $base || null === $base ? 'document' : $base;
+        return strtolower((string) preg_replace('/[^a-z0-9-]+/', '-', str_replace(array('_', '.'), '-', $base)));
+    }
+
+    private function titleFromPath(string $path): string
+    {
+        return ucwords(str_replace('-', ' ', $this->slugFromPath($path)));
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $rows
+     * @return array<int,array<string,mixed>>
+     */
+    private function dedupeRows(array $rows): array
+    {
+        $deduped = array();
+        $seen = array();
+        foreach ( $rows as $row ) {
+            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
+            if ( ! is_string($key) || isset($seen[$key]) ) {
+                continue;
+            }
+            $seen[$key] = true;
+            $deduped[] = $row;
+        }
+
+        return $deduped;
     }
 }
