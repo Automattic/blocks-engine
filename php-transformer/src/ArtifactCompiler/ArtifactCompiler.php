@@ -735,15 +735,22 @@ final class ArtifactCompiler
         return array_values(array_map(
             static fn (array $asset): array => array_filter(
                 array(
-                    'path'      => $asset['path'] ?? '',
-                    'kind'      => $asset['kind'] ?? '',
-                    'role'      => $asset['role'] ?? '',
-                    'intent'    => $asset['intent'] ?? '',
-                    'mime_type' => $asset['mime_type'] ?? '',
-                    'bytes'     => $asset['bytes'] ?? 0,
-                    'binary'    => $asset['binary'] ?? false,
+                    'source'           => $asset['source'] ?? '',
+                    'path'             => $asset['path'] ?? '',
+                    'target_path'      => $asset['target_path'] ?? $asset['path'] ?? '',
+                    'kind'             => $asset['kind'] ?? '',
+                    'role'             => $asset['role'] ?? '',
+                    'intent'           => $asset['intent'] ?? '',
+                    'media_type'       => $asset['media_type'] ?? $asset['mime_type'] ?? '',
+                    'mime_type'        => $asset['mime_type'] ?? '',
+                    'bytes'            => $asset['bytes'] ?? 0,
+                    'binary'           => $asset['binary'] ?? false,
+                    'content_encoding' => $asset['content_encoding'] ?? $asset['encoding'] ?? '',
+                    'content'          => $asset['content'] ?? null,
+                    'content_base64'   => $asset['content_base64'] ?? null,
+                    'hash'             => $asset['hash'] ?? $asset['provenance']['hash'] ?? '',
                 ),
-                static fn (mixed $value): bool => '' !== $value
+                static fn (mixed $value): bool => null !== $value && '' !== $value
             ),
             $assets
         ));
@@ -966,23 +973,24 @@ final class ArtifactCompiler
                 continue;
             }
             $asset = array(
-                'path'       => $file['path'],
-                'kind'       => $file['kind'],
-                'bytes'      => $file['bytes'],
-                'source'     => $file['source'] ?? 'artifact',
-                'mime_type'  => $file['mime_type'],
-                'role'       => $file['role'],
-                'encoding'   => $file['encoding'],
-                'binary'     => $file['binary'],
-                'provenance' => $file['provenance'],
+                'source'           => $file['source'] ?? 'artifact',
+                'path'             => $file['path'],
+                'target_path'      => $file['path'],
+                'kind'             => $file['kind'],
+                'bytes'            => $file['bytes'],
+                'media_type'       => $file['mime_type'],
+                'mime_type'        => $file['mime_type'],
+                'role'             => $file['role'],
+                'encoding'         => $file['encoding'],
+                'content_encoding' => $file['encoding'],
+                'binary'           => $file['binary'],
+                'hash'             => $file['provenance']['hash'] ?? '',
+                'provenance'       => $file['provenance'],
             );
             if ( ! empty($file['content_base64']) ) {
                 $asset['content_base64'] = $file['content_base64'];
             }
-            if ( 'css' === ($file['kind'] ?? '') && empty($file['binary']) ) {
-                $asset['content'] = $file['content'];
-            }
-            if ( 'image/svg+xml' === ($file['mime_type'] ?? '') && empty($file['binary']) && $this->isSafeSvgContent((string) ($file['content'] ?? '')) ) {
+            if ( empty($file['binary']) && ! $this->isUnsafeSvgAsset($file) ) {
                 $asset['content'] = $file['content'];
             }
             if ( ! empty($file['intent']) ) {
@@ -1022,6 +1030,14 @@ final class ArtifactCompiler
         }
 
         return ! empty($asset['content']) && $this->isSafeSvgContent((string) $asset['content']);
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     */
+    private function isUnsafeSvgAsset(array $file): bool
+    {
+        return 'image/svg+xml' === ($file['mime_type'] ?? '') && ! $this->isSafeSvgContent((string) ($file['content'] ?? ''));
     }
 
     private function isSafeSvgContent(string $content): bool
