@@ -47,6 +47,8 @@ final class ConversionReportProjection
     {
         $artifact = is_array($sourceReports['artifact'] ?? null) ? $sourceReports['artifact'] : array();
         $compiledSite = is_array($sourceReports['compiled_site'] ?? null) ? $sourceReports['compiled_site'] : array();
+        $materializationPlan = is_array($sourceReports['materialization_plan'] ?? null) ? $sourceReports['materialization_plan'] : array();
+        $materializationTotals = is_array($materializationPlan['totals'] ?? null) ? $materializationPlan['totals'] : array();
 
         return array_filter(
             array(
@@ -55,8 +57,11 @@ final class ConversionReportProjection
                 'file_count'       => $artifact['file_count'] ?? null,
                 'accepted_count'   => $artifact['accepted_count'] ?? null,
                 'rejected_count'   => $artifact['rejected_count'] ?? null,
-                'page_count'       => isset($compiledSite['pages']) && is_array($compiledSite['pages']) ? count($compiledSite['pages']) : null,
-                'asset_count'      => 0 < count($assets) ? count($assets) : null,
+                'page_count'       => $materializationTotals['pages'] ?? (isset($compiledSite['pages']) && is_array($compiledSite['pages']) ? count($compiledSite['pages']) : null),
+                'asset_count'      => $materializationTotals['assets'] ?? (0 < count($assets) ? count($assets) : null),
+                'route_count'      => $materializationTotals['routes'] ?? null,
+                'navigation_link_count' => $materializationTotals['navigation_links'] ?? null,
+                'menu_count'       => $materializationTotals['menus'] ?? null,
                 'block_count'      => $metrics['block_count'] ?? self::countBlocks($blocks),
                 'fallback_count'   => $metrics['fallback_count'] ?? count($fallbacks),
                 'diagnostic_count' => $metrics['diagnostic_count'] ?? null,
