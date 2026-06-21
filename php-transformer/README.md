@@ -132,7 +132,7 @@ Unsupported or unsafe artifact inputs are reported through diagnostics instead o
 
 ## Parity Checks
 
-Run the package contract and parity fixtures with `composer test`. The checked-in fixtures assert current transformer behavior.
+Run the package contract, parity fixtures, and clean package-install proof with `composer test`. The checked-in fixtures assert current transformer behavior, and the install proof verifies that Composer can install `automattic/blocks-engine-php-transformer` from the `php-transformer/` package root without symlinking back to the working tree.
 
 ## Release Consumption
 
@@ -184,13 +184,22 @@ Before the first tag is available, review branches may use a Composer VCS or pat
 
 ### Release Readiness Checklist
 
-Before tagging the first package release:
+Reviewer-safe checks before approving the first package release PR:
 
 - Run `composer validate --strict` and `composer test` from `php-transformer/`.
 - Confirm `VERSION`, `php-transformer.php`, and the intended tag all resolve to `0.1.0`.
 - Confirm Packagist or the subtree split indexes `php-transformer/` as the package root, not the repository root.
 - Confirm downstream merge candidates use `automattic/blocks-engine-php-transformer:^0.1.0` instead of path repositories, unpublished branches, or inline aliases.
 - Keep the transformer metadata free of downstream wrapper package names, `replace`, and `provide` declarations.
+
+Operator-only release checklist after the release-readiness PR merges:
+
+- Choose the exact merged commit that should own the `0.1.0` tag.
+- Run the Homeboy release dry-run from that merged commit.
+- Create the package tag from the accepted release path.
+- Publish or connect the Packagist/subtree-split package root if that is the chosen distribution path.
+- Update downstream wrapper/product PRs from review-only constraints to tagged constraints.
+- Decide whether GitHub Releases are part of this first package publication path.
 
 Homeboy owns the local release preflight for this package through `php-transformer/homeboy.json`. The only version target is `VERSION`, currently `0.1.0`; release automation should tag from the package subtree after the upstream PRs are merged, without adding wrapper-package names to this package metadata.
 
