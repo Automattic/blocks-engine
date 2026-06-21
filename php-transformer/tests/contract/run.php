@@ -95,6 +95,35 @@ $assert('index.html' === ($simple['source_reports']['materialization_plan']['ent
 $assert(1 === ($simple['source_reports']['materialization_plan']['totals']['pages'] ?? null), 'materialization plan counts pages');
 $assert('index' === ($simple['source_reports']['materialization_plan']['pages'][0]['slug'] ?? ''), 'materialization plan exposes page slug');
 
+$staticSite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><img src="assets/logo.png" alt="Logo"></main>',
+            'parts/header.html' => '<header><img src="assets/logo.png" alt="Logo"></header>',
+            'assets/logo.png' => array(
+                'content_base64' => base64_encode("\x89PNG\r\n\x1a\n"),
+                'mime_type'      => 'image/png',
+            ),
+            'visual-repair.css' => '.wp-site-blocks{min-height:100vh}',
+        ),
+    )
+)->toArray();
+$staticPlan = $staticSite['source_reports']['materialization_plan'] ?? array();
+$assert('parts/header.html' === ($staticPlan['template_part_writes'][0]['source_path'] ?? ''), 'materialization plan exposes template part writes');
+$assert('wp_template_part' === ($staticPlan['template_part_writes'][0]['type'] ?? ''), 'template part writes identify the WordPress write target');
+$assert(str_contains((string) ($staticPlan['visual_repair_css'] ?? ''), 'min-height:100vh'), 'materialization plan exposes visual repair CSS');
+$assert(! empty(array_filter($staticPlan['asset_rewrite_candidates'] ?? array(), static fn (array $candidate): bool => 'template_part' === ($candidate['scope'] ?? '') && 'assets/logo.png' === ($candidate['asset_path'] ?? ''))), 'materialization plan exposes template part asset rewrite candidates');
+
+$productsPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(
+    array(
+        'products' => array(
+            array('sku' => 'shirt-001', 'name' => 'Shirt'),
+        ),
+    )
+);
+$assert('shirt-001' === ($productsPlan['products'][0]['sku'] ?? ''), 'materialization plan preserves compiled site products manifest when present');
+
 $fragment = $compiler->compileFragment('<main><h2>Fragment</h2><p>Copy</p></main>', 'fixture:fragment')->toArray();
 $assert('success' === $fragment['status'], 'fragment compiles successfully', (string) $fragment['status']);
 $assert('fixture:fragment' === ($fragment['provenance'][0]['source'] ?? ''), 'fragment compile exposes source provenance');

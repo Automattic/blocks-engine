@@ -29,23 +29,34 @@ final class MaterializationPlanBuilder
         $templateParts = $this->templateParts((array) ($compiledSite['template_parts'] ?? array()));
         $assets = $this->assets((array) ($compiledSite['assets'] ?? array()));
         $visualRepair = is_array($compiledSite['visual_repair'] ?? null) ? $compiledSite['visual_repair'] : array();
+        $assetRewriteCandidates = $this->assetRewriteCandidates($pages, $templateParts, $assets);
 
-        return array(
+        $plan = array(
             'schema'         => self::SCHEMA,
             'source_schema'  => (string) ($compiledSite['schema'] ?? ''),
             'source_hash'    => (string) ($compiledSite['source_hash'] ?? ''),
             'entry_path'     => (string) ($compiledSite['entry_path'] ?? ''),
             'pages'          => $pages,
             'template_parts' => $templateParts,
+            'template_part_writes' => $this->templatePartWrites($templateParts),
             'assets'         => $assets,
             'theme'          => $this->theme((array) ($compiledSite['theme'] ?? array()), $templateParts, $assets, $visualRepair),
-            'rewrite_candidates' => $this->rewriteCandidates($pages, $assets),
+            'visual_repair_css' => (string) ($visualRepair['css'] ?? ''),
+            'asset_rewrite_candidates' => $assetRewriteCandidates,
+            'rewrite_candidates' => $assetRewriteCandidates,
+            'products'       => is_array($compiledSite['products'] ?? null) ? $compiledSite['products'] : array(),
             'totals'         => array(
                 'pages'          => count($pages),
                 'template_parts' => count($templateParts),
                 'assets'         => count($assets),
             ),
         );
+
+        if ( array() === $plan['products'] ) {
+            unset($plan['products']);
+        }
+
+        return $plan;
     }
 
     /**
@@ -57,8 +68,10 @@ final class MaterializationPlanBuilder
             'schema' => self::SCHEMA,
             'pages' => array(),
             'template_parts' => array(),
+            'template_part_writes' => array(),
             'assets' => array(),
             'theme' => array(),
+            'asset_rewrite_candidates' => array(),
             'rewrite_candidates' => array(),
             'totals' => array('pages' => 0, 'template_parts' => 0, 'assets' => 0),
         );
@@ -107,9 +120,30 @@ final class MaterializationPlanBuilder
                 'area'        => (string) ($part['area'] ?? 'uncategorized'),
                 'body_format' => (string) ($part['body_format'] ?? ''),
                 'block_markup' => (string) ($part['block_markup'] ?? ''),
-            ), static fn (mixed $value): bool => '' !== $value);
+                'metadata'    => is_array($part['metadata'] ?? null) ? $part['metadata'] : array(),
+            ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
         }
         return $planned;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $templateParts
+     * @return array<int,array<string,mixed>>
+     */
+    private function templatePartWrites(array $templateParts): array
+    {
+        $writes = array();
+        foreach ( $templateParts as $part ) {
+            $writes[] = array_filter(array(
+                'type'        => 'wp_template_part',
+                'source_path' => (string) ($part['source_path'] ?? ''),
+                'slug'        => (string) ($part['slug'] ?? ''),
+                'title'       => (string) ($part['title'] ?? ''),
+                'area'        => (string) ($part['area'] ?? 'uncategorized'),
+                'content'     => (string) ($part['block_markup'] ?? ''),
+            ), static fn (mixed $value): bool => '' !== $value);
+        }
+        return $writes;
     }
 
     /**
@@ -172,10 +206,11 @@ final class MaterializationPlanBuilder
 
     /**
      * @param array<int,array<string,mixed>> $pages
+     * @param array<int,array<string,mixed>> $templateParts
      * @param array<int,array<string,mixed>> $assets
      * @return array<int,array<string,mixed>>
      */
-    private function rewriteCandidates(array $pages, array $assets): array
+    private function assetRewriteCandidates(array $pages, array $templateParts, array $assets): array
     {
         $assetPaths = array_values(array_filter(array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $assets)));
         if ( array() === $assetPaths ) {
@@ -183,17 +218,24 @@ final class MaterializationPlanBuilder
         }
 
         $candidates = array();
-        foreach ( $pages as $page ) {
-            $markup = (string) ($page['block_markup'] ?? '');
-            foreach ( $assetPaths as $assetPath ) {
-                if ( '' !== $markup && str_contains($markup, $assetPath) ) {
-                    $candidates[] = array(
-                        'source_path' => (string) ($page['source_path'] ?? ''),
+        foreach ( array('page' => $pages, 'template_part' => $templateParts) as $scope => $documents ) {
+            foreach ( $documents as $document ) {
+                $markup = (string) ($document['block_markup'] ?? '');
+                foreach ( $assetPaths as $assetPath ) {
+                    if ( '' === $markup || ! str_contains($markup, $assetPath) ) {
+                        continue;
+                    }
+
+                    $candidates[] = array_filter(array(
+                        'scope'       => $scope,
+                        'source_path' => (string) ($document['source_path'] ?? ''),
+                        'slug'        => (string) ($document['slug'] ?? ''),
                         'asset_path'  => $assetPath,
-                    );
+                    ), static fn (mixed $value): bool => '' !== $value);
                 }
             }
         }
+
         return $candidates;
     }
 }
