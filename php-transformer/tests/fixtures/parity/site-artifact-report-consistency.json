@@ -1,0 +1,129 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "site-artifact-report-consistency",
+  "description": "Compiles a mixed generic site artifact and verifies that source reports, materialization plans, conversion summaries, local references, and rejected inputs stay aligned.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/site-artifact-report-consistency.json",
+    "notes": "Product-neutral fixture for downstream handoff contracts around site artifacts and report consistency."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Report consistency assertions cover the canonical transformer contract rather than a legacy package shape."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "schema": "blocks-engine/php-transformer/site-artifact/v1",
+      "entrypoint": "public/index.html",
+      "files": [
+        {
+          "path": "public/index.html",
+          "content": "<main><h1>Contract Site</h1><p>Entry page.</p><img src=\"assets/hero.png\" srcset=\"assets/hero.png 1x, assets/hero@2x.png 2x\" alt=\"Hero\"></main>",
+          "mime_type": "text/html",
+          "role": "entry"
+        },
+        {
+          "path": "public/docs/guide.html",
+          "content": "<!-- wp:paragraph --><p>Guide block markup.</p><!-- /wp:paragraph -->",
+          "mime_type": "text/html"
+        },
+        {
+          "path": "public/blog/post.html",
+          "content": "<main><h1>Post</h1><p>Article page.</p></main>",
+          "mime_type": "text/html"
+        },
+        {
+          "path": "public/parts/header.html",
+          "content": "<header><nav><a href=\"/\">Home</a><a href=\"/docs/guide.html\">Guide</a><a href=\"/blog/post.html\">Post</a></nav><img src=\"../assets/hero.png\" alt=\"Header hero\"></header>",
+          "mime_type": "text/html",
+          "role": "template-part"
+        },
+        {
+          "path": "content/notes.md",
+          "content": "---\ntitle: Release Notes\nslug: release-notes\n---\n# Notes\n\nMarkdown page.",
+          "mime_type": "text/markdown"
+        },
+        {
+          "path": "public/assets/app.css",
+          "content": "body{background:url('texture.png')} main{max-width:70rem}",
+          "mime_type": "text/css",
+          "role": "stylesheet"
+        },
+        {
+          "path": "public/assets/visual-repair.css",
+          "content": ".wp-site-blocks{min-height:100vh}",
+          "mime_type": "text/css",
+          "intent": "visual-repair"
+        },
+        {
+          "path": "public/assets/hero.png",
+          "content_base64": "iVBORw0KGgo=",
+          "mime_type": "image/png",
+          "role": "image"
+        },
+        {
+          "path": "public/assets/hero@2x.png",
+          "content_base64": "iVBORw0KGgo=",
+          "mime_type": "image/png",
+          "role": "image"
+        },
+        {
+          "path": "public/assets/texture.png",
+          "content_base64": "iVBORw0KGgo=",
+          "mime_type": "image/png",
+          "role": "image"
+        },
+        {
+          "path": "../outside.html",
+          "content": "<main>Rejected</main>",
+          "mime_type": "text/html"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
+    { "path": "status", "assert": "equals", "value": "success_with_warnings" },
+    { "path": "source_reports.artifact.schema", "assert": "equals", "value": "blocks-engine/php-transformer/site-artifact/v1" },
+    { "path": "source_reports.artifact.original_schema", "assert": "equals", "value": "blocks-engine/php-transformer/site-artifact/v1" },
+    { "path": "source_reports.artifact.entry_path", "assert": "equals", "value": "public/index.html" },
+    { "path": "source_reports.artifact.rejected_count", "assert": "equals", "value": 1 },
+    { "path": "source_reports.artifact.files_by_kind.html", "assert": "equals", "value": 4 },
+    { "path": "source_reports.artifact.files_by_kind.markdown", "assert": "equals", "value": 1 },
+    { "path": "source_reports.artifact.files_by_mime.image/png", "assert": "equals", "value": 3 },
+    { "path": "source_reports.artifact.internal_links", "assert": "count", "count": 0 },
+    { "path": "source_reports.artifact.asset_references", "assert": "count", "count": 5 },
+    { "path": "source_reports.compiled_site.pages", "assert": "count", "count": 4 },
+    { "path": "source_reports.compiled_site.pages.1.block_markup", "assert": "contains", "value": "<!-- wp:paragraph -->" },
+    { "path": "source_reports.compiled_site.pages.3.title", "assert": "equals", "value": "Release Notes" },
+    { "path": "source_reports.materialization_plan.pages", "assert": "count", "count": 4 },
+    { "path": "source_reports.materialization_plan.routes", "assert": "count", "count": 4 },
+    { "path": "source_reports.materialization_plan.routes.0.target_path", "assert": "equals", "value": "/" },
+    { "path": "source_reports.materialization_plan.routes.1.target_path", "assert": "equals", "value": "/guide" },
+    { "path": "source_reports.materialization_plan.routes.2.target_path", "assert": "equals", "value": "/post" },
+    { "path": "source_reports.materialization_plan.routes.3.target_path", "assert": "equals", "value": "/release-notes" },
+    { "path": "source_reports.materialization_plan.navigation_links", "assert": "count", "count": 3 },
+    { "path": "source_reports.materialization_plan.navigation_links.1.target_path", "assert": "equals", "value": "/docs/guide" },
+    { "path": "source_reports.materialization_plan.navigation_links.2.target_path", "assert": "equals", "value": "/blog/post" },
+    { "path": "source_reports.materialization_plan.navigation_links.2.target_slug", "assert": "equals", "value": "post" },
+    { "path": "source_reports.materialization_plan.menus.0.items", "assert": "equals", "value": 3 },
+    { "path": "source_reports.materialization_plan.template_part_writes.0.type", "assert": "equals", "value": "wp_template_part" },
+    { "path": "source_reports.materialization_plan.assets", "assert": "count", "count": 9 },
+    { "path": "source_reports.materialization_plan.asset_rewrite_candidates", "assert": "count", "count": 0 },
+    { "path": "source_reports.materialization_plan.theme.stylesheets.0", "assert": "equals", "value": "public/assets/app.css" },
+    { "path": "source_reports.materialization_plan.theme.images", "assert": "count", "count": 3 },
+    { "path": "source_reports.materialization_plan.visual_repair_css", "assert": "contains", "value": "min-height:100vh" },
+    { "path": "source_reports.materialization_plan.totals.pages", "assert": "equals", "value": 4 },
+    { "path": "source_reports.materialization_plan.totals.assets", "assert": "equals", "value": 9 },
+    { "path": "source_reports.conversion_report.source_summary.page_count", "assert": "equals", "value": 4 },
+    { "path": "source_reports.conversion_report.source_summary.asset_count", "assert": "equals", "value": 9 },
+    { "path": "source_reports.conversion_report.source_summary.route_count", "assert": "equals", "value": 4 },
+    { "path": "source_reports.conversion_report.source_summary.navigation_link_count", "assert": "equals", "value": 3 },
+    { "path": "source_reports.conversion_report.source_summary.menu_count", "assert": "equals", "value": 1 },
+    { "path": "source_reports.conversion_report.asset_refs", "assert": "count", "count": 5 },
+    { "path": "source_reports.conversion_report.presentation_gaps.0.path", "assert": "equals", "value": "public/assets/visual-repair.css" },
+    { "path": "documents.0.source_path", "assert": "equals", "value": "content/notes.md" },
+    { "path": "diagnostics.0.code", "assert": "equals", "value": "unsafe_artifact_path" }
+  ]
+}

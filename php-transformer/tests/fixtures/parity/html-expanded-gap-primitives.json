@@ -1,10 +1,10 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
-  "name": "html-h2bc-gap-primitives",
+  "name": "html-expanded-gap-primitives",
   "description": "Preserves generic HTML parity gaps for visual placeholders, media wrappers, nested lists, scoped runtime fallbacks, resized SVG images, and code-window labels.",
   "source_reference": {
     "repo": "php-transformer",
-    "path": "tests/fixtures/parity/html-h2bc-gap-primitives.json",
+    "path": "tests/fixtures/parity/html-expanded-gap-primitives.json",
     "notes": "Product-neutral fixture for reusable upstream HTML primitives inspired by downstream parity gaps."
   },
   "legacy_comparison": {
