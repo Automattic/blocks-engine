@@ -35,6 +35,11 @@ final class HtmlTransformer
      */
     private array $structureProvenance = array();
 
+    /**
+     * @var array<string, array<string, mixed>>
+     */
+    private array $assetMetadata = array();
+
     private int $nextSourceProvenanceId = 1;
 
     public function __construct(private readonly Runtime $runtime = new Runtime())
@@ -53,6 +58,7 @@ final class HtmlTransformer
         $this->presentationProvenance = array();
         $this->sourceProvenance = array();
         $this->structureProvenance = array();
+        $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->nextSourceProvenanceId = 1;
         $provenance               = array(
             array_merge(array(
@@ -1711,6 +1717,7 @@ final class HtmlTransformer
         )), static fn ($value): bool => '' !== $value);
 
         $attrs = array_filter(array_merge($attrs, $this->imageIdentityAttributes($image, $figure)), static fn ($value): bool => '' !== $value);
+        $attrs = array_filter(array_merge($attrs, $this->assetMetadataImageAttributes($url)), static fn ($value): bool => '' !== $value);
 
         if ( $figure instanceof DOMElement ) {
             $caption = $this->firstChildElement($figure, 'figcaption');
@@ -1858,6 +1865,103 @@ final class HtmlTransformer
         }
 
         return $url;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, array<string, mixed>>
+     */
+    private function assetMetadataFromOptions(array $options): array
+    {
+        $metadata = array();
+
+        foreach ( array( $options['provenance'] ?? null, $options['context'] ?? null, $options ) as $container ) {
+            if ( ! is_array($container) || ! isset($container['asset_metadata']) || ! is_array($container['asset_metadata']) ) {
+                continue;
+            }
+
+            foreach ( $container['asset_metadata'] as $path => $asset ) {
+                if ( ! is_string($path) || '' === trim($path) || ! is_array($asset) ) {
+                    continue;
+                }
+
+                $metadata[trim($path)] = $asset;
+            }
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @return array<string, int|string>
+     */
+    private function assetMetadataImageAttributes(string $url): array
+    {
+        $asset = $this->assetMetadataForUrl($url);
+        if ( null === $asset ) {
+            return array();
+        }
+
+        $attrs = array();
+        if ( isset($asset['id']) && ( is_int($asset['id']) || ( is_string($asset['id']) && ctype_digit($asset['id']) ) ) ) {
+            $attrs['id'] = (int) $asset['id'];
+        }
+
+        if ( isset($asset['url']) && is_string($asset['url']) ) {
+            $resolvedUrl = $this->safeResolvedAssetImageUrl(trim($asset['url']));
+            if ( '' !== $resolvedUrl ) {
+                $attrs['url'] = $resolvedUrl;
+            }
+        }
+
+        return $attrs;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function assetMetadataForUrl(string $url): ?array
+    {
+        foreach ( $this->assetMetadataLookupKeys($url) as $key ) {
+            if ( isset($this->assetMetadata[$key]) ) {
+                return $this->assetMetadata[$key];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function assetMetadataLookupKeys(string $url): array
+    {
+        $keys = array();
+        foreach ( array( trim($url), ltrim(trim($url), '/') ) as $key ) {
+            if ( '' !== $key && ! in_array($key, $keys, true) ) {
+                $keys[] = $key;
+            }
+        }
+
+        $path = parse_url($url, PHP_URL_PATH);
+        if ( is_string($path) ) {
+            foreach ( array( $path, ltrim($path, '/') ) as $key ) {
+                if ( '' !== $key && ! in_array($key, $keys, true) ) {
+                    $keys[] = $key;
+                }
+            }
+        }
+
+        return $keys;
+    }
+
+    private function safeResolvedAssetImageUrl(string $url): string
+    {
+        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
+            return '';
+        }
+
+        return $this->safeImageUrl($url);
     }
 
     private function isSafeSvgContent(string $content): bool
