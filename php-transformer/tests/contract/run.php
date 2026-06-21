@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatAdapterInterface;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 
 if ( ! function_exists('serialize_blocks') ) {
     /**
@@ -89,6 +90,45 @@ $assert(0 === ($simple['metrics']['block_count'] ?? null), 'artifact metrics exp
 $assert(0 === ($simple['metrics']['fallback_count'] ?? null), 'artifact metrics expose fallback count');
 $assert(0 === ($simple['metrics']['diagnostic_count'] ?? null), 'artifact metrics expose diagnostic count');
 $assert(is_float($simple['metrics']['transform_duration_ms'] ?? null), 'artifact metrics expose transform duration');
+$assert(MaterializationPlanBuilder::SCHEMA === ($simple['source_reports']['materialization_plan']['schema'] ?? ''), 'artifact exposes canonical materialization plan');
+$assert('index.html' === ($simple['source_reports']['materialization_plan']['entry_path'] ?? ''), 'materialization plan exposes entry path');
+$assert(1 === ($simple['source_reports']['materialization_plan']['totals']['pages'] ?? null), 'materialization plan counts pages');
+$assert('index' === ($simple['source_reports']['materialization_plan']['pages'][0]['slug'] ?? ''), 'materialization plan exposes page slug');
+
+$staticSite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><img src="assets/logo.png" alt="Logo"></main>',
+            'parts/header.html' => '<header><img src="assets/logo.png" alt="Logo"></header>',
+            'assets/logo.png' => array(
+                'content_base64' => base64_encode("\x89PNG\r\n\x1a\n"),
+                'mime_type'      => 'image/png',
+            ),
+            'visual-repair.css' => '.wp-site-blocks{min-height:100vh}',
+        ),
+    )
+)->toArray();
+$staticPlan = $staticSite['source_reports']['materialization_plan'] ?? array();
+$assert('parts/header.html' === ($staticPlan['template_part_writes'][0]['source_path'] ?? ''), 'materialization plan exposes template part writes');
+$assert('wp_template_part' === ($staticPlan['template_part_writes'][0]['type'] ?? ''), 'template part writes identify the WordPress write target');
+$assert(str_contains((string) ($staticPlan['visual_repair_css'] ?? ''), 'min-height:100vh'), 'materialization plan exposes visual repair CSS');
+$assert(! empty(array_filter($staticPlan['asset_rewrite_candidates'] ?? array(), static fn (array $candidate): bool => 'template_part' === ($candidate['scope'] ?? '') && 'assets/logo.png' === ($candidate['asset_path'] ?? ''))), 'materialization plan exposes template part asset rewrite candidates');
+
+$productsPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(
+    array(
+        'products' => array(
+            array('sku' => 'shirt-001', 'name' => 'Shirt'),
+        ),
+    )
+);
+$assert('shirt-001' === ($productsPlan['products'][0]['sku'] ?? ''), 'materialization plan preserves compiled site products manifest when present');
+
+$fragment = $compiler->compileFragment('<main><h2>Fragment</h2><p>Copy</p></main>', 'fixture:fragment')->toArray();
+$assert('success' === $fragment['status'], 'fragment compiles successfully', (string) $fragment['status']);
+$assert('fixture:fragment' === ($fragment['provenance'][0]['source'] ?? ''), 'fragment compile exposes source provenance');
+$assert('artifact-fragment' === ($fragment['provenance'][0]['scope'] ?? ''), 'fragment compile exposes source scope');
+$assert(str_contains((string) $fragment['serialized_blocks'], '<!-- wp:heading'), 'fragment compile serializes heading block');
 
 $missing = $compiler->compile(array('files' => array()))->toArray();
 $assert('failed' === $missing['status'], 'missing HTML fails explicitly', (string) $missing['status']);
