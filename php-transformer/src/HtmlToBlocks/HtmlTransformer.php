@@ -438,6 +438,8 @@ final class HtmlTransformer
         }
 
         if ( 'form' === $tagName ) {
+            $controls = $this->formControls($element);
+            $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
             $fallbacks[] = array_merge(array(
                 'type'            => 'html',
                 'reason'          => 'form_requires_runtime',
@@ -447,12 +449,16 @@ final class HtmlTransformer
                 'tag'             => $tagName,
                 'selector'        => $this->elementSelector($element),
                 'attributes'      => $this->htmlAttributes($element),
+                'form'            => $this->formMetadata($element),
                 'context'         => $this->sourceContext($element),
                 'events'          => $this->eventMetadata($element),
-                'controls'        => $this->formControls($element),
+                'controls'        => $controls,
+                'control_count'   => count($controls),
                 'text_length'     => strlen(trim($element->textContent ?? '')),
                 'child_count'     => $this->childElementCount($element),
-                'html'            => $this->safeFallbackHtml($element),
+                'html'            => $boundedHtml['html'],
+                'html_bytes'      => $boundedHtml['bytes'],
+                'html_truncated'  => $boundedHtml['truncated'],
             ), $this->fallbackProvenance);
             return null;
         }
@@ -1331,6 +1337,21 @@ final class HtmlTransformer
     }
 
     /**
+     * @return array<string, string>
+     */
+    private function formMetadata(DOMElement $form): array
+    {
+        return array_filter(
+            array(
+                'action'  => $this->attr($form, 'action'),
+                'method'  => strtolower($this->attr($form, 'method')),
+                'enctype' => $this->attr($form, 'enctype'),
+            ),
+            static fn (string $value): bool => '' !== $value
+        );
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function formControlMetadata(DOMElement $control): array
@@ -1342,6 +1363,7 @@ final class HtmlTransformer
         $tagName = strtolower($control->tagName);
         $metadata = array_filter(array(
             'tag'         => $tagName,
+            'selector'    => $this->elementSelector($control),
             'name'        => $this->attr($control, 'name'),
             'type'        => $this->formControlType($control),
             'label'       => $this->formControlLabel($control),
