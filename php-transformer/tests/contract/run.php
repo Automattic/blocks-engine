@@ -161,6 +161,12 @@ $assert('About' === ($staticPlan['navigation_links'][1]['label'] ?? ''), 'materi
 $assert('/about' === ($staticPlan['navigation_links'][1]['target_path'] ?? ''), 'materialization plan exposes navigation target paths');
 $assert('menu' === ($staticPlan['menus'][0]['kind'] ?? ''), 'materialization plan exposes generic menu rows');
 $assert(2 === ($staticPlan['menus'][0]['items'] ?? null), 'materialization plan counts menu items');
+$staticSummary = $staticSite['source_reports']['conversion_report']['source_summary'] ?? array();
+$assert(($staticPlan['totals']['pages'] ?? null) === ($staticSummary['page_count'] ?? null), 'conversion report page count matches materialization plan totals');
+$assert(($staticPlan['totals']['assets'] ?? null) === ($staticSummary['asset_count'] ?? null), 'conversion report asset count matches materialization plan totals');
+$assert(($staticPlan['totals']['routes'] ?? null) === ($staticSummary['route_count'] ?? null), 'conversion report route count matches materialization plan totals');
+$assert(($staticPlan['totals']['navigation_links'] ?? null) === ($staticSummary['navigation_link_count'] ?? null), 'conversion report navigation link count matches materialization plan totals');
+$assert(($staticPlan['totals']['menus'] ?? null) === ($staticSummary['menu_count'] ?? null), 'conversion report menu count matches materialization plan totals');
 $logoAssetPlanRow = null;
 $cssAssetPlanRow = null;
 foreach ( $staticPlan['assets'] ?? array() as $assetPlanRow ) {
