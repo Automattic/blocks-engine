@@ -161,6 +161,23 @@ $assert('About' === ($staticPlan['navigation_links'][1]['label'] ?? ''), 'materi
 $assert('/about' === ($staticPlan['navigation_links'][1]['target_path'] ?? ''), 'materialization plan exposes navigation target paths');
 $assert('menu' === ($staticPlan['menus'][0]['kind'] ?? ''), 'materialization plan exposes generic menu rows');
 $assert(2 === ($staticPlan['menus'][0]['items'] ?? null), 'materialization plan counts menu items');
+$logoAssetPlanRow = null;
+$cssAssetPlanRow = null;
+foreach ( $staticPlan['assets'] ?? array() as $assetPlanRow ) {
+    if ( 'assets/logo.png' === ($assetPlanRow['path'] ?? '') ) {
+        $logoAssetPlanRow = $assetPlanRow;
+    }
+    if ( 'visual-repair.css' === ($assetPlanRow['path'] ?? '') ) {
+        $cssAssetPlanRow = $assetPlanRow;
+    }
+}
+$assert('assets/logo.png' === ($logoAssetPlanRow['target_path'] ?? ''), 'materialization plan asset rows expose generic target paths');
+$assert('base64' === ($logoAssetPlanRow['content_encoding'] ?? ''), 'materialization plan asset rows expose binary content encoding');
+$assert(base64_encode("\x89PNG\r\n\x1a\n") === ($logoAssetPlanRow['content_base64'] ?? ''), 'materialization plan asset rows expose base64 payloads for binary assets');
+$assert('image/png' === ($logoAssetPlanRow['media_type'] ?? ''), 'materialization plan asset rows expose generic media types');
+$assert(! empty($logoAssetPlanRow['hash'] ?? ''), 'materialization plan asset rows expose stable payload hashes');
+$assert('text' === ($cssAssetPlanRow['content_encoding'] ?? ''), 'materialization plan asset rows expose text content encoding');
+$assert('.wp-site-blocks{min-height:100vh}' === ($cssAssetPlanRow['content'] ?? ''), 'materialization plan asset rows expose text payloads for writable assets');
 
 $productsPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(
     array(

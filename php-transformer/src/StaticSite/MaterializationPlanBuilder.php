@@ -272,14 +272,21 @@ final class MaterializationPlanBuilder
                 continue;
             }
             $planned[] = array_filter(array(
-                'path'      => (string) ($asset['path'] ?? ''),
-                'kind'      => (string) ($asset['kind'] ?? ''),
-                'role'      => (string) ($asset['role'] ?? ''),
-                'intent'    => (string) ($asset['intent'] ?? ''),
-                'mime_type' => (string) ($asset['mime_type'] ?? ''),
-                'bytes'     => (int) ($asset['bytes'] ?? 0),
-                'binary'    => ! empty($asset['binary']),
-            ), static fn (mixed $value): bool => '' !== $value && 0 !== $value && false !== $value);
+                'source'           => (string) ($asset['source'] ?? ''),
+                'path'             => (string) ($asset['path'] ?? ''),
+                'target_path'      => (string) ($asset['target_path'] ?? $asset['path'] ?? ''),
+                'kind'             => (string) ($asset['kind'] ?? ''),
+                'role'             => (string) ($asset['role'] ?? ''),
+                'intent'           => (string) ($asset['intent'] ?? ''),
+                'media_type'       => (string) ($asset['media_type'] ?? $asset['mime_type'] ?? ''),
+                'mime_type'        => (string) ($asset['mime_type'] ?? ''),
+                'bytes'            => (int) ($asset['bytes'] ?? 0),
+                'binary'           => ! empty($asset['binary']),
+                'content_encoding' => (string) ($asset['content_encoding'] ?? $asset['encoding'] ?? ''),
+                'content'          => $asset['content'] ?? null,
+                'content_base64'   => $asset['content_base64'] ?? null,
+                'hash'             => (string) ($asset['hash'] ?? $asset['provenance']['hash'] ?? ''),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value && 0 !== $value && false !== $value);
         }
         return $planned;
     }

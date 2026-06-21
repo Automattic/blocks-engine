@@ -24,6 +24,14 @@
     { "path": "assets", "assert": "count", "count": 2 },
     { "path": "assets.0.path", "assert": "equals", "value": "style.css" },
     { "path": "assets.1.path", "assert": "equals", "value": "site.js" },
+    { "path": "source_reports.materialization_plan.assets.0.target_path", "assert": "equals", "value": "style.css" },
+    { "path": "source_reports.materialization_plan.assets.0.content", "assert": "contains", "value": ".hero" },
+    { "path": "source_reports.materialization_plan.assets.0.content_encoding", "assert": "equals", "value": "text" },
+    { "path": "source_reports.materialization_plan.assets.0.media_type", "assert": "equals", "value": "text/css" },
+    { "path": "source_reports.materialization_plan.assets.0.hash", "assert": "equals", "value": "a93d51e57e2b77526b408acac657fcee165ee03caeb1de5cc194575d8940860f" },
+    { "path": "source_reports.materialization_plan.assets.1.target_path", "assert": "equals", "value": "site.js" },
+    { "path": "source_reports.materialization_plan.assets.1.content", "assert": "contains", "value": "website-artifact" },
+    { "path": "source_reports.materialization_plan.assets.1.content_encoding", "assert": "equals", "value": "text" },
     { "path": "components.0.name", "assert": "equals", "value": "hero" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Website Artifact Fixture" }
   ]
