@@ -11,7 +11,26 @@ final class ZstdCapability
 {
     public function isAvailable(): bool
     {
-        return extension_loaded('zstd') && function_exists('zstd_uncompress');
+        $status = $this->status();
+        return true === $status['available'];
+    }
+
+    /**
+     * @return array{available: bool, extension_loaded: bool, extension_version: string|null, functions: array<string, bool>}
+     */
+    public function status(): array
+    {
+        $extensionLoaded = extension_loaded('zstd');
+
+        return array(
+            'available'         => $extensionLoaded && function_exists('zstd_uncompress'),
+            'extension_loaded'  => $extensionLoaded,
+            'extension_version' => $extensionLoaded ? phpversion('zstd') ?: null : null,
+            'functions'         => array(
+                'zstd_compress'   => function_exists('zstd_compress'),
+                'zstd_uncompress' => function_exists('zstd_uncompress'),
+            ),
+        );
     }
 
     /**
@@ -26,7 +45,28 @@ final class ZstdCapability
             );
         }
 
-        $decoded = zstd_uncompress($payload);
+        try {
+            $decoded = zstd_uncompress($payload);
+        } catch ( \Throwable $throwable ) {
+            return array(
+                'data'        => null,
+                'diagnostics' => array(
+                    array(
+                        'code'    => 'figma_transformer_zstd_uncompress_failed',
+                        'message' => 'Zstandard chunk detected but ext-zstd raised an error while decoding the payload.',
+                        'source'  => $source,
+                        'context' => array_merge(
+                            array(
+                                'chunk_index' => $chunkIndex,
+                                'error'       => $throwable->getMessage(),
+                            ),
+                            $this->status()
+                        ),
+                    ),
+                ),
+            );
+        }
+
         if ( false === $decoded ) {
             return array(
                 'data'        => null,
@@ -35,7 +75,7 @@ final class ZstdCapability
                         'code'    => 'figma_transformer_zstd_uncompress_failed',
                         'message' => 'Zstandard chunk detected but ext-zstd could not decode the payload.',
                         'source'  => $source,
-                        'context' => array('chunk_index' => $chunkIndex),
+                        'context' => array_merge(array('chunk_index' => $chunkIndex), $this->status()),
                     ),
                 ),
             );
@@ -52,12 +92,23 @@ final class ZstdCapability
      */
     public function diagnostic(string $source, int $chunkIndex): array
     {
-        if ( $this->isAvailable() ) {
+        $status = $this->status();
+
+        if ( true === $status['available'] ) {
             return array(
                 'code'    => 'figma_transformer_zstd_available',
                 'message' => 'Zstandard chunk detected and ext-zstd is available.',
                 'source'  => $source,
-                'context' => array('chunk_index' => $chunkIndex),
+                'context' => array_merge(array('chunk_index' => $chunkIndex), $status),
+            );
+        }
+
+        if ( true === $status['extension_loaded'] ) {
+            return array(
+                'code'    => 'figma_transformer_zstd_function_missing',
+                'message' => 'Zstandard chunk detected; ext-zstd is loaded but zstd_uncompress is unavailable.',
+                'source'  => $source,
+                'context' => array_merge(array('chunk_index' => $chunkIndex), $status),
             );
         }
 
@@ -65,7 +116,7 @@ final class ZstdCapability
             'code'    => 'figma_transformer_zstd_extension_missing',
             'message' => 'Zstandard chunk detected; install ext-zstd to decode zstd-compressed fig-kiwi chunks.',
             'source'  => $source,
-            'context' => array('chunk_index' => $chunkIndex),
+            'context' => array_merge(array('chunk_index' => $chunkIndex), $status),
         );
     }
 }

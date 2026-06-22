@@ -166,9 +166,17 @@ $diagnosticCodes = array_map(
     static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
     $fileResult['diagnostics'] ?? array()
 );
-$zstdCapabilityCode = ( new ZstdCapability() )->isAvailable()
-    ? 'figma_transformer_zstd_available'
-    : 'figma_transformer_zstd_extension_missing';
+$zstdCapability = new ZstdCapability();
+$zstdStatus = $zstdCapability->status();
+$zstdCapabilityDiagnostic = $zstdCapability->diagnostic('ContractTest', 0);
+$zstdCapabilityCode = (string) ($zstdCapabilityDiagnostic['code'] ?? '');
+$zstdDiagnostic = null;
+foreach ( $fileResult['diagnostics'] ?? array() as $diagnostic ) {
+    if ( $zstdCapabilityCode === ($diagnostic['code'] ?? null) ) {
+        $zstdDiagnostic = $diagnostic;
+        break;
+    }
+}
 
 $assert('success_with_warnings' === ($fileResult['status'] ?? null), 'file-transform-status');
 $assert('fig-kiwi' === ($canvas['prelude'] ?? null), 'fig-kiwi-prelude');
@@ -182,6 +190,22 @@ $assert('json_invalid' === ($chunks[1]['payload']['classification'] ?? null), 'f
 $assert('binary' === ($chunks[2]['payload']['classification'] ?? null), 'fig-kiwi-third-chunk-binary');
 $assert('zstd' === ($chunks[3]['compression'] ?? null), 'fig-kiwi-fourth-chunk-zstd');
 $assert(in_array($zstdCapabilityCode, $diagnosticCodes, true), 'fig-kiwi-zstd-capability-diagnostic');
+$assert(is_bool($zstdStatus['available'] ?? null), 'zstd-status-available-bool');
+$assert(is_bool($zstdStatus['extension_loaded'] ?? null), 'zstd-status-extension-loaded-bool');
+$assert(is_array($zstdStatus['functions'] ?? null), 'zstd-status-functions-array');
+$assert(array_key_exists('zstd_uncompress', $zstdStatus['functions'] ?? array()), 'zstd-status-uncompress-function');
+$assert(($zstdStatus['available'] ?? null) === (($zstdStatus['extension_loaded'] ?? null) && ($zstdStatus['functions']['zstd_uncompress'] ?? null)), 'zstd-status-available-matches-runtime');
+$assert(($zstdStatus['available'] ?? null) === ($zstdDiagnostic['context']['available'] ?? null), 'fig-kiwi-zstd-diagnostic-availability-context');
+if ( true === ($zstdStatus['available'] ?? false) && function_exists('zstd_compress') ) {
+    $zstdCompressed = zstd_compress('contract zstd round trip');
+    $zstdRoundTrip = false !== $zstdCompressed ? $zstdCapability->uncompress($zstdCompressed, 'ContractTest', 1) : array('data' => null, 'diagnostics' => array());
+    $assert('contract zstd round trip' === ($zstdRoundTrip['data'] ?? null), 'zstd-real-round-trip');
+    $assert(isset($chunks[3]['inflated_bytes']), 'fig-kiwi-zstd-real-fixture-inflated');
+} else {
+    $zstdUnavailable = $zstdCapability->uncompress("\x28\xb5\x2f\xfd" . 'synthetic-zstd-frame', 'ContractTest', 1);
+    $assert(null === ($zstdUnavailable['data'] ?? null), 'zstd-unavailable-returns-null');
+    $assert(in_array((string) ($zstdUnavailable['diagnostics'][0]['code'] ?? ''), array('figma_transformer_zstd_extension_missing', 'figma_transformer_zstd_function_missing'), true), 'zstd-unavailable-diagnostic-code');
+}
 $assert(! empty($fileResult['files']), 'file-transform-renders-decoded-scenegraph');
 $assert(4 === ($fileResult['metrics']['node_count'] ?? null), 'file-transform-node-count');
 $assert(isset($fileResult['source_reports']['figma']['html']), 'file-transform-html-source-report');
