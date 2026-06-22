@@ -161,7 +161,7 @@ final class FigKiwiParser
         if ( 'json_invalid' !== $classification ) {
             if ( null === $kiwiSchema ) {
                 $schemaResult = $this->kiwiDecoder->decodeSchema($payload);
-                if ( null !== $schemaResult['schema'] ) {
+                if ( null !== $schemaResult['schema'] && ! empty($schemaResult['schema']['definitions']) ) {
                     $diagnostics = array_merge($diagnostics, $schemaResult['diagnostics']);
                     $kiwiSchema = $schemaResult['schema'];
                     $metadata['classification'] = 'kiwi_schema';

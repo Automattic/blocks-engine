@@ -312,7 +312,7 @@ $injectedDiagnosticCodes = array_map(
 $assert('kiwi_schema' === ($injectedChunks[0]['payload']['classification'] ?? null), 'kiwi-parser-classifies-schema');
 $assert('kiwi_message' === ($injectedChunks[1]['payload']['classification'] ?? null), 'kiwi-parser-classifies-message');
 $assert('NODE_CHANGES' === ($injectedChunks[1]['payload']['kiwi_message']['type'] ?? null), 'kiwi-parser-message-type');
-$assert(in_array('figma_transformer_zstd_injected_decoder_used', $injectedDiagnosticCodes, true), 'zstd-injected-decoder-diagnostic');
+$assert(in_array('figma_transformer_zstd_adapter_available', $injectedDiagnosticCodes, true), 'zstd-injected-decoder-diagnostic');
 
 $wirePayload = SyntheticFigKiwiFixtureBuilder::sampleWirePayload();
 $wireCanvasResult = ( new FigKiwiParser() )->parse(
