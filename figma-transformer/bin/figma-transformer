@@ -1,0 +1,27 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$autoload = __DIR__ . '/../vendor/autoload.php';
+if ( is_readable($autoload) ) {
+    require_once $autoload;
+} else {
+    require_once __DIR__ . '/../figma-transformer.php';
+}
+
+$path = $argv[1] ?? '';
+if ( '' === $path ) {
+    fwrite(STDERR, "Usage: figma-transformer <path-to-fig-or-scenegraph-json>\n");
+    exit(1);
+}
+
+$transformer = new Automattic\BlocksEngine\FigmaTransformer\FigmaTransformer();
+if ( str_ends_with(strtolower($path), '.json') ) {
+    $decoded = json_decode((string) file_get_contents($path), true);
+    $result = $transformer->transformScenegraph(is_array($decoded) ? $decoded : array())->toArray();
+} else {
+    $result = $transformer->transformFile($path)->toArray();
+}
+
+fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
