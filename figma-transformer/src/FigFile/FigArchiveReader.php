@@ -11,6 +11,11 @@ use ZipArchive;
  */
 final class FigArchiveReader
 {
+    public function __construct(
+        private readonly FigKiwiParser $figKiwiParser = new FigKiwiParser()
+    ) {
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -66,14 +71,13 @@ final class FigArchiveReader
 
         $meta = $this->readMeta($zip);
         $assets = $this->assetManifest($zip);
-        $canvas = $this->readCanvasHeader($zip);
+        $canvasResult = $this->readCanvas($zip);
+        $canvas = $canvasResult['canvas'];
         $zip->close();
 
-        $diagnostics = array();
+        $diagnostics = $canvasResult['diagnostics'];
         if ( null === $canvas ) {
             $diagnostics[] = $this->diagnostic('figma_transformer_missing_canvas', 'Archive does not contain canvas.fig.', 'FigArchiveReader');
-        } elseif ( 'fig-kiwi' === ($canvas['prelude'] ?? '') ) {
-            $diagnostics[] = $this->diagnostic('figma_transformer_kiwi_decode_pending', 'fig-kiwi archive detected; full pure-PHP Kiwi message decoding is not implemented yet.', 'FigArchiveReader', array('version' => $canvas['version'] ?? null));
         }
 
         return array(
@@ -156,23 +160,19 @@ final class FigArchiveReader
     }
 
     /**
-     * @return array<string, mixed>|null
+     * @return array{canvas: array<string, mixed>|null, diagnostics: array<int, array<string, mixed>>}
      */
-    private function readCanvasHeader(ZipArchive $zip): ?array
+    private function readCanvas(ZipArchive $zip): array
     {
         $raw = $zip->getFromName('canvas.fig');
-        if ( false === $raw || strlen($raw) < 12 ) {
-            return null;
+        if ( false === $raw ) {
+            return array(
+                'canvas'      => null,
+                'diagnostics' => array(),
+            );
         }
 
-        $prelude = substr($raw, 0, 8);
-        $version = unpack('V', substr($raw, 8, 4));
-
-        return array(
-            'prelude' => $prelude,
-            'version' => is_array($version) ? (int) $version[1] : null,
-            'bytes'   => strlen($raw),
-        );
+        return $this->figKiwiParser->parse($raw);
     }
 
     /**
