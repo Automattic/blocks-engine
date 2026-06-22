@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../figma-transformer.php';
 
 use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCapability;
+use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiParser;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
 
 $failures = array();
@@ -187,6 +188,31 @@ $assert(isset($fileResult['source_reports']['figma']['html']), 'file-transform-h
 $assert('synthetic' === ($fileResult['source_reports']['figma']['assets'][0]['id'] ?? null), 'archive-asset-id');
 $assert('images/synthetic' === ($fileResult['source_reports']['figma']['assets'][0]['path'] ?? null), 'archive-asset-path');
 $assert('asset' === ($fileResult['source_reports']['figma']['assets'][0]['content'] ?? null), 'archive-asset-content');
+
+$wirePayload = blocks_engine_figma_transformer_wire_varint(8)
+    . blocks_engine_figma_transformer_wire_varint(150)
+    . blocks_engine_figma_transformer_wire_varint(18)
+    . blocks_engine_figma_transformer_wire_varint(5)
+    . 'hello'
+    . blocks_engine_figma_transformer_wire_varint(29)
+    . "\x01\x02\x03\x04";
+$wireCanvasResult = ( new FigKiwiParser() )->parse(
+    'fig-kiwi'
+    . pack('V', 106)
+    . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate($wirePayload))
+);
+$wire = $wireCanvasResult['canvas']['chunks'][0]['payload']['wire'] ?? array();
+$wireRecords = $wire['records'] ?? array();
+
+$assert('binary' === ($wireCanvasResult['canvas']['chunks'][0]['payload']['classification'] ?? null), 'fig-kiwi-wire-payload-remains-binary');
+$assert('protobuf_wire' === ($wire['format'] ?? null), 'fig-kiwi-wire-format');
+$assert(true === ($wire['complete'] ?? null), 'fig-kiwi-wire-complete');
+$assert(3 === ($wire['record_count'] ?? null), 'fig-kiwi-wire-record-count');
+$assert(1 === ($wireRecords[0]['field_number'] ?? null), 'fig-kiwi-wire-varint-field-number');
+$assert(0 === ($wireRecords[0]['wire_type'] ?? null), 'fig-kiwi-wire-varint-type');
+$assert(150 === ($wireRecords[0]['value'] ?? null), 'fig-kiwi-wire-varint-value');
+$assert('hello' === ($wireRecords[1]['text_preview'] ?? null), 'fig-kiwi-wire-length-text-preview');
+$assert('01020304' === ($wireRecords[2]['preview_hex'] ?? null), 'fig-kiwi-wire-fixed32-preview');
 
 $nodeChangesResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'         => 'Node Changes Fixture',
@@ -413,6 +439,21 @@ function blocks_engine_figma_transformer_create_fig_wrapper_fixture(): string
 function blocks_engine_figma_transformer_kiwi_chunk(string $payload): string
 {
     return pack('V', strlen($payload)) . $payload;
+}
+
+function blocks_engine_figma_transformer_wire_varint(int $value): string
+{
+    $bytes = '';
+    do {
+        $byte = $value & 0x7f;
+        $value = intdiv($value, 128);
+        if ( $value > 0 ) {
+            $byte |= 0x80;
+        }
+        $bytes .= chr($byte);
+    } while ( $value > 0 );
+
+    return $bytes;
 }
 
 /**
