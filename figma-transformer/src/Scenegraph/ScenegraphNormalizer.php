@@ -22,7 +22,8 @@ final class ScenegraphNormalizer
     public function normalize(array $source, array $options = array()): array
     {
         $index       = $this->index->build($source);
-        $nodeMap     = $this->normalizeNodeMap($index['nodes'], $index['children_index']);
+        $diagnostics = $index['diagnostics'];
+        $nodeMap     = $this->normalizeNodeMap($index['nodes'], $diagnostics);
         $topLevelIds = $index['top_level_node_ids'];
         $frameIds    = $this->selectTopLevelFrameIds($topLevelIds, $nodeMap);
 
@@ -34,9 +35,6 @@ final class ScenegraphNormalizer
         } elseif ( ! empty($topLevelIds) ) {
             $selectedFrameId = $topLevelIds[0];
         }
-
-        $diagnostics = $index['diagnostics'];
-        $nodeMap = $this->normalizeNodeMap($nodeMap, $diagnostics);
 
         $renderIds = $topLevelIds;
         $renderNodes = array();
@@ -56,7 +54,6 @@ final class ScenegraphNormalizer
             'assets'              => is_array($source['assets'] ?? null) ? $source['assets'] : array(),
             'nodes'               => $renderNodes,
             'node_map'            => $nodeMap,
-            'assets'              => is_array($source['assets'] ?? null) ? $source['assets'] : array(),
             'parent_index'        => $index['parent_index'],
             'children_index'      => $index['children_index'],
             'top_level_node_ids'  => $topLevelIds,
@@ -75,6 +72,7 @@ final class ScenegraphNormalizer
                 'selected_frame_id'     => $selectedFrameId,
                 'text_node_count'       => count($textInventory),
                 'asset_reference_count' => count($assetReferences),
+                'asset_references'      => $assetReferences,
                 'diagnostic_count'      => count($diagnostics),
             ),
         );
@@ -116,9 +114,19 @@ final class ScenegraphNormalizer
             $node['figma_paints'] = $paints;
         }
 
-        $box = $this->normalizeBox($node);
+        $box = $this->normalizeVisualBox($node);
         if ( ! empty($box) ) {
             $node['figma_box'] = $box;
+        }
+
+        $layoutBox = $this->normalizeLayoutBox($node);
+        if ( ! empty($layoutBox) ) {
+            $node['box'] = $layoutBox;
+        }
+
+        $layout = $this->normalizeLayout($node);
+        if ( ! empty($layout) ) {
+            $node['layout'] = $layout;
         }
 
         $this->diagnoseEffects($node, $id, $diagnostics);
@@ -364,7 +372,7 @@ final class ScenegraphNormalizer
      * @param array<string, mixed> $node
      * @return array<string, mixed>
      */
-    private function normalizeBox(array $node): array
+    private function normalizeVisualBox(array $node): array
     {
         $box = array();
 
@@ -479,46 +487,11 @@ final class ScenegraphNormalizer
      * @param array<string, array<int, string>> $childrenIndex
      * @return array<string, array<string, mixed>>
      */
-    private function normalizeNodeMap(array $nodeMap, array $childrenIndex): array
-    {
-        $normalized = array();
-
-        foreach ( $nodeMap as $id => $node ) {
-            $node['box'] = $this->normalizeBox($node);
-            $layout = $this->normalizeLayout($node);
-            if ( ! empty($layout) ) {
-                $node['layout'] = $layout;
-            }
-
-            $node['children'] = array();
-            $normalized[$id] = $node;
-        }
-
-        $buildNode = function (string $id) use (&$buildNode, &$normalized, $childrenIndex): array {
-            $node = $normalized[$id];
-            $node['children'] = array();
-
-            foreach ( $childrenIndex[$id] ?? array() as $childId ) {
-                if ( isset($normalized[$childId]) ) {
-                    $node['children'][] = $buildNode($childId);
-                }
-            }
-
-            return $node;
-        };
-
-        foreach ( array_keys($normalized) as $id ) {
-            $normalized[$id] = $buildNode((string) $id);
-        }
-
-        return $normalized;
-    }
-
     /**
      * @param array<string, mixed> $node
      * @return array<string, float>
      */
-    private function normalizeBox(array $node): array
+    private function normalizeLayoutBox(array $node): array
     {
         $box = array();
 
@@ -692,12 +665,13 @@ final class ScenegraphNormalizer
                         continue;
                     }
 
-                    $ref = $paint['imageRef'] ?? $paint['imageHash'] ?? null;
-                    if ( is_scalar($ref) && '' !== (string) $ref ) {
+                    $reference = $this->readImageReference($paint);
+                    if ( null !== $reference ) {
                         $references[] = array(
-                            'node_id' => $id,
-                            'paint'   => $paintKey,
-                            'ref'     => (string) $ref,
+                            'node_id'    => $id,
+                            'paint'      => $paintKey,
+                            'source_key' => $reference['source_key'],
+                            'ref'        => $reference['ref'],
                         );
                     }
                 }
@@ -705,6 +679,24 @@ final class ScenegraphNormalizer
         }
 
         return $references;
+    }
+
+    /**
+     * @param array<string, mixed> $paint
+     * @return array{source_key: string, ref: string}|null
+     */
+    private function readImageReference(array $paint): ?array
+    {
+        foreach ( array('imageRef', 'imageHash', 'asset_id', 'image_ref') as $key ) {
+            if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
+                return array(
+                    'source_key' => $key,
+                    'ref'        => (string) $paint[$key],
+                );
+            }
+        }
+
+        return null;
     }
 
     /**

@@ -55,10 +55,6 @@ final class ScenegraphIndex
             $childrenIndex[$parent] = $this->sortNodeIds($children, $nodeMap);
         }
 
-        foreach ( array_keys($nodeMap) as $id ) {
-            $nodeMap[$id]['children'] = $this->buildChildNodes($id, $nodeMap, $childrenIndex);
-        }
-
         $topLevelNodeIds = array();
         foreach ( $parentIndex as $id => $parent ) {
             if ( null === $parent || ! isset($nodeMap[$parent]) ) {
@@ -66,6 +62,10 @@ final class ScenegraphIndex
             }
         }
         $topLevelNodeIds = $this->sortNodeIds($topLevelNodeIds, $nodeMap);
+
+        foreach ( array_keys($nodeMap) as $id ) {
+            $nodeMap[$id] = $this->hydrateNode($id, $nodeMap, $childrenIndex);
+        }
 
         return array(
             'nodes'              => $nodeMap,
@@ -78,23 +78,27 @@ final class ScenegraphIndex
 
     /**
      * @param array<string, array<string, mixed>> $nodeMap
-     * @param array<string, array<int, string>>   $childrenIndex
-     * @return array<int, array<string, mixed>>
+     * @param array<string, array<int, string>> $childrenIndex
+     * @param array<int, string> $trail
+     * @return array<string, mixed>
      */
-    private function buildChildNodes(string $id, array $nodeMap, array $childrenIndex): array
+    private function hydrateNode(string $id, array $nodeMap, array $childrenIndex, array $trail = array()): array
     {
-        $children = array();
-        foreach ( $childrenIndex[$id] ?? array() as $childId ) {
-            if ( ! isset($nodeMap[$childId]) ) {
-                continue;
-            }
+        $node = $nodeMap[$id];
+        $node['children'] = array();
 
-            $child = $nodeMap[$childId];
-            $child['children'] = $this->buildChildNodes($childId, $nodeMap, $childrenIndex);
-            $children[] = $child;
+        if ( in_array($id, $trail, true) ) {
+            return $node;
         }
 
-        return $children;
+        $trail[] = $id;
+        foreach ( $childrenIndex[$id] ?? array() as $childId ) {
+            if ( isset($nodeMap[$childId]) ) {
+                $node['children'][] = $this->hydrateNode($childId, $nodeMap, $childrenIndex, $trail);
+            }
+        }
+
+        return $node;
     }
 
     /**

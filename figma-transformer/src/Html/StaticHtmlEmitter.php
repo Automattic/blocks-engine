@@ -38,7 +38,7 @@ final class StaticHtmlEmitter
             if ( ! is_array($node) ) {
                 continue;
             }
-            $body .= $this->emitNode($node, $cssRules, 0);
+            $body .= $this->emitNode($node, $cssRules, $diagnostics, 0);
         }
 
         $files = array(
@@ -79,9 +79,10 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<string, mixed> $node
-     * @param array<int, string>   $cssRules
+     * @param array<int, string>                 $cssRules
+     * @param array<int, array<string, mixed>>   $diagnostics
      */
-    private function emitNode(array $node, array &$cssRules, int $depth): string
+    private function emitNode(array $node, array &$cssRules, array &$diagnostics, int $depth): string
     {
         $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
         $name = (string) ($node['name'] ?? '');
@@ -95,7 +96,21 @@ final class StaticHtmlEmitter
 
         foreach ( $children as $child ) {
             if ( is_array($child) ) {
-                $content .= $this->emitNode($child, $cssRules, $depth + 1);
+                $content .= $this->emitNode($child, $cssRules, $diagnostics, $depth + 1);
+            }
+        }
+
+        if ( $this->isUnsupportedVectorType($type) ) {
+            $diagnostics[] = array(
+                'severity' => 'warning',
+                'code'     => 'unsupported_vector_node_placeholder',
+                'message'  => 'Unsupported vector-like Figma node emitted as a static placeholder.',
+                'node_id'  => (string) ($node['id'] ?? ''),
+                'type'     => $type,
+            );
+
+            if ( '' === $content ) {
+                $content = '<span class="figma-unsupported-vector-placeholder">Unsupported Figma ' . $this->sanitizeText($type) . '</span>';
             }
         }
 
@@ -107,6 +122,9 @@ final class StaticHtmlEmitter
         $attributes = sprintf(' class="%1$s" data-figma-node-id="%2$s" data-figma-node-name="%3$s"', $className, $id, $attributeName);
         if ( 'RECTANGLE' === $type && '' === $content ) {
             $attributes .= ' aria-hidden="true"';
+        }
+        if ( $this->isUnsupportedVectorType($type) ) {
+            $attributes .= ' data-figma-unsupported-vector="true" role="img" aria-label="Unsupported Figma ' . $this->sanitizeAttribute($type) . ' node"';
         }
 
         return sprintf("<%1\$s%2\$s>%3\$s</%1\$s>\n", $tag, $attributes, $content);
@@ -453,7 +471,9 @@ final class StaticHtmlEmitter
             );
 
             $files[] = $file;
-            $this->assetsById[$id] = $file;
+            foreach ( $this->assetAliases($asset, $id) as $alias ) {
+                $this->assetsById[$alias] = $file;
+            }
         }
 
         usort(
@@ -490,12 +510,75 @@ final class StaticHtmlEmitter
      */
     private function nodeAssetPath(array $node): ?string
     {
-        $assetId = (string) ($node['asset_id'] ?? $node['assetId'] ?? $node['image_ref'] ?? $node['imageRef'] ?? '');
-        if ( '' === $assetId || ! isset($this->assetsById[$assetId]) ) {
-            return null;
+        foreach ( $this->nodeAssetReferences($node) as $assetId ) {
+            if ( isset($this->assetsById[$assetId]) ) {
+                return (string) $this->assetsById[$assetId]['path'];
+            }
         }
 
-        return (string) $this->assetsById[$assetId]['path'];
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $asset
+     * @return array<int, string>
+     */
+    private function assetAliases(array $asset, string $id): array
+    {
+        $aliases = array($id);
+        foreach ( array('hash', 'imageRef', 'imageHash', 'asset_id', 'image_ref', 'source_id') as $key ) {
+            if ( isset($asset[$key]) && is_scalar($asset[$key]) ) {
+                $aliases[] = (string) $asset[$key];
+            }
+        }
+
+        if ( isset($asset['path']) && is_scalar($asset['path']) ) {
+            $path = (string) $asset['path'];
+            $aliases[] = $path;
+            $aliases[] = basename($path);
+            $aliases[] = pathinfo($path, PATHINFO_FILENAME);
+        }
+
+        return array_values(array_unique(array_filter($aliases, static fn (string $alias): bool => '' !== $alias)));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function nodeAssetReferences(array $node): array
+    {
+        $references = array();
+        foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
+                $references[] = (string) $node[$key];
+            }
+        }
+
+        foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
+            if ( ! is_array($node[$paintKey] ?? null) ) {
+                continue;
+            }
+
+            foreach ( $node[$paintKey] as $paint ) {
+                if ( ! is_array($paint) || 'IMAGE' !== strtoupper((string) ($paint['type'] ?? '')) ) {
+                    continue;
+                }
+
+                foreach ( array('imageRef', 'imageHash', 'asset_id', 'image_ref') as $key ) {
+                    if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
+                        $references[] = (string) $paint[$key];
+                    }
+                }
+            }
+        }
+
+        return array_values(array_unique($references));
+    }
+
+    private function isUnsupportedVectorType(string $type): bool
+    {
+        return in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true);
     }
 
     /**

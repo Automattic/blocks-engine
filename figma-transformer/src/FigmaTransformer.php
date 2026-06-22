@@ -39,6 +39,7 @@ final class FigmaTransformer
                 'input'   => $archive['input'],
                 'archive' => $archive['archive'],
                 'meta'    => $archive['meta'],
+                'assets'  => $archive['assets'],
             ),
         );
 

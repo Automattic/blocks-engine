@@ -149,14 +149,31 @@ final class FigArchiveReader
             }
 
             $stat = $zip->statIndex($index);
+            $content = $zip->getFromIndex($index);
+            $hash = basename($name);
             $assets[] = array(
-                'path'  => $name,
-                'hash'  => basename($name),
-                'bytes' => is_array($stat) ? (int) ($stat['size'] ?? 0) : 0,
+                'id'        => $hash,
+                'name'      => $hash,
+                'path'      => $name,
+                'hash'      => $hash,
+                'bytes'     => is_array($stat) ? (int) ($stat['size'] ?? 0) : 0,
+                'mime_type' => $this->mimeTypeForPath($name),
+                'content'   => false === $content ? '' : $content,
             );
         }
 
         return $assets;
+    }
+
+    private function mimeTypeForPath(string $path): string
+    {
+        return match ( strtolower(pathinfo($path, PATHINFO_EXTENSION)) ) {
+            'jpg', 'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'svg' => 'image/svg+xml',
+            'webp' => 'image/webp',
+            default => 'application/octet-stream',
+        };
     }
 
     /**

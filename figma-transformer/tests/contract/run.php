@@ -144,6 +144,9 @@ $assert(in_array($zstdCapabilityCode, $diagnosticCodes, true), 'fig-kiwi-zstd-ca
 $assert(! empty($fileResult['files']), 'file-transform-renders-decoded-scenegraph');
 $assert(4 === ($fileResult['metrics']['node_count'] ?? null), 'file-transform-node-count');
 $assert(isset($fileResult['source_reports']['figma']['html']), 'file-transform-html-source-report');
+$assert('synthetic' === ($fileResult['source_reports']['figma']['assets'][0]['id'] ?? null), 'archive-asset-id');
+$assert('images/synthetic' === ($fileResult['source_reports']['figma']['assets'][0]['path'] ?? null), 'archive-asset-path');
+$assert('asset' === ($fileResult['source_reports']['figma']['assets'][0]['content'] ?? null), 'archive-asset-content');
 
 $nodeChangesResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'         => 'Node Changes Fixture',
@@ -268,6 +271,61 @@ $assert(str_contains($metadataCss, '.figma-node-4-2-mixed-text{font-family:"Exam
 $assert(str_contains($metadataCss, '.figma-node-4-3-uneven-radius{border-top-left-radius:4px;border-top-right-radius:8px;border-bottom-right-radius:12px;border-bottom-left-radius:16px}'), 'individual-radius-style');
 $assert(in_array('unsupported_figma_paint_type', $metadataDiagnosticCodes, true), 'unsupported-paint-diagnostic');
 $assert(in_array('unsupported_figma_effect_type', $metadataDiagnosticCodes, true), 'unsupported-effect-diagnostic');
+
+$assetReferenceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'   => 'Asset Reference Fixture',
+    'assets' => array(
+        'image-hash-1' => array(
+            'id'        => 'image-hash-1',
+            'hash'      => 'image-hash-1',
+            'name'      => 'Archive Image',
+            'mime_type' => 'image/png',
+            'content'   => 'png-bytes',
+        ),
+    ),
+    'nodes'  => array(
+        array(
+            'id'       => '4:1',
+            'type'     => 'FRAME',
+            'name'     => 'Asset Frame',
+            'children' => array(
+                array(
+                    'id'     => '4:2',
+                    'type'   => 'RECTANGLE',
+                    'name'   => 'Image Fill',
+                    'width'  => 20,
+                    'height' => 20,
+                    'fills'  => array(
+                        array('type' => 'IMAGE', 'imageHash' => 'image-hash-1'),
+                    ),
+                ),
+                array(
+                    'id'     => '4:3',
+                    'type'   => 'VECTOR',
+                    'name'   => 'Icon Vector',
+                    'width'  => 10,
+                    'height' => 10,
+                ),
+            ),
+        ),
+    ),
+));
+
+$assetReferenceCss = $fileContent($assetReferenceResult, 'style.css');
+$assetReferenceHtml = $fileContent($assetReferenceResult, 'index.html');
+$assetReferenceReport = $assetReferenceResult['source_reports']['figma']['scenegraph'] ?? array();
+$assetReferenceDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $assetReferenceResult['diagnostics'] ?? array()
+);
+
+$assert(1 === ($assetReferenceResult['metrics']['asset_reference_count'] ?? null), 'normalized-image-reference-count');
+$assert('imageHash' === ($assetReferenceReport['asset_references'][0]['source_key'] ?? null), 'normalized-image-reference-source-key');
+$assert('image-hash-1' === ($assetReferenceReport['asset_references'][0]['ref'] ?? null), 'normalized-image-reference-ref');
+$assert(str_contains($assetReferenceCss, 'background-image:url("assets/archive-image.png")'), 'normalized-image-reference-css');
+$assert(str_contains($assetReferenceHtml, 'data-figma-unsupported-vector="true"'), 'unsupported-vector-placeholder-html');
+$assert(str_contains($assetReferenceHtml, 'Unsupported Figma VECTOR'), 'unsupported-vector-placeholder-text');
+$assert(in_array('unsupported_vector_node_placeholder', $assetReferenceDiagnosticCodes, true), 'unsupported-vector-diagnostic');
 
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
