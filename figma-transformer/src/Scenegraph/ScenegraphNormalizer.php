@@ -50,6 +50,7 @@ final class ScenegraphNormalizer
         return array(
             'schema'              => 'blocks-engine/figma-transformer/scenegraph/v1',
             'name'                => $sourceName,
+            'assets'              => is_array($source['assets'] ?? null) ? $source['assets'] : array(),
             'nodes'               => $renderNodes,
             'node_map'            => $nodeMap,
             'parent_index'        => $index['parent_index'],

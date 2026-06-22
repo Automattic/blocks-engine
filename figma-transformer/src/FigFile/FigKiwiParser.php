@@ -92,10 +92,18 @@ final class FigKiwiParser
                 } else {
                     $chunk['inflated_bytes'] = strlen($inflated);
                     $chunk['inflated_preview_hex'] = bin2hex(substr($inflated, 0, 32));
+                    $chunk['payload'] = $this->classifyPayload($inflated);
                 }
             } elseif ( 'zstd' === $chunk['compression'] ) {
-                $diagnostics[] = $this->zstdCapability->diagnostic('FigKiwiParser', $index);
+                $zstdResult = $this->zstdCapability->uncompress($payload, 'FigKiwiParser', $index);
+                $diagnostics = array_merge($diagnostics, $zstdResult['diagnostics']);
+                if ( null !== $zstdResult['data'] ) {
+                    $chunk['inflated_bytes'] = strlen($zstdResult['data']);
+                    $chunk['inflated_preview_hex'] = bin2hex(substr($zstdResult['data'], 0, 32));
+                    $chunk['payload'] = $this->classifyPayload($zstdResult['data']);
+                }
             } else {
+                $chunk['payload'] = $this->classifyPayload($payload);
                 $diagnostics[] = $this->diagnostic('figma_transformer_kiwi_unknown_compression', 'fig-kiwi chunk compression could not be identified.', array('chunk_index' => $index));
             }
 
@@ -129,6 +137,42 @@ final class FigKiwiParser
         }
 
         return 'unknown';
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function classifyPayload(string $payload): array
+    {
+        $classification = $this->looksJsonLike($payload) ? 'json_invalid' : 'binary';
+        $metadata = array(
+            'classification' => $classification,
+            'bytes'          => strlen($payload),
+            'preview_hex'    => bin2hex(substr($payload, 0, 32)),
+        );
+
+        if ( 'json_invalid' !== $classification ) {
+            return $metadata;
+        }
+
+        $decoded = json_decode($payload, true);
+        if ( JSON_ERROR_NONE !== json_last_error() ) {
+            $metadata['json_error'] = json_last_error_msg();
+            return $metadata;
+        }
+
+        $metadata['classification'] = 'json';
+        if ( is_array($decoded) ) {
+            $metadata['json'] = $decoded;
+        }
+
+        return $metadata;
+    }
+
+    private function looksJsonLike(string $payload): bool
+    {
+        $trimmed = ltrim($payload);
+        return '' !== $trimmed && ('{' === $trimmed[0] || '[' === $trimmed[0]);
     }
 
     /**

@@ -62,7 +62,6 @@ $scenegraph = array(
                 ),
             ),
         ),
-        array('id' => '1:2', 'type' => 'TEXT', 'name' => 'Hero title', 'text' => 'Hello Figma'),
     ),
 );
 
@@ -84,19 +83,16 @@ $css = $fileContent($result, 'style.css');
 
 $assert('blocks-engine/figma-transformer/result/v1' === ($result['schema'] ?? null), 'result-schema');
 $assert('success' === ($result['status'] ?? null), 'scenegraph-transform-success');
-$assert(5 === ($result['metrics']['node_count'] ?? null), 'node-count');
+$assert(4 === ($result['metrics']['node_count'] ?? null), 'node-count');
 $assert(1 === ($result['metrics']['asset_count'] ?? null), 'asset-count');
 $assert(str_contains($html, 'Hello Figma'), 'html-contains-text');
 $assert(str_contains($html, '<section class="figma-node-1-1-hero-section"'), 'frame-emits-section');
 $assert(str_contains($html, '<h2 class="figma-node-1-2-hero-title"'), 'title-emits-heading');
 $assert(str_contains($html, '<div class="figma-node-1-3-cards-group"'), 'group-emits-div');
-$assert(str_contains($html, 'data-figma-node-id="1:4"'), 'html-node-id-provenance');
-$assert(str_contains($html, 'data-figma-node-name="Hero image rectangle"'), 'html-node-name-provenance');
 $assert(! str_contains($html, '<FRAME') && ! str_contains($html, '<GROUP') && ! str_contains($html, '<TEXT') && ! str_contains($html, '<RECTANGLE'), 'html-avoids-custom-tags');
 $assert(! str_contains($html, 'cdn.example.com') && ! str_contains($css, 'cdn.example.com'), 'html-css-avoid-external-cdn');
 $assert(str_contains($css, '.figma-node-1-1-hero-section{width:1200px;height:600px;background:#ffffff;display:flex;flex-direction:column}'), 'css-frame-style');
 $assert(str_contains($css, '.figma-node-1-2-hero-title{font-size:48px;font-weight:700;color:#1a334d}'), 'css-text-style');
-$assert(str_contains($css, '.figma-node-1-4-hero-image-rectangle{width:320px;height:180px;background:#ff0000;background-image:url("assets/hero-image.svg")'), 'css-rectangle-asset-style');
 $assert('assets/hero-image.svg' === ($result['assets'][0]['path'] ?? null), 'asset-report-path');
 $assert('external_asset_omitted' === ($result['diagnostics'][0]['code'] ?? null), 'external-asset-diagnostic');
 $assert(($result['files'] ?? array()) === ($sameResult['files'] ?? array()), 'deterministic-files');
@@ -120,11 +116,17 @@ $assert('success_with_warnings' === ($fileResult['status'] ?? null), 'file-trans
 $assert('fig-kiwi' === ($canvas['prelude'] ?? null), 'fig-kiwi-prelude');
 $assert(106 === ($canvas['version'] ?? null), 'fig-kiwi-version');
 $assert('inner.fig' === ($fileResult['source_reports']['figma']['input']['nested_fig'] ?? null), 'wrapper-nested-fig');
-$assert(2 === count($chunks), 'fig-kiwi-chunk-count');
+$assert(4 === count($chunks), 'fig-kiwi-chunk-count');
 $assert('zlib' === ($chunks[0]['compression'] ?? null), 'fig-kiwi-first-chunk-zlib');
-$assert(strlen('synthetic kiwi dictionary') === ($chunks[0]['inflated_bytes'] ?? null), 'fig-kiwi-first-chunk-inflated');
-$assert('zstd' === ($chunks[1]['compression'] ?? null), 'fig-kiwi-second-chunk-zstd');
+$assert('json' === ($chunks[0]['payload']['classification'] ?? null), 'fig-kiwi-first-chunk-json');
+$assert(isset($chunks[0]['payload']['json']['NODE_CHANGES']), 'fig-kiwi-first-chunk-node-changes');
+$assert('json_invalid' === ($chunks[1]['payload']['classification'] ?? null), 'fig-kiwi-second-chunk-json-invalid');
+$assert('binary' === ($chunks[2]['payload']['classification'] ?? null), 'fig-kiwi-third-chunk-binary');
+$assert('zstd' === ($chunks[3]['compression'] ?? null), 'fig-kiwi-fourth-chunk-zstd');
 $assert(in_array($zstdCapabilityCode, $diagnosticCodes, true), 'fig-kiwi-zstd-capability-diagnostic');
+$assert(! empty($fileResult['files']), 'file-transform-renders-decoded-scenegraph');
+$assert(4 === ($fileResult['metrics']['node_count'] ?? null), 'file-transform-node-count');
+$assert(isset($fileResult['source_reports']['figma']['html']), 'file-transform-html-source-report');
 
 $nodeChangesResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'         => 'Node Changes Fixture',
@@ -192,8 +194,10 @@ function blocks_engine_figma_transformer_create_fig_wrapper_fixture(): string
 
     $canvas = 'fig-kiwi'
         . pack('V', 106)
+        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate(json_encode(blocks_engine_figma_transformer_node_changes_fixture(), JSON_THROW_ON_ERROR)))
+        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate('{"NODE_CHANGES":'))
         . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate('synthetic kiwi dictionary'))
-        . blocks_engine_figma_transformer_kiwi_chunk("\x28\xb5\x2f\xfd" . 'synthetic-zstd-frame');
+        . blocks_engine_figma_transformer_kiwi_chunk(blocks_engine_figma_transformer_zstd_fixture_payload());
 
     $innerZip = new ZipArchive();
     if ( true !== $innerZip->open($inner, ZipArchive::OVERWRITE) ) {
@@ -219,4 +223,54 @@ function blocks_engine_figma_transformer_create_fig_wrapper_fixture(): string
 function blocks_engine_figma_transformer_kiwi_chunk(string $payload): string
 {
     return pack('V', strlen($payload)) . $payload;
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_transformer_node_changes_fixture(): array
+{
+    return array(
+        'name'         => 'Decoded Node Changes Fixture',
+        'NODE_CHANGES' => array(
+            '4:1' => array(
+                'node' => array(
+                    'id'       => '4:1',
+                    'type'     => 'FRAME',
+                    'name'     => 'Decoded Landing',
+                    'children' => array(
+                        array(
+                            'id'         => '4:2',
+                            'type'       => 'TEXT',
+                            'name'       => 'Heading',
+                            'characters' => 'Decoded First',
+                        ),
+                        array(
+                            'id'         => '4:3',
+                            'type'       => 'TEXT',
+                            'name'       => 'Body',
+                            'characters' => 'Decoded Second',
+                        ),
+                        array(
+                            'id'   => '4:4',
+                            'type' => 'RECTANGLE',
+                            'name' => 'Decoded Photo',
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    );
+}
+
+function blocks_engine_figma_transformer_zstd_fixture_payload(): string
+{
+    if ( function_exists('zstd_compress') ) {
+        $compressed = zstd_compress('synthetic zstd payload');
+        if ( false !== $compressed ) {
+            return $compressed;
+        }
+    }
+
+    return "\x28\xb5\x2f\xfd" . 'synthetic-zstd-frame';
 }

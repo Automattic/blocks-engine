@@ -53,6 +53,31 @@ final class FigmaTransformer
             'reason' => 'parity_runner_not_invoked',
         ));
 
+        $scenegraph = $this->decodedScenegraphPayload($archive);
+        if ( null !== $scenegraph ) {
+            $scenegraphResult = $this->transformScenegraph($scenegraph, $options)->toArray();
+            $scenegraphStatus = (string) ($scenegraphResult['status'] ?? 'success_with_warnings');
+            if ( 'success' === $scenegraphStatus && ! empty($diagnostics) ) {
+                $scenegraphStatus = 'success_with_warnings';
+            }
+
+            $scenegraphSourceReports = $scenegraphResult['source_reports']['figma'] ?? array();
+            return FigmaTransformResult::create(
+                $scenegraphStatus,
+                array_merge($diagnostics, $scenegraphResult['diagnostics'] ?? array()),
+                $scenegraphResult['files'] ?? array(),
+                $scenegraphResult['assets'] ?? array(),
+                array(
+                    'figma' => array_merge(
+                        $sourceReports['figma'],
+                        is_array($scenegraphSourceReports) ? $scenegraphSourceReports : array()
+                    ),
+                ),
+                $scenegraphResult['parity'] ?? $parity,
+                array_merge($metrics, $scenegraphResult['metrics'] ?? array())
+            );
+        }
+
         return FigmaTransformResult::create(
             'success_with_warnings',
             $diagnostics,
@@ -62,6 +87,49 @@ final class FigmaTransformer
             $parity,
             $metrics
         );
+    }
+
+    /**
+     * @param array<string, mixed> $archive
+     * @return array<string, mixed>|null
+     */
+    private function decodedScenegraphPayload(array $archive): ?array
+    {
+        $chunks = $archive['archive']['canvas']['chunks'] ?? array();
+        if ( ! is_array($chunks) ) {
+            return null;
+        }
+
+        foreach ( $chunks as $chunk ) {
+            if ( ! is_array($chunk) ) {
+                continue;
+            }
+
+            $payload = $chunk['payload'] ?? array();
+            if ( ! is_array($payload) || 'json' !== ($payload['classification'] ?? null) || ! is_array($payload['json'] ?? null) ) {
+                continue;
+            }
+
+            if ( $this->isScenegraphPayload($payload['json']) ) {
+                return $payload['json'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function isScenegraphPayload(array $payload): bool
+    {
+        foreach ( array('NODE_CHANGES', 'node_changes', 'nodeChanges', 'document', 'nodes') as $key ) {
+            if ( array_key_exists($key, $payload) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
