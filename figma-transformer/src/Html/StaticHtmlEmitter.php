@@ -100,7 +100,12 @@ final class StaticHtmlEmitter
             }
         }
 
-        if ( $this->isUnsupportedVectorType($type) ) {
+        $vectorSvg = $this->supportedVectorSvg($node, $type);
+        if ( null !== $vectorSvg ) {
+            $content = $vectorSvg . $content;
+        }
+
+        if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg ) {
             $diagnostics[] = array(
                 'severity' => 'warning',
                 'code'     => 'unsupported_vector_node_placeholder',
@@ -123,7 +128,7 @@ final class StaticHtmlEmitter
         if ( 'RECTANGLE' === $type && '' === $content ) {
             $attributes .= ' aria-hidden="true"';
         }
-        if ( $this->isUnsupportedVectorType($type) ) {
+        if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg ) {
             $attributes .= ' data-figma-unsupported-vector="true" role="img" aria-label="Unsupported Figma ' . $this->sanitizeAttribute($type) . ' node"';
         }
 
@@ -202,7 +207,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        if ( 'TEXT' !== $type ) {
+        if ( 'TEXT' !== $type && ! in_array($type, array('VECTOR', 'LINE', 'ELLIPSE'), true) ) {
             $background = $this->backgroundColor($node);
             if ( null !== $background ) {
                 $styles[] = 'background:' . $background;
@@ -733,6 +738,155 @@ final class StaticHtmlEmitter
     private function isUnsupportedVectorType(string $type): bool
     {
         return in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function supportedVectorSvg(array $node, string $type): ?string
+    {
+        if ( ! in_array($type, array('VECTOR', 'LINE', 'ELLIPSE', 'RECTANGLE'), true) ) {
+            return null;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width']) : 0.0;
+        $height = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height']) : 0.0;
+        if ( $width <= 0 || $height <= 0 ) {
+            return null;
+        }
+
+        $elements = $this->vectorPathElements($node);
+        if ( empty($elements) ) {
+            $elements = $this->primitiveVectorElements($node, $type, $width, $height);
+        }
+        if ( empty($elements) ) {
+            return null;
+        }
+
+        $attributes = array(
+            'xmlns="http://www.w3.org/2000/svg"',
+            'viewBox="0 0 ' . $this->number($width) . ' ' . $this->number($height) . '"',
+            'width="100%"',
+            'height="100%"',
+            'role="img"',
+            'aria-label="' . $this->sanitizeAttribute((string) ($node['name'] ?? $type)) . '"',
+            'data-figma-vector="true"',
+        );
+
+        return '<svg ' . implode(' ', $attributes) . '>' . implode('', $elements) . '</svg>';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function vectorPathElements(array $node): array
+    {
+        $rawPaths = array();
+        foreach ( array('vectorPaths', 'paths') as $key ) {
+            if ( is_array($node[$key] ?? null) ) {
+                $rawPaths = array_merge($rawPaths, $node[$key]);
+            }
+        }
+        foreach ( array('pathData', 'path', 'd') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
+                $rawPaths[] = array('data' => (string) $node[$key]);
+            }
+        }
+
+        $elements = array();
+        foreach ( $rawPaths as $rawPath ) {
+            $path = is_array($rawPath) ? (string) ($rawPath['data'] ?? $rawPath['pathData'] ?? $rawPath['path'] ?? $rawPath['d'] ?? '') : (string) $rawPath;
+            $path = $this->safeSvgPathData($path);
+            if ( null === $path ) {
+                continue;
+            }
+
+            $paint = $this->svgPaintAttributes($node);
+            if ( is_array($rawPath) && isset($rawPath['windingRule']) && is_scalar($rawPath['windingRule']) ) {
+                $rule = strtolower((string) $rawPath['windingRule']);
+                if ( in_array($rule, array('evenodd', 'nonzero'), true) ) {
+                    $paint[] = 'fill-rule="' . $rule . '"';
+                }
+            }
+
+            $elements[] = '<path d="' . $this->sanitizeAttribute($path) . '" ' . implode(' ', $paint) . '/>';
+        }
+
+        return $elements;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function primitiveVectorElements(array $node, string $type, float $width, float $height): array
+    {
+        $paint = $this->svgPaintAttributes($node);
+        if ( 'LINE' === $type ) {
+            if ( ! $this->hasSvgStroke($paint) ) {
+                $paint[] = 'stroke="currentColor"';
+                $paint[] = 'stroke-width="1"';
+            }
+
+            return array('<line x1="0" y1="0" x2="' . $this->number($width) . '" y2="' . $this->number($height) . '" ' . implode(' ', $paint) . '/>');
+        }
+        if ( 'ELLIPSE' === $type ) {
+            return array('<ellipse cx="' . $this->number($width / 2) . '" cy="' . $this->number($height / 2) . '" rx="' . $this->number($width / 2) . '" ry="' . $this->number($height / 2) . '" ' . implode(' ', $paint) . '/>');
+        }
+        return array();
+    }
+
+    private function safeSvgPathData(string $path): ?string
+    {
+        $path = trim(preg_replace('/\s+/', ' ', $path) ?? '');
+        if ( '' === $path || strlen($path) > 20000 ) {
+            return null;
+        }
+
+        return preg_match('/^[MmZzLlHhVvCcSsQqTtAa0-9,\.\-+\s]+$/', $path) ? $path : null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function svgPaintAttributes(array $node): array
+    {
+        $paints = is_array($node['figma_paints']['fills'] ?? null) ? $node['figma_paints']['fills'] : array();
+        $fill = $this->firstSolidPaint($paints);
+        $paints = is_array($node['figma_paints']['strokes'] ?? null) ? $node['figma_paints']['strokes'] : array();
+        $stroke = $this->firstSolidPaint($paints);
+
+        $attributes = array('fill="' . ( null === $fill ? 'none' : $this->sanitizeAttribute($fill) ) . '"');
+        if ( null !== $stroke ) {
+            $attributes[] = 'stroke="' . $this->sanitizeAttribute($stroke) . '"';
+            $attributes[] = 'stroke-width="' . $this->number($this->strokeWeight($node)) . '"';
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function strokeWeight(array $node): float
+    {
+        return isset($node['strokeWeight']) && is_numeric($node['strokeWeight']) ? max(0.0, (float) $node['strokeWeight']) : 1.0;
+    }
+
+    /**
+     * @param array<int, string> $attributes
+     */
+    private function hasSvgStroke(array $attributes): bool
+    {
+        foreach ( $attributes as $attribute ) {
+            if ( str_starts_with($attribute, 'stroke=') ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

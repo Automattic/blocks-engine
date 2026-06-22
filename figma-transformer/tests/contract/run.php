@@ -396,6 +396,22 @@ $assetReferenceResult = blocks_engine_figma_transformer_transform_scenegraph(arr
                     'width'  => 10,
                     'height' => 10,
                 ),
+                array(
+                    'id'          => '4:4',
+                    'type'        => 'VECTOR',
+                    'name'        => 'Path Icon',
+                    'width'       => 24,
+                    'height'      => 24,
+                    'fills'       => array(
+                        array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 1)),
+                    ),
+                    'vectorPaths' => array(
+                        array(
+                            'data'        => 'M 1 1 L 23 1 L 12 23 Z',
+                            'windingRule' => 'EVENODD',
+                        ),
+                    ),
+                ),
             ),
         ),
     ),
@@ -413,6 +429,8 @@ $assert(1 === ($assetReferenceResult['metrics']['asset_reference_count'] ?? null
 $assert('imageHash' === ($assetReferenceReport['asset_references'][0]['source_key'] ?? null), 'normalized-image-reference-source-key');
 $assert('image-hash-1' === ($assetReferenceReport['asset_references'][0]['ref'] ?? null), 'normalized-image-reference-ref');
 $assert(str_contains($assetReferenceCss, 'background-image:url("assets/archive-image.png")'), 'normalized-image-reference-css');
+$assert(str_contains($assetReferenceHtml, 'data-figma-vector="true"'), 'supported-vector-svg-html');
+$assert(str_contains($assetReferenceHtml, '<path d="M 1 1 L 23 1 L 12 23 Z" fill="#0000ff" fill-rule="evenodd"/>'), 'supported-vector-path-derived-svg');
 $assert(str_contains($assetReferenceHtml, 'data-figma-unsupported-vector="true"'), 'unsupported-vector-placeholder-html');
 $assert(str_contains($assetReferenceHtml, 'Unsupported Figma VECTOR'), 'unsupported-vector-placeholder-text');
 $assert(in_array('unsupported_vector_node_placeholder', $assetReferenceDiagnosticCodes, true), 'unsupported-vector-diagnostic');
