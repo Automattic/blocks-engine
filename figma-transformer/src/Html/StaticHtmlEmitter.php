@@ -46,10 +46,11 @@ final class StaticHtmlEmitter
                     'content'   => "body{margin:0;font-family:system-ui,sans-serif}main{display:flex;flex-direction:column}\n[data-figma-node-id]{box-sizing:border-box}\n",
                 ),
             ),
-            'assets'        => array(),
+            'assets'        => $scenegraph['asset_references'] ?? array(),
             'source_report' => array(
                 'name'       => $title,
                 'node_count' => count($nodes),
+                'schema'     => $scenegraph['schema'] ?? null,
             ),
             'metrics'       => array(
                 'node_count' => count($nodes),
@@ -64,11 +65,18 @@ final class StaticHtmlEmitter
     {
         $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
         $name = $this->sanitizeAttribute((string) ($node['name'] ?? ''));
-        $text = $this->sanitizeText((string) ($node['text'] ?? $node['name'] ?? ''));
+        $text = $this->sanitizeText((string) ($node['characters'] ?? $node['text'] ?? $node['name'] ?? ''));
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
         $tag = 'TEXT' === $type ? 'p' : 'section';
 
-        return sprintf("<%1\$s data-figma-node-id=\"%2\$s\" data-figma-name=\"%3\$s\">%4\$s</%1\$s>\n", $tag, $id, $name, $text);
+        $children = '';
+        foreach ( $node['children'] ?? array() as $child ) {
+            if ( is_array($child) ) {
+                $children .= $this->emitNode($child);
+            }
+        }
+
+        return sprintf("<%1\$s data-figma-node-id=\"%2\$s\" data-figma-name=\"%3\$s\">%4\$s%5\$s</%1\$s>\n", $tag, $id, $name, $text, $children);
     }
 
     private function sanitizeText(string $text): string

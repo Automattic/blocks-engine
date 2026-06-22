@@ -52,6 +52,55 @@ $assert(strlen('synthetic kiwi dictionary') === ($chunks[0]['inflated_bytes'] ??
 $assert('zstd' === ($chunks[1]['compression'] ?? null), 'fig-kiwi-second-chunk-zstd');
 $assert(in_array($zstdCapabilityCode, $diagnosticCodes, true), 'fig-kiwi-zstd-capability-diagnostic');
 
+$nodeChangesResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'         => 'Node Changes Fixture',
+    'NODE_CHANGES' => array(
+        '3:1' => array(
+            'node' => array(
+                'id'                  => '3:1',
+                'type'                => 'FRAME',
+                'name'                => 'Landing',
+                'absoluteBoundingBox' => array('x' => 0, 'y' => 0),
+                'children'            => array(
+                    array(
+                        'id'                  => '3:3',
+                        'type'                => 'TEXT',
+                        'name'                => 'Body',
+                        'characters'          => 'Second',
+                        'absoluteBoundingBox' => array('x' => 0, 'y' => 120),
+                    ),
+                    array(
+                        'id'                  => '3:2',
+                        'type'                => 'TEXT',
+                        'name'                => 'Heading',
+                        'characters'          => 'First',
+                        'absoluteBoundingBox' => array('x' => 0, 'y' => 20),
+                    ),
+                    array(
+                        'id'    => '3:4',
+                        'type'  => 'RECTANGLE',
+                        'name'  => 'Photo',
+                        'fills' => array(
+                            array('type' => 'IMAGE', 'imageRef' => 'image-hash-1'),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+
+$nodeChangesHtml = (string) ($nodeChangesResult['files'][0]['content'] ?? '');
+$scenegraphReport = $nodeChangesResult['source_reports']['figma']['scenegraph'] ?? array();
+
+$assert('success' === ($nodeChangesResult['status'] ?? null), 'node-changes-transform-success');
+$assert(4 === ($nodeChangesResult['metrics']['node_count'] ?? null), 'node-changes-node-count');
+$assert(2 === ($nodeChangesResult['metrics']['text_node_count'] ?? null), 'node-changes-text-count');
+$assert(1 === ($nodeChangesResult['metrics']['asset_reference_count'] ?? null), 'node-changes-asset-count');
+$assert('3:1' === ($scenegraphReport['selected_frame_id'] ?? null), 'node-changes-selected-frame');
+$assert(false !== strpos($nodeChangesHtml, 'First') && false !== strpos($nodeChangesHtml, 'Second'), 'node-changes-html-text');
+$assert(strpos($nodeChangesHtml, 'First') < strpos($nodeChangesHtml, 'Second'), 'node-changes-stable-child-sort');
+
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
     exit(1);

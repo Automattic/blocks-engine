@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\FigmaTransformer\Contract\FigmaTransformResult;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader;
 use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
+use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 
 /**
  * Public Figma transformation entrypoint.
@@ -17,7 +18,8 @@ final class FigmaTransformer
     public function __construct(
         private readonly FigArchiveReader $archiveReader = new FigArchiveReader(),
         private readonly StaticHtmlEmitter $htmlEmitter = new StaticHtmlEmitter(),
-        private readonly ParityReportBuilder $parityReportBuilder = new ParityReportBuilder()
+        private readonly ParityReportBuilder $parityReportBuilder = new ParityReportBuilder(),
+        private readonly ScenegraphNormalizer $scenegraphNormalizer = new ScenegraphNormalizer()
     ) {
     }
 
@@ -63,30 +65,35 @@ final class FigmaTransformer
     }
 
     /**
-     * Transform a normalized scenegraph into static HTML artifact files.
+     * Transform a decoded Figma scenegraph into static HTML artifact files.
      *
-     * @param array<string, mixed> $scenegraph Normalized Figma scenegraph.
+     * @param array<string, mixed> $scenegraph Decoded Figma scenegraph or NODE_CHANGES payload.
      * @param array<string, mixed> $options Transformation options.
      */
     public function transformScenegraph(array $scenegraph, array $options = array()): FigmaTransformResult
     {
         $startedAt = microtime(true);
-        $artifact  = $this->htmlEmitter->emit($scenegraph, $options);
-        $parity    = $this->parityReportBuilder->build($options['parity'] ?? array());
+        $normalized = $this->scenegraphNormalizer->normalize($scenegraph, $options);
+        $artifact    = $this->htmlEmitter->emit($normalized, $options);
+        $diagnostics = array_merge($normalized['diagnostics'] ?? array(), $artifact['diagnostics']);
+        $parity      = $this->parityReportBuilder->build($options['parity'] ?? array());
 
         return FigmaTransformResult::create(
             $artifact['status'],
-            $artifact['diagnostics'],
+            $diagnostics,
             $artifact['files'],
             $artifact['assets'],
             array(
                 'figma' => array(
-                    'scenegraph' => $artifact['source_report'],
+                    'scenegraph' => $normalized['source_report'],
+                    'html'       => $artifact['source_report'],
                 ),
             ),
             $parity,
             array(
-                'node_count'             => $artifact['metrics']['node_count'] ?? 0,
+                'node_count'             => $normalized['source_report']['node_count'] ?? 0,
+                'text_node_count'        => count($normalized['text_inventory'] ?? array()),
+                'asset_reference_count'  => count($normalized['asset_references'] ?? array()),
                 'file_count'             => count($artifact['files']),
                 'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
             )
