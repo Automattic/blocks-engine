@@ -91,9 +91,10 @@ final class FigmaTransformer
             ),
             $parity,
             array(
-                'node_count'             => $normalized['source_report']['node_count'] ?? 0,
+                'node_count'             => $normalized['source_report']['node_count'] ?? ($artifact['metrics']['node_count'] ?? 0),
                 'text_node_count'        => count($normalized['text_inventory'] ?? array()),
                 'asset_reference_count'  => count($normalized['asset_references'] ?? array()),
+                'asset_count'            => $artifact['metrics']['asset_count'] ?? 0,
                 'file_count'             => count($artifact['files']),
                 'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
             )

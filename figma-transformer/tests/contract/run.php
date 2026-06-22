@@ -14,18 +14,92 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
     }
 };
 
-$result = blocks_engine_figma_transformer_transform_scenegraph(array(
-    'name'  => 'Fixture Site',
-    'nodes' => array(
-        array('id' => '1:2', 'type' => 'TEXT', 'name' => 'Hero title', 'text' => 'Hello Figma'),
-        array('id' => '1:3', 'type' => 'FRAME', 'name' => 'Hero section'),
+$scenegraph = array(
+    'name'   => 'Fixture Site',
+    'assets' => array(
+        'hero-image' => array(
+            'name'      => 'Hero Image',
+            'mime_type' => 'image/svg+xml',
+            'content'   => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>',
+        ),
+        'remote-image' => array(
+            'url' => 'https://cdn.example.com/remote.png',
+        ),
     ),
-));
+    'nodes'  => array(
+        array(
+            'id'              => '1:1',
+            'type'            => 'FRAME',
+            'name'            => 'Hero section',
+            'width'           => 1200,
+            'height'          => 600,
+            'backgroundColor' => '#ffffff',
+            'children'        => array(
+                array(
+                    'id'         => '1:2',
+                    'type'       => 'TEXT',
+                    'name'       => 'Hero title',
+                    'text'       => 'Hello Figma',
+                    'fontSize'   => 48,
+                    'fontWeight' => 700,
+                    'color'      => array('r' => 0.1, 'g' => 0.2, 'b' => 0.3),
+                ),
+                array(
+                    'id'         => '1:3',
+                    'type'       => 'GROUP',
+                    'name'       => 'Cards group',
+                    'children'   => array(
+                        array(
+                            'id'       => '1:4',
+                            'type'     => 'RECTANGLE',
+                            'name'     => 'Hero image rectangle',
+                            'width'    => 320,
+                            'height'   => 180,
+                            'fill'     => array('r' => 1, 'g' => 0, 'b' => 0),
+                            'asset_id' => 'hero-image',
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array('id' => '1:2', 'type' => 'TEXT', 'name' => 'Hero title', 'text' => 'Hello Figma'),
+    ),
+);
+
+$result = blocks_engine_figma_transformer_transform_scenegraph($scenegraph);
+$sameResult = blocks_engine_figma_transformer_transform_scenegraph($scenegraph);
+
+$fileContent = static function (array $result, string $path): string {
+    foreach ( $result['files'] ?? array() as $file ) {
+        if ( $path === ($file['path'] ?? null) ) {
+            return (string) ($file['content'] ?? '');
+        }
+    }
+
+    return '';
+};
+
+$html = $fileContent($result, 'index.html');
+$css = $fileContent($result, 'style.css');
 
 $assert('blocks-engine/figma-transformer/result/v1' === ($result['schema'] ?? null), 'result-schema');
 $assert('success' === ($result['status'] ?? null), 'scenegraph-transform-success');
-$assert(2 === ($result['metrics']['node_count'] ?? null), 'node-count');
-$assert(str_contains((string) ($result['files'][0]['content'] ?? ''), 'Hello Figma'), 'html-contains-text');
+$assert(5 === ($result['metrics']['node_count'] ?? null), 'node-count');
+$assert(1 === ($result['metrics']['asset_count'] ?? null), 'asset-count');
+$assert(str_contains($html, 'Hello Figma'), 'html-contains-text');
+$assert(str_contains($html, '<section class="figma-node-1-1-hero-section"'), 'frame-emits-section');
+$assert(str_contains($html, '<h2 class="figma-node-1-2-hero-title"'), 'title-emits-heading');
+$assert(str_contains($html, '<div class="figma-node-1-3-cards-group"'), 'group-emits-div');
+$assert(str_contains($html, 'data-figma-node-id="1:4"'), 'html-node-id-provenance');
+$assert(str_contains($html, 'data-figma-node-name="Hero image rectangle"'), 'html-node-name-provenance');
+$assert(! str_contains($html, '<FRAME') && ! str_contains($html, '<GROUP') && ! str_contains($html, '<TEXT') && ! str_contains($html, '<RECTANGLE'), 'html-avoids-custom-tags');
+$assert(! str_contains($html, 'cdn.example.com') && ! str_contains($css, 'cdn.example.com'), 'html-css-avoid-external-cdn');
+$assert(str_contains($css, '.figma-node-1-1-hero-section{width:1200px;height:600px;background:#ffffff;display:flex;flex-direction:column}'), 'css-frame-style');
+$assert(str_contains($css, '.figma-node-1-2-hero-title{font-size:48px;font-weight:700;color:#1a334d}'), 'css-text-style');
+$assert(str_contains($css, '.figma-node-1-4-hero-image-rectangle{width:320px;height:180px;background:#ff0000;background-image:url("assets/hero-image.svg")'), 'css-rectangle-asset-style');
+$assert('assets/hero-image.svg' === ($result['assets'][0]['path'] ?? null), 'asset-report-path');
+$assert('external_asset_omitted' === ($result['diagnostics'][0]['code'] ?? null), 'external-asset-diagnostic');
+$assert(($result['files'] ?? array()) === ($sameResult['files'] ?? array()), 'deterministic-files');
 $assert('blocks-engine/figma-transformer/parity-report/v1' === ($result['parity']['schema'] ?? null), 'parity-schema');
 
 $fixture = blocks_engine_figma_transformer_create_fig_wrapper_fixture();
