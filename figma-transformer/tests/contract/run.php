@@ -134,27 +134,61 @@ $comparedParity = $parityBuilder->build(array(
         'generated_screenshot_path' => 'artifacts/generated.png',
         'diff_image_path'           => 'artifacts/diff.png',
     ),
-    'source' => array(
-        'screenshot_path' => 'artifacts/source.png',
-    ),
-    'generated' => array(
-        'screenshot_path' => 'artifacts/generated.png',
+    'source_screenshot_path' => 'artifacts/source.png',
+    'generated_screenshot_path' => 'artifacts/generated.png',
+    'diff_image_path' => 'artifacts/diff.png',
+    'frame_id' => '1:1',
+    'viewport' => array(
+        'width' => 1200,
+        'height' => 800,
     ),
     'diff_summary' => array(
         'changed_pixels' => 42,
-        'threshold'      => 0.02,
     ),
-    'metrics' => array(
-        'pixel_diff_ratio' => 0.01,
-    ),
+    'pixel_mismatch_count' => 42,
+    'pixel_mismatch_ratio' => 0.01,
+    'threshold' => 0.02,
+));
+$passingParity = $parityBuilder->build(array(
+    'status' => 'pass',
+    'source_screenshot_url' => 'https://example.com/artifacts/source.png',
+    'generated_screenshot_artifact' => 'homeboy://runs/123/generated.png',
+    'diff_image_artifact' => 'homeboy://runs/123/diff.png',
+    'pixel_mismatch_count' => 10,
+    'pixel_mismatch_ratio' => 0.005,
+    'threshold' => 0.01,
+));
+$failingParity = $parityBuilder->build(array(
+    'status' => 'fail',
+    'pixel_mismatch_count' => 500,
+    'pixel_mismatch_ratio' => 0.05,
+    'threshold' => 0.01,
+));
+$notRunParity = $parityBuilder->build();
+$unknownParity = $parityBuilder->build(array(
+    'status' => 'browser_timeout',
 ));
 $assert('pending' === ($pendingParity['status'] ?? null), 'parity-pending-status');
 $assert('artifacts/parity-report.json' === ($pendingParity['artifacts']['report_path'] ?? null), 'parity-pending-artifact-path');
 $assert('compared' === ($comparedParity['status'] ?? null), 'parity-compared-status');
 $assert('artifacts/source.png' === ($comparedParity['source']['screenshot_path'] ?? null), 'parity-source-screenshot-path');
 $assert('artifacts/generated.png' === ($comparedParity['generated']['screenshot_path'] ?? null), 'parity-generated-screenshot-path');
+$assert('artifacts/diff.png' === ($comparedParity['diff']['image_path'] ?? null), 'parity-diff-image-path');
+$assert('1:1' === ($comparedParity['source']['frame_id'] ?? null), 'parity-source-frame-id');
+$assert(1200 === ($comparedParity['viewport']['width'] ?? null), 'parity-viewport-width');
 $assert(42 === ($comparedParity['diff_summary']['changed_pixels'] ?? null), 'parity-diff-summary');
-$assert(0.01 === ($comparedParity['metrics']['pixel_diff_ratio'] ?? null), 'parity-metric');
+$assert(42 === ($comparedParity['metrics']['pixel_mismatch_count'] ?? null), 'parity-pixel-mismatch-count');
+$assert(0.01 === ($comparedParity['metrics']['pixel_mismatch_ratio'] ?? null), 'parity-pixel-mismatch-ratio');
+$assert(true === ($comparedParity['diff_summary']['passed'] ?? null), 'parity-compared-passed-threshold');
+$assert('pass' === ($passingParity['status'] ?? null), 'parity-pass-status');
+$assert('https://example.com/artifacts/source.png' === ($passingParity['source']['screenshot_url'] ?? null), 'parity-pass-source-url');
+$assert('homeboy://runs/123/generated.png' === ($passingParity['generated']['screenshot_artifact'] ?? null), 'parity-pass-generated-artifact');
+$assert('homeboy://runs/123/diff.png' === ($passingParity['diff']['image_artifact'] ?? null), 'parity-pass-diff-artifact');
+$assert(true === ($passingParity['diff_summary']['passed'] ?? null), 'parity-pass-threshold');
+$assert('fail' === ($failingParity['status'] ?? null), 'parity-fail-status');
+$assert(false === ($failingParity['diff_summary']['passed'] ?? null), 'parity-fail-threshold');
+$assert('not_run' === ($notRunParity['status'] ?? null), 'parity-not-run-status');
+$assert('pending' === ($unknownParity['status'] ?? null), 'parity-unknown-status-falls-back-to-pending');
 
 $fixture = blocks_engine_figma_transformer_create_fig_wrapper_fixture();
 $fileResult = blocks_engine_figma_transformer_transform_file($fixture);

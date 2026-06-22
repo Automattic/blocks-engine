@@ -99,13 +99,58 @@ The result envelope includes:
 
 ## Parity Contract
 
-Visual parity is measured outside the WordPress import path. The package records source and generated screenshot evidence, side-by-side comparisons, diff images, diff summaries, artifact paths, and metrics supplied by the parity runner. Homeboy is the expected runner for browser-heavy parity workflows; WordPress-only consumers can still read and display the parity report.
+Visual parity is measured outside the WordPress import path. The package records source and generated screenshot evidence, side-by-side comparisons, diff images, diff summaries, artifact paths, and metrics supplied by the parity runner. Homeboy or another external browser-backed runner is expected to produce screenshots and image diffs, then pass artifact metadata into this package. WordPress-only consumers can read and display the parity report without running a browser.
 
 Parity report statuses:
 
 - `not_run`: no parity runner has executed for this transform.
 - `pending`: parity work is queued, external, or otherwise incomplete.
 - `compared`: caller-supplied source/generated evidence and diff data describe a completed comparison.
+- `pass`: caller-supplied diff data is within the supplied threshold.
+- `fail`: caller-supplied diff data exceeds the supplied threshold.
+
+Parity runners can attach evidence through the `parity` transform option or the CLI metadata flags. The contract accepts source screenshot URL/path metadata, generated screenshot artifact metadata, diff image artifact metadata, pixel mismatch count/ratio, threshold, viewport, and frame id. The transformer stores those references; it does not fetch, render, compare, or commit screenshot files.
+
+```php
+$result = blocks_engine_figma_transformer_transform_scenegraph($scenegraph, array(
+    'frame_id' => '1:1',
+    'parity' => array(
+        'status' => 'pass',
+        'frame_id' => '1:1',
+        'source_screenshot_url' => 'https://artifacts.example.test/source.png',
+        'generated_screenshot_artifact' => 'homeboy://runs/123/generated.png',
+        'diff_image_artifact' => 'homeboy://runs/123/diff.png',
+        'pixel_mismatch_count' => 10,
+        'pixel_mismatch_ratio' => 0.005,
+        'threshold' => 0.01,
+        'viewport' => array(
+            'width' => 1200,
+            'height' => 800,
+        ),
+    ),
+));
+```
+
+```sh
+figma-transformer scenegraph.json \
+  --frame-id=1:1 \
+  --parity-status=pass \
+  --parity-source-screenshot-url=https://artifacts.example.test/source.png \
+  --parity-generated-screenshot-artifact=homeboy://runs/123/generated.png \
+  --parity-diff-image-artifact=homeboy://runs/123/diff.png \
+  --parity-pixel-mismatch-count=10 \
+  --parity-pixel-mismatch-ratio=0.005 \
+  --parity-threshold=0.01 \
+  --parity-viewport=1200x800
+```
+
+Homeboy/external runner workflow:
+
+1. Run the Figma transform and persist the static HTML/CSS/assets output.
+2. Render the original design and generated artifact in an external browser-backed runner.
+3. Upload screenshots, diff images, and any machine-readable diff report to a reviewable artifact surface attached to the issue, PR, or runner record.
+4. Re-run or wrap the transform with the parity metadata above so `parity-report.json` contains stable artifact references and numeric comparison results.
+5. Link the PR or issue to the external artifact record rather than local paths or localhost URLs.
 
 ## Fixture Strategy
 
