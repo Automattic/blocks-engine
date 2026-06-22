@@ -182,7 +182,7 @@ final class FigKiwiParser
             }
 
             $wire = $this->describeWirePayload($payload);
-            if ( $wire['record_count'] > 0 ) {
+            if ( $wire['record_count'] > 0 || true === $wire['truncated'] || null !== $wire['reason'] ) {
                 $metadata['wire'] = $wire;
             }
 

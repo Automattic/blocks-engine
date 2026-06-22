@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../figma-transformer.php';
+require_once __DIR__ . '/SyntheticFigKiwiFixtureBuilder.php';
 
 use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCapability;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiDecoder;
@@ -313,17 +314,9 @@ $assert('kiwi_message' === ($injectedChunks[1]['payload']['classification'] ?? n
 $assert('NODE_CHANGES' === ($injectedChunks[1]['payload']['kiwi_message']['type'] ?? null), 'kiwi-parser-message-type');
 $assert(in_array('figma_transformer_zstd_injected_decoder_used', $injectedDiagnosticCodes, true), 'zstd-injected-decoder-diagnostic');
 
-$wirePayload = blocks_engine_figma_transformer_wire_varint(8)
-    . blocks_engine_figma_transformer_wire_varint(150)
-    . blocks_engine_figma_transformer_wire_varint(18)
-    . blocks_engine_figma_transformer_wire_varint(5)
-    . 'hello'
-    . blocks_engine_figma_transformer_wire_varint(29)
-    . "\x01\x02\x03\x04";
+$wirePayload = SyntheticFigKiwiFixtureBuilder::sampleWirePayload();
 $wireCanvasResult = ( new FigKiwiParser() )->parse(
-    'fig-kiwi'
-    . pack('V', 106)
-    . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate($wirePayload))
+    SyntheticFigKiwiFixtureBuilder::canvas(array(SyntheticFigKiwiFixtureBuilder::zlibChunk($wirePayload)))
 );
 $wire = $wireCanvasResult['canvas']['chunks'][0]['payload']['wire'] ?? array();
 $wireRecords = $wire['records'] ?? array();
@@ -337,6 +330,45 @@ $assert(0 === ($wireRecords[0]['wire_type'] ?? null), 'fig-kiwi-wire-varint-type
 $assert(150 === ($wireRecords[0]['value'] ?? null), 'fig-kiwi-wire-varint-value');
 $assert('hello' === ($wireRecords[1]['text_preview'] ?? null), 'fig-kiwi-wire-length-text-preview');
 $assert('01020304' === ($wireRecords[2]['preview_hex'] ?? null), 'fig-kiwi-wire-fixed32-preview');
+
+$unknownBinaryResult = ( new FigKiwiParser() )->parse(
+    SyntheticFigKiwiFixtureBuilder::canvas(array(SyntheticFigKiwiFixtureBuilder::zlibChunk("\x00\x01\x02unknown")))
+);
+$unknownBinaryPayload = $unknownBinaryResult['canvas']['chunks'][0]['payload'] ?? array();
+$assert('binary' === ($unknownBinaryPayload['classification'] ?? null), 'fig-kiwi-unknown-binary-classification');
+$assert(10 === ($unknownBinaryPayload['bytes'] ?? null), 'fig-kiwi-unknown-binary-byte-count');
+$assert('000102756e6b6e6f776e' === ($unknownBinaryPayload['preview_hex'] ?? null), 'fig-kiwi-unknown-binary-preview');
+$assert('zero_field_key' === ($unknownBinaryPayload['wire']['reason'] ?? null), 'fig-kiwi-unknown-binary-wire-stop-reason');
+
+$truncatedVarintResult = ( new FigKiwiParser() )->parse(
+    SyntheticFigKiwiFixtureBuilder::canvas(array(SyntheticFigKiwiFixtureBuilder::zlibChunk(SyntheticFigKiwiFixtureBuilder::wireVarint(8) . "\x80")))
+);
+$truncatedWire = $truncatedVarintResult['canvas']['chunks'][0]['payload']['wire'] ?? array();
+$assert(false === ($truncatedWire['complete'] ?? null), 'fig-kiwi-truncated-varint-incomplete');
+$assert(true === ($truncatedWire['truncated'] ?? null), 'fig-kiwi-truncated-varint-flag');
+$assert('truncated_varint_value' === ($truncatedWire['reason'] ?? null), 'fig-kiwi-truncated-varint-reason');
+
+$unsupportedWireResult = ( new FigKiwiParser() )->parse(
+    SyntheticFigKiwiFixtureBuilder::canvas(array(SyntheticFigKiwiFixtureBuilder::zlibChunk(SyntheticFigKiwiFixtureBuilder::wireVarint(11) . 'tail')))
+);
+$unsupportedWire = $unsupportedWireResult['canvas']['chunks'][0]['payload']['wire'] ?? array();
+$assert(false === ($unsupportedWire['complete'] ?? null), 'fig-kiwi-unsupported-wire-incomplete');
+$assert(false === ($unsupportedWire['truncated'] ?? null), 'fig-kiwi-unsupported-wire-not-truncated');
+$assert('unsupported_wire_type' === ($unsupportedWire['reason'] ?? null), 'fig-kiwi-unsupported-wire-reason');
+
+$multiCandidateFixture = SyntheticFigKiwiFixtureBuilder::figArchive(
+    SyntheticFigKiwiFixtureBuilder::canvas(array(
+        SyntheticFigKiwiFixtureBuilder::jsonZlibChunk(array('metadata' => array('ignored' => true))),
+        SyntheticFigKiwiFixtureBuilder::jsonZlibChunk(SyntheticFigKiwiFixtureBuilder::nodeChangesPayload('First Candidate')),
+        SyntheticFigKiwiFixtureBuilder::jsonZlibChunk(SyntheticFigKiwiFixtureBuilder::nodeChangesPayload('Second Candidate')),
+    ))
+);
+$multiCandidateResult = blocks_engine_figma_transformer_transform_file($multiCandidateFixture);
+@unlink($multiCandidateFixture);
+$multiCandidateHtml = $fileContent($multiCandidateResult, 'index.html');
+$assert('success' === ($multiCandidateResult['status'] ?? null), 'fig-kiwi-multiple-candidates-transform-success');
+$assert(str_contains($multiCandidateHtml, 'First Candidate First'), 'fig-kiwi-multiple-candidates-renders-first-scenegraph');
+$assert(! str_contains($multiCandidateHtml, 'Second Candidate First'), 'fig-kiwi-multiple-candidates-stops-after-first-scenegraph');
 
 $nodeChangesResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'         => 'Node Changes Fixture',
