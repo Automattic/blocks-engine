@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../figma-transformer.php';
 
 use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCapability;
+use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiDecoder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiParser;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
 
@@ -246,6 +247,32 @@ $assert(isset($fileResult['source_reports']['figma']['html']), 'file-transform-h
 $assert('synthetic' === ($fileResult['source_reports']['figma']['assets'][0]['id'] ?? null), 'archive-asset-id');
 $assert('images/synthetic' === ($fileResult['source_reports']['figma']['assets'][0]['path'] ?? null), 'archive-asset-path');
 $assert('asset' === ($fileResult['source_reports']['figma']['assets'][0]['content'] ?? null), 'archive-asset-content');
+
+$kiwiSchemaBytes = blocks_engine_figma_transformer_kiwi_schema_fixture();
+$kiwiMessageBytes = blocks_engine_figma_transformer_kiwi_message_fixture();
+$kiwiDecoder = new FigKiwiDecoder();
+$kiwiSchemaResult = $kiwiDecoder->decodeSchema($kiwiSchemaBytes);
+$kiwiMessageResult = $kiwiDecoder->decodeMessage($kiwiMessageBytes, $kiwiSchemaResult['schema'] ?? array());
+$assert(null !== ($kiwiSchemaResult['schema'] ?? null), 'kiwi-schema-decodes');
+$assert('NODE_CHANGES' === ($kiwiMessageResult['message']['type'] ?? null), 'kiwi-message-enum-decodes');
+$assert(array('alpha', 'beta') === ($kiwiMessageResult['message']['nodeChanges'] ?? null), 'kiwi-message-array-decodes');
+
+$injectedParser = new FigKiwiParser(new ZstdCapability(static fn (string $payload, array $context): string => $kiwiMessageBytes));
+$injectedCanvas = $injectedParser->parse(
+    'fig-kiwi'
+    . pack('V', 106)
+    . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate($kiwiSchemaBytes))
+    . blocks_engine_figma_transformer_kiwi_chunk("\x28\xb5\x2f\xfd" . 'synthetic-zstd-frame')
+);
+$injectedChunks = $injectedCanvas['canvas']['chunks'] ?? array();
+$injectedDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $injectedCanvas['diagnostics'] ?? array()
+);
+$assert('kiwi_schema' === ($injectedChunks[0]['payload']['classification'] ?? null), 'kiwi-parser-classifies-schema');
+$assert('kiwi_message' === ($injectedChunks[1]['payload']['classification'] ?? null), 'kiwi-parser-classifies-message');
+$assert('NODE_CHANGES' === ($injectedChunks[1]['payload']['kiwi_message']['type'] ?? null), 'kiwi-parser-message-type');
+$assert(in_array('figma_transformer_zstd_injected_decoder_used', $injectedDiagnosticCodes, true), 'zstd-injected-decoder-diagnostic');
 
 $wirePayload = blocks_engine_figma_transformer_wire_varint(8)
     . blocks_engine_figma_transformer_wire_varint(150)
@@ -678,6 +705,49 @@ function blocks_engine_figma_transformer_wire_varint(int $value): string
     } while ( $value > 0 );
 
     return $bytes;
+}
+
+function blocks_engine_figma_transformer_wire_varint_signed(int $value): string
+{
+    return blocks_engine_figma_transformer_wire_varint($value < 0 ? ((~$value) << 1) | 1 : $value << 1);
+}
+
+function blocks_engine_figma_transformer_kiwi_string(string $value): string
+{
+    return $value . "\0";
+}
+
+function blocks_engine_figma_transformer_kiwi_schema_field(string $name, int $type, bool $isArray, int $value): string
+{
+    return blocks_engine_figma_transformer_kiwi_string($name)
+        . blocks_engine_figma_transformer_wire_varint_signed($type)
+        . chr($isArray ? 1 : 0)
+        . blocks_engine_figma_transformer_wire_varint($value);
+}
+
+function blocks_engine_figma_transformer_kiwi_schema_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('MessageType')
+        . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('NODE_CHANGES', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_string('Message')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', -6, true, 4);
+}
+
+function blocks_engine_figma_transformer_kiwi_message_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('alpha')
+        . blocks_engine_figma_transformer_kiwi_string('beta')
+        . blocks_engine_figma_transformer_wire_varint(0);
 }
 
 /**

@@ -116,6 +116,17 @@ final class FigmaTransformer
             }
         }
 
+        foreach ( $chunks as $chunk ) {
+            if ( ! is_array($chunk) ) {
+                continue;
+            }
+
+            $payload = $chunk['payload'] ?? array();
+            if ( is_array($payload) && 'kiwi_message' === ($payload['classification'] ?? null) && is_array($payload['kiwi_message'] ?? null) ) {
+                return $payload['kiwi_message'];
+            }
+        }
+
         return null;
     }
 

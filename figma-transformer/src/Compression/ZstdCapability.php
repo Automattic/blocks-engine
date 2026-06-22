@@ -9,6 +9,13 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Compression;
  */
 final class ZstdCapability
 {
+    /**
+     * @param callable|null $decoder Optional test/dev decoder with signature fn(string $payload, array $context): string|null.
+     */
+    public function __construct(private readonly mixed $decoder = null)
+    {
+    }
+
     public function isAvailable(): bool
     {
         $status = $this->status();
@@ -38,6 +45,11 @@ final class ZstdCapability
      */
     public function uncompress(string $payload, string $source, int $chunkIndex): array
     {
+        $injected = $this->decodeWithInjectedDecoder($payload, array('source' => $source, 'chunk_index' => $chunkIndex));
+        if ( null !== $injected['data'] || ! empty($injected['diagnostics']) ) {
+            return $injected;
+        }
+
         if ( ! $this->isAvailable() ) {
             return array(
                 'data'        => null,
@@ -84,6 +96,54 @@ final class ZstdCapability
         return array(
             'data'        => $decoded,
             'diagnostics' => array($this->diagnostic($source, $chunkIndex)),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     * @return array{data: string|null, diagnostics: array<int, array<string, mixed>>}
+     */
+    private function decodeWithInjectedDecoder(string $payload, array $context): array
+    {
+        $decoder = is_callable($this->decoder) ? $this->decoder : null;
+        if ( null === $decoder && function_exists('apply_filters') ) {
+            $decoder = apply_filters('blocks_engine_figma_transformer_zstd_decoder', null, $context);
+        }
+
+        if ( ! is_callable($decoder) ) {
+            return array('data' => null, 'diagnostics' => array());
+        }
+
+        try {
+            $decoded = $decoder($payload, $context);
+        } catch ( \Throwable $throwable ) {
+            return array(
+                'data'        => null,
+                'diagnostics' => array(
+                    array(
+                        'code'    => 'figma_transformer_zstd_decoder_failed',
+                        'message' => 'Injected Zstandard decoder raised an error while decoding the payload.',
+                        'source'  => (string) ($context['source'] ?? 'ZstdCapability'),
+                        'context' => array_merge($context, array('error' => $throwable->getMessage())),
+                    ),
+                ),
+            );
+        }
+
+        if ( ! is_string($decoded) ) {
+            return array('data' => null, 'diagnostics' => array());
+        }
+
+        return array(
+            'data'        => $decoded,
+            'diagnostics' => array(
+                array(
+                    'code'    => 'figma_transformer_zstd_injected_decoder_used',
+                    'message' => 'Zstandard chunk decoded by an injected decoder callable.',
+                    'source'  => (string) ($context['source'] ?? 'ZstdCapability'),
+                    'context' => $context,
+                ),
+            ),
         );
     }
 

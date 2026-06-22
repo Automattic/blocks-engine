@@ -40,6 +40,9 @@ final class ScenegraphNormalizer
         }
 
         $renderIds = $topLevelIds;
+        if ( null !== $selectedFrameId && 1 === count($topLevelIds) && $selectedFrameId !== $topLevelIds[0] ) {
+            $renderIds = array($selectedFrameId);
+        }
         $renderNodes = array();
         foreach ( $renderIds as $id ) {
             if ( isset($nodeMap[$id]) ) {
@@ -580,7 +583,7 @@ final class ScenegraphNormalizer
     private function normalizePaintCollections(array $node, string $nodeId, array &$diagnostics): array
     {
         $collections = array();
-        foreach ( array('fills' => 'fills', 'strokes' => 'strokes', 'background' => 'background') as $sourceKey => $targetKey ) {
+        foreach ( array('fills' => 'fills', 'fillPaints' => 'fills', 'strokes' => 'strokes', 'strokePaints' => 'strokes', 'background' => 'background') as $sourceKey => $targetKey ) {
             if ( ! is_array($node[$sourceKey] ?? null) ) {
                 continue;
             }
@@ -679,7 +682,7 @@ final class ScenegraphNormalizer
             }
         }
 
-        foreach ( array('relativeTransform', 'absoluteTransform') as $sourceKey ) {
+        foreach ( array('relativeTransform', 'absoluteTransform', 'transform') as $sourceKey ) {
             if ( is_array($node[$sourceKey] ?? null) ) {
                 $box['transform'] = $node[$sourceKey];
                 break;
@@ -785,7 +788,54 @@ final class ScenegraphNormalizer
             }
         }
 
+        if ( ! empty($frameIds) ) {
+            return $frameIds;
+        }
+
+        foreach ( $topLevelIds as $id ) {
+            foreach ( $this->collectFrameDescendantIds($nodeMap[$id]['children'] ?? array()) as $frameId ) {
+                $frameIds[] = $frameId;
+            }
+        }
+
         return $frameIds;
+    }
+
+    /**
+     * @param mixed $children
+     * @return array<int, string>
+     */
+    private function collectFrameDescendantIds(mixed $children): array
+    {
+        if ( ! is_array($children) ) {
+            return array();
+        }
+
+        $frameIds = array();
+        foreach ( $children as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $type = strtoupper((string) ($child['type'] ?? ''));
+            if ( in_array($type, array('DOCUMENT', 'CANVAS'), true) ) {
+                if ( 'CANVAS' === $type && (false === ($child['visible'] ?? true) || true === ($child['internalOnly'] ?? false)) ) {
+                    continue;
+                }
+
+                foreach ( $this->collectFrameDescendantIds($child['children'] ?? array()) as $frameId ) {
+                    $frameIds[] = $frameId;
+                }
+                continue;
+            }
+
+            if ( in_array($type, array('FRAME', 'COMPONENT', 'INSTANCE'), true) ) {
+                $frameIds[] = (string) ($child['id'] ?? '');
+                continue;
+            }
+        }
+
+        return array_values(array_filter(array_unique($frameIds)));
     }
 
     /**
@@ -816,6 +866,22 @@ final class ScenegraphNormalizer
         foreach ( array('x', 'y', 'width', 'height') as $dimension ) {
             if ( ! array_key_exists($dimension, $box) && isset($node[$dimension]) && is_numeric($node[$dimension]) ) {
                 $box[$dimension] = (float) $node[$dimension];
+            }
+        }
+
+        if ( is_array($node['size'] ?? null) ) {
+            foreach ( array('x' => 'width', 'y' => 'height') as $source => $target ) {
+                if ( ! array_key_exists($target, $box) && isset($node['size'][$source]) && is_numeric($node['size'][$source]) ) {
+                    $box[$target] = (float) $node['size'][$source];
+                }
+            }
+        }
+
+        if ( is_array($node['transform'] ?? null) ) {
+            foreach ( array('m02' => 'x', 'm12' => 'y') as $source => $target ) {
+                if ( ! array_key_exists($target, $box) && isset($node['transform'][$source]) && is_numeric($node['transform'][$source]) ) {
+                    $box[$target] = (float) $node['transform'][$source];
+                }
             }
         }
 

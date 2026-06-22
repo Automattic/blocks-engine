@@ -20,7 +20,8 @@ final class FigKiwiParser
     private const WIRE_RECORD_LIMIT = 64;
 
     public function __construct(
-        private readonly ZstdCapability $zstdCapability = new ZstdCapability()
+        private readonly ZstdCapability $zstdCapability = new ZstdCapability(),
+        private readonly FigKiwiDecoder $kiwiDecoder = new FigKiwiDecoder()
     ) {
     }
 
@@ -54,6 +55,7 @@ final class FigKiwiParser
 
         $chunks = array();
         $diagnostics = array();
+        $kiwiSchema = null;
         $offset = 12;
         $index = 0;
         $totalBytes = strlen($raw);
@@ -97,7 +99,7 @@ final class FigKiwiParser
                 } else {
                     $chunk['inflated_bytes'] = strlen($inflated);
                     $chunk['inflated_preview_hex'] = bin2hex(substr($inflated, 0, 32));
-                    $chunk['payload'] = $this->classifyPayload($inflated);
+                    $chunk['payload'] = $this->classifyPayload($inflated, $kiwiSchema, $diagnostics);
                 }
             } elseif ( 'zstd' === $chunk['compression'] ) {
                 $zstdResult = $this->zstdCapability->uncompress($payload, 'FigKiwiParser', $index);
@@ -105,10 +107,10 @@ final class FigKiwiParser
                 if ( null !== $zstdResult['data'] ) {
                     $chunk['inflated_bytes'] = strlen($zstdResult['data']);
                     $chunk['inflated_preview_hex'] = bin2hex(substr($zstdResult['data'], 0, 32));
-                    $chunk['payload'] = $this->classifyPayload($zstdResult['data']);
+                    $chunk['payload'] = $this->classifyPayload($zstdResult['data'], $kiwiSchema, $diagnostics);
                 }
             } else {
-                $chunk['payload'] = $this->classifyPayload($payload);
+                $chunk['payload'] = $this->classifyPayload($payload, $kiwiSchema, $diagnostics);
                 $diagnostics[] = $this->diagnostic('figma_transformer_kiwi_unknown_compression', 'fig-kiwi chunk compression could not be identified.', array('chunk_index' => $index));
             }
 
@@ -147,7 +149,7 @@ final class FigKiwiParser
     /**
      * @return array<string, mixed>
      */
-    private function classifyPayload(string $payload): array
+    private function classifyPayload(string $payload, ?array &$kiwiSchema, array &$diagnostics): array
     {
         $classification = $this->looksJsonLike($payload) ? 'json_invalid' : 'binary';
         $metadata = array(
@@ -157,6 +159,28 @@ final class FigKiwiParser
         );
 
         if ( 'json_invalid' !== $classification ) {
+            if ( null === $kiwiSchema ) {
+                $schemaResult = $this->kiwiDecoder->decodeSchema($payload);
+                if ( null !== $schemaResult['schema'] ) {
+                    $diagnostics = array_merge($diagnostics, $schemaResult['diagnostics']);
+                    $kiwiSchema = $schemaResult['schema'];
+                    $metadata['classification'] = 'kiwi_schema';
+                    $metadata['kiwi_schema'] = array(
+                        'definition_count' => count($kiwiSchema['definitions'] ?? array()),
+                        'message_root'     => $this->hasKiwiDefinition($kiwiSchema, 'Message'),
+                    );
+                    return $metadata;
+                }
+            } else {
+                $messageResult = $this->kiwiDecoder->decodeMessage($payload, $kiwiSchema);
+                $diagnostics = array_merge($diagnostics, $messageResult['diagnostics']);
+                if ( null !== $messageResult['message'] ) {
+                    $metadata['classification'] = 'kiwi_message';
+                    $metadata['kiwi_message'] = $messageResult['message'];
+                    return $metadata;
+                }
+            }
+
             $wire = $this->describeWirePayload($payload);
             if ( $wire['record_count'] > 0 ) {
                 $metadata['wire'] = $wire;
@@ -177,6 +201,20 @@ final class FigKiwiParser
         }
 
         return $metadata;
+    }
+
+    /**
+     * @param array<string, mixed> $schema
+     */
+    private function hasKiwiDefinition(array $schema, string $name): bool
+    {
+        foreach ( $schema['definitions'] ?? array() as $definition ) {
+            if ( is_array($definition) && $name === ($definition['name'] ?? null) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

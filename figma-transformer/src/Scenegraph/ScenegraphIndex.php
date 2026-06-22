@@ -140,7 +140,7 @@ final class ScenegraphIndex
             return;
         }
 
-        $id = $this->readString($node, array('id', 'node_id', 'nodeId')) ?? $fallbackId;
+        $id = $this->readString($node, array('id', 'node_id', 'nodeId')) ?? $this->readGuid($node['guid'] ?? null) ?? $fallbackId;
         if ( null === $id || '' === $id ) {
             $diagnostics[] = array(
                 'code'    => 'scenegraph_node_id_missing',
@@ -149,7 +149,7 @@ final class ScenegraphIndex
             return;
         }
 
-        $explicitParent = $this->readString($node, array('parent', 'parentId', 'parent_id'));
+        $explicitParent = $this->readString($node, array('parent', 'parentId', 'parent_id')) ?? $this->readParentGuid($node);
         $effectiveParent = $explicitParent ?? $parentId;
 
         $children = array();
@@ -199,7 +199,7 @@ final class ScenegraphIndex
             }
         }
 
-        if ( isset($value['type']) || isset($value['id']) || isset($value['children']) ) {
+        if ( isset($value['type']) || isset($value['id']) || isset($value['guid']) || isset($value['children']) ) {
             return $value;
         }
 
@@ -219,6 +219,23 @@ final class ScenegraphIndex
         }
 
         return null;
+    }
+
+    private function readGuid(mixed $guid): ?string
+    {
+        if ( is_array($guid) && isset($guid['sessionID'], $guid['localID']) ) {
+            return (string) $guid['sessionID'] . ':' . (string) $guid['localID'];
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function readParentGuid(array $node): ?string
+    {
+        return $this->readGuid($node['parentIndex']['guid'] ?? null);
     }
 
     /**
@@ -267,6 +284,13 @@ final class ScenegraphIndex
                     'y' => is_numeric($node[$key]['y'] ?? null) ? (float) $node[$key]['y'] : 0.0,
                 );
             }
+        }
+
+        if ( is_array($node['transform'] ?? null) ) {
+            return array(
+                'x' => is_numeric($node['transform']['m02'] ?? null) ? (float) $node['transform']['m02'] : 0.0,
+                'y' => is_numeric($node['transform']['m12'] ?? null) ? (float) $node['transform']['m12'] : 0.0,
+            );
         }
 
         return array('x' => 0.0, 'y' => 0.0);
