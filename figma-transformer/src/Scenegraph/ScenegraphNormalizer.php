@@ -53,6 +53,7 @@ final class ScenegraphNormalizer
             'name'                => $sourceName,
             'assets'              => is_array($source['assets'] ?? null) ? $source['assets'] : array(),
             'nodes'               => $renderNodes,
+            'assets'              => is_array($source['assets'] ?? null) ? $source['assets'] : array(),
             'node_map'            => $nodeMap,
             'parent_index'        => $index['parent_index'],
             'children_index'      => $index['children_index'],

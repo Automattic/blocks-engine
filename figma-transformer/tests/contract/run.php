@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../figma-transformer.php';
 
 use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCapability;
+use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
 
 $failures = array();
 
@@ -114,6 +115,44 @@ $assert(in_array('external_asset_omitted', $diagnosticCodes, true), 'external-as
 $assert(in_array('scenegraph_node_id_duplicate', $diagnosticCodes, true), 'duplicate-node-diagnostic');
 $assert(($result['files'] ?? array()) === ($sameResult['files'] ?? array()), 'deterministic-files');
 $assert('blocks-engine/figma-transformer/parity-report/v1' === ($result['parity']['schema'] ?? null), 'parity-schema');
+$assert('not_run' === ($result['parity']['status'] ?? null), 'parity-default-not-run');
+
+$parityBuilder = new ParityReportBuilder();
+$pendingParity = $parityBuilder->build(array(
+    'status'    => 'pending',
+    'reason'    => 'queued_for_browser_runner',
+    'artifacts' => array(
+        'report_path' => 'artifacts/parity-report.json',
+    ),
+));
+$comparedParity = $parityBuilder->build(array(
+    'status'    => 'compared',
+    'artifacts' => array(
+        'source_screenshot_path'    => 'artifacts/source.png',
+        'generated_screenshot_path' => 'artifacts/generated.png',
+        'diff_image_path'           => 'artifacts/diff.png',
+    ),
+    'source' => array(
+        'screenshot_path' => 'artifacts/source.png',
+    ),
+    'generated' => array(
+        'screenshot_path' => 'artifacts/generated.png',
+    ),
+    'diff_summary' => array(
+        'changed_pixels' => 42,
+        'threshold'      => 0.02,
+    ),
+    'metrics' => array(
+        'pixel_diff_ratio' => 0.01,
+    ),
+));
+$assert('pending' === ($pendingParity['status'] ?? null), 'parity-pending-status');
+$assert('artifacts/parity-report.json' === ($pendingParity['artifacts']['report_path'] ?? null), 'parity-pending-artifact-path');
+$assert('compared' === ($comparedParity['status'] ?? null), 'parity-compared-status');
+$assert('artifacts/source.png' === ($comparedParity['source']['screenshot_path'] ?? null), 'parity-source-screenshot-path');
+$assert('artifacts/generated.png' === ($comparedParity['generated']['screenshot_path'] ?? null), 'parity-generated-screenshot-path');
+$assert(42 === ($comparedParity['diff_summary']['changed_pixels'] ?? null), 'parity-diff-summary');
+$assert(0.01 === ($comparedParity['metrics']['pixel_diff_ratio'] ?? null), 'parity-metric');
 
 $fixture = blocks_engine_figma_transformer_create_fig_wrapper_fixture();
 $fileResult = blocks_engine_figma_transformer_transform_file($fixture);

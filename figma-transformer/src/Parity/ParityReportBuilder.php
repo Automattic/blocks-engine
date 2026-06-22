@@ -11,6 +11,8 @@ final class ParityReportBuilder
 {
     public const SCHEMA = 'blocks-engine/figma-transformer/parity-report/v1';
 
+    private const KNOWN_STATUSES = array('not_run', 'pending', 'compared');
+
     /**
      * @param array<string, mixed> $evidence
      * @param array<string, mixed> $overrides
@@ -18,15 +20,22 @@ final class ParityReportBuilder
      */
     public function build(array $evidence = array(), array $overrides = array()): array
     {
+        $status = (string) ($overrides['status'] ?? $evidence['status'] ?? 'not_run');
+        if ( ! in_array($status, self::KNOWN_STATUSES, true) ) {
+            $status = 'pending';
+        }
+
         return array(
-            'schema'    => self::SCHEMA,
-            'status'    => (string) ($overrides['status'] ?? $evidence['status'] ?? 'not_run'),
-            'reason'    => (string) ($overrides['reason'] ?? $evidence['reason'] ?? ''),
-            'source'    => $evidence['source'] ?? array(),
-            'generated' => $evidence['generated'] ?? array(),
+            'schema'       => self::SCHEMA,
+            'status'       => $status,
+            'reason'       => (string) ($overrides['reason'] ?? $evidence['reason'] ?? ''),
+            'artifacts'    => $evidence['artifacts'] ?? array(),
+            'source'       => $evidence['source'] ?? array(),
+            'generated'    => $evidence['generated'] ?? array(),
             'side_by_side' => $evidence['side_by_side'] ?? null,
-            'diff'      => $evidence['diff'] ?? null,
-            'metrics'   => $evidence['metrics'] ?? array(),
+            'diff'         => $evidence['diff'] ?? null,
+            'diff_summary' => $evidence['diff_summary'] ?? array(),
+            'metrics'      => $evidence['metrics'] ?? array(),
         );
     }
 }
