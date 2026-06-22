@@ -514,6 +514,75 @@ $assert(str_contains($layoutFidelityCss, '.figma-node-5-5-absolute-badge{width:5
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-6-matrix-transform{width:30px;height:30px;transform:matrix(0,1,-1,0,40,60)}'), 'layout-relative-transform-matrix');
 $assert(! str_contains($layoutFidelityCss, 'font-family:Inter') && ! str_contains($layoutFidelityCss, 'body{margin:0;background') && ! str_contains($layoutFidelityCss, 'body{margin:0;color'), 'layout-css-avoids-theme-defaults');
 
+$resolvedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Component Instance Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'component:button',
+            'type'     => 'COMPONENT',
+            'name'     => 'Button component',
+            'key'      => 'button-key',
+            'children' => array(
+                array(
+                    'id'         => 'component:button-label',
+                    'type'       => 'TEXT',
+                    'name'       => 'Button label',
+                    'characters' => 'Default label',
+                ),
+            ),
+        ),
+        array(
+            'id'          => 'instance:button',
+            'type'        => 'INSTANCE',
+            'name'        => 'Primary CTA',
+            'componentId' => 'button-key',
+            'overrides'   => array(
+                array(
+                    'nodeId'     => 'component:button-label',
+                    'characters' => 'Buy now',
+                ),
+            ),
+        ),
+    ),
+));
+
+$resolvedInstanceHtml = $fileContent($resolvedInstanceResult, 'index.html');
+$resolvedInstanceReport = $resolvedInstanceResult['source_reports']['figma']['scenegraph'] ?? array();
+
+$assert(1 === ($resolvedInstanceReport['component_definition_count'] ?? null), 'component-definition-count');
+$assert(1 === ($resolvedInstanceReport['instance_node_count'] ?? null), 'resolved-instance-counts-instance');
+$assert(1 === ($resolvedInstanceReport['resolved_instance_count'] ?? null), 'resolved-instance-counts-resolved');
+$assert(array() === ($resolvedInstanceReport['unresolved_component_references'] ?? null), 'resolved-instance-no-unresolved');
+$assert(str_contains($resolvedInstanceHtml, 'data-figma-node-id="instance:button"'), 'resolved-instance-preserves-instance-id');
+$assert(str_contains($resolvedInstanceHtml, 'Buy now'), 'resolved-instance-applies-text-override');
+
+$unresolvedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Unresolved Component Instance Fixture',
+    'nodes' => array(
+        array(
+            'id'            => 'instance:missing',
+            'type'          => 'INSTANCE',
+            'name'          => 'Missing component instance',
+            'mainComponent' => array('id' => 'missing-component'),
+        ),
+    ),
+));
+
+$unresolvedInstanceHtml = $fileContent($unresolvedInstanceResult, 'index.html');
+$unresolvedInstanceReport = $unresolvedInstanceResult['source_reports']['figma']['scenegraph'] ?? array();
+$unresolvedInstanceDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $unresolvedInstanceResult['diagnostics'] ?? array()
+);
+
+$assert(0 === ($unresolvedInstanceReport['component_definition_count'] ?? null), 'unresolved-instance-component-definition-count');
+$assert(1 === ($unresolvedInstanceReport['instance_node_count'] ?? null), 'unresolved-instance-counts-instance');
+$assert(0 === ($unresolvedInstanceReport['resolved_instance_count'] ?? null), 'unresolved-instance-counts-resolved');
+$assert('instance:missing' === ($unresolvedInstanceReport['unresolved_component_references'][0]['instance_id'] ?? null), 'unresolved-instance-report-instance-id');
+$assert('missing-component' === ($unresolvedInstanceReport['unresolved_component_references'][0]['component_id'] ?? null), 'unresolved-instance-report-component-id');
+$assert(str_contains($unresolvedInstanceHtml, 'data-figma-node-id="instance:missing"'), 'unresolved-instance-preserves-instance-id');
+$assert(in_array('figma_instance_component_unresolved', $unresolvedInstanceDiagnosticCodes, true), 'unresolved-instance-diagnostic');
+
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
     exit(1);

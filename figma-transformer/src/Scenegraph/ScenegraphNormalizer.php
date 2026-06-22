@@ -24,6 +24,9 @@ final class ScenegraphNormalizer
         $index       = $this->index->build($source);
         $diagnostics = $index['diagnostics'];
         $nodeMap     = $this->normalizeNodeMap($index['nodes'], $diagnostics);
+        $components  = $this->buildComponentDefinitions($nodeMap);
+        $componentDefinitionCount = $this->countComponentDefinitions($nodeMap);
+        $instanceReport = $this->resolveInstances($nodeMap, $components, $diagnostics);
         $topLevelIds = $index['top_level_node_ids'];
         $frameIds    = $this->selectTopLevelFrameIds($topLevelIds, $nodeMap);
 
@@ -74,6 +77,10 @@ final class ScenegraphNormalizer
                 'text_node_count'       => count($textInventory),
                 'asset_reference_count' => count($assetReferences),
                 'asset_references'      => $assetReferences,
+                'component_definition_count' => $componentDefinitionCount,
+                'instance_node_count'   => $instanceReport['instance_node_count'],
+                'resolved_instance_count' => $instanceReport['resolved_instance_count'],
+                'unresolved_component_references' => $instanceReport['unresolved_component_references'],
                 'diagnostic_count'      => count($diagnostics),
             ),
         );
@@ -102,6 +109,11 @@ final class ScenegraphNormalizer
     {
         $id = (string) ($node['id'] ?? '');
         $type = strtoupper((string) ($node['type'] ?? ''));
+
+        $component = $this->normalizeComponentMetadata($node, $type);
+        if ( ! empty($component) ) {
+            $node['figma_component'] = $component;
+        }
 
         if ( 'TEXT' === $type ) {
             $text = $this->normalizeText($node);
@@ -151,6 +163,280 @@ final class ScenegraphNormalizer
         }
 
         return $node;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function normalizeComponentMetadata(array $node, string $type): array
+    {
+        $metadata = array();
+
+        if ( 'COMPONENT' === $type || 'COMPONENT_SET' === $type ) {
+            $metadata['role'] = 'definition';
+            $metadata['definition_id'] = (string) ($node['id'] ?? '');
+        } elseif ( 'INSTANCE' === $type ) {
+            $metadata['role'] = 'instance';
+            $metadata['instance_id'] = (string) ($node['id'] ?? '');
+            $reference = $this->readComponentReference($node);
+            if ( null !== $reference ) {
+                $metadata['component_id'] = $reference['id'];
+                $metadata['component_source_key'] = $reference['source_key'];
+            }
+        }
+
+        if ( is_array($node['componentProperties'] ?? null) ) {
+            $metadata['component_properties'] = $node['componentProperties'];
+        }
+
+        if ( is_array($node['overrides'] ?? null) ) {
+            $metadata['overrides'] = $node['overrides'];
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $nodeMap
+     * @return array<string, array<string, mixed>>
+     */
+    private function buildComponentDefinitions(array $nodeMap): array
+    {
+        $components = array();
+
+        foreach ( $nodeMap as $id => $node ) {
+            if ( ! in_array(strtoupper((string) ($node['type'] ?? '')), array('COMPONENT', 'COMPONENT_SET'), true) ) {
+                continue;
+            }
+
+            foreach ( array_unique(array_filter(array($id, $this->readString($node, array('componentId', 'component_id', 'key'))))) as $componentId ) {
+                $components[(string) $componentId] = $node;
+            }
+        }
+
+        return $components;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $nodeMap
+     */
+    private function countComponentDefinitions(array $nodeMap): int
+    {
+        $count = 0;
+
+        foreach ( $nodeMap as $node ) {
+            if ( in_array(strtoupper((string) ($node['type'] ?? '')), array('COMPONENT', 'COMPONENT_SET'), true) ) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $nodeMap
+     * @param array<string, array<string, mixed>> $components
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array{instance_node_count: int, resolved_instance_count: int, unresolved_component_references: array<int, array<string, string>>}
+     */
+    private function resolveInstances(array &$nodeMap, array $components, array &$diagnostics): array
+    {
+        $instanceCount = 0;
+        $resolvedCount = 0;
+        $unresolved = array();
+
+        foreach ( $nodeMap as $id => $node ) {
+            if ( 'INSTANCE' !== strtoupper((string) ($node['type'] ?? '')) ) {
+                continue;
+            }
+
+            $instanceCount++;
+            $reference = $this->readComponentReference($node);
+            if ( null === $reference || ! isset($components[$reference['id']]) ) {
+                $unresolved[] = array('instance_id' => $id, 'component_id' => $reference['id'] ?? '');
+                $diagnostics[] = array(
+                    'severity' => 'warning',
+                    'code'     => 'figma_instance_component_unresolved',
+                    'message'  => 'Figma instance references a component definition that is not present in the same source graph.',
+                    'context'  => array(
+                        'instance_id'  => $id,
+                        'component_id' => $reference['id'] ?? null,
+                    ),
+                );
+                continue;
+            }
+
+            if ( ! empty($node['children']) ) {
+                $unresolved[] = array('instance_id' => $id, 'component_id' => $reference['id']);
+                $diagnostics[] = array(
+                    'severity' => 'warning',
+                    'code'     => 'figma_instance_resolution_skipped',
+                    'message'  => 'Figma instance resolution was skipped because the source instance already contains children.',
+                    'context'  => array('instance_id' => $id, 'component_id' => $reference['id']),
+                );
+                continue;
+            }
+
+            $overrides = $this->normalizeInstanceOverrides($node['overrides'] ?? array(), $id, $diagnostics);
+            if ( null === $overrides ) {
+                $unresolved[] = array('instance_id' => $id, 'component_id' => $reference['id']);
+                continue;
+            }
+
+            $resolved = $this->cloneComponentForInstance($components[$reference['id']], $node, $reference['id'], $overrides);
+            $nodeMap[$id] = $resolved;
+            $resolvedCount++;
+        }
+
+        return array(
+            'instance_node_count' => $instanceCount,
+            'resolved_instance_count' => $resolvedCount,
+            'unresolved_component_references' => $unresolved,
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array{id: string, source_key: string}|null
+     */
+    private function readComponentReference(array $node): ?array
+    {
+        foreach ( array('componentId', 'component_id', 'mainComponentId', 'main_component_id') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== (string) $node[$key] ) {
+                return array('id' => (string) $node[$key], 'source_key' => $key);
+            }
+        }
+
+        foreach ( array('mainComponent', 'component') as $key ) {
+            if ( is_array($node[$key] ?? null) ) {
+                $id = $this->readString($node[$key], array('id', 'key', 'componentId', 'node_id', 'nodeId'));
+                if ( null !== $id && '' !== $id ) {
+                    return array('id' => $id, 'source_key' => $key);
+                }
+            } elseif ( isset($node[$key]) && is_scalar($node[$key]) && '' !== (string) $node[$key] ) {
+                return array('id' => (string) $node[$key], 'source_key' => $key);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, string> $keys
+     */
+    private function readString(array $node, array $keys): ?string
+    {
+        foreach ( $keys as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== (string) $node[$key] ) {
+                return (string) $node[$key];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param mixed $rawOverrides
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, array<string, scalar>>|null
+     */
+    private function normalizeInstanceOverrides(mixed $rawOverrides, string $instanceId, array &$diagnostics): ?array
+    {
+        if ( ! is_array($rawOverrides) || empty($rawOverrides) ) {
+            return array();
+        }
+
+        $overrides = array();
+        foreach ( $rawOverrides as $key => $override ) {
+            if ( ! is_array($override) ) {
+                $diagnostics[] = array(
+                    'severity' => 'warning',
+                    'code'     => 'figma_instance_override_unsupported',
+                    'message'  => 'Figma instance override shape is unsupported and was not applied.',
+                    'context'  => array('instance_id' => $instanceId),
+                );
+                return null;
+            }
+
+            $nodeId = $this->readString($override, array('nodeId', 'node_id', 'id')) ?? (is_string($key) ? $key : null);
+            if ( null === $nodeId || '' === $nodeId ) {
+                return null;
+            }
+
+            foreach ( array('characters', 'text', 'name') as $field ) {
+                if ( isset($override[$field]) && is_scalar($override[$field]) ) {
+                    $overrides[$nodeId][$field] = $override[$field];
+                }
+            }
+        }
+
+        return $overrides;
+    }
+
+    /**
+     * @param array<string, mixed> $component
+     * @param array<string, mixed> $instance
+     * @param array<string, array<string, scalar>> $overrides
+     * @return array<string, mixed>
+     */
+    private function cloneComponentForInstance(array $component, array $instance, string $componentId, array $overrides): array
+    {
+        $resolved = $component;
+        $resolved['id'] = (string) ($instance['id'] ?? $resolved['id'] ?? '');
+        $resolved['type'] = 'INSTANCE';
+        $resolved['name'] = (string) ($instance['name'] ?? $resolved['name'] ?? '');
+
+        foreach ( array('box', 'figma_box', 'layout', 'componentProperties') as $key ) {
+            if ( array_key_exists($key, $instance) ) {
+                $resolved[$key] = $instance[$key];
+            }
+        }
+
+        $resolved['figma_component'] = array_merge(
+            is_array($instance['figma_component'] ?? null) ? $instance['figma_component'] : array(),
+            array(
+                'role'               => 'instance',
+                'instance_id'        => (string) ($instance['id'] ?? ''),
+                'component_id'       => $componentId,
+                'definition_node_id' => (string) ($component['id'] ?? ''),
+                'resolved'           => true,
+            )
+        );
+        $resolved['children'] = $this->applyInstanceOverridesToChildren(is_array($resolved['children'] ?? null) ? $resolved['children'] : array(), $overrides);
+
+        return $resolved;
+    }
+
+    /**
+     * @param array<int, mixed> $children
+     * @param array<string, array<string, scalar>> $overrides
+     * @return array<int, mixed>
+     */
+    private function applyInstanceOverridesToChildren(array $children, array $overrides): array
+    {
+        foreach ( $children as $index => $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $id = (string) ($child['id'] ?? '');
+            foreach ( $overrides[$id] ?? array() as $field => $value ) {
+                $child[$field] = $value;
+                if ( in_array($field, array('characters', 'text'), true) && is_array($child['figma_text'] ?? null) ) {
+                    $child['figma_text']['characters'] = (string) $value;
+                }
+            }
+
+            if ( is_array($child['children'] ?? null) ) {
+                $child['children'] = $this->applyInstanceOverridesToChildren($child['children'], $overrides);
+            }
+
+            $children[$index] = $child;
+        }
+
+        return $children;
     }
 
     /**
