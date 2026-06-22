@@ -38,7 +38,7 @@ final class StaticHtmlEmitter
             if ( ! is_array($node) ) {
                 continue;
             }
-            $body .= $this->emitNode($node, $cssRules, $diagnostics, 0);
+            $body .= $this->emitNode($node, $cssRules, $diagnostics, 0, null);
         }
 
         $files = array(
@@ -82,7 +82,7 @@ final class StaticHtmlEmitter
      * @param array<int, string>                 $cssRules
      * @param array<int, array<string, mixed>>   $diagnostics
      */
-    private function emitNode(array $node, array &$cssRules, array &$diagnostics, int $depth): string
+    private function emitNode(array $node, array &$cssRules, array &$diagnostics, int $depth, ?array $parentNode): string
     {
         $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
         $name = (string) ($node['name'] ?? '');
@@ -96,7 +96,7 @@ final class StaticHtmlEmitter
 
         foreach ( $children as $child ) {
             if ( is_array($child) ) {
-                $content .= $this->emitNode($child, $cssRules, $diagnostics, $depth + 1);
+                $content .= $this->emitNode($child, $cssRules, $diagnostics, $depth + 1, $node);
             }
         }
 
@@ -114,7 +114,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        $styles = $this->styleDeclarations($node, $type);
+        $styles = $this->styleDeclarations($node, $type, $parentNode);
         if ( ! empty($styles) ) {
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
         }
@@ -169,24 +169,36 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @return array<int, string>
      */
-    private function styleDeclarations(array $node, string $type): array
+    private function styleDeclarations(array $node, string $type, ?array $parentNode): array
     {
         $styles = array();
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
         foreach ( array('width', 'height') as $dimension ) {
-            if ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
+            $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
+            $sizing = strtoupper((string) ($layout[$sizingKey] ?? ''));
+            if ( 'HUG' === $sizing ) {
+                $styles[] = $dimension . ':fit-content';
+            } elseif ( 'FILL' === $sizing ) {
+                $styles[] = $dimension . ':100%';
+            } elseif ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
                 $styles[] = $dimension . ':' . $this->number((float) $box[$dimension]) . 'px';
             }
         }
 
-        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( true === ($layout['clips_content'] ?? false) ) {
+            $styles[] = 'overflow:hidden';
+        }
+
+        if ( $this->hasAbsoluteChild($node) ) {
+            $styles[] = 'position:relative';
+        }
+
         if ( 'absolute' === ($layout['positioning'] ?? null) ) {
             $styles[] = 'position:absolute';
-            foreach ( array('x' => 'left', 'y' => 'top') as $dimension => $property ) {
-                if ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
-                    $styles[] = $property . ':' . $this->number((float) $box[$dimension]) . 'px';
-                }
+            foreach ( $this->absolutePositionStyles($box, $layout, $parentNode) as $style ) {
+                $styles[] = $style;
             }
         }
 
@@ -200,6 +212,11 @@ final class StaticHtmlEmitter
         $box = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array();
         if ( isset($box['opacity']) && is_numeric($box['opacity']) ) {
             $styles[] = 'opacity:' . $this->number((float) $box['opacity']);
+        }
+
+        $transform = $this->transformStyle($box);
+        if ( null !== $transform ) {
+            $styles[] = 'transform:' . $transform;
         }
 
         foreach ( $this->radiusStyles($box) as $style ) {
@@ -245,6 +262,143 @@ final class StaticHtmlEmitter
 
         if ( isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ) {
             $styles[] = 'gap:' . $this->number((float) $layout['item_spacing']) . 'px';
+        }
+
+        foreach ( $this->flexItemStyles($layout) as $style ) {
+            $styles[] = $style;
+        }
+
+        return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $layout
+     * @return array<int, string>
+     */
+    private function absolutePositionStyles(array $box, array $layout, ?array $parentNode): array
+    {
+        $styles = array();
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        $left = $this->relativeOffset($box, $parentBox, 'x');
+        $top = $this->relativeOffset($box, $parentBox, 'y');
+        $constraints = is_array($layout['constraints'] ?? null) ? $layout['constraints'] : array();
+
+        if ( null !== $left ) {
+            $styles[] = 'left:' . $this->number($left) . 'px';
+        }
+        if ( isset($constraints['horizontal'], $parentBox['width'], $box['width']) && 'LEFT_RIGHT' === $constraints['horizontal'] && null !== $left ) {
+            $styles[] = 'right:' . $this->number((float) $parentBox['width'] - $left - (float) $box['width']) . 'px';
+        }
+        if ( null !== $top ) {
+            $styles[] = 'top:' . $this->number($top) . 'px';
+        }
+        if ( isset($constraints['vertical'], $parentBox['height'], $box['height']) && 'TOP_BOTTOM' === $constraints['vertical'] && null !== $top ) {
+            $styles[] = 'bottom:' . $this->number((float) $parentBox['height'] - $top - (float) $box['height']) . 'px';
+        }
+
+        return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $parentBox
+     */
+    private function relativeOffset(array $box, array $parentBox, string $dimension): ?float
+    {
+        if ( ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) ) {
+            return null;
+        }
+
+        $offset = (float) $box[$dimension];
+        if ( isset($parentBox[$dimension]) && is_numeric($parentBox[$dimension]) ) {
+            $offset -= (float) $parentBox[$dimension];
+        }
+
+        return $offset;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasAbsoluteChild(array $node): bool
+    {
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && 'absolute' === ($child['layout']['positioning'] ?? null) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     */
+    private function transformStyle(array $box): ?string
+    {
+        if ( isset($box['transform']) && is_array($box['transform']) ) {
+            $matrix = $this->cssMatrix($box['transform']);
+            if ( null !== $matrix ) {
+                return $matrix;
+            }
+        }
+
+        if ( isset($box['rotation']) && is_numeric($box['rotation']) ) {
+            return 'rotate(' . $this->number((float) $box['rotation']) . 'deg)';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<int, mixed> $transform
+     */
+    private function cssMatrix(array $transform): ?string
+    {
+        if ( 2 !== count($transform) || ! is_array($transform[0] ?? null) || ! is_array($transform[1] ?? null) ) {
+            return null;
+        }
+
+        $values = array($transform[0][0] ?? null, $transform[1][0] ?? null, $transform[0][1] ?? null, $transform[1][1] ?? null, $transform[0][2] ?? null, $transform[1][2] ?? null);
+        foreach ( $values as $value ) {
+            if ( ! is_numeric($value) ) {
+                return null;
+            }
+        }
+
+        return 'matrix(' . implode(',', array_map(fn (mixed $value): string => $this->number((float) $value), $values)) . ')';
+    }
+
+    /**
+     * @param array<string, mixed> $layout
+     * @return array<int, string>
+     */
+    private function flexItemStyles(array $layout): array
+    {
+        $styles = array();
+
+        if ( 'FILL' === ($layout['sizing_horizontal'] ?? null) || 'FILL' === ($layout['sizing_vertical'] ?? null) ) {
+            $styles[] = 'flex-grow:1';
+            $styles[] = 'flex-shrink:1';
+        } elseif ( isset($layout['grow']) && is_numeric($layout['grow']) ) {
+            $styles[] = 'flex-grow:' . $this->number((float) $layout['grow']);
+        }
+
+        if ( isset($layout['align']) && 'STRETCH' === $layout['align'] ) {
+            $styles[] = 'align-self:stretch';
+        }
+
+        $usesSourceOrder = 'absolute' === ($layout['positioning'] ?? null)
+            || 'FILL' === ($layout['sizing_horizontal'] ?? null)
+            || 'FILL' === ($layout['sizing_vertical'] ?? null)
+            || isset($layout['grow'])
+            || isset($layout['align']);
+
+        if ( $usesSourceOrder && isset($layout['source_order']) && is_numeric($layout['source_order']) ) {
+            $order = (int) $layout['source_order'];
+            $styles[] = 'order:' . $order;
+            $styles[] = 'z-index:' . $order;
         }
 
         return $styles;

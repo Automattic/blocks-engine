@@ -417,6 +417,85 @@ $assert(str_contains($assetReferenceHtml, 'data-figma-unsupported-vector="true"'
 $assert(str_contains($assetReferenceHtml, 'Unsupported Figma VECTOR'), 'unsupported-vector-placeholder-text');
 $assert(in_array('unsupported_vector_node_placeholder', $assetReferenceDiagnosticCodes, true), 'unsupported-vector-diagnostic');
 
+$layoutFidelityResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Layout Fidelity Fixture',
+    'nodes' => array(
+        array(
+            'id'                    => '5:1',
+            'type'                  => 'FRAME',
+            'name'                  => 'Layout frame',
+            'absoluteBoundingBox'   => array('x' => 100, 'y' => 50, 'width' => 500, 'height' => 300),
+            'layoutMode'            => 'HORIZONTAL',
+            'primaryAxisAlignItems' => 'MIN',
+            'counterAxisAlignItems' => 'STRETCH',
+            'clipsContent'          => true,
+            'children'              => array(
+                array(
+                    'id'                     => '5:2',
+                    'type'                   => 'RECTANGLE',
+                    'name'                   => 'Fixed card',
+                    'width'                  => 100,
+                    'height'                 => 80,
+                    'layoutSizingHorizontal' => 'FIXED',
+                    'layoutSizingVertical'   => 'FIXED',
+                    'opacity'                => 0.6,
+                    'rotation'               => 15,
+                ),
+                array(
+                    'id'                     => '5:3',
+                    'type'                   => 'TEXT',
+                    'name'                   => 'Hug label',
+                    'characters'             => 'Source text',
+                    'fontSize'               => 12,
+                    'layoutSizingHorizontal' => 'HUG',
+                    'layoutSizingVertical'   => 'HUG',
+                ),
+                array(
+                    'id'                     => '5:4',
+                    'type'                   => 'RECTANGLE',
+                    'name'                   => 'Fill panel',
+                    'width'                  => 200,
+                    'height'                 => 100,
+                    'layoutSizingHorizontal' => 'FILL',
+                    'layoutSizingVertical'   => 'FILL',
+                    'layoutGrow'             => 1,
+                    'layoutAlign'            => 'STRETCH',
+                ),
+                array(
+                    'id'                  => '5:5',
+                    'type'                => 'RECTANGLE',
+                    'name'                => 'Absolute badge',
+                    'absoluteBoundingBox' => array('x' => 120, 'y' => 70, 'width' => 50, 'height' => 20),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                    'constraints'         => array('horizontal' => 'LEFT_RIGHT', 'vertical' => 'TOP_BOTTOM'),
+                    'fill'                => array('r' => 0, 'g' => 0, 'b' => 0),
+                ),
+                array(
+                    'id'                => '5:6',
+                    'type'              => 'RECTANGLE',
+                    'name'              => 'Matrix transform',
+                    'width'             => 30,
+                    'height'            => 30,
+                    'relativeTransform' => array(
+                        array(0, -1, 40),
+                        array(1, 0, 60),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+
+$layoutFidelityCss = $fileContent($layoutFidelityResult, 'style.css');
+
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-1-layout-frame{width:500px;height:300px;overflow:hidden;position:relative;display:flex;flex-direction:row;justify-content:flex-start;align-items:stretch}'), 'layout-frame-clips-and-positions-absolute-children');
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-2-fixed-card{width:100px;height:80px;opacity:0.6;transform:rotate(15deg)}'), 'layout-fixed-sizing-and-rotation');
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-3-hug-label{width:fit-content;height:fit-content;font-size:12px}'), 'layout-hug-sizing');
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-4-fill-panel{width:100%;height:100%;flex-grow:1;flex-shrink:1;align-self:stretch;order:2;z-index:2}'), 'layout-fill-sizing-and-order');
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-5-absolute-badge{width:50px;height:20px;position:absolute;left:20px;right:430px;top:20px;bottom:260px;background:#000000;order:3;z-index:3}'), 'layout-absolute-constraints-and-z-index');
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-6-matrix-transform{width:30px;height:30px;transform:matrix(0,1,-1,0,40,60)}'), 'layout-relative-transform-matrix');
+$assert(! str_contains($layoutFidelityCss, 'font-family:Inter') && ! str_contains($layoutFidelityCss, 'body{margin:0;background') && ! str_contains($layoutFidelityCss, 'body{margin:0;color'), 'layout-css-avoids-theme-defaults');
+
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
     exit(1);

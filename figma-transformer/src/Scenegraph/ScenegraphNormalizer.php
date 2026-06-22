@@ -139,7 +139,13 @@ final class ScenegraphNormalizer
 
             foreach ( $node[$childrenKey] as $index => $child ) {
                 if ( is_array($child) ) {
-                    $node[$childrenKey][$index] = $this->normalizeNode($child, $diagnostics);
+                    $normalizedChild = $this->normalizeNode($child, $diagnostics);
+                    $childLayout = is_array($normalizedChild['layout'] ?? null) ? $normalizedChild['layout'] : array();
+                    $childLayout['source_order'] = isset($normalizedChild['_source_order']) && is_numeric($normalizedChild['_source_order'])
+                        ? (int) $normalizedChild['_source_order']
+                        : (int) $index;
+                    $normalizedChild['layout'] = $childLayout;
+                    $node[$childrenKey][$index] = $normalizedChild;
                 }
             }
         }
@@ -381,6 +387,19 @@ final class ScenegraphNormalizer
             $box['opacity'] = (float) $node['opacity'];
         }
 
+        foreach ( array('rotation' => 'rotation') as $sourceKey => $targetKey ) {
+            if ( isset($node[$sourceKey]) && is_numeric($node[$sourceKey]) ) {
+                $box[$targetKey] = (float) $node[$sourceKey];
+            }
+        }
+
+        foreach ( array('relativeTransform', 'absoluteTransform') as $sourceKey ) {
+            if ( is_array($node[$sourceKey] ?? null) ) {
+                $box['transform'] = $node[$sourceKey];
+                break;
+            }
+        }
+
         if ( isset($node['cornerRadius']) && is_numeric($node['cornerRadius']) ) {
             $box['corner_radius'] = (float) $node['cornerRadius'];
         }
@@ -539,6 +558,26 @@ final class ScenegraphNormalizer
         }
 
         foreach ( array(
+            'layoutSizingHorizontal' => 'sizing_horizontal',
+            'layoutSizingVertical' => 'sizing_vertical',
+            'horizontalSizing' => 'sizing_horizontal',
+            'verticalSizing' => 'sizing_vertical',
+        ) as $source => $target ) {
+            if ( isset($node[$source]) && is_scalar($node[$source]) ) {
+                $layout[$target] = strtoupper((string) $node[$source]);
+            }
+        }
+
+        foreach ( array(
+            'primaryAxisSizingMode' => 'primary_axis_sizing',
+            'counterAxisSizingMode' => 'counter_axis_sizing',
+        ) as $source => $target ) {
+            if ( isset($node[$source]) && is_scalar($node[$source]) ) {
+                $layout[$target] = strtoupper((string) $node[$source]);
+            }
+        }
+
+        foreach ( array(
             'primaryAxisAlignItems' => 'primary_axis_alignment',
             'counterAxisAlignItems' => 'counter_axis_alignment',
         ) as $source => $target ) {
@@ -590,6 +629,30 @@ final class ScenegraphNormalizer
             $layout['positioning'] = 'absolute';
         }
 
+        if ( isset($node['layoutGrow']) && is_numeric($node['layoutGrow']) ) {
+            $layout['grow'] = (float) $node['layoutGrow'];
+        }
+
+        if ( isset($node['layoutAlign']) && is_scalar($node['layoutAlign']) ) {
+            $layout['align'] = strtoupper((string) $node['layoutAlign']);
+        }
+
+        if ( true === ($node['clipsContent'] ?? false) ) {
+            $layout['clips_content'] = true;
+        }
+
+        if ( is_array($node['constraints'] ?? null) ) {
+            $constraints = array();
+            foreach ( array('horizontal', 'vertical') as $axis ) {
+                if ( isset($node['constraints'][$axis]) && is_scalar($node['constraints'][$axis]) ) {
+                    $constraints[$axis] = strtoupper((string) $node['constraints'][$axis]);
+                }
+            }
+            if ( ! empty($constraints) ) {
+                $layout['constraints'] = $constraints;
+            }
+        }
+
         return $layout;
     }
 
@@ -601,6 +664,7 @@ final class ScenegraphNormalizer
             'MAX' => 'flex-end',
             'SPACE_BETWEEN' => 'space-between',
             'BASELINE' => 'baseline',
+            'STRETCH' => 'stretch',
             default => null,
         };
     }

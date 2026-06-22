@@ -21,7 +21,7 @@ final class ScenegraphIndex
 
         foreach ( $roots as $key => $root ) {
             if ( is_array($root) ) {
-                $this->collectNode($root, is_string($key) ? $key : null, null, $rawNodes, $diagnostics);
+                $this->collectNode($root, is_string($key) ? $key : null, null, is_int($key) ? $key : null, $rawNodes, $diagnostics);
             }
         }
 
@@ -129,7 +129,7 @@ final class ScenegraphIndex
      * @param array<string, array{node: array<string, mixed>, parent: ?string}> $rawNodes
      * @param array<int, array<string, mixed>> $diagnostics
      */
-    private function collectNode(array $value, ?string $fallbackId, ?string $parentId, array &$rawNodes, array &$diagnostics): void
+    private function collectNode(array $value, ?string $fallbackId, ?string $parentId, ?int $sourceOrder, array &$rawNodes, array &$diagnostics): void
     {
         $node = $this->unwrapNodeChange($value);
         if ( null === $node ) {
@@ -158,6 +158,10 @@ final class ScenegraphIndex
         }
 
         unset($node['children']);
+        if ( null !== $sourceOrder ) {
+            $node['_source_order'] = $sourceOrder;
+        }
+
         if ( isset($rawNodes[$id]) ) {
             $diagnostics[] = array(
                 'code'    => 'scenegraph_node_id_duplicate',
@@ -178,7 +182,7 @@ final class ScenegraphIndex
 
         foreach ( $children as $key => $child ) {
             if ( is_array($child) ) {
-                $this->collectNode($child, is_string($key) ? $key : null, $id, $rawNodes, $diagnostics);
+                $this->collectNode($child, is_string($key) ? $key : null, $id, is_int($key) ? $key : null, $rawNodes, $diagnostics);
             }
         }
     }
