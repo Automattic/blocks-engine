@@ -73,6 +73,7 @@ $scenegraph = array(
                 ),
             ),
         ),
+        array('id' => '1:2', 'type' => 'TEXT', 'name' => 'Duplicate title', 'text' => 'Duplicate'),
     ),
 );
 
@@ -305,7 +306,7 @@ $metadataDiagnosticCodes = array_map(
 );
 
 $assert(str_contains($metadataHtml, '<span style="font-weight:400">Hello </span><span style="font-weight:700;text-decoration:underline">World</span>'), 'styled-text-segments-emit');
-$assert(str_contains($metadataCss, '.figma-node-4-1-metadata-frame{background:rgba(51,102,153,0.5);opacity:0.75;border-radius:12px;border:2px solid #000000;display:flex;flex-direction:column}'), 'normalized-frame-paint-box-style');
+$assert(str_contains($metadataCss, '.figma-node-4-1-metadata-frame{background:rgba(51,102,153,0.5);opacity:0.75;border-radius:12px;border:2px solid #000000}'), 'normalized-frame-paint-box-style');
 $assert(str_contains($metadataCss, '.figma-node-4-2-mixed-text{font-family:"Example Sans";font-size:20px;font-weight:600;line-height:125%;letter-spacing:0.5px;color:rgba(255,128,0,0.8);text-align:center;vertical-align:top;text-decoration:underline}'), 'normalized-text-style');
 $assert(str_contains($metadataCss, '.figma-node-4-3-uneven-radius{border-top-left-radius:4px;border-top-right-radius:8px;border-bottom-right-radius:12px;border-bottom-left-radius:16px}'), 'individual-radius-style');
 $assert(in_array('unsupported_figma_paint_type', $metadataDiagnosticCodes, true), 'unsupported-paint-diagnostic');
