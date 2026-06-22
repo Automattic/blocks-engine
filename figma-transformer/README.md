@@ -74,6 +74,35 @@ Next decoder milestones:
 - Map decoded Kiwi messages into the normalized IR already accepted by `transformScenegraph()`.
 - Expand layout, paint, text, component, and asset coverage against external real-file evidence.
 
+### Zstandard Support
+
+Zstandard decoding is optional and capability-driven so WordPress installs without zstd still produce deterministic diagnostics instead of hard failures.
+
+Supported decoder paths:
+
+- `ext-zstd` with `zstd_uncompress()` available.
+- An explicit `Compression\ZstdCapability` adapter callable for hosts that provide a PHP-compatible zstd decoder through another package or service boundary.
+- A WordPress filter adapter registered on `blocks_engine_figma_transformer_zstd_decoder`.
+
+Adapter callables receive the compressed payload and context array, and return decoded bytes or an array with `data` and optional `diagnostics`:
+
+```php
+$zstd = new Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCapability(
+    static function (string $payload, array $context): string|false {
+        return my_zstd_decode($payload);
+    }
+);
+```
+
+```php
+add_filter(
+    'blocks_engine_figma_transformer_zstd_decoder',
+    static fn () => static fn (string $payload, array $context): string|false => my_zstd_decode($payload)
+);
+```
+
+No pure-PHP Zstandard decoder is bundled today. The practical blocker is a small, maintained, WordPress-compatible decoder that can handle production Figma zstd frames without a native extension or shell binary. Until that exists, unsupported runtimes report `figma_transformer_zstd_extension_missing` or adapter failure diagnostics and continue parsing the rest of the archive metadata.
+
 ## Output Contract
 
 Successful transforms produce a static website artifact:

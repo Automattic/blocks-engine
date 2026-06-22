@@ -229,7 +229,9 @@ $assert(is_bool($zstdStatus['available'] ?? null), 'zstd-status-available-bool')
 $assert(is_bool($zstdStatus['extension_loaded'] ?? null), 'zstd-status-extension-loaded-bool');
 $assert(is_array($zstdStatus['functions'] ?? null), 'zstd-status-functions-array');
 $assert(array_key_exists('zstd_uncompress', $zstdStatus['functions'] ?? array()), 'zstd-status-uncompress-function');
-$assert(($zstdStatus['available'] ?? null) === (($zstdStatus['extension_loaded'] ?? null) && ($zstdStatus['functions']['zstd_uncompress'] ?? null)), 'zstd-status-available-matches-runtime');
+$assert(array_key_exists('adapter_registered', $zstdStatus), 'zstd-status-adapter-registered-key');
+$assert(array_key_exists('wordpress_filter_registered', $zstdStatus), 'zstd-status-wordpress-filter-registered-key');
+$assert(($zstdStatus['available'] ?? null) === (null !== ($zstdStatus['provider'] ?? null)), 'zstd-status-available-matches-provider');
 $assert(($zstdStatus['available'] ?? null) === ($zstdDiagnostic['context']['available'] ?? null), 'fig-kiwi-zstd-diagnostic-availability-context');
 if ( true === ($zstdStatus['available'] ?? false) && function_exists('zstd_compress') ) {
     $zstdCompressed = zstd_compress('contract zstd round trip');
@@ -241,6 +243,28 @@ if ( true === ($zstdStatus['available'] ?? false) && function_exists('zstd_compr
     $assert(null === ($zstdUnavailable['data'] ?? null), 'zstd-unavailable-returns-null');
     $assert(in_array((string) ($zstdUnavailable['diagnostics'][0]['code'] ?? ''), array('figma_transformer_zstd_extension_missing', 'figma_transformer_zstd_function_missing'), true), 'zstd-unavailable-diagnostic-code');
 }
+
+$adapterCapability = new ZstdCapability(static function (string $payload): string|false {
+    if ( "\x28\xb5\x2f\xfd" !== substr($payload, 0, 4) ) {
+        return false;
+    }
+
+    return json_encode(array('NODE_CHANGES' => array()), JSON_THROW_ON_ERROR);
+});
+$adapterStatus = $adapterCapability->status();
+$adapterResult = $adapterCapability->uncompress("\x28\xb5\x2f\xfd" . 'adapter-frame', 'ContractTest', 2);
+$adapterCanvasResult = ( new FigKiwiParser($adapterCapability) )->parse(
+    'fig-kiwi'
+    . pack('V', 106)
+    . blocks_engine_figma_transformer_kiwi_chunk("\x28\xb5\x2f\xfd" . 'adapter-frame')
+);
+$failingAdapterResult = ( new ZstdCapability(static fn (): false => false) )->uncompress("\x28\xb5\x2f\xfd" . 'adapter-frame', 'ContractTest', 3);
+
+$assert(true === ($adapterStatus['available'] ?? null), 'zstd-adapter-status-available');
+$assert('adapter' === ($adapterStatus['provider'] ?? null) || 'ext-zstd' === ($adapterStatus['provider'] ?? null), 'zstd-adapter-status-provider');
+$assert('{"NODE_CHANGES":[]}' === ($adapterResult['data'] ?? null), 'zstd-adapter-decodes-payload');
+$assert('json' === ($adapterCanvasResult['canvas']['chunks'][0]['payload']['classification'] ?? null), 'fig-kiwi-zstd-adapter-classifies-json');
+$assert('figma_transformer_zstd_adapter_failed' === ($failingAdapterResult['diagnostics'][0]['code'] ?? null), 'zstd-adapter-failure-diagnostic');
 $assert(! empty($fileResult['files']), 'file-transform-renders-decoded-scenegraph');
 $assert(4 === ($fileResult['metrics']['node_count'] ?? null), 'file-transform-node-count');
 $assert(isset($fileResult['source_reports']['figma']['html']), 'file-transform-html-source-report');
