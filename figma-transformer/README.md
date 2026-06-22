@@ -76,13 +76,14 @@ Next decoder milestones:
 
 ### Zstandard Support
 
-Zstandard decoding is optional and capability-driven so WordPress installs without zstd still produce deterministic diagnostics instead of hard failures.
+Zstandard decoding is required for direct imports of modern `.fig` files because Figma stores the main Kiwi message chunk as zstd-compressed data. The Composer package requires `ext-zstd` for normal installs.
 
 Supported decoder paths:
 
 - `ext-zstd` with `zstd_uncompress()` available.
-- An explicit `Compression\ZstdCapability` adapter callable for hosts that provide a PHP-compatible zstd decoder through another package or service boundary.
-- A WordPress filter adapter registered on `blocks_engine_figma_transformer_zstd_decoder`.
+- An explicit `Compression\ZstdCapability` adapter callable for operator/local verification when the host provides a trusted decoder through another boundary.
+- A WordPress filter adapter registered on `blocks_engine_figma_transformer_zstd_decoder` for environments that intentionally provide decoding outside the extension.
+- The CLI-only `--zstd-command=/path/to/zstd` option for local operator checks. This is not used implicitly by the library or plugin runtime.
 
 Adapter callables receive the compressed payload and context array, and return decoded bytes or an array with `data` and optional `diagnostics`:
 
@@ -101,7 +102,7 @@ add_filter(
 );
 ```
 
-No pure-PHP Zstandard decoder is bundled today. The practical blocker is a small, maintained, WordPress-compatible decoder that can handle production Figma zstd frames without a native extension or shell binary. Until that exists, unsupported runtimes report `figma_transformer_zstd_extension_missing` or adapter failure diagnostics and continue parsing the rest of the archive metadata.
+No pure-PHP Zstandard decoder is bundled today. Unsupported runtimes report `figma_transformer_zstd_extension_missing` or adapter failure diagnostics and continue parsing the rest of the archive metadata.
 
 ## Output Contract
 

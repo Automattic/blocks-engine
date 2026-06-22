@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../figma-transformer.php';
 require_once __DIR__ . '/SyntheticFigKiwiFixtureBuilder.php';
 
 use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCapability;
+use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCommandDecoder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiDecoder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiParser;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
@@ -261,12 +262,15 @@ $adapterCanvasResult = ( new FigKiwiParser($adapterCapability) )->parse(
     . blocks_engine_figma_transformer_kiwi_chunk("\x28\xb5\x2f\xfd" . 'adapter-frame')
 );
 $failingAdapterResult = ( new ZstdCapability(static fn (): false => false) )->uncompress("\x28\xb5\x2f\xfd" . 'adapter-frame', 'ContractTest', 3);
+$commandAdapterResult = ( new ZstdCapability(new ZstdCommandDecoder(array(PHP_BINARY, '-r', '$payload = stream_get_contents(STDIN); fwrite(STDOUT, $payload);'))) )->uncompress('command adapter bytes', 'ContractTest', 4);
 
 $assert(true === ($adapterStatus['available'] ?? null), 'zstd-adapter-status-available');
 $assert('adapter' === ($adapterStatus['provider'] ?? null) || 'ext-zstd' === ($adapterStatus['provider'] ?? null), 'zstd-adapter-status-provider');
 $assert('{"NODE_CHANGES":[]}' === ($adapterResult['data'] ?? null), 'zstd-adapter-decodes-payload');
 $assert('json' === ($adapterCanvasResult['canvas']['chunks'][0]['payload']['classification'] ?? null), 'fig-kiwi-zstd-adapter-classifies-json');
 $assert('figma_transformer_zstd_adapter_failed' === ($failingAdapterResult['diagnostics'][0]['code'] ?? null), 'zstd-adapter-failure-diagnostic');
+$assert('command adapter bytes' === ($commandAdapterResult['data'] ?? null), 'zstd-command-adapter-decodes-payload');
+$assert('figma_transformer_zstd_command_used' === ($commandAdapterResult['diagnostics'][1]['code'] ?? null), 'zstd-command-adapter-diagnostic');
 $assert(! empty($fileResult['files']), 'file-transform-renders-decoded-scenegraph');
 $assert(4 === ($fileResult['metrics']['node_count'] ?? null), 'file-transform-node-count');
 $assert(2 === ($fileResult['metrics']['decoded_payload_candidate_count'] ?? null), 'file-transform-decoded-candidate-count');

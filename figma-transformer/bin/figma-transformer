@@ -11,12 +11,13 @@ if ( is_readable($autoload) ) {
 }
 
 $path = $argv[1] ?? '';
-if ( '' === $path ) {
-    fwrite(STDERR, "Usage: figma-transformer <path-to-fig-or-scenegraph-json> [--frame-id=<id>] [--parity-status=<status>] [--parity-source-screenshot-url=<url>] [--parity-source-screenshot-path=<path>] [--parity-generated-screenshot-artifact=<artifact>] [--parity-diff-image-artifact=<artifact>] [--parity-pixel-mismatch-count=<count>] [--parity-pixel-mismatch-ratio=<ratio>] [--parity-threshold=<ratio>] [--parity-viewport=<width>x<height>]\n");
+if ( '' === $path || '--help' === $path || '-h' === $path ) {
+    fwrite(STDERR, "Usage: figma-transformer <path-to-fig-or-scenegraph-json> [--zstd-command=<path>] [--frame-id=<id>] [--parity-status=<status>] [--parity-source-screenshot-url=<url>] [--parity-source-screenshot-path=<path>] [--parity-generated-screenshot-artifact=<artifact>] [--parity-diff-image-artifact=<artifact>] [--parity-pixel-mismatch-count=<count>] [--parity-pixel-mismatch-ratio=<ratio>] [--parity-threshold=<ratio>] [--parity-viewport=<width>x<height>]\n");
     exit(1);
 }
 
 $options = array();
+$zstdCommand = getenv('FIGMA_TRANSFORMER_ZSTD_COMMAND') ?: null;
 foreach ( array_slice($argv, 2) as $argument ) {
     if ( ! str_starts_with($argument, '--') ) {
         continue;
@@ -25,6 +26,11 @@ foreach ( array_slice($argv, 2) as $argument ) {
     $parts = explode('=', substr($argument, 2), 2);
     $name = $parts[0];
     $value = $parts[1] ?? '1';
+
+    if ( 'zstd-command' === $name ) {
+        $zstdCommand = $value;
+        continue;
+    }
 
     if ( 'frame-id' === $name ) {
         $options['frame_id'] = $value;
@@ -64,7 +70,7 @@ foreach ( array_slice($argv, 2) as $argument ) {
     }
 }
 
-$transformer = new Automattic\BlocksEngine\FigmaTransformer\FigmaTransformer();
+$transformer = blocks_engine_figma_transformer_cli_transformer(is_string($zstdCommand) && '' !== $zstdCommand ? $zstdCommand : null);
 if ( str_ends_with(strtolower($path), '.json') ) {
     $decoded = json_decode((string) file_get_contents($path), true);
     $result = $transformer->transformScenegraph(is_array($decoded) ? $decoded : array(), $options)->toArray();
@@ -72,7 +78,7 @@ if ( str_ends_with(strtolower($path), '.json') ) {
     $result = $transformer->transformFile($path, $options)->toArray();
 }
 
-fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+fwrite(STDOUT, blocks_engine_figma_transformer_cli_json_encode($result) . "\n");
 
 /**
  * @return array<string, int|string>
@@ -87,4 +93,49 @@ function blocks_engine_figma_transformer_parse_viewport(string $value): array
     }
 
     return array('label' => $value);
+}
+
+function blocks_engine_figma_transformer_cli_transformer(?string $zstdCommand): Automattic\BlocksEngine\FigmaTransformer\FigmaTransformer
+{
+    if ( null === $zstdCommand ) {
+        return new Automattic\BlocksEngine\FigmaTransformer\FigmaTransformer();
+    }
+
+    $command = array($zstdCommand, '-dc');
+    $zstd = new Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCapability(
+        new Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCommandDecoder($command)
+    );
+
+    return new Automattic\BlocksEngine\FigmaTransformer\FigmaTransformer(
+        new Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader(
+            new Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiParser($zstd)
+        )
+    );
+}
+
+/**
+ * @param array<string, mixed> $result
+ */
+function blocks_engine_figma_transformer_cli_json_encode(array $result): string
+{
+    $encoded = json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+    if ( is_string($encoded) ) {
+        return $encoded;
+    }
+
+    return json_encode(
+        array(
+            'schema'      => 'blocks-engine/figma-transformer/result/v1',
+            'status'      => 'error',
+            'diagnostics' => array(
+                array(
+                    'code'    => 'figma_transformer_cli_json_encode_failed',
+                    'message' => 'Transform result could not be encoded as JSON.',
+                    'source'  => 'figma-transformer-cli',
+                    'context' => array('json_error' => json_last_error_msg()),
+                ),
+            ),
+        ),
+        JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
+    ) ?: '{"status":"error"}';
 }
