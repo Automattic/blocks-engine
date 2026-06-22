@@ -141,9 +141,22 @@ final class ScenegraphIndex
         }
 
         unset($node['children']);
+        if ( isset($rawNodes[$id]) ) {
+            $diagnostics[] = array(
+                'code'    => 'scenegraph_node_id_duplicate',
+                'message' => 'Encountered a duplicate node id; kept the richer source node.',
+                'node_id' => $id,
+            );
+
+            if ( $this->nodeRichness($node, $children) <= $this->nodeRichness($rawNodes[$id]['node'], $rawNodes[$id]['children'] ?? array()) ) {
+                return;
+            }
+        }
+
         $rawNodes[$id] = array(
-            'node'   => $node,
-            'parent' => $effectiveParent,
+            'node'     => $node,
+            'parent'   => $effectiveParent,
+            'children' => $children,
         );
 
         foreach ( $children as $key => $child ) {
@@ -185,6 +198,15 @@ final class ScenegraphIndex
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, mixed> $children
+     */
+    private function nodeRichness(array $node, array $children): int
+    {
+        return count($node, COUNT_RECURSIVE) + count($children, COUNT_RECURSIVE);
     }
 
     /**

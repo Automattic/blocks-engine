@@ -34,6 +34,14 @@ $scenegraph = array(
             'width'           => 1200,
             'height'          => 600,
             'backgroundColor' => '#ffffff',
+            'layoutMode'      => 'VERTICAL',
+            'primaryAxisAlignItems' => 'CENTER',
+            'counterAxisAlignItems' => 'MIN',
+            'paddingTop'      => 40,
+            'paddingRight'    => 32,
+            'paddingBottom'   => 40,
+            'paddingLeft'     => 32,
+            'itemSpacing'     => 24,
             'children'        => array(
                 array(
                     'id'         => '1:2',
@@ -53,8 +61,10 @@ $scenegraph = array(
                             'id'       => '1:4',
                             'type'     => 'RECTANGLE',
                             'name'     => 'Hero image rectangle',
-                            'width'    => 320,
-                            'height'   => 180,
+                            'absoluteRenderBounds' => array('width' => 320, 'height' => 180),
+                            'x'        => 10,
+                            'y'        => 20,
+                            'layoutPositioning' => 'ABSOLUTE',
                             'fill'     => array('r' => 1, 'g' => 0, 'b' => 0),
                             'asset_id' => 'hero-image',
                         ),
@@ -80,6 +90,10 @@ $fileContent = static function (array $result, string $path): string {
 
 $html = $fileContent($result, 'index.html');
 $css = $fileContent($result, 'style.css');
+$diagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $result['diagnostics'] ?? array()
+);
 
 $assert('blocks-engine/figma-transformer/result/v1' === ($result['schema'] ?? null), 'result-schema');
 $assert('success' === ($result['status'] ?? null), 'scenegraph-transform-success');
@@ -91,10 +105,13 @@ $assert(str_contains($html, '<h2 class="figma-node-1-2-hero-title"'), 'title-emi
 $assert(str_contains($html, '<div class="figma-node-1-3-cards-group"'), 'group-emits-div');
 $assert(! str_contains($html, '<FRAME') && ! str_contains($html, '<GROUP') && ! str_contains($html, '<TEXT') && ! str_contains($html, '<RECTANGLE'), 'html-avoids-custom-tags');
 $assert(! str_contains($html, 'cdn.example.com') && ! str_contains($css, 'cdn.example.com'), 'html-css-avoid-external-cdn');
-$assert(str_contains($css, '.figma-node-1-1-hero-section{width:1200px;height:600px;background:#ffffff;display:flex;flex-direction:column}'), 'css-frame-style');
+$assert(str_contains($css, '.figma-node-1-1-hero-section{width:1200px;height:600px;background:#ffffff;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding-top:40px;padding-right:32px;padding-bottom:40px;padding-left:32px;gap:24px}'), 'css-frame-layout-style');
 $assert(str_contains($css, '.figma-node-1-2-hero-title{font-size:48px;font-weight:700;color:#1a334d}'), 'css-text-style');
+$assert(str_contains($css, '.figma-node-1-4-hero-image-rectangle{width:320px;height:180px;position:absolute;left:10px;top:20px;background:#ff0000;background-image:url("assets/hero-image.svg")'), 'css-rectangle-asset-style');
+$assert(! str_contains($css, 'font-family:Inter') && ! str_contains($css, 'body{margin:0;background') && ! str_contains($css, 'body{margin:0;color'), 'css-avoids-hardcoded-theme-style');
 $assert('assets/hero-image.svg' === ($result['assets'][0]['path'] ?? null), 'asset-report-path');
-$assert('external_asset_omitted' === ($result['diagnostics'][0]['code'] ?? null), 'external-asset-diagnostic');
+$assert(in_array('external_asset_omitted', $diagnosticCodes, true), 'external-asset-diagnostic');
+$assert(in_array('scenegraph_node_id_duplicate', $diagnosticCodes, true), 'duplicate-node-diagnostic');
 $assert(($result['files'] ?? array()) === ($sameResult['files'] ?? array()), 'deterministic-files');
 $assert('blocks-engine/figma-transformer/parity-report/v1' === ($result['parity']['schema'] ?? null), 'parity-schema');
 

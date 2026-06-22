@@ -30,10 +30,8 @@ final class StaticHtmlEmitter
         $cssRules = array(
             'html{box-sizing:border-box}',
             '*,*::before,*::after{box-sizing:inherit}',
-            'body{margin:0;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#fff;color:#111}',
+            'body{margin:0}',
             'img{display:block;max-width:100%;height:auto}',
-            '[data-figma-node-id]{position:relative}',
-            '.figma-root{display:flex;flex-direction:column;min-height:100vh}',
         );
 
         foreach ( $nodes as $node ) {
@@ -157,9 +155,20 @@ final class StaticHtmlEmitter
     {
         $styles = array();
 
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         foreach ( array('width', 'height') as $dimension ) {
-            if ( isset($node[$dimension]) && is_numeric($node[$dimension]) ) {
-                $styles[] = $dimension . ':' . $this->number((float) $node[$dimension]) . 'px';
+            if ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
+                $styles[] = $dimension . ':' . $this->number((float) $box[$dimension]) . 'px';
+            }
+        }
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( 'absolute' === ($layout['positioning'] ?? null) ) {
+            $styles[] = 'position:absolute';
+            foreach ( array('x' => 'left', 'y' => 'top') as $dimension => $property ) {
+                if ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
+                    $styles[] = $property . ':' . $this->number((float) $box[$dimension]) . 'px';
+                }
             }
         }
 
@@ -189,9 +198,28 @@ final class StaticHtmlEmitter
             }
         }
 
-        if ( 'FRAME' === $type || 'GROUP' === $type ) {
-            $styles[] = 'display:flex';
-            $styles[] = 'flex-direction:column';
+        foreach ( array(
+            'display'         => 'display',
+            'flex_direction'  => 'flex-direction',
+            'justify_content' => 'justify-content',
+            'align_items'     => 'align-items',
+            'flex_wrap'       => 'flex-wrap',
+        ) as $source => $property ) {
+            if ( isset($layout[$source]) && is_scalar($layout[$source]) && '' !== (string) $layout[$source] ) {
+                $styles[] = $property . ':' . (string) $layout[$source];
+            }
+        }
+
+        if ( isset($layout['padding']) && is_array($layout['padding']) ) {
+            foreach ( array('top', 'right', 'bottom', 'left') as $edge ) {
+                if ( isset($layout['padding'][$edge]) && is_numeric($layout['padding'][$edge]) ) {
+                    $styles[] = 'padding-' . $edge . ':' . $this->number((float) $layout['padding'][$edge]) . 'px';
+                }
+            }
+        }
+
+        if ( isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ) {
+            $styles[] = 'gap:' . $this->number((float) $layout['item_spacing']) . 'px';
         }
 
         return $styles;
