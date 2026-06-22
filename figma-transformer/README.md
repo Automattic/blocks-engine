@@ -155,3 +155,33 @@ Homeboy/external runner workflow:
 ## Fixture Strategy
 
 Contract tests use small synthetic fixtures that exercise the public envelope, archive safety, deterministic HTML/CSS output, and parity report shape. Large real `.fig` exports are not committed to the repository. When real-file parity evidence is needed, generate it externally through Homeboy or another reviewable artifact surface and attach the resulting reports/screenshots to the relevant issue or PR.
+
+### Local Real-File Checks
+
+Use real `.fig` files only as operator-owned, non-committed inputs. Good manual sources are designs you own, Figma Community files or templates that allow duplication/export, and files accessible through the Figma REST API.
+
+Recommended local layout:
+
+```text
+~/Downloads/figma-transformer-fixtures/
+  source.fig
+  source-api.json
+  evidence/
+```
+
+Example CLI checks:
+
+```sh
+mkdir -p "$HOME/Downloads/figma-transformer-fixtures/evidence"
+php figma-transformer/bin/figma-transformer "$HOME/Downloads/figma-transformer-fixtures/source.fig" > "$HOME/Downloads/figma-transformer-fixtures/evidence/source-result.json"
+php figma-transformer/bin/figma-transformer "$HOME/Downloads/figma-transformer-fixtures/source-api.json" > "$HOME/Downloads/figma-transformer-fixtures/evidence/source-api-result.json"
+```
+
+Evidence to keep with the issue or PR:
+
+- The original Figma URL and file key, not the `.fig` file.
+- Whether the input came from **File > Save local copy**, a Community duplicate, or `GET /v1/files/:key`.
+- The result envelope JSON, diagnostics, generated artifact manifest, and parity screenshots/diffs when a parity runner was used.
+- Runtime details that affect diagnostics, especially PHP version, `ZipArchive`, and Zstandard support.
+
+Do not copy real `.fig` exports, downloaded image fills, rendered screenshots, or proprietary customer designs into repository fixtures. If a real file exposes a decoder gap, reduce it to a synthetic fixture or attach non-sensitive evidence through the relevant issue/PR artifact workflow.
