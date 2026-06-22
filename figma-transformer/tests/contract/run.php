@@ -194,6 +194,81 @@ $assert('3:1' === ($scenegraphReport['selected_frame_id'] ?? null), 'node-change
 $assert(false !== strpos($nodeChangesHtml, 'First') && false !== strpos($nodeChangesHtml, 'Second'), 'node-changes-html-text');
 $assert(strpos($nodeChangesHtml, 'First') < strpos($nodeChangesHtml, 'Second'), 'node-changes-stable-child-sort');
 
+$metadataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Text And Paint Metadata',
+    'nodes' => array(
+        array(
+            'id'           => '4:1',
+            'type'         => 'FRAME',
+            'name'         => 'Metadata frame',
+            'opacity'      => 0.75,
+            'cornerRadius' => 12,
+            'fills'        => array(
+                array('type' => 'SOLID', 'color' => array('r' => 0.2, 'g' => 0.4, 'b' => 0.6), 'opacity' => 0.5),
+                array('type' => 'GRADIENT_LINEAR'),
+            ),
+            'strokes'      => array(
+                array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0)),
+            ),
+            'strokeWeight' => 2,
+            'effects'      => array(
+                array('type' => 'DROP_SHADOW'),
+            ),
+            'children'     => array(
+                array(
+                    'id'                 => '4:2',
+                    'type'               => 'TEXT',
+                    'name'               => 'Mixed text',
+                    'characters'         => 'Hello World',
+                    'style'              => array(
+                        'fontFamily'         => 'Example Sans',
+                        'fontSize'           => 20,
+                        'fontWeight'         => 600,
+                        'lineHeightPercent'  => 125,
+                        'letterSpacing'      => 0.5,
+                        'textAlignHorizontal'=> 'CENTER',
+                        'textAlignVertical'  => 'TOP',
+                        'textDecoration'     => 'UNDERLINE',
+                    ),
+                    'fills'              => array(
+                        array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0.5, 'b' => 0), 'opacity' => 0.8),
+                    ),
+                    'styledTextSegments' => array(
+                        array('characters' => 'Hello ', 'style' => array('fontWeight' => 400)),
+                        array('characters' => 'World', 'style' => array('fontWeight' => 700, 'textDecoration' => 'UNDERLINE')),
+                    ),
+                ),
+                array(
+                    'id'                => '4:3',
+                    'type'              => 'RECTANGLE',
+                    'name'              => 'Uneven radius',
+                    'topLeftRadius'     => 4,
+                    'topRightRadius'    => 8,
+                    'bottomRightRadius' => 12,
+                    'bottomLeftRadius'  => 16,
+                    'fills'             => array(
+                        array('type' => 'GRADIENT_RADIAL'),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+
+$metadataHtml = $fileContent($metadataResult, 'index.html');
+$metadataCss = $fileContent($metadataResult, 'style.css');
+$metadataDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $metadataResult['diagnostics'] ?? array()
+);
+
+$assert(str_contains($metadataHtml, '<span style="font-weight:400">Hello </span><span style="font-weight:700;text-decoration:underline">World</span>'), 'styled-text-segments-emit');
+$assert(str_contains($metadataCss, '.figma-node-4-1-metadata-frame{background:rgba(51,102,153,0.5);opacity:0.75;border-radius:12px;border:2px solid #000000;display:flex;flex-direction:column}'), 'normalized-frame-paint-box-style');
+$assert(str_contains($metadataCss, '.figma-node-4-2-mixed-text{font-family:"Example Sans";font-size:20px;font-weight:600;line-height:125%;letter-spacing:0.5px;color:rgba(255,128,0,0.8);text-align:center;vertical-align:top;text-decoration:underline}'), 'normalized-text-style');
+$assert(str_contains($metadataCss, '.figma-node-4-3-uneven-radius{border-top-left-radius:4px;border-top-right-radius:8px;border-bottom-right-radius:12px;border-bottom-left-radius:16px}'), 'individual-radius-style');
+$assert(in_array('unsupported_figma_paint_type', $metadataDiagnosticCodes, true), 'unsupported-paint-diagnostic');
+$assert(in_array('unsupported_figma_effect_type', $metadataDiagnosticCodes, true), 'unsupported-effect-diagnostic');
+
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
     exit(1);

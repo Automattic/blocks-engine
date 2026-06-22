@@ -86,7 +86,7 @@ final class StaticHtmlEmitter
         $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
         $name = (string) ($node['name'] ?? '');
         $attributeName = $this->sanitizeAttribute($name);
-        $text = $this->sanitizeText((string) ($node['characters'] ?? $node['text'] ?? ''));
+        $text = $this->textContent($node);
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
         $tag = $this->tagName($type, $name, $depth);
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
@@ -172,9 +172,24 @@ final class StaticHtmlEmitter
             }
         }
 
-        $background = $this->backgroundColor($node);
-        if ( null !== $background ) {
-            $styles[] = 'background:' . $background;
+        if ( 'TEXT' !== $type ) {
+            $background = $this->backgroundColor($node);
+            if ( null !== $background ) {
+                $styles[] = 'background:' . $background;
+            }
+        }
+
+        $box = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array();
+        if ( isset($box['opacity']) && is_numeric($box['opacity']) ) {
+            $styles[] = 'opacity:' . $this->number((float) $box['opacity']);
+        }
+
+        foreach ( $this->radiusStyles($box) as $style ) {
+            $styles[] = $style;
+        }
+
+        foreach ( $this->strokeStyles($node) as $style ) {
+            $styles[] = $style;
         }
 
         $assetPath = $this->nodeAssetPath($node);
@@ -185,16 +200,8 @@ final class StaticHtmlEmitter
         }
 
         if ( 'TEXT' === $type ) {
-            foreach ( array('fontSize' => 'font-size', 'fontWeight' => 'font-weight', 'lineHeight' => 'line-height') as $source => $property ) {
-                if ( isset($node[$source]) && is_numeric($node[$source]) ) {
-                    $unit = 'font-weight' === $property ? '' : 'px';
-                    $styles[] = $property . ':' . $this->number((float) $node[$source]) . $unit;
-                }
-            }
-
-            $color = $this->color($node['color'] ?? $node['textColor'] ?? null);
-            if ( null !== $color ) {
-                $styles[] = 'color:' . $color;
+            foreach ( $this->textStyles($node) as $style ) {
+                $styles[] = $style;
             }
         }
 
@@ -223,6 +230,182 @@ final class StaticHtmlEmitter
         }
 
         return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function textContent(array $node): string
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $segments = is_array($text['segments'] ?? null) ? $text['segments'] : array();
+        if ( ! empty($segments) ) {
+            $content = '';
+            foreach ( $segments as $segment ) {
+                if ( ! is_array($segment) ) {
+                    continue;
+                }
+
+                $segmentText = (string) ($segment['characters'] ?? '');
+                if ( '' === $segmentText ) {
+                    continue;
+                }
+
+                $segmentStyles = is_array($segment['style'] ?? null) ? $this->textStyleDeclarations($segment['style']) : array();
+                if ( empty($segmentStyles) ) {
+                    $content .= $this->sanitizeText($segmentText);
+                    continue;
+                }
+
+                $content .= '<span style="' . $this->sanitizeAttribute(implode(';', $segmentStyles)) . '">' . $this->sanitizeText($segmentText) . '</span>';
+            }
+
+            if ( '' !== $content ) {
+                return $content;
+            }
+        }
+
+        if ( isset($text['characters']) && is_scalar($text['characters']) ) {
+            return $this->sanitizeText((string) $text['characters']);
+        }
+
+        return $this->sanitizeText((string) ($node['characters'] ?? $node['text'] ?? ''));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function textStyles(array $node): array
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        if ( ! isset($style['color']) ) {
+            $paints = is_array($node['figma_paints']['fills'] ?? null) ? $node['figma_paints']['fills'] : array();
+            $color = $this->firstSolidPaint($paints);
+            if ( null !== $color ) {
+                $style['css_color'] = $color;
+            }
+        }
+
+        return $this->textStyleDeclarations($style);
+    }
+
+    /**
+     * @param array<string, mixed> $style
+     * @return array<int, string>
+     */
+    private function textStyleDeclarations(array $style): array
+    {
+        $styles = array();
+
+        if ( isset($style['font_family']) && is_scalar($style['font_family']) ) {
+            $styles[] = 'font-family:' . $this->cssString((string) $style['font_family']);
+        }
+
+        if ( isset($style['font_size']) && is_numeric($style['font_size']) ) {
+            $styles[] = 'font-size:' . $this->number((float) $style['font_size']) . 'px';
+        }
+
+        if ( isset($style['font_weight']) && is_numeric($style['font_weight']) ) {
+            $styles[] = 'font-weight:' . $this->number((float) $style['font_weight']);
+        }
+
+        if ( isset($style['line_height_px']) && is_numeric($style['line_height_px']) ) {
+            $styles[] = 'line-height:' . $this->number((float) $style['line_height_px']) . 'px';
+        } elseif ( isset($style['line_height_percent']) && is_numeric($style['line_height_percent']) ) {
+            $styles[] = 'line-height:' . $this->number((float) $style['line_height_percent']) . '%';
+        }
+
+        if ( isset($style['letter_spacing']) && is_numeric($style['letter_spacing']) ) {
+            $styles[] = 'letter-spacing:' . $this->number((float) $style['letter_spacing']) . 'px';
+        }
+
+        $color = $this->color($style['color'] ?? null);
+        if ( null !== $color ) {
+            $styles[] = 'color:' . $color;
+        } elseif ( isset($style['css_color']) && is_scalar($style['css_color']) ) {
+            $styles[] = 'color:' . (string) $style['css_color'];
+        }
+
+        if ( isset($style['text_align_horizontal']) && is_scalar($style['text_align_horizontal']) ) {
+            $align = strtolower((string) $style['text_align_horizontal']);
+            $align = 'justified' === $align ? 'justify' : $align;
+            if ( in_array($align, array('left', 'center', 'right', 'justify'), true) ) {
+                $styles[] = 'text-align:' . $align;
+            }
+        }
+
+        if ( isset($style['text_align_vertical']) && is_scalar($style['text_align_vertical']) ) {
+            $align = strtolower((string) $style['text_align_vertical']);
+            if ( in_array($align, array('top', 'middle', 'bottom'), true) ) {
+                $styles[] = 'vertical-align:' . $align;
+            }
+        }
+
+        $decorations = array();
+        if ( isset($style['text_decoration']) && is_scalar($style['text_decoration']) ) {
+            $decoration = strtolower((string) $style['text_decoration']);
+            if ( in_array($decoration, array('underline', 'line-through'), true) ) {
+                $decorations[] = $decoration;
+            }
+        }
+        if ( true === ($style['underline'] ?? false) ) {
+            $decorations[] = 'underline';
+        }
+        if ( true === ($style['strikethrough'] ?? false) ) {
+            $decorations[] = 'line-through';
+        }
+        if ( ! empty($decorations) ) {
+            $styles[] = 'text-decoration:' . implode(' ', array_values(array_unique($decorations)));
+        }
+
+        return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @return array<int, string>
+     */
+    private function radiusStyles(array $box): array
+    {
+        if ( isset($box['corner_radius']) && is_numeric($box['corner_radius']) ) {
+            return array('border-radius:' . $this->number((float) $box['corner_radius']) . 'px');
+        }
+
+        $styles = array();
+        foreach ( array(
+            'top_left_radius' => 'border-top-left-radius',
+            'top_right_radius' => 'border-top-right-radius',
+            'bottom_right_radius' => 'border-bottom-right-radius',
+            'bottom_left_radius' => 'border-bottom-left-radius',
+        ) as $sourceKey => $property ) {
+            if ( isset($box[$sourceKey]) && is_numeric($box[$sourceKey]) ) {
+                $styles[] = $property . ':' . $this->number((float) $box[$sourceKey]) . 'px';
+            }
+        }
+
+        return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function strokeStyles(array $node): array
+    {
+        $paints = is_array($node['figma_paints']['strokes'] ?? null) ? $node['figma_paints']['strokes'] : array();
+        $stroke = $this->firstSolidPaint($paints);
+        if ( null === $stroke ) {
+            return array();
+        }
+
+        $width = 1;
+        if ( isset($node['strokeWeight']) && is_numeric($node['strokeWeight']) ) {
+            $width = (float) $node['strokeWeight'];
+        }
+
+        return array('border:' . $this->number((float) $width) . 'px solid ' . $stroke);
     }
 
     /**
@@ -320,10 +503,41 @@ final class StaticHtmlEmitter
      */
     private function backgroundColor(array $node): ?string
     {
+        $paints = is_array($node['figma_paints']['fills'] ?? null) ? $node['figma_paints']['fills'] : array();
+        $color = $this->firstSolidPaint($paints);
+        if ( null !== $color ) {
+            return $color;
+        }
+
+        $paints = is_array($node['figma_paints']['background'] ?? null) ? $node['figma_paints']['background'] : array();
+        $color = $this->firstSolidPaint($paints);
+        if ( null !== $color ) {
+            return $color;
+        }
+
         return $this->color($node['background'] ?? $node['backgroundColor'] ?? $node['fill'] ?? $node['fills'][0]['color'] ?? null);
     }
 
-    private function color(mixed $value): ?string
+    /**
+     * @param array<int, mixed> $paints
+     */
+    private function firstSolidPaint(array $paints): ?string
+    {
+        foreach ( $paints as $paint ) {
+            if ( ! is_array($paint) || 'SOLID' !== ($paint['type'] ?? null) ) {
+                continue;
+            }
+
+            $color = $this->color($paint['color'] ?? null, $paint['opacity'] ?? null);
+            if ( null !== $color ) {
+                return $color;
+            }
+        }
+
+        return null;
+    }
+
+    private function color(mixed $value, mixed $opacity = null): ?string
     {
         if ( is_string($value) && preg_match('/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/', $value) ) {
             return strtolower($value);
@@ -338,6 +552,15 @@ final class StaticHtmlEmitter
         $blue = $this->colorChannel($value['b'] ?? $value['blue'] ?? null);
         if ( null === $red || null === $green || null === $blue ) {
             return null;
+        }
+
+        $alpha = $opacity;
+        if ( null === $alpha && isset($value['a']) ) {
+            $alpha = $value['a'];
+        }
+
+        if ( is_numeric($alpha) && (float) $alpha < 1 ) {
+            return sprintf('rgba(%d,%d,%d,%s)', $red, $green, $blue, $this->number(max(0, (float) $alpha)));
         }
 
         return sprintf('#%02x%02x%02x', $red, $green, $blue);
@@ -414,6 +637,11 @@ final class StaticHtmlEmitter
     private function number(float $value): string
     {
         return rtrim(rtrim(sprintf('%.3F', $value), '0'), '.');
+    }
+
+    private function cssString(string $value): string
+    {
+        return '"' . str_replace(array('\\', '"'), array('\\\\', '\\"'), $value) . '"';
     }
 
     private function sanitizeText(string $text): string

@@ -55,16 +55,8 @@ final class ScenegraphIndex
             $childrenIndex[$parent] = $this->sortNodeIds($children, $nodeMap);
         }
 
-        foreach ( $childrenIndex as $parent => $children ) {
-            if ( ! isset($nodeMap[$parent]) ) {
-                continue;
-            }
-
-            foreach ( $children as $childId ) {
-                if ( isset($nodeMap[$childId]) ) {
-                    $nodeMap[$parent]['children'][] = $nodeMap[$childId];
-                }
-            }
+        foreach ( array_keys($nodeMap) as $id ) {
+            $nodeMap[$id]['children'] = $this->buildChildNodes($id, $nodeMap, $childrenIndex);
         }
 
         $topLevelNodeIds = array();
@@ -82,6 +74,27 @@ final class ScenegraphIndex
             'top_level_node_ids' => $topLevelNodeIds,
             'diagnostics'        => $diagnostics,
         );
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $nodeMap
+     * @param array<string, array<int, string>>   $childrenIndex
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildChildNodes(string $id, array $nodeMap, array $childrenIndex): array
+    {
+        $children = array();
+        foreach ( $childrenIndex[$id] ?? array() as $childId ) {
+            if ( ! isset($nodeMap[$childId]) ) {
+                continue;
+            }
+
+            $child = $nodeMap[$childId];
+            $child['children'] = $this->buildChildNodes($childId, $nodeMap, $childrenIndex);
+            $children[] = $child;
+        }
+
+        return $children;
     }
 
     /**

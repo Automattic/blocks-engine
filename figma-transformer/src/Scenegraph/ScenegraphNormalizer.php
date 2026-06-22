@@ -35,6 +35,9 @@ final class ScenegraphNormalizer
             $selectedFrameId = $topLevelIds[0];
         }
 
+        $diagnostics = $index['diagnostics'];
+        $nodeMap = $this->normalizeNodeMap($nodeMap, $diagnostics);
+
         $renderIds = $topLevelIds;
         $renderNodes = array();
         foreach ( $renderIds as $id ) {
@@ -61,7 +64,7 @@ final class ScenegraphNormalizer
             'selected_frame_id'   => $selectedFrameId,
             'text_inventory'      => $textInventory,
             'asset_references'    => $assetReferences,
-            'diagnostics'         => $index['diagnostics'],
+            'diagnostics'         => $diagnostics,
             'source_report'       => array(
                 'schema'                => 'blocks-engine/figma-transformer/scenegraph-source/v1',
                 'input_shape'           => $this->detectInputShape($source),
@@ -72,9 +75,384 @@ final class ScenegraphNormalizer
                 'selected_frame_id'     => $selectedFrameId,
                 'text_node_count'       => count($textInventory),
                 'asset_reference_count' => count($assetReferences),
-                'diagnostic_count'      => count($index['diagnostics']),
+                'diagnostic_count'      => count($diagnostics),
             ),
         );
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $nodeMap
+     * @param array<int, array<string, mixed>>    $diagnostics
+     * @return array<string, array<string, mixed>>
+     */
+    private function normalizeNodeMap(array $nodeMap, array &$diagnostics): array
+    {
+        foreach ( $nodeMap as $id => $node ) {
+            $nodeMap[$id] = $this->normalizeNode($node, $diagnostics);
+        }
+
+        return $nodeMap;
+    }
+
+    /**
+     * @param array<string, mixed>             $node
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, mixed>
+     */
+    private function normalizeNode(array $node, array &$diagnostics): array
+    {
+        $id = (string) ($node['id'] ?? '');
+        $type = strtoupper((string) ($node['type'] ?? ''));
+
+        if ( 'TEXT' === $type ) {
+            $text = $this->normalizeText($node);
+            if ( ! empty($text) ) {
+                $node['figma_text'] = $text;
+            }
+        }
+
+        $paints = $this->normalizePaintCollections($node, $id, $diagnostics);
+        if ( ! empty($paints) ) {
+            $node['figma_paints'] = $paints;
+        }
+
+        $box = $this->normalizeBox($node);
+        if ( ! empty($box) ) {
+            $node['figma_box'] = $box;
+        }
+
+        $this->diagnoseEffects($node, $id, $diagnostics);
+
+        foreach ( array('children', 'nodes') as $childrenKey ) {
+            if ( ! is_array($node[$childrenKey] ?? null) ) {
+                continue;
+            }
+
+            foreach ( $node[$childrenKey] as $index => $child ) {
+                if ( is_array($child) ) {
+                    $node[$childrenKey][$index] = $this->normalizeNode($child, $diagnostics);
+                }
+            }
+        }
+
+        return $node;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function normalizeText(array $node): array
+    {
+        $text = array();
+
+        foreach ( array('characters', 'text') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
+                $text['characters'] = (string) $node[$key];
+                break;
+            }
+        }
+
+        $style = array();
+        if ( is_array($node['style'] ?? null) ) {
+            $style = $this->normalizeTextStyle($node['style']);
+        }
+
+        $rootStyle = $this->normalizeTextStyle($node);
+        foreach ( $rootStyle as $key => $value ) {
+            if ( ! array_key_exists($key, $style) ) {
+                $style[$key] = $value;
+            }
+        }
+
+        if ( ! empty($style) ) {
+            $text['style'] = $style;
+        }
+
+        $segments = $this->normalizeStyledTextSegments($node);
+        if ( ! empty($segments) ) {
+            $text['segments'] = $segments;
+        }
+
+        return $text;
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @return array<string, mixed>
+     */
+    private function normalizeTextStyle(array $source): array
+    {
+        $style = array();
+
+        foreach ( array(
+            'fontFamily' => 'font_family',
+            'fontPostScriptName' => 'font_postscript_name',
+            'fontWeight' => 'font_weight',
+            'textAlignHorizontal' => 'text_align_horizontal',
+            'textAlignVertical' => 'text_align_vertical',
+            'textDecoration' => 'text_decoration',
+        ) as $sourceKey => $targetKey ) {
+            if ( isset($source[$sourceKey]) && is_scalar($source[$sourceKey]) && '' !== (string) $source[$sourceKey] ) {
+                $style[$targetKey] = (string) $source[$sourceKey];
+            }
+        }
+
+        foreach ( array('fontSize' => 'font_size', 'lineHeightPx' => 'line_height_px', 'lineHeightPercent' => 'line_height_percent', 'letterSpacing' => 'letter_spacing') as $sourceKey => $targetKey ) {
+            if ( isset($source[$sourceKey]) && is_numeric($source[$sourceKey]) ) {
+                $style[$targetKey] = (float) $source[$sourceKey];
+            }
+        }
+
+        foreach ( array('color', 'textColor') as $sourceKey ) {
+            $color = $this->normalizeColor($source[$sourceKey] ?? null);
+            if ( null !== $color ) {
+                $style['color'] = $color;
+                break;
+            }
+        }
+
+        foreach ( array('underline' => 'underline', 'strikethrough' => 'strikethrough') as $sourceKey => $targetKey ) {
+            if ( isset($source[$sourceKey]) && is_bool($source[$sourceKey]) ) {
+                $style[$targetKey] = $source[$sourceKey];
+            }
+        }
+
+        return $style;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeStyledTextSegments(array $node): array
+    {
+        $segments = array();
+        $rawSegments = null;
+        foreach ( array('styledTextSegments', 'segments') as $key ) {
+            if ( is_array($node[$key] ?? null) ) {
+                $rawSegments = $node[$key];
+                break;
+            }
+        }
+
+        if ( ! is_array($rawSegments) ) {
+            return array();
+        }
+
+        foreach ( $rawSegments as $segment ) {
+            if ( ! is_array($segment) ) {
+                continue;
+            }
+
+            $normalized = array();
+            foreach ( array('characters', 'text') as $key ) {
+                if ( isset($segment[$key]) && is_scalar($segment[$key]) ) {
+                    $normalized['characters'] = (string) $segment[$key];
+                    break;
+                }
+            }
+            foreach ( array('start', 'end') as $key ) {
+                if ( isset($segment[$key]) && is_numeric($segment[$key]) ) {
+                    $normalized[$key] = (int) $segment[$key];
+                }
+            }
+
+            $style = is_array($segment['style'] ?? null) ? $this->normalizeTextStyle($segment['style']) : $this->normalizeTextStyle($segment);
+            if ( ! empty($style) ) {
+                $normalized['style'] = $style;
+            }
+
+            if ( ! empty($normalized) ) {
+                $segments[] = $normalized;
+            }
+        }
+
+        return $segments;
+    }
+
+    /**
+     * @param array<string, mixed>             $node
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, array<int, array<string, mixed>>>
+     */
+    private function normalizePaintCollections(array $node, string $nodeId, array &$diagnostics): array
+    {
+        $collections = array();
+        foreach ( array('fills' => 'fills', 'strokes' => 'strokes', 'background' => 'background') as $sourceKey => $targetKey ) {
+            if ( ! is_array($node[$sourceKey] ?? null) ) {
+                continue;
+            }
+
+            $paints = array();
+            foreach ( $node[$sourceKey] as $paint ) {
+                if ( ! is_array($paint) ) {
+                    continue;
+                }
+
+                $normalized = $this->normalizePaint($paint, $nodeId, $sourceKey, $diagnostics);
+                if ( ! empty($normalized) ) {
+                    $paints[] = $normalized;
+                }
+            }
+
+            if ( ! empty($paints) ) {
+                $collections[$targetKey] = $paints;
+            }
+        }
+
+        foreach ( array('fill' => 'fills', 'backgroundColor' => 'background') as $sourceKey => $targetKey ) {
+            if ( ! isset($node[$sourceKey]) ) {
+                continue;
+            }
+
+            $color = $this->normalizeColor($node[$sourceKey]);
+            if ( null !== $color ) {
+                $collections[$targetKey][] = array('type' => 'SOLID', 'color' => $color);
+            }
+        }
+
+        return $collections;
+    }
+
+    /**
+     * @param array<string, mixed>             $paint
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, mixed>
+     */
+    private function normalizePaint(array $paint, string $nodeId, string $paintKey, array &$diagnostics): array
+    {
+        $type = strtoupper((string) ($paint['type'] ?? 'SOLID'));
+        if ( false === ($paint['visible'] ?? true) ) {
+            return array();
+        }
+
+        if ( 'SOLID' === $type ) {
+            $color = $this->normalizeColor($paint['color'] ?? $paint);
+            if ( null === $color ) {
+                return array();
+            }
+
+            $normalized = array('type' => 'SOLID', 'color' => $color);
+            if ( isset($paint['opacity']) && is_numeric($paint['opacity']) ) {
+                $normalized['opacity'] = (float) $paint['opacity'];
+            }
+
+            return $normalized;
+        }
+
+        if ( 'IMAGE' === $type ) {
+            $ref = $paint['imageRef'] ?? $paint['imageHash'] ?? null;
+            return is_scalar($ref) && '' !== (string) $ref ? array('type' => 'IMAGE', 'ref' => (string) $ref) : array('type' => 'IMAGE');
+        }
+
+        $diagnostics[] = array(
+            'severity' => 'warning',
+            'code'     => 'unsupported_figma_paint_type',
+            'message'  => 'Unsupported Figma paint type was omitted from static CSS.',
+            'context'  => array(
+                'node_id' => $nodeId,
+                'paint'   => $paintKey,
+                'type'    => $type,
+            ),
+        );
+
+        return array();
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function normalizeBox(array $node): array
+    {
+        $box = array();
+
+        if ( isset($node['opacity']) && is_numeric($node['opacity']) ) {
+            $box['opacity'] = (float) $node['opacity'];
+        }
+
+        if ( isset($node['cornerRadius']) && is_numeric($node['cornerRadius']) ) {
+            $box['corner_radius'] = (float) $node['cornerRadius'];
+        }
+
+        foreach ( array(
+            'topLeftRadius' => 'top_left_radius',
+            'topRightRadius' => 'top_right_radius',
+            'bottomRightRadius' => 'bottom_right_radius',
+            'bottomLeftRadius' => 'bottom_left_radius',
+        ) as $sourceKey => $targetKey ) {
+            if ( isset($node[$sourceKey]) && is_numeric($node[$sourceKey]) ) {
+                $box[$targetKey] = (float) $node[$sourceKey];
+            }
+        }
+
+        return $box;
+    }
+
+    /**
+     * @param array<string, mixed>             $node
+     * @param array<int, array<string, mixed>> $diagnostics
+     */
+    private function diagnoseEffects(array $node, string $nodeId, array &$diagnostics): void
+    {
+        if ( ! is_array($node['effects'] ?? null) ) {
+            return;
+        }
+
+        foreach ( $node['effects'] as $effect ) {
+            if ( ! is_array($effect) || false === ($effect['visible'] ?? true) ) {
+                continue;
+            }
+
+            $diagnostics[] = array(
+                'severity' => 'warning',
+                'code'     => 'unsupported_figma_effect_type',
+                'message'  => 'Unsupported Figma effect was omitted from static CSS.',
+                'context'  => array(
+                    'node_id' => $nodeId,
+                    'type'    => strtoupper((string) ($effect['type'] ?? 'UNKNOWN')),
+                ),
+            );
+        }
+    }
+
+    /**
+     * @return array<string, float>|null
+     */
+    private function normalizeColor(mixed $value): ?array
+    {
+        if ( ! is_array($value) ) {
+            return null;
+        }
+
+        $red = $this->normalizeColorChannel($value['r'] ?? $value['red'] ?? null);
+        $green = $this->normalizeColorChannel($value['g'] ?? $value['green'] ?? null);
+        $blue = $this->normalizeColorChannel($value['b'] ?? $value['blue'] ?? null);
+        if ( null === $red || null === $green || null === $blue ) {
+            return null;
+        }
+
+        $color = array('r' => $red, 'g' => $green, 'b' => $blue);
+        if ( isset($value['a']) && is_numeric($value['a']) ) {
+            $color['a'] = (float) $value['a'];
+        }
+
+        return $color;
+    }
+
+    private function normalizeColorChannel(mixed $value): ?float
+    {
+        if ( ! is_numeric($value) ) {
+            return null;
+        }
+
+        $channel = (float) $value;
+        if ( $channel > 1 ) {
+            $channel /= 255;
+        }
+
+        return max(0, min(1, $channel));
     }
 
     /**
@@ -293,6 +671,17 @@ final class ScenegraphNormalizer
         $references = array();
 
         foreach ( $nodeMap as $id => $node ) {
+            foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef') as $assetKey ) {
+                if ( isset($node[$assetKey]) && is_scalar($node[$assetKey]) && '' !== (string) $node[$assetKey] ) {
+                    $references[] = array(
+                        'node_id' => $id,
+                        'paint'   => $assetKey,
+                        'ref'     => (string) $node[$assetKey],
+                    );
+                    break;
+                }
+            }
+
             foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
                 if ( ! is_array($node[$paintKey] ?? null) ) {
                     continue;
