@@ -1,0 +1,45 @@
+name: JS Transformer
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/js.yml"
+      - "packages/blocks-engine/**"
+  push:
+    branches:
+      - trunk
+    paths:
+      - ".github/workflows/js.yml"
+      - "packages/blocks-engine/**"
+
+jobs:
+  validate:
+    name: Install, build, and test
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: packages/blocks-engine
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run tests
+        run: pnpm test

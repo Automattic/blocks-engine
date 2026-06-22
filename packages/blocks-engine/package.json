@@ -1,0 +1,37 @@
+{
+  "name": "@automattic/blocks-engine",
+  "version": "0.0.0",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    },
+    "./wp": {
+      "import": "./dist/wp/index.js",
+      "require": "./dist/wp/index.cjs",
+      "types": "./dist/wp/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "cheerio": "1.2.0",
+    "@wordpress/block-serialization-default-parser": "5.47.0",
+    "@wordpress/blocks": "15.15.0",
+    "@wordpress/block-editor": "15.15.0",
+    "@wordpress/block-library": "9.42.0",
+    "@wordpress/data": "10.42.0",
+    "@wordpress/hooks": "4.42.0",
+    "jsdom": "29.0.1"
+  },
+  "devDependencies": {
+    "tsup": "8.0.0",
+    "vitest": "2.0.0",
+    "typescript": "5.7.3"
+  }
+}
