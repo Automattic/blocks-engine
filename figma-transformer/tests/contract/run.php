@@ -217,13 +217,14 @@ $assert('success_with_warnings' === ($fileResult['status'] ?? null), 'file-trans
 $assert('fig-kiwi' === ($canvas['prelude'] ?? null), 'fig-kiwi-prelude');
 $assert(106 === ($canvas['version'] ?? null), 'fig-kiwi-version');
 $assert('inner.fig' === ($fileResult['source_reports']['figma']['input']['nested_fig'] ?? null), 'wrapper-nested-fig');
-$assert(4 === count($chunks), 'fig-kiwi-chunk-count');
+$assert(5 === count($chunks), 'fig-kiwi-chunk-count');
 $assert('zlib' === ($chunks[0]['compression'] ?? null), 'fig-kiwi-first-chunk-zlib');
 $assert('json' === ($chunks[0]['payload']['classification'] ?? null), 'fig-kiwi-first-chunk-json');
-$assert(isset($chunks[0]['payload']['json']['NODE_CHANGES']), 'fig-kiwi-first-chunk-node-changes');
+$assert(isset($chunks[0]['payload']['json']['nodes']), 'fig-kiwi-first-chunk-nodes-candidate');
 $assert('json_invalid' === ($chunks[1]['payload']['classification'] ?? null), 'fig-kiwi-second-chunk-json-invalid');
-$assert('binary' === ($chunks[2]['payload']['classification'] ?? null), 'fig-kiwi-third-chunk-binary');
-$assert('zstd' === ($chunks[3]['compression'] ?? null), 'fig-kiwi-fourth-chunk-zstd');
+$assert(isset($chunks[2]['payload']['json']['NODE_CHANGES']), 'fig-kiwi-third-chunk-node-changes');
+$assert('binary' === ($chunks[3]['payload']['classification'] ?? null), 'fig-kiwi-fourth-chunk-binary');
+$assert('zstd' === ($chunks[4]['compression'] ?? null), 'fig-kiwi-fifth-chunk-zstd');
 $assert(in_array($zstdCapabilityCode, $diagnosticCodes, true), 'fig-kiwi-zstd-capability-diagnostic');
 $assert(is_bool($zstdStatus['available'] ?? null), 'zstd-status-available-bool');
 $assert(is_bool($zstdStatus['extension_loaded'] ?? null), 'zstd-status-extension-loaded-bool');
@@ -237,7 +238,7 @@ if ( true === ($zstdStatus['available'] ?? false) && function_exists('zstd_compr
     $zstdCompressed = zstd_compress('contract zstd round trip');
     $zstdRoundTrip = false !== $zstdCompressed ? $zstdCapability->uncompress($zstdCompressed, 'ContractTest', 1) : array('data' => null, 'diagnostics' => array());
     $assert('contract zstd round trip' === ($zstdRoundTrip['data'] ?? null), 'zstd-real-round-trip');
-    $assert(isset($chunks[3]['inflated_bytes']), 'fig-kiwi-zstd-real-fixture-inflated');
+    $assert(isset($chunks[4]['inflated_bytes']), 'fig-kiwi-zstd-real-fixture-inflated');
 } else {
     $zstdUnavailable = $zstdCapability->uncompress("\x28\xb5\x2f\xfd" . 'synthetic-zstd-frame', 'ContractTest', 1);
     $assert(null === ($zstdUnavailable['data'] ?? null), 'zstd-unavailable-returns-null');
@@ -267,10 +268,24 @@ $assert('json' === ($adapterCanvasResult['canvas']['chunks'][0]['payload']['clas
 $assert('figma_transformer_zstd_adapter_failed' === ($failingAdapterResult['diagnostics'][0]['code'] ?? null), 'zstd-adapter-failure-diagnostic');
 $assert(! empty($fileResult['files']), 'file-transform-renders-decoded-scenegraph');
 $assert(4 === ($fileResult['metrics']['node_count'] ?? null), 'file-transform-node-count');
+$assert(2 === ($fileResult['metrics']['decoded_payload_candidate_count'] ?? null), 'file-transform-decoded-candidate-count');
+$assert(2 === ($fileResult['metrics']['selected_decoded_payload_index'] ?? null), 'file-transform-selected-node-changes-index');
+$assert('NODE_CHANGES' === ($fileResult['source_reports']['figma']['decoded_scenegraph']['shape'] ?? null), 'file-transform-selected-node-changes-shape');
 $assert(isset($fileResult['source_reports']['figma']['html']), 'file-transform-html-source-report');
 $assert('synthetic' === ($fileResult['source_reports']['figma']['assets'][0]['id'] ?? null), 'archive-asset-id');
 $assert('images/synthetic' === ($fileResult['source_reports']['figma']['assets'][0]['path'] ?? null), 'archive-asset-path');
 $assert('asset' === ($fileResult['source_reports']['figma']['assets'][0]['content'] ?? null), 'archive-asset-content');
+$assert('assets/synthetic.bin' === ($fileResult['assets'][0]['path'] ?? null), 'archive-asset-emitted-from-decoded-scenegraph');
+
+$pendingFixture = blocks_engine_figma_transformer_create_pending_decoder_fig_wrapper_fixture();
+$pendingResult = blocks_engine_figma_transformer_transform_file($pendingFixture);
+@unlink($pendingFixture);
+$pendingDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $pendingResult['diagnostics'] ?? array()
+);
+$assert('unsupported_decoder_pending' === ($pendingResult['status'] ?? null), 'pending-decoder-status');
+$assert(in_array('figma_transformer_decoded_scenegraph_missing', $pendingDiagnosticCodes, true), 'pending-decoder-diagnostic');
 
 $kiwiSchemaBytes = blocks_engine_figma_transformer_kiwi_schema_fixture();
 $kiwiMessageBytes = blocks_engine_figma_transformer_kiwi_message_fixture();
@@ -685,8 +700,9 @@ function blocks_engine_figma_transformer_create_fig_wrapper_fixture(): string
 
     $canvas = 'fig-kiwi'
         . pack('V', 106)
-        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate(json_encode(blocks_engine_figma_transformer_node_changes_fixture(), JSON_THROW_ON_ERROR)))
+        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate(json_encode(blocks_engine_figma_transformer_nodes_candidate_fixture(), JSON_THROW_ON_ERROR)))
         . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate('{"NODE_CHANGES":'))
+        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate(json_encode(blocks_engine_figma_transformer_node_changes_fixture(), JSON_THROW_ON_ERROR)))
         . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate('synthetic kiwi dictionary'))
         . blocks_engine_figma_transformer_kiwi_chunk(blocks_engine_figma_transformer_zstd_fixture_payload());
 
@@ -709,6 +725,27 @@ function blocks_engine_figma_transformer_create_fig_wrapper_fixture(): string
     @unlink($inner);
 
     return $outer;
+}
+
+function blocks_engine_figma_transformer_create_pending_decoder_fig_wrapper_fixture(): string
+{
+    $path = tempnam(sys_get_temp_dir(), 'blocks-engine-pending-fig-');
+    if ( false === $path ) {
+        throw new RuntimeException('Could not create temporary pending fig fixture path.');
+    }
+
+    $canvas = 'fig-kiwi'
+        . pack('V', 106)
+        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate('synthetic undecoded canvas payload'));
+
+    $zip = new ZipArchive();
+    if ( true !== $zip->open($path, ZipArchive::OVERWRITE) ) {
+        throw new RuntimeException('Could not open pending fig ZIP.');
+    }
+    $zip->addFromString('canvas.fig', $canvas);
+    $zip->close();
+
+    return $path;
 }
 
 function blocks_engine_figma_transformer_kiwi_chunk(string $payload): string
@@ -804,7 +841,35 @@ function blocks_engine_figma_transformer_node_changes_fixture(): array
                             'id'   => '4:4',
                             'type' => 'RECTANGLE',
                             'name' => 'Decoded Photo',
+                            'fills' => array(
+                                array('type' => 'IMAGE', 'imageHash' => 'synthetic'),
+                            ),
                         ),
+                    ),
+                ),
+            ),
+        ),
+    );
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_transformer_nodes_candidate_fixture(): array
+{
+    return array(
+        'name'  => 'Lower Priority Nodes Candidate',
+        'nodes' => array(
+            array(
+                'id'       => 'candidate:1',
+                'type'     => 'FRAME',
+                'name'     => 'Lower Priority Frame',
+                'children' => array(
+                    array(
+                        'id'         => 'candidate:2',
+                        'type'       => 'TEXT',
+                        'name'       => 'Lower Priority Text',
+                        'characters' => 'This earlier payload must not be selected.',
                     ),
                 ),
             ),
