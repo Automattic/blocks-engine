@@ -1,0 +1,40 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-semantic-aside-wrapper",
+  "description": "Converts generic semantic aside/sidebar regions into readable group and navigation blocks instead of unsupported fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-semantic-aside-wrapper.json",
+    "notes": "Product-neutral fixture for documentation sidebars and complementary content regions."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><aside class=\"sidebar\" aria-label=\"Documentation navigation\"><div class=\"sidebar-section\"><p class=\"sidebar-label\">Navigation</p><nav class=\"sidebar-nav\"><a href=\"/docs\">Docs</a><a href=\"/api\">API Reference</a></nav></div><div class=\"sidebar-section\"><p class=\"sidebar-label\">Related Articles</p><a href=\"/troubleshooting\" class=\"related-card\"><strong>Fix route sync</strong><span>Common sync checks</span></a></div></aside><article><h1>Getting Started</h1><p>Install the app and create your first route.</p></article></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "sidebar" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "sidebar-section" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "sidebar-nav" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "sidebar-section" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Getting Started", "level": 1 } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1.attrs.label", "assert": "equals", "value": "API Reference" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group sidebar\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<span class=\"wp-block-navigation-item__label\">API Reference</span>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "html_unsupported_element" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
