@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-standalone-search-wrapper",
+  "description": "Converts a static search wrapper with one search input into a core/search block instead of flattening chrome and control text.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-standalone-search-wrapper.json",
+    "notes": "Product-neutral coverage for documentation and knowledge-base hero search controls that are not wrapped in a form."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section><h1>Knowledge base</h1><div class=\"search-wrap animate-in\"><svg class=\"search-icon\" aria-hidden=\"true\" viewBox=\"0 0 24 24\"><path d=\"M21 21l-4-4\"></path></svg><input type=\"search\" class=\"search-input\" id=\"hero-search\" placeholder=\"Search articles\" aria-label=\"Search documentation\"><span class=\"search-shortcut\" aria-hidden=\"true\">⌘K</span></div></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Knowledge base", "level": 1 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/search", "attrs": { "className": "search-wrap animate-in", "label": "Search documentation", "placeholder": "Search articles" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:search" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"label\":\"Search documentation\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "⌘K" }
+  ]
+}
