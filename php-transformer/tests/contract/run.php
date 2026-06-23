@@ -49,6 +49,16 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     exit(1);
 };
 
+$assertNormalizedFallbackDiagnostic = static function (array $diagnostic, string $code, string $severity, string $runtimeRequirement, string $suggestedPrimitive) use ($assert): void {
+    $assert($code === ($diagnostic['diagnostic_code'] ?? ''), "conversion report exposes {$code} diagnostic code");
+    $assert($severity === ($diagnostic['severity'] ?? ''), "conversion report exposes {$code} severity");
+    $assert($runtimeRequirement === ($diagnostic['runtime_requirement'] ?? ''), "conversion report exposes {$code} runtime requirement");
+    $assert(isset($diagnostic['recoverability']) && '' !== $diagnostic['recoverability'], "conversion report exposes {$code} recoverability");
+    $assert(isset($diagnostic['actionability']) && '' !== $diagnostic['actionability'], "conversion report exposes {$code} actionability");
+    $assert($suggestedPrimitive === ($diagnostic['suggested_primitive'] ?? ''), "conversion report exposes {$code} suggested primitive");
+    $assert(isset($diagnostic['materialization_hint']) && '' !== $diagnostic['materialization_hint'], "conversion report exposes {$code} materialization hint");
+};
+
 $assertInvalidCanonicalEnvelope = static function (array $result, string $expectedMessage, string $message, bool $requireMaterializationPlan = false) use ($assert): void {
     try {
         TransformerResult::assertCanonicalEnvelope($result, $requireMaterializationPlan);
@@ -116,7 +126,7 @@ $formFallback = ( new HtmlTransformer() )->transform(
 )->toArray();
 $formDiagnostic = $formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
 $assert(array() === ($formFallback['blocks'] ?? array()), 'form fallback does not synthesize canonical blocks');
-$assert('html_form_fallback' === ($formDiagnostic['diagnostic_code'] ?? ''), 'conversion report exposes form fallback diagnostic code');
+$assertNormalizedFallbackDiagnostic($formDiagnostic, 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
 $assert('/contact' === ($formDiagnostic['form']['action'] ?? ''), 'conversion report exposes form action metadata');
 $assert('post' === ($formDiagnostic['form']['method'] ?? ''), 'conversion report exposes normalized form method metadata');
 $assert(3 === ($formDiagnostic['control_count'] ?? null), 'conversion report exposes form control count');
@@ -125,6 +135,20 @@ $assert('Email' === ($formDiagnostic['controls'][0]['label'] ?? ''), 'conversion
 $assert(true === ($formDiagnostic['controls'][0]['required'] ?? null), 'conversion report exposes required form controls');
 $assert('support' === ($formDiagnostic['controls'][1]['options'][0]['value'] ?? ''), 'conversion report exposes select option values');
 $assert(is_int($formDiagnostic['html_bytes'] ?? null), 'conversion report exposes bounded fallback HTML byte size');
+
+$normalizedFallbacks = ( new HtmlTransformer() )->transform(
+    '<main><svg><circle cx="5" cy="5" r="5"></circle></svg><svg><script>alert(1)</script></svg><script src="/app.js">init()</script><aside>Fallback</aside><iframe src="javascript:alert(1)"></iframe></main>'
+)->toArray();
+$normalizedDiagnostics = $normalizedFallbacks['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$diagnosticsByCode = array();
+foreach ( $normalizedDiagnostics as $diagnostic ) {
+    $diagnosticsByCode[$diagnostic['diagnostic_code'] ?? ''] = $diagnostic;
+}
+$assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_inline_svg_fallback'] ?? array(), 'html_inline_svg_fallback', 'info', 'none', 'image_or_html');
+$assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_unsafe_inline_svg'] ?? array(), 'html_unsafe_inline_svg', 'warning', 'sanitization_review', 'image_asset');
+$assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_script_fallback'] ?? array(), 'html_script_fallback', 'warning', 'client_script_execution', 'script_asset');
+$assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_unsupported_element'] ?? array(), 'html_unsupported_element', 'info', 'unknown', 'core/html');
+$assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallback'] ?? array(), 'html_iframe_embed_fallback', 'warning', 'third_party_embed_runtime', 'embed');
 
 $assetMetadataOptions = array(
     'context' => array(
