@@ -38,7 +38,7 @@ final class ButtonsPattern
     public function matchButton(DOMElement $button, callable $presentationAttributes, callable $innerHtml, callable $createBlock): array
     {
         return $createBlock('core/buttons', array(), array(
-            $createBlock('core/button', array_merge($presentationAttributes($button), array( 'text' => $innerHtml($button) )), array(), $button),
+            $createBlock('core/button', array_merge($this->buttonPresentationAttributes($button, $presentationAttributes), array( 'text' => $innerHtml($button) )), array(), $button),
         ), $button);
     }
 
@@ -75,10 +75,38 @@ final class ButtonsPattern
      */
     private function buttonBlockFromAnchor(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $attr, callable $createBlock): array
     {
-        return $createBlock('core/button', array_filter(array_merge($presentationAttributes($anchor), array(
+        return $createBlock('core/button', array_filter(array_merge($this->buttonPresentationAttributes($anchor, $presentationAttributes), array(
             'text' => $innerHtml($anchor),
             'url'  => $attr($anchor, 'href'),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $anchor);
+    }
+
+    /**
+     * @param callable(DOMElement): array<string, mixed> $presentationAttributes
+     * @return array<string, mixed>
+     */
+    private function buttonPresentationAttributes(DOMElement $element, callable $presentationAttributes): array
+    {
+        $attrs = $presentationAttributes($element);
+        if ( $this->hasOutlineSignal($element, (string) ($attrs['style'] ?? '')) ) {
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' is-style-outline');
+        }
+
+        return $attrs;
+    }
+
+    private function hasOutlineSignal(DOMElement $element, string $style): bool
+    {
+        if ( $this->hasAnyToken($element, array( 'outline', 'ghost', 'hollow', 'bordered' )) ) {
+            return true;
+        }
+
+        $normalized = strtolower($style);
+        if ( ! preg_match('/(?:^|;)\s*border(?:-[a-z-]+)?\s*:\s*[^;]+/', $normalized) ) {
+            return false;
+        }
+
+        return preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*(?:transparent|none|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))/i', $normalized) === 1;
     }
 
     private function hasButtonSignal(DOMElement $anchor): bool

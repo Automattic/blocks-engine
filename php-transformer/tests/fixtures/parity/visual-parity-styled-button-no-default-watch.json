@@ -1,0 +1,27 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "visual-parity-styled-button-no-default-watch",
+  "description": "Verifies styled rendered WordPress button links are not flagged with default-button-style-watch when source visual semantics are present.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/visual-parity-styled-button-no-default-watch.json",
+    "notes": "Generic visual probe fixture for imported styled CTA rendering."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Probe output is a diagnostic surface for downstream browser parity validation."
+  },
+  "operation": "visual_parity_probe.extract",
+  "input": {
+    "content": "<main><div class=\"wp-block-button\"><a class=\"wp-block-button__link wp-element-button checkout-button\" href=\"/buy\" style=\"background-color:#111827;color:#f9fafb;border:0;border-radius:6px;padding:10px 20px;font-weight:800;text-transform:uppercase\">Buy now</a></div></main>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "summary.total", "assert": "equals", "value": 1 },
+    { "path": "summary.by_kind.cta", "assert": "equals", "value": 1 },
+    { "path": "probes.0.style.background-color", "assert": "equals", "value": "#111827" },
+    { "path": "probes.0.style.border-radius", "assert": "equals", "value": "6px" },
+    { "path": "probes.0.style.padding", "assert": "equals", "value": "10px 20px" },
+    { "path": "probes.0.signals", "assert": "count", "count": 3 }
+  ]
+}
