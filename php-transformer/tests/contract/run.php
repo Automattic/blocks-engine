@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\Contract\VisualParityReportContract;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactNormalizer;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
@@ -103,6 +104,65 @@ $assertInvalidCanonicalEnvelope = static function (array $result, string $expect
 
     $assert(false, $message, 'Canonical envelope validation unexpectedly passed.');
 };
+
+$visualParityFixture = array(
+    'schema'     => VisualParityReportContract::FIXTURE_SCHEMA,
+    'name'       => 'visual-parity-contract-fixture',
+    'source'     => array('html_path' => 'source/index.html', 'renderer' => 'playwright'),
+    'target'     => array('url' => 'https://example.test/', 'renderer' => 'wordpress'),
+    'viewports'  => array(
+        array('id' => 'mobile', 'width' => 390, 'height' => 844),
+        array('id' => 'desktop', 'width' => 1440, 'height' => 1000),
+    ),
+    'capture'    => array(
+        array('kind' => 'button', 'selector' => '.hero .button'),
+        array('kind' => 'menu', 'selector' => 'nav'),
+        array('kind' => 'card', 'selector' => '.feature-card'),
+        array('kind' => 'form', 'selector' => 'form'),
+    ),
+    'matchers'   => array(
+        array('kind' => 'selector', 'source_selector' => '.hero .button', 'target_selector' => '.wp-block-button__link', 'min_confidence' => 0.9),
+    ),
+    'thresholds' => array('max_mismatch_percent' => 0.5, 'max_style_deltas' => 4, 'min_match_confidence' => 0.75, 'severity_gate' => 'error'),
+);
+VisualParityReportContract::assertFixture($visualParityFixture);
+
+$visualParityReport = array(
+    'schema'                => VisualParityReportContract::REPORT_SCHEMA,
+    'status'                => 'warning',
+    'severity'              => 'warning',
+    'source_render'         => array('kind' => 'source', 'route' => '/', 'html_path' => 'source/index.html', 'renderer' => 'playwright', 'screenshot_path' => 'screens/source-desktop.png'),
+    'target_render'         => array('kind' => 'target', 'route' => '/', 'url' => 'https://example.test/', 'renderer' => 'wordpress', 'screenshot_path' => 'screens/target-desktop.png'),
+    'viewports'             => array(
+        array('id' => 'desktop', 'width' => 1440, 'height' => 1000, 'source_screenshot_path' => 'screens/source-desktop.png', 'target_screenshot_path' => 'screens/target-desktop.png', 'diff_screenshot_path' => 'screens/diff-desktop.png'),
+    ),
+    'matches'               => array(
+        array('kind' => 'button', 'source_selector' => '.hero .button', 'target_selector' => '.wp-block-button__link', 'confidence' => 0.96, 'button' => array('label' => 'Book now', 'href' => '/book', 'variant' => 'primary', 'icon_position' => 'none')),
+        array('kind' => 'menu', 'source_selector' => 'nav.primary', 'target_selector' => '.wp-block-navigation', 'confidence' => 0.92, 'menu' => array('orientation' => 'horizontal', 'item_count' => 3, 'labels' => array('Home', 'Services', 'Contact'), 'has_submenus' => false)),
+        array('kind' => 'card', 'source_selector' => '.feature-card', 'target_selector' => '.wp-block-group.feature-card', 'confidence' => 0.88, 'card' => array('heading' => 'Therapy', 'media_present' => true, 'link_present' => true, 'action_count' => 1)),
+        array('kind' => 'form', 'source_selector' => 'form.contact', 'target_selector' => '.wp-block-html form', 'confidence' => 0.84, 'form' => array('action' => '/contact', 'method' => 'post', 'control_count' => 3, 'control_types' => array('email', 'select', 'submit'), 'required_count' => 1)),
+    ),
+    'computed_style_deltas' => array(
+        array('viewport_id' => 'desktop', 'source_selector' => '.hero .button', 'target_selector' => '.wp-block-button__link', 'property' => 'border-radius', 'source_value' => '999px', 'target_value' => '4px', 'delta' => 'rounded-to-square', 'severity' => 'warning'),
+    ),
+    'visual_diff'           => array('available' => true, 'mismatch_percent' => 0.42, 'mismatch_pixels' => 420, 'total_pixels' => 100000, 'ssim' => 0.98, 'threshold' => 0.5, 'diff_screenshot_path' => 'screens/diff-desktop.png'),
+    'findings'              => array(
+        array('id' => 'style-button-radius', 'severity' => 'warning', 'category' => 'style', 'summary' => 'Button radius changed.', 'kind' => 'button', 'recommendation_ids' => array('rec-button-radius')),
+    ),
+    'recommendations'       => array(
+        array('id' => 'rec-button-radius', 'priority' => 'medium', 'summary' => 'Align target button radius with the source button treatment.', 'finding_ids' => array('style-button-radius')),
+    ),
+);
+VisualParityReportContract::assertReport($visualParityReport);
+
+$invalidVisualParityReport = $visualParityReport;
+$invalidVisualParityReport['matches'][0]['kind'] = 'woocommerce-button';
+try {
+    VisualParityReportContract::assertReport($invalidVisualParityReport);
+    $assert(false, 'visual parity report rejects product-specific match kinds');
+} catch ( \InvalidArgumentException $exception ) {
+    $assert(str_contains($exception->getMessage(), 'unsupported component kind'), 'visual parity report rejects product-specific match kinds', $exception->getMessage());
+}
 
 $assert('assets/logo.png' === ArtifactPath::safeRelativePath(' ./assets//logo.png '), 'artifact paths trim relative markers and duplicate separators');
 $assert('' === ArtifactPath::safeRelativePath('/assets/logo.png'), 'artifact paths reject root-absolute paths');
