@@ -514,6 +514,13 @@ final class HtmlTransformer
                 return $button;
             }
 
+            if ( $this->hasBlockContentChildren($element) ) {
+                $children = $this->convertChildren($element, $fallbacks, true);
+                if ( array() !== $children ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                }
+            }
+
             return $this->createBlock('core/paragraph', array( 'content' => $this->outerHtml($element) ), array(), $element);
         }
 
@@ -928,6 +935,17 @@ final class HtmlTransformer
     private function isInlineContentElement(string $tagName): bool
     {
         return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'i', 'mark', 'small', 'span', 'strong', 'sub', 'sup', 'time' ), true);
+    }
+
+    private function hasBlockContentChildren(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array( 'abbr', 'b', 'br', 'cite', 'code', 'em', 'i', 'mark', 'small', 'span', 'strong', 'sub', 'sup', 'time' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function hasClass(DOMElement $element, string $className): bool
