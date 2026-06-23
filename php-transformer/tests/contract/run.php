@@ -190,6 +190,16 @@ $assert(str_contains($serializedInlineSvgVisualWrapper, 'visual-region'), 'HTML 
 $assert(str_contains($serializedInlineSvgVisualWrapper, 'map-layer'), 'HTML transform preserves nested visual wrapper classes');
 $assert(str_contains($serializedInlineSvgVisualWrapper, 'map-image'), 'HTML transform preserves background-image visual leaf classes when inline SVG children are present');
 
+$flexIconRow = ( new HtmlTransformer() )->transform(
+    '<main><div class="notice-row" style="display: flex; gap: 1rem;"><svg aria-hidden="true" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"></circle><path d="M2 5h6"></path></svg><div><strong>Venue address</strong><br>Asheville, NC</div></div></main>'
+)->toArray();
+$serializedFlexIconRow = (string) ($flexIconRow['serialized_blocks'] ?? '');
+$assert(array() === ($flexIconRow['fallbacks'] ?? array()), 'decorative SVG flex rows and standalone line breaks do not emit unsupported fallback diagnostics');
+$assert(str_contains($serializedFlexIconRow, 'notice-row'), 'decorative SVG flex rows preserve the CSS-addressable wrapper');
+$assert(str_contains($serializedFlexIconRow, 'Venue address'), 'decorative SVG flex rows preserve adjacent text content');
+$assert(str_contains($serializedFlexIconRow, 'Asheville, NC'), 'standalone line break siblings preserve following text content');
+$assert(! str_contains($serializedFlexIconRow, '<!-- wp:columns'), 'decorative SVG flex rows are not misclassified as columns');
+
 $safeInlineSvg = ( new HtmlTransformer() )->transform(
     '<main><section class="icon-row"><span class="icon"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0h16v16H0z"></path></svg></span></section></main>',
     array(
