@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-source-styled-button-preserves-style",
+  "description": "Preserves source styled button element presentation so it does not serialize as an unstyled default grey WordPress button.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-source-styled-button-preserves-style.json",
+    "notes": "Generic transformer boundary fixture for native button visual semantics."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New upstream button style preservation behavior has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><button class=\"checkout-button\" style=\"background-color:#111827;color:#f9fafb;border:0;border-radius:6px;padding:10px 20px;font-weight:800;text-transform:uppercase\">Buy now</button></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Buy now", "className": "checkout-button", "style": "background-color:#111827;color:#f9fafb;border:0;border-radius:6px;padding:10px 20px;font-weight:800;text-transform:uppercase" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link wp-element-button checkout-button\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"background-color:#111827;color:#f9fafb;border:0;border-radius:6px;padding:10px 20px;font-weight:800;text-transform:uppercase\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "background-color:#f7f7f7" }
+  ]
+}

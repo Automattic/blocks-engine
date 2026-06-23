@@ -153,7 +153,12 @@ final class BlockFactory
 
         if ( 'core/button' === $name ) {
             $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-            return '<div class="wp-block-button"><a class="wp-block-button__link wp-element-button"' . $href . '>' . ($attrs['text'] ?? '') . '</a></div>';
+            $wrapperClass = $this->mergeClassNames('wp-block-button', in_array('is-style-outline', preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true) ? 'is-style-outline' : '');
+            $linkAttrs = array(
+                'class' => $this->mergeClassNames('wp-block-button__link wp-element-button', (string) ($attrs['className'] ?? '')),
+                'style' => (string) ($attrs['style'] ?? ''),
+            );
+            return '<div class="' . htmlspecialchars($wrapperClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"><a' . $this->htmlAttrs($linkAttrs) . $href . '>' . ($attrs['text'] ?? '') . '</a></div>';
         }
 
         if ( 'core/navigation' === $name ) {

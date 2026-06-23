@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-button-custom-filled-cta-style",
+  "description": "Preserves custom filled CTA button classes and inline presentation styles on the rendered WordPress button link.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-button-custom-filled-cta-style.json",
+    "notes": "Generic transformer boundary fixture for source CTA visual semantics."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New upstream button style preservation behavior has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><div class=\"cta-actions\"><a class=\"hero-cta brand-primary\" href=\"/start\" style=\"background-color:#135e96;color:#fff;border:2px solid #135e96;border-radius:999px;padding:14px 28px;font-weight:700;text-transform:uppercase\">Get started</a><a class=\"hero-cta alt\" href=\"/demo\" style=\"background-color:#0f172a;color:#fff;border:2px solid #0f172a;border-radius:999px;padding:14px 28px;font-weight:700;text-transform:uppercase\">Book now</a></div></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Get started", "url": "/start", "className": "hero-cta brand-primary", "style": "background-color:#135e96;color:#fff;border:2px solid #135e96;border-radius:999px;padding:14px 28px;font-weight:700;text-transform:uppercase" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link wp-element-button hero-cta brand-primary\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"background-color:#135e96;color:#fff;border:2px solid #135e96;border-radius:999px;padding:14px 28px;font-weight:700;text-transform:uppercase\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "background-color:#f7f7f7" }
+  ]
+}
