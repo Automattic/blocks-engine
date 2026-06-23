@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\ButtonMenuVisualProbe;
 
 if ( in_array('--legacy-child', $argv ?? array(), true) ) {
     runLegacyChildProcess();
@@ -294,6 +295,10 @@ function runFixture(array $fixture): array
             'result' => $bridge->convertResult((string) ($input['content'] ?? ''), (string) ($input['from'] ?? ''), (string) ($input['to'] ?? ''))->toArray(),
             'supported_formats' => $bridge->supportedFormats(),
         );
+    }
+
+    if ( 'visual_parity_probe.extract' === $fixture['operation'] ) {
+        return ( new ButtonMenuVisualProbe() )->extract((string) ($input['content'] ?? ''));
     }
 
     fail("Fixture {$fixture['name']} declares unsupported operation: {$fixture['operation']}");

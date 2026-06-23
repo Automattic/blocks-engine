@@ -1,0 +1,575 @@
+<?php
+declare(strict_types=1);
+
+namespace Automattic\BlocksEngine\PhpTransformer\VisualParity;
+
+use DOMDocument;
+use DOMElement;
+use DOMNode;
+use DOMXPath;
+
+final class ButtonMenuVisualProbe
+{
+    public const SCHEMA = 'blocks-engine/php-transformer/visual-parity-probes/v1';
+
+    private const STYLE_FIELDS = array(
+        'background-color',
+        'border-bottom-color',
+        'border-bottom-left-radius',
+        'border-bottom-right-radius',
+        'border-bottom-style',
+        'border-bottom-width',
+        'border-color',
+        'border-left-color',
+        'border-left-style',
+        'border-left-width',
+        'border-radius',
+        'border-right-color',
+        'border-right-style',
+        'border-right-width',
+        'border-style',
+        'border-top-color',
+        'border-top-left-radius',
+        'border-top-right-radius',
+        'border-top-style',
+        'border-top-width',
+        'border-width',
+        'color',
+        'display',
+        'font-size',
+        'font-weight',
+        'gap',
+        'height',
+        'justify-content',
+        'line-height',
+        'margin',
+        'margin-bottom',
+        'margin-left',
+        'margin-right',
+        'margin-top',
+        'min-height',
+        'min-width',
+        'padding',
+        'padding-bottom',
+        'padding-left',
+        'padding-right',
+        'padding-top',
+        'text-align',
+        'text-decoration',
+        'text-transform',
+        'width',
+    );
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function extract(string $html): array
+    {
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $this->bodyHtml($html) . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        if ( ! $loaded ) {
+            return array(
+                'schema' => self::SCHEMA,
+                'status' => 'failed',
+                'probes' => array(),
+                'summary' => array(
+                    'total' => 0,
+                    'by_kind' => array(),
+                ),
+                'diagnostics' => array(
+                    array(
+                        'code' => 'html_parse_failed',
+                        'message' => 'Unable to parse HTML for visual parity probes.',
+                    ),
+                ),
+            );
+        }
+
+        $body = $document->getElementsByTagName('body')->item(0);
+        if ( ! $body instanceof DOMElement ) {
+            return $this->result(array());
+        }
+
+        $rules = $this->styleRules($document);
+        $xpath = new DOMXPath($document);
+        $nodes = $xpath->query('//a|//button|//*[@role="button"]');
+        $probes = array();
+        $seen = array();
+
+        if ( false !== $nodes ) {
+            foreach ( $nodes as $node ) {
+                if ( ! $node instanceof DOMElement || $this->isInsideStyleOrScript($node) ) {
+                    continue;
+                }
+
+                $kind = $this->probeKind($node);
+                if ( 'plain_link' === $kind && ! $this->hasRegressionRiskSignal($node) ) {
+                    $kind = 'plain_link';
+                }
+
+                $selector = $this->selector($node);
+                if ( isset($seen[$selector]) ) {
+                    continue;
+                }
+                $seen[$selector] = true;
+
+                $probes[] = array_filter(array(
+                    'id' => 'visual-probe-' . ( count($probes) + 1 ),
+                    'kind' => $kind,
+                    'selector' => $selector,
+                    'tag' => strtolower($node->tagName),
+                    'text' => $this->normalizedText($node),
+                    'href' => $node->hasAttribute('href') ? trim($node->getAttribute('href')) : null,
+                    'role' => $node->hasAttribute('role') ? strtolower(trim($node->getAttribute('role'))) : null,
+                    'classes' => $this->tokens($node->hasAttribute('class') ? $node->getAttribute('class') : ''),
+                    'signals' => $this->signals($node),
+                    'hierarchy' => $this->hierarchy($node),
+                    'style' => $this->computedStyle($node, $rules),
+                    'geometry' => $this->geometry($node, $rules),
+                ), static fn ($value): bool => null !== $value && array() !== $value && '' !== $value);
+            }
+        }
+
+        return $this->result($probes);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $probes
+     * @return array<string, mixed>
+     */
+    private function result(array $probes): array
+    {
+        $byKind = array();
+        foreach ( $probes as $probe ) {
+            $kind = (string) ($probe['kind'] ?? 'unknown');
+            $byKind[$kind] = ($byKind[$kind] ?? 0) + 1;
+        }
+        ksort($byKind);
+
+        return array(
+            'schema' => self::SCHEMA,
+            'status' => 'success',
+            'probes' => $probes,
+            'summary' => array(
+                'total' => count($probes),
+                'by_kind' => $byKind,
+            ),
+            'diagnostics' => array(),
+        );
+    }
+
+    private function bodyHtml(string $html): string
+    {
+        if ( preg_match('/<body\b[^>]*>(.*?)<\/body>/is', $html, $match) ) {
+            return (string) $match[1];
+        }
+
+        return $html;
+    }
+
+    private function probeKind(DOMElement $element): string
+    {
+        if ( 'button' === strtolower($element->tagName) || 'button' === strtolower($element->hasAttribute('role') ? $element->getAttribute('role') : '') ) {
+            return $this->isMenuControl($element) ? 'menu_button' : ( $this->hasCtaSignal($element) ? 'cta' : 'button' );
+        }
+
+        if ( $this->isLinkedCard($element) ) {
+            return 'linked_card';
+        }
+
+        if ( $this->isMenuItem($element) ) {
+            return $this->menuDepth($element) > 0 ? 'submenu_item' : 'menu_item';
+        }
+
+        if ( $this->hasCtaSignal($element) ) {
+            return 'cta';
+        }
+
+        if ( $this->hasButtonSignal($element) ) {
+            return 'button';
+        }
+
+        return 'plain_link';
+    }
+
+    private function isMenuControl(DOMElement $element): bool
+    {
+        $aria = strtolower($element->hasAttribute('aria-haspopup') ? $element->getAttribute('aria-haspopup') : '');
+        return in_array($aria, array( 'true', 'menu' ), true) || $element->hasAttribute('aria-expanded') || $this->hasAnyToken($element, array( 'menu-toggle', 'hamburger', 'submenu-toggle' ));
+    }
+
+    private function isMenuItem(DOMElement $element): bool
+    {
+        if ( 'a' !== strtolower($element->tagName) ) {
+            return false;
+        }
+
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $tag = strtolower($node->tagName);
+            if ( 'nav' === $tag || 'navigation' === strtolower($node->hasAttribute('role') ? $node->getAttribute('role') : '') || $this->hasAnyToken($node, array( 'nav', 'navbar', 'navigation', 'menu', 'menu-item' )) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isLinkedCard(DOMElement $element): bool
+    {
+        if ( 'a' !== strtolower($element->tagName) ) {
+            return false;
+        }
+
+        if ( ! $this->hasAnyToken($element, array( 'card', 'tile', 'article', 'product' )) ) {
+            return false;
+        }
+
+        $blockChildren = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'article', 'div', 'figure', 'h2', 'h3', 'h4', 'img', 'p', 'picture', 'section', 'svg' ), true) ) {
+                ++$blockChildren;
+            }
+        }
+
+        return $blockChildren > 0;
+    }
+
+    private function hasCtaSignal(DOMElement $element): bool
+    {
+        return $this->hasAnyToken($element, array( 'cta', 'primary', 'secondary', 'action' )) || in_array(strtolower($this->normalizedText($element)), array(
+            'book now',
+            'buy now',
+            'checkout',
+            'donate',
+            'get started',
+            'register',
+            'shop now',
+            'sign up',
+            'subscribe',
+        ), true);
+    }
+
+    private function hasButtonSignal(DOMElement $element): bool
+    {
+        return $this->hasAnyToken($element, array( 'button', 'btn' )) || str_contains(strtolower($element->hasAttribute('class') ? $element->getAttribute('class') : ''), 'wp-element-button');
+    }
+
+    private function hasRegressionRiskSignal(DOMElement $element): bool
+    {
+        return 'a' === strtolower($element->tagName) && ! $this->isMenuItem($element) && ! $this->hasButtonSignal($element) && ! $this->hasCtaSignal($element) && ! $this->isLinkedCard($element);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function signals(DOMElement $element): array
+    {
+        $signals = array();
+        if ( $this->hasButtonSignal($element) ) {
+            $signals[] = 'button-class';
+        }
+        if ( $this->hasCtaSignal($element) ) {
+            $signals[] = 'cta-signal';
+        }
+        if ( $this->isMenuItem($element) ) {
+            $signals[] = 'menu-ancestor';
+        }
+        if ( $this->isLinkedCard($element) ) {
+            $signals[] = 'linked-card-content';
+        }
+        if ( $this->hasRegressionRiskSignal($element) ) {
+            $signals[] = 'plain-link-regression-watch';
+        }
+        if ( $element->hasAttribute('style') ) {
+            $signals[] = 'inline-style';
+        }
+
+        return array_values(array_unique($signals));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function hierarchy(DOMElement $element): array
+    {
+        $listDepth = $this->menuDepth($element);
+        $parentItem = null;
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'li' === strtolower($node->tagName) ) {
+                $parentItem = $this->firstOwnAnchorText($node, $element);
+                if ( null !== $parentItem ) {
+                    break;
+                }
+            }
+        }
+
+        return array_filter(array(
+            'menu_depth' => $listDepth,
+            'parent_text' => $parentItem,
+            'has_submenu' => $this->hasSubmenu($element),
+        ), static fn ($value): bool => null !== $value && '' !== $value && false !== $value);
+    }
+
+    private function menuDepth(DOMElement $element): int
+    {
+        $depth = -1;
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( in_array(strtolower($node->tagName), array( 'ul', 'ol' ), true) ) {
+                ++$depth;
+                continue;
+            }
+            if ( 'nav' === strtolower($node->tagName) || ( 'li' !== strtolower($node->tagName) && $this->hasAnyToken($node, array( 'nav', 'navbar', 'navigation', 'menu' )) ) ) {
+                break;
+            }
+        }
+
+        return max(0, $depth);
+    }
+
+    private function hasSubmenu(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+
+        foreach ( $parent->childNodes as $child ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function firstOwnAnchorText(DOMElement $item, DOMElement $current): ?string
+    {
+        foreach ( $item->childNodes as $child ) {
+            if ( $child === $current ) {
+                continue;
+            }
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) ) {
+                return $this->normalizedText($child);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<int, array{selector: string, declarations: array<string, string>}> $rules
+     * @return array<string, string>
+     */
+    private function computedStyle(DOMElement $element, array $rules): array
+    {
+        $style = array();
+        foreach ( $rules as $rule ) {
+            if ( $this->matchesSimpleSelector($element, $rule['selector']) ) {
+                $style = array_merge($style, $rule['declarations']);
+            }
+        }
+
+        if ( $element->hasAttribute('style') ) {
+            $style = array_merge($style, $this->declarations($element->getAttribute('style')));
+        }
+
+        $style = array_intersect_key($style, array_flip(self::STYLE_FIELDS));
+        ksort($style);
+
+        return $style;
+    }
+
+    /**
+     * @param array<int, array{selector: string, declarations: array<string, string>}> $rules
+     * @return array<string, mixed>
+     */
+    private function geometry(DOMElement $element, array $rules): array
+    {
+        $style = $this->computedStyle($element, $rules);
+        $geometry = array(
+            'text_length' => strlen($this->normalizedText($element)),
+            'child_element_count' => $this->childElementCount($element),
+        );
+
+        foreach ( array( 'width', 'height', 'min-width', 'min-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'gap' ) as $field ) {
+            if ( isset($style[$field]) ) {
+                $geometry[$field] = $style[$field];
+            }
+        }
+
+        return $geometry;
+    }
+
+    private function childElementCount(DOMElement $element): int
+    {
+        $count = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                ++$count;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * @return array<int, array{selector: string, declarations: array<string, string>}>
+     */
+    private function styleRules(DOMDocument $document): array
+    {
+        $rules = array();
+        foreach ( $document->getElementsByTagName('style') as $style ) {
+            $css = (string) $style->textContent;
+            if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
+                continue;
+            }
+            foreach ( $matches as $match ) {
+                foreach ( explode(',', (string) $match[1]) as $selector ) {
+                    $selector = trim($selector);
+                    if ( '' === $selector ) {
+                        continue;
+                    }
+                    $rules[] = array(
+                        'selector' => $selector,
+                        'declarations' => $this->declarations((string) $match[2]),
+                    );
+                }
+            }
+        }
+
+        return $rules;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function declarations(string $style): array
+    {
+        $declarations = array();
+        foreach ( explode(';', $style) as $declaration ) {
+            if ( ! str_contains($declaration, ':') ) {
+                continue;
+            }
+            [$name, $value] = array_map('trim', explode(':', $declaration, 2));
+            $name = strtolower($name);
+            if ( '' !== $name && '' !== $value ) {
+                $declarations[$name] = preg_replace('/\s+/', ' ', $value) ?? $value;
+            }
+        }
+
+        return $declarations;
+    }
+
+    private function matchesSimpleSelector(DOMElement $element, string $selector): bool
+    {
+        $selector = trim(preg_replace('/:(hover|focus|active|visited|before|after)\b.*/', '', $selector) ?? $selector);
+        if ( '' === $selector || str_contains($selector, ' ') || str_contains($selector, '>') || str_contains($selector, '+') || str_contains($selector, '~') ) {
+            return false;
+        }
+
+        if ( preg_match('/^#([A-Za-z0-9_-]+)$/', $selector, $match) ) {
+            return $element->hasAttribute('id') && $element->getAttribute('id') === $match[1];
+        }
+
+        if ( preg_match('/^\.([A-Za-z0-9_-]+)$/', $selector, $match) ) {
+            return in_array($match[1], $this->tokens($element->hasAttribute('class') ? $element->getAttribute('class') : ''), true);
+        }
+
+        if ( preg_match('/^([A-Za-z0-9_-]+)(\.[A-Za-z0-9_-]+)+$/', $selector) ) {
+            $parts = explode('.', $selector);
+            $tag = array_shift($parts);
+            if ( strtolower((string) $tag) !== strtolower($element->tagName) ) {
+                return false;
+            }
+            $classes = $this->tokens($element->hasAttribute('class') ? $element->getAttribute('class') : '');
+            foreach ( $parts as $class ) {
+                if ( ! in_array($class, $classes, true) ) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        return strtolower($selector) === strtolower($element->tagName);
+    }
+
+    private function selector(DOMElement $element): string
+    {
+        $segments = array();
+        for ( $node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
+            $segment = strtolower($node->tagName);
+            if ( $node->hasAttribute('id') && '' !== trim($node->getAttribute('id')) ) {
+                $segment .= '#' . trim($node->getAttribute('id'));
+                array_unshift($segments, $segment);
+                break;
+            }
+            $classes = $this->tokens($node->hasAttribute('class') ? $node->getAttribute('class') : '');
+            if ( array() !== $classes ) {
+                $segment .= '.' . implode('.', array_slice($classes, 0, 2));
+            }
+            $index = $this->elementIndex($node);
+            if ( $index > 1 ) {
+                $segment .= ':nth-of-type(' . $index . ')';
+            }
+            array_unshift($segments, $segment);
+        }
+
+        return implode(' > ', $segments);
+    }
+
+    private function elementIndex(DOMElement $element): int
+    {
+        $index = 1;
+        for ( $node = $element->previousSibling; $node instanceof DOMNode; $node = $node->previousSibling ) {
+            if ( $node instanceof DOMElement && strtolower($node->tagName) === strtolower($element->tagName) ) {
+                ++$index;
+            }
+        }
+
+        return $index;
+    }
+
+    private function normalizedText(DOMElement $element): string
+    {
+        return trim(preg_replace('/\s+/', ' ', html_entity_decode((string) $element->textContent, ENT_QUOTES | ENT_HTML5)) ?? '');
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function tokens(string $value): array
+    {
+        return array_values(array_filter(preg_split('/\s+/', trim($value)) ?: array(), static fn (string $token): bool => '' !== $token));
+    }
+
+    /**
+     * @param array<int, string> $tokens
+     */
+    private function hasAnyToken(DOMElement $element, array $tokens): bool
+    {
+        $values = strtolower(($element->hasAttribute('class') ? $element->getAttribute('class') : '') . ' ' . ($element->hasAttribute('id') ? $element->getAttribute('id') : ''));
+        foreach ( $tokens as $token ) {
+            if ( preg_match('/(^|[^a-z0-9])' . preg_quote($token, '/') . '([^a-z0-9]|$)/', $values) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isInsideStyleOrScript(DOMElement $element): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( in_array(strtolower($node->tagName), array( 'script', 'style' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
