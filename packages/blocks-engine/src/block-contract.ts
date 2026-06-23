@@ -12,9 +12,10 @@
 // attrs/blocks at a fraction of the surface.
 //
 // Scope:
-// - Only core/* blocks are accepted by default. Allowlisted prefixes (default
-//   ['core/html']) skip entirely — deliberate verbatim islands. Callers that
-//   intentionally emit non-core blocks can pass their namespace allowlist.
+// - Only core/* blocks are validated. Allowlisted prefixes (default
+//   ['core/html']) skip entirely — deliberate verbatim islands. Any non-core
+//   namespace also skips: we have no metadata for third-party blocks and
+//   inventing judgments about them would be guessing (trust-source posture).
 // - attrs === null (unparseable JSON) is the roundtrip oracle's failure to
 //   report; here it degrades to "no attrs to check".
 //
@@ -63,10 +64,9 @@ function isAllowlisted(blockName: string, allowlist: string[]): boolean {
 function checkBlock(b: ParsedBlock, allowlist: string[], issues: BlockContractIssue[]): void {
   const name = b.blockName as string;
   if (isAllowlisted(name, allowlist)) return;
-  if (!name.startsWith('core/')) {
-    issues.push({ code: 'unknown-block', blockName: name, detail: 'not a core block or allowlisted namespace' });
-    return;
-  }
+  // Only core/* validates against the snapshot; other namespaces skip
+  // (no metadata for third-party blocks — see the header).
+  if (!name.startsWith('core/')) return;
 
   const registered = ATTRS_BY_BLOCK.get(name);
   if (!registered) {

@@ -33,27 +33,21 @@ describe('validateBlockContract', () => {
     ]);
   });
 
-  it('uses a core-only default allowlist and preserves caller allowlists', () => {
-    const markup = `<!-- wp:dla/foo {"madeUp":1} -->
-<section data-wp-interactive="dla/foo">x</section>
-<!-- /wp:dla/foo -->
-<!-- wp:html -->
-<div onclickish="weird">island</div>
-<!-- /wp:html -->`;
-    expect(validateBlockContract(markup)).toEqual([
-      { code: 'unknown-block', blockName: 'dla/foo', detail: 'not a core block or allowlisted namespace' },
-    ]);
-    expect(validateBlockContract(markup, { allowlist: ['dla/', 'core/html'] })).toEqual([]);
-  });
-
-  it('allowlisted non-core namespaces pass untouched', () => {
+  it('skips deliberate non-core blocks and allowlisted core/html untouched', () => {
     const markup = `<!-- wp:dla/reveal {"madeUp":1} -->
 <section data-wp-interactive="dla/reveal">x</section>
 <!-- /wp:dla/reveal -->
 <!-- wp:html -->
 <div onclickish="weird">island</div>
 <!-- /wp:html -->`;
-    expect(validateBlockContract(markup, { allowlist: ['dla/', 'core/html'] })).toEqual([]);
+    expect(validateBlockContract(markup)).toEqual([]);
+  });
+
+  it('skips jetpack/contact-form blocks by default (trust-source posture)', () => {
+    const markup = `<!-- wp:jetpack/contact-form {"anything":"goes"} -->
+<div class="wp-block-jetpack-contact-form">x</div>
+<!-- /wp:jetpack/contact-form -->`;
+    expect(validateBlockContract(markup)).toEqual([]);
   });
 
   it('clean markup returns no issues', () => {
@@ -65,13 +59,11 @@ describe('validateBlockContract', () => {
     expect(validateBlockContract(markup)).toEqual([]);
   });
 
-  it('non-core namespaces are flagged unless allowlisted', () => {
+  it('skips non-allowlisted non-core namespaces by default (trust-source posture)', () => {
     const markup = `<!-- wp:acme/widget {"anything":"goes"} -->
 <div class="acme-widget">x</div>
 <!-- /wp:acme/widget -->`;
-    expect(validateBlockContract(markup)).toEqual([
-      { code: 'unknown-block', blockName: 'acme/widget', detail: 'not a core block or allowlisted namespace' },
-    ]);
+    expect(validateBlockContract(markup)).toEqual([]);
   });
 
   it('walks innerBlocks (nested invented attr still caught)', () => {
