@@ -1,8 +1,8 @@
-import { PIPELINE_ISLAND_OPENER } from './block-policy';
-import { genericHtmlToBlocks } from './catalog';
-import { sanitize } from './sanitize';
-import { scanForInjection } from './validate';
-import type { ConversionContext, Converter, HtmlFallback } from './types';
+import { PIPELINE_ISLAND_OPENER } from './block-policy.js';
+import { genericHtmlToBlocks } from './catalog.js';
+import { sanitize } from './sanitize.js';
+import { scanForInjection } from './validate.js';
+import type { ConversionContext, Converter, HtmlFallback } from './types.js';
 
 type HtmlFallbackEmitter = (html: string) => string;
 

@@ -1,10 +1,10 @@
 import * as cheerio from 'cheerio';
 import type { CheerioAPI } from 'cheerio';
 
-import { PIPELINE_ISLAND_OPENER } from './block-policy';
-import { escapeHtmlAttr as escapeAttr, escapeHtmlText as escapeHtml } from './escape';
-import { sanitize } from './sanitize';
-import type { ConversionContext, RecipeRule } from './types';
+import { PIPELINE_ISLAND_OPENER } from './block-policy.js';
+import { escapeHtmlAttr as escapeAttr, escapeHtmlText as escapeHtml } from './escape.js';
+import { sanitize } from './sanitize.js';
+import type { ConversionContext, RecipeRule } from './types.js';
 
 type HtmlFallbackEmitter = (html: string) => string;
 export type RecipeElement = NonNullable<Parameters<CheerioAPI>[0]> & {

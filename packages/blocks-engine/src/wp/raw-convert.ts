@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
-import { bootstrap } from './bootstrap';
-import { UNWRAP_SELECTOR } from '../raw-convertible';
+import { bootstrap } from './bootstrap.js';
+import { UNWRAP_SELECTOR } from '../raw-convertible.js';
 
 type JSDOMConstructor = new (html: string) => { window: { document: Document } };
 type RawHandler = (options: { HTML: string }) => unknown[];

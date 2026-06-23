@@ -1,6 +1,6 @@
 import * as cheerio from 'cheerio';
 
-import { escapeHtmlText as escapeHtml } from './escape';
+import { escapeHtmlText as escapeHtml } from './escape.js';
 
 export interface HeuristicResult {
   handled: boolean;

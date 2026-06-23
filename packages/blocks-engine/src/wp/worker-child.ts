@@ -1,11 +1,11 @@
-import { bootstrap } from './bootstrap';
-import { canonicalize } from './canonicalize';
-import { rawConvert } from './raw-convert';
+import { bootstrap } from './bootstrap.js';
+import { canonicalize } from './canonicalize.js';
+import { rawConvert } from './raw-convert.js';
 import type {
   ChildToParentMessage,
   ParentToChildMessage,
   WorkerError,
-} from '../pool/protocol';
+} from '../pool/protocol.js';
 
 const POISON_EXIT_CODE = 86;
 const BOOTSTRAP_FAIL_EXIT_CODE = 87;

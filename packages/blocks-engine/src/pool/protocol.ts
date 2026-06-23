@@ -1,4 +1,4 @@
-import type { FixResult, RawConvertResult } from './types';
+import type { FixResult, RawConvertResult } from './types.js';
 
 export type WorkerOp = 'rawConvert' | 'canonicalize';
 

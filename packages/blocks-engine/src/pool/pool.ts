@@ -4,22 +4,22 @@ import { cpus } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { ChildToParentMessage, WorkerOp } from './protocol';
+import type { ChildToParentMessage, WorkerOp } from './protocol.js';
 import type {
   CreateWorker,
   FixResult,
   RawConvertResult,
   WorkerPool,
   WorkerPoolOptions,
-} from './types';
+} from './types.js';
 
 export type {
   FixResult,
   RawConvertResult,
   WorkerPool,
   WorkerPoolOptions,
-} from './types';
-export type { PoolEvent } from './events';
+} from './types.js';
+export type { PoolEvent } from './events.js';
 
 const DEFAULT_MAX_REROUTES = 2;
 const DEFAULT_ITEM_TIMEOUT_MS = 10_000;

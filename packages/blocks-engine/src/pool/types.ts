@@ -1,4 +1,4 @@
-import type { PoolEvent } from './events';
+import type { PoolEvent } from './events.js';
 
 export interface RawConvertResult {
   html: string | null;

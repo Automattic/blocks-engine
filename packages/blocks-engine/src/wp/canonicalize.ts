@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 
-import { bootstrap } from './bootstrap';
+import { bootstrap } from './bootstrap.js';
 
 export type CanonicalizeResult = {
   html: string;
