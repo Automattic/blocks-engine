@@ -1,5 +1,4 @@
 import * as cheerio from 'cheerio';
-import type { Element } from 'domhandler';
 
 export const UNWRAP_SELECTOR =
   'main, div.wp-block-group, div.wp-block-post-content, div.entry-content, div.wp-block-group__inner-container';
@@ -31,8 +30,9 @@ export function isRawConvertible(html: string): boolean {
   $.root()
     .children()
     .each((_, el) => {
-      if ((el as Element).type !== 'tag') return;
-      const tag = ((el as Element).tagName || '').toLowerCase();
+      const node = el as { type?: string; tagName?: string };
+      if (node.type !== 'tag') return;
+      const tag = (node.tagName || '').toLowerCase();
       const cls = $(el).attr('class') || '';
       if (cls.includes('wp-block-spacer')) return;
       if (SEMANTIC_TAGS.has(tag)) semantic++;

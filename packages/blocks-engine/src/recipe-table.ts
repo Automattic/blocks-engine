@@ -1,6 +1,5 @@
 import * as cheerio from 'cheerio';
 import type { CheerioAPI } from 'cheerio';
-import type { Element } from 'domhandler';
 
 import { PIPELINE_ISLAND_OPENER } from './block-policy';
 import { escapeHtmlAttr as escapeAttr, escapeHtmlText as escapeHtml } from './escape';
@@ -8,6 +7,10 @@ import { sanitize } from './sanitize';
 import type { ConversionContext, RecipeRule } from './types';
 
 type HtmlFallbackEmitter = (html: string) => string;
+export type RecipeElement = NonNullable<Parameters<CheerioAPI>[0]> & {
+  type?: string;
+  tagName: string;
+};
 
 function defaultHtmlFallback(html: string): string {
   return `${PIPELINE_ISLAND_OPENER}\n${sanitize(html)}\n<!-- /wp:html -->`;
@@ -23,8 +26,8 @@ export function composeFromRecipes(
   const $ = cheerio.load(html, null, false);
   const out: string[] = [];
   $.root().children().each((_, node) => {
-    if ((node as Element).type !== 'tag') return;
-    const el = node as Element;
+    const el = node as unknown as RecipeElement;
+    if (el.type !== 'tag') return;
     const recipe = recipes.find((candidate) => $(el).is(candidate.match));
     out.push(recipe ? emitRecipeBlock($, el, recipe, ctx, htmlFallback) : htmlFallback($.html(el)));
   });
@@ -38,7 +41,7 @@ export function blockTag(block: string): string {
 
 export function emitRecipeBlock(
   $: CheerioAPI,
-  el: Element,
+  el: RecipeElement,
   recipe: RecipeRule,
   ctx: ConversionContext,
   htmlFallback: HtmlFallbackEmitter = defaultHtmlFallback,

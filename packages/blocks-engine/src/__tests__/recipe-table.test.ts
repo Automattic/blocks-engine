@@ -1,8 +1,7 @@
 import * as cheerio from 'cheerio';
-import type { Element } from 'domhandler';
 import { describe, expect, it } from 'vitest';
 
-import { composeFromRecipes, emitRecipeBlock } from '../recipe-table';
+import { composeFromRecipes, emitRecipeBlock, type RecipeElement } from '../recipe-table';
 import type { RecipeRule } from '../types';
 
 const ctx = { url: 'https://x.test/p' };
@@ -21,7 +20,7 @@ describe('recipe-table', () => {
 
   it('escapes comment closers in attribute JSON', () => {
     const $ = cheerio.load('<div class="card">Body</div>', null, false);
-    const el = $.root().children().first().get(0) as Element;
+    const el = $.root().children().first().get(0) as RecipeElement;
     const rule: RecipeRule = {
       match: '.card',
       block: 'core/group',

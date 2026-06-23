@@ -1,6 +1,5 @@
 import * as cheerio from 'cheerio';
-import type { Cheerio, CheerioAPI } from 'cheerio';
-import type { Element } from 'domhandler';
+import type { CheerioAPI } from 'cheerio';
 
 import { PIPELINE_ISLAND_OPENER } from './block-policy';
 import { buildEmbedBlock, guessEmbedProvider } from './embed';
@@ -9,6 +8,10 @@ import { sanitize } from './sanitize';
 import type { ConversionContext } from './types';
 
 type HtmlFallbackEmitter = (html: string) => string;
+type Element = NonNullable<Parameters<CheerioAPI>[0]> & {
+  type?: string;
+  tagName: string;
+};
 
 interface Converted {
   matched: boolean;
@@ -115,7 +118,7 @@ function tryDetails(
   );
 }
 
-function bodyExcludingSummary($: CheerioAPI, $el: Cheerio<Element>): string {
+function bodyExcludingSummary($: CheerioAPI, $el: ReturnType<CheerioAPI>): string {
   const clone = $el.clone();
   clone.find('summary').first().remove();
   clone.children('h1,h2,h3,h4,h5,h6,.accordion-title,.faq-question').first().remove();
