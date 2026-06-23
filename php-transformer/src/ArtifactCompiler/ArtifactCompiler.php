@@ -164,6 +164,7 @@ final class ArtifactCompiler
         $result = ( new HtmlTransformer() )->transform($this->safeHtmlDocumentImageHtml($html, $sourcePath, $files), array(
             'source'       => $sourcePath,
             'source_scope' => $sourceScope,
+            'static_css'   => $this->linkedStylesheetCss($html, $sourcePath, $files),
         ))->toArray();
 
         return array(
@@ -189,6 +190,48 @@ final class ArtifactCompiler
         }, $html) ?? $html;
 
         return preg_replace('/<figure\b[^>]*>\s*<\/figure>/i', '', $html) ?? $html;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function linkedStylesheetCss(string $html, string $sourcePath, array $files): string
+    {
+        if ( ! preg_match_all('/<link\b[^>]*>/i', $html, $matches) ) {
+            return '';
+        }
+
+        $css = array();
+        foreach ( $matches[0] as $tag ) {
+            $rel = $this->htmlAttribute((string) $tag, 'rel');
+            $href = $this->htmlAttribute((string) $tag, 'href');
+            if ( '' === $href || ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $rel) ) {
+                continue;
+            }
+
+            $path = ArtifactPath::resolveRelativePath($href, $sourcePath);
+            if ( '' === $path ) {
+                continue;
+            }
+
+            foreach ( $files as $file ) {
+                if ( $path === (string) ($file['path'] ?? '') && 'css' === ($file['kind'] ?? '') && is_string($file['content'] ?? null) ) {
+                    $css[] = (string) $file['content'];
+                    break;
+                }
+            }
+        }
+
+        return trim(implode("\n", $css));
+    }
+
+    private function htmlAttribute(string $tag, string $name): string
+    {
+        if ( preg_match('/\s' . preg_quote($name, '/') . '\s*=\s*(["\'])(.*?)\1/is', $tag, $match) ) {
+            return html_entity_decode((string) $match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        }
+
+        return '';
     }
 
     /**

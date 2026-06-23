@@ -1,0 +1,28 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "visual-parity-class-css-style-signals",
+  "description": "Reports class-defined style metadata for button, navigation CTA, and descendant product-card button selectors.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/visual-parity-class-css-style-signals.json",
+    "notes": "Covers minimal class and descendant selector extraction in the button/menu visual probe."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Visual parity probe metadata is an upstream-only report contract."
+  },
+  "operation": "visual_parity_probe.extract",
+  "input": {
+    "content": "<!doctype html><html><head><style>.btn-primary{background-color:#1257ff;color:#fff;padding:12px 20px;border-radius:999px}.nav-cta{background-color:#101827;color:white;padding:10px 16px;border-radius:8px}.product-card .btn{background:#0f766e;color:#ffffff;padding:11px 18px;border-radius:6px}</style></head><body><main><nav><a class=\"nav-cta\" href=\"/pricing\">Pricing</a></nav><a class=\"btn-primary\" href=\"/start\">Get started</a><article class=\"product-card\"><a class=\"btn\" href=\"/buy\">Buy now</a></article></main></body></html>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "summary.total", "assert": "equals", "value": 3 },
+    { "path": "probes.0.style.background-color", "assert": "equals", "value": "#101827" },
+    { "path": "probes.0.style.border-radius", "assert": "equals", "value": "8px" },
+    { "path": "probes.1.style.background-color", "assert": "equals", "value": "#1257ff" },
+    { "path": "probes.1.style.padding", "assert": "equals", "value": "12px 20px" },
+    { "path": "probes.2.style.background", "assert": "equals", "value": "#0f766e" },
+    { "path": "probes.2.style.border-radius", "assert": "equals", "value": "6px" }
+  ]
+}

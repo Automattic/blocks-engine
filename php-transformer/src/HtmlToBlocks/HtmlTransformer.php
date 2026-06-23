@@ -59,6 +59,11 @@ final class HtmlTransformer
      */
     private array $staticClassPromotions = array();
 
+    /**
+     * @var array<int, array{selector: string, declarations: array<string, string>}>
+     */
+    private array $staticStyleRules = array();
+
     private int $nextSourceProvenanceId = 1;
 
     public function __construct(private readonly Runtime $runtime = new Runtime())
@@ -83,6 +88,7 @@ final class HtmlTransformer
         $this->structureProvenance = array();
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
+        $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
         $this->nextSourceProvenanceId = 1;
         $provenance               = array(
             array_merge(array(
@@ -1012,11 +1018,247 @@ final class HtmlTransformer
      */
     private function presentationAttributes(DOMElement $element): array
     {
+        $style = $this->mergedPresentationStyle($element);
+
         return array_filter(array(
             'className' => $this->promotedClassName($this->attr($element, 'class')),
-            'style'     => $this->attr($element, 'style'),
+            'style'     => $style,
             'layout'    => $this->layoutAttribute($element),
         ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+    }
+
+    private function mergedPresentationStyle(DOMElement $element): string
+    {
+        $inlineStyle = $this->attr($element, 'style');
+        if ( array() === $this->staticStyleRules || ! $this->isHighValueStyledElement($element) ) {
+            return $inlineStyle;
+        }
+
+        $declarations = array();
+        foreach ( $this->staticStyleRules as $rule ) {
+            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
+                $declarations = array_merge($declarations, $rule['declarations']);
+            }
+        }
+
+        if ( array() === $declarations ) {
+            return $inlineStyle;
+        }
+
+        $declarations = array_merge($declarations, $this->cssDeclarations($inlineStyle));
+        return $this->cssDeclarationString($declarations);
+    }
+
+    private function isHighValueStyledElement(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'button', 'nav', 'article' ), true) ) {
+            return true;
+        }
+
+        $tokens = strtolower(trim(implode(' ', array(
+            $this->attr($element, 'class'),
+            $this->attr($element, 'id'),
+            $this->attr($element, 'role'),
+        ))));
+
+        if ( preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action|nav|menu|card|tile|panel|pricing|price|product)(?:[^a-z0-9]|$)/', $tokens) ) {
+            return true;
+        }
+
+        if ( 'a' === $tagName ) {
+            for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+                $ancestorTokens = strtolower($this->attr($node, 'class') . ' ' . $this->attr($node, 'id'));
+                if ( preg_match('/(?:^|[^a-z0-9])(?:nav|menu|card|tile|panel|pricing|product)(?:[^a-z0-9]|$)/', $ancestorTokens) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<int, array{selector: string, declarations: array<string, string>}>
+     */
+    private function staticStyleRules(string $html, string $linkedCss): array
+    {
+        $css = trim($linkedCss);
+        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
+            $css .= ( '' === $css ? '' : "\n" ) . implode("\n", array_map('trim', $matches[1]));
+        }
+
+        if ( '' === trim($css) ) {
+            return array();
+        }
+
+        $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
+        $rules = array();
+        if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        foreach ( $matches as $match ) {
+            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $match[2]));
+            if ( array() === $declarations ) {
+                continue;
+            }
+            foreach ( explode(',', (string) $match[1]) as $selector ) {
+                $selector = trim($selector);
+                if ( '' !== $selector && $this->isSupportedCssSelector($selector) ) {
+                    $rules[] = array(
+                        'selector' => $selector,
+                        'declarations' => $declarations,
+                    );
+                }
+            }
+        }
+
+        return array_slice($rules, 0, 200);
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private function safeVisualDeclarations(array $declarations): array
+    {
+        $safe = array_flip(array(
+            'background',
+            'background-color',
+            'border',
+            'border-color',
+            'border-radius',
+            'border-style',
+            'border-width',
+            'box-shadow',
+            'color',
+            'display',
+            'font-size',
+            'font-weight',
+            'gap',
+            'line-height',
+            'margin',
+            'margin-bottom',
+            'margin-left',
+            'margin-right',
+            'margin-top',
+            'padding',
+            'padding-bottom',
+            'padding-left',
+            'padding-right',
+            'padding-top',
+            'text-align',
+            'text-decoration',
+            'text-transform',
+        ));
+
+        return array_intersect_key($declarations, $safe);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function cssDeclarations(string $style): array
+    {
+        $declarations = array();
+        foreach ( explode(';', $style) as $declaration ) {
+            if ( ! str_contains($declaration, ':') ) {
+                continue;
+            }
+            [$name, $value] = array_map('trim', explode(':', $declaration, 2));
+            $name = strtolower($name);
+            $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+            if ( '' !== $name && '' !== $value && ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $value) ) {
+                $declarations[$name] = $value;
+            }
+        }
+
+        return $declarations;
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     */
+    private function cssDeclarationString(array $declarations): string
+    {
+        $parts = array();
+        foreach ( $declarations as $name => $value ) {
+            $parts[] = $name . ':' . $value;
+        }
+
+        return implode(';', $parts);
+    }
+
+    private function isSupportedCssSelector(string $selector): bool
+    {
+        $selector = $this->normalizeCssSelector($selector);
+        if ( '' === $selector || preg_match('/[>+~\[\]=]/', $selector) ) {
+            return false;
+        }
+
+        foreach ( preg_split('/\s+/', $selector) ?: array() as $part ) {
+            if ( ! preg_match('/^(?:[a-z][a-z0-9_-]*)?(?:\.[A-Za-z0-9_-]+)+$|^\.[A-Za-z0-9_-]+$/i', $part) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function matchesCssSelector(DOMElement $element, string $selector): bool
+    {
+        $parts = preg_split('/\s+/', $this->normalizeCssSelector($selector)) ?: array();
+        if ( array() === $parts ) {
+            return false;
+        }
+
+        if ( ! $this->matchesCssSelectorPart($element, $parts[count($parts) - 1]) ) {
+            return false;
+        }
+
+        $current = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
+        for ( $index = count($parts) - 2; $index >= 0; --$index ) {
+            $matched = false;
+            for ( $node = $current; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+                if ( $this->matchesCssSelectorPart($node, $parts[$index]) ) {
+                    $matched = true;
+                    $current = $node->parentNode instanceof DOMElement ? $node->parentNode : null;
+                    break;
+                }
+            }
+            if ( ! $matched ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function normalizeCssSelector(string $selector): string
+    {
+        return trim(preg_replace('/:(?:hover|focus|active|visited|before|after|focus-visible)\b.*/', '', $selector) ?? $selector);
+    }
+
+    private function matchesCssSelectorPart(DOMElement $element, string $selector): bool
+    {
+        if ( ! preg_match('/^(?:(?<tag>[a-z][a-z0-9_-]*))?(?<classes>(?:\.[A-Za-z0-9_-]+)+)$/i', $selector, $match) ) {
+            return false;
+        }
+
+        if ( ! empty($match['tag']) && strtolower($match['tag']) !== strtolower($element->tagName) ) {
+            return false;
+        }
+
+        $classes = preg_split('/\./', ltrim((string) $match['classes'], '.')) ?: array();
+        $elementClasses = preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array();
+        foreach ( $classes as $class ) {
+            if ( ! in_array($class, $elementClasses, true) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
