@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-static-reveal-class-promotion",
+  "description": "Promotes simple script-driven reveal classes to their terminal static state when runtime scripts are preserved only as fallback metadata.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-static-reveal-class-promotion.json",
+    "notes": "Generic coverage for scroll/reveal animation content that would otherwise import hidden."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section><div class=\"card reveal\"><h2>Visible after import</h2><p>Static block output should keep the reveal styling hook and include the terminal class.</p></div></section><script>const io = new IntersectionObserver((entries) => entries.forEach((entry) => { if (entry.isIntersecting) entry.target.classList.add('visible'); })); document.querySelectorAll('.reveal').forEach((el) => io.observe(el));</script>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "card reveal visible" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Visible after import" } }
+  ],
+  "expected_fallbacks": [
+    { "tag": "script", "reason": "script_requires_runtime", "diagnostic_code": "html_script_fallback" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.attrs.className", "assert": "equals", "value": "card reveal visible" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "card reveal visible" },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+  ]
+}

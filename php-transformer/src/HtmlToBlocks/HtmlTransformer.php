@@ -54,6 +54,11 @@ final class HtmlTransformer
      */
     private array $assetMetadata = array();
 
+    /**
+     * @var array<string, array<int, string>>
+     */
+    private array $staticClassPromotions = array();
+
     private int $nextSourceProvenanceId = 1;
 
     public function __construct(private readonly Runtime $runtime = new Runtime())
@@ -77,6 +82,7 @@ final class HtmlTransformer
         $this->sourceProvenance = array();
         $this->structureProvenance = array();
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
+        $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $this->nextSourceProvenanceId = 1;
         $provenance               = array(
             array_merge(array(
@@ -856,10 +862,66 @@ final class HtmlTransformer
     private function presentationAttributes(DOMElement $element): array
     {
         return array_filter(array(
-            'className' => $this->attr($element, 'class'),
+            'className' => $this->promotedClassName($this->attr($element, 'class')),
             'style'     => $this->attr($element, 'style'),
             'layout'    => $this->layoutAttribute($element),
         ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    private function detectStaticClassPromotions(string $html): array
+    {
+        if ( ! str_contains($html, 'classList.add') || ! str_contains($html, 'querySelectorAll') ) {
+            return array();
+        }
+
+        if ( ! str_contains($html, 'IntersectionObserver') && ! str_contains($html, 'isIntersecting') ) {
+            return array();
+        }
+
+        preg_match_all('/querySelectorAll\s*\(\s*([\'"`])\.([A-Za-z0-9_-]+)\1\s*\)/', $html, $selectorMatches);
+        preg_match_all('/classList\.add\s*\(([^)]*)\)/', $html, $addMatches);
+
+        $triggerClasses = array_values(array_unique($selectorMatches[2] ?? array()));
+        $terminalClasses = array();
+        foreach ( $addMatches[1] ?? array() as $args ) {
+            preg_match_all('/[\'"`]([A-Za-z0-9_-]+)[\'"`]/', (string) $args, $classMatches);
+            foreach ( $classMatches[1] ?? array() as $className ) {
+                $terminalClasses[] = $className;
+            }
+        }
+
+        $terminalClasses = array_values(array_unique($terminalClasses));
+        if ( array() === $triggerClasses || array() === $terminalClasses ) {
+            return array();
+        }
+
+        $promotions = array();
+        foreach ( array_slice($triggerClasses, 0, 20) as $triggerClass ) {
+            $promotions[$triggerClass] = array_values(array_diff(array_slice($terminalClasses, 0, 20), array( $triggerClass )));
+        }
+
+        return array_filter($promotions, static fn (array $classes): bool => array() !== $classes);
+    }
+
+    private function promotedClassName(string $className): string
+    {
+        if ( '' === trim($className) || array() === $this->staticClassPromotions ) {
+            return $className;
+        }
+
+        $classes = preg_split('/\s+/', trim($className)) ?: array();
+        foreach ( $classes as $class ) {
+            foreach ( $this->staticClassPromotions[$class] ?? array() as $terminalClass ) {
+                if ( ! in_array($terminalClass, $classes, true) ) {
+                    $classes[] = $terminalClass;
+                }
+            }
+        }
+
+        return implode(' ', $classes);
     }
 
     /**
