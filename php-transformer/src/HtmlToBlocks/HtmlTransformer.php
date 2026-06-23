@@ -702,6 +702,11 @@ final class HtmlTransformer
                 return $buttons;
             }
 
+            $textFlow = $this->textFlowBlockFromElement($element);
+            if ( null !== $textFlow ) {
+                return $textFlow;
+            }
+
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( 1 === count($children) ) {
                 if ( $this->shouldPreserveWrapper($element) ) {
@@ -1058,6 +1063,42 @@ final class HtmlTransformer
         }
 
         return false;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function textFlowBlockFromElement(DOMElement $element): ?array
+    {
+        if ( 'div' !== strtolower($element->tagName) || '' !== trim($this->attr($element, 'id')) || '' !== trim($this->attr($element, 'role')) ) {
+            return null;
+        }
+
+        $hasLineBreak = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( 'br' === $tagName ) {
+                $hasLineBreak = true;
+            }
+            if ( 'br' !== $tagName && ! $this->isInlineContentElement($tagName) && 'a' !== $tagName ) {
+                return null;
+            }
+        }
+
+        if ( ! $hasLineBreak ) {
+            return null;
+        }
+
+        $content = $this->innerHtml($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            return null;
+        }
+
+        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
     }
 
     private function paragraphBlockFromInlineContentWrapper(DOMElement $element): ?array
