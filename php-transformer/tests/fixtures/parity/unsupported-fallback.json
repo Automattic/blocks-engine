@@ -13,20 +13,20 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<aside><p>Fallback content</p></aside>"
+    "content": "<canvas><p>Fallback content</p></canvas>"
   },
   "expected_blocks": [],
   "expected_fallbacks": [
-    { "type": "unsupported_element", "reason": "unsupported_element", "tag": "aside", "selector": "aside:nth-of-type(1)", "child_count": 1 }
+    { "type": "unsupported_element", "reason": "unsupported_element", "tag": "canvas", "selector": "canvas:nth-of-type(1)", "child_count": 1 }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 0 },
     { "path": "fallbacks", "assert": "count", "count": 1 },
     { "path": "fallbacks.0.type", "assert": "equals", "value": "unsupported_element" },
-    { "path": "fallbacks.0.tag", "assert": "equals", "value": "aside" },
-    { "path": "fallbacks.0.selector", "assert": "equals", "value": "aside:nth-of-type(1)" },
-    { "path": "diagnostics.1.selector", "assert": "equals", "value": "aside:nth-of-type(1)" },
+    { "path": "fallbacks.0.tag", "assert": "equals", "value": "canvas" },
+    { "path": "fallbacks.0.selector", "assert": "equals", "value": "canvas:nth-of-type(1)" },
+    { "path": "diagnostics.1.selector", "assert": "equals", "value": "canvas:nth-of-type(1)" },
     { "path": "diagnostics.0.code", "assert": "equals", "value": "html_to_blocks_core_slice" }
   ]
 }
