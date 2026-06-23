@@ -51,8 +51,19 @@ final class NavigationPattern
     private function directNavigationAnchors(DOMElement $element): array
     {
         $anchors = array();
+        $isListRoot = in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true);
         foreach ( $element->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( $isListRoot && $child instanceof DOMElement && 'li' === strtolower($child->tagName) ) {
+                $anchor = $this->singleNavigationAnchor($child);
+                if ( ! $anchor instanceof DOMElement || '' === trim($anchor->textContent ?? '') ) {
+                    return array();
+                }
+
+                $anchors[] = $anchor;
                 continue;
             }
 

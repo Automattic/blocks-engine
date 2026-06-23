@@ -366,6 +366,16 @@ final class HtmlTransformer
         }
 
         if ( 'ul' === $tagName || 'ol' === $tagName ) {
+            $navigation = $this->navigationPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
+            if ( null !== $navigation ) {
+                return $navigation;
+            }
+
             $items = $this->listItems($element, $fallbacks);
 
             if ( array() === $items ) {
