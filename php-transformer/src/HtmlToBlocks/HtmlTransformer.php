@@ -450,6 +450,10 @@ final class HtmlTransformer
         }
 
         if ( 'svg' === $tagName ) {
+            if ( $this->isSafeDecorativeSvgElement($element) ) {
+                return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($element) ), array(), $element);
+            }
+
             $this->captureInlineSvgFallback($element, $fallbacks);
             return null;
         }
@@ -1520,6 +1524,76 @@ final class HtmlTransformer
         }
 
         return $attributes;
+    }
+
+    private function isSafeDecorativeSvgElement(DOMElement $element): bool
+    {
+        if ( ! $this->isSafeSvgContent($this->outerHtml($element)) || ! $this->isPassiveSvgMarkup($element) ) {
+            return false;
+        }
+
+        $role = strtolower(trim($this->attr($element, 'role')));
+        if ( 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) || in_array($role, array( 'presentation', 'none' ), true) ) {
+            return true;
+        }
+
+        return $this->hasIconLikeContext($element);
+    }
+
+    private function hasIconLikeContext(DOMElement $element): bool
+    {
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            $context = strtolower(trim(implode(' ', array(
+                $this->attr($current, 'class'),
+                $this->attr($current, 'id'),
+                $this->attr($current, 'aria-label'),
+                $this->attr($current, 'title'),
+            ))));
+
+            if ( preg_match('/(?:^|[\s_-])(?:icon|logo)(?:$|[\s_-])/', $context) ) {
+                return true;
+            }
+
+            if ( in_array(strtolower($current->tagName), array( 'body', 'main', 'article', 'section' ), true) ) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private function isPassiveSvgMarkup(DOMElement $element): bool
+    {
+        $allowedTags = array_flip(array( 'circle', 'clippath', 'defs', 'desc', 'ellipse', 'g', 'line', 'lineargradient', 'mask', 'path', 'polygon', 'polyline', 'radialgradient', 'rect', 'stop', 'svg', 'title' ));
+        $allowedAttributes = array_flip(array( 'aria-hidden', 'class', 'clip-path', 'clip-rule', 'cx', 'cy', 'd', 'fill', 'fill-opacity', 'fill-rule', 'height', 'id', 'offset', 'opacity', 'points', 'r', 'role', 'rx', 'ry', 'stroke', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin', 'stroke-opacity', 'stroke-width', 'style', 'transform', 'viewbox', 'width', 'x', 'x1', 'x2', 'xmlns', 'y', 'y1', 'y2' ));
+
+        foreach ( $element->getElementsByTagName('*') as $child ) {
+            if ( ! $child instanceof DOMElement || ! $this->isPassiveSvgElement($child, $allowedTags, $allowedAttributes) ) {
+                return false;
+            }
+        }
+
+        return $this->isPassiveSvgElement($element, $allowedTags, $allowedAttributes);
+    }
+
+    /**
+     * @param array<string, int> $allowedTags
+     * @param array<string, int> $allowedAttributes
+     */
+    private function isPassiveSvgElement(DOMElement $element, array $allowedTags, array $allowedAttributes): bool
+    {
+        if ( ! isset($allowedTags[strtolower($element->tagName)]) ) {
+            return false;
+        }
+
+        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+            $name = strtolower($name);
+            if ( ! isset($allowedAttributes[$name]) || preg_match('/^on[a-z]+$|(?:^|:)href$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:|\burl\s*\(/i', $value) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

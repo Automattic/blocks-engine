@@ -186,6 +186,25 @@ $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_script_fallback'] ?
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_unsupported_element'] ?? array(), 'html_unsupported_element', 'info', 'unknown', 'core/html');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallback'] ?? array(), 'html_iframe_embed_fallback', 'warning', 'third_party_embed_runtime', 'embed');
 
+$safeDecorativeSvg = ( new HtmlTransformer() )->transform(
+    '<main><svg aria-hidden="true" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"></circle></svg><div class="site-logo"><svg viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg></div></main>'
+)->toArray();
+$safeDecorativeDiagnostics = $safeDecorativeSvg['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$assert(array() === $safeDecorativeDiagnostics, 'safe decorative inline SVGs do not emit fallback diagnostics');
+$assert(2 <= ($safeDecorativeSvg['metrics']['block_count'] ?? 0), 'safe decorative inline SVGs materialize as blocks');
+$assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), '<svg aria-hidden="true"'), 'safe aria-hidden inline SVG markup is preserved');
+$assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'site-logo') && str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), '<path d="M0 0h10v10H0z"'), 'safe logo-like inline SVG context is preserved');
+
+$unsafeDecorativeSvg = ( new HtmlTransformer() )->transform(
+    '<main><svg aria-hidden="true" viewBox="0 0 10 10"><script>alert(1)</script><circle onclick="alert(1)" cx="5" cy="5" r="5"></circle></svg></main>'
+)->toArray();
+$unsafeDecorativeDiagnostics = $unsafeDecorativeSvg['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$unsafeDecorativeDiagnostic = $unsafeDecorativeDiagnostics[0] ?? array();
+$assert(array() === ($unsafeDecorativeSvg['blocks'] ?? array()), 'unsafe decorative inline SVG does not materialize as a block');
+$assertNormalizedFallbackDiagnostic($unsafeDecorativeDiagnostic, 'html_unsafe_inline_svg', 'warning', 'sanitization_review', 'image_asset');
+$assert(! str_contains((string) ($unsafeDecorativeDiagnostic['html'] ?? ''), '<script'), 'unsafe inline SVG fallback metadata strips scripts');
+$assert(! str_contains((string) ($unsafeDecorativeDiagnostic['html'] ?? ''), 'onclick='), 'unsafe inline SVG fallback metadata strips event attributes');
+
 $interactions = ( new HtmlTransformer() )->transform(
     '<main><button aria-controls="panel" aria-expanded="false" data-action="toggle">Toggle</button><section id="panel">Panel</section><div role="tablist"><button role="tab" aria-controls="tab-one">One</button></div><div id="tab-one">Tab one</div><dialog id="signup">Join</dialog><div class="hero-carousel"><button class="carousel-next">Next</button></div></main>'
 )->toArray();
