@@ -352,6 +352,11 @@ final class HtmlTransformer
         }
 
         if ( $this->isInlineContentElement($tagName) ) {
+            $dynamicText = $this->dynamicTextContent($element);
+            if ( null !== $dynamicText ) {
+                return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->runtime->escapeHtml($dynamicText) )), array(), $element);
+            }
+
             $content = $this->outerHtml($element);
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 $children = $this->convertChildren($element, $fallbacks, true);
@@ -1130,6 +1135,21 @@ final class HtmlTransformer
         }
 
         return array( $this->createBlock('core/paragraph', array( 'content' => $value )) );
+    }
+
+    private function dynamicTextContent(DOMElement $element): ?string
+    {
+        $target = trim($this->attr($element, 'data-target'));
+        if ( '' === $target || ! is_numeric($target) ) {
+            return null;
+        }
+
+        $isFloat = 'true' === strtolower(trim($this->attr($element, 'data-float'))) || str_contains($target, '.');
+        $value = $isFloat
+            ? number_format((float) $target, 1, '.', ',')
+            : number_format((float) $target, 0, '.', ',');
+
+        return $this->attr($element, 'data-prefix') . $value . $this->attr($element, 'data-suffix');
     }
 
     private function hasClass(DOMElement $element, string $className): bool
