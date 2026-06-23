@@ -163,12 +163,13 @@ $assert('success' === $simple['status'], 'simple artifact compiles successfully'
 $assert(ArtifactCompiler::INPUT_SCHEMA === ($simple['source_reports']['artifact']['schema'] ?? ''), 'artifact report exposes canonical site artifact schema');
 $assert(ArtifactCompiler::INPUT_SCHEMA === ($simple['source_reports']['artifact']['original_schema'] ?? ''), 'canonical site artifact input schema is accepted and preserved');
 $assert('index.html' === ($simple['source_reports']['artifact']['entry_path'] ?? ''), 'generated HTML becomes an index entry');
-$assert(str_contains((string) $simple['serialized_blocks'], '<!-- wp:html -->'), 'HTML is preserved as serialized block markup');
+$assert(str_contains((string) $simple['serialized_blocks'], '<!-- wp:heading'), 'artifact HTML is transformed into native serialized block markup');
+$assert(! str_contains((string) $simple['serialized_blocks'], '<!-- wp:html -->'), 'artifact HTML does not fall back to raw HTML when transformer-safe');
 $assert('hero' === ($simple['components'][0]['name'] ?? ''), 'component candidates are exposed');
 $assert(! array_key_exists('legacy_mapping', $simple), 'artifact result omits compatibility-only legacy mapping');
 $assert(strlen('<main><article data-component="Hero"><h1>Hello artifact</h1></article></main>') === ($simple['metrics']['input_bytes'] ?? null), 'artifact metrics expose input bytes');
 $assert(strlen((string) $simple['serialized_blocks']) === ($simple['metrics']['output_bytes'] ?? null), 'artifact metrics expose output bytes');
-$assert(0 === ($simple['metrics']['block_count'] ?? null), 'artifact metrics expose block count');
+$assert(2 === ($simple['metrics']['block_count'] ?? null), 'artifact metrics expose nested block count');
 $assert(0 === ($simple['metrics']['fallback_count'] ?? null), 'artifact metrics expose fallback count');
 $assert(0 === ($simple['metrics']['diagnostic_count'] ?? null), 'artifact metrics expose diagnostic count');
 $assert(is_float($simple['metrics']['transform_duration_ms'] ?? null), 'artifact metrics expose transform duration');
