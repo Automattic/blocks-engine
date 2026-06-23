@@ -1,3 +1,5 @@
+import { compose } from '../compose';
+import type { ConversionContext } from '../types';
 import { canonicalize } from './canonicalize';
 import { rawConvert } from './raw-convert';
 
@@ -5,11 +7,17 @@ export { bootstrap } from './bootstrap';
 export { canonicalize } from './canonicalize';
 export { rawConvert } from './raw-convert';
 
-export type ConvertContext = { url?: string };
+export type ConvertContext = Partial<ConversionContext>;
 
 export function convert(html: string, ctx?: ConvertContext): string {
-  void ctx;
   const raw = rawConvert(html);
-  // D6: insert compose() between rawConvert and canonicalize
-  return canonicalize(raw.html ?? '').html;
+  const conversionCtx: ConversionContext = {
+    url: ctx?.url ?? '',
+    ...(ctx?.mediaMap ? { mediaMap: ctx.mediaMap } : {}),
+  };
+  const blockMarkup =
+    raw.html !== null && raw.wpHtmlResidue === 0
+      ? raw.html
+      : compose(html, conversionCtx, {});
+  return canonicalize(blockMarkup).html;
 }
