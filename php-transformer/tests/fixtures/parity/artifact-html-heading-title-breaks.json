@@ -1,0 +1,40 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-html-heading-title-breaks",
+  "description": "Keeps human-readable spacing when materialized page titles come from HTML headings split by break tags.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-html-heading-title-breaks.json",
+    "notes": "Product-neutral fixture for generic static-site page title extraction."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This artifact metadata fixture has no downstream legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "content": "<main><h1>Between the Fog<br>and the Fire</h1><p>Release page.</p></main>",
+          "mime_type": "text/html",
+          "role": "entry"
+        },
+        {
+          "path": "contact.html",
+          "content": "<main><h1>Say<br>Hello.</h1><p>Contact page.</p></main>",
+          "mime_type": "text/html"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.materialization_plan.pages", "assert": "count", "count": 2 },
+    { "path": "source_reports.materialization_plan.pages.0.title", "assert": "equals", "value": "Between the Fog and the Fire" },
+    { "path": "source_reports.materialization_plan.pages.1.title", "assert": "equals", "value": "Say Hello." },
+    { "path": "source_reports.conversion_report.source_summary.page_count", "assert": "equals", "value": 2 }
+  ]
+}
