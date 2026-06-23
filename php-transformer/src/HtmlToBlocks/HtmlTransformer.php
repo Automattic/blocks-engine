@@ -414,7 +414,10 @@ final class HtmlTransformer
                 )), static fn ($value): bool => '' !== $value), array(), $element);
             }
 
-            $innerBlocks = $this->convertChildrenWithoutTags($element, $fallbacks, array( 'cite', 'footer' ));
+            $innerBlocks = $this->phrasingQuoteChildren($element, $value);
+            if ( array() === $innerBlocks ) {
+                $innerBlocks = $this->convertChildrenWithoutTags($element, $fallbacks, array( 'cite', 'footer' ));
+            }
             if ( array() === $innerBlocks ) {
                 $innerBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $value ));
             }
@@ -1100,6 +1103,33 @@ final class HtmlTransformer
         }
 
         return $nonAnchorText;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function phrasingQuoteChildren(DOMElement $element, string $value): array
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( in_array($tagName, array( 'cite', 'footer' ), true) ) {
+                continue;
+            }
+            if ( 'br' === $tagName || $this->isInlineContentElement($tagName) ) {
+                continue;
+            }
+
+            return array();
+        }
+
+        return array( $this->createBlock('core/paragraph', array( 'content' => $value )) );
     }
 
     private function hasClass(DOMElement $element, string $className): bool
