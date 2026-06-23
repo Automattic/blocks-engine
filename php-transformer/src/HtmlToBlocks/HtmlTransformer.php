@@ -554,7 +554,7 @@ final class HtmlTransformer
             if ( $this->hasBlockContentChildren($element) ) {
                 $children = $this->convertChildren($element, $fallbacks, true);
                 if ( array() !== $children ) {
-                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                    return $this->createBlock('core/group', array_merge($this->presentationAttributes($element), $this->cardLinkAttributes($element)), $children, $element);
                 }
             }
 
@@ -2926,6 +2926,24 @@ final class HtmlTransformer
         }
 
         return $url;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function cardLinkAttributes(DOMElement $anchor): array
+    {
+        $href = $this->safeLinkUrl($this->attr($anchor, 'href'));
+        if ( '' === $href ) {
+            return array();
+        }
+
+        return array_filter(array(
+            'href'      => $href,
+            'target'    => $this->attr($anchor, 'target'),
+            'rel'       => $this->attr($anchor, 'rel'),
+            'ariaLabel' => $this->attr($anchor, 'aria-label'),
+        ), static fn (string $value): bool => '' !== trim($value));
     }
 
     /**
