@@ -51,19 +51,12 @@ final class NavigationPattern
     private function directNavigationAnchors(DOMElement $element): array
     {
         $anchors = array();
-        $isListRoot = in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true);
+        if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
+            return $this->navigationAnchorsFromList($element);
+        }
+
         foreach ( $element->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-
-            if ( $isListRoot && $child instanceof DOMElement && 'li' === strtolower($child->tagName) ) {
-                $anchor = $this->singleNavigationAnchor($child);
-                if ( ! $anchor instanceof DOMElement || '' === trim($anchor->textContent ?? '') ) {
-                    return array();
-                }
-
-                $anchors[] = $anchor;
                 continue;
             }
 
@@ -93,6 +86,32 @@ final class NavigationPattern
             }
 
             return array();
+        }
+
+        return $anchors;
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function navigationAnchorsFromList(DOMElement $list): array
+    {
+        $anchors = array();
+        foreach ( $list->childNodes as $item ) {
+            if ( XML_TEXT_NODE === $item->nodeType && '' === trim($item->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $item instanceof DOMElement || 'li' !== strtolower($item->tagName) ) {
+                return array();
+            }
+
+            $anchor = $this->singleNavigationAnchor($item);
+            if ( ! $anchor instanceof DOMElement || '' === trim($anchor->textContent ?? '') ) {
+                return array();
+            }
+
+            $anchors[] = $anchor;
         }
 
         return $anchors;

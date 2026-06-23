@@ -416,6 +416,15 @@ final class HtmlTransformer
             return $this->createBlock('core/quote', array_filter(array_merge($this->presentationAttributes($element), array( 'citation' => $citation )), static fn ($value): bool => '' !== $value), $innerBlocks, $element);
         }
 
+        if ( 'address' === $tagName ) {
+            $content = $this->innerHtml($element);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        }
+
         if ( 'figure' === $tagName ) {
             $gallery = $this->galleryBlockFromElement($element, $fallbacks);
             if ( null !== $gallery ) {
