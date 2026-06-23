@@ -149,7 +149,7 @@ final class HtmlTransformer
 
         $fallbacks   = array();
         $interactionCandidates = $this->interactionCandidates($body);
-        $blocks      = $this->convertChildren($body, $fallbacks, true);
+        $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
         $diagnostics = array(
@@ -194,7 +194,7 @@ final class HtmlTransformer
             sourceReports: $sourceReports,
             coverage: array(
                 array(
-                    'supported_blocks' => array( 'core/audio', 'core/button', 'core/buttons', 'core/code', 'core/column', 'core/columns', 'core/details', 'core/embed', 'core/file', 'core/gallery', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/separator', 'core/shortcode', 'core/spacer', 'core/table', 'core/video', 'core/search' ),
+                    'supported_blocks' => array( 'core/audio', 'core/button', 'core/buttons', 'core/code', 'core/column', 'core/columns', 'core/details', 'core/embed', 'core/file', 'core/gallery', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/separator', 'core/shortcode', 'core/spacer', 'core/navigation-submenu', 'core/table', 'core/video', 'core/search' ),
                     'block_count'      => count($blocks),
                     'fallback_count'   => count($fallbacks),
                     'source_provenance_count' => count($sourceProvenance),
@@ -238,6 +238,99 @@ final class HtmlTransformer
         }
 
         return $count;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<int, array<string, mixed>>
+     */
+    private function deduplicateNavigationBlocks(array $blocks): array
+    {
+        $seen = array();
+        return $this->deduplicateNavigationBlocksRecursive($blocks, $seen);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<string, bool> $seen
+     * @return array<int, array<string, mixed>>
+     */
+    private function deduplicateNavigationBlocksRecursive(array $blocks, array &$seen): array
+    {
+        $deduplicated = array();
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $block['innerBlocks'] = $this->deduplicateNavigationBlocksRecursive($block['innerBlocks'], $seen);
+            }
+
+            if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
+                $signature = $this->navigationBlockSignature($block);
+                if ( '' !== $signature && isset($seen[$signature]) ) {
+                    continue;
+                }
+                if ( '' !== $signature ) {
+                    $seen[$signature] = true;
+                }
+            }
+
+            if ( 'core/group' === ($block['blockName'] ?? '') && empty($block['innerBlocks']) && $this->isMobileNavigationWrapperAttrs($block['attrs'] ?? array()) ) {
+                continue;
+            }
+
+            $deduplicated[] = $block;
+        }
+
+        return $deduplicated;
+    }
+
+    /**
+     * @param array<string, mixed> $block
+     */
+    private function navigationBlockSignature(array $block): string
+    {
+        $links = array();
+        $this->collectNavigationBlockLinks($block, $links);
+        return implode('|', $links);
+    }
+
+    /**
+     * @param array<string, mixed> $block
+     * @param array<int, string> $links
+     */
+    private function collectNavigationBlockLinks(array $block, array &$links): void
+    {
+        if ( in_array($block['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
+            $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+            $links[] = trim((string) ($attrs['label'] ?? '')) . '>' . trim((string) ($attrs['url'] ?? ''));
+        }
+
+        foreach ( is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array() as $innerBlock ) {
+            if ( is_array($innerBlock) ) {
+                $this->collectNavigationBlockLinks($innerBlock, $links);
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function isMobileNavigationWrapperAttrs(array $attrs): bool
+    {
+        $className = strtolower((string) ($attrs['className'] ?? ''));
+        if ( '' === $className ) {
+            return false;
+        }
+
+        if ( preg_match('/(?:^|[\s_-])(?:mobile|drawer|offcanvas)(?:$|[\s_-])/', $className) ) {
+            return true;
+        }
+
+        return (bool) preg_match('/(?:^|[\s_-])(?:overlay|panel|dialog)(?:$|[\s_-])/', $className)
+            && preg_match('/(?:^|[\s_-])(?:nav|menu|drawer|offcanvas)(?:$|[\s_-])/', $className);
     }
 
     private function normalizeHtml5VoidElements(string $html): string

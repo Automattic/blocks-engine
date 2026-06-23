@@ -165,6 +165,14 @@ final class BlockFactory
             return '<li' . $this->blockSupportAttrs($attrs, 'wp-block-navigation-item wp-block-navigation-link') . '><a class="wp-block-navigation-item__content"' . $href . '><span class="wp-block-navigation-item__label">' . ($attrs['label'] ?? '') . '</span></a></li>';
         }
 
+        if ( 'core/navigation-submenu' === $name ) {
+            $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
+            return array(
+                'opening' => '<li' . $this->blockSupportAttrs($attrs, 'wp-block-navigation-item has-child wp-block-navigation-submenu') . '><a class="wp-block-navigation-item__content"' . $href . '><span class="wp-block-navigation-item__label">' . ($attrs['label'] ?? '') . '</span></a><ul class="wp-block-navigation__submenu-container">',
+                'closing' => '</ul></li>',
+            );
+        }
+
         if ( 'core/shortcode' === $name ) {
             return '<div class="wp-block-shortcode">' . ($attrs['text'] ?? '') . '</div>';
         }
