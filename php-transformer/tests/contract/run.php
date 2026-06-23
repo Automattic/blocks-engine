@@ -133,7 +133,25 @@ $inlineSvgVisualWrapper = ( new HtmlTransformer() )->transform(
 $serializedInlineSvgVisualWrapper = (string) ($inlineSvgVisualWrapper['serialized_blocks'] ?? '');
 $assert(str_contains($serializedInlineSvgVisualWrapper, 'visual-region'), 'HTML transform preserves CSS-addressable visual wrapper classes');
 $assert(str_contains($serializedInlineSvgVisualWrapper, 'map-layer'), 'HTML transform preserves nested visual wrapper classes');
-$assert(str_contains($serializedInlineSvgVisualWrapper, 'map-image'), 'HTML transform preserves background-image visual leaf classes when inline SVG children are unsupported');
+$assert(str_contains($serializedInlineSvgVisualWrapper, 'map-image'), 'HTML transform preserves background-image visual leaf classes when inline SVG children are present');
+
+$safeInlineSvg = ( new HtmlTransformer() )->transform(
+    '<main><section class="icon-row"><span class="icon"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0h16v16H0z"></path></svg></span></section></main>',
+    array(
+        'strict'          => true,
+        'allow_fallbacks' => false,
+    )
+)->toArray();
+$safeInlineSvgSerialized = (string) ($safeInlineSvg['serialized_blocks'] ?? '');
+$assert('success' === ($safeInlineSvg['status'] ?? ''), 'safe inline SVG does not trip strict fallback gates', (string) ($safeInlineSvg['status'] ?? ''));
+$assert(array() === ($safeInlineSvg['fallbacks'] ?? array()), 'safe inline SVG is converted instead of recorded as fallback metadata');
+$assert('core/image' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'safe inline SVG converts to a Gutenberg-renderable image block');
+$assert(! str_contains($safeInlineSvgSerialized, '<!-- wp:html'), 'safe inline SVG conversion avoids raw HTML blocks');
+$assert(str_contains($safeInlineSvgSerialized, 'data:image/svg+xml,'), 'safe inline SVG is serialized as an image data URI');
+$assert(str_contains(rawurldecode($safeInlineSvgSerialized), '<svg viewbox="0 0 16 16" aria-hidden="true"><path d="M0 0h16v16H0z"></path></svg>'), 'safe inline SVG markup is preserved in serialized image data');
+
+$unsafeInlineSvg = ( new HtmlTransformer() )->transform('<main><svg onload="alert(1)"><path d="M0 0h1v1z"></path></svg></main>')->toArray();
+$assert('html_unsafe_inline_svg' === ($unsafeInlineSvg['fallbacks'][0]['diagnostic_code'] ?? ''), 'unsafe inline SVG remains a fallback diagnostic');
 
 $assetMetadataOptions = array(
     'context' => array(

@@ -130,7 +130,7 @@ final class HtmlTransformer
         $diagnostics = array(
             array(
                 'code'    => 'html_to_blocks_core_slice',
-                'message' => 'Converted supported core text, layout, media, gallery, embed, file, table, button, shortcode, spacer, definition-list, details, navigation, and wrapper elements; unsupported elements are reported as fallbacks.',
+                'message' => 'Converted supported core text, layout, media, gallery, embed, file, table, button, shortcode, spacer, definition-list, details, navigation, safe inline SVG images, and wrapper elements; unsupported elements are reported as fallbacks.',
                 'source'  => self::class,
             ),
         );
@@ -319,6 +319,17 @@ final class HtmlTransformer
         if ( $this->isInlineContentElement($tagName) ) {
             $content = $this->outerHtml($element);
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                $children = $this->convertChildren($element, $fallbacks, true);
+                if ( 1 === count($children) ) {
+                    if ( array() !== $this->presentationAttributes($element) ) {
+                        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                    }
+                    return $children[0];
+                }
+                if ( array() !== $children ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                }
+
                 return null;
             }
 
@@ -452,6 +463,11 @@ final class HtmlTransformer
         }
 
         if ( 'svg' === $tagName ) {
+            $svgBlock = $this->inlineSvgBlockFromElement($element);
+            if ( null !== $svgBlock ) {
+                return $svgBlock;
+            }
+
             $this->captureInlineSvgFallback($element, $fallbacks);
             return null;
         }
@@ -1215,6 +1231,56 @@ final class HtmlTransformer
         $html = preg_replace('/\s+srcdoc\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
 
         return trim($html);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function inlineSvgBlockFromElement(DOMElement $element): ?array
+    {
+        if ( ! $this->isSafeSvgContent($this->outerHtml($element)) ) {
+            return null;
+        }
+
+        $html = $this->safeFallbackHtml($element);
+        if ( ! $this->isSafeSvgContent($html) ) {
+            return null;
+        }
+
+        $attrs = array_filter(array_merge($this->presentationAttributes($element), array(
+            'url'    => 'data:image/svg+xml,' . rawurlencode($html),
+            'alt'    => $this->inlineSvgAltText($element),
+            'title'  => $this->inlineSvgTitleText($element),
+            'width'  => $this->attr($element, 'width'),
+            'height' => $this->attr($element, 'height'),
+        )), static fn ($value): bool => '' !== $value);
+
+        return $this->createBlock('core/image', $attrs, array(), $element);
+    }
+
+    private function inlineSvgAltText(DOMElement $element): string
+    {
+        if ( 'true' === strtolower($this->attr($element, 'aria-hidden')) || 'presentation' === strtolower($this->attr($element, 'role')) ) {
+            return '';
+        }
+
+        $ariaLabel = trim($this->attr($element, 'aria-label'));
+        if ( '' !== $ariaLabel ) {
+            return $ariaLabel;
+        }
+
+        return $this->inlineSvgTitleText($element);
+    }
+
+    private function inlineSvgTitleText(DOMElement $element): string
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'title' === strtolower($child->tagName) ) {
+                return trim($child->textContent ?? '');
+            }
+        }
+
+        return '';
     }
 
     /**
