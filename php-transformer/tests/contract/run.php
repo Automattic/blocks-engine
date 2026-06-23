@@ -155,7 +155,7 @@ $assert('fixture:contextual-html' === ($contextual['provenance'][0]['source'] ??
 $assert('contract-test' === ($contextual['provenance'][0]['scope'] ?? ''), 'HTML provenance exposes generic scope metadata');
 
 $formFallback = ( new HtmlTransformer() )->transform(
-    '<main><form action="/contact" method="post"><label for="email">Email</label><input id="email" name="email" type="email" required><select name="topic"><option value="support" selected>Support</option></select><button type="submit">Send</button></form></main>'
+    '<main><form action="/contact" method="post" data-action="contact-submit"><label for="email">Email</label><input id="email" name="email" type="email" required><select name="topic"><option value="support" selected>Support</option></select><button type="submit">Send</button></form></main>'
 )->toArray();
 $formDiagnostic = $formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
 $assert(array() === ($formFallback['blocks'] ?? array()), 'form fallback does not synthesize canonical blocks');

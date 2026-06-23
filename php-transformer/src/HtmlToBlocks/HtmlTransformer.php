@@ -525,6 +525,11 @@ final class HtmlTransformer
                 return $searchBlock;
             }
 
+            $readableFormBlock = $this->readableFormBlockFromForm($element);
+            if ( null !== $readableFormBlock ) {
+                return $readableFormBlock;
+            }
+
             $controls = $this->formControls($element);
             $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
             $fallbacks[] = FallbackDiagnostic::build(array(
@@ -629,6 +634,11 @@ final class HtmlTransformer
                 return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
             }
             return null;
+        }
+
+        $readableControlBlock = $this->readableFormControlBlockFromElement($element);
+        if ( null !== $readableControlBlock ) {
+            return $readableControlBlock;
         }
 
         if ( $captureUnsupported ) {
@@ -1777,9 +1787,17 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( 0 < $form->getElementsByTagName('script')->length || array() !== $this->eventMetadata($form) ) {
+            return null;
+        }
+
         $textInput = null;
         $submitControl = null;
         foreach ( $this->formControlElements($form) as $control ) {
+            if ( array() !== $this->eventMetadata($control) ) {
+                return null;
+            }
+
             $tagName = strtolower($control->tagName);
             $type = $this->formControlType($control);
             if ( 'input' === $tagName && in_array($type, array( 'text', 'search' ), true) ) {
@@ -1801,7 +1819,7 @@ final class HtmlTransformer
             return null;
         }
 
-        if ( ! $textInput instanceof DOMElement || ! $submitControl instanceof DOMElement || ! $this->hasSearchFormSignal($form, $textInput) ) {
+        if ( ! $textInput instanceof DOMElement || ! $this->hasSearchFormSignal($form, $textInput) ) {
             return null;
         }
 
@@ -1811,11 +1829,195 @@ final class HtmlTransformer
             array(
                 'label'       => '' !== $inputLabel ? $inputLabel : 'Search',
                 'placeholder' => $this->attr($textInput, 'placeholder'),
-                'buttonText'  => $this->submitButtonText($submitControl),
+                'buttonText'  => $submitControl instanceof DOMElement ? $this->submitButtonText($submitControl) : '',
             )
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
 
         return $this->createBlock('core/search', $attrs, array(), $form);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function readableFormBlockFromForm(DOMElement $form): ?array
+    {
+        if ( 0 < $form->getElementsByTagName('script')->length || array() !== $this->eventMetadata($form) ) {
+            return null;
+        }
+
+        $contentBlocks = array();
+        $buttonBlocks = array();
+        foreach ( $this->formControlElements($form) as $control ) {
+            if ( array() !== $this->eventMetadata($control) || ! $this->isReadableFormControl($control) ) {
+                return null;
+            }
+
+            if ( 'submit' === $this->formControlType($control) ) {
+                $buttonBlocks[] = $this->createBlock('core/button', array_merge($this->presentationAttributes($control), array(
+                    'text' => $this->runtime->escapeHtml($this->readableSubmitText($control)),
+                )), array(), $control);
+                continue;
+            }
+
+            $summary = $this->readableFormControlText($control);
+            if ( '' !== $summary ) {
+                $contentBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $control);
+            }
+        }
+
+        if ( array() !== $buttonBlocks ) {
+            $contentBlocks[] = $this->createBlock('core/buttons', array(), $buttonBlocks, $form);
+        }
+
+        if ( array() === $contentBlocks ) {
+            return null;
+        }
+
+        return $this->createBlock('core/group', $this->presentationAttributes($form), $contentBlocks, $form);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function readableFormControlBlockFromElement(DOMElement $element): ?array
+    {
+        $tagName = strtolower($element->tagName);
+        if ( 'label' === $tagName ) {
+            $controls = $this->formControlElements($element);
+            if ( array() !== $controls ) {
+                $blocks = array();
+                foreach ( $controls as $control ) {
+                    if ( ! $this->isReadableFormControl($control) || array() !== $this->eventMetadata($control) ) {
+                        return null;
+                    }
+
+                    $summary = $this->readableFormControlText($control);
+                    if ( '' !== $summary ) {
+                        $blocks[] = $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $control);
+                    }
+                }
+
+                if ( 1 === count($blocks) ) {
+                    return $blocks[0];
+                }
+
+                return array() !== $blocks ? $this->createBlock('core/group', $this->presentationAttributes($element), $blocks, $element) : null;
+            }
+
+            $label = $this->normalizedControlLabelText($element);
+            if ( '' === $label ) {
+                $label = trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
+            }
+
+            return '' !== $label ? $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $element) : null;
+        }
+
+        if ( ! $this->isFormControlElement($element) || ! $this->isReadableFormControl($element) || array() !== $this->eventMetadata($element) ) {
+            return null;
+        }
+
+        if ( 'input' === $tagName && 'search' === $this->formControlType($element) ) {
+            $label = $this->formControlLabel($element);
+            if ( '' === $label ) {
+                $label = $this->attr($element, 'aria-label');
+            }
+            if ( '' === $label ) {
+                $label = 'Search';
+            }
+
+            $attrs = array_filter(array_merge(
+                $this->presentationAttributes($element),
+                array(
+                    'label'       => $label,
+                    'placeholder' => $this->attr($element, 'placeholder'),
+                )
+            ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+
+            return $this->createBlock('core/search', $attrs, array(), $element);
+        }
+
+        $summary = $this->readableFormControlText($element);
+        return '' !== $summary ? $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $element) : null;
+    }
+
+    private function isReadableFormControl(DOMElement $control): bool
+    {
+        $tagName = strtolower($control->tagName);
+        if ( in_array($tagName, array( 'select', 'textarea' ), true) ) {
+            return true;
+        }
+
+        return 'button' === $tagName || ( 'input' === $tagName && in_array($this->formControlType($control), array( 'email', 'number', 'search', 'submit', 'tel', 'text', 'url' ), true) );
+    }
+
+    private function readableFormControlText(DOMElement $control): string
+    {
+        $label = $this->formControlLabel($control);
+        if ( '' === $label ) {
+            $label = $this->attr($control, 'aria-label');
+        }
+        if ( '' === $label ) {
+            $label = $this->attr($control, 'placeholder');
+        }
+        if ( '' === $label ) {
+            $label = $this->attr($control, 'name');
+        }
+
+        $type = $this->formControlType($control);
+        if ( '' === $label ) {
+            $label = 'select' === $type ? 'Select option' : ucfirst($type);
+        }
+
+        $details = array();
+        if ( 'select' === strtolower($control->tagName) ) {
+            $options = array();
+            $selected = array();
+            foreach ( $this->selectOptions($control) as $option ) {
+                $optionLabel = (string) ($option['label'] ?? '');
+                if ( '' === $optionLabel ) {
+                    continue;
+                }
+                $options[] = $optionLabel;
+                if ( true === ($option['selected'] ?? false) ) {
+                    $selected[] = $optionLabel;
+                }
+            }
+            if ( array() !== $options ) {
+                $details[] = implode(', ', $options);
+            }
+            if ( array() !== $selected ) {
+                $details[] = 'selected: ' . implode(', ', $selected);
+            }
+        } else {
+            foreach ( array( 'value', 'placeholder' ) as $attribute ) {
+                $value = trim($this->attr($control, $attribute));
+                if ( '' !== $value ) {
+                    $details[] = $value;
+                    break;
+                }
+            }
+        }
+
+        $text = $label;
+        if ( array() !== $details ) {
+            $text .= ': ' . implode(' (', $details) . ( count($details) > 1 ? ')' : '' );
+        }
+        if ( $control->hasAttribute('required') ) {
+            $text .= ' (required)';
+        }
+
+        return $this->runtime->escapeHtml($text);
+    }
+
+    private function readableSubmitText(DOMElement $control): string
+    {
+        $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
+        if ( '' !== $text ) {
+            return $text;
+        }
+
+        $value = trim($this->attr($control, 'value'));
+        return '' !== $value ? $value : 'Submit';
     }
 
     /**
