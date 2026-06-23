@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Automattic/blocks-engine/tree/trunk/php-transformer/docs/contracts/php-transformer-visual-parity-report.schema.json",
+  "title": "Blocks Engine PHP Transformer visual parity report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "severity", "source_render", "target_render", "viewports", "matches", "findings", "recommendations"],
+  "properties": {
+    "schema": { "const": "blocks-engine/php-transformer/visual-parity-report/v1" },
+    "status": { "type": "string", "enum": ["pass", "warning", "fail", "unknown"] },
+    "severity": { "$ref": "#/$defs/severity" },
+    "source_render": { "$ref": "#/$defs/render" },
+    "target_render": { "$ref": "#/$defs/render" },
+    "viewports": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/viewport" }
+    },
+    "matches": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/match" }
+    },
+    "computed_style_deltas": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/computed_style_delta" }
+    },
+    "visual_diff": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "available": { "type": "boolean" },
+        "mismatch_percent": { "type": "number", "minimum": 0 },
+        "mismatch_pixels": { "type": "integer", "minimum": 0 },
+        "total_pixels": { "type": "integer", "minimum": 0 },
+        "ssim": { "type": "number", "minimum": 0, "maximum": 1 },
+        "threshold": { "type": "number", "minimum": 0 },
+        "diff_screenshot_path": { "type": "string" },
+        "by_viewport": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/visual_diff_viewport" }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "recommendations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/recommendation" }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "severity": { "type": "string", "enum": ["none", "info", "warning", "error", "critical"] },
+    "component_kind": { "type": "string", "enum": ["generic", "button", "menu", "card", "form"] },
+    "render": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["source", "target"] },
+        "url": { "type": "string" },
+        "route": { "type": "string" },
+        "html_path": { "type": "string" },
+        "artifact_path": { "type": "string" },
+        "renderer": { "type": "string" },
+        "renderer_version": { "type": "string" },
+        "commit": { "type": "string" },
+        "ref": { "type": "string" },
+        "generated_at": { "type": "string" },
+        "environment": { "type": "object", "additionalProperties": true },
+        "screenshot_path": { "type": "string" }
+      }
+    },
+    "viewport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "width", "height"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string" },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "device_scale_factor": { "type": "number", "minimum": 0 },
+        "media": { "type": "string" },
+        "source_screenshot_path": { "type": "string" },
+        "target_screenshot_path": { "type": "string" },
+        "diff_screenshot_path": { "type": "string" }
+      }
+    },
+    "selector_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_selector": { "type": "string" },
+        "target_selector": { "type": "string" },
+        "source_xpath": { "type": "string" },
+        "target_xpath": { "type": "string" },
+        "source_text": { "type": "string" },
+        "target_text": { "type": "string" },
+        "accessible_name": { "type": "string" },
+        "role": { "type": "string" },
+        "source_attributes": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean", "null"] } },
+        "target_attributes": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean", "null"] } }
+      }
+    },
+    "match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "source_selector", "target_selector", "confidence"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/component_kind" },
+        "source_selector": { "type": "string" },
+        "target_selector": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "viewport_id": { "type": "string" },
+        "selector_evidence": { "$ref": "#/$defs/selector_evidence" },
+        "dom": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source_tag": { "type": "string" },
+            "target_tag": { "type": "string" },
+            "source_classes": { "type": "array", "items": { "type": "string" } },
+            "target_classes": { "type": "array", "items": { "type": "string" } },
+            "source_child_count": { "type": "integer", "minimum": 0 },
+            "target_child_count": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "button": { "$ref": "#/$defs/button_fields" },
+        "menu": { "$ref": "#/$defs/menu_fields" },
+        "card": { "$ref": "#/$defs/card_fields" },
+        "form": { "$ref": "#/$defs/form_fields" }
+      }
+    },
+    "button_fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string" },
+        "href": { "type": "string" },
+        "variant": { "type": "string" },
+        "icon_position": { "type": "string", "enum": ["none", "before", "after", "only"] }
+      }
+    },
+    "menu_fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "orientation": { "type": "string", "enum": ["horizontal", "vertical", "unknown"] },
+        "item_count": { "type": "integer", "minimum": 0 },
+        "labels": { "type": "array", "items": { "type": "string" } },
+        "has_submenus": { "type": "boolean" }
+      }
+    },
+    "card_fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "heading": { "type": "string" },
+        "media_present": { "type": "boolean" },
+        "link_present": { "type": "boolean" },
+        "action_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "form_fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "action": { "type": "string" },
+        "method": { "type": "string" },
+        "control_count": { "type": "integer", "minimum": 0 },
+        "control_types": { "type": "array", "items": { "type": "string" } },
+        "required_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "computed_style_delta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["property", "severity"],
+      "properties": {
+        "viewport_id": { "type": "string" },
+        "source_selector": { "type": "string" },
+        "target_selector": { "type": "string" },
+        "property": { "type": "string" },
+        "source_value": { "type": ["string", "number", "boolean", "null"] },
+        "target_value": { "type": ["string", "number", "boolean", "null"] },
+        "delta": { "type": ["string", "number", "boolean", "null"] },
+        "severity": { "$ref": "#/$defs/severity" },
+        "selector_evidence": { "$ref": "#/$defs/selector_evidence" }
+      }
+    },
+    "visual_diff_viewport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["viewport_id"],
+      "properties": {
+        "viewport_id": { "type": "string" },
+        "mismatch_percent": { "type": "number", "minimum": 0 },
+        "mismatch_pixels": { "type": "integer", "minimum": 0 },
+        "ssim": { "type": "number", "minimum": 0, "maximum": 1 },
+        "diff_screenshot_path": { "type": "string" }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "severity", "category", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "category": { "type": "string", "enum": ["dom", "style", "layout", "visual", "interaction", "content", "asset", "accessibility"] },
+        "summary": { "type": "string" },
+        "viewport_id": { "type": "string" },
+        "kind": { "$ref": "#/$defs/component_kind" },
+        "selector_evidence": { "$ref": "#/$defs/selector_evidence" },
+        "style_deltas": { "type": "array", "items": { "$ref": "#/$defs/computed_style_delta" } },
+        "visual_diff": { "$ref": "#/$defs/visual_diff_viewport" },
+        "recommendation_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "recommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "priority", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "priority": { "type": "string", "enum": ["low", "medium", "high", "blocking"] },
+        "summary": { "type": "string" },
+        "rationale": { "type": "string" },
+        "selector_evidence": { "$ref": "#/$defs/selector_evidence" },
+        "finding_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

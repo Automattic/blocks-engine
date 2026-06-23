@@ -35,6 +35,24 @@ try {
 
     $smoke = <<<'PHP'
 require __DIR__ . '/vendor/autoload.php';
+$packageRoot = __DIR__ . '/vendor/automattic/blocks-engine-php-transformer';
+$requiredFiles = array(
+    'docs/contracts/php-transformer-visual-parity-fixture.schema.json',
+    'docs/contracts/php-transformer-visual-parity-report.schema.json',
+    'docs/contracts/visual-parity-report.md',
+    'tools/visual-parity/package-lock.json',
+    'tools/visual-parity/package.json',
+    'tools/visual-parity/bin/visual-parity.mjs',
+    'tools/visual-parity/tests/fixtures/source.html',
+    'tools/visual-parity/tests/fixtures/target.html',
+    'tools/visual-parity/tests/smoke.mjs',
+);
+foreach ( $requiredFiles as $requiredFile ) {
+    if ( ! is_file($packageRoot . '/' . $requiredFile) ) {
+        fwrite(STDERR, "php-transformer install proof missing package file: {$requiredFile}\n");
+        exit(1);
+    }
+}
 $result = (new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer())->transform('<h1>Proof</h1>')->toArray();
 if ('success' !== ($result['status'] ?? '') || '' === ($result['serialized_blocks'] ?? '')) {
     fwrite(STDERR, "php-transformer install proof failed\n");
