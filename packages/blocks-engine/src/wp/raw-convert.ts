@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { bootstrap } from './bootstrap';
+import { UNWRAP_SELECTOR } from '../raw-convertible';
 
 type JSDOMConstructor = new (html: string) => { window: { document: Document } };
 type RawHandler = (options: { HTML: string }) => unknown[];
@@ -48,10 +49,6 @@ function loadRuntime(): Runtime {
 //   3. Native-emit spacers -- core/spacer has no raw transform, so a spacer div
 //      -> wp:html; we splice a real wp:spacer (source height) after serialize.
 //
-
-// TODO(D5): import shared UNWRAP_SELECTOR from ../raw-convertible
-const UNWRAP_SELECTOR =
-  'main, div.wp-block-group, div.wp-block-post-content, div.entry-content, div.wp-block-group__inner-container';
 
 function spacerBlock(height: string): string {
   const h = height || '50px';
