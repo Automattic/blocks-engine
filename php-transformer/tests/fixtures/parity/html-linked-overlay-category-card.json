@@ -1,0 +1,38 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-linked-overlay-category-card",
+  "description": "Preserves linked overlay/category card hrefs when anchors wrap background and content regions.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-linked-overlay-category-card.json",
+    "notes": "Generic coverage for overlay cards with card__bg and category-card content."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"category-grid\"><a class=\"category-card overlay-card\" href=\"/category/design\" aria-label=\"Read design category\"><div class=\"card__bg\"><img src=\"/images/design.jpg\" alt=\"Design desk\"></div><div class=\"overlay\"><p class=\"category-card__label\">Design</p><h2>Sharp Visual Systems</h2><p>Patterns for expressive page sections.</p></div></a><a class=\"category-card overlay-card\" href=\"/category/build\"><div class=\"card__bg\"><img src=\"/images/build.jpg\" alt=\"Build tools\"></div><div class=\"content\"><p class=\"category-card__label\">Build</p><h2>Production Workflows</h2><p>Ship reliable experiences from compiled artifacts.</p></div></a></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "category-grid", "layout": { "type": "grid" } } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "category-card overlay-card", "href": "/category/design", "ariaLabel": "Read design category" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "card__bg" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "overlay" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "category-card overlay-card", "href": "/category/build" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "card__bg" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/group", "attrs": { "className": "content" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"href\":\"/category/design\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"href\":\"/category/build\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "card__bg" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
