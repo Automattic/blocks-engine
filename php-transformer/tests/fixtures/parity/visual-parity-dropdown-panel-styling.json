@@ -1,0 +1,27 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "visual-parity-dropdown-panel-styling",
+  "description": "Extracts submenu panel class and material style signals for dropdown navigation items.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/visual-parity-dropdown-panel-styling.json",
+    "notes": "Generic visual parity probe fixture for submenu panel background and shadow."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Probe output is a new upstream diagnostic surface."
+  },
+  "operation": "visual_parity_probe.extract",
+  "input": {
+    "content": "<style>.dropdown-panel{background-color:#fff;box-shadow:0 16px 40px rgba(0,0,0,.18);border-radius:18px}</style><nav class=\"primary-nav\"><ul><li><a href=\"/services\">Services</a><ul class=\"dropdown-panel shadow-lg\"><li><a href=\"/services/design\">Design</a></li></ul></li></ul></nav>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "summary.total", "assert": "equals", "value": 2 },
+    { "path": "probes.1.kind", "assert": "equals", "value": "submenu_item" },
+    { "path": "probes.1.signals.1", "assert": "equals", "value": "submenu-panel" },
+    { "path": "probes.1.hierarchy.submenu_panel.classes.0", "assert": "equals", "value": "dropdown-panel" },
+    { "path": "probes.1.hierarchy.submenu_panel.style.background-color", "assert": "equals", "value": "#fff" },
+    { "path": "probes.1.hierarchy.submenu_panel.style.box-shadow", "assert": "equals", "value": "0 16px 40px rgba(0,0,0,.18)" }
+  ]
+}
