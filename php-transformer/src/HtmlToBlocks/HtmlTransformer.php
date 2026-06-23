@@ -2504,6 +2504,7 @@ final class HtmlTransformer
         }
 
         $columns = array();
+        $columnFallbacks = array();
         foreach ( $element->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
                 continue;
@@ -2513,13 +2514,15 @@ final class HtmlTransformer
                 return null;
             }
 
-            $children = $this->convertChildren($child, $fallbacks, true);
+            $children = $this->convertChildren($child, $columnFallbacks, true);
             $columns[] = $this->createBlock('core/column', $this->presentationAttributes($child), $children, $child);
         }
 
         if ( count($columns) < 2 ) {
             return null;
         }
+
+        array_push($fallbacks, ...$columnFallbacks);
 
         return $this->createBlock('core/columns', $this->presentationAttributes($element), $columns, $element);
     }

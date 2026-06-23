@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-single-child-flex-svg-address",
+  "description": "Preserves single-child flex wrappers with safe inline SVG images and readable address line breaks without unsupported fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-single-child-flex-svg-address.json",
+    "notes": "Generic fixture for flex wrapper probing, inline SVG image conversion, and address/footer line-break handling."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><div class=\"illustration-frame\" style=\"display:flex;align-items:center;justify-content:center;\"><svg viewBox=\"0 0 40 20\" role=\"img\" aria-label=\"Storefront illustration\"><rect x=\"2\" y=\"8\" width=\"36\" height=\"10\" fill=\"#5D8A62\"></rect><path d=\"M2 8 L20 2 L38 8\" stroke=\"#243520\" fill=\"none\"></path></svg></div><address class=\"contact-card\">214 Maple Street<br>Benton Harbor, MI<br><a href=\"tel:+12695550193\">(269) 555-0193</a></address></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "illustration-frame", "style": "display:flex;align-items:center;justify-content:center;" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "alt": "Storefront illustration" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "contact-card", "content": "214 Maple Street<br>Benton Harbor, MI<br><a href=\"tel:+12695550193\">(269) 555-0193</a>" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "data:image/svg+xml," },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Storefront illustration" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
