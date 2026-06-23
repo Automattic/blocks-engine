@@ -1232,6 +1232,8 @@ $assert(! in_array('unsupported_figma_effect_type', $metadataDiagnosticCodes, tr
 $assert(in_array('font_css_missing_for_source_font', $metadataDiagnosticCodes, true), 'missing-font-css-diagnostic');
 $assert(str_starts_with($metadataWithFontCss, '@font-face{font-family:"Example Sans";src:url("assets/example-sans.woff2") format("woff2")}'), 'font-css-prepended-when-supplied');
 $assert(array('Example Sans') === ($metadataWithFontCssResult['source_reports']['figma']['html']['font_families'] ?? null), 'font-family-inventory-reports-source-fonts');
+$assert(array(array('family' => 'Example Sans', 'weights' => array(600))) === ($metadataResult['source_reports']['figma']['html']['font_usage'] ?? null), 'font-usage-reports-source-family-weights');
+$assert(array(array('family' => 'Example Sans', 'weights' => array(600))) === ($metadataResult['source_reports']['compiled_site']['theme']['font_usage'] ?? null), 'compiled-site-theme-promotes-figma-font-usage');
 $assert(true === ($metadataWithFontCssResult['source_reports']['figma']['html']['font_css_supplied'] ?? null), 'font-css-supplied-report');
 $styleDiagnostics = $metadataResult['source_reports']['figma']['html']['node_style_diagnostics'] ?? array();
 $mixedTextStyleDiagnostic = null;

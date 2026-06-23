@@ -100,6 +100,7 @@ final class StaticHtmlEmitter
                 'visual_node_count'            => count($visualNodeMap),
                 'visual_node_map'              => $visualNodeMap,
                 'font_families'                => $fontFamilies,
+                'font_usage'                   => $this->fontUsage($nodeStyleDiagnostics),
                 'font_css_supplied'            => '' !== $fontCss,
                 'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
             ),
@@ -392,6 +393,39 @@ final class StaticHtmlEmitter
 
         sort($families);
         return array_values(array_unique($families));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodeStyleDiagnostics
+     * @return array<int, array{family:string,weights:array<int,int>}>
+     */
+    private function fontUsage(array $nodeStyleDiagnostics): array
+    {
+        $weightsByFamily = array();
+        foreach ( $nodeStyleDiagnostics as $diagnostic ) {
+            $expected = is_array($diagnostic['expected'] ?? null) ? $diagnostic['expected'] : array();
+            if ( ! isset($expected['font_family']) || ! is_scalar($expected['font_family']) ) {
+                continue;
+            }
+
+            $family = trim((string) $expected['font_family'], " \t\n\r\0\x0B\"");
+            if ( '' === $family ) {
+                continue;
+            }
+
+            $weight = isset($expected['font_weight']) && is_numeric($expected['font_weight']) ? (int) $expected['font_weight'] : 400;
+            $weightsByFamily[$family][] = $weight;
+        }
+
+        ksort($weightsByFamily);
+        $usage = array();
+        foreach ( $weightsByFamily as $family => $weights ) {
+            $weights = array_values(array_unique($weights));
+            sort($weights);
+            $usage[] = array('family' => $family, 'weights' => $weights);
+        }
+
+        return $usage;
     }
 
     private function isWebSafeFontFamily(string $family): bool

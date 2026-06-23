@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatAdapterInterface;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationView;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 
@@ -487,6 +488,27 @@ $neutralPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(
     )
 );
 $assert(! array_key_exists('products', $neutralPlan), 'materialization plan omits product-specific manifest buckets');
+
+$fontMaterializationPlan = ( new FontMaterializationPlanBuilder() )->googleFonts(array(
+    array('family' => 'Open Sans', 'weights' => array(400, 700)),
+    array('family' => 'Poppins', 'weights' => array(500)),
+    array('family' => 'Arial', 'weights' => array(400)),
+));
+$assert('blocks-engine/php-transformer/font-materialization-plan/v1' === ($fontMaterializationPlan['schema'] ?? null), 'font materialization exposes schema');
+$assert('@import url("https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;700&family=Poppins:wght@500&display=swap");' === ($fontMaterializationPlan['css'] ?? null), 'font materialization builds deterministic google fonts css');
+$assert('assets/css/fonts.css' === ($fontMaterializationPlan['stylesheets'][0]['path'] ?? null), 'font materialization emits stylesheet asset plan');
+
+$fontAwarePlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(array(
+    'theme' => array(
+        'font_usage' => array(
+            array('family' => 'Open Sans', 'weights' => array(400, 700)),
+            array('family' => 'Poppins', 'weights' => array(500)),
+        ),
+    ),
+));
+$assert(array(array('family' => 'Open Sans', 'weights' => array(400, 700)), array('family' => 'Poppins', 'weights' => array(500))) === ($fontAwarePlan['theme']['font_usage'] ?? null), 'materialization plan preserves theme font usage');
+$assert('blocks-engine/php-transformer/font-materialization-plan/v1' === ($fontAwarePlan['theme']['font_materialization']['schema'] ?? null), 'materialization plan builds font materialization plan');
+$assert('@import url("https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;700&family=Poppins:wght@500&display=swap");' === ($fontAwarePlan['theme']['font_materialization']['css'] ?? null), 'materialization plan builds google font css from usage');
 
 $fragment = $compiler->compileFragment('<main><h2>Fragment</h2><p>Copy</p></main>', 'fixture:fragment')->toArray();
 $assert('success' === $fragment['status'], 'fragment compiles successfully', (string) $fragment['status']);
