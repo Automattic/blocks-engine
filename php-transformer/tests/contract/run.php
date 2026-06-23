@@ -127,6 +127,14 @@ $assert('Reserve now' === ($buttonBlocks[0]['innerBlocks'][0]['attrs']['text'] ?
 $assert('Call us' === ($buttonBlocks[1]['innerBlocks'][0]['attrs']['text'] ?? ''), 'button text strips nested markup');
 $assert(! str_contains((string) $buttonResult['serialized_blocks'], '\\u003c'), 'button serialization avoids escaped nested HTML attrs');
 
+$figmaGraphicGroup = ( new HtmlTransformer() )->transform(
+    '<main><section class="figma-node-21-448-group-32"><div class="figma-node-21-449-map"><div class="figma-node-21-450-map-image" style="background-image:url(assets/map.png)"><svg><path d="M0 0h1v1z"></path></svg></div></div></section></main>'
+)->toArray();
+$serializedFigmaGraphicGroup = (string) ($figmaGraphicGroup['serialized_blocks'] ?? '');
+$assert(str_contains($serializedFigmaGraphicGroup, 'figma-node-21-448-group-32'), 'HTML transform preserves Figma graphic group wrapper classes');
+$assert(str_contains($serializedFigmaGraphicGroup, 'figma-node-21-449-map'), 'HTML transform preserves nested Figma graphic group classes');
+$assert(str_contains($serializedFigmaGraphicGroup, 'figma-node-21-450-map-image'), 'HTML transform preserves background-image Figma leaf classes');
+
 $assetMetadataOptions = array(
     'context' => array(
         'asset_metadata' => array(

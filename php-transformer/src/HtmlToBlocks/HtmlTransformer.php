@@ -522,7 +522,7 @@ final class HtmlTransformer
 
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( 1 === count($children) ) {
-                if ( $this->shouldPreserveWrapper($element) && 'core/group' !== ($children[0]['blockName'] ?? '') ) {
+                if ( $this->shouldPreserveWrapper($element) ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
                 }
                 return $children[0];
@@ -764,11 +764,19 @@ final class HtmlTransformer
 
     private function shouldPreserveEmptyVisualElement(DOMElement $element): bool
     {
-        if ( '' !== trim($element->textContent ?? '') || 0 !== $this->childElementCount($element) ) {
+        if ( '' !== trim($element->textContent ?? '') ) {
             return false;
         }
 
-        return $this->shouldPreserveWrapper($element) || in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true) || 'true' === strtolower($this->attr($element, 'aria-hidden'));
+        if ( $this->shouldPreserveWrapper($element) ) {
+            return true;
+        }
+
+        if ( 0 !== $this->childElementCount($element) ) {
+            return false;
+        }
+
+        return in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true) || 'true' === strtolower($this->attr($element, 'aria-hidden'));
     }
 
     private function isInlineContentElement(string $tagName): bool
