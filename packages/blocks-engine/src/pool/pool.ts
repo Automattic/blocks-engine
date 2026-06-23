@@ -89,11 +89,17 @@ function normalizeSize(size: number | undefined): number {
 function workerChildPath(): string {
   const here = fileURLToPath(import.meta.url);
   const poolDir = dirname(here);
-  const sourcePath = resolve(poolDir, '..', 'wp', 'worker-child.ts');
-  if (existsSync(sourcePath)) {
-    return sourcePath;
+  const candidates = [
+    resolve(poolDir, 'wp', 'worker-child.js'),
+    resolve(poolDir, 'wp', 'worker-child.ts'),
+    resolve(poolDir, '..', 'wp', 'worker-child.ts'),
+    resolve(poolDir, '..', 'wp', 'worker-child.js'),
+  ];
+  const workerPath = candidates.find((candidate) => existsSync(candidate));
+  if (workerPath) {
+    return workerPath;
   }
-  return resolve(poolDir, '..', 'wp', 'worker-child.js');
+  throw new Error(`Unable to resolve worker child path. Tried: ${candidates.join(', ')}`);
 }
 
 function forkExecArgv(path: string): string[] {
