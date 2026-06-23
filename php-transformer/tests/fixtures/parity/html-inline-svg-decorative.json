@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-decorative",
+  "description": "Consumes safe decorative inline SVG separators and icons without fallback noise while preserving meaningful accessible SVGs as image blocks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-decorative.json",
+    "notes": "Product-neutral fixture for decorative wave separators and accessible logo/icon SVG handling."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section><h2>Before</h2><svg class=\"wave-divider\" viewBox=\"0 0 1200 120\" preserveAspectRatio=\"none\" aria-hidden=\"true\"><defs><linearGradient id=\"wave-g\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\" gradientUnits=\"objectBoundingBox\"><stop offset=\"0%\" stop-color=\"#f7efe0\" stop-opacity=\"0.95\"></stop><stop offset=\"100%\" stop-color=\"#e4c77b\"></stop></linearGradient></defs><path d=\"M0 60 C 180 20 360 100 540 60 S 900 20 1200 60 V120 H0 Z\" fill=\"url(#wave-g)\"></path></svg><p>After</p><svg viewBox=\"0 0 32 32\" role=\"img\" aria-label=\"Acme integration\"><title>Acme integration</title><rect width=\"32\" height=\"32\" rx=\"8\" fill=\"#111\"></rect><path d=\"M8 17 C12 10 20 10 24 17\" stroke=\"#fff\" stroke-width=\"2\" fill=\"none\" stroke-linecap=\"round\"></path></svg></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Before", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "After" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/image", "attrs": { "alt": "Acme integration", "title": "Acme integration" } }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks.2.attrs.url", "assert": "contains", "value": "data:image/svg+xml," },
+    { "path": "blocks.0.innerBlocks.2.attrs.url", "assert": "contains", "value": "aria-label%3D%22Acme%20integration%22" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

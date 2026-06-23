@@ -199,11 +199,11 @@ $safeInlineSvg = ( new HtmlTransformer() )->transform(
 )->toArray();
 $safeInlineSvgSerialized = (string) ($safeInlineSvg['serialized_blocks'] ?? '');
 $assert('success' === ($safeInlineSvg['status'] ?? ''), 'safe inline SVG does not trip strict fallback gates', (string) ($safeInlineSvg['status'] ?? ''));
-$assert(array() === ($safeInlineSvg['fallbacks'] ?? array()), 'safe inline SVG is converted instead of recorded as fallback metadata');
-$assert('core/image' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'safe inline SVG converts to a Gutenberg-renderable image block');
+$assert(array() === ($safeInlineSvg['fallbacks'] ?? array()), 'safe decorative inline SVG is consumed instead of recorded as fallback metadata');
+$assert('core/group' === ($safeInlineSvg['blocks'][0]['blockName'] ?? ''), 'decorative inline SVG preserves its CSS-addressable wrapper when present');
 $assert(! str_contains($safeInlineSvgSerialized, '<!-- wp:html'), 'safe inline SVG conversion avoids raw HTML blocks');
-$assert(str_contains($safeInlineSvgSerialized, 'data:image/svg+xml,'), 'safe inline SVG is serialized as an image data URI');
-$assert(str_contains(rawurldecode($safeInlineSvgSerialized), '<svg viewbox="0 0 16 16" aria-hidden="true"><path d="M0 0h16v16H0z"></path></svg>'), 'safe inline SVG markup is preserved in serialized image data');
+$assert(! str_contains($safeInlineSvgSerialized, 'data:image/svg+xml,'), 'decorative inline SVG avoids image data URI noise');
+$assert(! str_contains(rawurldecode($safeInlineSvgSerialized), '<svg'), 'decorative inline SVG markup is omitted from serialized blocks');
 
 $unsafeInlineSvg = ( new HtmlTransformer() )->transform('<main><svg onload="alert(1)"><path d="M0 0h1v1z"></path></svg></main>')->toArray();
 $assert('html_unsafe_inline_svg' === ($unsafeInlineSvg['fallbacks'][0]['diagnostic_code'] ?? ''), 'unsafe inline SVG remains a fallback diagnostic');
@@ -227,10 +227,10 @@ $safeDecorativeSvg = ( new HtmlTransformer() )->transform(
 )->toArray();
 $safeDecorativeDiagnostics = $safeDecorativeSvg['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
 $assert(array() === $safeDecorativeDiagnostics, 'safe decorative inline SVGs do not emit fallback diagnostics');
-$assert(2 <= ($safeDecorativeSvg['metrics']['block_count'] ?? 0), 'safe decorative inline SVGs materialize as blocks');
-$assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'safe decorative inline SVGs serialize as image data URIs');
-$assert(str_contains(rawurldecode((string) ($safeDecorativeSvg['serialized_blocks'] ?? '')), '<svg aria-hidden="true" viewbox="0 0 10 10"><circle cx="5" cy="5" r="5"></circle></svg>'), 'safe aria-hidden inline SVG markup is preserved');
-$assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'site-logo') && str_contains(rawurldecode((string) ($safeDecorativeSvg['serialized_blocks'] ?? '')), '<path d="M0 0h10v10H0z"></path>'), 'safe logo-like inline SVG context is preserved');
+$assert(1 <= ($safeDecorativeSvg['metrics']['block_count'] ?? 0), 'safe decorative inline SVG wrappers still materialize when they carry presentation signals');
+$assert(! str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'safe decorative inline SVGs do not serialize as image data URIs');
+$assert(! str_contains(rawurldecode((string) ($safeDecorativeSvg['serialized_blocks'] ?? '')), '<svg'), 'safe decorative inline SVG markup is omitted');
+$assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'site-logo'), 'safe logo-like inline SVG context preserves its wrapper class');
 
 $unsafeDecorativeSvg = ( new HtmlTransformer() )->transform(
     '<main><svg aria-hidden="true" viewBox="0 0 10 10"><script>alert(1)</script><circle onclick="alert(1)" cx="5" cy="5" r="5"></circle></svg></main>'
