@@ -19,14 +19,7 @@ final class NavigationPattern
             return null;
         }
 
-        $links = array();
-        foreach ( $this->directNavigationAnchors($element) as $anchor ) {
-            $links[] = $createBlock('core/navigation-link', array_filter(array(
-                'label' => $innerHtml($anchor),
-                'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
-                'kind'  => 'custom',
-            ), static fn ($value): bool => '' !== $value), array(), $anchor);
-        }
+        $links = $this->navigationBlocks($element, $innerHtml, $createBlock);
 
         if ( array() === $links ) {
             return null;
@@ -46,13 +39,14 @@ final class NavigationPattern
     }
 
     /**
-     * @return array<int, DOMElement>
+     * @return array<int, array<string, mixed>>
      */
-    private function directNavigationAnchors(DOMElement $element): array
+    private function navigationBlocks(DOMElement $element, callable $innerHtml, callable $createBlock): array
     {
-        $anchors = array();
+        $blocks = array();
+        $allowsDirectItems = 'nav' === strtolower($element->tagName) || $this->hasNavigationSignal($element) || $this->hasSubmenuSignal($element) || in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true);
         if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
-            return $this->navigationAnchorsFromList($element);
+            return $this->navigationBlocksFromList($element, $innerHtml, $createBlock);
         }
 
         foreach ( $element->childNodes as $child ) {
@@ -61,42 +55,45 @@ final class NavigationPattern
             }
 
             if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') ) {
-                $anchors[] = $child;
+                if ( ! $allowsDirectItems ) {
+                    return array();
+                }
+                $blocks[] = $this->navigationLinkBlock($child, $innerHtml, $createBlock);
                 continue;
             }
 
             if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
-                foreach ( $child->childNodes as $item ) {
-                    if ( XML_TEXT_NODE === $item->nodeType && '' === trim($item->textContent ?? '') ) {
-                        continue;
-                    }
-
-                    if ( ! $item instanceof DOMElement || 'li' !== strtolower($item->tagName) ) {
-                        return array();
-                    }
-
-                    $anchor = $this->singleNavigationAnchor($item);
-                    if ( ! $anchor instanceof DOMElement || '' === trim($anchor->textContent ?? '') ) {
-                        return array();
-                    }
-
-                    $anchors[] = $anchor;
+                $listBlocks = $this->navigationBlocksFromList($child, $innerHtml, $createBlock);
+                if ( array() === $listBlocks ) {
+                    return array();
                 }
+                $blocks = array_merge($blocks, $listBlocks);
                 continue;
+            }
+
+            if ( $child instanceof DOMElement ) {
+                if ( ! $allowsDirectItems ) {
+                    return array();
+                }
+                $block = $this->navigationBlockFromItem($child, $innerHtml, $createBlock);
+                if ( null !== $block ) {
+                    $blocks[] = $block;
+                    continue;
+                }
             }
 
             return array();
         }
 
-        return $anchors;
+        return $blocks;
     }
 
     /**
-     * @return array<int, DOMElement>
+     * @return array<int, array<string, mixed>>
      */
-    private function navigationAnchorsFromList(DOMElement $list): array
+    private function navigationBlocksFromList(DOMElement $list, callable $innerHtml, callable $createBlock): array
     {
-        $anchors = array();
+        $blocks = array();
         foreach ( $list->childNodes as $item ) {
             if ( XML_TEXT_NODE === $item->nodeType && '' === trim($item->textContent ?? '') ) {
                 continue;
@@ -106,30 +103,134 @@ final class NavigationPattern
                 return array();
             }
 
-            $anchor = $this->singleNavigationAnchor($item);
-            if ( ! $anchor instanceof DOMElement || '' === trim($anchor->textContent ?? '') ) {
+            $block = $this->navigationBlockFromItem($item, $innerHtml, $createBlock);
+            if ( null === $block ) {
                 return array();
             }
 
-            $anchors[] = $anchor;
+            $blocks[] = $block;
         }
 
-        return $anchors;
+        return $blocks;
     }
 
-    private function singleNavigationAnchor(DOMElement $element): ?DOMElement
+    private function navigationBlockFromItem(DOMElement $element, callable $innerHtml, callable $createBlock): ?array
+    {
+        $anchor = $this->primaryNavigationAnchor($element);
+        if ( ! $anchor instanceof DOMElement || '' === trim($anchor->textContent ?? '') ) {
+            return null;
+        }
+
+        $submenuBlocks = array();
+        foreach ( $this->submenuContainers($element, $anchor) as $submenuContainer ) {
+            foreach ( $this->navigationBlocks($submenuContainer, $innerHtml, $createBlock) as $submenuBlock ) {
+                $submenuBlocks[] = $submenuBlock;
+            }
+        }
+
+        if ( array() !== $submenuBlocks ) {
+            return $createBlock('core/navigation-submenu', array_filter(array(
+                'label' => $innerHtml($anchor),
+                'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
+                'kind'  => 'custom',
+            ), static fn ($value): bool => '' !== $value), $submenuBlocks, $element);
+        }
+
+        if ( 1 !== count($this->anchorsExcludingSubmenus($element, $anchor)) ) {
+            return null;
+        }
+
+        return $this->navigationLinkBlock($anchor, $innerHtml, $createBlock);
+    }
+
+    private function navigationLinkBlock(DOMElement $anchor, callable $innerHtml, callable $createBlock): array
+    {
+        return $createBlock('core/navigation-link', array_filter(array(
+            'label' => $innerHtml($anchor),
+            'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
+            'kind'  => 'custom',
+        ), static fn ($value): bool => '' !== $value), array(), $anchor);
+    }
+
+    private function primaryNavigationAnchor(DOMElement $element): ?DOMElement
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( 'a' === strtolower($child->tagName) ) {
+                return $child;
+            }
+
+            if ( in_array(strtolower($child->tagName), array( 'span', 'div', 'p' ), true) ) {
+                $anchor = $this->primaryNavigationAnchor($child);
+                if ( $anchor instanceof DOMElement ) {
+                    return $anchor;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function submenuContainers(DOMElement $element, DOMElement $primaryAnchor): array
+    {
+        $containers = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || $child->isSameNode($primaryAnchor) ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( in_array($tagName, array( 'ul', 'ol' ), true) || $this->hasSubmenuSignal($child) ) {
+                $containers[] = $child;
+            }
+        }
+
+        return $containers;
+    }
+
+    private function hasSubmenuSignal(DOMElement $element): bool
+    {
+        foreach ( array( 'class', 'id', 'role' ) as $attribute ) {
+            $value = $element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '';
+            foreach ( preg_split('/[^a-z0-9]+/', strtolower($value)) ?: array() as $token ) {
+                if ( in_array($token, array( 'dropdown', 'submenu', 'subnav', 'flyout', 'menu' ), true) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function anchorsExcludingSubmenus(DOMElement $element, DOMElement $primaryAnchor): array
     {
         $anchors = array();
-        $this->collectAnchors($element, $anchors);
-
-        return 1 === count($anchors) ? $anchors[0] : null;
+        $submenuContainers = $this->submenuContainers($element, $primaryAnchor);
+        $this->collectAnchorsExcluding($element, $anchors, $submenuContainers);
+        return $anchors;
     }
 
     /**
      * @param array<int, DOMElement> $anchors
+     * @param array<int, DOMElement> $excluded
      */
-    private function collectAnchors(DOMElement $element, array &$anchors): void
+    private function collectAnchorsExcluding(DOMElement $element, array &$anchors, array $excluded): void
     {
+        foreach ( $excluded as $excludedElement ) {
+            if ( $element->isSameNode($excludedElement) ) {
+                return;
+            }
+        }
+
         foreach ( $element->childNodes as $child ) {
             if ( ! $child instanceof DOMElement ) {
                 continue;
@@ -140,8 +241,8 @@ final class NavigationPattern
                 continue;
             }
 
-            if ( in_array(strtolower($child->tagName), array( 'span', 'div', 'p' ), true) ) {
-                $this->collectAnchors($child, $anchors);
+            if ( in_array(strtolower($child->tagName), array( 'span', 'div', 'p' ), true) || $this->hasSubmenuSignal($child) ) {
+                $this->collectAnchorsExcluding($child, $anchors, $excluded);
             }
         }
     }

@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nav-dropdown-submenu",
+  "description": "Preserves desktop dropdown navigation relationships as nested navigation submenu blocks instead of flattening child links.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nav-dropdown-submenu.json",
+    "notes": "Generic fixture for .nav-item > a + .dropdown desktop navigation patterns."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<nav class=\"primary-nav\"><div class=\"nav-item\"><a href=\"/services\">Services</a><div class=\"dropdown\"><a href=\"/services/design\">Design</a><a href=\"/services/build\">Build</a></div></div><div class=\"nav-item\"><a href=\"/about\">About</a></div></nav>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "primary-nav" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-submenu", "attrs": { "label": "Services", "url": "/services", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Design", "url": "/services/design", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Build", "url": "/services/build", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "About", "url": "/about", "kind": "custom" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-submenu" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
