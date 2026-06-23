@@ -51,7 +51,7 @@ final class ButtonsPattern
      */
     public function matchContainer(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $attr, callable $createBlock): ?array
     {
-        $containerHasButtonSignal = $this->hasContainerButtonSignal($element);
+		$containerHasButtonSignal = $this->hasContainerButtonSignal($element) || $this->isDirectAnchorRow($element);
         $buttons = array();
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && ( $containerHasButtonSignal || $this->hasButtonSignal($child) ) ) {
@@ -87,13 +87,39 @@ final class ButtonsPattern
             return true;
         }
 
-        return $this->hasAnyToken($anchor, array( 'button', 'btn', 'cta', 'action' )) || $this->hasPhrase($anchor, array( 'call-to-action', 'primary-action', 'secondary-action' ));
+		return $this->hasAnyToken($anchor, array( 'button', 'btn', 'cta', 'action' ))
+			|| $this->hasPhrase($anchor, array( 'call-to-action', 'primary-action', 'secondary-action' ))
+			|| $this->hasActionText($anchor);
     }
 
-    private function hasContainerButtonSignal(DOMElement $element): bool
-    {
-        return $this->hasAnyToken($element, array( 'buttons', 'button', 'btns', 'cta', 'actions' )) || $this->hasPhrase($element, array( 'button-group', 'button-row', 'cta-group', 'call-to-action' ));
-    }
+	private function hasContainerButtonSignal(DOMElement $element): bool
+	{
+		return $this->hasAnyToken($element, array( 'buttons', 'button', 'btns', 'cta', 'actions' )) || $this->hasPhrase($element, array( 'button-group', 'button-row', 'cta-group', 'call-to-action' ));
+	}
+
+	private function isDirectAnchorRow(DOMElement $element): bool
+	{
+		$anchors = 0;
+		$buttonSignals = 0;
+		foreach ( $element->childNodes as $child ) {
+			if ( $child instanceof DOMElement ) {
+				if ( 'a' !== strtolower($child->tagName) || '' === trim($child->textContent ?? '') ) {
+					return false;
+				}
+				++$anchors;
+				if ( $this->hasButtonSignal($child) ) {
+					++$buttonSignals;
+				}
+				continue;
+			}
+
+			if ( '' !== trim($child->textContent ?? '') ) {
+				return false;
+			}
+		}
+
+		return $anchors > 1 && 0 === $buttonSignals;
+	}
 
     /**
      * @param array<int, string> $tokens
@@ -115,8 +141,8 @@ final class ButtonsPattern
     /**
      * @param array<int, string> $phrases
      */
-    private function hasPhrase(DOMElement $element, array $phrases): bool
-    {
+	private function hasPhrase(DOMElement $element, array $phrases): bool
+	{
         foreach ( array( 'class', 'id' ) as $attribute ) {
             $value = strtolower($element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '');
             foreach ( $phrases as $phrase ) {
@@ -126,6 +152,27 @@ final class ButtonsPattern
             }
         }
 
-        return false;
-    }
+		return false;
+	}
+
+	private function hasActionText(DOMElement $element): bool
+	{
+		$text = strtolower(trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? ''));
+		if ( '' === $text ) {
+			return false;
+		}
+
+		return in_array($text, array(
+			'add to cart',
+			'buy now',
+			'checkout',
+			'shop now',
+			'get started',
+			'sign up',
+			'subscribe',
+			'donate',
+			'register',
+			'book now',
+		), true);
+	}
 }
