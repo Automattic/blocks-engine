@@ -84,7 +84,7 @@ final class HtmlTransformer
                 ),
             );
             $fallbacks = array(
-                array_merge(array(
+                FallbackDiagnostic::build(array(
                     'type'            => 'html',
                     'reason'          => 'parse_failed',
                     'diagnostic_code' => 'html_parse_failed',
@@ -440,7 +440,7 @@ final class HtmlTransformer
         if ( 'form' === $tagName ) {
             $controls = $this->formControls($element);
             $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-            $fallbacks[] = array_merge(array(
+            $fallbacks[] = FallbackDiagnostic::build(array(
                 'type'            => 'html',
                 'reason'          => 'form_requires_runtime',
                 'diagnostic_code' => 'html_form_fallback',
@@ -533,7 +533,7 @@ final class HtmlTransformer
                 $fallback['control'] = $control;
             }
 
-            $fallbacks[] = array_merge($fallback, $this->fallbackProvenance);
+            $fallbacks[] = FallbackDiagnostic::build($fallback, $this->fallbackProvenance);
         }
 
         return null;
@@ -1194,7 +1194,7 @@ final class HtmlTransformer
         $safe = $this->isSafeSvgContent($rawHtml);
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
 
-        $fallbacks[] = array_merge(array(
+        $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'inline_svg',
             'reason'          => $safe ? 'inline_svg_fallback' : 'unsafe_inline_svg',
             'diagnostic_code' => $safe ? 'html_inline_svg_fallback' : 'html_unsafe_inline_svg',
@@ -1220,7 +1220,7 @@ final class HtmlTransformer
     {
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
-        $fallbacks[] = array_merge(array(
+        $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'html',
             'reason'          => 'script_requires_runtime',
             'diagnostic_code' => 'html_script_fallback',
@@ -1850,7 +1850,7 @@ final class HtmlTransformer
         }
 
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($iframe));
-        $fallbacks[] = array_merge(array(
+        $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'html',
             'reason'          => 'iframe_embed_fallback',
             'diagnostic_code' => 'html_iframe_embed_fallback',
