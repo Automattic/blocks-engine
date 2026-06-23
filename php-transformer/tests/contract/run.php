@@ -361,6 +361,7 @@ $assert(str_contains((string) ($staticPlan['visual_repair_css'] ?? ''), 'min-hei
 $assert(! empty(array_filter($staticPlan['asset_rewrite_candidates'] ?? array(), static fn (array $candidate): bool => 'template_part' === ($candidate['scope'] ?? '') && 'assets/logo.png' === ($candidate['asset_path'] ?? ''))), 'materialization plan exposes template part asset rewrite candidates');
 $assert('/' === ($staticPlan['routes'][0]['target_path'] ?? ''), 'materialization plan exposes entry route path');
 $assert('/about' === ($staticPlan['routes'][1]['target_path'] ?? ''), 'materialization plan exposes document route path');
+$assert(empty(array_filter($staticPlan['assets'] ?? array(), static fn (array $asset): bool => 'html' === ($asset['kind'] ?? '') || str_ends_with((string) ($asset['path'] ?? ''), '.html'))), 'materialization plan omits HTML documents from asset rows');
 $assert('navigation_link' === ($staticPlan['navigation_links'][0]['kind'] ?? ''), 'materialization plan exposes generic navigation link rows');
 $assert('About' === ($staticPlan['navigation_links'][1]['label'] ?? ''), 'materialization plan exposes navigation link labels');
 $assert('/about' === ($staticPlan['navigation_links'][1]['target_path'] ?? ''), 'materialization plan exposes navigation target paths');
@@ -611,7 +612,8 @@ $normalized = $compiler->compile(
 )->toArray();
 $assert('public/index.html' === ($normalized['source_reports']['artifact']['entry_path'] ?? ''), 'entry alias selects public index HTML');
 $assetPaths = array_column($normalized['assets'], 'path');
-$assert(in_array('public/index-2.html', $assetPaths, true), 'duplicate paths are deduped deterministically');
+$pagePaths = array_column($normalized['source_reports']['materialization_plan']['pages'] ?? array(), 'source_path');
+$assert(in_array('public/index-2.html', $pagePaths, true), 'duplicate document paths are deduped deterministically');
 $assert(in_array('style.css', $assetPaths, true), 'styles shorthand becomes a CSS file');
 $assert(in_array('site.js', $assetPaths, true), 'script shorthand becomes a JS file');
 $assert(1 === ($normalized['source_reports']['artifact']['files_by_mime']['text/mdx'] ?? 0), 'MDX MIME is inferred');

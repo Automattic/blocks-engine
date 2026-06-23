@@ -710,7 +710,7 @@ final class ArtifactCompiler
     {
         $assets = array();
         foreach ( $files as $file ) {
-            if ( $entryPath === $file['path'] ) {
+            if ( $entryPath === $file['path'] || $this->isMaterializedHtmlDocument($file) ) {
                 continue;
             }
             $asset = array(
@@ -745,6 +745,14 @@ final class ArtifactCompiler
         }
 
         return $assets;
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     */
+    private function isMaterializedHtmlDocument(array $file): bool
+    {
+        return 'html' === ($file['kind'] ?? '') && ($this->isLinkableDocument($file) || $this->isTemplatePartFile($file));
     }
 
     /**
