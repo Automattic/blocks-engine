@@ -152,6 +152,7 @@ final class HtmlTransformer
         $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
+        $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
         $diagnostics = array(
             array(
                 'code'    => 'html_to_blocks_core_slice',
@@ -173,9 +174,25 @@ final class HtmlTransformer
             }
         }
 
+        foreach ( $blockValidityReport['findings'] ?? array() as $finding ) {
+            if ( ! is_array($finding) ) {
+                continue;
+            }
+
+            $diagnostics[] = array(
+                'code'       => 'wp_block_validity_' . (string) ($finding['code'] ?? 'warning'),
+                'message'    => (string) ($finding['summary'] ?? 'Generated block serialization may trigger WordPress block invalidity warnings.'),
+                'source'     => Runtime::class,
+                'severity'   => $finding['severity'] ?? 'warning',
+                'block_name' => $finding['block_name'] ?? null,
+                'path'       => $finding['path'] ?? null,
+            );
+        }
+
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $sourceReports = array(
             'interaction_candidates' => $interactionCandidates,
+            'wp_block_validity' => $blockValidityReport,
             'html' => array(
                 'presentation_signals' => $this->presentationProvenance,
                 'source_provenance'    => $sourceProvenance,

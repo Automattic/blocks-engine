@@ -242,6 +242,23 @@ $assert('core/buttons' === ($buttonBlocks[0]['blockName'] ?? ''), 'anchor conver
 $assert(str_contains((string) ($buttonBlocks[0]['innerBlocks'][0]['attrs']['text'] ?? ''), 'Reserve now'), 'anchor button text preserves visible label');
 $assert(str_contains((string) ($buttonBlocks[1]['innerBlocks'][0]['attrs']['text'] ?? ''), 'Call us'), 'button text preserves visible label');
 $assert(! str_contains((string) $buttonResult['serialized_blocks'], '\\u003c'), 'button serialization avoids escaped nested HTML attrs');
+$assert('pass' === ($buttonResult['source_reports']['wp_block_validity']['status'] ?? ''), 'HTML transform exposes passing WordPress block validity report for generated buttons');
+
+$invalidButtonBlocks = array(
+    array(
+        'blockName'    => 'core/button',
+        'attrs'        => array('text' => 'Book now', 'url' => '/book'),
+        'innerBlocks'  => array(),
+        'innerHTML'    => '<div class="wp-block-button"><a class="wp-block-button__link wp-element-button" href="/contact">Contact us</a></div>',
+        'innerContent' => array('<div class="wp-block-button"><a class="wp-block-button__link wp-element-button" href="/contact">Contact us</a></div>'),
+    ),
+);
+$invalidButtonReport = ( new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime() )->validateBlockSerialization($invalidButtonBlocks);
+$invalidButtonCodes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $invalidButtonReport['findings'] ?? array());
+$assert('blocks-engine/php-transformer/wp-block-validity-report/v1' === ($invalidButtonReport['schema'] ?? ''), 'runtime exposes WordPress block validity report schema');
+$assert('warning' === ($invalidButtonReport['status'] ?? ''), 'runtime warns on button attribute/markup mismatches');
+$assert(in_array('button_text_markup_mismatch', $invalidButtonCodes, true), 'runtime reports invalid button text serialization');
+$assert(in_array('button_url_markup_mismatch', $invalidButtonCodes, true), 'runtime reports invalid button URL serialization');
 
 $inlineSvgVisualWrapper = ( new HtmlTransformer() )->transform(
     '<main><section class="visual-region"><div class="map-layer"><div class="map-image" style="background-image:url(assets/map.png)"><svg><path d="M0 0h1v1z"></path></svg></div></div></section></main>'

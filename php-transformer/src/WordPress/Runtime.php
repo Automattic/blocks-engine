@@ -160,6 +160,34 @@ final class Runtime
         return $html;
     }
 
+    /**
+     * @param string|array<int, array<string, mixed>> $serializedBlocksOrBlocks
+     * @return array<string, mixed>
+     */
+    public function validateBlockSerialization(string|array $serializedBlocksOrBlocks): array
+    {
+        if ( is_string($serializedBlocksOrBlocks) ) {
+            $blocks = $this->parseBlocks($serializedBlocksOrBlocks);
+            $report = ( new BlockValidityValidator() )->validateBlocks($blocks);
+
+            if ( array() === $blocks && str_contains($serializedBlocksOrBlocks, '<!-- wp:') ) {
+                $report['status'] = 'warning';
+                $report['summary']['finding_count'] = ((int) ($report['summary']['finding_count'] ?? 0)) + 1;
+                $report['findings'][] = array(
+                    'code'     => 'serialized_blocks_parse_failed',
+                    'severity' => 'warning',
+                    'category' => 'wp_block_validity',
+                    'path'     => 'serialized_blocks',
+                    'summary'  => 'Serialized block comments were present but could not be parsed into a balanced block tree.',
+                );
+            }
+
+            return $report;
+        }
+
+        return ( new BlockValidityValidator() )->validateBlocks($serializedBlocksOrBlocks);
+    }
+
     public function stripAllTags(string $text, bool $removeBreaks = false): string
     {
         $this->diagnostics = array();

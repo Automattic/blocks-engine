@@ -21,6 +21,19 @@ $html = $runtime->renderBlocks($blocks);
 assertSame('<p>Hello</p>', $html, 'Fallback renderer should render static block HTML.');
 assertSame('wordpress_render_block_unavailable', $runtime->diagnostics()[0]['code'] ?? null, 'Fallback renderer should expose a diagnostic.');
 
+$validityFixture = json_decode((string) file_get_contents(dirname(__DIR__) . '/fixtures/contract/wp-block-validity.json'), true);
+assertSame('blocks-engine/php-transformer/wp-block-validity-fixture/v1', $validityFixture['schema'] ?? null, 'Block validity fixture should expose its schema.');
+foreach ( $validityFixture['cases'] as $case ) {
+    $report = $runtime->validateBlockSerialization($case['input'] ?? $case['blocks']);
+    assertSame('blocks-engine/php-transformer/wp-block-validity-report/v1', $report['schema'] ?? null, 'Block validity report should expose its schema.');
+    assertSame($case['expected_status'], $report['status'] ?? null, 'Block validity report status should match fixture case ' . $case['name']);
+    $codes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $report['findings'] ?? array());
+    sort($codes);
+    $expectedCodes = $case['expected_codes'];
+    sort($expectedCodes);
+    assertSame($expectedCodes, $codes, 'Block validity report finding codes should match fixture case ' . $case['name']);
+}
+
 assertSame('Safe text', $runtime->stripAllTags('<script>alert(1)</script><p>Safe <em>text</em></p>'), 'Fallback tag stripping should remove scripts and tags.');
 assertSame('wordpress_strip_all_tags_unavailable', $runtime->diagnostics()[0]['code'] ?? null, 'Fallback tag stripping should expose a diagnostic.');
 
