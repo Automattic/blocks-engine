@@ -28,7 +28,7 @@ final class ScenegraphNormalizer
         $nodeMap     = $this->normalizeNodeMap($index['nodes'], $diagnostics, $blobs, $paintStyles);
         $components  = $this->buildComponentDefinitions($nodeMap);
         $componentDefinitionCount = $this->countComponentDefinitions($nodeMap);
-        $instanceReport = $this->resolveInstances($nodeMap, $components, $diagnostics);
+        $instanceReport = $this->resolveInstances($nodeMap, $components, $diagnostics, $blobs, $paintStyles);
         $topLevelIds = $index['top_level_node_ids'];
         $frameIds    = $this->selectTopLevelFrameIds($topLevelIds, $nodeMap);
 
@@ -121,7 +121,7 @@ final class ScenegraphNormalizer
         }
 
         if ( 'TEXT' === $type ) {
-            $text = $this->normalizeText($node);
+            $text = $this->normalizeText($node, $blobs, $id, $diagnostics);
             if ( ! empty($text) ) {
                 $node['figma_text'] = $text;
             }
@@ -275,7 +275,7 @@ final class ScenegraphNormalizer
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array{instance_node_count: int, resolved_instance_count: int, unresolved_component_references: array<int, array<string, string>>}
      */
-    private function resolveInstances(array &$nodeMap, array $components, array &$diagnostics): array
+    private function resolveInstances(array &$nodeMap, array $components, array &$diagnostics, array $blobs = array(), array $paintStyles = array()): array
     {
         $instanceCount = 0;
         $resolvedCount = 0;
@@ -319,7 +319,7 @@ final class ScenegraphNormalizer
                 continue;
             }
 
-            $resolved = $this->cloneComponentForInstance($components[$reference['id']], $node, $reference['id'], $overrides, $nodeMap);
+            $resolved = $this->cloneComponentForInstance($components[$reference['id']], $node, $reference['id'], $overrides, $nodeMap, $diagnostics, $blobs, $paintStyles);
             $nodeMap[$id] = $resolved;
             $resolvedCount++;
         }
@@ -437,6 +437,9 @@ final class ScenegraphNormalizer
         if ( is_array($node['symbolData']['symbolOverrides'] ?? null) ) {
             $rawOverrides = array_merge($rawOverrides, $node['symbolData']['symbolOverrides']);
         }
+        if ( is_array($node['derivedSymbolData'] ?? null) ) {
+            $rawOverrides = array_merge($rawOverrides, $node['derivedSymbolData']);
+        }
 
         if ( empty($rawOverrides) ) {
             return array();
@@ -467,6 +470,11 @@ final class ScenegraphNormalizer
             if ( isset($override['textData']['characters']) && is_scalar($override['textData']['characters']) ) {
                 $overrides[$nodeId]['characters'] = (string) $override['textData']['characters'];
             }
+            foreach ( array('derivedTextData', 'size', 'transform', 'fillPaints', 'fills', 'strokes', 'effects', 'styleIdForFill', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd', 'cornerRadius', 'rectangleTopLeftCornerRadius', 'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius', 'rectangleBottomRightCornerRadius') as $field ) {
+                if ( array_key_exists($field, $override) ) {
+                    $overrides[$nodeId][$field] = $override[$field];
+                }
+            }
         }
 
         return $overrides;
@@ -483,12 +491,15 @@ final class ScenegraphNormalizer
         }
 
         $guids = is_array($guidPath['guids'] ?? null) ? $guidPath['guids'] : $guidPath;
-        $last = end($guids);
-        if ( false === $last ) {
-            return null;
+        $ids = array();
+        foreach ( $guids as $guid ) {
+            $id = $this->readGuidId($guid);
+            if ( null !== $id ) {
+                $ids[] = $id;
+            }
         }
 
-        return $this->readGuidId($last);
+        return empty($ids) ? null : implode('/', $ids);
     }
 
     /**
@@ -498,7 +509,7 @@ final class ScenegraphNormalizer
      * @param array<string, array<string, mixed>> $nodeMap
      * @return array<string, mixed>
      */
-    private function cloneComponentForInstance(array $component, array $instance, string $componentId, array $overrides, array $nodeMap): array
+    private function cloneComponentForInstance(array $component, array $instance, string $componentId, array $overrides, array $nodeMap, array &$diagnostics, array $blobs = array(), array $paintStyles = array()): array
     {
         $resolved = $component;
         $resolved['id'] = (string) ($instance['id'] ?? $resolved['id'] ?? '');
@@ -524,12 +535,29 @@ final class ScenegraphNormalizer
         $resolvedChildren = is_array($resolved['children'] ?? null) ? $resolved['children'] : array();
         $resolvedChildren = $this->resolveClonedInstanceChildren($resolvedChildren, $nodeMap);
         $resolvedChildren = $this->scaleVectorOnlyInstanceChildren($resolvedChildren, $component, $instance);
+        if ( $this->instanceOverridesUseTransforms($overrides) ) {
+            $resolved['layout'] = array('freeform' => true);
+        }
         $resolved['children'] = $this->namespaceResolvedInstanceChildren(
-            $this->applyInstanceOverridesToChildren($resolvedChildren, $overrides),
+            $this->applyInstanceOverridesToChildren($resolvedChildren, $overrides, $diagnostics, $blobs, $paintStyles),
             (string) ($instance['id'] ?? '')
         );
 
         return $resolved;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $overrides
+     */
+    private function instanceOverridesUseTransforms(array $overrides): bool
+    {
+        foreach ( $overrides as $override ) {
+            if ( is_array($override) && is_array($override['transform'] ?? null) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -707,7 +735,7 @@ final class ScenegraphNormalizer
      * @param array<string, array<string, mixed>> $overrides
      * @return array<int, mixed>
      */
-    private function applyInstanceOverridesToChildren(array $children, array $overrides): array
+    private function applyInstanceOverridesToChildren(array $children, array $overrides, array &$diagnostics, array $blobs = array(), array $paintStyles = array()): array
     {
         foreach ( $children as $index => $child ) {
             if ( ! is_array($child) ) {
@@ -715,15 +743,21 @@ final class ScenegraphNormalizer
             }
 
             $id = (string) ($child['id'] ?? '');
-            foreach ( $overrides[$id] ?? array() as $field => $value ) {
+            $hasOverride = false;
+            $overrideFields = $overrides[$id] ?? array();
+            foreach ( $overrideFields as $field => $value ) {
+                $hasOverride = true;
                 $child[$field] = $value;
                 if ( in_array($field, array('characters', 'text'), true) && is_array($child['figma_text'] ?? null) ) {
                     $child['figma_text']['characters'] = (string) $value;
                 }
             }
+            if ( $hasOverride ) {
+                $child = $this->normalizeOverriddenInstanceChild($child, $id, $overrideFields, $diagnostics, $blobs, $paintStyles);
+            }
 
             if ( is_array($child['children'] ?? null) ) {
-                $child['children'] = $this->applyInstanceOverridesToChildren($child['children'], $overrides);
+                $child['children'] = $this->applyInstanceOverridesToChildren($child['children'], $overrides, $diagnostics, $blobs, $paintStyles);
             }
 
             $children[$index] = $child;
@@ -733,10 +767,88 @@ final class ScenegraphNormalizer
     }
 
     /**
+     * @param array<string, mixed>             $child
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, mixed>
+     */
+    private function normalizeOverriddenInstanceChild(array $child, string $id, array $overrideFields, array &$diagnostics, array $blobs = array(), array $paintStyles = array()): array
+    {
+        $hasVectorGeometryOverride = array_key_exists('fillGeometry', $overrideFields) || array_key_exists('strokeGeometry', $overrideFields);
+        $hasExplicitSizeOverride = array_key_exists('size', $overrideFields);
+        if ( is_array($child['size'] ?? null) ) {
+            foreach ( array('x' => 'width', 'y' => 'height') as $source => $target ) {
+                if ( isset($child['size'][$source]) && is_numeric($child['size'][$source]) ) {
+                    $child[$target] = (float) $child['size'][$source];
+                }
+            }
+        }
+        if ( is_array($child['transform'] ?? null) ) {
+            foreach ( array('m02' => 'x', 'm12' => 'y') as $source => $target ) {
+                if ( isset($child['transform'][$source]) && is_numeric($child['transform'][$source]) ) {
+                    $child[$target] = (float) $child['transform'][$source];
+                }
+            }
+        }
+
+        foreach ( array('figma_text', 'figma_paints', 'figma_vector_paths', 'figma_box', 'box', 'layout', 'figma_effects') as $key ) {
+            unset($child[$key]);
+        }
+        unset($child['figma_vector_scale']);
+
+        $child = $this->normalizeNode($child, $diagnostics, $blobs, $paintStyles);
+        if ( $hasVectorGeometryOverride && ! $hasExplicitSizeOverride ) {
+            $bounds = $this->normalizedVectorPathBounds(is_array($child['figma_vector_paths'] ?? null) ? $child['figma_vector_paths'] : array());
+            if ( null !== $bounds ) {
+                $box = is_array($child['box'] ?? null) ? $child['box'] : array();
+                foreach ( array('width', 'height') as $dimension ) {
+                    if ( ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) || $bounds[$dimension] > (float) $box[$dimension] + 0.001 ) {
+                        $child[$dimension] = $bounds[$dimension];
+                        $child['box'][$dimension] = $bounds[$dimension];
+                    }
+                }
+            }
+        }
+
+        return $child;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $paths
+     * @return array{width: float, height: float}|null
+     */
+    private function normalizedVectorPathBounds(array $paths): ?array
+    {
+        $minX = null;
+        $minY = null;
+        $maxX = null;
+        $maxY = null;
+        foreach ( $paths as $path ) {
+            if ( ! is_array($path) || ! isset($path['data']) || ! is_scalar($path['data']) || ! preg_match_all('/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/i', (string) $path['data'], $matches) ) {
+                continue;
+            }
+            $numbers = array_map('floatval', $matches[0]);
+            for ( $i = 0; $i + 1 < count($numbers); $i += 2 ) {
+                $x = $numbers[$i];
+                $y = $numbers[$i + 1];
+                $minX = null === $minX ? $x : min($minX, $x);
+                $minY = null === $minY ? $y : min($minY, $y);
+                $maxX = null === $maxX ? $x : max($maxX, $x);
+                $maxY = null === $maxY ? $y : max($maxY, $y);
+            }
+        }
+
+        if ( null === $minX || null === $minY || null === $maxX || null === $maxY || $maxX <= $minX || $maxY <= $minY ) {
+            return null;
+        }
+
+        return array('width' => $maxX - $minX, 'height' => $maxY - $minY);
+    }
+
+    /**
      * @param array<string, mixed> $node
      * @return array<string, mixed>
      */
-    private function normalizeText(array $node): array
+    private function normalizeText(array $node, array $blobs = array(), string $nodeId = '', array &$diagnostics = array()): array
     {
         $text = array();
 
@@ -767,7 +879,7 @@ final class ScenegraphNormalizer
             $text['style'] = $style;
         }
 
-        $derivedLayout = $this->normalizeDerivedTextLayout($node);
+        $derivedLayout = $this->normalizeDerivedTextLayout($node, $blobs, $nodeId, $diagnostics);
         if ( ! empty($derivedLayout) ) {
             $text['derived_layout'] = $derivedLayout;
         }
@@ -784,7 +896,7 @@ final class ScenegraphNormalizer
      * @param array<string, mixed> $node
      * @return array<string, mixed>
      */
-    private function normalizeDerivedTextLayout(array $node): array
+    private function normalizeDerivedTextLayout(array $node, array $blobs = array(), string $nodeId = '', array &$diagnostics = array()): array
     {
         $source = is_array($node['derivedTextData'] ?? null) ? $node['derivedTextData'] : array();
         if ( empty($source) ) {
@@ -835,6 +947,59 @@ final class ScenegraphNormalizer
 
         if ( is_array($source['glyphs'] ?? null) ) {
             $layout['glyph_count'] = count($source['glyphs']);
+            $glyphPaths = array();
+            $characters = isset($node['textData']['characters']) && is_scalar($node['textData']['characters']) ? (string) $node['textData']['characters'] : ( isset($node['characters']) && is_scalar($node['characters']) ? (string) $node['characters'] : '' );
+            $characterList = '' !== $characters ? preg_split('//u', $characters, -1, PREG_SPLIT_NO_EMPTY) : array();
+            if ( ! is_array($characterList) ) {
+                $characterList = array();
+            }
+            foreach ( $source['glyphs'] as $index => $glyph ) {
+                if ( ! is_array($glyph) ) {
+                    continue;
+                }
+
+                $glyphPath = array();
+                foreach ( array('x', 'y', 'advance', 'fontSize', 'fontIndex', 'firstCharacter', 'endCharacter') as $key ) {
+                    if ( isset($glyph[$key]) && is_numeric($glyph[$key]) ) {
+                        $glyphPath[$key] = (float) $glyph[$key];
+                    }
+                }
+                if ( isset($glyph['firstCharacter']) && is_numeric($glyph['firstCharacter']) && isset($characterList[(int) $glyph['firstCharacter']]) ) {
+                    $glyphPath['character'] = $characterList[(int) $glyph['firstCharacter']];
+                }
+                if ( is_array($glyph['position'] ?? null) ) {
+                    foreach ( array('x', 'y') as $axis ) {
+                        if ( isset($glyph['position'][$axis]) && is_numeric($glyph['position'][$axis]) ) {
+                            $glyphPath['position_' . $axis] = (float) $glyph['position'][$axis];
+                        }
+                    }
+                }
+
+                if ( isset($glyph['commandsBlob']) ) {
+                    $bytes = $this->readCommandBlobBytes($glyph['commandsBlob'], $blobs);
+                    if ( null !== $bytes ) {
+                        $path = $this->decodeVectorCommandBlob($bytes);
+                        if ( null === $path ) {
+                            $diagnostics[] = array(
+                                'severity' => 'warning',
+                                'code'     => 'unsupported_text_glyph_command_blob',
+                                'message'  => 'Unsupported Figma text glyph command blob was omitted from derived glyph metadata.',
+                                'context'  => array('node_id' => $nodeId, 'glyph_index' => $index),
+                            );
+                        } else {
+                            $glyphPath['data'] = $path;
+                        }
+                    }
+                }
+
+                if ( empty($glyphPath) ) {
+                    continue;
+                }
+                $glyphPaths[] = $glyphPath;
+            }
+            if ( ! empty($glyphPaths) ) {
+                $layout['glyph_paths'] = $glyphPaths;
+            }
         }
         if ( is_array($source['fontMetaData'] ?? null) ) {
             $fonts = array();
@@ -1287,6 +1452,9 @@ final class ScenegraphNormalizer
             $offset++;
 
             if ( 0 === $opcode ) {
+                if ( empty($parts) ) {
+                    continue;
+                }
                 $parts[] = 'Z';
                 continue;
             }
@@ -1298,6 +1466,20 @@ final class ScenegraphNormalizer
                 }
                 $parts[] = ( 1 === $opcode ? 'M ' : 'L ' ) . $this->svgNumber($point[0]) . ' ' . $this->svgNumber($point[1]);
                 $offset += 8;
+                continue;
+            }
+
+            if ( 3 === $opcode ) {
+                $points = array();
+                for ( $i = 0; $i < 2; $i++ ) {
+                    $point = $this->readFloatPair($bytes, $offset + ( $i * 8 ));
+                    if ( null === $point ) {
+                        return null;
+                    }
+                    $points[] = $point;
+                }
+                $parts[] = 'Q ' . $this->svgNumber($points[0][0]) . ' ' . $this->svgNumber($points[0][1]) . ' ' . $this->svgNumber($points[1][0]) . ' ' . $this->svgNumber($points[1][1]);
+                $offset += 16;
                 continue;
             }
 

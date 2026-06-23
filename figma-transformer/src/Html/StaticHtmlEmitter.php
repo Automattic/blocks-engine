@@ -14,6 +14,8 @@ final class StaticHtmlEmitter
      */
     private array $assetsById = array();
 
+    private bool $renderTextGlyphPaths = false;
+
     /**
      * @param array<string, mixed> $scenegraph Normalized Figma scenegraph.
      * @param array<string, mixed> $options Transformation options.
@@ -21,6 +23,7 @@ final class StaticHtmlEmitter
      */
     public function emit(array $scenegraph, array $options = array()): array
     {
+        $this->renderTextGlyphPaths = true === ($options['render_text_glyph_paths'] ?? false);
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $nodes = $this->nodeList($scenegraph);
         $diagnostics = array();
@@ -35,6 +38,9 @@ final class StaticHtmlEmitter
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
             'img{display:block;max-width:100%;height:auto}',
         );
+        if ( $this->renderTextGlyphPaths ) {
+            $cssRules[] = '.figma-text-glyphs{display:block;width:100%;height:100%;overflow:visible}';
+        }
         $fontCss = $this->fontCss($options);
 
         foreach ( $nodes as $node ) {
@@ -95,6 +101,7 @@ final class StaticHtmlEmitter
                 'visual_node_map'              => $visualNodeMap,
                 'font_families'                => $fontFamilies,
                 'font_css_supplied'            => '' !== $fontCss,
+                'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
             ),
             'metrics'       => array(
                 'node_count'  => $this->countNodes($nodes),
@@ -113,8 +120,8 @@ final class StaticHtmlEmitter
         $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
         $name = (string) ($node['name'] ?? '');
         $attributeName = $this->sanitizeAttribute($name);
-        $text = $this->textContent($node);
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
+        $text = 'TEXT' === $type ? ( $this->textGlyphSvg($node) ?? $this->textContent($node) ) : $this->textContent($node);
         $tag = $this->tagName($type, $name, $depth);
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
         $children = $this->nodeList($node);
@@ -660,6 +667,10 @@ final class StaticHtmlEmitter
         }
 
         $children = $this->nodeList($node);
+        if ( true === ($node['figma_component']['resolved'] ?? false) && ! empty($children) && empty($node['layout']['display'] ?? null) ) {
+            return true;
+        }
+
         if ( 1 !== count($children) || ! is_array($children[0]) ) {
             return false;
         }
@@ -834,6 +845,144 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<string, mixed> $node
+     */
+    private function textGlyphSvg(array $node): ?string
+    {
+        if ( ! $this->renderTextGlyphPaths ) {
+            return null;
+        }
+
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
+        $glyphPaths = is_array($derivedLayout['glyph_paths'] ?? null) ? $derivedLayout['glyph_paths'] : array();
+        if ( empty($glyphPaths) ) {
+            return null;
+        }
+
+        $label = isset($text['characters']) && is_scalar($text['characters']) ? (string) $text['characters'] : (string) ($node['characters'] ?? $node['text'] ?? '');
+        if ( ! $this->textAllowsGlyphRendering($label, $text) ) {
+            return null;
+        }
+
+        $size = is_array($derivedLayout['size'] ?? null) ? $derivedLayout['size'] : array();
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($size['width']) && is_numeric($size['width']) ? (float) $size['width'] : ( isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : 0.0 );
+        $height = isset($size['height']) && is_numeric($size['height']) ? (float) $size['height'] : ( isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : 0.0 );
+        if ( 0.0 >= $width || 0.0 >= $height ) {
+            return null;
+        }
+
+        $paths = '';
+        $cursors = array();
+        foreach ( $glyphPaths as $glyphPath ) {
+            if ( ! is_array($glyphPath) ) {
+                continue;
+            }
+
+            $fontSize = isset($glyphPath['fontSize']) && is_numeric($glyphPath['fontSize']) ? (float) $glyphPath['fontSize'] : $this->textGlyphFallbackFontSize($text);
+            $baseline = $this->textGlyphBaseline($glyphPath, $derivedLayout);
+            $baselineKey = (string) $baseline['index'];
+            if ( ! isset($cursors[$baselineKey]) ) {
+                $cursors[$baselineKey] = $baseline['x'];
+            }
+            $x = isset($glyphPath['position_x']) && is_numeric($glyphPath['position_x']) ? (float) $glyphPath['position_x'] : ( isset($glyphPath['x']) && is_numeric($glyphPath['x']) ? (float) $glyphPath['x'] : (float) $cursors[$baselineKey] );
+            $y = isset($glyphPath['position_y']) && is_numeric($glyphPath['position_y']) ? (float) $glyphPath['position_y'] : ( isset($glyphPath['y']) && is_numeric($glyphPath['y']) ? (float) $glyphPath['y'] : $baseline['y'] );
+            $transform = 'translate(' . $this->number($x) . ' ' . $this->number($y) . ')';
+            if ( 0.0 < $fontSize ) {
+                $transform .= ' scale(' . $this->number($fontSize) . ' -' . $this->number($fontSize) . ')';
+            }
+            if ( isset($glyphPath['advance']) && is_numeric($glyphPath['advance']) ) {
+                $cursors[$baselineKey] += (float) $glyphPath['advance'] * ( 0.0 < $fontSize ? $fontSize : 1.0 );
+            }
+            if ( ! isset($glyphPath['data']) || ! is_scalar($glyphPath['data']) ) {
+                continue;
+            }
+            if ( isset($glyphPath['character']) && is_scalar($glyphPath['character']) && '' !== (string) $glyphPath['character'] && ctype_space((string) $glyphPath['character']) ) {
+                continue;
+            }
+
+            $attributes = ' d="' . $this->sanitizeAttribute((string) $glyphPath['data']) . '" fill="currentColor" transform="' . $transform . '"';
+            $paths .= '<path' . $attributes . '></path>';
+        }
+
+        if ( '' === $paths ) {
+            return null;
+        }
+
+        return '<svg class="figma-text-glyphs" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' . $this->number($width) . ' ' . $this->number($height) . '" width="100%" height="100%" role="img" aria-label="' . $this->sanitizeAttribute($label) . '" data-figma-text-glyphs="true">' . $paths . '</svg>';
+    }
+
+    /**
+     * @param array<string, mixed> $text
+     */
+    private function textAllowsGlyphRendering(string $characters, array $text): bool
+    {
+        if ( $this->textNeedsDomSymbolFallback($characters) || str_contains($characters, "\n") ) {
+            return false;
+        }
+
+        if ( mb_strlen($characters) > 80 ) {
+            return false;
+        }
+
+        if ( mb_strlen($characters) > 45 && 1 === preg_match('/[.!?。！？]$/u', trim($characters)) ) {
+            return false;
+        }
+
+        if ( ! empty($text['segments'] ?? array()) ) {
+            return false;
+        }
+
+        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
+        if ( isset($derivedLayout['baseline_count']) && is_numeric($derivedLayout['baseline_count']) && 2 < (int) $derivedLayout['baseline_count'] ) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function textNeedsDomSymbolFallback(string $characters): bool
+    {
+        return 1 === preg_match('/[✔✖✕✓✗•▪■□☑]/u', $characters);
+    }
+
+    /**
+     * @param array<string, mixed> $text
+     */
+    private function textGlyphFallbackFontSize(array $text): float
+    {
+        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        return isset($style['font_size']) && is_numeric($style['font_size']) ? (float) $style['font_size'] : 0.0;
+    }
+
+    /**
+     * @param array<string, mixed> $glyphPath
+     * @param array<string, mixed> $derivedLayout
+     * @return array{index: int, x: float, y: float}
+     */
+    private function textGlyphBaseline(array $glyphPath, array $derivedLayout): array
+    {
+        $baselines = is_array($derivedLayout['baselines'] ?? null) ? $derivedLayout['baselines'] : array();
+        $character = isset($glyphPath['firstCharacter']) && is_numeric($glyphPath['firstCharacter']) ? (float) $glyphPath['firstCharacter'] : null;
+        foreach ( $baselines as $index => $baseline ) {
+            if ( ! is_array($baseline) ) {
+                continue;
+            }
+            $x = isset($baseline['position_x']) && is_numeric($baseline['position_x']) ? (float) $baseline['position_x'] : 0.0;
+            $y = isset($baseline['position_y']) && is_numeric($baseline['position_y']) ? (float) $baseline['position_y'] : ( isset($baseline['lineAscent']) && is_numeric($baseline['lineAscent']) ? (float) $baseline['lineAscent'] : 0.0 );
+            if ( null === $character || ! isset($baseline['firstCharacter'], $baseline['endCharacter']) || ! is_numeric($baseline['firstCharacter']) || ! is_numeric($baseline['endCharacter']) ) {
+                return array('index' => (int) $index, 'x' => $x, 'y' => $y);
+            }
+            if ( $character >= (float) $baseline['firstCharacter'] && $character < (float) $baseline['endCharacter'] ) {
+                return array('index' => (int) $index, 'x' => $x, 'y' => $y);
+            }
+        }
+
+        return array('index' => 0, 'x' => 0.0, 'y' => 0.0);
+    }
+
+    /**
+     * @param array<string, mixed> $node
      * @return array<int, string>
      */
     private function textStyles(array $node): array
@@ -849,6 +998,10 @@ final class StaticHtmlEmitter
         }
 
         $styles = $this->textStyleDeclarations($style);
+        $derivedLineHeight = $this->textDerivedBaselineLineHeight($text);
+        if ( null !== $derivedLineHeight ) {
+            $styles[] = 'line-height:' . $this->number($derivedLineHeight) . 'px';
+        }
         if ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) {
             $styles[] = 'white-space:pre-line';
         }
@@ -922,6 +1075,40 @@ final class StaticHtmlEmitter
         $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
         $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
         return isset($derivedLayout['baseline_count']) && is_numeric($derivedLayout['baseline_count']) && 1 < (int) $derivedLayout['baseline_count'];
+    }
+
+    /**
+     * @param array<string, mixed> $text
+     */
+    private function textDerivedBaselineLineHeight(array $text): ?float
+    {
+        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
+        $baselines = is_array($derivedLayout['baselines'] ?? null) ? $derivedLayout['baselines'] : array();
+        if ( 2 > count($baselines) ) {
+            return null;
+        }
+
+        $positions = array();
+        foreach ( $baselines as $baseline ) {
+            if ( is_array($baseline) && isset($baseline['position_y']) && is_numeric($baseline['position_y']) ) {
+                $positions[] = (float) $baseline['position_y'];
+            }
+        }
+        sort($positions);
+
+        $deltas = array();
+        for ( $i = 1; $i < count($positions); $i++ ) {
+            $delta = $positions[$i] - $positions[$i - 1];
+            if ( 0.0 < $delta ) {
+                $deltas[] = $delta;
+            }
+        }
+        if ( empty($deltas) ) {
+            return null;
+        }
+
+        sort($deltas);
+        return $deltas[(int) floor(( count($deltas) - 1 ) / 2)];
     }
 
     /**
@@ -1330,8 +1517,11 @@ final class StaticHtmlEmitter
             $metadata['has_derived_layout'] = true;
             $metadata['baseline_count'] = $derivedLayout['baseline_count'] ?? 0;
             $metadata['glyph_count'] = $derivedLayout['glyph_count'] ?? 0;
+            $metadata['glyph_path_count'] = is_array($derivedLayout['glyph_paths'] ?? null) ? count($derivedLayout['glyph_paths']) : 0;
+            $metadata['glyph_rendering'] = $this->renderTextGlyphPaths && ! empty($derivedLayout['glyph_paths']) ? 'svg_paths' : 'dom_text';
         } else {
             $metadata['has_derived_layout'] = false;
+            $metadata['glyph_rendering'] = 'dom_text';
         }
 
         return $metadata;
@@ -1528,9 +1718,15 @@ final class StaticHtmlEmitter
             return null;
         }
 
+        $viewBox = array('x' => 0.0, 'y' => 0.0, 'width' => $width, 'height' => $height);
+        $pathBounds = $this->vectorPathBounds($node);
+        if ( null !== $pathBounds && ( $pathBounds['width'] > $width + 0.001 || $pathBounds['height'] > $height + 0.001 || $pathBounds['x'] < -0.001 || $pathBounds['y'] < -0.001 ) ) {
+            $viewBox = $pathBounds;
+        }
+
         $attributes = array(
             'xmlns="http://www.w3.org/2000/svg"',
-            'viewBox="0 0 ' . $this->number($width) . ' ' . $this->number($height) . '"',
+            'viewBox="' . $this->number($viewBox['x']) . ' ' . $this->number($viewBox['y']) . ' ' . $this->number($viewBox['width']) . ' ' . $this->number($viewBox['height']) . '"',
             'width="100%"',
             'height="100%"',
             'role="img"',
@@ -1547,6 +1743,55 @@ final class StaticHtmlEmitter
         }
 
         return '<svg ' . implode(' ', $attributes) . '>' . $body . '</svg>';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array{x: float, y: float, width: float, height: float}|null
+     */
+    private function vectorPathBounds(array $node): ?array
+    {
+        $paths = array();
+        if ( is_array($node['figma_vector_paths'] ?? null) ) {
+            $paths = array_merge($paths, $node['figma_vector_paths']);
+        }
+        foreach ( array('vectorPaths', 'paths') as $key ) {
+            if ( is_array($node[$key] ?? null) ) {
+                $paths = array_merge($paths, $node[$key]);
+            }
+        }
+        foreach ( array('pathData', 'path', 'd') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
+                $paths[] = array('data' => (string) $node[$key]);
+            }
+        }
+
+        $minX = null;
+        $minY = null;
+        $maxX = null;
+        $maxY = null;
+        foreach ( $paths as $rawPath ) {
+            $path = is_array($rawPath) ? (string) ($rawPath['data'] ?? $rawPath['pathData'] ?? $rawPath['path'] ?? $rawPath['d'] ?? '') : (string) $rawPath;
+            $path = $this->safeSvgPathData($path);
+            if ( null === $path || ! preg_match_all('/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/i', $path, $matches) ) {
+                continue;
+            }
+            $numbers = array_map('floatval', $matches[0]);
+            for ( $i = 0; $i + 1 < count($numbers); $i += 2 ) {
+                $x = $numbers[$i];
+                $y = $numbers[$i + 1];
+                $minX = null === $minX ? $x : min($minX, $x);
+                $minY = null === $minY ? $y : min($minY, $y);
+                $maxX = null === $maxX ? $x : max($maxX, $x);
+                $maxY = null === $maxY ? $y : max($maxY, $y);
+            }
+        }
+
+        if ( null === $minX || null === $minY || null === $maxX || null === $maxY || $maxX <= $minX || $maxY <= $minY ) {
+            return null;
+        }
+
+        return array('x' => $minX, 'y' => $minY, 'width' => $maxX - $minX, 'height' => $maxY - $minY);
     }
 
     /**

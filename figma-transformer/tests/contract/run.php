@@ -25,6 +25,10 @@ $vectorCommandBlob = chr(1) . pack('g', 0.0) . pack('g', 0.0)
     . chr(2) . pack('g', 10.0) . pack('g', 0.0)
     . chr(2) . pack('g', 10.0) . pack('g', 10.0)
     . chr(0);
+$quadraticCommandBlob = chr(0)
+    . chr(1) . pack('g', 0.0) . pack('g', 0.0)
+    . chr(3) . pack('g', 4.0) . pack('g', 8.0) . pack('g', 8.0) . pack('g', 0.0)
+    . chr(0);
 
 $scenegraph = array(
     'name'   => 'Fixture Site',
@@ -160,6 +164,24 @@ $assert(str_contains($html, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 
 $assert(str_contains($html, 'd="M 0 0 L 10 0 L 10 10 Z"'), 'html-vector-blob-path');
 $assert(! str_contains($css, 'order:'), 'css-avoids-source-order');
 $assert(! str_contains($css, 'font-family:Inter') && ! str_contains($css, 'body{margin:0;background') && ! str_contains($css, 'body{margin:0;color'), 'css-avoids-hardcoded-theme-style');
+$oversizedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Oversized Vector Bounds Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'           => 'vector:oversized-bounds',
+            'type'         => 'VECTOR',
+            'name'         => 'Oversized Bounds',
+            'width'        => 5,
+            'height'       => 5,
+            'fillGeometry' => array(array('commandsBlob' => 0)),
+        ),
+    ),
+));
+$oversizedVectorHtml = $fileContent($oversizedVectorResult, 'index.html');
+$oversizedVectorCss = $fileContent($oversizedVectorResult, 'style.css');
+$assert(str_contains($oversizedVectorHtml, 'viewBox="0 0 10 10"'), 'oversized-vector-viewbox-uses-path-bounds');
+$assert(str_contains($oversizedVectorCss, '.figma-node-vector-oversized-bounds-oversized-bounds{width:5px;height:5px'), 'oversized-vector-css-keeps-node-size');
 $assetPaths = array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $result['assets'] ?? array());
 $assert(in_array('assets/hero-image.svg', $assetPaths, true), 'asset-report-path');
 $assert(in_array('external_asset_omitted', $diagnosticCodes, true), 'external-asset-diagnostic');
@@ -276,16 +298,20 @@ $multilineTextResult = blocks_engine_figma_transformer_transform_scenegraph(arra
 $multilineTextCss = $fileContent($multilineTextResult, 'style.css');
 $assert(str_contains($multilineTextCss, '.figma-node-text-multiline-checklist-text{font-size:16px;white-space:pre-line}'), 'multiline-text-preserves-line-breaks');
 
-$derivedTextLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+$derivedTextLayoutScenegraph = array(
     'name'  => 'Derived Text Layout Fixture',
+    'blobs' => array(
+        array('bytes' => $quadraticCommandBlob),
+    ),
     'nodes' => array(
         array(
             'id'              => 'text:derived-layout',
             'type'            => 'TEXT',
             'name'            => 'Measured Text',
-            'characters'      => 'Measured by Figma',
+            'characters'      => 'A B',
             'width'           => 146.5,
             'height'          => 32.25,
+            'fontSize'        => 10,
             'fontName'        => array('family' => 'Example Sans', 'style' => 'Regular'),
             'derivedTextData' => array(
                 'layoutSize' => array('x' => 146.5, 'y' => 32.25),
@@ -301,8 +327,9 @@ $derivedTextLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(
                     ),
                 ),
                 'glyphs' => array(
-                    array('firstCharacter' => 0, 'advance' => 0.5),
-                    array('firstCharacter' => 1, 'advance' => 0.5),
+                    array('firstCharacter' => 0, 'advance' => 0.5, 'fontSize' => 10, 'x' => 2, 'y' => 3, 'commandsBlob' => 0),
+                    array('firstCharacter' => 1, 'advance' => 0.5, 'fontSize' => 10, 'commandsBlob' => 0),
+                    array('firstCharacter' => 2, 'advance' => 0.5, 'fontSize' => 10, 'commandsBlob' => 0),
                 ),
                 'fontMetaData' => array(
                     array(
@@ -314,7 +341,8 @@ $derivedTextLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(
             ),
         ),
     ),
-));
+);
+$derivedTextLayoutResult = blocks_engine_figma_transformer_transform_scenegraph($derivedTextLayoutScenegraph);
 $derivedTextVisualNodes = $derivedTextLayoutResult['source_reports']['figma']['html']['visual_node_map'] ?? array();
 $derivedTextVisualNode = null;
 foreach ( is_array($derivedTextVisualNodes) ? $derivedTextVisualNodes : array() as $visualNode ) {
@@ -325,8 +353,102 @@ foreach ( is_array($derivedTextVisualNodes) ? $derivedTextVisualNodes : array() 
 }
 $assert(true === ($derivedTextVisualNode['text']['has_derived_layout'] ?? null), 'visual-node-derived-text-layout-present');
 $assert(1 === ($derivedTextVisualNode['text']['baseline_count'] ?? null), 'visual-node-derived-text-baseline-count');
-$assert(2 === ($derivedTextVisualNode['text']['glyph_count'] ?? null), 'visual-node-derived-text-glyph-count');
+$assert(3 === ($derivedTextVisualNode['text']['glyph_count'] ?? null), 'visual-node-derived-text-glyph-count');
 $assert(146.5 === ($derivedTextVisualNode['text']['derived_layout']['size']['width'] ?? null), 'visual-node-derived-text-layout-width');
+$assert('M 0 0 Q 4 8 8 0 Z' === ($derivedTextVisualNode['text']['derived_layout']['glyph_paths'][0]['data'] ?? null), 'visual-node-derived-text-glyph-quadratic-path');
+$assert(2.0 === ($derivedTextVisualNode['text']['derived_layout']['glyph_paths'][0]['x'] ?? null), 'visual-node-derived-text-glyph-position');
+$assert('dom_text' === ($derivedTextVisualNode['text']['glyph_rendering'] ?? null), 'visual-node-derived-text-default-dom-rendering');
+$assert(false === ($derivedTextLayoutResult['source_reports']['figma']['html']['render_text_glyph_paths'] ?? null), 'derived-text-glyph-rendering-default-disabled');
+$assert(! str_contains($fileContent($derivedTextLayoutResult, 'index.html'), 'data-figma-text-glyphs="true"'), 'derived-text-default-avoids-glyph-svg');
+
+$derivedTextGlyphResult = blocks_engine_figma_transformer_transform_scenegraph($derivedTextLayoutScenegraph, array('render_text_glyph_paths' => true));
+$derivedTextGlyphHtml = $fileContent($derivedTextGlyphResult, 'index.html');
+$derivedTextGlyphCss = $fileContent($derivedTextGlyphResult, 'style.css');
+$derivedTextGlyphVisualNodes = $derivedTextGlyphResult['source_reports']['figma']['html']['visual_node_map'] ?? array();
+$derivedTextGlyphVisualNode = null;
+foreach ( is_array($derivedTextGlyphVisualNodes) ? $derivedTextGlyphVisualNodes : array() as $visualNode ) {
+    if ( is_array($visualNode) && 'text:derived-layout' === ($visualNode['id'] ?? null) ) {
+        $derivedTextGlyphVisualNode = $visualNode;
+        break;
+    }
+}
+$assert(str_contains($derivedTextGlyphHtml, 'data-figma-text-glyphs="true"'), 'derived-text-glyph-svg-emitted');
+$assert(str_contains($derivedTextGlyphHtml, 'aria-label="A B"'), 'derived-text-glyph-svg-label');
+$assert(str_contains($derivedTextGlyphHtml, 'd="M 0 0 Q 4 8 8 0 Z"'), 'derived-text-glyph-svg-path');
+$assert(str_contains($derivedTextGlyphHtml, 'transform="translate(2 3) scale(10 -10)"'), 'derived-text-glyph-svg-position');
+$assert(str_contains($derivedTextGlyphHtml, 'transform="translate(10 20) scale(10 -10)"'), 'derived-text-glyph-svg-advance-through-space');
+$assert(! str_contains($derivedTextGlyphHtml, 'transform="translate(5 20) scale(10 -10)"'), 'derived-text-glyph-svg-skips-space-path');
+$assert(str_contains($derivedTextGlyphCss, '.figma-text-glyphs{display:block;width:100%;height:100%;overflow:visible}'), 'derived-text-glyph-svg-css');
+$assert('svg_paths' === ($derivedTextGlyphVisualNode['text']['glyph_rendering'] ?? null), 'visual-node-derived-text-glyph-rendering-mode');
+
+$symbolicTextGlyphResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Symbolic Text Glyph Fallback Fixture',
+    'blobs' => array(array('bytes' => $quadraticCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'              => 'text:symbolic-glyph',
+            'type'            => 'TEXT',
+            'name'            => 'Checklist Text',
+            'characters'      => "✔ Included\n✖ Excluded",
+            'width'           => 120,
+            'height'          => 48,
+            'fontSize'        => 16,
+            'derivedTextData' => array(
+                'layoutSize' => array('x' => 120, 'y' => 48),
+                'glyphs'     => array(array('firstCharacter' => 0, 'advance' => 1, 'fontSize' => 16, 'commandsBlob' => 0)),
+            ),
+        ),
+    ),
+), array('render_text_glyph_paths' => true));
+$symbolicTextGlyphHtml = $fileContent($symbolicTextGlyphResult, 'index.html');
+$assert(str_contains($symbolicTextGlyphHtml, "✔ Included\n✖ Excluded"), 'symbolic-text-glyph-fallback-renders-dom-text');
+$assert(! str_contains($symbolicTextGlyphHtml, 'data-figma-text-glyphs="true"'), 'symbolic-text-glyph-fallback-avoids-svg-paths');
+
+$paragraphTextGlyphResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Paragraph Text Glyph Fallback Fixture',
+    'blobs' => array(array('bytes' => $quadraticCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'              => 'text:paragraph-glyph',
+            'type'            => 'TEXT',
+            'name'            => 'Paragraph copy',
+            'characters'      => 'This longer paragraph copy should remain real DOM text instead of SVG glyph paths because it needs browser text flow and selection.',
+            'width'           => 240,
+            'height'          => 80,
+            'fontSize'        => 16,
+            'derivedTextData' => array(
+                'layoutSize' => array('x' => 240, 'y' => 80),
+                'glyphs'     => array(array('firstCharacter' => 0, 'advance' => 1, 'fontSize' => 16, 'commandsBlob' => 0)),
+            ),
+        ),
+    ),
+), array('render_text_glyph_paths' => true));
+$paragraphTextGlyphHtml = $fileContent($paragraphTextGlyphResult, 'index.html');
+$assert(str_contains($paragraphTextGlyphHtml, 'This longer paragraph copy should remain real DOM text'), 'paragraph-text-glyph-fallback-renders-dom-text');
+$assert(! str_contains($paragraphTextGlyphHtml, 'data-figma-text-glyphs="true"'), 'paragraph-text-glyph-fallback-avoids-svg-paths');
+
+$sentenceTextGlyphResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Sentence Text Glyph Fallback Fixture',
+    'blobs' => array(array('bytes' => $quadraticCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'              => 'text:sentence-glyph',
+            'type'            => 'TEXT',
+            'name'            => 'Sentence copy',
+            'characters'      => 'Sentence-style body copy should remain DOM text.',
+            'width'           => 240,
+            'height'          => 32,
+            'fontSize'        => 16,
+            'derivedTextData' => array(
+                'layoutSize' => array('x' => 240, 'y' => 32),
+                'glyphs'     => array(array('firstCharacter' => 0, 'advance' => 1, 'fontSize' => 16, 'commandsBlob' => 0)),
+            ),
+        ),
+    ),
+), array('render_text_glyph_paths' => true));
+$sentenceTextGlyphHtml = $fileContent($sentenceTextGlyphResult, 'index.html');
+$assert(str_contains($sentenceTextGlyphHtml, 'Sentence-style body copy should remain DOM text.'), 'sentence-text-glyph-fallback-renders-dom-text');
+$assert(! str_contains($sentenceTextGlyphHtml, 'data-figma-text-glyphs="true"'), 'sentence-text-glyph-fallback-avoids-svg-paths');
 
 $derivedLineBreakResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Derived Line Break Fixture',
@@ -351,7 +473,7 @@ $derivedLineBreakResult = blocks_engine_figma_transformer_transform_scenegraph(a
 $derivedLineBreakHtml = $fileContent($derivedLineBreakResult, 'index.html');
 $derivedLineBreakCss = $fileContent($derivedLineBreakResult, 'style.css');
 $assert(str_contains($derivedLineBreakHtml, "First line\nSecond line"), 'derived-baselines-insert-line-breaks');
-$assert(str_contains($derivedLineBreakCss, '.figma-node-text-derived-lines-measured-lines{width:120px;height:44px;white-space:pre-line}'), 'derived-baselines-enable-pre-line');
+$assert(str_contains($derivedLineBreakCss, '.figma-node-text-derived-lines-measured-lines{width:120px;height:44px;line-height:22px;white-space:pre-line}'), 'derived-baselines-enable-pre-line');
 
 $parityBuilder = new ParityReportBuilder();
 $pendingParity = $parityBuilder->build(array(
@@ -1566,7 +1688,73 @@ $nestedSymbolInstanceReport = $nestedSymbolInstanceResult['source_reports']['fig
 $assert(1 === ($nestedSymbolInstanceReport['resolved_instance_count'] ?? null), 'nested-symbol-instance-resolved-count');
 $assert(str_contains($nestedSymbolInstanceHtml, 'data-figma-node-id="nested:instance"'), 'nested-symbol-instance-preserves-instance-id');
 $assert(str_contains($nestedSymbolInstanceHtml, 'Nested override label'), 'nested-symbol-instance-applies-symbol-text-override');
-$assert(str_contains($nestedSymbolInstanceCss, '.figma-node-nested-instance-nested-button-instance{background:#ff0000}'), 'nested-symbol-instance-keeps-instance-fill');
+$assert(str_contains($nestedSymbolInstanceCss, '.figma-node-nested-instance-nested-button-instance{') && str_contains($nestedSymbolInstanceCss, 'background:#ff0000'), 'nested-symbol-instance-keeps-instance-fill');
+
+$derivedSymbolInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Derived Symbol Overrides Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'guid'     => array('sessionID' => 40, 'localID' => 1),
+            'type'     => 'SYMBOL',
+            'name'     => 'Derived Symbol',
+            'children' => array(
+                array(
+                    'guid'       => array('sessionID' => 40, 'localID' => 2),
+                    'type'       => 'TEXT',
+                    'name'       => 'Derived Label',
+                    'characters' => 'Default',
+                    'width'      => 40,
+                    'height'     => 12,
+                ),
+                array(
+                    'guid'         => array('sessionID' => 40, 'localID' => 3),
+                    'type'         => 'VECTOR',
+                    'name'         => 'Derived Icon',
+                    'width'        => 5,
+                    'height'       => 5,
+                    'fillGeometry' => array(array('commandsBlob' => 0)),
+                ),
+            ),
+        ),
+        array(
+            'id'                => 'derived:instance',
+            'type'              => 'INSTANCE',
+            'name'              => 'Derived Instance',
+            'symbolData'        => array(
+                'symbolID' => array('sessionID' => 40, 'localID' => 1),
+                'symbolOverrides' => array(
+                    array(
+                        'guidPath' => array('guids' => array(array('sessionID' => 40, 'localID' => 2))),
+                        'textData' => array('characters' => 'Override'),
+                    ),
+                ),
+            ),
+            'derivedSymbolData' => array(
+                array(
+                    'guidPath'        => array('guids' => array(array('sessionID' => 40, 'localID' => 2))),
+                    'size'            => array('x' => 90, 'y' => 24),
+                    'transform'       => array('m00' => 1, 'm01' => 0, 'm02' => 12, 'm10' => 0, 'm11' => 1, 'm12' => 6),
+                    'derivedTextData' => array('layoutSize' => array('x' => 90, 'y' => 24)),
+                ),
+                array(
+                    'guidPath'      => array('guids' => array(array('sessionID' => 40, 'localID' => 3))),
+                    'transform'     => array('m00' => 1, 'm01' => 0, 'm02' => 110, 'm10' => 0, 'm11' => 1, 'm12' => 10),
+                    'fillGeometry'  => array(array('commandsBlob' => 0)),
+                ),
+            ),
+        ),
+    ),
+));
+$derivedSymbolInstanceHtml = $fileContent($derivedSymbolInstanceResult, 'index.html');
+$derivedSymbolInstanceCss = $fileContent($derivedSymbolInstanceResult, 'style.css');
+$assert(str_contains($derivedSymbolInstanceHtml, 'data-figma-node-id="derived:instance/40:2"'), 'derived-symbol-instance-label-namespaced');
+$assert(str_contains($derivedSymbolInstanceHtml, 'Override'), 'derived-symbol-instance-text-override');
+$assert(str_contains($derivedSymbolInstanceHtml, 'data-figma-node-id="derived:instance/40:3"'), 'derived-symbol-instance-icon-namespaced');
+$assert(str_contains($derivedSymbolInstanceHtml, 'd="M 0 0 L 10 0 L 10 10 Z"'), 'derived-symbol-instance-icon-geometry');
+$assert(! str_contains($derivedSymbolInstanceHtml, '<g transform="scale'), 'derived-symbol-instance-icon-avoids-stale-scale');
+$assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-2-derived-label{width:90px;height:24px;position:absolute;left:12px;top:6px'), 'derived-symbol-instance-label-size-position');
+$assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-3-derived-icon{width:10px;height:10px;position:absolute;left:110px;top:10px'), 'derived-symbol-instance-icon-size-position');
 
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
