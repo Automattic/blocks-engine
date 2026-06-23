@@ -346,6 +346,7 @@ final class FigmaTransformer
                     'scenegraph' => $normalized['source_report'],
                     'html'       => $artifact['source_report'],
                 ),
+                'compiled_site' => $this->compiledSiteSourceReport($artifact),
             ),
             $parity,
             array(
@@ -357,5 +358,25 @@ final class FigmaTransformer
                 'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
             )
         );
+    }
+
+    /**
+     * Project Figma's static artifact into the generic compiled-site metadata contract.
+     *
+     * @param array<string, mixed> $artifact Static HTML emitter result.
+     * @return array<string, mixed>
+     */
+    private function compiledSiteSourceReport(array $artifact): array
+    {
+        $htmlReport = is_array($artifact['source_report'] ?? null) ? $artifact['source_report'] : array();
+        $fontUsage  = is_array($htmlReport['font_usage'] ?? null) ? $htmlReport['font_usage'] : array();
+
+        return array_filter(array(
+            'schema'     => 'blocks-engine/figma-transformer/compiled-site/v1',
+            'entry_path' => 'index.html',
+            'theme'      => array_filter(array(
+                'font_usage' => $fontUsage,
+            ), static fn (mixed $value): bool => array() !== $value && '' !== $value),
+        ), static fn (mixed $value): bool => array() !== $value && '' !== $value);
     }
 }
