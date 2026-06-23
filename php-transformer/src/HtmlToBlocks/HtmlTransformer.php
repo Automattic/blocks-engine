@@ -336,6 +336,15 @@ final class HtmlTransformer
             return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
         }
 
+        if ( 'address' === $tagName ) {
+            $content = $this->innerHtml($element);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        }
+
         if ( $this->isInlineContentElement($tagName) ) {
             $content = $this->outerHtml($element);
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
@@ -509,6 +518,10 @@ final class HtmlTransformer
         }
 
         if ( 'button' === $tagName ) {
+            if ( $this->isNonContentRuntimeControl($element) ) {
+                return null;
+            }
+
             return $this->buttonsPattern->matchButton(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
@@ -899,6 +912,17 @@ final class HtmlTransformer
         }
 
         return in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true) || 'true' === strtolower($this->attr($element, 'aria-hidden'));
+    }
+
+    private function isNonContentRuntimeControl(DOMElement $element): bool
+    {
+        if ( '' !== trim($element->textContent ?? '') ) {
+            return false;
+        }
+
+        return '' !== trim($this->attr($element, 'aria-controls'))
+            || '' !== trim($this->attr($element, 'aria-expanded'))
+            || array() !== array_intersect_key($this->safeDataAttributes($element), array_flip(array( 'data-action', 'data-on', 'data-event' )));
     }
 
     private function isInlineContentElement(string $tagName): bool
