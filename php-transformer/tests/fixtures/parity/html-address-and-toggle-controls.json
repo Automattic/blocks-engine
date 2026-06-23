@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-address-and-toggle-controls",
+  "description": "Preserves semantic address content and omits empty runtime-only toggle controls from static block output.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-address-and-toggle-controls.json",
+    "notes": "Generic fixture for semantic address text and navigation/menu toggle chrome."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header><button class=\"hamburger\" aria-label=\"Open navigation menu\" aria-expanded=\"false\" aria-controls=\"site-menu\"><span></span><span></span><span></span></button><nav><ul id=\"site-menu\"><li><a href=\"/about\">About</a></li></ul></nav></header><footer><address class=\"footer-address\">48 Elm Street<br><a href=\"mailto:hello@example.com\">hello@example.com</a></address></footer>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/navigation" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "About", "url": "/about" } },
+    { "path": "blocks.1", "name": "core/paragraph", "attrs": { "className": "footer-address", "content": "48 Elm Street<br><a href=\"mailto:hello@example.com\">hello@example.com</a>" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.interaction_candidates.0.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.interaction_candidates.0.target", "assert": "equals", "value": "#site-menu" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "footer-address" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "hello@example.com" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "Open navigation menu" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:button" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
