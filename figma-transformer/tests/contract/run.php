@@ -401,8 +401,16 @@ $symbolicTextGlyphResult = blocks_engine_figma_transformer_transform_scenegraph(
     ),
 ), array('render_text_glyph_paths' => true));
 $symbolicTextGlyphHtml = $fileContent($symbolicTextGlyphResult, 'index.html');
+$symbolicTextGlyphVisualNode = null;
+foreach ( $symbolicTextGlyphResult['source_reports']['figma']['html']['visual_node_map'] ?? array() as $visualNode ) {
+    if ( is_array($visualNode) && 'text:symbolic-glyph' === ($visualNode['id'] ?? null) ) {
+        $symbolicTextGlyphVisualNode = $visualNode;
+        break;
+    }
+}
 $assert(str_contains($symbolicTextGlyphHtml, "✔ Included\n✖ Excluded"), 'symbolic-text-glyph-fallback-renders-dom-text');
 $assert(! str_contains($symbolicTextGlyphHtml, 'data-figma-text-glyphs="true"'), 'symbolic-text-glyph-fallback-avoids-svg-paths');
+$assert('dom_text' === ($symbolicTextGlyphVisualNode['text']['glyph_rendering'] ?? null), 'symbolic-text-glyph-fallback-visual-metadata-dom');
 
 $paragraphTextGlyphResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Paragraph Text Glyph Fallback Fixture',
@@ -450,6 +458,96 @@ $sentenceTextGlyphHtml = $fileContent($sentenceTextGlyphResult, 'index.html');
 $assert(str_contains($sentenceTextGlyphHtml, 'Sentence-style body copy should remain DOM text.'), 'sentence-text-glyph-fallback-renders-dom-text');
 $assert(! str_contains($sentenceTextGlyphHtml, 'data-figma-text-glyphs="true"'), 'sentence-text-glyph-fallback-avoids-svg-paths');
 
+$multilineHeadingGlyphResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Multiline Heading Glyph Fixture',
+    'blobs' => array(array('bytes' => $quadraticCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'              => 'text:multiline-heading-glyph',
+            'type'            => 'TEXT',
+            'name'            => 'Short Wrapped Heading',
+            'characters'      => "Short\nwrapped\nheading text",
+            'width'           => 120,
+            'height'          => 90,
+            'style'           => array('fontWeight' => 700),
+            'derivedTextData' => array(
+                'baselines' => array(
+                    array('firstCharacter' => 0, 'endCharacter' => 5, 'position' => array('x' => 0, 'y' => 20)),
+                    array('firstCharacter' => 6, 'endCharacter' => 13, 'position' => array('x' => 0, 'y' => 45)),
+                    array('firstCharacter' => 14, 'endCharacter' => 26, 'position' => array('x' => 0, 'y' => 70)),
+                ),
+                'glyphs' => array(
+                    array('firstCharacter' => 0, 'advance' => 1, 'fontSize' => 20, 'commandsBlob' => 0),
+                    array('firstCharacter' => 6, 'advance' => 1, 'fontSize' => 20, 'commandsBlob' => 0),
+                    array('firstCharacter' => 14, 'advance' => 1, 'fontSize' => 20, 'commandsBlob' => 0),
+                ),
+            ),
+        ),
+    ),
+), array('render_text_glyph_paths' => true));
+$multilineHeadingGlyphHtml = $fileContent($multilineHeadingGlyphResult, 'index.html');
+$assert(str_contains($multilineHeadingGlyphHtml, "aria-label=\"Short\nwrapped\nheading text\""), 'multiline-heading-glyph-renders-svg-label');
+$assert(str_contains($multilineHeadingGlyphHtml, 'data-figma-text-glyphs="true"'), 'multiline-heading-glyph-renders-svg');
+
+$multilineLargeDisplayGlyphResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Multiline Large Display Glyph Fixture',
+    'blobs' => array(array('bytes' => $quadraticCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'              => 'text:multiline-large-display-glyph',
+            'type'            => 'TEXT',
+            'name'            => 'Large Wrapped Display',
+            'characters'      => "Large\nwrapped",
+            'width'           => 160,
+            'height'          => 80,
+            'fontSize'        => 34,
+            'style'           => array('fontWeight' => 400),
+            'derivedTextData' => array(
+                'baselines' => array(
+                    array('firstCharacter' => 0, 'endCharacter' => 5, 'position' => array('x' => 0, 'y' => 34)),
+                    array('firstCharacter' => 6, 'endCharacter' => 13, 'position' => array('x' => 0, 'y' => 72)),
+                ),
+                'glyphs' => array(
+                    array('firstCharacter' => 0, 'advance' => 1, 'fontSize' => 34, 'commandsBlob' => 0),
+                    array('firstCharacter' => 6, 'advance' => 1, 'fontSize' => 34, 'commandsBlob' => 0),
+                ),
+            ),
+        ),
+    ),
+), array('render_text_glyph_paths' => true));
+$multilineLargeDisplayGlyphHtml = $fileContent($multilineLargeDisplayGlyphResult, 'index.html');
+$assert(str_contains($multilineLargeDisplayGlyphHtml, "aria-label=\"Large\nwrapped\""), 'multiline-large-display-glyph-renders-svg-label');
+$assert(str_contains($multilineLargeDisplayGlyphHtml, 'data-figma-text-glyphs="true"'), 'multiline-large-display-glyph-renders-svg');
+
+$multilineCopyGlyphResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Multiline Copy Glyph Fixture',
+    'blobs' => array(array('bytes' => $quadraticCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'              => 'text:multiline-copy-glyph',
+            'type'            => 'TEXT',
+            'name'            => 'Wrapped Copy',
+            'characters'      => "Short\nwrapped\ncopy",
+            'width'           => 120,
+            'height'          => 60,
+            'style'           => array('fontWeight' => 400),
+            'derivedTextData' => array(
+                'baselines' => array(
+                    array('firstCharacter' => 0, 'endCharacter' => 5, 'position' => array('x' => 0, 'y' => 20)),
+                    array('firstCharacter' => 6, 'endCharacter' => 13, 'position' => array('x' => 0, 'y' => 45)),
+                ),
+                'glyphs' => array(
+                    array('firstCharacter' => 0, 'advance' => 1, 'fontSize' => 20, 'commandsBlob' => 0),
+                    array('firstCharacter' => 6, 'advance' => 1, 'fontSize' => 20, 'commandsBlob' => 0),
+                ),
+            ),
+        ),
+    ),
+), array('render_text_glyph_paths' => true));
+$multilineCopyGlyphHtml = $fileContent($multilineCopyGlyphResult, 'index.html');
+$assert(str_contains($multilineCopyGlyphHtml, "Short\nwrapped\ncopy"), 'multiline-copy-glyph-fallback-renders-dom-text');
+$assert(! str_contains($multilineCopyGlyphHtml, 'data-figma-text-glyphs="true"'), 'multiline-copy-glyph-fallback-avoids-svg');
+
 $derivedLineBreakResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Derived Line Break Fixture',
     'nodes' => array(
@@ -460,6 +558,7 @@ $derivedLineBreakResult = blocks_engine_figma_transformer_transform_scenegraph(a
             'characters'      => 'First line Second line',
             'width'           => 120,
             'height'          => 44,
+            'lineHeightPx'    => 40,
             'derivedTextData' => array(
                 'layoutSize' => array('x' => 120, 'y' => 44),
                 'baselines'  => array(
@@ -474,6 +573,7 @@ $derivedLineBreakHtml = $fileContent($derivedLineBreakResult, 'index.html');
 $derivedLineBreakCss = $fileContent($derivedLineBreakResult, 'style.css');
 $assert(str_contains($derivedLineBreakHtml, "First line\nSecond line"), 'derived-baselines-insert-line-breaks');
 $assert(str_contains($derivedLineBreakCss, '.figma-node-text-derived-lines-measured-lines{width:120px;height:44px;line-height:22px;white-space:pre-line}'), 'derived-baselines-enable-pre-line');
+$assert(! str_contains($derivedLineBreakCss, 'line-height:40px;line-height:22px'), 'derived-baselines-replace-source-line-height');
 
 $parityBuilder = new ParityReportBuilder();
 $pendingParity = $parityBuilder->build(array(
@@ -578,7 +678,7 @@ if ( function_exists('imagecreatetruecolor') && function_exists('imagepng') ) {
         ),
         $sourceImagePath,
         $generatedImagePath,
-        array('threshold' => 24, 'limit' => 5)
+        array('threshold' => 24, 'material_threshold' => 96, 'severe_threshold' => 192, 'limit' => 5)
     );
     @unlink($sourceImagePath);
     @unlink($generatedImagePath);
@@ -586,6 +686,11 @@ if ( function_exists('imagecreatetruecolor') && function_exists('imagepng') ) {
     $assert('blocks-engine/figma-transformer/visual-attribution/v1' === ($visualAttribution['schema'] ?? null), 'visual-attribution-schema');
     $assert('success' === ($visualAttribution['status'] ?? null), 'visual-attribution-success');
     $assert(1 === ($visualAttribution['top_nodes'][0]['diff']['mismatch_pixels'] ?? null), 'visual-attribution-node-mismatch-count');
+    $assert(1 === ($visualAttribution['top_nodes'][0]['diff']['material_mismatch_pixels'] ?? null), 'visual-attribution-node-material-mismatch-count');
+    $assert(1 === ($visualAttribution['top_nodes'][0]['diff']['severe_mismatch_pixels'] ?? null), 'visual-attribution-node-severe-mismatch-count');
+    $assert(741 === ($visualAttribution['top_nodes'][0]['diff']['material_delta_score'] ?? null), 'visual-attribution-node-material-delta-score');
+    $assert(array('gt24' => 1, 'gt48' => 1, 'gt96' => 1, 'gt192' => 1) === ($visualAttribution['top_nodes'][0]['diff']['severity_buckets'] ?? null), 'visual-attribution-node-severity-buckets');
+    $assert(1 === ($visualAttribution['totals']['material_mismatch_pixels'] ?? null), 'visual-attribution-totals-material-mismatch-count');
     $assert(array('background', 'positioned') === ($visualAttribution['top_nodes'][0]['features'] ?? null), 'visual-attribution-node-features');
 }
 

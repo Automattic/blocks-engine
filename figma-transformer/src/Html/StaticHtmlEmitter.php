@@ -917,7 +917,7 @@ final class StaticHtmlEmitter
      */
     private function textAllowsGlyphRendering(string $characters, array $text): bool
     {
-        if ( $this->textNeedsDomSymbolFallback($characters) || str_contains($characters, "\n") ) {
+        if ( $this->textNeedsDomSymbolFallback($characters) ) {
             return false;
         }
 
@@ -929,16 +929,33 @@ final class StaticHtmlEmitter
             return false;
         }
 
+        if ( str_contains($characters, "\n") && ! $this->textLooksLikeDisplayText($text) ) {
+            return false;
+        }
+
         if ( ! empty($text['segments'] ?? array()) ) {
             return false;
         }
 
-        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
-        if ( isset($derivedLayout['baseline_count']) && is_numeric($derivedLayout['baseline_count']) && 2 < (int) $derivedLayout['baseline_count'] ) {
-            return false;
+        return true;
+    }
+
+    /**
+     * @param array<string, mixed> $text
+     */
+    private function textLooksLikeDisplayText(array $text): bool
+    {
+        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        if ( isset($style['font_weight']) && is_numeric($style['font_weight']) && 700 <= (float) $style['font_weight'] ) {
+            return true;
         }
 
-        return true;
+        if ( isset($style['font_size']) && is_numeric($style['font_size']) && 30 <= (float) $style['font_size'] ) {
+            return true;
+        }
+
+        $derivedLineHeight = $this->textDerivedBaselineLineHeight($text);
+        return null !== $derivedLineHeight && 36 <= $derivedLineHeight;
     }
 
     private function textNeedsDomSymbolFallback(string $characters): bool
@@ -1000,6 +1017,10 @@ final class StaticHtmlEmitter
         $styles = $this->textStyleDeclarations($style);
         $derivedLineHeight = $this->textDerivedBaselineLineHeight($text);
         if ( null !== $derivedLineHeight ) {
+            $styles = array_values(array_filter(
+                $styles,
+                static fn (string $style): bool => ! str_starts_with($style, 'line-height:')
+            ));
             $styles[] = 'line-height:' . $this->number($derivedLineHeight) . 'px';
         }
         if ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) {
@@ -1518,7 +1539,8 @@ final class StaticHtmlEmitter
             $metadata['baseline_count'] = $derivedLayout['baseline_count'] ?? 0;
             $metadata['glyph_count'] = $derivedLayout['glyph_count'] ?? 0;
             $metadata['glyph_path_count'] = is_array($derivedLayout['glyph_paths'] ?? null) ? count($derivedLayout['glyph_paths']) : 0;
-            $metadata['glyph_rendering'] = $this->renderTextGlyphPaths && ! empty($derivedLayout['glyph_paths']) ? 'svg_paths' : 'dom_text';
+            $characters = isset($text['characters']) && is_scalar($text['characters']) ? (string) $text['characters'] : '';
+            $metadata['glyph_rendering'] = $this->renderTextGlyphPaths && ! empty($derivedLayout['glyph_paths']) && $this->textAllowsGlyphRendering($characters, $text) ? 'svg_paths' : 'dom_text';
         } else {
             $metadata['has_derived_layout'] = false;
             $metadata['glyph_rendering'] = 'dom_text';

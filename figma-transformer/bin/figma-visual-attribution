@@ -15,6 +15,9 @@ $options = array(
     'source' => '',
     'generated' => '',
     'threshold' => 24,
+    'material_threshold' => 96,
+    'severe_threshold' => 192,
+    'rank_by' => 'material_delta_score',
     'limit' => 25,
 );
 
@@ -54,6 +57,9 @@ $report = $builder->build(
     (string) $options['generated'],
     array(
         'threshold' => (int) $options['threshold'],
+        'material_threshold' => (int) $options['material_threshold'],
+        'severe_threshold' => (int) $options['severe_threshold'],
+        'rank_by' => (string) $options['rank_by'],
         'limit' => (int) $options['limit'],
     )
 );
@@ -63,5 +69,5 @@ exit('error' === ($report['status'] ?? null) ? 1 : 0);
 
 function blocks_engine_figma_visual_attribution_usage(): void
 {
-    fwrite(STDERR, "Usage: figma-visual-attribution --transform-result=<transform-result.json> --source=<source.png> --generated=<generated.png> [--threshold=24] [--limit=25]\n");
+    fwrite(STDERR, "Usage: figma-visual-attribution --transform-result=<transform-result.json> --source=<source.png> --generated=<generated.png> [--threshold=24] [--material-threshold=96] [--severe-threshold=192] [--rank-by=material_delta_score] [--limit=25]\n");
 }

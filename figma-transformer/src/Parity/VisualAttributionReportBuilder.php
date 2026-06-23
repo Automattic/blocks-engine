@@ -33,6 +33,9 @@ final class VisualAttributionReportBuilder
         }
 
         $threshold = isset($options['threshold']) && is_numeric($options['threshold']) ? (int) $options['threshold'] : 24;
+        $materialThreshold = isset($options['material_threshold']) && is_numeric($options['material_threshold']) ? (int) $options['material_threshold'] : 96;
+        $severeThreshold = isset($options['severe_threshold']) && is_numeric($options['severe_threshold']) ? (int) $options['severe_threshold'] : 192;
+        $rankBy = isset($options['rank_by']) && is_scalar($options['rank_by']) ? (string) $options['rank_by'] : 'material_delta_score';
         $limit = isset($options['limit']) && is_numeric($options['limit']) ? max(1, (int) $options['limit']) : 25;
         $viewportWidth = min(imagesx($sourceImage), imagesx($generatedImage));
         $viewportHeight = min(imagesy($sourceImage), imagesy($generatedImage));
@@ -56,7 +59,7 @@ final class VisualAttributionReportBuilder
                 continue;
             }
 
-            $stats = $this->diffStatsForRect($sourceImage, $generatedImage, $rect, $threshold);
+            $stats = $this->diffStatsForRect($sourceImage, $generatedImage, $rect, $threshold, $materialThreshold, $severeThreshold);
             if ( 0 === $stats['area_pixels'] ) {
                 $unattributed++;
                 continue;
@@ -78,7 +81,7 @@ final class VisualAttributionReportBuilder
 
         usort(
             $nodes,
-            static fn (array $left, array $right): int => ($right['diff']['mismatch_pixels'] ?? 0) <=> ($left['diff']['mismatch_pixels'] ?? 0)
+            static fn (array $left, array $right): int => ($right['diff'][$rankBy] ?? 0) <=> ($left['diff'][$rankBy] ?? 0)
         );
         $leafNodes = $this->leafNodes($nodes, $visualNodesById);
 
@@ -89,6 +92,9 @@ final class VisualAttributionReportBuilder
                 'source_image_path' => $sourceImagePath,
                 'generated_image_path' => $generatedImagePath,
                 'threshold' => $threshold,
+                'material_threshold' => $materialThreshold,
+                'severe_threshold' => $severeThreshold,
+                'rank_by' => $rankBy,
             ),
             'viewport' => array(
                 'width' => $viewportWidth,
@@ -101,6 +107,7 @@ final class VisualAttributionReportBuilder
                 'unattributed_node_count' => $unattributed,
                 'coverage_ratio' => 0 === count($diagnostics) ? 0 : count($nodes) / count($diagnostics),
             ),
+            'totals' => $this->diffTotals($nodes),
             'top_nodes' => array_slice($nodes, 0, $limit),
             'top_leaf_nodes' => array_slice($leafNodes, 0, $limit),
         );
@@ -237,11 +244,18 @@ final class VisualAttributionReportBuilder
      * @param resource|\GdImage $sourceImage
      * @param resource|\GdImage $generatedImage
      * @param array{x:int,y:int,width:int,height:int} $rect
-     * @return array<string, int|float>
+     * @return array<string, mixed>
      */
-    private function diffStatsForRect(mixed $sourceImage, mixed $generatedImage, array $rect, int $threshold): array
+    private function diffStatsForRect(mixed $sourceImage, mixed $generatedImage, array $rect, int $threshold, int $materialThreshold, int $severeThreshold): array
     {
         $mismatch = 0;
+        $materialMismatch = 0;
+        $severeMismatch = 0;
+        $materialDeltaScore = 0;
+        $bucketGt24 = 0;
+        $bucketGt48 = 0;
+        $bucketGt96 = 0;
+        $bucketGt192 = 0;
         $sum = 0;
         $max = 0;
         $area = $rect['width'] * $rect['height'];
@@ -258,6 +272,25 @@ final class VisualAttributionReportBuilder
                 if ( $delta > $threshold ) {
                     $mismatch++;
                 }
+                if ( $delta > $materialThreshold ) {
+                    $materialMismatch++;
+                    $materialDeltaScore += $delta - $threshold;
+                }
+                if ( $delta > $severeThreshold ) {
+                    $severeMismatch++;
+                }
+                if ( $delta > 24 ) {
+                    $bucketGt24++;
+                }
+                if ( $delta > 48 ) {
+                    $bucketGt48++;
+                }
+                if ( $delta > 96 ) {
+                    $bucketGt96++;
+                }
+                if ( $delta > 192 ) {
+                    $bucketGt192++;
+                }
             }
         }
 
@@ -265,9 +298,63 @@ final class VisualAttributionReportBuilder
             'area_pixels' => $area,
             'mismatch_pixels' => $mismatch,
             'mismatch_ratio' => 0 === $area ? 0 : $mismatch / $area,
+            'material_mismatch_pixels' => $materialMismatch,
+            'material_mismatch_ratio' => 0 === $area ? 0 : $materialMismatch / $area,
+            'severe_mismatch_pixels' => $severeMismatch,
+            'severe_mismatch_ratio' => 0 === $area ? 0 : $severeMismatch / $area,
             'mean_rgb_sum_delta' => 0 === $area ? 0 : $sum / $area,
+            'material_delta_score' => $materialDeltaScore,
+            'mean_material_delta' => 0 === $area ? 0 : $materialDeltaScore / $area,
             'max_rgb_sum_delta' => $max,
+            'severity_buckets' => array(
+                'gt24' => $bucketGt24,
+                'gt48' => $bucketGt48,
+                'gt96' => $bucketGt96,
+                'gt192' => $bucketGt192,
+            ),
+            'thresholds' => array(
+                'noise' => $threshold,
+                'material' => $materialThreshold,
+                'severe' => $severeThreshold,
+            ),
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodes
+     * @return array<string, mixed>
+     */
+    private function diffTotals(array $nodes): array
+    {
+        $totals = array(
+            'mismatch_pixels' => 0,
+            'material_mismatch_pixels' => 0,
+            'severe_mismatch_pixels' => 0,
+            'material_delta_score' => 0,
+            'severity_buckets' => array(
+                'gt24' => 0,
+                'gt48' => 0,
+                'gt96' => 0,
+                'gt192' => 0,
+            ),
+        );
+
+        foreach ( $nodes as $node ) {
+            $diff = is_array($node['diff'] ?? null) ? $node['diff'] : array();
+            foreach ( array('mismatch_pixels', 'material_mismatch_pixels', 'severe_mismatch_pixels', 'material_delta_score') as $key ) {
+                if ( isset($diff[$key]) && is_numeric($diff[$key]) ) {
+                    $totals[$key] += (int) $diff[$key];
+                }
+            }
+            $buckets = is_array($diff['severity_buckets'] ?? null) ? $diff['severity_buckets'] : array();
+            foreach ( array('gt24', 'gt48', 'gt96', 'gt192') as $key ) {
+                if ( isset($buckets[$key]) && is_numeric($buckets[$key]) ) {
+                    $totals['severity_buckets'][$key] += (int) $buckets[$key];
+                }
+            }
+        }
+
+        return $totals;
     }
 
     /**
