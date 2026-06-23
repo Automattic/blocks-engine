@@ -1,0 +1,40 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-interaction-candidates-report",
+  "description": "Reports bounded static interaction candidates from declarative HTML signals without requiring browser runtime execution.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-interaction-candidates-report.json",
+    "notes": "Product-neutral first-pass static interaction report fixture."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream report fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><details id=\"faq\"><summary>FAQ</summary><p>Answer.</p></details><form action=\"/contact\" method=\"post\"><input name=\"email\"><button type=\"submit\">Send</button></form><button class=\"accordion-toggle\" aria-controls=\"panel\" aria-expanded=\"false\" data-action=\"toggle\">Toggle panel</button><section id=\"panel\">Panel</section><div role=\"tablist\"><button role=\"tab\" aria-controls=\"tab-one\">One</button></div><div id=\"tab-one\">Tab one</div><dialog id=\"signup-modal\">Join</dialog><div class=\"hero-carousel\" data-event=\"slide\"><button class=\"carousel-next\">Next</button></div><a href=\"#signup-modal\" onclick=\"openSignup()\">Open signup</a></main>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.interaction_candidates", "assert": "count", "count": 11 },
+    { "path": "source_reports.interaction_candidates.0.kind", "assert": "equals", "value": "details" },
+    { "path": "source_reports.interaction_candidates.0.target", "assert": "equals", "value": "#faq" },
+    { "path": "source_reports.interaction_candidates.1.kind", "assert": "equals", "value": "form" },
+    { "path": "source_reports.interaction_candidates.1.trigger", "assert": "equals", "value": "submit" },
+    { "path": "source_reports.interaction_candidates.1.target", "assert": "equals", "value": "/contact" },
+    { "path": "source_reports.interaction_candidates.2.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.interaction_candidates.2.target", "assert": "equals", "value": "#panel" },
+    { "path": "source_reports.interaction_candidates.3.kind", "assert": "equals", "value": "accordion" },
+    { "path": "source_reports.interaction_candidates.4.kind", "assert": "equals", "value": "tabs" },
+    { "path": "source_reports.interaction_candidates.5.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.interaction_candidates.5.target", "assert": "equals", "value": "#tab-one" },
+    { "path": "source_reports.interaction_candidates.6.kind", "assert": "equals", "value": "tabs" },
+    { "path": "source_reports.interaction_candidates.7.kind", "assert": "equals", "value": "modal" },
+    { "path": "source_reports.interaction_candidates.8.kind", "assert": "equals", "value": "carousel" },
+    { "path": "source_reports.interaction_candidates.9.kind", "assert": "equals", "value": "carousel" },
+    { "path": "source_reports.interaction_candidates.10.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.conversion_report.interaction_candidates", "assert": "count", "count": 11 },
+    { "path": "source_reports.conversion_report.interaction_candidates.10.evidence.0", "assert": "equals", "value": "onclick" }
+  ]
+}

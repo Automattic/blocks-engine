@@ -127,6 +127,10 @@ $formFallback = ( new HtmlTransformer() )->transform(
 $formDiagnostic = $formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
 $assert(array() === ($formFallback['blocks'] ?? array()), 'form fallback does not synthesize canonical blocks');
 $assertNormalizedFallbackDiagnostic($formDiagnostic, 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
+$assert('form' === ($formFallback['source_reports']['interaction_candidates'][0]['kind'] ?? ''), 'HTML source report exposes form interaction candidate');
+$assert('form' === ($formFallback['source_reports']['conversion_report']['interaction_candidates'][0]['kind'] ?? ''), 'conversion report projects interaction candidates');
+$assert('/contact' === ($formFallback['source_reports']['interaction_candidates'][0]['target'] ?? ''), 'form interaction candidate exposes action target');
+$assert('html_form_fallback' === ($formDiagnostic['diagnostic_code'] ?? ''), 'conversion report exposes form fallback diagnostic code');
 $assert('/contact' === ($formDiagnostic['form']['action'] ?? ''), 'conversion report exposes form action metadata');
 $assert('post' === ($formDiagnostic['form']['method'] ?? ''), 'conversion report exposes normalized form method metadata');
 $assert(3 === ($formDiagnostic['control_count'] ?? null), 'conversion report exposes form control count');
@@ -149,6 +153,16 @@ $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_unsafe_inline_svg']
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_script_fallback'] ?? array(), 'html_script_fallback', 'warning', 'client_script_execution', 'script_asset');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_unsupported_element'] ?? array(), 'html_unsupported_element', 'info', 'unknown', 'core/html');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallback'] ?? array(), 'html_iframe_embed_fallback', 'warning', 'third_party_embed_runtime', 'embed');
+
+$interactions = ( new HtmlTransformer() )->transform(
+    '<main><button aria-controls="panel" aria-expanded="false" data-action="toggle">Toggle</button><section id="panel">Panel</section><div role="tablist"><button role="tab" aria-controls="tab-one">One</button></div><div id="tab-one">Tab one</div><dialog id="signup">Join</dialog><div class="hero-carousel"><button class="carousel-next">Next</button></div></main>'
+)->toArray();
+$interactionKinds = array_map(static fn (array $candidate): string => (string) ($candidate['kind'] ?? ''), $interactions['source_reports']['interaction_candidates'] ?? array());
+$assert(in_array('control', $interactionKinds, true), 'HTML source report detects declarative control interactions');
+$assert(in_array('tabs', $interactionKinds, true), 'HTML source report detects tab interactions');
+$assert(in_array('modal', $interactionKinds, true), 'HTML source report detects modal-ish interactions');
+$assert(in_array('carousel', $interactionKinds, true), 'HTML source report detects carousel-ish interactions');
+$assert('#panel' === ($interactions['source_reports']['interaction_candidates'][0]['target'] ?? ''), 'control interaction candidate exposes aria-controls target');
 
 $assetMetadataOptions = array(
     'context' => array(

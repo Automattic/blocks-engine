@@ -13,6 +13,8 @@ use DOMNode;
 
 final class HtmlTransformer
 {
+    private const MAX_INTERACTION_CANDIDATES = 100;
+
     private readonly BlockFactory $blockFactory;
 
     /**
@@ -124,6 +126,7 @@ final class HtmlTransformer
         }
 
         $fallbacks   = array();
+        $interactionCandidates = $this->interactionCandidates($body);
         $blocks      = $this->convertChildren($body, $fallbacks, true);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
@@ -150,6 +153,7 @@ final class HtmlTransformer
 
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $sourceReports = array(
+            'interaction_candidates' => $interactionCandidates,
             'html' => array(
                 'presentation_signals' => $this->presentationProvenance,
                 'source_provenance'    => $sourceProvenance,
@@ -944,6 +948,179 @@ final class HtmlTransformer
         }
 
         return $count;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function interactionCandidates(DOMElement $root): array
+    {
+        $candidates = array();
+        $seen = array();
+        foreach ( $root->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement ) {
+                continue;
+            }
+
+            foreach ( $this->interactionCandidatesForElement($element) as $candidate ) {
+                $key = json_encode($candidate, JSON_UNESCAPED_SLASHES);
+                if ( ! is_string($key) || isset($seen[$key]) ) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $candidates[] = $candidate;
+                if ( count($candidates) >= self::MAX_INTERACTION_CANDIDATES ) {
+                    return $candidates;
+                }
+            }
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function interactionCandidatesForElement(DOMElement $element): array
+    {
+        $tagName = strtolower($element->tagName);
+        $role = strtolower($this->attr($element, 'role'));
+        $classes = strtolower($this->attr($element, 'class'));
+        $id = strtolower($this->attr($element, 'id'));
+        $data = $this->safeDataAttributes($element);
+        $dataText = strtolower(implode(' ', array_merge(array_keys($data), array_values($data))));
+        $nameText = trim($classes . ' ' . $id . ' ' . $dataText);
+        $events = $this->eventMetadata($element);
+        $actionDataAttributes = array_keys(array_filter($data, static fn (string $value, string $name): bool => preg_match('/^data-(?:action|on|event)$/i', $name) && '' !== trim($value), ARRAY_FILTER_USE_BOTH));
+        $hasAriaControl = '' !== trim($this->attr($element, 'aria-controls')) || '' !== trim($this->attr($element, 'aria-expanded'));
+        $candidates = array();
+
+        if ( 'details' === $tagName ) {
+            $candidates[] = $this->interactionCandidate($element, 'details', 'summary', $this->targetForElement($element), array('details_element'), 'high', 'native_toggle');
+        }
+
+        if ( 'form' === $tagName ) {
+            $metadata = $this->formMetadata($element);
+            $candidates[] = $this->interactionCandidate($element, 'form', 'submit', (string) ($metadata['action'] ?? ''), array_filter(array('form_element', (string) ($metadata['method'] ?? ''))), 'high', 'form_submission');
+        }
+
+        if ( in_array($tagName, array('button', 'a'), true) && ( array() !== $events || array() !== $actionDataAttributes || $hasAriaControl ) ) {
+            $candidates[] = $this->interactionCandidate($element, 'control', $this->controlTrigger($element, $events), $this->controlledTarget($element), $this->controlEvidence($element, $events, $actionDataAttributes), $hasAriaControl ? 'high' : 'medium', 'client_runtime');
+        }
+
+        if ( 'dialog' === $tagName || in_array($role, array('dialog', 'alertdialog'), true) || preg_match('/(?:^|[\s_-])(?:modal|dialog|popup|lightbox)(?:$|[\s_-])/', $nameText) ) {
+            $candidates[] = $this->interactionCandidate($element, 'modal', $this->modalTriggerHint($element), $this->targetForElement($element), array_filter(array('modal_like', 'dialog' === $tagName ? 'dialog_element' : '', '' !== $role ? 'role:' . $role : '')), 'medium', 'modal_runtime');
+        }
+
+        if ( 'tablist' === $role || 'tab' === $role ) {
+            $candidates[] = $this->interactionCandidate($element, 'tabs', 'tab' === $role ? 'tab_select' : 'tablist', $this->controlledTarget($element), array_filter(array('role:' . $role, '' !== $this->attr($element, 'aria-controls') ? 'aria-controls' : '')), 'high', 'tab_state');
+        }
+
+        if ( ( in_array($tagName, array('button', 'a'), true) || '' !== $role ) && preg_match('/(?:^|[\s_-])accordion(?:$|[\s_-])/', $nameText) ) {
+            $candidates[] = $this->interactionCandidate($element, 'accordion', $this->controlTrigger($element, $events), $this->controlledTarget($element), array_filter(array('accordion_like', '' !== $this->attr($element, 'aria-expanded') ? 'aria-expanded' : '')), 'medium', 'accordion_state');
+        }
+
+        if ( preg_match('/(?:^|[\s_-])(?:carousel|slider|slideshow|swiper)(?:$|[\s_-])/', $nameText) ) {
+            $candidates[] = $this->interactionCandidate($element, 'carousel', $this->carouselTriggerHint($element), $this->targetForElement($element), array('carousel_like'), 'medium', 'carousel_runtime');
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * @param array<int, string> $evidence
+     * @return array<string, mixed>
+     */
+    private function interactionCandidate(DOMElement $element, string $kind, string $trigger, string $target, array $evidence, string $confidence, string $runtimeRequirement): array
+    {
+        return array_filter(
+            array(
+                'selector'                => $this->elementSelector($element),
+                'kind'                    => $kind,
+                'trigger'                 => $trigger,
+                'target'                  => $target,
+                'evidence'                => array_values(array_unique(array_filter($evidence, static fn (string $value): bool => '' !== $value))),
+                'confidence'              => $confidence,
+                'runtime_requirement'     => $runtimeRequirement,
+                'materialization_hint'    => $this->materializationHintForInteractionKind($kind),
+            ),
+            static fn (mixed $value): bool => '' !== $value && array() !== $value
+        );
+    }
+
+    private function targetForElement(DOMElement $element): string
+    {
+        $id = trim($this->attr($element, 'id'));
+        return '' !== $id ? '#' . $id : $this->elementSelector($element);
+    }
+
+    private function controlledTarget(DOMElement $element): string
+    {
+        $target = trim($this->attr($element, 'aria-controls'));
+        return '' !== $target ? '#' . ltrim($target, '#') : $this->targetForElement($element);
+    }
+
+    /**
+     * @param array<int, array<string, string>> $events
+     */
+    private function controlTrigger(DOMElement $element, array $events): string
+    {
+        if ( array() !== $events ) {
+            return (string) ($events[0]['type'] ?? 'event');
+        }
+
+        $type = strtolower($this->attr($element, 'type'));
+        return 'submit' === $type ? 'submit' : 'click';
+    }
+
+    /**
+     * @param array<int, array<string, string>> $events
+     * @param array<int, string> $actionDataAttributes
+     * @return array<int, string>
+     */
+    private function controlEvidence(DOMElement $element, array $events, array $actionDataAttributes): array
+    {
+        $evidence = array();
+        foreach ( $events as $event ) {
+            $attribute = (string) ($event['attribute'] ?? '');
+            if ( '' !== $attribute ) {
+                $evidence[] = $attribute;
+            }
+        }
+        foreach ( $actionDataAttributes as $attribute ) {
+            $evidence[] = $attribute;
+        }
+        if ( '' !== trim($this->attr($element, 'aria-controls')) ) {
+            $evidence[] = 'aria-controls';
+        }
+        if ( '' !== trim($this->attr($element, 'aria-expanded')) ) {
+            $evidence[] = 'aria-expanded';
+        }
+
+        return $evidence;
+    }
+
+    private function modalTriggerHint(DOMElement $element): string
+    {
+        return '' !== trim($this->attr($element, 'open')) ? 'open' : 'show';
+    }
+
+    private function carouselTriggerHint(DOMElement $element): string
+    {
+        return preg_match('/(?:^|[\s_-])(?:next|prev|previous)(?:$|[\s_-])/', strtolower($this->attr($element, 'class'))) ? 'advance' : 'slide';
+    }
+
+    private function materializationHintForInteractionKind(string $kind): string
+    {
+        return match ( $kind ) {
+            'details' => 'preserve_native_details',
+            'form' => 'preserve_or_replace_form_runtime',
+            'tabs' => 'materialize_tab_panels_or_runtime',
+            'accordion' => 'materialize_expanded_state_or_runtime',
+            'carousel' => 'preserve_static_slides_or_runtime',
+            'modal' => 'preserve_dialog_markup_or_runtime',
+            default => 'preserve_static_markup_with_runtime_note',
+        };
     }
 
     private function closestTagName(DOMElement $element): ?string
