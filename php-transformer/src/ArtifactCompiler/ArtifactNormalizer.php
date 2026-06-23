@@ -13,8 +13,8 @@ use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 final class ArtifactNormalizer
 {
     public const DEFAULT_MAX_FILES = 500;
-    public const DEFAULT_MAX_FILE_BYTES = 1048576;
-    public const DEFAULT_MAX_TOTAL_BYTES = 10485760;
+    public const DEFAULT_MAX_FILE_BYTES = 5242880;
+    public const DEFAULT_MAX_TOTAL_BYTES = 52428800;
 
     /**
      * @param array<string, mixed> $artifact

@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-inline-svg-fallback",
-  "description": "Represents safe inline SVG as bounded sanitized fallback metadata while preserving supported siblings.",
+  "description": "Represents safe inline SVG as a bounded image block while preserving supported siblings.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-inline-svg-fallback.json",
-    "notes": "Product-neutral fixture for generic inline SVG fallback handling."
+    "notes": "Product-neutral fixture for generic safe inline SVG image handling."
   },
   "legacy_comparison": {
     "skip": true,
@@ -16,22 +16,15 @@
     "content": "<section><h2>Icon row</h2><svg viewBox=\"0 0 10 10\" role=\"img\" aria-label=\"Status\"><title>Status</title><circle cx=\"5\" cy=\"5\" r=\"4\"></circle></svg></section>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/heading", "attrs": { "content": "Icon row", "level": 2 } }
-  ],
-  "expected_fallbacks": [
-    { "type": "inline_svg", "reason": "inline_svg_fallback", "tag": "svg", "diagnostic_code": "html_inline_svg_fallback", "selector": "section:nth-of-type(1) > svg:nth-of-type(1)", "child_count": 2 }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Icon row", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/image", "attrs": { "alt": "Status", "title": "Status" } }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
-    { "path": "fallbacks", "assert": "count", "count": 1 },
-    { "path": "fallbacks.0.attributes.viewbox", "assert": "equals", "value": "0 0 10 10" },
-    { "path": "fallbacks.0.attributes.role", "assert": "equals", "value": "img" },
-    { "path": "fallbacks.0.html", "assert": "contains", "value": "<svg viewbox=\"0 0 10 10\"" },
-    { "path": "fallbacks.0.html", "assert": "contains", "value": "<circle cx=\"5\" cy=\"5\" r=\"4\"></circle>" },
-    { "path": "fallbacks.0.html_truncated", "assert": "equals", "value": false },
-    { "path": "diagnostics.1.code", "assert": "equals", "value": "html_inline_svg_fallback" },
-    { "path": "diagnostics.1.selector", "assert": "equals", "value": "section:nth-of-type(1) > svg:nth-of-type(1)" },
-    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "contains", "value": "data:image/svg+xml," },
+    { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "contains", "value": "aria-label%3D%22Status%22" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }

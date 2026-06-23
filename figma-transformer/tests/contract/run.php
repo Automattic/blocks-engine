@@ -1,0 +1,2084 @@
+<?php
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/../../figma-transformer.php';
+require_once __DIR__ . '/SyntheticFigKiwiFixtureBuilder.php';
+
+use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCapability;
+use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCommandDecoder;
+use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiDecoder;
+use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiParser;
+use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
+use Automattic\BlocksEngine\FigmaTransformer\Parity\VisualAttributionReportBuilder;
+
+$failures = array();
+
+$assert = static function (bool $condition, string $message) use (&$failures): void {
+    if ( ! $condition ) {
+        $failures[] = $message;
+    }
+};
+
+$imageHash = '0123456789abcdef0123456789abcdef01234567';
+$vectorCommandBlob = chr(1) . pack('g', 0.0) . pack('g', 0.0)
+    . chr(2) . pack('g', 10.0) . pack('g', 0.0)
+    . chr(2) . pack('g', 10.0) . pack('g', 10.0)
+    . chr(0);
+$quadraticCommandBlob = chr(0)
+    . chr(1) . pack('g', 0.0) . pack('g', 0.0)
+    . chr(3) . pack('g', 4.0) . pack('g', 8.0) . pack('g', 8.0) . pack('g', 0.0)
+    . chr(0);
+
+$scenegraph = array(
+    'name'   => 'Fixture Site',
+    'blobs'  => array(
+        array('bytes' => $vectorCommandBlob),
+    ),
+    'assets' => array(
+        'hero-image' => array(
+            'name'      => 'Hero Image',
+            'mime_type' => 'image/svg+xml',
+            'content'   => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>',
+        ),
+        'remote-image' => array(
+            'url' => 'https://cdn.example.com/remote.png',
+        ),
+        $imageHash => array(
+            'name'      => 'Fixture Photo',
+            'mime_type' => 'image/jpeg',
+            'content'   => 'fixture image bytes',
+        ),
+    ),
+    'nodes'  => array(
+        array(
+            'id'              => '1:1',
+            'type'            => 'FRAME',
+            'name'            => 'Hero section',
+            'width'           => 1200,
+            'height'          => 600,
+            'backgroundColor' => '#ffffff',
+            'layoutMode'      => 'VERTICAL',
+            'primaryAxisAlignItems' => 'CENTER',
+            'counterAxisAlignItems' => 'MIN',
+            'paddingTop'      => 40,
+            'paddingRight'    => 32,
+            'paddingBottom'   => 40,
+            'paddingLeft'     => 32,
+            'itemSpacing'     => 24,
+            'children'        => array(
+                array(
+                    'id'         => '1:2',
+                    'type'       => 'TEXT',
+                    'name'       => 'Hero title',
+                    'text'       => 'Hello Figma',
+                    'fontSize'   => 48,
+                    'fontWeight' => 700,
+                    'color'      => array('r' => 0.1, 'g' => 0.2, 'b' => 0.3),
+                ),
+                array(
+                    'id'         => '1:3',
+                    'type'       => 'GROUP',
+                    'name'       => 'Cards group',
+                    'children'   => array(
+                        array(
+                            'id'       => '1:4',
+                            'type'     => 'RECTANGLE',
+                            'name'     => 'Hero image rectangle',
+                            'absoluteRenderBounds' => array('width' => 320, 'height' => 180),
+                            'x'        => 10,
+                            'y'        => 20,
+                            'layoutPositioning' => 'ABSOLUTE',
+                            'fill'     => array('r' => 1, 'g' => 0, 'b' => 0),
+                            'asset_id' => 'hero-image',
+                        ),
+                        array(
+                            'id'         => '1:5',
+                            'type'       => 'ROUNDED_RECTANGLE',
+                            'name'       => 'Nested image paint',
+                            'width'      => 160,
+                            'height'     => 90,
+                            'fillPaints' => array(
+                                array(
+                                    'type'  => 'IMAGE',
+                                    'image' => array('hash' => hex2bin($imageHash), 'name' => 'fixture-photo-source'),
+                                ),
+                            ),
+                        ),
+                        array(
+                            'id'           => '1:6',
+                            'type'         => 'VECTOR',
+                            'name'         => 'Blob vector',
+                            'width'        => 10,
+                            'height'       => 10,
+                            'fillPaints'   => array(
+                                array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1)),
+                            ),
+                            'fillGeometry' => array(
+                                array('commandsBlob' => 0, 'windingRule' => 'NONZERO'),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array('id' => '1:2', 'type' => 'TEXT', 'name' => 'Duplicate title', 'text' => 'Duplicate'),
+    ),
+);
+
+$result = blocks_engine_figma_transformer_transform_scenegraph($scenegraph);
+$sameResult = blocks_engine_figma_transformer_transform_scenegraph($scenegraph);
+
+$fileContent = static function (array $result, string $path): string {
+    foreach ( $result['files'] ?? array() as $file ) {
+        if ( $path === ($file['path'] ?? null) ) {
+            return (string) ($file['content'] ?? '');
+        }
+    }
+
+    return '';
+};
+
+$html = $fileContent($result, 'index.html');
+$css = $fileContent($result, 'style.css');
+$diagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $result['diagnostics'] ?? array()
+);
+
+$assert('blocks-engine/figma-transformer/result/v1' === ($result['schema'] ?? null), 'result-schema');
+$assert('success' === ($result['status'] ?? null), 'scenegraph-transform-success');
+$assert(6 === ($result['metrics']['node_count'] ?? null), 'node-count');
+$assert(2 === ($result['metrics']['asset_count'] ?? null), 'asset-count');
+$assert(str_contains($html, 'Hello Figma'), 'html-contains-text');
+$assert(str_contains($html, '<section class="figma-node-1-1-hero-section"'), 'frame-emits-section');
+$assert(str_contains($html, '<h2 class="figma-node-1-2-hero-title"'), 'title-emits-heading');
+$assert(str_contains($html, '<div class="figma-node-1-3-cards-group"'), 'group-emits-div');
+$assert(! str_contains($html, '<FRAME') && ! str_contains($html, '<GROUP') && ! str_contains($html, '<TEXT') && ! str_contains($html, '<RECTANGLE'), 'html-avoids-custom-tags');
+$assert(! str_contains($html, 'cdn.example.com') && ! str_contains($css, 'cdn.example.com'), 'html-css-avoid-external-cdn');
+$assert(str_contains($css, '.figma-node-1-1-hero-section{width:1200px;height:600px;background:#ffffff;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding-top:40px;padding-right:32px;padding-bottom:40px;padding-left:32px;gap:24px}'), 'css-frame-layout-style');
+$assert(str_contains($css, '.figma-node-1-2-hero-title{font-size:48px;font-weight:700;color:#1a334d;flex-shrink:0}'), 'css-text-style');
+$assert(str_contains($css, '.figma-node-1-4-hero-image-rectangle{width:320px;height:180px;position:absolute;left:10px;top:20px;background:#ff0000;background-image:url("assets/hero-image.svg")'), 'css-rectangle-asset-style');
+$assert(str_contains($css, '.figma-node-1-5-nested-image-paint{') && str_contains($css, 'background-image:url("assets/fixture-photo.jpg")'), 'css-nested-image-hash-asset-style');
+$assert(str_contains($html, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-0.5 -0.5 11 11"'), 'html-vector-blob-svg');
+$assert(str_contains($html, 'd="M 0 0 L 10 0 L 10 10 Z"'), 'html-vector-blob-path');
+$assert(! str_contains($css, 'order:'), 'css-avoids-source-order');
+$assert(! str_contains($css, 'font-family:Inter') && ! str_contains($css, 'body{margin:0;background') && ! str_contains($css, 'body{margin:0;color'), 'css-avoids-hardcoded-theme-style');
+$oversizedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Oversized Vector Bounds Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'           => 'vector:oversized-bounds',
+            'type'         => 'VECTOR',
+            'name'         => 'Oversized Bounds',
+            'width'        => 5,
+            'height'       => 5,
+            'fillGeometry' => array(array('commandsBlob' => 0)),
+        ),
+    ),
+));
+$oversizedVectorHtml = $fileContent($oversizedVectorResult, 'index.html');
+$oversizedVectorCss = $fileContent($oversizedVectorResult, 'style.css');
+$assert(str_contains($oversizedVectorHtml, 'viewBox="0 0 10 10"'), 'oversized-vector-viewbox-uses-path-bounds');
+$assert(str_contains($oversizedVectorCss, '.figma-node-vector-oversized-bounds-oversized-bounds{width:5px;height:5px'), 'oversized-vector-css-keeps-node-size');
+
+$matrixTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Matrix Transform Fixture',
+    'nodes' => array(
+        array(
+            'id'        => 'matrix:flip',
+            'type'      => 'FRAME',
+            'name'      => 'Matrix Flip',
+            'width'     => 20,
+            'height'    => 20,
+            'transform' => array('m00' => -1, 'm01' => 0, 'm02' => 0, 'm10' => 0, 'm11' => 1, 'm12' => 0),
+        ),
+    ),
+));
+$matrixTransformCss = $fileContent($matrixTransformResult, 'style.css');
+$assert(str_contains($matrixTransformCss, 'transform:matrix(-1,0,0,1,0,0);transform-origin:0 0'), 'matrix-transform-uses-figma-origin');
+$assetPaths = array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $result['assets'] ?? array());
+$assert(in_array('assets/hero-image.svg', $assetPaths, true), 'asset-report-path');
+$assert(in_array('external_asset_omitted', $diagnosticCodes, true), 'external-asset-diagnostic');
+$assert(in_array('scenegraph_node_id_duplicate', $diagnosticCodes, true), 'duplicate-node-diagnostic');
+$assert(($result['files'] ?? array()) === ($sameResult['files'] ?? array()), 'deterministic-files');
+$assert('blocks-engine/figma-transformer/parity-report/v1' === ($result['parity']['schema'] ?? null), 'parity-schema');
+$assert('not_run' === ($result['parity']['status'] ?? null), 'parity-default-not-run');
+
+$imageScaleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'   => 'Image Scale Fixture',
+    'assets' => array(
+        'fill-image'    => array('mime_type' => 'image/png', 'content' => 'fill image'),
+        'stretch-image' => array('mime_type' => 'image/png', 'content' => 'stretch image'),
+    ),
+    'nodes'  => array(
+        array(
+            'id'         => 'scale:fill',
+            'type'       => 'RECTANGLE',
+            'name'       => 'Fill image',
+            'width'      => 100,
+            'height'     => 80,
+            'fillPaints' => array(
+                array('type' => 'IMAGE', 'imageRef' => 'fill-image', 'imageScaleMode' => 'FILL', 'imageShouldColorManage' => true, 'originalImageWidth' => 200, 'originalImageHeight' => 100),
+            ),
+        ),
+        array(
+            'id'         => 'scale:stretch',
+            'type'       => 'RECTANGLE',
+            'name'       => 'Stretch image',
+            'width'      => 100,
+            'height'     => 80,
+            'fillPaints' => array(
+                array('type' => 'IMAGE', 'imageRef' => 'stretch-image', 'imageScaleMode' => 'STRETCH'),
+            ),
+        ),
+    ),
+));
+$imageScaleCss = $fileContent($imageScaleResult, 'style.css');
+$assert(str_contains($imageScaleCss, '.figma-node-scale-fill-fill-image{width:100px;height:80px;background-image:url("assets/fill-image.png");background-size:cover;background-position:center}'), 'image-fill-emits-cover-background');
+$assert(str_contains($imageScaleCss, '.figma-node-scale-stretch-stretch-image{width:100px;height:80px;background-image:url("assets/stretch-image.png");background-size:100% 100%;background-repeat:no-repeat;background-position:center}'), 'image-stretch-emits-stretch-background');
+$imageScaleVisualNodes = $imageScaleResult['source_reports']['figma']['html']['visual_node_map'] ?? array();
+$imageScaleFillVisualNode = null;
+foreach ( is_array($imageScaleVisualNodes) ? $imageScaleVisualNodes : array() as $visualNode ) {
+    if ( is_array($visualNode) && 'scale:fill' === ($visualNode['id'] ?? null) ) {
+        $imageScaleFillVisualNode = $visualNode;
+        break;
+    }
+}
+$assert('FILL' === ($imageScaleFillVisualNode['image']['scale_mode'] ?? null), 'visual-node-image-scale-mode');
+$assert(true === ($imageScaleFillVisualNode['image']['color_managed'] ?? null), 'visual-node-image-color-managed');
+$assert(200.0 === ($imageScaleFillVisualNode['image']['originalImageWidth'] ?? null), 'visual-node-image-original-width');
+
+$imageTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'   => 'Image Transform Fixture',
+    'assets' => array(
+        'crop-image' => array('mime_type' => 'image/png', 'content' => 'crop image'),
+        'fill-crop'  => array('mime_type' => 'image/png', 'content' => 'fill image'),
+    ),
+    'nodes'  => array(
+        array(
+            'id'         => 'image:crop',
+            'type'       => 'RECTANGLE',
+            'name'       => 'Cropped image',
+            'width'      => 100,
+            'height'     => 80,
+            'fillPaints' => array(
+                array(
+                    'type'           => 'IMAGE',
+                    'imageRef'       => 'crop-image',
+                    'imageScaleMode' => 'STRETCH',
+                    'transform'      => array(
+                        array(0.5, 0, 0.25),
+                        array(0, 0.8, 0.1),
+                    ),
+                ),
+            ),
+        ),
+        array(
+            'id'         => 'image:fill-crop',
+            'type'       => 'RECTANGLE',
+            'name'       => 'Fill crop image',
+            'width'      => 100,
+            'height'     => 80,
+            'fillPaints' => array(
+                array(
+                    'type'           => 'IMAGE',
+                    'imageRef'       => 'fill-crop',
+                    'imageScaleMode' => 'FILL',
+                    'transform'      => array(
+                        array(0.5, 0, 0.25),
+                        array(0, 0.8, 0.1),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$imageTransformCss = $fileContent($imageTransformResult, 'style.css');
+$assert(str_contains($imageTransformCss, '.figma-node-image-crop-cropped-image{width:100px;height:80px;background-image:url("assets/crop-image.png");background-size:200px 100px;background-repeat:no-repeat;background-position:-50px -10px}'), 'image-stretch-transform-emits-crop-background');
+$assert(str_contains($imageTransformCss, '.figma-node-image-fill-crop-fill-crop-image{width:100px;height:80px;background-image:url("assets/fill-crop.png");background-size:cover;background-position:center}'), 'image-fill-transform-keeps-cover-background');
+
+$multilineTextResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Multiline Text Fixture',
+    'nodes' => array(
+        array(
+            'id'         => 'text:multiline',
+            'type'       => 'TEXT',
+            'name'       => 'Checklist Text',
+            'characters' => "One\nTwo\nThree",
+            'fontSize'   => 16,
+        ),
+    ),
+));
+$multilineTextCss = $fileContent($multilineTextResult, 'style.css');
+$assert(str_contains($multilineTextCss, '.figma-node-text-multiline-checklist-text{font-size:16px;white-space:pre-line}'), 'multiline-text-preserves-line-breaks');
+
+$derivedTextLayoutScenegraph = array(
+    'name'  => 'Derived Text Layout Fixture',
+    'blobs' => array(
+        array('bytes' => $quadraticCommandBlob),
+    ),
+    'nodes' => array(
+        array(
+            'id'              => 'text:derived-layout',
+            'type'            => 'TEXT',
+            'name'            => 'Measured Text',
+            'characters'      => 'A B',
+            'width'           => 146.5,
+            'height'          => 32.25,
+            'fontSize'        => 10,
+            'fontName'        => array('family' => 'Example Sans', 'style' => 'Regular'),
+            'derivedTextData' => array(
+                'layoutSize' => array('x' => 146.5, 'y' => 32.25),
+                'baselines'  => array(
+                    array(
+                        'position'       => array('x' => 0, 'y' => 20),
+                        'width'          => 140,
+                        'lineY'          => 0,
+                        'lineHeight'     => 22,
+                        'lineAscent'     => 17,
+                        'firstCharacter' => 0,
+                        'endCharacter'   => 17,
+                    ),
+                ),
+                'glyphs' => array(
+                    array('firstCharacter' => 0, 'advance' => 0.5, 'fontSize' => 10, 'x' => 2, 'y' => 3, 'commandsBlob' => 0),
+                    array('firstCharacter' => 1, 'advance' => 0.5, 'fontSize' => 10, 'commandsBlob' => 0),
+                    array('firstCharacter' => 2, 'advance' => 0.5, 'fontSize' => 10, 'commandsBlob' => 0),
+                ),
+                'fontMetaData' => array(
+                    array(
+                        'key'            => array('family' => 'Example Sans', 'style' => 'Regular'),
+                        'fontLineHeight' => 1.2,
+                        'fontWeight'     => 400,
+                    ),
+                ),
+            ),
+        ),
+    ),
+);
+$derivedTextLayoutResult = blocks_engine_figma_transformer_transform_scenegraph($derivedTextLayoutScenegraph);
+$derivedTextVisualNodes = $derivedTextLayoutResult['source_reports']['figma']['html']['visual_node_map'] ?? array();
+$derivedTextVisualNode = null;
+foreach ( is_array($derivedTextVisualNodes) ? $derivedTextVisualNodes : array() as $visualNode ) {
+    if ( is_array($visualNode) && 'text:derived-layout' === ($visualNode['id'] ?? null) ) {
+        $derivedTextVisualNode = $visualNode;
+        break;
+    }
+}
+$assert(true === ($derivedTextVisualNode['text']['has_derived_layout'] ?? null), 'visual-node-derived-text-layout-present');
+$assert(1 === ($derivedTextVisualNode['text']['baseline_count'] ?? null), 'visual-node-derived-text-baseline-count');
+$assert(3 === ($derivedTextVisualNode['text']['glyph_count'] ?? null), 'visual-node-derived-text-glyph-count');
+$assert(146.5 === ($derivedTextVisualNode['text']['derived_layout']['size']['width'] ?? null), 'visual-node-derived-text-layout-width');
+$assert('M 0 0 Q 4 8 8 0 Z' === ($derivedTextVisualNode['text']['derived_layout']['glyph_paths'][0]['data'] ?? null), 'visual-node-derived-text-glyph-quadratic-path');
+$assert(2.0 === ($derivedTextVisualNode['text']['derived_layout']['glyph_paths'][0]['x'] ?? null), 'visual-node-derived-text-glyph-position');
+$assert('dom_text' === ($derivedTextVisualNode['text']['glyph_rendering'] ?? null), 'visual-node-derived-text-default-dom-rendering');
+$assert(false === ($derivedTextLayoutResult['source_reports']['figma']['html']['render_text_glyph_paths'] ?? null), 'derived-text-glyph-rendering-default-disabled');
+$assert(! str_contains($fileContent($derivedTextLayoutResult, 'index.html'), 'data-figma-text-glyphs="true"'), 'derived-text-default-avoids-glyph-svg');
+
+$derivedTextGlyphResult = blocks_engine_figma_transformer_transform_scenegraph($derivedTextLayoutScenegraph, array('render_text_glyph_paths' => true));
+$derivedTextGlyphHtml = $fileContent($derivedTextGlyphResult, 'index.html');
+$derivedTextGlyphCss = $fileContent($derivedTextGlyphResult, 'style.css');
+$derivedTextGlyphVisualNodes = $derivedTextGlyphResult['source_reports']['figma']['html']['visual_node_map'] ?? array();
+$derivedTextGlyphVisualNode = null;
+foreach ( is_array($derivedTextGlyphVisualNodes) ? $derivedTextGlyphVisualNodes : array() as $visualNode ) {
+    if ( is_array($visualNode) && 'text:derived-layout' === ($visualNode['id'] ?? null) ) {
+        $derivedTextGlyphVisualNode = $visualNode;
+        break;
+    }
+}
+$assert(str_contains($derivedTextGlyphHtml, 'data-figma-text-glyphs="true"'), 'derived-text-glyph-svg-emitted');
+$assert(str_contains($derivedTextGlyphHtml, 'aria-label="A B"'), 'derived-text-glyph-svg-label');
+$assert(str_contains($derivedTextGlyphHtml, 'd="M 0 0 Q 4 8 8 0 Z"'), 'derived-text-glyph-svg-path');
+$assert(str_contains($derivedTextGlyphHtml, 'transform="translate(2 3) scale(10 -10)"'), 'derived-text-glyph-svg-position');
+$assert(str_contains($derivedTextGlyphHtml, 'transform="translate(10 20) scale(10 -10)"'), 'derived-text-glyph-svg-advance-through-space');
+$assert(! str_contains($derivedTextGlyphHtml, 'transform="translate(5 20) scale(10 -10)"'), 'derived-text-glyph-svg-skips-space-path');
+$assert(str_contains($derivedTextGlyphCss, '.figma-text-glyphs{display:block;width:100%;height:100%;overflow:visible}'), 'derived-text-glyph-svg-css');
+$assert('svg_paths' === ($derivedTextGlyphVisualNode['text']['glyph_rendering'] ?? null), 'visual-node-derived-text-glyph-rendering-mode');
+
+$symbolicTextGlyphResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Symbolic Text Glyph Fallback Fixture',
+    'blobs' => array(array('bytes' => $quadraticCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'              => 'text:symbolic-glyph',
+            'type'            => 'TEXT',
+            'name'            => 'Checklist Text',
+            'characters'      => "✔ Included\n✖ Excluded",
+            'width'           => 120,
+            'height'          => 48,
+            'fontSize'        => 16,
+            'derivedTextData' => array(
+                'layoutSize' => array('x' => 120, 'y' => 48),
+                'glyphs'     => array(array('firstCharacter' => 0, 'advance' => 1, 'fontSize' => 16, 'commandsBlob' => 0)),
+            ),
+        ),
+    ),
+), array('render_text_glyph_paths' => true));
+$symbolicTextGlyphHtml = $fileContent($symbolicTextGlyphResult, 'index.html');
+$symbolicTextGlyphVisualNode = null;
+foreach ( $symbolicTextGlyphResult['source_reports']['figma']['html']['visual_node_map'] ?? array() as $visualNode ) {
+    if ( is_array($visualNode) && 'text:symbolic-glyph' === ($visualNode['id'] ?? null) ) {
+        $symbolicTextGlyphVisualNode = $visualNode;
+        break;
+    }
+}
+$assert(str_contains($symbolicTextGlyphHtml, "✔ Included\n✖ Excluded"), 'symbolic-text-glyph-fallback-renders-dom-text');
+$assert(! str_contains($symbolicTextGlyphHtml, 'data-figma-text-glyphs="true"'), 'symbolic-text-glyph-fallback-avoids-svg-paths');
+$assert('dom_text' === ($symbolicTextGlyphVisualNode['text']['glyph_rendering'] ?? null), 'symbolic-text-glyph-fallback-visual-metadata-dom');
+
+$paragraphTextGlyphResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Paragraph Text Glyph Fallback Fixture',
+    'blobs' => array(array('bytes' => $quadraticCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'              => 'text:paragraph-glyph',
+            'type'            => 'TEXT',
+            'name'            => 'Paragraph copy',
+            'characters'      => 'This longer paragraph copy should remain real DOM text instead of SVG glyph paths because it needs browser text flow and selection.',
+            'width'           => 240,
+            'height'          => 80,
+            'fontSize'        => 16,
+            'derivedTextData' => array(
+                'layoutSize' => array('x' => 240, 'y' => 80),
+                'glyphs'     => array(array('firstCharacter' => 0, 'advance' => 1, 'fontSize' => 16, 'commandsBlob' => 0)),
+            ),
+        ),
+    ),
+), array('render_text_glyph_paths' => true));
+$paragraphTextGlyphHtml = $fileContent($paragraphTextGlyphResult, 'index.html');
+$assert(str_contains($paragraphTextGlyphHtml, 'This longer paragraph copy should remain real DOM text'), 'paragraph-text-glyph-fallback-renders-dom-text');
+$assert(! str_contains($paragraphTextGlyphHtml, 'data-figma-text-glyphs="true"'), 'paragraph-text-glyph-fallback-avoids-svg-paths');
+
+$sentenceTextGlyphResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Sentence Text Glyph Fallback Fixture',
+    'blobs' => array(array('bytes' => $quadraticCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'              => 'text:sentence-glyph',
+            'type'            => 'TEXT',
+            'name'            => 'Sentence copy',
+            'characters'      => 'Sentence-style body copy should remain DOM text.',
+            'width'           => 240,
+            'height'          => 32,
+            'fontSize'        => 16,
+            'derivedTextData' => array(
+                'layoutSize' => array('x' => 240, 'y' => 32),
+                'glyphs'     => array(array('firstCharacter' => 0, 'advance' => 1, 'fontSize' => 16, 'commandsBlob' => 0)),
+            ),
+        ),
+    ),
+), array('render_text_glyph_paths' => true));
+$sentenceTextGlyphHtml = $fileContent($sentenceTextGlyphResult, 'index.html');
+$assert(str_contains($sentenceTextGlyphHtml, 'Sentence-style body copy should remain DOM text.'), 'sentence-text-glyph-fallback-renders-dom-text');
+$assert(! str_contains($sentenceTextGlyphHtml, 'data-figma-text-glyphs="true"'), 'sentence-text-glyph-fallback-avoids-svg-paths');
+
+$multilineHeadingGlyphResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Multiline Heading Glyph Fixture',
+    'blobs' => array(array('bytes' => $quadraticCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'              => 'text:multiline-heading-glyph',
+            'type'            => 'TEXT',
+            'name'            => 'Short Wrapped Heading',
+            'characters'      => "Short\nwrapped\nheading text",
+            'width'           => 120,
+            'height'          => 90,
+            'style'           => array('fontWeight' => 700),
+            'derivedTextData' => array(
+                'baselines' => array(
+                    array('firstCharacter' => 0, 'endCharacter' => 5, 'position' => array('x' => 0, 'y' => 20)),
+                    array('firstCharacter' => 6, 'endCharacter' => 13, 'position' => array('x' => 0, 'y' => 45)),
+                    array('firstCharacter' => 14, 'endCharacter' => 26, 'position' => array('x' => 0, 'y' => 70)),
+                ),
+                'glyphs' => array(
+                    array('firstCharacter' => 0, 'advance' => 1, 'fontSize' => 20, 'commandsBlob' => 0),
+                    array('firstCharacter' => 6, 'advance' => 1, 'fontSize' => 20, 'commandsBlob' => 0),
+                    array('firstCharacter' => 14, 'advance' => 1, 'fontSize' => 20, 'commandsBlob' => 0),
+                ),
+            ),
+        ),
+    ),
+), array('render_text_glyph_paths' => true));
+$multilineHeadingGlyphHtml = $fileContent($multilineHeadingGlyphResult, 'index.html');
+$assert(str_contains($multilineHeadingGlyphHtml, "aria-label=\"Short\nwrapped\nheading text\""), 'multiline-heading-glyph-renders-svg-label');
+$assert(str_contains($multilineHeadingGlyphHtml, 'data-figma-text-glyphs="true"'), 'multiline-heading-glyph-renders-svg');
+
+$multilineLargeDisplayGlyphResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Multiline Large Display Glyph Fixture',
+    'blobs' => array(array('bytes' => $quadraticCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'              => 'text:multiline-large-display-glyph',
+            'type'            => 'TEXT',
+            'name'            => 'Large Wrapped Display',
+            'characters'      => "Large\nwrapped",
+            'width'           => 160,
+            'height'          => 80,
+            'fontSize'        => 34,
+            'style'           => array('fontWeight' => 400),
+            'derivedTextData' => array(
+                'baselines' => array(
+                    array('firstCharacter' => 0, 'endCharacter' => 5, 'position' => array('x' => 0, 'y' => 34)),
+                    array('firstCharacter' => 6, 'endCharacter' => 13, 'position' => array('x' => 0, 'y' => 72)),
+                ),
+                'glyphs' => array(
+                    array('firstCharacter' => 0, 'advance' => 1, 'fontSize' => 34, 'commandsBlob' => 0),
+                    array('firstCharacter' => 6, 'advance' => 1, 'fontSize' => 34, 'commandsBlob' => 0),
+                ),
+            ),
+        ),
+    ),
+), array('render_text_glyph_paths' => true));
+$multilineLargeDisplayGlyphHtml = $fileContent($multilineLargeDisplayGlyphResult, 'index.html');
+$assert(str_contains($multilineLargeDisplayGlyphHtml, "aria-label=\"Large\nwrapped\""), 'multiline-large-display-glyph-renders-svg-label');
+$assert(str_contains($multilineLargeDisplayGlyphHtml, 'data-figma-text-glyphs="true"'), 'multiline-large-display-glyph-renders-svg');
+
+$multilineCopyGlyphResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Multiline Copy Glyph Fixture',
+    'blobs' => array(array('bytes' => $quadraticCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'              => 'text:multiline-copy-glyph',
+            'type'            => 'TEXT',
+            'name'            => 'Wrapped Copy',
+            'characters'      => "Short\nwrapped\ncopy",
+            'width'           => 120,
+            'height'          => 60,
+            'style'           => array('fontWeight' => 400),
+            'derivedTextData' => array(
+                'baselines' => array(
+                    array('firstCharacter' => 0, 'endCharacter' => 5, 'position' => array('x' => 0, 'y' => 20)),
+                    array('firstCharacter' => 6, 'endCharacter' => 13, 'position' => array('x' => 0, 'y' => 45)),
+                ),
+                'glyphs' => array(
+                    array('firstCharacter' => 0, 'advance' => 1, 'fontSize' => 20, 'commandsBlob' => 0),
+                    array('firstCharacter' => 6, 'advance' => 1, 'fontSize' => 20, 'commandsBlob' => 0),
+                ),
+            ),
+        ),
+    ),
+), array('render_text_glyph_paths' => true));
+$multilineCopyGlyphHtml = $fileContent($multilineCopyGlyphResult, 'index.html');
+$assert(str_contains($multilineCopyGlyphHtml, "Short\nwrapped\ncopy"), 'multiline-copy-glyph-fallback-renders-dom-text');
+$assert(! str_contains($multilineCopyGlyphHtml, 'data-figma-text-glyphs="true"'), 'multiline-copy-glyph-fallback-avoids-svg');
+
+$derivedLineBreakResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Derived Line Break Fixture',
+    'nodes' => array(
+        array(
+            'id'              => 'text:derived-lines',
+            'type'            => 'TEXT',
+            'name'            => 'Measured Lines',
+            'characters'      => 'First line Second line',
+            'width'           => 120,
+            'height'          => 44,
+            'lineHeightPx'    => 40,
+            'derivedTextData' => array(
+                'layoutSize' => array('x' => 120, 'y' => 44),
+                'baselines'  => array(
+                    array('firstCharacter' => 0, 'endCharacter' => 10, 'position' => array('x' => 0, 'y' => 16)),
+                    array('firstCharacter' => 11, 'endCharacter' => 22, 'position' => array('x' => 0, 'y' => 38)),
+                ),
+            ),
+        ),
+    ),
+));
+$derivedLineBreakHtml = $fileContent($derivedLineBreakResult, 'index.html');
+$derivedLineBreakCss = $fileContent($derivedLineBreakResult, 'style.css');
+$assert(str_contains($derivedLineBreakHtml, "First line\nSecond line"), 'derived-baselines-insert-line-breaks');
+$assert(str_contains($derivedLineBreakCss, '.figma-node-text-derived-lines-measured-lines{width:120px;height:44px;line-height:22px;white-space:pre-line}'), 'derived-baselines-enable-pre-line');
+$assert(! str_contains($derivedLineBreakCss, 'line-height:40px;line-height:22px'), 'derived-baselines-replace-source-line-height');
+
+$parityBuilder = new ParityReportBuilder();
+$pendingParity = $parityBuilder->build(array(
+    'status'    => 'pending',
+    'reason'    => 'queued_for_browser_runner',
+    'artifacts' => array(
+        'report_path' => 'artifacts/parity-report.json',
+    ),
+));
+$comparedParity = $parityBuilder->build(array(
+    'status'    => 'compared',
+    'artifacts' => array(
+        'source_screenshot_path'    => 'artifacts/source.png',
+        'generated_screenshot_path' => 'artifacts/generated.png',
+        'diff_image_path'           => 'artifacts/diff.png',
+    ),
+    'source_screenshot_path' => 'artifacts/source.png',
+    'generated_screenshot_path' => 'artifacts/generated.png',
+    'diff_image_path' => 'artifacts/diff.png',
+    'frame_id' => '1:1',
+    'viewport' => array(
+        'width' => 1200,
+        'height' => 800,
+    ),
+    'diff_summary' => array(
+        'changed_pixels' => 42,
+    ),
+    'pixel_mismatch_count' => 42,
+    'pixel_mismatch_ratio' => 0.01,
+    'threshold' => 0.02,
+));
+$passingParity = $parityBuilder->build(array(
+    'status' => 'pass',
+    'source_screenshot_url' => 'https://example.com/artifacts/source.png',
+    'generated_screenshot_artifact' => 'homeboy://runs/123/generated.png',
+    'diff_image_artifact' => 'homeboy://runs/123/diff.png',
+    'pixel_mismatch_count' => 10,
+    'pixel_mismatch_ratio' => 0.005,
+    'threshold' => 0.01,
+));
+$failingParity = $parityBuilder->build(array(
+    'status' => 'fail',
+    'pixel_mismatch_count' => 500,
+    'pixel_mismatch_ratio' => 0.05,
+    'threshold' => 0.01,
+));
+$notRunParity = $parityBuilder->build();
+$unknownParity = $parityBuilder->build(array(
+    'status' => 'browser_timeout',
+));
+$assert('pending' === ($pendingParity['status'] ?? null), 'parity-pending-status');
+$assert('artifacts/parity-report.json' === ($pendingParity['artifacts']['report_path'] ?? null), 'parity-pending-artifact-path');
+$assert('compared' === ($comparedParity['status'] ?? null), 'parity-compared-status');
+$assert('artifacts/source.png' === ($comparedParity['source']['screenshot_path'] ?? null), 'parity-source-screenshot-path');
+$assert('artifacts/generated.png' === ($comparedParity['generated']['screenshot_path'] ?? null), 'parity-generated-screenshot-path');
+$assert('artifacts/diff.png' === ($comparedParity['diff']['image_path'] ?? null), 'parity-diff-image-path');
+$assert('1:1' === ($comparedParity['source']['frame_id'] ?? null), 'parity-source-frame-id');
+$assert(1200 === ($comparedParity['viewport']['width'] ?? null), 'parity-viewport-width');
+$assert(42 === ($comparedParity['diff_summary']['changed_pixels'] ?? null), 'parity-diff-summary');
+$assert(42 === ($comparedParity['metrics']['pixel_mismatch_count'] ?? null), 'parity-pixel-mismatch-count');
+$assert(0.01 === ($comparedParity['metrics']['pixel_mismatch_ratio'] ?? null), 'parity-pixel-mismatch-ratio');
+$assert(true === ($comparedParity['diff_summary']['passed'] ?? null), 'parity-compared-passed-threshold');
+$assert('pass' === ($passingParity['status'] ?? null), 'parity-pass-status');
+$assert('https://example.com/artifacts/source.png' === ($passingParity['source']['screenshot_url'] ?? null), 'parity-pass-source-url');
+$assert('homeboy://runs/123/generated.png' === ($passingParity['generated']['screenshot_artifact'] ?? null), 'parity-pass-generated-artifact');
+$assert('homeboy://runs/123/diff.png' === ($passingParity['diff']['image_artifact'] ?? null), 'parity-pass-diff-artifact');
+$assert(true === ($passingParity['diff_summary']['passed'] ?? null), 'parity-pass-threshold');
+$assert('fail' === ($failingParity['status'] ?? null), 'parity-fail-status');
+$assert(false === ($failingParity['diff_summary']['passed'] ?? null), 'parity-fail-threshold');
+$assert('not_run' === ($notRunParity['status'] ?? null), 'parity-not-run-status');
+$assert('pending' === ($unknownParity['status'] ?? null), 'parity-unknown-status-falls-back-to-pending');
+
+if ( function_exists('imagecreatetruecolor') && function_exists('imagepng') ) {
+    $sourceImagePath = tempnam(sys_get_temp_dir(), 'figma-source-') . '.png';
+    $generatedImagePath = tempnam(sys_get_temp_dir(), 'figma-generated-') . '.png';
+    $sourceImage = imagecreatetruecolor(4, 4);
+    $generatedImage = imagecreatetruecolor(4, 4);
+    $whiteSource = imagecolorallocate($sourceImage, 255, 255, 255);
+    $whiteGenerated = imagecolorallocate($generatedImage, 255, 255, 255);
+    imagefilledrectangle($sourceImage, 0, 0, 3, 3, $whiteSource);
+    imagefilledrectangle($generatedImage, 0, 0, 3, 3, $whiteGenerated);
+    imagesetpixel($generatedImage, 1, 1, imagecolorallocate($generatedImage, 0, 0, 0));
+    imagepng($sourceImage, $sourceImagePath);
+    imagepng($generatedImage, $generatedImagePath);
+
+    $visualAttribution = ( new VisualAttributionReportBuilder() )->build(
+        array(
+            'source_reports' => array(
+                'figma' => array(
+                    'html' => array(
+                        'node_style_diagnostics' => array(
+                            array(
+                                'node' => array('id' => 'node:1', 'name' => 'Node 1', 'type' => 'RECTANGLE', 'class' => 'figma-node-node-1'),
+                                'expected' => array('width' => '2px', 'height' => '2px', 'x' => '1px', 'y' => '1px', 'background' => '#ffffff'),
+                                'emitted' => array('width' => '2px', 'height' => '2px', 'x' => '1px', 'y' => '1px', 'background' => '#ffffff'),
+                                'mismatches' => array(),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        $sourceImagePath,
+        $generatedImagePath,
+        array('threshold' => 24, 'material_threshold' => 96, 'severe_threshold' => 192, 'limit' => 5)
+    );
+    @unlink($sourceImagePath);
+    @unlink($generatedImagePath);
+
+    $assert('blocks-engine/figma-transformer/visual-attribution/v1' === ($visualAttribution['schema'] ?? null), 'visual-attribution-schema');
+    $assert('success' === ($visualAttribution['status'] ?? null), 'visual-attribution-success');
+    $assert(1 === ($visualAttribution['top_nodes'][0]['diff']['mismatch_pixels'] ?? null), 'visual-attribution-node-mismatch-count');
+    $assert(1 === ($visualAttribution['top_nodes'][0]['diff']['material_mismatch_pixels'] ?? null), 'visual-attribution-node-material-mismatch-count');
+    $assert(1 === ($visualAttribution['top_nodes'][0]['diff']['severe_mismatch_pixels'] ?? null), 'visual-attribution-node-severe-mismatch-count');
+    $assert(741 === ($visualAttribution['top_nodes'][0]['diff']['material_delta_score'] ?? null), 'visual-attribution-node-material-delta-score');
+    $assert(array('gt24' => 1, 'gt48' => 1, 'gt96' => 1, 'gt192' => 1) === ($visualAttribution['top_nodes'][0]['diff']['severity_buckets'] ?? null), 'visual-attribution-node-severity-buckets');
+    $assert(1 === ($visualAttribution['totals']['material_mismatch_pixels'] ?? null), 'visual-attribution-totals-material-mismatch-count');
+    $assert(array('background', 'positioned') === ($visualAttribution['top_nodes'][0]['features'] ?? null), 'visual-attribution-node-features');
+}
+
+$fixture = blocks_engine_figma_transformer_create_fig_wrapper_fixture();
+$fileResult = blocks_engine_figma_transformer_transform_file($fixture);
+@unlink($fixture);
+
+$canvas = $fileResult['source_reports']['figma']['archive']['canvas'] ?? array();
+$chunks = $canvas['chunks'] ?? array();
+$diagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $fileResult['diagnostics'] ?? array()
+);
+$zstdCapability = new ZstdCapability();
+$zstdStatus = $zstdCapability->status();
+$zstdCapabilityDiagnostic = $zstdCapability->diagnostic('ContractTest', 0);
+$zstdCapabilityCode = (string) ($zstdCapabilityDiagnostic['code'] ?? '');
+$zstdDiagnostic = null;
+foreach ( $fileResult['diagnostics'] ?? array() as $diagnostic ) {
+    if ( $zstdCapabilityCode === ($diagnostic['code'] ?? null) ) {
+        $zstdDiagnostic = $diagnostic;
+        break;
+    }
+}
+
+$assert('success_with_warnings' === ($fileResult['status'] ?? null), 'file-transform-status');
+$assert('fig-kiwi' === ($canvas['prelude'] ?? null), 'fig-kiwi-prelude');
+$assert(106 === ($canvas['version'] ?? null), 'fig-kiwi-version');
+$assert('inner.fig' === ($fileResult['source_reports']['figma']['input']['nested_fig'] ?? null), 'wrapper-nested-fig');
+$assert(5 === count($chunks), 'fig-kiwi-chunk-count');
+$assert('zlib' === ($chunks[0]['compression'] ?? null), 'fig-kiwi-first-chunk-zlib');
+$assert('json' === ($chunks[0]['payload']['classification'] ?? null), 'fig-kiwi-first-chunk-json');
+$assert(isset($chunks[0]['payload']['json']['nodes']), 'fig-kiwi-first-chunk-nodes-candidate');
+$assert('json_invalid' === ($chunks[1]['payload']['classification'] ?? null), 'fig-kiwi-second-chunk-json-invalid');
+$assert(isset($chunks[2]['payload']['json']['NODE_CHANGES']), 'fig-kiwi-third-chunk-node-changes');
+$assert('binary' === ($chunks[3]['payload']['classification'] ?? null), 'fig-kiwi-fourth-chunk-binary');
+$assert('zstd' === ($chunks[4]['compression'] ?? null), 'fig-kiwi-fifth-chunk-zstd');
+$assert(in_array($zstdCapabilityCode, $diagnosticCodes, true), 'fig-kiwi-zstd-capability-diagnostic');
+$assert(is_bool($zstdStatus['available'] ?? null), 'zstd-status-available-bool');
+$assert(is_bool($zstdStatus['extension_loaded'] ?? null), 'zstd-status-extension-loaded-bool');
+$assert(is_array($zstdStatus['functions'] ?? null), 'zstd-status-functions-array');
+$assert(array_key_exists('zstd_uncompress', $zstdStatus['functions'] ?? array()), 'zstd-status-uncompress-function');
+$assert(array_key_exists('adapter_registered', $zstdStatus), 'zstd-status-adapter-registered-key');
+$assert(array_key_exists('wordpress_filter_registered', $zstdStatus), 'zstd-status-wordpress-filter-registered-key');
+$assert(($zstdStatus['available'] ?? null) === (null !== ($zstdStatus['provider'] ?? null)), 'zstd-status-available-matches-provider');
+$assert(($zstdStatus['available'] ?? null) === ($zstdDiagnostic['context']['available'] ?? null), 'fig-kiwi-zstd-diagnostic-availability-context');
+if ( true === ($zstdStatus['available'] ?? false) && function_exists('zstd_compress') ) {
+    $zstdCompressed = zstd_compress('contract zstd round trip');
+    $zstdRoundTrip = false !== $zstdCompressed ? $zstdCapability->uncompress($zstdCompressed, 'ContractTest', 1) : array('data' => null, 'diagnostics' => array());
+    $assert('contract zstd round trip' === ($zstdRoundTrip['data'] ?? null), 'zstd-real-round-trip');
+    $assert(isset($chunks[4]['inflated_bytes']), 'fig-kiwi-zstd-real-fixture-inflated');
+} else {
+    $zstdUnavailable = $zstdCapability->uncompress("\x28\xb5\x2f\xfd" . 'synthetic-zstd-frame', 'ContractTest', 1);
+    $assert(null === ($zstdUnavailable['data'] ?? null), 'zstd-unavailable-returns-null');
+    $assert(in_array((string) ($zstdUnavailable['diagnostics'][0]['code'] ?? ''), array('figma_transformer_zstd_extension_missing', 'figma_transformer_zstd_function_missing'), true), 'zstd-unavailable-diagnostic-code');
+}
+
+$adapterCapability = new ZstdCapability(static function (string $payload): string|false {
+    if ( "\x28\xb5\x2f\xfd" !== substr($payload, 0, 4) ) {
+        return false;
+    }
+
+    return json_encode(array('NODE_CHANGES' => array()), JSON_THROW_ON_ERROR);
+});
+$adapterStatus = $adapterCapability->status();
+$adapterResult = $adapterCapability->uncompress("\x28\xb5\x2f\xfd" . 'adapter-frame', 'ContractTest', 2);
+$adapterCanvasResult = ( new FigKiwiParser($adapterCapability) )->parse(
+    'fig-kiwi'
+    . pack('V', 106)
+    . blocks_engine_figma_transformer_kiwi_chunk("\x28\xb5\x2f\xfd" . 'adapter-frame')
+);
+$failingAdapterResult = ( new ZstdCapability(static fn (): false => false) )->uncompress("\x28\xb5\x2f\xfd" . 'adapter-frame', 'ContractTest', 3);
+$commandAdapterResult = ( new ZstdCapability(new ZstdCommandDecoder(array(PHP_BINARY, '-r', '$payload = stream_get_contents(STDIN); fwrite(STDOUT, $payload);'))) )->uncompress('command adapter bytes', 'ContractTest', 4);
+
+$assert(true === ($adapterStatus['available'] ?? null), 'zstd-adapter-status-available');
+$assert('adapter' === ($adapterStatus['provider'] ?? null) || 'ext-zstd' === ($adapterStatus['provider'] ?? null), 'zstd-adapter-status-provider');
+$assert('{"NODE_CHANGES":[]}' === ($adapterResult['data'] ?? null), 'zstd-adapter-decodes-payload');
+$assert('json' === ($adapterCanvasResult['canvas']['chunks'][0]['payload']['classification'] ?? null), 'fig-kiwi-zstd-adapter-classifies-json');
+$assert('figma_transformer_zstd_adapter_failed' === ($failingAdapterResult['diagnostics'][0]['code'] ?? null), 'zstd-adapter-failure-diagnostic');
+$assert('command adapter bytes' === ($commandAdapterResult['data'] ?? null), 'zstd-command-adapter-decodes-payload');
+$assert('figma_transformer_zstd_command_used' === ($commandAdapterResult['diagnostics'][1]['code'] ?? null), 'zstd-command-adapter-diagnostic');
+$assert(! empty($fileResult['files']), 'file-transform-renders-decoded-scenegraph');
+$assert(4 === ($fileResult['metrics']['node_count'] ?? null), 'file-transform-node-count');
+$assert(2 === ($fileResult['metrics']['decoded_payload_candidate_count'] ?? null), 'file-transform-decoded-candidate-count');
+$assert(2 === ($fileResult['metrics']['selected_decoded_payload_index'] ?? null), 'file-transform-selected-node-changes-index');
+$assert('NODE_CHANGES' === ($fileResult['source_reports']['figma']['decoded_scenegraph']['shape'] ?? null), 'file-transform-selected-node-changes-shape');
+$assert(isset($fileResult['source_reports']['figma']['html']), 'file-transform-html-source-report');
+$assert('synthetic' === ($fileResult['source_reports']['figma']['assets'][0]['id'] ?? null), 'archive-asset-id');
+$assert('images/synthetic' === ($fileResult['source_reports']['figma']['assets'][0]['path'] ?? null), 'archive-asset-path');
+$assert('asset' === ($fileResult['source_reports']['figma']['assets'][0]['content'] ?? null), 'archive-asset-content');
+$assert('assets/synthetic.bin' === ($fileResult['assets'][0]['path'] ?? null), 'archive-asset-emitted-from-decoded-scenegraph');
+
+$pendingFixture = blocks_engine_figma_transformer_create_pending_decoder_fig_wrapper_fixture();
+$pendingResult = blocks_engine_figma_transformer_transform_file($pendingFixture);
+@unlink($pendingFixture);
+$pendingDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $pendingResult['diagnostics'] ?? array()
+);
+$assert('unsupported_decoder_pending' === ($pendingResult['status'] ?? null), 'pending-decoder-status');
+$assert(in_array('figma_transformer_decoded_scenegraph_missing', $pendingDiagnosticCodes, true), 'pending-decoder-diagnostic');
+
+$kiwiSchemaBytes = blocks_engine_figma_transformer_kiwi_schema_fixture();
+$kiwiMessageBytes = blocks_engine_figma_transformer_kiwi_message_fixture();
+$kiwiDecoder = new FigKiwiDecoder();
+$kiwiSchemaResult = $kiwiDecoder->decodeSchema($kiwiSchemaBytes);
+$kiwiMessageResult = $kiwiDecoder->decodeMessage($kiwiMessageBytes, $kiwiSchemaResult['schema'] ?? array());
+$assert(null !== ($kiwiSchemaResult['schema'] ?? null), 'kiwi-schema-decodes');
+$assert('NODE_CHANGES' === ($kiwiMessageResult['message']['type'] ?? null), 'kiwi-message-enum-decodes');
+$assert(array('alpha', 'beta') === ($kiwiMessageResult['message']['nodeChanges'] ?? null), 'kiwi-message-array-decodes');
+
+$injectedParser = new FigKiwiParser(new ZstdCapability(static fn (string $payload, array $context): string => $kiwiMessageBytes));
+$injectedCanvas = $injectedParser->parse(
+    'fig-kiwi'
+    . pack('V', 106)
+    . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate($kiwiSchemaBytes))
+    . blocks_engine_figma_transformer_kiwi_chunk("\x28\xb5\x2f\xfd" . 'synthetic-zstd-frame')
+);
+$injectedChunks = $injectedCanvas['canvas']['chunks'] ?? array();
+$injectedDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $injectedCanvas['diagnostics'] ?? array()
+);
+$assert('kiwi_schema' === ($injectedChunks[0]['payload']['classification'] ?? null), 'kiwi-parser-classifies-schema');
+$assert('kiwi_message' === ($injectedChunks[1]['payload']['classification'] ?? null), 'kiwi-parser-classifies-message');
+$assert('NODE_CHANGES' === ($injectedChunks[1]['payload']['kiwi_message']['type'] ?? null), 'kiwi-parser-message-type');
+$assert(in_array('figma_transformer_zstd_adapter_available', $injectedDiagnosticCodes, true), 'zstd-injected-decoder-diagnostic');
+
+$wirePayload = SyntheticFigKiwiFixtureBuilder::sampleWirePayload();
+$wireCanvasResult = ( new FigKiwiParser() )->parse(
+    SyntheticFigKiwiFixtureBuilder::canvas(array(SyntheticFigKiwiFixtureBuilder::zlibChunk($wirePayload)))
+);
+$wire = $wireCanvasResult['canvas']['chunks'][0]['payload']['wire'] ?? array();
+$wireRecords = $wire['records'] ?? array();
+
+$assert('binary' === ($wireCanvasResult['canvas']['chunks'][0]['payload']['classification'] ?? null), 'fig-kiwi-wire-payload-remains-binary');
+$assert('protobuf_wire' === ($wire['format'] ?? null), 'fig-kiwi-wire-format');
+$assert(true === ($wire['complete'] ?? null), 'fig-kiwi-wire-complete');
+$assert(3 === ($wire['record_count'] ?? null), 'fig-kiwi-wire-record-count');
+$assert(1 === ($wireRecords[0]['field_number'] ?? null), 'fig-kiwi-wire-varint-field-number');
+$assert(0 === ($wireRecords[0]['wire_type'] ?? null), 'fig-kiwi-wire-varint-type');
+$assert(150 === ($wireRecords[0]['value'] ?? null), 'fig-kiwi-wire-varint-value');
+$assert('hello' === ($wireRecords[1]['text_preview'] ?? null), 'fig-kiwi-wire-length-text-preview');
+$assert('01020304' === ($wireRecords[2]['preview_hex'] ?? null), 'fig-kiwi-wire-fixed32-preview');
+
+$unknownBinaryResult = ( new FigKiwiParser() )->parse(
+    SyntheticFigKiwiFixtureBuilder::canvas(array(SyntheticFigKiwiFixtureBuilder::zlibChunk("\x00\x01\x02unknown")))
+);
+$unknownBinaryPayload = $unknownBinaryResult['canvas']['chunks'][0]['payload'] ?? array();
+$assert('binary' === ($unknownBinaryPayload['classification'] ?? null), 'fig-kiwi-unknown-binary-classification');
+$assert(10 === ($unknownBinaryPayload['bytes'] ?? null), 'fig-kiwi-unknown-binary-byte-count');
+$assert('000102756e6b6e6f776e' === ($unknownBinaryPayload['preview_hex'] ?? null), 'fig-kiwi-unknown-binary-preview');
+$assert('zero_field_key' === ($unknownBinaryPayload['wire']['reason'] ?? null), 'fig-kiwi-unknown-binary-wire-stop-reason');
+
+$truncatedVarintResult = ( new FigKiwiParser() )->parse(
+    SyntheticFigKiwiFixtureBuilder::canvas(array(SyntheticFigKiwiFixtureBuilder::zlibChunk(SyntheticFigKiwiFixtureBuilder::wireVarint(8) . "\x80")))
+);
+$truncatedWire = $truncatedVarintResult['canvas']['chunks'][0]['payload']['wire'] ?? array();
+$assert(false === ($truncatedWire['complete'] ?? null), 'fig-kiwi-truncated-varint-incomplete');
+$assert(true === ($truncatedWire['truncated'] ?? null), 'fig-kiwi-truncated-varint-flag');
+$assert('truncated_varint_value' === ($truncatedWire['reason'] ?? null), 'fig-kiwi-truncated-varint-reason');
+
+$unsupportedWireResult = ( new FigKiwiParser() )->parse(
+    SyntheticFigKiwiFixtureBuilder::canvas(array(SyntheticFigKiwiFixtureBuilder::zlibChunk(SyntheticFigKiwiFixtureBuilder::wireVarint(11) . 'tail')))
+);
+$unsupportedWire = $unsupportedWireResult['canvas']['chunks'][0]['payload']['wire'] ?? array();
+$assert(false === ($unsupportedWire['complete'] ?? null), 'fig-kiwi-unsupported-wire-incomplete');
+$assert(false === ($unsupportedWire['truncated'] ?? null), 'fig-kiwi-unsupported-wire-not-truncated');
+$assert('unsupported_wire_type' === ($unsupportedWire['reason'] ?? null), 'fig-kiwi-unsupported-wire-reason');
+
+$multiCandidateFixture = SyntheticFigKiwiFixtureBuilder::figArchive(
+    SyntheticFigKiwiFixtureBuilder::canvas(array(
+        SyntheticFigKiwiFixtureBuilder::jsonZlibChunk(array('metadata' => array('ignored' => true))),
+        SyntheticFigKiwiFixtureBuilder::jsonZlibChunk(SyntheticFigKiwiFixtureBuilder::nodeChangesPayload('First Candidate')),
+        SyntheticFigKiwiFixtureBuilder::jsonZlibChunk(SyntheticFigKiwiFixtureBuilder::nodeChangesPayload('Second Candidate')),
+    ))
+);
+$multiCandidateResult = blocks_engine_figma_transformer_transform_file($multiCandidateFixture);
+@unlink($multiCandidateFixture);
+$multiCandidateHtml = $fileContent($multiCandidateResult, 'index.html');
+$assert('success' === ($multiCandidateResult['status'] ?? null), 'fig-kiwi-multiple-candidates-transform-success');
+$assert(str_contains($multiCandidateHtml, 'First Candidate First'), 'fig-kiwi-multiple-candidates-renders-first-scenegraph');
+$assert(! str_contains($multiCandidateHtml, 'Second Candidate First'), 'fig-kiwi-multiple-candidates-stops-after-first-scenegraph');
+
+$nodeChangesResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'         => 'Node Changes Fixture',
+    'NODE_CHANGES' => array(
+        '3:1' => array(
+            'node' => array(
+                'id'                  => '3:1',
+                'type'                => 'FRAME',
+                'name'                => 'Landing',
+                'absoluteBoundingBox' => array('x' => 0, 'y' => 0),
+                'children'            => array(
+                    array(
+                        'id'                  => '3:3',
+                        'type'                => 'TEXT',
+                        'name'                => 'Body',
+                        'characters'          => 'Second',
+                        'absoluteBoundingBox' => array('x' => 0, 'y' => 120),
+                    ),
+                    array(
+                        'id'                  => '3:2',
+                        'type'                => 'TEXT',
+                        'name'                => 'Heading',
+                        'characters'          => 'First',
+                        'absoluteBoundingBox' => array('x' => 0, 'y' => 20),
+                    ),
+                    array(
+                        'id'    => '3:4',
+                        'type'  => 'RECTANGLE',
+                        'name'  => 'Photo',
+                        'fills' => array(
+                            array('type' => 'IMAGE', 'imageRef' => 'image-hash-1'),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+
+$nodeChangesHtml = (string) ($nodeChangesResult['files'][0]['content'] ?? '');
+$scenegraphReport = $nodeChangesResult['source_reports']['figma']['scenegraph'] ?? array();
+
+$assert('success' === ($nodeChangesResult['status'] ?? null), 'node-changes-transform-success');
+$assert(4 === ($nodeChangesResult['metrics']['node_count'] ?? null), 'node-changes-node-count');
+$assert(2 === ($nodeChangesResult['metrics']['text_node_count'] ?? null), 'node-changes-text-count');
+$assert(1 === ($nodeChangesResult['metrics']['asset_reference_count'] ?? null), 'node-changes-asset-count');
+$assert('3:1' === ($scenegraphReport['selected_frame_id'] ?? null), 'node-changes-selected-frame');
+$assert(false !== strpos($nodeChangesHtml, 'First') && false !== strpos($nodeChangesHtml, 'Second'), 'node-changes-html-text');
+$assert(strpos($nodeChangesHtml, 'First') < strpos($nodeChangesHtml, 'Second'), 'node-changes-stable-child-sort');
+
+$layerOrderResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'         => 'Layer Order Fixture',
+    'NODE_CHANGES' => array(
+        'layer:root' => array(
+            'node' => array(
+                'id'          => 'layer:root',
+                'type'        => 'FRAME',
+                'name'        => 'Layer root',
+                'width'       => 300,
+                'height'      => 200,
+                'resizeToFit' => true,
+                'children'    => array(
+                    array(
+                        'id'          => 'layer:top',
+                        'type'        => 'RECTANGLE',
+                        'name'        => 'Top bubble',
+                        'width'       => 100,
+                        'height'      => 40,
+                        'parentIndex' => array('position' => 'b'),
+                    ),
+                    array(
+                        'id'          => 'layer:bottom',
+                        'type'        => 'RECTANGLE',
+                        'name'        => 'Bottom image',
+                        'width'       => 200,
+                        'height'      => 120,
+                        'parentIndex' => array('position' => 'a'),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$layerOrderHtml = $fileContent($layerOrderResult, 'index.html');
+$assert(strpos($layerOrderHtml, 'data-figma-node-id="layer:bottom"') < strpos($layerOrderHtml, 'data-figma-node-id="layer:top"'), 'freeform-layer-order-uses-parent-index-position');
+
+$overflowWrapperResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Overflow Wrapper Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'overflow:root',
+            'type'     => 'FRAME',
+            'name'     => 'Overflow Root',
+            'width'    => 100,
+            'height'   => 100,
+            'children' => array(
+                array(
+                    'id'       => 'overflow:wrapper',
+                    'type'     => 'FRAME',
+                    'name'     => 'Overflow Wrapper',
+                    'width'    => 1,
+                    'height'   => 10,
+                    'children' => array(
+                        array(
+                            'id'     => 'overflow:child',
+                            'type'   => 'RECTANGLE',
+                            'name'   => 'Overflow Child',
+                            'x'      => 4,
+                            'y'      => 2,
+                            'width'  => 20,
+                            'height' => 12,
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$overflowWrapperCss = $fileContent($overflowWrapperResult, 'style.css');
+$assert(str_contains($overflowWrapperCss, '.figma-node-overflow-wrapper-overflow-wrapper{width:1px;height:10px;position:relative}'), 'overflow-wrapper-becomes-positioned-container');
+$assert(str_contains($overflowWrapperCss, '.figma-node-overflow-child-overflow-child{width:20px;height:12px;position:absolute;left:4px;top:2px}'), 'overflow-wrapper-child-keeps-local-position');
+
+$objectTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Object Transform Fixture',
+    'nodes' => array(
+        array(
+            'id'        => 'transform:object',
+            'type'      => 'RECTANGLE',
+            'name'      => 'Object transform',
+            'width'     => 10,
+            'height'    => 10,
+            'transform' => array('m00' => -1, 'm01' => 0, 'm02' => 11, 'm10' => 0, 'm11' => 1, 'm12' => 2),
+        ),
+    ),
+));
+$objectTransformCss = $fileContent($objectTransformResult, 'style.css');
+$assert(str_contains($objectTransformCss, 'transform:matrix(-1,0,0,1,0,0)'), 'decoded-object-transform-emits-css-matrix');
+
+$localTransformPositionResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Local Transform Position Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'local:parent',
+            'type'     => 'FRAME',
+            'name'     => 'Local parent',
+            'transform' => array('m00' => 1, 'm01' => 0, 'm02' => 855, 'm10' => 0, 'm11' => 1, 'm12' => 40),
+            'width'    => 500,
+            'height'   => 300,
+            'children' => array(
+                array(
+                    'id'        => 'local:child',
+                    'type'      => 'RECTANGLE',
+                    'name'      => 'Local child',
+                    'transform' => array('m00' => 1, 'm01' => 0, 'm02' => 115, 'm10' => 0, 'm11' => 1, 'm12' => 10),
+                    'width'     => 100,
+                    'height'    => 80,
+                ),
+                array(
+                    'id'        => 'local:sibling',
+                    'type'      => 'RECTANGLE',
+                    'name'      => 'Local sibling',
+                    'transform' => array('m00' => 1, 'm01' => 0, 'm02' => 240, 'm10' => 0, 'm11' => 1, 'm12' => 30),
+                    'width'     => 20,
+                    'height'    => 20,
+                ),
+            ),
+        ),
+    ),
+));
+$localTransformPositionCss = $fileContent($localTransformPositionResult, 'style.css');
+$assert(str_contains($localTransformPositionCss, '.figma-node-local-child-local-child{width:100px;height:80px;position:absolute;left:115px;top:10px}'), 'decoded-local-transform-position-is-not-parent-subtracted');
+
+$fixedFlexResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Fixed Flex Fixture',
+    'nodes' => array(
+        array(
+            'id'         => 'flex:row',
+            'type'       => 'FRAME',
+            'name'       => 'Flex row',
+            'width'      => 100,
+            'height'     => 40,
+            'layoutMode' => 'HORIZONTAL',
+            'children'   => array(
+                array('id' => 'flex:child-a', 'type' => 'RECTANGLE', 'name' => 'Fixed child A', 'width' => 70, 'height' => 40),
+                array('id' => 'flex:child-b', 'type' => 'RECTANGLE', 'name' => 'Fixed child B', 'width' => 70, 'height' => 40),
+            ),
+        ),
+    ),
+));
+$fixedFlexCss = $fileContent($fixedFlexResult, 'style.css');
+$assert(str_contains($fixedFlexCss, '.figma-node-flex-child-a-fixed-child-a{width:70px;height:40px;flex-shrink:0}'), 'fixed-flex-child-does-not-shrink');
+
+$stylePaintResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Style Paint Fixture',
+    'nodes' => array(
+        array(
+            'guid'       => array('sessionID' => 10, 'localID' => 1),
+            'type'       => 'ROUNDED_RECTANGLE',
+            'name'       => 'Primary-500',
+            'styleType'  => 'FILL',
+            'fillPaints' => array(
+                array('type' => 'SOLID', 'color' => array('r' => 0.1, 'g' => 0.8, 'b' => 0.5, 'a' => 1)),
+            ),
+        ),
+        array(
+            'id'             => 'style:button',
+            'type'           => 'RECTANGLE',
+            'name'           => 'Styled button',
+            'width'          => 100,
+            'height'         => 40,
+            'styleIdForFill' => array('guid' => array('sessionID' => 10, 'localID' => 1)),
+            'fillPaints'     => array(
+                array('type' => 'SOLID', 'color' => array('r' => 0.5, 'g' => 0.2, 'b' => 0.1, 'a' => 1)),
+            ),
+        ),
+    ),
+));
+$stylePaintCss = $fileContent($stylePaintResult, 'style.css');
+$assert(str_contains($stylePaintCss, '.figma-node-style-button-styled-button{width:100px;height:40px;background:#1acc80}'), 'style-paint-overrides-stale-inline-fill');
+
+$outsideStrokeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Outside Stroke Fixture',
+    'nodes' => array(
+        array(
+            'id'          => 'stroke:outside',
+            'type'        => 'RECTANGLE',
+            'name'        => 'Outside stroke image',
+            'width'       => 100,
+            'height'      => 80,
+            'strokeAlign' => 'OUTSIDE',
+            'strokeWeight'=> 8,
+            'strokes'     => array(
+                array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1)),
+            ),
+        ),
+    ),
+));
+$outsideStrokeCss = $fileContent($outsideStrokeResult, 'style.css');
+$assert(str_contains($outsideStrokeCss, '.figma-node-stroke-outside-outside-stroke-image{width:100px;height:80px;box-shadow:0 0 0 8px #ffffff}'), 'outside-stroke-emits-non-shrinking-shadow');
+$assert(! str_contains($outsideStrokeCss, 'border:8px solid #ffffff'), 'outside-stroke-does-not-shrink-border-box');
+
+$metadataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Text And Paint Metadata',
+    'nodes' => array(
+        array(
+            'id'           => '4:1',
+            'type'         => 'FRAME',
+            'name'         => 'Metadata frame',
+            'opacity'      => 0.75,
+            'cornerRadius' => 12,
+            'fills'        => array(
+                array('type' => 'SOLID', 'color' => array('r' => 0.2, 'g' => 0.4, 'b' => 0.6), 'opacity' => 0.5),
+                array('type' => 'GRADIENT_LINEAR'),
+            ),
+            'strokes'      => array(
+                array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0)),
+            ),
+            'strokeWeight' => 2,
+            'effects'      => array(
+                array('type' => 'DROP_SHADOW'),
+            ),
+            'children'     => array(
+                array(
+                    'id'                 => '4:2',
+                    'type'               => 'TEXT',
+                    'name'               => 'Mixed text',
+                    'characters'         => 'Hello World',
+                    'style'              => array(
+                        'fontFamily'         => 'Example Sans',
+                        'fontSize'           => 20,
+                        'fontWeight'         => 600,
+                        'lineHeightPercent'  => 125,
+                        'letterSpacing'      => 0.5,
+                        'textAlignHorizontal'=> 'CENTER',
+                        'textAlignVertical'  => 'TOP',
+                        'textDecoration'     => 'UNDERLINE',
+                    ),
+                    'fills'              => array(
+                        array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0.5, 'b' => 0), 'opacity' => 0.8),
+                    ),
+                    'styledTextSegments' => array(
+                        array('characters' => 'Hello ', 'style' => array('fontWeight' => 400)),
+                        array('characters' => 'World', 'style' => array('fontWeight' => 700, 'textDecoration' => 'UNDERLINE')),
+                    ),
+                ),
+                array(
+                    'id'                => '4:3',
+                    'type'              => 'RECTANGLE',
+                    'name'              => 'Uneven radius',
+                    'topLeftRadius'     => 4,
+                    'topRightRadius'    => 8,
+                    'bottomRightRadius' => 12,
+                    'bottomLeftRadius'  => 16,
+                    'fills'             => array(
+                        array('type' => 'GRADIENT_RADIAL'),
+                    ),
+                ),
+                array(
+                    'id'         => '4:4',
+                    'type'       => 'TEXT',
+                    'name'       => 'Raw line height text',
+                    'characters' => 'Raw line height',
+                    'fontName'   => array('family' => 'Example Sans', 'style' => 'SemiBold'),
+                    'fontSize'   => 18,
+                    'lineHeight' => array('units' => 'RAW', 'value' => 1.15),
+                ),
+            ),
+        ),
+    ),
+));
+$metadataWithFontCssResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Font CSS Fixture',
+    'nodes' => array(
+        array(
+            'id'         => 'font:1',
+            'type'       => 'TEXT',
+            'name'       => 'Font text',
+            'characters' => 'Font CSS',
+            'style'      => array('fontFamily' => 'Example Sans', 'fontSize' => 20),
+        ),
+    ),
+), array('font_css' => '@font-face{font-family:"Example Sans";src:url("assets/example-sans.woff2") format("woff2")}'));
+
+$metadataHtml = $fileContent($metadataResult, 'index.html');
+$metadataCss = $fileContent($metadataResult, 'style.css');
+$metadataWithFontCss = $fileContent($metadataWithFontCssResult, 'style.css');
+$metadataDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $metadataResult['diagnostics'] ?? array()
+);
+
+$assert(str_contains($metadataHtml, '<span style="font-weight:400">Hello </span><span style="font-weight:700;text-decoration:underline">World</span>'), 'styled-text-segments-emit');
+$assert(str_contains($metadataCss, 'p,h1,h2,h3,h4,h5,h6{margin:0}'), 'text-elements-reset-default-margins');
+$assert(str_contains($metadataCss, '.figma-node-4-1-metadata-frame{position:relative;background:rgba(51,102,153,0.5);opacity:0.75;border-radius:12px;border:2px solid #000000;box-shadow:0px 0px 0px 0px rgba(0,0,0,0.25)}'), 'normalized-frame-paint-box-style');
+$assert(str_contains($metadataCss, '.figma-node-4-2-mixed-text{position:absolute;font-family:"Example Sans";font-size:20px;font-weight:600;line-height:125%;letter-spacing:0.5px;color:rgba(255,128,0,0.8);text-align:center;vertical-align:top;text-decoration:underline}'), 'normalized-text-style');
+$assert(str_contains($metadataCss, '.figma-node-4-3-uneven-radius{position:absolute;border-top-left-radius:4px;border-top-right-radius:8px;border-bottom-right-radius:12px;border-bottom-left-radius:16px}'), 'individual-radius-style');
+$assert(str_contains($metadataCss, '.figma-node-4-4-raw-line-height-text{position:absolute;font-family:"Example Sans";font-size:18px;font-weight:600;line-height:1.15}'), 'font-style-weight-and-raw-line-height');
+$assert(in_array('unsupported_figma_paint_type', $metadataDiagnosticCodes, true), 'unsupported-paint-diagnostic');
+$assert(! in_array('unsupported_figma_effect_type', $metadataDiagnosticCodes, true), 'supported-effect-no-diagnostic');
+$assert(in_array('font_css_missing_for_source_font', $metadataDiagnosticCodes, true), 'missing-font-css-diagnostic');
+$assert(str_starts_with($metadataWithFontCss, '@font-face{font-family:"Example Sans";src:url("assets/example-sans.woff2") format("woff2")}'), 'font-css-prepended-when-supplied');
+$assert(array('Example Sans') === ($metadataWithFontCssResult['source_reports']['figma']['html']['font_families'] ?? null), 'font-family-inventory-reports-source-fonts');
+$assert(true === ($metadataWithFontCssResult['source_reports']['figma']['html']['font_css_supplied'] ?? null), 'font-css-supplied-report');
+$styleDiagnostics = $metadataResult['source_reports']['figma']['html']['node_style_diagnostics'] ?? array();
+$mixedTextStyleDiagnostic = null;
+$frameStyleDiagnostic = null;
+foreach ( $styleDiagnostics as $styleDiagnostic ) {
+    if ( '4:2' === ($styleDiagnostic['node']['id'] ?? null) ) {
+        $mixedTextStyleDiagnostic = $styleDiagnostic;
+    }
+    if ( '4:1' === ($styleDiagnostic['node']['id'] ?? null) ) {
+        $frameStyleDiagnostic = $styleDiagnostic;
+    }
+}
+$assert(null !== $mixedTextStyleDiagnostic, 'node-style-diagnostics-text-node-present');
+$assert('"Example Sans"' === ($mixedTextStyleDiagnostic['expected']['font_family'] ?? null), 'node-style-diagnostics-expected-font-family');
+$assert('"Example Sans"' === ($mixedTextStyleDiagnostic['emitted']['font_family'] ?? null), 'node-style-diagnostics-emitted-font-family');
+$assert('20px' === ($mixedTextStyleDiagnostic['expected']['font_size'] ?? null), 'node-style-diagnostics-expected-font-size');
+$assert('20px' === ($mixedTextStyleDiagnostic['emitted']['font_size'] ?? null), 'node-style-diagnostics-emitted-font-size');
+$assert('rgba(255,128,0,0.8)' === ($mixedTextStyleDiagnostic['expected']['text_color'] ?? null), 'node-style-diagnostics-expected-text-color');
+$assert('rgba(255,128,0,0.8)' === ($mixedTextStyleDiagnostic['emitted']['text_color'] ?? null), 'node-style-diagnostics-emitted-text-color');
+$assert(null !== $frameStyleDiagnostic, 'node-style-diagnostics-frame-node-present');
+$assert('rgba(51,102,153,0.5)' === ($frameStyleDiagnostic['expected']['background'] ?? null), 'node-style-diagnostics-expected-background');
+$assert('rgba(51,102,153,0.5)' === ($frameStyleDiagnostic['emitted']['background'] ?? null), 'node-style-diagnostics-emitted-background');
+
+$assetReferenceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'   => 'Asset Reference Fixture',
+    'assets' => array(
+        'image-hash-1' => array(
+            'id'        => 'image-hash-1',
+            'hash'      => 'image-hash-1',
+            'name'      => 'Archive Image',
+            'mime_type' => 'image/png',
+            'content'   => 'png-bytes',
+        ),
+    ),
+    'nodes'  => array(
+        array(
+            'id'       => '4:1',
+            'type'     => 'FRAME',
+            'name'     => 'Asset Frame',
+            'children' => array(
+                array(
+                    'id'     => '4:2',
+                    'type'   => 'RECTANGLE',
+                    'name'   => 'Image Fill',
+                    'width'  => 20,
+                    'height' => 20,
+                    'fills'  => array(
+                        array('type' => 'IMAGE', 'imageHash' => 'image-hash-1'),
+                    ),
+                ),
+                array(
+                    'id'     => '4:3',
+                    'type'   => 'VECTOR',
+                    'name'   => 'Icon Vector',
+                    'width'  => 10,
+                    'height' => 10,
+                ),
+                array(
+                    'id'          => '4:4',
+                    'type'        => 'VECTOR',
+                    'name'        => 'Path Icon',
+                    'width'       => 24,
+                    'height'      => 24,
+                    'fills'       => array(
+                        array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 1)),
+                    ),
+                    'vectorPaths' => array(
+                        array(
+                            'data'        => 'M 1 1 L 23 1 L 12 23 Z',
+                            'windingRule' => 'EVENODD',
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+
+$assetReferenceCss = $fileContent($assetReferenceResult, 'style.css');
+$assetReferenceHtml = $fileContent($assetReferenceResult, 'index.html');
+$assetReferenceReport = $assetReferenceResult['source_reports']['figma']['scenegraph'] ?? array();
+$assetReferenceDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $assetReferenceResult['diagnostics'] ?? array()
+);
+
+$assert(1 === ($assetReferenceResult['metrics']['asset_reference_count'] ?? null), 'normalized-image-reference-count');
+$assert(in_array((string) ($assetReferenceReport['asset_references'][0]['source_key'] ?? null), array('imageHash', 'ref'), true), 'normalized-image-reference-source-key');
+$assert('image-hash-1' === ($assetReferenceReport['asset_references'][0]['ref'] ?? null), 'normalized-image-reference-ref');
+$assert(str_contains($assetReferenceCss, 'background-image:url("assets/archive-image.png")'), 'normalized-image-reference-css');
+$assert(str_contains($assetReferenceHtml, 'data-figma-vector="true"'), 'supported-vector-svg-html');
+$assert(str_contains($assetReferenceHtml, '<path d="M 1 1 L 23 1 L 12 23 Z" fill="#0000ff" fill-rule="evenodd"/>'), 'supported-vector-path-derived-svg');
+$assert(str_contains($assetReferenceHtml, 'data-figma-unsupported-vector="true"'), 'unsupported-vector-placeholder-html');
+$assert(str_contains($assetReferenceHtml, 'Unsupported Figma VECTOR'), 'unsupported-vector-placeholder-text');
+$assert(in_array('unsupported_vector_node_placeholder', $assetReferenceDiagnosticCodes, true), 'unsupported-vector-diagnostic');
+
+$layoutFidelityResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Layout Fidelity Fixture',
+    'nodes' => array(
+        array(
+            'id'                    => '5:1',
+            'type'                  => 'FRAME',
+            'name'                  => 'Layout frame',
+            'absoluteBoundingBox'   => array('x' => 100, 'y' => 50, 'width' => 500, 'height' => 300),
+            'layoutMode'            => 'HORIZONTAL',
+            'primaryAxisAlignItems' => 'MIN',
+            'counterAxisAlignItems' => 'STRETCH',
+            'clipsContent'          => true,
+            'children'              => array(
+                array(
+                    'id'                     => '5:2',
+                    'type'                   => 'RECTANGLE',
+                    'name'                   => 'Fixed card',
+                    'width'                  => 100,
+                    'height'                 => 80,
+                    'layoutSizingHorizontal' => 'FIXED',
+                    'layoutSizingVertical'   => 'FIXED',
+                    'opacity'                => 0.6,
+                    'rotation'               => 15,
+                ),
+                array(
+                    'id'                     => '5:3',
+                    'type'                   => 'TEXT',
+                    'name'                   => 'Hug label',
+                    'characters'             => 'Source text',
+                    'fontSize'               => 12,
+                    'layoutSizingHorizontal' => 'HUG',
+                    'layoutSizingVertical'   => 'HUG',
+                ),
+                array(
+                    'id'                     => '5:4',
+                    'type'                   => 'RECTANGLE',
+                    'name'                   => 'Fill panel',
+                    'width'                  => 200,
+                    'height'                 => 100,
+                    'layoutSizingHorizontal' => 'FILL',
+                    'layoutSizingVertical'   => 'FILL',
+                    'layoutGrow'             => 1,
+                    'layoutAlign'            => 'STRETCH',
+                ),
+                array(
+                    'id'                  => '5:5',
+                    'type'                => 'RECTANGLE',
+                    'name'                => 'Absolute badge',
+                    'absoluteBoundingBox' => array('x' => 120, 'y' => 70, 'width' => 50, 'height' => 20),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                    'constraints'         => array('horizontal' => 'LEFT_RIGHT', 'vertical' => 'TOP_BOTTOM'),
+                    'fill'                => array('r' => 0, 'g' => 0, 'b' => 0),
+                ),
+                array(
+                    'id'                => '5:6',
+                    'type'              => 'RECTANGLE',
+                    'name'              => 'Matrix transform',
+                    'width'             => 30,
+                    'height'            => 30,
+                    'relativeTransform' => array(
+                        array(0, -1, 40),
+                        array(1, 0, 60),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+
+$layoutFidelityCss = $fileContent($layoutFidelityResult, 'style.css');
+
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-1-layout-frame{width:500px;height:300px;overflow:hidden;position:relative;display:flex;flex-direction:row;justify-content:flex-start;align-items:stretch}'), 'layout-frame-clips-and-positions-absolute-children');
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-2-fixed-card{width:100px;height:80px;opacity:0.6;transform:rotate(15deg);flex-shrink:0}'), 'layout-fixed-sizing-and-rotation');
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-3-hug-label{width:fit-content;height:fit-content;font-size:12px;flex-shrink:0}'), 'layout-hug-sizing');
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-4-fill-panel{width:100%;height:100%;flex-grow:1;flex-shrink:1;align-self:stretch}'), 'layout-fill-sizing-without-source-order');
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-5-absolute-badge{width:50px;height:20px;position:absolute;left:20px;right:430px;top:20px;bottom:260px;background:#000000;flex-shrink:0}'), 'layout-absolute-constraints-without-source-z-index');
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-6-matrix-transform{width:30px;height:30px;transform:matrix(0,1,-1,0,40,60);transform-origin:0 0;flex-shrink:0}'), 'layout-relative-transform-matrix');
+$assert(! str_contains($layoutFidelityCss, 'font-family:Inter') && ! str_contains($layoutFidelityCss, 'body{margin:0;background') && ! str_contains($layoutFidelityCss, 'body{margin:0;color'), 'layout-css-avoids-theme-defaults');
+
+$plainFrameLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Plain Frame Layout Fixture',
+    'nodes' => array(
+        array(
+            'id'                  => 'plain:frame',
+            'type'                => 'FRAME',
+            'name'                => 'Plain layout frame',
+            'absoluteBoundingBox' => array('x' => 100, 'y' => 50, 'width' => 400, 'height' => 300),
+            'children'            => array(
+                array(
+                    'id'                  => 'plain:first',
+                    'type'                => 'RECTANGLE',
+                    'name'                => 'First positioned layer',
+                    'absoluteBoundingBox' => array('x' => 120, 'y' => 70, 'width' => 90, 'height' => 40),
+                ),
+                array(
+                    'id'                  => 'plain:second',
+                    'type'                => 'TEXT',
+                    'name'                => 'Second positioned text',
+                    'characters'          => 'Positioned',
+                    'absoluteBoundingBox' => array('x' => 300, 'y' => 200, 'width' => 120, 'height' => 32),
+                ),
+            ),
+        ),
+    ),
+));
+$plainFrameLayoutCss = $fileContent($plainFrameLayoutResult, 'style.css');
+$assert(str_contains($plainFrameLayoutCss, '.figma-node-plain-frame-plain-layout-frame{width:400px;height:300px;position:relative}'), 'plain-frame-becomes-freeform-positioned-canvas');
+$assert(str_contains($plainFrameLayoutCss, '.figma-node-plain-first-first-positioned-layer{width:90px;height:40px;position:absolute;left:20px;top:20px'), 'plain-frame-first-child-positioned-relative-to-parent');
+$assert(str_contains($plainFrameLayoutCss, '.figma-node-plain-second-second-positioned-text{width:120px;height:32px;position:absolute;left:200px;top:150px'), 'plain-frame-text-child-positioned-relative-to-parent');
+
+$resolvedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Component Instance Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'component:button',
+            'type'     => 'COMPONENT',
+            'name'     => 'Button component',
+            'key'      => 'button-key',
+            'children' => array(
+                array(
+                    'id'         => 'component:button-label',
+                    'type'       => 'TEXT',
+                    'name'       => 'Button label',
+                    'characters' => 'Default label',
+                ),
+            ),
+        ),
+        array(
+            'id'          => 'instance:button',
+            'type'        => 'INSTANCE',
+            'name'        => 'Primary CTA',
+            'componentId' => 'button-key',
+            'overrides'   => array(
+                array(
+                    'nodeId'     => 'component:button-label',
+                    'characters' => 'Buy now',
+                ),
+            ),
+        ),
+    ),
+));
+
+$resolvedInstanceHtml = $fileContent($resolvedInstanceResult, 'index.html');
+$resolvedInstanceReport = $resolvedInstanceResult['source_reports']['figma']['scenegraph'] ?? array();
+
+$assert(1 === ($resolvedInstanceReport['component_definition_count'] ?? null), 'component-definition-count');
+$assert(1 === ($resolvedInstanceReport['instance_node_count'] ?? null), 'resolved-instance-counts-instance');
+$assert(1 === ($resolvedInstanceReport['resolved_instance_count'] ?? null), 'resolved-instance-counts-resolved');
+$assert(array() === ($resolvedInstanceReport['unresolved_component_references'] ?? null), 'resolved-instance-no-unresolved');
+$assert(str_contains($resolvedInstanceHtml, 'data-figma-node-id="instance:button"'), 'resolved-instance-preserves-instance-id');
+$assert(str_contains($resolvedInstanceHtml, 'Buy now'), 'resolved-instance-applies-text-override');
+
+$unresolvedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Unresolved Component Instance Fixture',
+    'nodes' => array(
+        array(
+            'id'            => 'instance:missing',
+            'type'          => 'INSTANCE',
+            'name'          => 'Missing component instance',
+            'mainComponent' => array('id' => 'missing-component'),
+        ),
+    ),
+));
+
+$unresolvedInstanceHtml = $fileContent($unresolvedInstanceResult, 'index.html');
+$unresolvedInstanceReport = $unresolvedInstanceResult['source_reports']['figma']['scenegraph'] ?? array();
+$unresolvedInstanceDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $unresolvedInstanceResult['diagnostics'] ?? array()
+);
+
+$assert(0 === ($unresolvedInstanceReport['component_definition_count'] ?? null), 'unresolved-instance-component-definition-count');
+$assert(1 === ($unresolvedInstanceReport['instance_node_count'] ?? null), 'unresolved-instance-counts-instance');
+$assert(0 === ($unresolvedInstanceReport['resolved_instance_count'] ?? null), 'unresolved-instance-counts-resolved');
+$assert('instance:missing' === ($unresolvedInstanceReport['unresolved_component_references'][0]['instance_id'] ?? null), 'unresolved-instance-report-instance-id');
+$assert('missing-component' === ($unresolvedInstanceReport['unresolved_component_references'][0]['component_id'] ?? null), 'unresolved-instance-report-component-id');
+$assert(str_contains($unresolvedInstanceHtml, 'data-figma-node-id="instance:missing"'), 'unresolved-instance-preserves-instance-id');
+$assert(in_array('figma_instance_component_unresolved', $unresolvedInstanceDiagnosticCodes, true), 'unresolved-instance-diagnostic');
+
+$booleanVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Boolean Vector Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'           => 'boolean:1',
+            'type'         => 'BOOLEAN_OPERATION',
+            'name'         => 'Compound icon',
+            'width'        => 10,
+            'height'       => 10,
+            'fillPaints'   => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0))),
+            'fillGeometry' => array(array('commandsBlob' => 0, 'windingRule' => 'NONZERO')),
+            'children'     => array(
+                array(
+                    'id'         => 'boolean:2',
+                    'type'       => 'VECTOR',
+                    'name'       => 'Operand path',
+                    'width'      => 10,
+                    'height'     => 10,
+                    'vectorData' => array('vectorNetworkBlob' => 0),
+                ),
+            ),
+        ),
+    ),
+));
+$booleanVectorHtml = $fileContent($booleanVectorResult, 'index.html');
+$booleanVectorDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $booleanVectorResult['diagnostics'] ?? array()
+);
+$assert(str_contains($booleanVectorHtml, 'data-figma-vector="true"'), 'boolean-vector-parent-svg');
+$assert(! str_contains($booleanVectorHtml, 'data-figma-node-id="boolean:2"'), 'boolean-vector-suppresses-operand-child');
+$assert(! in_array('unsupported_vector_node_placeholder', $booleanVectorDiagnosticCodes, true), 'boolean-vector-no-placeholder-diagnostic');
+
+$instanceVectorChildrenResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Instance Vector Children Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'       => 'icon:component',
+            'type'     => 'COMPONENT',
+            'name'     => 'Icon component',
+            'key'      => 'icon-key',
+            'children' => array(
+                array(
+                    'id'           => 'icon:vector',
+                    'type'         => 'VECTOR',
+                    'name'         => 'Vector',
+                    'width'        => 10,
+                    'height'       => 10,
+                    'fillGeometry' => array(array('commandsBlob' => 0, 'windingRule' => 'NONZERO')),
+                ),
+            ),
+        ),
+        array(
+            'id'          => 'icon:one',
+            'type'        => 'INSTANCE',
+            'name'        => 'Icon one',
+            'componentId' => 'icon-key',
+        ),
+        array(
+            'id'          => 'icon:two',
+            'type'        => 'INSTANCE',
+            'name'        => 'Icon two',
+            'componentId' => 'icon-key',
+        ),
+    ),
+));
+$instanceVectorChildrenHtml = $fileContent($instanceVectorChildrenResult, 'index.html');
+$instanceVectorChildrenCss = $fileContent($instanceVectorChildrenResult, 'style.css');
+$assert(str_contains($instanceVectorChildrenHtml, 'data-figma-node-id="icon:one/icon:vector"'), 'instance-vector-child-id-namespaced-one');
+$assert(str_contains($instanceVectorChildrenHtml, 'data-figma-node-id="icon:two/icon:vector"'), 'instance-vector-child-id-namespaced-two');
+$assert(strpos($instanceVectorChildrenHtml, 'data-figma-node-id="icon:one/icon:vector"') !== strpos($instanceVectorChildrenHtml, 'data-figma-node-id="icon:vector"'), 'instance-vector-child-source-id-is-not-reused-by-instance-one');
+$assert(strpos($instanceVectorChildrenHtml, 'data-figma-node-id="icon:two/icon:vector"') !== strpos($instanceVectorChildrenHtml, 'data-figma-node-id="icon:vector"'), 'instance-vector-child-source-id-is-not-reused-by-instance-two');
+$assert(3 === substr_count($instanceVectorChildrenHtml, 'data-figma-vector="true"'), 'instance-vector-children-render-with-definition');
+$assert(str_contains($instanceVectorChildrenCss, '.figma-node-icon-one-icon-vector-vector{width:10px;height:10px'), 'instance-vector-css-one');
+$assert(str_contains($instanceVectorChildrenCss, '.figma-node-icon-two-icon-vector-vector{width:10px;height:10px'), 'instance-vector-css-two');
+
+$nestedInstanceVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Nested Instance Vector Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'       => 'nested-icon:component',
+            'type'     => 'COMPONENT',
+            'name'     => 'Icon component',
+            'key'      => 'nested-icon-key',
+            'children' => array(
+                array(
+                    'id'           => 'nested-icon:vector',
+                    'type'         => 'VECTOR',
+                    'name'         => 'Vector',
+                    'width'        => 10,
+                    'height'       => 10,
+                    'fillGeometry' => array(array('commandsBlob' => 0, 'windingRule' => 'NONZERO')),
+                ),
+            ),
+        ),
+        array(
+            'id'       => 'nested-wrapper:component',
+            'type'     => 'COMPONENT',
+            'name'     => 'Wrapper component',
+            'key'      => 'nested-wrapper-key',
+            'children' => array(
+                array(
+                    'id'          => 'nested-wrapper:icon',
+                    'type'        => 'INSTANCE',
+                    'name'        => 'Nested icon',
+                    'componentId' => 'nested-icon-key',
+                ),
+            ),
+        ),
+        array(
+            'id'          => 'nested-wrapper:instance',
+            'type'        => 'INSTANCE',
+            'name'        => 'Wrapper instance',
+            'componentId' => 'nested-wrapper-key',
+        ),
+    ),
+));
+$nestedInstanceVectorHtml = $fileContent($nestedInstanceVectorResult, 'index.html');
+$assert(str_contains($nestedInstanceVectorHtml, 'data-figma-node-id="nested-wrapper:instance/nested-wrapper:icon/nested-icon:vector"'), 'nested-instance-vector-child-id-namespaced');
+$assert(str_contains($nestedInstanceVectorHtml, 'data-figma-vector="true"'), 'nested-instance-vector-renders-svg');
+
+$scaledVectorInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Scaled Vector Instance Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'       => 'scaled-icon:component',
+            'type'     => 'COMPONENT',
+            'name'     => 'Scaled icon component',
+            'key'      => 'scaled-icon-key',
+            'width'    => 10,
+            'height'   => 10,
+            'children' => array(
+                array(
+                    'id'           => 'scaled-icon:vector',
+                    'type'         => 'VECTOR',
+                    'name'         => 'Vector',
+                    'width'        => 10,
+                    'height'       => 10,
+                    'fillGeometry' => array(array('commandsBlob' => 0, 'windingRule' => 'NONZERO')),
+                ),
+            ),
+        ),
+        array(
+            'id'          => 'scaled-icon:instance',
+            'type'        => 'INSTANCE',
+            'name'        => 'Scaled icon instance',
+            'componentId' => 'scaled-icon-key',
+            'width'       => 20,
+            'height'      => 20,
+        ),
+    ),
+));
+$scaledVectorInstanceHtml = $fileContent($scaledVectorInstanceResult, 'index.html');
+$scaledVectorInstanceCss = $fileContent($scaledVectorInstanceResult, 'style.css');
+$assert(str_contains($scaledVectorInstanceCss, '.figma-node-scaled-icon-instance-scaled-icon-vector-vector{width:20px;height:20px'), 'scaled-vector-instance-child-css-scaled');
+$assert(str_contains($scaledVectorInstanceHtml, '<g transform="scale(2 2)">'), 'scaled-vector-instance-svg-transform');
+
+$effectsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Effects Fixture',
+    'nodes' => array(
+        array(
+            'id'      => 'effects:1',
+            'type'    => 'FRAME',
+            'name'    => 'Effects frame',
+            'width'   => 100,
+            'height'  => 100,
+            'effects' => array(
+                array(
+                    'type'   => 'DROP_SHADOW',
+                    'offset' => array('x' => 0, 'y' => 6),
+                    'radius' => 6,
+                    'spread' => 0,
+                    'color'  => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 0.16),
+                ),
+                array(
+                    'type'   => 'INNER_SHADOW',
+                    'offset' => array('x' => 1, 'y' => 2),
+                    'radius' => 3,
+                    'spread' => 4,
+                    'color'  => array('r' => 1, 'g' => 0, 'b' => 0, 'a' => 0.5),
+                ),
+                array('type' => 'LAYER_BLUR', 'radius' => 2),
+                array('type' => 'BACKGROUND_BLUR', 'radius' => 5),
+            ),
+            'children' => array(
+                array(
+                    'id'         => 'effects:2',
+                    'type'       => 'TEXT',
+                    'name'       => 'Shadow text',
+                    'characters' => 'Shadow',
+                    'effects'    => array(
+                        array(
+                            'type'   => 'DROP_SHADOW',
+                            'offset' => array('x' => 1, 'y' => 1),
+                            'radius' => 2,
+                            'color'  => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 0.4),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$effectsCss = $fileContent($effectsResult, 'style.css');
+$effectsDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $effectsResult['diagnostics'] ?? array()
+);
+$assert(str_contains($effectsCss, 'box-shadow:0px 6px 6px 0px rgba(0,0,0,0.16),inset 1px 2px 3px 4px rgba(255,0,0,0.5)'), 'effects-box-shadow-css');
+$assert(str_contains($effectsCss, 'filter:blur(2px)'), 'effects-layer-blur-css');
+$assert(str_contains($effectsCss, 'backdrop-filter:blur(5px)'), 'effects-background-blur-css');
+$assert(str_contains($effectsCss, 'text-shadow:1px 1px 2px 0px rgba(0,0,0,0.4)'), 'effects-text-shadow-css');
+$assert(! in_array('unsupported_figma_effect_type', $effectsDiagnosticCodes, true), 'effects-supported-no-diagnostic');
+
+$symbolInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Symbol Instance Fixture',
+    'nodes' => array(
+        array(
+            'guid'     => array('sessionID' => 18, 'localID' => 96),
+            'type'     => 'SYMBOL',
+            'name'     => 'Legacy Symbol Button',
+            'children' => array(
+                array(
+                    'guid'       => array('sessionID' => 18, 'localID' => 97),
+                    'type'       => 'TEXT',
+                    'name'       => 'Symbol label',
+                    'characters' => 'Symbol label',
+                ),
+            ),
+        ),
+        array(
+            'id'         => 'instance:symbol-button',
+            'type'       => 'INSTANCE',
+            'name'       => 'Legacy Symbol Instance',
+            'symbolData' => array('symbolID' => array('sessionID' => 18, 'localID' => 96)),
+        ),
+    ),
+));
+$symbolInstanceHtml = $fileContent($symbolInstanceResult, 'index.html');
+$symbolInstanceReport = $symbolInstanceResult['source_reports']['figma']['scenegraph'] ?? array();
+$symbolInstanceDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $symbolInstanceResult['diagnostics'] ?? array()
+);
+$assert(1 === ($symbolInstanceReport['component_definition_count'] ?? null), 'symbol-instance-definition-count');
+$assert(1 === ($symbolInstanceReport['instance_node_count'] ?? null), 'symbol-instance-instance-count');
+$assert(1 === ($symbolInstanceReport['resolved_instance_count'] ?? null), 'symbol-instance-resolved-count');
+$assert(str_contains($symbolInstanceHtml, 'data-figma-node-id="instance:symbol-button"'), 'symbol-instance-preserves-instance-id');
+$assert(str_contains($symbolInstanceHtml, 'Symbol label'), 'symbol-instance-renders-symbol-children');
+$assert(! in_array('figma_instance_component_unresolved', $symbolInstanceDiagnosticCodes, true), 'symbol-instance-no-unresolved-diagnostic');
+
+$nestedSymbolInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Nested Symbol Instance Fixture',
+    'nodes' => array(
+        array(
+            'guid'     => array('sessionID' => 30, 'localID' => 1),
+            'type'     => 'SYMBOL',
+            'name'     => 'Nested Button Symbol',
+            'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 1, 'b' => 0))),
+            'children' => array(
+                array(
+                    'guid'       => array('sessionID' => 30, 'localID' => 2),
+                    'type'       => 'TEXT',
+                    'name'       => 'Nested Button Label',
+                    'characters' => 'Default nested label',
+                ),
+            ),
+        ),
+        array(
+            'id'       => 'nested:root',
+            'type'     => 'FRAME',
+            'name'     => 'Nested root',
+            'children' => array(
+                array(
+                    'id'         => 'nested:instance',
+                    'type'       => 'INSTANCE',
+                    'name'       => 'Nested Button Instance',
+                    'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0, 'b' => 0))),
+                    'symbolData' => array(
+                        'symbolID' => array('sessionID' => 30, 'localID' => 1),
+                        'symbolOverrides' => array(
+                            array(
+                                'guidPath' => array('guids' => array(array('sessionID' => 30, 'localID' => 2))),
+                                'textData' => array('characters' => 'Nested override label'),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$nestedSymbolInstanceHtml = $fileContent($nestedSymbolInstanceResult, 'index.html');
+$nestedSymbolInstanceCss = $fileContent($nestedSymbolInstanceResult, 'style.css');
+$nestedSymbolInstanceReport = $nestedSymbolInstanceResult['source_reports']['figma']['scenegraph'] ?? array();
+$assert(1 === ($nestedSymbolInstanceReport['resolved_instance_count'] ?? null), 'nested-symbol-instance-resolved-count');
+$assert(str_contains($nestedSymbolInstanceHtml, 'data-figma-node-id="nested:instance"'), 'nested-symbol-instance-preserves-instance-id');
+$assert(str_contains($nestedSymbolInstanceHtml, 'Nested override label'), 'nested-symbol-instance-applies-symbol-text-override');
+$assert(str_contains($nestedSymbolInstanceCss, '.figma-node-nested-instance-nested-button-instance{') && str_contains($nestedSymbolInstanceCss, 'background:#ff0000'), 'nested-symbol-instance-keeps-instance-fill');
+
+$derivedSymbolInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Derived Symbol Overrides Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'guid'     => array('sessionID' => 40, 'localID' => 1),
+            'type'     => 'SYMBOL',
+            'name'     => 'Derived Symbol',
+            'children' => array(
+                array(
+                    'guid'       => array('sessionID' => 40, 'localID' => 2),
+                    'type'       => 'TEXT',
+                    'name'       => 'Derived Label',
+                    'characters' => 'Default',
+                    'width'      => 40,
+                    'height'     => 12,
+                ),
+                array(
+                    'guid'         => array('sessionID' => 40, 'localID' => 3),
+                    'type'         => 'VECTOR',
+                    'name'         => 'Derived Icon',
+                    'width'        => 5,
+                    'height'       => 5,
+                    'fillGeometry' => array(array('commandsBlob' => 0)),
+                ),
+            ),
+        ),
+        array(
+            'id'                => 'derived:instance',
+            'type'              => 'INSTANCE',
+            'name'              => 'Derived Instance',
+            'symbolData'        => array(
+                'symbolID' => array('sessionID' => 40, 'localID' => 1),
+                'symbolOverrides' => array(
+                    array(
+                        'guidPath' => array('guids' => array(array('sessionID' => 40, 'localID' => 2))),
+                        'textData' => array('characters' => 'Override'),
+                    ),
+                ),
+            ),
+            'derivedSymbolData' => array(
+                array(
+                    'guidPath'        => array('guids' => array(array('sessionID' => 40, 'localID' => 2))),
+                    'size'            => array('x' => 90, 'y' => 24),
+                    'transform'       => array('m00' => 1, 'm01' => 0, 'm02' => 12, 'm10' => 0, 'm11' => 1, 'm12' => 6),
+                    'derivedTextData' => array('layoutSize' => array('x' => 90, 'y' => 24)),
+                ),
+                array(
+                    'guidPath'      => array('guids' => array(array('sessionID' => 40, 'localID' => 3))),
+                    'transform'     => array('m00' => 1, 'm01' => 0, 'm02' => 110, 'm10' => 0, 'm11' => 1, 'm12' => 10),
+                    'fillGeometry'  => array(array('commandsBlob' => 0)),
+                ),
+            ),
+        ),
+    ),
+));
+$derivedSymbolInstanceHtml = $fileContent($derivedSymbolInstanceResult, 'index.html');
+$derivedSymbolInstanceCss = $fileContent($derivedSymbolInstanceResult, 'style.css');
+$assert(str_contains($derivedSymbolInstanceHtml, 'data-figma-node-id="derived:instance/40:2"'), 'derived-symbol-instance-label-namespaced');
+$assert(str_contains($derivedSymbolInstanceHtml, 'Override'), 'derived-symbol-instance-text-override');
+$assert(str_contains($derivedSymbolInstanceHtml, 'data-figma-node-id="derived:instance/40:3"'), 'derived-symbol-instance-icon-namespaced');
+$assert(str_contains($derivedSymbolInstanceHtml, 'd="M 0 0 L 10 0 L 10 10 Z"'), 'derived-symbol-instance-icon-geometry');
+$assert(! str_contains($derivedSymbolInstanceHtml, '<g transform="scale'), 'derived-symbol-instance-icon-avoids-stale-scale');
+$assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-2-derived-label{width:90px;height:24px;position:absolute;left:12px;top:6px'), 'derived-symbol-instance-label-size-position');
+$assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-3-derived-icon{width:10px;height:10px;position:absolute;left:110px;top:10px'), 'derived-symbol-instance-icon-size-position');
+
+if ( ! empty($failures) ) {
+    fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
+    exit(1);
+}
+
+fwrite(STDOUT, "Figma Transformer contract tests passed.\n");
+
+function blocks_engine_figma_transformer_create_fig_wrapper_fixture(): string
+{
+    $inner = tempnam(sys_get_temp_dir(), 'blocks-engine-inner-fig-');
+    $outer = tempnam(sys_get_temp_dir(), 'blocks-engine-wrapper-fig-');
+    if ( false === $inner || false === $outer ) {
+        throw new RuntimeException('Could not create temporary fig fixture paths.');
+    }
+
+    $canvas = 'fig-kiwi'
+        . pack('V', 106)
+        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate(json_encode(blocks_engine_figma_transformer_nodes_candidate_fixture(), JSON_THROW_ON_ERROR)))
+        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate('{"NODE_CHANGES":'))
+        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate(json_encode(blocks_engine_figma_transformer_node_changes_fixture(), JSON_THROW_ON_ERROR)))
+        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate('synthetic kiwi dictionary'))
+        . blocks_engine_figma_transformer_kiwi_chunk(blocks_engine_figma_transformer_zstd_fixture_payload());
+
+    $innerZip = new ZipArchive();
+    if ( true !== $innerZip->open($inner, ZipArchive::OVERWRITE) ) {
+        throw new RuntimeException('Could not open inner fig ZIP.');
+    }
+    $innerZip->addFromString('canvas.fig', $canvas);
+    $innerZip->addFromString('meta.json', json_encode(array('name' => 'Synthetic Fixture'), JSON_THROW_ON_ERROR));
+    $innerZip->addFromString('images/synthetic', 'asset');
+    $innerZip->close();
+
+    $outerZip = new ZipArchive();
+    if ( true !== $outerZip->open($outer, ZipArchive::OVERWRITE) ) {
+        throw new RuntimeException('Could not open wrapper fig ZIP.');
+    }
+    $outerZip->addFromString('inner.fig', (string) file_get_contents($inner));
+    $outerZip->close();
+
+    @unlink($inner);
+
+    return $outer;
+}
+
+function blocks_engine_figma_transformer_create_pending_decoder_fig_wrapper_fixture(): string
+{
+    $path = tempnam(sys_get_temp_dir(), 'blocks-engine-pending-fig-');
+    if ( false === $path ) {
+        throw new RuntimeException('Could not create temporary pending fig fixture path.');
+    }
+
+    $canvas = 'fig-kiwi'
+        . pack('V', 106)
+        . blocks_engine_figma_transformer_kiwi_chunk(gzdeflate('synthetic undecoded canvas payload'));
+
+    $zip = new ZipArchive();
+    if ( true !== $zip->open($path, ZipArchive::OVERWRITE) ) {
+        throw new RuntimeException('Could not open pending fig ZIP.');
+    }
+    $zip->addFromString('canvas.fig', $canvas);
+    $zip->close();
+
+    return $path;
+}
+
+function blocks_engine_figma_transformer_kiwi_chunk(string $payload): string
+{
+    return pack('V', strlen($payload)) . $payload;
+}
+
+function blocks_engine_figma_transformer_wire_varint(int $value): string
+{
+    $bytes = '';
+    do {
+        $byte = $value & 0x7f;
+        $value = intdiv($value, 128);
+        if ( $value > 0 ) {
+            $byte |= 0x80;
+        }
+        $bytes .= chr($byte);
+    } while ( $value > 0 );
+
+    return $bytes;
+}
+
+function blocks_engine_figma_transformer_wire_varint_signed(int $value): string
+{
+    return blocks_engine_figma_transformer_wire_varint($value < 0 ? ((~$value) << 1) | 1 : $value << 1);
+}
+
+function blocks_engine_figma_transformer_kiwi_string(string $value): string
+{
+    return $value . "\0";
+}
+
+function blocks_engine_figma_transformer_kiwi_schema_field(string $name, int $type, bool $isArray, int $value): string
+{
+    return blocks_engine_figma_transformer_kiwi_string($name)
+        . blocks_engine_figma_transformer_wire_varint_signed($type)
+        . chr($isArray ? 1 : 0)
+        . blocks_engine_figma_transformer_wire_varint($value);
+}
+
+function blocks_engine_figma_transformer_kiwi_schema_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('MessageType')
+        . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('NODE_CHANGES', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_string('Message')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', -6, true, 4);
+}
+
+function blocks_engine_figma_transformer_kiwi_message_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('alpha')
+        . blocks_engine_figma_transformer_kiwi_string('beta')
+        . blocks_engine_figma_transformer_wire_varint(0);
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_transformer_node_changes_fixture(): array
+{
+    return array(
+        'name'         => 'Decoded Node Changes Fixture',
+        'NODE_CHANGES' => array(
+            '4:1' => array(
+                'node' => array(
+                    'id'       => '4:1',
+                    'type'     => 'FRAME',
+                    'name'     => 'Decoded Landing',
+                    'children' => array(
+                        array(
+                            'id'         => '4:2',
+                            'type'       => 'TEXT',
+                            'name'       => 'Heading',
+                            'characters' => 'Decoded First',
+                        ),
+                        array(
+                            'id'         => '4:3',
+                            'type'       => 'TEXT',
+                            'name'       => 'Body',
+                            'characters' => 'Decoded Second',
+                        ),
+                        array(
+                            'id'   => '4:4',
+                            'type' => 'RECTANGLE',
+                            'name' => 'Decoded Photo',
+                            'fills' => array(
+                                array('type' => 'IMAGE', 'imageHash' => 'synthetic'),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    );
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_transformer_nodes_candidate_fixture(): array
+{
+    return array(
+        'name'  => 'Lower Priority Nodes Candidate',
+        'nodes' => array(
+            array(
+                'id'       => 'candidate:1',
+                'type'     => 'FRAME',
+                'name'     => 'Lower Priority Frame',
+                'children' => array(
+                    array(
+                        'id'         => 'candidate:2',
+                        'type'       => 'TEXT',
+                        'name'       => 'Lower Priority Text',
+                        'characters' => 'This earlier payload must not be selected.',
+                    ),
+                ),
+            ),
+        ),
+    );
+}
+
+function blocks_engine_figma_transformer_zstd_fixture_payload(): string
+{
+    if ( function_exists('zstd_compress') ) {
+        $compressed = zstd_compress('synthetic zstd payload');
+        if ( false !== $compressed ) {
+            return $compressed;
+        }
+    }
+
+    return "\x28\xb5\x2f\xfd" . 'synthetic-zstd-frame';
+}

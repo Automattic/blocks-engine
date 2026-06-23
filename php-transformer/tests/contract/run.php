@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactNormalizer;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatAdapterInterface;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
@@ -172,6 +173,41 @@ $assert(true === ($formDiagnostic['controls'][0]['required'] ?? null), 'conversi
 $assert('support' === ($formDiagnostic['controls'][1]['options'][0]['value'] ?? ''), 'conversion report exposes select option values');
 $assert(is_int($formDiagnostic['html_bytes'] ?? null), 'conversion report exposes bounded fallback HTML byte size');
 
+$buttonResult = ( new HtmlTransformer() )->transform(
+    '<main><a class="primary-button" href="#"><h3>Reserve now</h3><span aria-hidden="true"></span></a><button><strong>Call us</strong></button></main>'
+)->toArray();
+$buttonBlocks = $buttonResult['blocks'][0]['innerBlocks'] ?? array();
+$assert('core/buttons' === ($buttonBlocks[0]['blockName'] ?? ''), 'anchor converts to buttons block');
+$assert(str_contains((string) ($buttonBlocks[0]['innerBlocks'][0]['attrs']['text'] ?? ''), 'Reserve now'), 'anchor button text preserves visible label');
+$assert(str_contains((string) ($buttonBlocks[1]['innerBlocks'][0]['attrs']['text'] ?? ''), 'Call us'), 'button text preserves visible label');
+$assert(! str_contains((string) $buttonResult['serialized_blocks'], '\\u003c'), 'button serialization avoids escaped nested HTML attrs');
+
+$inlineSvgVisualWrapper = ( new HtmlTransformer() )->transform(
+    '<main><section class="visual-region"><div class="map-layer"><div class="map-image" style="background-image:url(assets/map.png)"><svg><path d="M0 0h1v1z"></path></svg></div></div></section></main>'
+)->toArray();
+$serializedInlineSvgVisualWrapper = (string) ($inlineSvgVisualWrapper['serialized_blocks'] ?? '');
+$assert(str_contains($serializedInlineSvgVisualWrapper, 'visual-region'), 'HTML transform preserves CSS-addressable visual wrapper classes');
+$assert(str_contains($serializedInlineSvgVisualWrapper, 'map-layer'), 'HTML transform preserves nested visual wrapper classes');
+$assert(str_contains($serializedInlineSvgVisualWrapper, 'map-image'), 'HTML transform preserves background-image visual leaf classes when inline SVG children are present');
+
+$safeInlineSvg = ( new HtmlTransformer() )->transform(
+    '<main><section class="icon-row"><span class="icon"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0h16v16H0z"></path></svg></span></section></main>',
+    array(
+        'strict'          => true,
+        'allow_fallbacks' => false,
+    )
+)->toArray();
+$safeInlineSvgSerialized = (string) ($safeInlineSvg['serialized_blocks'] ?? '');
+$assert('success' === ($safeInlineSvg['status'] ?? ''), 'safe inline SVG does not trip strict fallback gates', (string) ($safeInlineSvg['status'] ?? ''));
+$assert(array() === ($safeInlineSvg['fallbacks'] ?? array()), 'safe inline SVG is converted instead of recorded as fallback metadata');
+$assert('core/image' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'safe inline SVG converts to a Gutenberg-renderable image block');
+$assert(! str_contains($safeInlineSvgSerialized, '<!-- wp:html'), 'safe inline SVG conversion avoids raw HTML blocks');
+$assert(str_contains($safeInlineSvgSerialized, 'data:image/svg+xml,'), 'safe inline SVG is serialized as an image data URI');
+$assert(str_contains(rawurldecode($safeInlineSvgSerialized), '<svg viewbox="0 0 16 16" aria-hidden="true"><path d="M0 0h16v16H0z"></path></svg>'), 'safe inline SVG markup is preserved in serialized image data');
+
+$unsafeInlineSvg = ( new HtmlTransformer() )->transform('<main><svg onload="alert(1)"><path d="M0 0h1v1z"></path></svg></main>')->toArray();
+$assert('html_unsafe_inline_svg' === ($unsafeInlineSvg['fallbacks'][0]['diagnostic_code'] ?? ''), 'unsafe inline SVG remains a fallback diagnostic');
+
 $normalizedFallbacks = ( new HtmlTransformer() )->transform(
     '<main><svg><circle cx="5" cy="5" r="5"></circle></svg><svg><script>alert(1)</script></svg><script src="/app.js">init()</script><aside>Fallback</aside><iframe src="javascript:alert(1)"></iframe></main>'
 )->toArray();
@@ -180,11 +216,11 @@ $diagnosticsByCode = array();
 foreach ( $normalizedDiagnostics as $diagnostic ) {
     $diagnosticsByCode[$diagnostic['diagnostic_code'] ?? ''] = $diagnostic;
 }
-$assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_inline_svg_fallback'] ?? array(), 'html_inline_svg_fallback', 'info', 'none', 'image_or_html');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_unsafe_inline_svg'] ?? array(), 'html_unsafe_inline_svg', 'warning', 'sanitization_review', 'image_asset');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_script_fallback'] ?? array(), 'html_script_fallback', 'warning', 'client_script_execution', 'script_asset');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_unsupported_element'] ?? array(), 'html_unsupported_element', 'info', 'unknown', 'core/html');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallback'] ?? array(), 'html_iframe_embed_fallback', 'warning', 'third_party_embed_runtime', 'embed');
+$assert(! isset($diagnosticsByCode['html_inline_svg_fallback']), 'safe inline SVGs convert to image blocks instead of fallback diagnostics');
 
 $safeDecorativeSvg = ( new HtmlTransformer() )->transform(
     '<main><svg aria-hidden="true" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"></circle></svg><div class="site-logo"><svg viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg></div></main>'
@@ -192,8 +228,9 @@ $safeDecorativeSvg = ( new HtmlTransformer() )->transform(
 $safeDecorativeDiagnostics = $safeDecorativeSvg['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
 $assert(array() === $safeDecorativeDiagnostics, 'safe decorative inline SVGs do not emit fallback diagnostics');
 $assert(2 <= ($safeDecorativeSvg['metrics']['block_count'] ?? 0), 'safe decorative inline SVGs materialize as blocks');
-$assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), '<svg aria-hidden="true"'), 'safe aria-hidden inline SVG markup is preserved');
-$assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'site-logo') && str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), '<path d="M0 0h10v10H0z"'), 'safe logo-like inline SVG context is preserved');
+$assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'safe decorative inline SVGs serialize as image data URIs');
+$assert(str_contains(rawurldecode((string) ($safeDecorativeSvg['serialized_blocks'] ?? '')), '<svg aria-hidden="true" viewbox="0 0 10 10"><circle cx="5" cy="5" r="5"></circle></svg>'), 'safe aria-hidden inline SVG markup is preserved');
+$assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'site-logo') && str_contains(rawurldecode((string) ($safeDecorativeSvg['serialized_blocks'] ?? '')), '<path d="M0 0h10v10H0z"></path>'), 'safe logo-like inline SVG context is preserved');
 
 $unsafeDecorativeSvg = ( new HtmlTransformer() )->transform(
     '<main><svg aria-hidden="true" viewBox="0 0 10 10"><script>alert(1)</script><circle onclick="alert(1)" cx="5" cy="5" r="5"></circle></svg></main>'
@@ -266,6 +303,7 @@ $assert(MaterializationPlanBuilder::SCHEMA === ($simple['source_reports']['mater
 $assert('index.html' === ($simple['source_reports']['materialization_plan']['entry_path'] ?? ''), 'materialization plan exposes entry path');
 $assert(1 === ($simple['source_reports']['materialization_plan']['totals']['pages'] ?? null), 'materialization plan counts pages');
 $assert('index' === ($simple['source_reports']['materialization_plan']['pages'][0]['slug'] ?? ''), 'materialization plan exposes page slug');
+$assert('blocks' === ($simple['source_reports']['materialization_plan']['pages'][0]['body_format'] ?? ''), 'materialization plan exposes converted block body format');
 
 $missingMaterializationPlan = $simple;
 unset($missingMaterializationPlan['source_reports']['materialization_plan']);
@@ -634,11 +672,11 @@ $assert(in_array('mdx_component_unresolved', $mdxDiagnosticCodes, true), 'unimpo
 
 $tooLarge = $compiler->compile(
     array(
-        'files' => array(
-            'index.html' => '<main>OK</main>',
-            'huge.txt' => str_repeat('x', 1048577),
-        ),
-    )
+		'files' => array(
+			'index.html' => '<main>OK</main>',
+			'huge.txt' => str_repeat('x', ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1),
+		),
+	)
 )->toArray();
 $assert('success_with_warnings' === $tooLarge['status'], 'oversized files are rejected with a warning status');
 $assert(1 === ($tooLarge['source_reports']['artifact']['rejected_count'] ?? null), 'oversized file increments rejected count');
