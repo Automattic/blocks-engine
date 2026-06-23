@@ -694,6 +694,11 @@ final class HtmlTransformer
                 return $codeWindow;
             }
 
+            $namePriceRow = $this->namePriceRowBlockFromElement($element, $fallbacks);
+            if ( null !== $namePriceRow ) {
+                return $namePriceRow;
+            }
+
             $inlineContent = $this->paragraphBlockFromInlineContentWrapper($element);
             if ( null !== $inlineContent ) {
                 return $inlineContent;
@@ -1358,6 +1363,18 @@ final class HtmlTransformer
         if ( $this->isVisualLayerElement($element) ) {
             $signals['visual_layer'] = true;
         }
+        if ( $this->hasCommerceToken($element, array( 'badge', 'featured', 'popular', 'recommended' )) ) {
+            $signals['featured_badge_like'] = true;
+        }
+        if ( $this->hasCommerceToken($element, array( 'price', 'pricing', 'amount', 'cost' )) || $this->looksLikePriceText($element->textContent ?? '') ) {
+            $signals['price_like'] = true;
+        }
+        if ( $this->hasCommerceToken($element, array( 'product', 'menu', 'dish', 'plan', 'tier', 'name', 'title' )) ) {
+            $signals['commerce_content_like'] = true;
+        }
+        if ( $this->looksLikeNamePriceRow($element) ) {
+            $signals['name_price_row'] = true;
+        }
 
         $itemCount = $this->cardLikeChildCount($element);
         if ( 1 < $itemCount ) {
@@ -1400,6 +1417,33 @@ final class HtmlTransformer
 
         return (bool) ( preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute)\b/', $style)
             && preg_match('/(?:^|;)\s*(?:inset|top|right|bottom|left|z-index|pointer-events|mix-blend-mode|opacity|filter|background|background-image)\s*:/', $style) );
+    }
+
+    /**
+     * @param array<int, string> $tokens
+     */
+    private function hasCommerceToken(DOMElement $element, array $tokens): bool
+    {
+        foreach ( array( 'class', 'id', 'itemprop' ) as $attribute ) {
+            $value = strtolower($this->attr($element, $attribute));
+            foreach ( preg_split('/[^a-z0-9]+/', $value) ?: array() as $token ) {
+                if ( in_array($token, $tokens, true) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function looksLikePriceText(string $text): bool
+    {
+        return (bool) preg_match('/(?:\p{Sc}\s?\d|\d+(?:[.,]\d{2})?\s?(?:usd|eur|gbp|cad|aud)\b)/iu', trim($text));
+    }
+
+    private function looksLikeNamePriceRow(DOMElement $element): bool
+    {
+        return null !== $this->namePriceChildren($element);
     }
 
     private function safeSourceFragment(DOMElement $element): string
@@ -2741,6 +2785,95 @@ final class HtmlTransformer
         }
 
         return $this->createBlock('core/gallery', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $images, $element);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function namePriceRowBlockFromElement(DOMElement $element, array &$fallbacks): ?array
+    {
+        $children = $this->namePriceChildren($element);
+        if ( null === $children ) {
+            return null;
+        }
+
+        $rowFallbacks = array();
+        $columns = array();
+        foreach ( $children as $child ) {
+            $converted = array_filter(array( $this->convertElement($child, $rowFallbacks, true) ));
+            if ( array() === $converted ) {
+                return null;
+            }
+
+            $columns[] = $this->createBlock('core/column', $this->presentationAttributes($child), $converted, $child);
+        }
+        array_push($fallbacks, ...$rowFallbacks);
+
+        return $this->createBlock('core/columns', $this->presentationAttributes($element), $columns, $element);
+    }
+
+    /**
+     * @return array<int, DOMElement>|null
+     */
+    private function namePriceChildren(DOMElement $element): ?array
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'header', 'section' ), true) ) {
+            return null;
+        }
+
+        $children = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+            if ( ! $this->isInlineCommerceRowChild($child) ) {
+                return null;
+            }
+            $children[] = $child;
+        }
+
+        if ( 2 !== count($children) ) {
+            return null;
+        }
+
+        $first = $children[0];
+        $second = $children[1];
+        $firstIsPrice = $this->isPriceElement($first);
+        $secondIsPrice = $this->isPriceElement($second);
+        if ( $firstIsPrice === $secondIsPrice ) {
+            return null;
+        }
+
+        $other = $firstIsPrice ? $second : $first;
+        if ( ! $this->isNameElement($other) && ! $this->hasCommerceToken($element, array( 'menu', 'product', 'pricing', 'price', 'plan', 'tier', 'dish', 'item', 'row' )) ) {
+            return null;
+        }
+
+        return $children;
+    }
+
+    private function isInlineCommerceRowChild(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a', 'span', 'strong', 'em', 'small' ), true) ) {
+            return ! $this->hasBlockContentChildren($element);
+        }
+
+        return false;
+    }
+
+    private function isPriceElement(DOMElement $element): bool
+    {
+        return $this->hasCommerceToken($element, array( 'price', 'amount', 'cost' )) || $this->looksLikePriceText($element->textContent ?? '');
+    }
+
+    private function isNameElement(DOMElement $element): bool
+    {
+        return $this->hasCommerceToken($element, array( 'name', 'title', 'product', 'dish', 'item', 'plan', 'tier' )) || preg_match('/^h[1-6]$/', strtolower($element->tagName));
     }
 
     /**
