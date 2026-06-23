@@ -68,6 +68,8 @@ type InFlight = {
 type WorkerSlot = {
   child: ChildProcess | null;
   inFlight: InFlight | null;
+  failureInFlight: InFlight | null;
+  recyclingBatch: BatchState | null;
   processed: number;
   recycling: boolean;
   stopping: boolean;
@@ -175,6 +177,8 @@ class WorkerPoolImpl implements WorkerPool {
   private sentinelCount = 0;
   private nextMessageId = 1;
   private stopped = false;
+  private stopping = false;
+  private stopPromise: Promise<void> = Promise.resolve();
   private chain: Promise<unknown> = Promise.resolve();
 
   constructor(opts: WorkerPoolOptions = {}) {
@@ -194,7 +198,54 @@ class WorkerPoolImpl implements WorkerPool {
   }
 
   async stop(): Promise<void> {
+    if (this.stopping) {
+      return this.stopPromise;
+    }
+
     this.stopped = true;
+    this.stopping = true;
+    let resolveStop!: () => void;
+    let rejectStop!: (error: unknown) => void;
+    const stopPromise = new Promise<void>((resolve, reject) => {
+      resolveStop = resolve;
+      rejectStop = reject;
+    });
+    this.stopPromise = stopPromise;
+
+    const finishStop = (): void => {
+      this.stopping = false;
+      this.stopPromise = Promise.resolve();
+    };
+    void this.stopSlots().then(
+      () => {
+        finishStop();
+        resolveStop();
+      },
+      (error: unknown) => {
+        finishStop();
+        rejectStop(error);
+      },
+    );
+    return stopPromise;
+  }
+
+  private async stopSlots(): Promise<void> {
+    const inFlightBatches = new Set<BatchState>();
+    for (const slot of this.slots) {
+      if (slot.inFlight) {
+        inFlightBatches.add(slot.inFlight.batch);
+      }
+      if (slot.failureInFlight) {
+        inFlightBatches.add(slot.failureInFlight.batch);
+      }
+      if (slot.recyclingBatch) {
+        inFlightBatches.add(slot.recyclingBatch);
+      }
+    }
+    for (const batch of inFlightBatches) {
+      this.settleBatchWithSentinels(batch);
+    }
+
     const children = this.slots
       .map((slot) => slot.child)
       .filter((child): child is ChildProcess => child !== null);
@@ -223,6 +274,9 @@ class WorkerPoolImpl implements WorkerPool {
   ): Promise<BatchResultByOp[Op][]> {
     if (items.length === 0) {
       return [];
+    }
+    if (this.stopping) {
+      await this.stopPromise;
     }
 
     this.stopped = false;
@@ -255,6 +309,8 @@ class WorkerPoolImpl implements WorkerPool {
       this.slots.push({
         child: null,
         inFlight: null,
+        failureInFlight: null,
+        recyclingBatch: null,
         processed: 0,
         recycling: false,
         stopping: false,
@@ -271,6 +327,8 @@ class WorkerPoolImpl implements WorkerPool {
   private spawn(slot: WorkerSlot): void {
     slot.stopping = false;
     slot.recycling = false;
+    slot.failureInFlight = null;
+    slot.recyclingBatch = null;
     slot.inFlight = null;
 
     const child = fork(this.path, [], {
@@ -394,22 +452,29 @@ class WorkerPoolImpl implements WorkerPool {
 
     if (inFlight) {
       clearTimeout(inFlight.timer);
+      slot.failureInFlight = inFlight;
     }
 
     const intentional = slot.stopping || slot.recycling || this.stopped;
-    if (!intentional) {
-      this.emit({ type: 'child-crash', childId });
-      if (inFlight && code === BOOTSTRAP_FAIL_EXIT_CODE) {
-        this.handleBootstrapFailure(slot, inFlight);
-      } else if (inFlight) {
-        this.handleFailure(slot, inFlight, `exit:${code ?? signal ?? 'unknown'}`);
-      }
-      if (!inFlight?.batch.degraded) {
-        slot.processed = 0;
-        this.spawn(slot);
-        if (inFlight) {
-          this.dispatch(inFlight.batch);
+    try {
+      if (!intentional) {
+        this.emit({ type: 'child-crash', childId });
+        if (inFlight && code === BOOTSTRAP_FAIL_EXIT_CODE) {
+          this.handleBootstrapFailure(slot, inFlight);
+        } else if (inFlight) {
+          this.handleFailure(slot, inFlight, `exit:${code ?? signal ?? 'unknown'}`);
         }
+        if (!this.stopped && !inFlight?.batch.degraded) {
+          slot.processed = 0;
+          this.spawn(slot);
+          if (inFlight) {
+            this.dispatch(inFlight.batch);
+          }
+        }
+      }
+    } finally {
+      if (slot.failureInFlight === inFlight) {
+        slot.failureInFlight = null;
       }
     }
   }
@@ -448,6 +513,20 @@ class WorkerPoolImpl implements WorkerPool {
     this.finish(batch);
   }
 
+  private settleBatchWithSentinels(batch: BatchState): void {
+    if (batch.done) {
+      return;
+    }
+
+    batch.queue.length = 0;
+    for (let index = 0; index < batch.items.length; index++) {
+      if (batch.results[index] === undefined) {
+        this.emitSentinel();
+        this.completeItem(batch, index, sentinelFor(batch.op, batch.items[index]));
+      }
+    }
+  }
+
   private handleFailure(
     slot: WorkerSlot,
     inFlight: InFlight | null,
@@ -457,20 +536,27 @@ class WorkerPoolImpl implements WorkerPool {
       return;
     }
 
-    clearTimeout(inFlight.timer);
-    const { batch, item } = inFlight;
-    if (item.reroutes >= this.maxReroutes) {
-      this.emitSentinel();
-      this.completeItem(batch, item.index, sentinelFor(batch.op, item.input));
-      this.dispatch(batch);
-      return;
-    }
+    slot.failureInFlight = inFlight;
+    try {
+      clearTimeout(inFlight.timer);
+      const { batch, item } = inFlight;
+      if (item.reroutes >= this.maxReroutes) {
+        this.emitSentinel();
+        this.completeItem(batch, item.index, sentinelFor(batch.op, item.input));
+        this.dispatch(batch);
+        return;
+      }
 
-    item.reroutes += 1;
-    item.payload = stripCrashOnceMarker(item.payload);
-    this.emit({ type: 're-route', childId: slot.child?.pid, count: item.reroutes });
-    batch.queue.unshift(item);
-    this.dispatch(batch);
+      item.reroutes += 1;
+      item.payload = stripCrashOnceMarker(item.payload);
+      this.emit({ type: 're-route', childId: slot.child?.pid, count: item.reroutes });
+      batch.queue.unshift(item);
+      this.dispatch(batch);
+    } finally {
+      if (slot.failureInFlight === inFlight) {
+        slot.failureInFlight = null;
+      }
+    }
   }
 
   private completeItem(
@@ -503,6 +589,7 @@ class WorkerPoolImpl implements WorkerPool {
     }
 
     slot.recycling = true;
+    slot.recyclingBatch = batch;
     this.emit({
       type: 'recycle',
       childId: child.pid,
@@ -513,6 +600,7 @@ class WorkerPoolImpl implements WorkerPool {
     slot.child = null;
     slot.processed = 0;
     slot.recycling = false;
+    slot.recyclingBatch = null;
 
     if (!this.stopped && !batch.done) {
       this.spawn(slot);
