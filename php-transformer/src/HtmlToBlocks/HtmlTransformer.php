@@ -599,7 +599,8 @@ final class HtmlTransformer
                 'html_bytes'      => $boundedHtml['bytes'],
                 'html_truncated'  => $boundedHtml['truncated'],
             ), $this->fallbackProvenance);
-            return null;
+
+            return $this->readableFormBlockFromForm($element, true);
         }
 
         if ( 'nav' === $tagName ) {
@@ -1928,9 +1929,9 @@ final class HtmlTransformer
     /**
      * @return array<string, mixed>|null
      */
-    private function readableFormBlockFromForm(DOMElement $form): ?array
+    private function readableFormBlockFromForm(DOMElement $form, bool $allowFormEvents = false): ?array
     {
-        if ( 0 < $form->getElementsByTagName('script')->length || array() !== $this->eventMetadata($form) ) {
+        if ( 0 < $form->getElementsByTagName('script')->length || ( ! $allowFormEvents && array() !== $this->eventMetadata($form) ) ) {
             return null;
         }
 
