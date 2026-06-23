@@ -351,6 +351,11 @@ final class HtmlTransformer
             return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
         }
 
+        $placeholderMedia = $this->placeholderMediaBlockFromElement($element);
+        if ( null !== $placeholderMedia ) {
+            return $placeholderMedia;
+        }
+
         if ( $this->isInlineContentElement($tagName) ) {
             $dynamicText = $this->dynamicTextContent($element);
             if ( null !== $dynamicText ) {
@@ -576,6 +581,9 @@ final class HtmlTransformer
 
         if ( 'svg' === $tagName ) {
             if ( $this->isSafeDecorativeSvgElement($element) ) {
+                if ( $this->isVisualLayerElement($element) ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
+                }
                 return null;
             }
 
@@ -1342,6 +1350,9 @@ final class HtmlTransformer
         if ( preg_match('/(?:^|[\s_-])(?:cards|grid|tiles|columns|collection|gallery)(?:$|[\s_-])/', $className) || preg_match('/(?:^|;)\s*(?:display\s*:\s*grid|grid-template-columns\s*:)/', $style) ) {
             $signals['grid_like'] = true;
         }
+        if ( $this->isVisualLayerElement($element) ) {
+            $signals['visual_layer'] = true;
+        }
 
         $itemCount = $this->cardLikeChildCount($element);
         if ( 1 < $itemCount ) {
@@ -1367,6 +1378,23 @@ final class HtmlTransformer
     {
         $className = strtolower($this->attr($element, 'class'));
         return 'article' === strtolower($element->tagName) || (bool) preg_match('/(?:^|[\s_-])(?:card|tile|panel|item)(?:$|[\s_-])/', $className);
+    }
+
+    private function isVisualLayerElement(DOMElement $element): bool
+    {
+        $context = strtolower(trim(implode(' ', array(
+            $this->attr($element, 'class'),
+            $this->attr($element, 'id'),
+            $this->attr($element, 'aria-label'),
+        ))));
+        $style = strtolower($this->attr($element, 'style'));
+
+        if ( preg_match('/(?:^|[\s_-])(?:hero|decor|decorative|layer|overlay|grain|noise|texture|glow|atmosphere|ambient|aura|orb|blob|backdrop|background|bg)(?:$|[\s_-])/', $context) ) {
+            return true;
+        }
+
+        return (bool) ( preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute)\b/', $style)
+            && preg_match('/(?:^|;)\s*(?:inset|top|right|bottom|left|z-index|pointer-events|mix-blend-mode|opacity|filter|background|background-image)\s*:/', $style) );
     }
 
     private function safeSourceFragment(DOMElement $element): string
@@ -2742,6 +2770,76 @@ final class HtmlTransformer
         }
 
         return $height;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function placeholderMediaBlockFromElement(DOMElement $element): ?array
+    {
+        if ( ! $this->isPlaceholderMediaElement($element) ) {
+            return null;
+        }
+
+        $attrs = $this->presentationAttributes($element);
+        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-placeholder-media');
+
+        $style = trim((string) ($attrs['style'] ?? ''));
+        $ratio = $this->placeholderAspectRatio($element);
+        if ( '' !== $ratio && ! preg_match('/(?:^|;)\s*aspect-ratio\s*:/i', $style) ) {
+            $style = rtrim($style, ';') . ( '' !== $style ? ';' : '' ) . 'aspect-ratio:' . $ratio;
+        }
+        if ( '' !== $style ) {
+            $attrs['style'] = $style;
+        }
+
+        $label = $this->placeholderLabel($element);
+        $children = '' !== $label ? array( $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) )) ) : array();
+
+        return $this->createBlock('core/group', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $element);
+    }
+
+    private function isPlaceholderMediaElement(DOMElement $element): bool
+    {
+        $className = strtolower($this->attr($element, 'class'));
+        if ( ! preg_match('/(?:^|\s)(?:ph|placeholder|media-placeholder|image-placeholder|video-placeholder)(?:\s|$)/', $className) && ! preg_match('/(?:^|\s)ratio-[0-9]+(?:x|:|-)[0-9]+(?:\s|$)/', $className) ) {
+            return false;
+        }
+
+        return '' !== $this->placeholderAspectRatio($element)
+            || preg_match('/(?:^|;)\s*aspect-ratio\s*:/i', $this->attr($element, 'style'))
+            || preg_match('/(?:^|\s)(?:media|image|video|thumb|thumbnail|poster|avatar)(?:\s|$)/', $className);
+    }
+
+    private function placeholderAspectRatio(DOMElement $element): string
+    {
+        if ( preg_match('/(?:^|;)\s*aspect-ratio\s*:\s*([0-9.]+\s*\/\s*[0-9.]+|[0-9.]+)\s*(?:;|$)/i', $this->attr($element, 'style'), $styleMatch) ) {
+            return preg_replace('/\s+/', '', $styleMatch[1]) ?? '';
+        }
+
+        $className = strtolower($this->attr($element, 'class'));
+        if ( preg_match('/(?:^|\s)ratio-([0-9]+)(?:x|:|-)([0-9]+)(?:\s|$)/', $className, $classMatch) ) {
+            return $classMatch[1] . '/' . $classMatch[2];
+        }
+
+        return '';
+    }
+
+    private function placeholderLabel(DOMElement $element): string
+    {
+        foreach ( $element->getElementsByTagName('span') as $span ) {
+            if ( ! $span instanceof DOMElement ) {
+                continue;
+            }
+
+            $className = strtolower($this->attr($span, 'class'));
+            if ( preg_match('/(?:^|\s)(?:label|caption|placeholder-label)(?:\s|$)/', $className) ) {
+                return trim(preg_replace('/\s+/', ' ', $span->textContent ?? '') ?? '');
+            }
+        }
+
+        $directText = trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
+        return strlen($directText) <= 80 ? $directText : '';
     }
 
     private function convertMediaElement(DOMElement $element): ?array
