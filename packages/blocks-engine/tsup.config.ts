@@ -1,7 +1,11 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/wp/index.ts', 'src/wp/worker-child.ts'],
+  entry: {
+    index: 'src/internal-index.ts',
+    'wp/index': 'src/wp/internal-index.ts',
+    'wp/worker-child': 'src/wp/worker-child.ts',
+  },
   format: ['esm', 'cjs'],
   dts: true,
   clean: true,

@@ -1,23 +1,43 @@
-import { compose } from '../compose';
-import type { ConversionContext } from '../types';
-import { canonicalize } from './canonicalize';
-import { rawConvert } from './raw-convert';
+import { createRequire } from 'node:module';
 
-export { bootstrap } from './bootstrap';
-export { canonicalize } from './canonicalize';
-export { rawConvert } from './raw-convert';
+export type ConvertContext = {
+  url?: string;
+  mediaMap?: Record<string, string>;
+};
 
-export type ConvertContext = Partial<ConversionContext>;
+export type CanonicalizeResult = {
+  html: string;
+  changed: boolean;
+  fixedIssues: string[];
+};
 
-export function convert(html: string, ctx?: ConvertContext): string {
-  const raw = rawConvert(html);
-  const conversionCtx: ConversionContext = {
-    url: ctx?.url ?? '',
-    ...(ctx?.mediaMap ? { mediaMap: ctx.mediaMap } : {}),
+export type RawConvertResult = {
+  html: string | null;
+  wpHtmlResidue: number;
+};
+
+type RuntimeWpEntry = {
+  bootstrap: () => void;
+  canonicalize: (markup: string) => CanonicalizeResult;
+  rawConvert: (html: string) => RawConvertResult;
+  convert: (html: string, ctx?: ConvertContext) => string;
+};
+
+const require = createRequire(import.meta.url);
+
+function loadRuntimeEntry(): RuntimeWpEntry {
+  const { require: tsxRequire } = require('tsx/cjs/api') as {
+    require: (id: string, parentURL: string) => unknown;
   };
-  const blockMarkup =
-    raw.html !== null && raw.wpHtmlResidue === 0
-      ? raw.html
-      : compose(html, conversionCtx, {});
-  return canonicalize(blockMarkup).html;
+  return tsxRequire('./internal-index.ts', import.meta.url) as RuntimeWpEntry;
 }
+
+const entry =
+  process.env.VITEST_WORKER_ID !== undefined
+    ? ((await import(`./internal-index.${'ts'}`)) as RuntimeWpEntry)
+    : loadRuntimeEntry();
+
+export const bootstrap = entry.bootstrap;
+export const canonicalize = entry.canonicalize;
+export const rawConvert = entry.rawConvert;
+export const convert = entry.convert;
