@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-newsletter-form-readable",
+  "description": "Converts a safe newsletter email signup form into readable editable blocks without preserving it as a runtime form fallback.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-newsletter-form-readable.json",
+    "notes": "Covers the raw HTML corpus mockup newsletter form shape: email input plus implicit submit button with an inline submit handler but no real action target."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<form class=\"news__form\" onsubmit=\"return mcSignup(event)\"> <input type=\"email\" required placeholder=\"your@email.fr\" aria-label=\"Email address\"> <button class=\"btn\">Subscribe</button> </form>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "news__form" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Email address: your@email.fr (required)" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/button", "attrs": { "className": "btn", "text": "Subscribe" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Email address: your@email.fr (required)" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Subscribe" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "coverage.0.block_count", "assert": "equals", "value": 1 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

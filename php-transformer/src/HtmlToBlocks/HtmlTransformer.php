@@ -1861,12 +1861,18 @@ final class HtmlTransformer
      */
     private function readableFormBlockFromForm(DOMElement $form): ?array
     {
-        if ( 0 < $form->getElementsByTagName('script')->length || array() !== $this->eventMetadata($form) ) {
+        if ( 0 < $form->getElementsByTagName('script')->length ) {
+            return null;
+        }
+
+        $formEvents = $this->eventMetadata($form);
+        if ( array() !== $formEvents && ! $this->isInertEmailSignupForm($form, $formEvents) ) {
             return null;
         }
 
         $contentBlocks = array();
         $buttonBlocks = array();
+        $hasReadableField = false;
         foreach ( $this->formControlElements($form) as $control ) {
             if ( array() !== $this->eventMetadata($control) || ! $this->isReadableFormControl($control) ) {
                 return null;
@@ -1881,8 +1887,13 @@ final class HtmlTransformer
 
             $summary = $this->readableFormControlText($control);
             if ( '' !== $summary ) {
+                $hasReadableField = true;
                 $contentBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $control);
             }
+        }
+
+        if ( ! $hasReadableField ) {
+            return null;
         }
 
         if ( array() !== $buttonBlocks ) {
@@ -1894,6 +1905,41 @@ final class HtmlTransformer
         }
 
         return $this->createBlock('core/group', $this->presentationAttributes($form), $contentBlocks, $form);
+    }
+
+    /**
+     * @param array<int, array<string, string>> $events
+     */
+    private function isInertEmailSignupForm(DOMElement $form, array $events): bool
+    {
+        if ( array() !== $this->formMetadata($form) ) {
+            return false;
+        }
+
+        foreach ( $events as $event ) {
+            if ( 'submit' !== ($event['type'] ?? '') ) {
+                return false;
+            }
+        }
+
+        $emailFields = 0;
+        $submitControls = 0;
+        foreach ( $this->formControlElements($form) as $control ) {
+            $tagName = strtolower($control->tagName);
+            $type = $this->formControlType($control);
+            if ( 'input' === $tagName && 'email' === $type ) {
+                ++$emailFields;
+                continue;
+            }
+            if ( ( 'button' === $tagName || 'input' === $tagName ) && 'submit' === $type ) {
+                ++$submitControls;
+                continue;
+            }
+
+            return false;
+        }
+
+        return 1 === $emailFields && $submitControls <= 1;
     }
 
     /**
