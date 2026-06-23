@@ -668,6 +668,11 @@ final class HtmlTransformer
                 return $codeWindow;
             }
 
+            $inlineContent = $this->paragraphBlockFromInlineContentWrapper($element);
+            if ( null !== $inlineContent ) {
+                return $inlineContent;
+            }
+
             $buttons = $this->buttonsPattern->matchContainer(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
@@ -972,12 +977,63 @@ final class HtmlTransformer
     private function hasBlockContentChildren(DOMElement $element): bool
     {
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && ! in_array(strtolower($child->tagName), array( 'abbr', 'b', 'br', 'cite', 'code', 'em', 'i', 'mark', 'small', 'span', 'strong', 'sub', 'sup', 'time' ), true) ) {
+            $tagName = $child instanceof DOMElement ? strtolower($child->tagName) : '';
+            if ( $child instanceof DOMElement && 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private function paragraphBlockFromInlineContentWrapper(DOMElement $element): ?array
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'article', 'div', 'footer', 'header', 'main', 'section' ), true) ) {
+            return null;
+        }
+
+        if ( ! $this->hasOnlyPhrasingChildren($element) ) {
+            return null;
+        }
+
+        $content = $this->innerHtml($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            return null;
+        }
+
+        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+    }
+
+    private function hasOnlyPhrasingChildren(DOMElement $element): bool
+    {
+        $nonAnchorText = false;
+
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    $nonAnchorText = true;
+                }
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( 'a' === $tagName ) {
+                continue;
+            }
+
+            if ( 'br' === $tagName || $this->isInlineContentElement($tagName) ) {
+                $nonAnchorText = true;
+                continue;
+            }
+
+            return false;
+        }
+
+        return $nonAnchorText;
     }
 
     private function hasClass(DOMElement $element, string $className): bool
