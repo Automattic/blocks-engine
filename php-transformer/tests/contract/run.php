@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatAdapterInterface;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationView;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 
 if ( ! function_exists('serialize_blocks') ) {
@@ -328,6 +329,28 @@ foreach ( $cssReferences['source_reports']['materialization_plan']['assets'] ?? 
 $assert('font/woff2' === ($fontCompiledAsset['media_type'] ?? ''), 'compiled site assets preserve local font media type');
 $assert('css-font-face' === ($fontCompiledAsset['references'][0]['context'] ?? ''), 'compiled site assets expose structured reference metadata');
 $assert('css-font-face' === ($fontPlanAsset['references'][0]['context'] ?? ''), 'materialization plan assets preserve structured reference metadata');
+
+$materializationView = ( new MaterializationView() )->fromResult($staticSite);
+$assert(MaterializationView::SCHEMA === ($materializationView['schema'] ?? ''), 'materialization view exposes its own schema');
+$assert(TransformerResult::SCHEMA === ($materializationView['result_schema'] ?? ''), 'materialization view exposes transformer result schema');
+$assert($staticSite['status'] === ($materializationView['status'] ?? ''), 'materialization view exposes result status');
+$assert($staticSite['source_reports']['artifact'] === ($materializationView['artifact_summary'] ?? null), 'materialization view exposes artifact summary');
+$assert($staticPlan === ($materializationView['materialization_plan'] ?? null), 'materialization view exposes materialization plan');
+$assert($staticSite['source_reports']['compiled_site'] === ($materializationView['compiled_site'] ?? null), 'materialization view exposes compiled site report');
+$assert($staticSite['assets'] === ($materializationView['assets'] ?? null), 'materialization view exposes assets');
+$assert($staticSite['documents'] === ($materializationView['documents'] ?? null), 'materialization view exposes documents');
+$assert($staticSite['serialized_blocks'] === ($materializationView['block_markup'] ?? null), 'materialization view exposes block markup');
+$assert($staticSite['blocks'] === ($materializationView['blocks'] ?? null), 'materialization view exposes blocks');
+$assert($staticSite['block_types'] === ($materializationView['block_types'] ?? null), 'materialization view exposes block types');
+$assert($staticSite['components'] === ($materializationView['components'] ?? null), 'materialization view exposes components');
+$assert($staticSite['diagnostics'] === ($materializationView['diagnostics'] ?? null), 'materialization view exposes diagnostics');
+$assert($staticSite['provenance'] === ($materializationView['provenance'] ?? null), 'materialization view exposes provenance');
+$assert($staticSite['source_reports']['conversion_report'] === ($materializationView['conversion_report'] ?? null), 'materialization view exposes conversion report');
+
+$objectMaterializationView = ( new MaterializationView() )->fromResult($compiler->compile(array('generated_html' => '<main><h1>Object</h1></main>')));
+$assert('success' === ($objectMaterializationView['status'] ?? ''), 'materialization view accepts TransformerResult objects');
+$assert('index.html' === ($objectMaterializationView['materialization_plan']['entry_path'] ?? ''), 'materialization view exposes plans from TransformerResult objects');
+assertThrows(static fn () => ( new MaterializationView() )->fromResult((object) array('status' => 'success')), 'Materialization view expects a TransformerResult, result array, or object with toArray().');
 
 $neutralPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(
     array(
