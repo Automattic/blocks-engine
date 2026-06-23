@@ -1,0 +1,41 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-docs-sidebar-layout-nav-sections",
+  "description": "Preserves documentation pages with a sidebar and main content as columns, including labeled sidebar navigation sections.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-docs-sidebar-layout-nav-sections.json",
+    "notes": "Generic fixture for docs/search layouts that otherwise flatten sidebar navigation structure."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"docs-layout\"><aside class=\"docs-sidebar\"><div class=\"docs-nav-section\"><h2>Guides</h2><a href=\"/docs/start\">Getting started</a><a href=\"/docs/search\">Search</a></div><div class=\"docs-nav-section\"><h2>API</h2><a href=\"/docs/api/users\">Users API</a></div></aside><main class=\"docs-content\"><h1>Search documentation</h1><p>Use filters to narrow the result set.</p></main></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/columns", "attrs": { "className": "docs-layout" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "docs-sidebar" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "docs-nav-section" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Guides", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/navigation" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Getting started", "url": "/docs/start", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Users API", "url": "/docs/api/users", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/column", "attrs": { "className": "docs-content" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Search documentation", "level": 1 } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Use filters to narrow the result set." } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1.innerBlocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"docs-layout\"}" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"label\":\"Getting started\",\"url\":\"/docs/start\",\"kind\":\"custom\"}" }
+  ]
+}
