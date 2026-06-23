@@ -2553,28 +2553,38 @@ final class HtmlTransformer
             return null;
         }
 
-        $columns = array();
-        $columnFallbacks = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
+		$elementChildren = array();
+		foreach ( $element->childNodes as $child ) {
+			if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+				continue;
             }
 
             if ( ! $child instanceof DOMElement ) {
                 return null;
             }
+			$elementChildren[] = $child;
+		}
 
-            $children = $this->convertChildren($child, $columnFallbacks, true);
-            $columns[] = $this->createBlock('core/column', $this->presentationAttributes($child), $children, $child);
-        }
+		if ( count($elementChildren) < 2 ) {
+			return null;
+		}
 
-        if ( count($columns) < 2 ) {
-            return null;
-        }
+		$columns = array();
+		$columnFallbacks = array();
+		foreach ( $elementChildren as $child ) {
+			$children = $this->isColumnWrapperElement($child)
+				? $this->convertChildren($child, $columnFallbacks, true)
+				: array_filter(array( $this->convertElement($child, $columnFallbacks, true) ));
+			$columns[] = $this->createBlock('core/column', $this->presentationAttributes($child), $children, $child);
+		}
+		array_push($fallbacks, ...$columnFallbacks);
 
-        array_push($fallbacks, ...$columnFallbacks);
+		return $this->createBlock('core/columns', $this->presentationAttributes($element), $columns, $element);
+	}
 
-        return $this->createBlock('core/columns', $this->presentationAttributes($element), $columns, $element);
+    private function isColumnWrapperElement(DOMElement $element): bool
+    {
+        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true);
     }
 
     private function looksLikeColumnsContainer(DOMElement $element): bool
