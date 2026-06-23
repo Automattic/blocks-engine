@@ -6,6 +6,9 @@ export { serializeBlockAttrs } from './serialize.js';
 export { buildEmbedBlock, guessEmbedProvider } from './embed.js';
 export { sanitize } from './sanitize.js';
 export { blockMarkupRoundtrips, scanForInjection } from './validate.js';
+export { validateBlockMarkup } from './validate-block-markup.js';
+export { walkBlocks } from './block-tree.js';
+export { validateBlockContract } from './block-contract.js';
 export { verifyComposedOutput } from './output-verify.js';
 export { heuristicBlocks } from './heuristics.js';
 export { genericHtmlToBlocks } from './catalog.js';
@@ -23,3 +26,5 @@ export type {
   WorkerPoolOptions,
 } from './pool/types.js';
 export type { PoolEvent } from './pool/events.js';
+export type { ParsedBlock } from './block-tree.js';
+export type { BlockContractIssue } from './block-contract.js';
