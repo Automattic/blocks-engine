@@ -137,7 +137,7 @@ final class ArtifactCompiler
             );
         }
 
-        if ( '' === trim($html) || ! $this->entryHtmlReferencesImageAsset($html, $entryPath, $files) ) {
+        if ( '' === trim($html) ) {
             return array(
                 'blocks'            => array(),
                 'serialized_blocks' => '',
@@ -157,25 +157,6 @@ final class ArtifactCompiler
             'diagnostics'       => $this->entryTransformDiagnostics(is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array()),
             'fallbacks'         => is_array($result['fallbacks'] ?? null) ? $result['fallbacks'] : array(),
         );
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     */
-    private function entryHtmlReferencesImageAsset(string $html, string $entryPath, array $files): bool
-    {
-        if ( ! preg_match_all('/<img\s+[^>]*src\s*=\s*(["\'])([^"\']+)\1/i', $html, $matches) ) {
-            return false;
-        }
-
-        foreach ( $matches[2] as $src ) {
-            $asset = $this->findAssetByHtmlReference((string) $src, $entryPath, $files);
-            if ( is_array($asset) && str_starts_with((string) ($asset['mime_type'] ?? ''), 'image/') && $this->isSafeImageAsset($asset) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
