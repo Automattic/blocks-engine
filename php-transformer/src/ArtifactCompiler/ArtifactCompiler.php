@@ -31,8 +31,8 @@ final class ArtifactCompiler
 
         $entryPath = is_array($entry) ? (string) $entry['path'] : '';
         $html = is_array($entry) ? (string) $entry['content'] : '';
-        $assets = $this->assetManifest($normalized['files'], $entryPath);
         $referenceReports = $this->referenceReports($normalized['files']);
+        $assets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references']);
         $components = $this->detectComponents($normalized['files'], $entryPath, $documents['components']);
         $blockTypes = $this->detectBlockTypes($normalized['files'], $diagnostics);
         $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files']);
@@ -217,7 +217,7 @@ final class ArtifactCompiler
             }
 
             if ( 'css' === ($file['kind'] ?? '') ) {
-                foreach ( $this->cssUrlReferenceCandidates((string) ($file['content'] ?? ''), (string) ($file['path'] ?? '')) as $candidate ) {
+                foreach ( $this->cssReferenceCandidates((string) ($file['content'] ?? ''), (string) ($file['path'] ?? '')) as $candidate ) {
                     if ( '' === $candidate['url'] || ! $this->isArtifactLocalReference($candidate['url']) ) {
                         continue;
                     }
@@ -334,28 +334,62 @@ final class ArtifactCompiler
     }
 
     /**
-     * @return array<int, array{source_path: string, selector: string, element: string, attribute: string, value: string, url: string}>
+     * @return array<int, array{source_path: string, selector: string, element: string, attribute: string, value: string, url: string, context?: string}>
      */
-    private function cssUrlReferenceCandidates(string $css, string $sourcePath): array
+    private function cssReferenceCandidates(string $css, string $sourcePath): array
     {
-        if ( '' === trim($css) || ! preg_match_all('/url\(\s*(["\']?)([^"\')]+)\1\s*\)/i', $css, $matches, PREG_SET_ORDER) ) {
+        if ( '' === trim($css) ) {
             return array();
         }
 
         $candidates = array();
+
+        if ( preg_match_all('/@import\s+(?:url\(\s*)?(["\']?)([^"\'\)\s;]+)\1\s*\)?[^;]*;/i', $css, $matches, PREG_SET_ORDER) ) {
+            foreach ( $matches as $index => $match ) {
+                $url = html_entity_decode(trim((string) $match[2]), ENT_QUOTES | ENT_HTML5);
+                $candidates[] = array(
+                    'source_path' => $sourcePath,
+                    'selector'    => 'css:@import(' . ($index + 1) . ')',
+                    'element'     => 'style',
+                    'attribute'   => '@import',
+                    'value'       => $url,
+                    'url'         => $url,
+                    'context'     => 'css-import',
+                );
+            }
+        }
+
+        if ( ! preg_match_all('/url\(\s*(["\']?)([^"\')]+)\1\s*\)/i', $css, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
+            return $candidates;
+        }
+
         foreach ( $matches as $index => $match ) {
-            $url = html_entity_decode(trim((string) $match[2]), ENT_QUOTES | ENT_HTML5);
+            $url = html_entity_decode(trim((string) $match[2][0]), ENT_QUOTES | ENT_HTML5);
+            $ruleContext = $this->cssRuleContext($css, (int) $match[0][1]);
             $candidates[] = array(
                 'source_path' => $sourcePath,
-                'selector'    => 'css:url(' . ($index + 1) . ')',
+                'selector'    => ('font-face' === $ruleContext ? 'css:@font-face:url(' : 'css:url(') . ($index + 1) . ')',
                 'element'     => 'style',
                 'attribute'   => 'url',
                 'value'       => $url,
                 'url'         => $url,
+                'context'     => 'font-face' === $ruleContext ? 'css-font-face' : 'css-url',
             );
         }
 
         return $candidates;
+    }
+
+    private function cssRuleContext(string $css, int $offset): string
+    {
+        $before = substr($css, 0, $offset);
+        $ruleStart = strrpos($before, '{');
+        if ( false === $ruleStart ) {
+            return '';
+        }
+
+        $prefix = substr($css, max(0, $ruleStart - 256), $ruleStart - max(0, $ruleStart - 256));
+        return preg_match('/@font-face\s*$/i', $prefix) ? 'font-face' : '';
     }
 
     /**
@@ -375,6 +409,7 @@ final class ArtifactCompiler
                 'attribute'     => $candidate['attribute'],
                 'value'         => $candidate['value'],
                 'url'           => $candidate['url'],
+                'context'       => $candidate['context'] ?? '',
                 'resolved_path' => $resolvedPath,
             ),
             static fn (mixed $value): bool => '' !== $value
@@ -718,6 +753,7 @@ final class ArtifactCompiler
                     'content'          => $asset['content'] ?? null,
                     'content_base64'   => $asset['content_base64'] ?? null,
                     'hash'             => $asset['hash'] ?? $asset['provenance']['hash'] ?? '',
+                    'references'       => $asset['references'] ?? array(),
                 ),
                 static fn (mixed $value): bool => null !== $value && '' !== $value
             ),
@@ -934,7 +970,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
      */
-    private function assetManifest(array $files, string $entryPath): array
+    private function assetManifest(array $files, string $entryPath, array $assetReferences = array()): array
     {
         $assets = array();
         foreach ( $files as $file ) {
@@ -965,10 +1001,43 @@ final class ArtifactCompiler
             if ( ! empty($file['intent']) ) {
                 $asset['intent'] = $file['intent'];
             }
+            $references = $this->referencesForAsset((string) $file['path'], $assetReferences);
+            if ( array() !== $references ) {
+                $asset['references'] = $references;
+            }
             $assets[] = $asset;
         }
 
         return $assets;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assetReferences
+     * @return array<int, array<string, mixed>>
+     */
+    private function referencesForAsset(string $path, array $assetReferences): array
+    {
+        $references = array();
+        foreach ( $assetReferences as $reference ) {
+            if ( $path !== ($reference['asset_path'] ?? '') ) {
+                continue;
+            }
+
+            $references[] = array_filter(
+                array(
+                    'source_path' => $reference['source_path'] ?? '',
+                    'selector'    => $reference['selector'] ?? '',
+                    'element'     => $reference['element'] ?? '',
+                    'attribute'   => $reference['attribute'] ?? '',
+                    'value'       => $reference['value'] ?? '',
+                    'url'         => $reference['url'] ?? '',
+                    'context'     => $reference['context'] ?? '',
+                ),
+                static fn (mixed $value): bool => '' !== $value
+            );
+        }
+
+        return $references;
     }
 
     /**

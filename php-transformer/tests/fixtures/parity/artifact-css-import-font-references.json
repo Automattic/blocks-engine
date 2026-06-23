@@ -1,0 +1,65 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-css-import-font-references",
+  "description": "Reports CSS @import and @font-face URL references to local artifact assets.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-css-import-font-references.json",
+    "notes": "Covers generic CSS reference reporting without browser/runtime behavior."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This generic artifact reference report has no legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "content": "<main><link rel=\"stylesheet\" href=\"styles/site.css\"><h1>CSS refs</h1></main>",
+          "mime_type": "text/html",
+          "role": "entry"
+        },
+        {
+          "path": "styles/site.css",
+          "content": "@import \"fonts.css\"; .hero{background:url('../images/paper.png')}",
+          "mime_type": "text/css"
+        },
+        {
+          "path": "styles/fonts.css",
+          "content": "@font-face{font-family:'Fixture';src:url('./fonts/Fixture.woff2') format('woff2')}",
+          "mime_type": "text/css"
+        },
+        {
+          "path": "styles/fonts/Fixture.woff2",
+          "content_base64": "Zml4dHVyZS1mb250",
+          "mime_type": "font/woff2"
+        },
+        {
+          "path": "images/paper.png",
+          "content_base64": "iVBORw0KGgo=",
+          "mime_type": "image/png"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.artifact.asset_references", "assert": "count", "count": 4 },
+    { "path": "source_reports.artifact.asset_references.1.selector", "assert": "equals", "value": "css:@import(1)" },
+    { "path": "source_reports.artifact.asset_references.1.context", "assert": "equals", "value": "css-import" },
+    { "path": "source_reports.artifact.asset_references.1.asset_path", "assert": "equals", "value": "styles/fonts.css" },
+    { "path": "source_reports.artifact.asset_references.2.context", "assert": "equals", "value": "css-url" },
+    { "path": "source_reports.artifact.asset_references.2.asset_path", "assert": "equals", "value": "images/paper.png" },
+    { "path": "source_reports.artifact.asset_references.3.selector", "assert": "equals", "value": "css:@font-face:url(1)" },
+    { "path": "source_reports.artifact.asset_references.3.context", "assert": "equals", "value": "css-font-face" },
+    { "path": "source_reports.artifact.asset_references.3.asset_path", "assert": "equals", "value": "styles/fonts/Fixture.woff2" },
+    { "path": "source_reports.compiled_site.assets.1.references.0.context", "assert": "equals", "value": "css-import" },
+    { "path": "source_reports.compiled_site.assets.2.media_type", "assert": "equals", "value": "font/woff2" },
+    { "path": "source_reports.compiled_site.assets.2.references.0.context", "assert": "equals", "value": "css-font-face" },
+    { "path": "source_reports.materialization_plan.assets.2.references.0.context", "assert": "equals", "value": "css-font-face" },
+    { "path": "source_reports.conversion_report.asset_refs", "assert": "count", "count": 4 }
+  ]
+}
