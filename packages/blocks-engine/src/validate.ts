@@ -1,3 +1,17 @@
+export function scanForInjection(markup: string): string[] {
+  const violations: string[] = [];
+  if (/<\?/.test(markup)) {
+    violations.push('raw PHP tag in markup (not allowed)');
+  }
+  if (/<\s*script/i.test(markup)) {
+    violations.push('raw <script> tag in markup (not allowed)');
+  }
+  if (/[\s"'/]on[a-z]+\s*=/i.test(markup)) {
+    violations.push('inline event handler attribute (on*=) in markup (not allowed)');
+  }
+  return violations;
+}
+
 export function blockMarkupRoundtrips(
   markup: string,
 ): { ok: true } | { ok: false; reason: string } {
