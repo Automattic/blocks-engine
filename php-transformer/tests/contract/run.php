@@ -283,6 +283,21 @@ $staticSite = $compiler->compile(
     )
 )->toArray();
 $staticPlan = $staticSite['source_reports']['materialization_plan'] ?? array();
+$aboutCompiledPage = null;
+foreach ( $staticSite['source_reports']['compiled_site']['pages'] ?? array() as $compiledPage ) {
+    if ( 'about.html' === ($compiledPage['source_path'] ?? '') ) {
+        $aboutCompiledPage = $compiledPage;
+    }
+}
+$aboutPlanPage = null;
+foreach ( $staticPlan['pages'] ?? array() as $planPage ) {
+    if ( 'about.html' === ($planPage['source_path'] ?? '') ) {
+        $aboutPlanPage = $planPage;
+    }
+}
+$assert(str_contains((string) ($aboutCompiledPage['block_markup'] ?? ''), '<!-- wp:heading'), 'compiled site transforms non-entry HTML pages into semantic block markup');
+$assert(! str_contains((string) ($aboutCompiledPage['block_markup'] ?? ''), '<!-- wp:html -->'), 'compiled site avoids full-document core/html wrappers for transformer-safe non-entry HTML pages');
+$assert(str_contains((string) ($aboutPlanPage['block_markup'] ?? ''), '<!-- wp:heading'), 'materialization plan preserves transformed non-entry HTML page markup');
 $assert('parts/header.html' === ($staticPlan['template_part_writes'][0]['source_path'] ?? ''), 'materialization plan exposes template part writes');
 $assert('wp_template_part' === ($staticPlan['template_part_writes'][0]['type'] ?? ''), 'template part writes identify the WordPress write target');
 $assert(str_contains((string) ($staticPlan['visual_repair_css'] ?? ''), 'min-height:100vh'), 'materialization plan exposes visual repair CSS');
