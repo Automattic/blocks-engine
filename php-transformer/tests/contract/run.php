@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactNormalizer;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatAdapterInterface;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
@@ -462,11 +463,11 @@ $assert(in_array('mdx_component_unresolved', $mdxDiagnosticCodes, true), 'unimpo
 
 $tooLarge = $compiler->compile(
     array(
-        'files' => array(
-            'index.html' => '<main>OK</main>',
-            'huge.txt' => str_repeat('x', 1048577),
-        ),
-    )
+		'files' => array(
+			'index.html' => '<main>OK</main>',
+			'huge.txt' => str_repeat('x', ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES + 1),
+		),
+	)
 )->toArray();
 $assert('success_with_warnings' === $tooLarge['status'], 'oversized files are rejected with a warning status');
 $assert(1 === ($tooLarge['source_reports']['artifact']['rejected_count'] ?? null), 'oversized file increments rejected count');
