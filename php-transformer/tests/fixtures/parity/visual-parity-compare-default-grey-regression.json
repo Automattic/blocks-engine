@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "visual-parity-compare-default-grey-regression",
+  "description": "Compares source and transformed button probes and flags a styled source CTA that regresses to default grey button styling.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/visual-parity-compare-default-grey-regression.json",
+    "notes": "Generic PHP-boundary visual probe comparison; no browser screenshot required."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Probe comparison output is a diagnostic contract for visual parity review."
+  },
+  "operation": "visual_parity_probe.compare",
+  "input": {
+    "source_content": "<style>.source-cta{background-color:#063;color:#fff;border:2px solid #041;border-radius:999px;padding:14px 28px}</style><main><a class=\"source-cta\" href=\"/book\">Book now</a></main>",
+    "target_content": "<!-- wp:buttons --><div class=\"wp-block-buttons\"><!-- wp:button --><div class=\"wp-block-button\"><a class=\"wp-block-button__link wp-element-button\" href=\"/book\" style=\"background-color:#f7f7f7;border:1px solid #ccc;border-radius:0;padding:8px 12px\">Book now</a></div><!-- /wp:button --></div><!-- /wp:buttons -->"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/visual-parity-probe-comparison/v1" },
+    { "path": "summary.matched_total", "assert": "equals", "value": 1 },
+    { "path": "summary.style_delta_total", "assert": "equals", "value": 4 },
+    { "path": "summary.missing_style_risk_total", "assert": "equals", "value": 1 },
+    { "path": "matches.0.source.text", "assert": "equals", "value": "Book now" },
+    { "path": "matches.0.target.signals.2", "assert": "equals", "value": "default-button-style-watch" },
+    { "path": "matches.0.style_deltas.0.group", "assert": "equals", "value": "background" },
+    { "path": "matches.0.missing_style_risks.0.code", "assert": "equals", "value": "target_default_button_style" }
+  ]
+}
