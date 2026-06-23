@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "visual-parity-menu-hierarchy",
+  "description": "Extracts nav/menu item and submenu item probes with hierarchy metadata from transformed block-like HTML.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/visual-parity-menu-hierarchy.json",
+    "notes": "Generic menu hierarchy fixture for rendered block HTML."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Probe output is a new upstream diagnostic surface."
+  },
+  "operation": "visual_parity_probe.extract",
+  "input": {
+    "content": "<nav class=\"wp-block-navigation primary-menu\"><ul class=\"wp-block-navigation__container\"><li class=\"wp-block-navigation-item\"><a class=\"wp-block-navigation-item__content\" href=\"/services\">Services</a><ul class=\"wp-block-navigation__submenu-container\"><li><a href=\"/services/massage\">Massage</a></li><li><a href=\"/services/skin\">Skin Care</a></li></ul></li><li class=\"wp-block-navigation-item\"><a href=\"/contact\">Contact</a></li></ul></nav>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "summary.total", "assert": "equals", "value": 4 },
+    { "path": "summary.by_kind.menu_item", "assert": "equals", "value": 2 },
+    { "path": "summary.by_kind.submenu_item", "assert": "equals", "value": 2 },
+    { "path": "probes.0.kind", "assert": "equals", "value": "menu_item" },
+    { "path": "probes.0.hierarchy.has_submenu", "assert": "equals", "value": true },
+    { "path": "probes.1.kind", "assert": "equals", "value": "submenu_item" },
+    { "path": "probes.1.hierarchy.menu_depth", "assert": "equals", "value": 1 },
+    { "path": "probes.1.hierarchy.parent_text", "assert": "equals", "value": "Services" },
+    { "path": "probes.3.href", "assert": "equals", "value": "/contact" }
+  ]
+}
