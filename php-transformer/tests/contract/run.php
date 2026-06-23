@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatAdapterInterface;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 
 if ( ! function_exists('serialize_blocks') ) {
@@ -58,6 +59,14 @@ $assertInvalidCanonicalEnvelope = static function (array $result, string $expect
 
     $assert(false, $message, 'Canonical envelope validation unexpectedly passed.');
 };
+
+$assert('assets/logo.png' === ArtifactPath::safeRelativePath(' ./assets//logo.png '), 'artifact paths trim relative markers and duplicate separators');
+$assert('' === ArtifactPath::safeRelativePath('/assets/logo.png'), 'artifact paths reject root-absolute paths');
+$assert('' === ArtifactPath::safeRelativePath('C:\\assets\\logo.png'), 'artifact paths reject drive-absolute paths');
+$assert('' === ArtifactPath::safeRelativePath('../secrets/logo.png'), 'artifact paths reject traversal paths');
+$assert('assets/logo.png' === ArtifactPath::resolveRelativePath('../assets/logo.png?version=1#hash', 'pages/home.html'), 'artifact references resolve relative paths without query or fragment');
+$assert('' === ArtifactPath::resolveRelativePath('https://example.com/logo.png', 'pages/home.html'), 'artifact references reject URL references');
+$assert('' === ArtifactPath::resolveRelativePath('../../logo.png', 'pages/home.html'), 'artifact references reject traversal above the artifact root');
 
 $fixture = file_get_contents(dirname(__DIR__) . '/fixtures/simple-html.html');
 $result  = ( new HtmlTransformer() )->transform($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><aside>Fallback</aside>")->toArray();
@@ -261,14 +270,17 @@ $unsafe = $compiler->compile(
     array(
         'entrypoints' => array('../unsafe.html'),
         'files'       => array(
-            '../secret.html' => '<main>Nope</main>',
-            'safe.html'     => '<main>Safe</main>',
+            '../secret.html'          => '<main>Nope</main>',
+            '/absolute.html'          => '<main>Nope</main>',
+            'safe.html'              => '<main>Safe</main>',
+            'assets//nested/style.css' => '.safe{}',
         ),
     )
 )->toArray();
 $assert('success_with_warnings' === $unsafe['status'], 'unsafe paths produce warning status', (string) $unsafe['status']);
-$assert(1 === ($unsafe['source_reports']['artifact']['rejected_count'] ?? null), 'unsafe paths are rejected');
+$assert(2 === ($unsafe['source_reports']['artifact']['rejected_count'] ?? null), 'unsafe paths are rejected');
 $assert('unsafe_entrypoint_path' === ($unsafe['diagnostics'][0]['code'] ?? ''), 'unsafe entrypoints are diagnosed');
+$assert(! empty(array_filter($unsafe['assets'], static fn (array $asset): bool => 'assets/nested/style.css' === ($asset['path'] ?? ''))), 'safe artifact paths collapse duplicate separators');
 
 $binary = $compiler->compile(
     array(

@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 
 final class ArtifactCompiler
@@ -1066,29 +1067,7 @@ final class ArtifactCompiler
 
     private function resolveHtmlReferencePath(string $reference, string $entryPath): string
     {
-        $reference = strtok($reference, '?#') ?: '';
-        $reference = str_replace('\\', '/', trim($reference));
-        if ( '' === $reference || str_starts_with($reference, '/') || preg_match('#^[a-z][a-z0-9+.-]*:#i', $reference) ) {
-            return '';
-        }
-
-        $base = '' === $entryPath || ! str_contains($entryPath, '/') ? '' : dirname($entryPath) . '/';
-        $parts = array();
-        foreach ( explode('/', $base . $reference) as $part ) {
-            if ( '' === $part || '.' === $part ) {
-                continue;
-            }
-            if ( '..' === $part ) {
-                if ( array() === $parts ) {
-                    return '';
-                }
-                array_pop($parts);
-                continue;
-            }
-            $parts[] = $part;
-        }
-
-        return implode('/', $parts);
+        return ArtifactPath::resolveRelativePath($reference, $entryPath);
     }
 
     /**
@@ -1345,8 +1324,7 @@ final class ArtifactCompiler
             return '';
         }
 
-        $base = dirname($sourcePath);
-        $path = $this->normalizeRelativeImportPath(('.' === $base ? '' : $base . '/') . $importPath);
+        $path = ArtifactPath::resolveRelativePath($importPath, $sourcePath, true);
         if ( '' === $path ) {
             return '';
         }
@@ -1364,23 +1342,6 @@ final class ArtifactCompiler
         }
 
         return '';
-    }
-
-    private function normalizeRelativeImportPath(string $path): string
-    {
-        $segments = array();
-        foreach ( explode('/', str_replace('\\', '/', $path)) as $segment ) {
-            if ( '' === $segment || '.' === $segment ) {
-                continue;
-            }
-            if ( '..' === $segment ) {
-                array_pop($segments);
-                continue;
-            }
-            $segments[] = preg_replace('/[^A-Za-z0-9._-]/', '-', $segment);
-        }
-
-        return implode('/', array_filter($segments));
     }
 
     /**
