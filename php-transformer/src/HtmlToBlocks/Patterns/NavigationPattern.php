@@ -15,6 +15,10 @@ final class NavigationPattern
      */
     public function match(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock): ?array
     {
+        if ( 'nav' !== strtolower($element->tagName) && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element) ) {
+            return null;
+        }
+
         $links = array();
         foreach ( $this->directNavigationAnchors($element) as $anchor ) {
             $links[] = $createBlock('core/navigation-link', array_filter(array(
@@ -67,8 +71,8 @@ final class NavigationPattern
                         return array();
                     }
 
-                    $anchor = $this->firstChildElement($item, 'a');
-                    if ( ! $anchor instanceof DOMElement || '' === trim($anchor->textContent ?? '') || 1 !== $this->childElementCount($item) ) {
+                    $anchor = $this->singleNavigationAnchor($item);
+                    if ( ! $anchor instanceof DOMElement || '' === trim($anchor->textContent ?? '') ) {
                         return array();
                     }
 
@@ -83,26 +87,61 @@ final class NavigationPattern
         return $anchors;
     }
 
-    private function firstChildElement(DOMElement $element, string $tagName): ?DOMElement
+    private function singleNavigationAnchor(DOMElement $element): ?DOMElement
     {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && strtolower($child->tagName) === $tagName ) {
-                return $child;
-            }
-        }
+        $anchors = array();
+        $this->collectAnchors($element, $anchors);
 
-        return null;
+        return 1 === count($anchors) ? $anchors[0] : null;
     }
 
-    private function childElementCount(DOMElement $element): int
+    /**
+     * @param array<int, DOMElement> $anchors
+     */
+    private function collectAnchors(DOMElement $element, array &$anchors): void
     {
-        $count = 0;
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                ++$count;
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( 'a' === strtolower($child->tagName) ) {
+                $anchors[] = $child;
+                continue;
+            }
+
+            if ( in_array(strtolower($child->tagName), array( 'span', 'div', 'p' ), true) ) {
+                $this->collectAnchors($child, $anchors);
+            }
+        }
+    }
+
+    private function hasNavigationSignal(DOMElement $element): bool
+    {
+        if ( 'navigation' === strtolower($element->hasAttribute('role') ? $element->getAttribute('role') : '') ) {
+            return true;
+        }
+
+        foreach ( array( 'class', 'id' ) as $attribute ) {
+            $value = $element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '';
+            foreach ( preg_split('/[^a-z0-9]+/', strtolower($value)) ?: array() as $token ) {
+                if ( in_array($token, array( 'nav', 'navbar', 'navigation', 'menu', 'links' ), true) ) {
+                    return true;
+                }
             }
         }
 
-        return $count;
+        return false;
+    }
+
+    private function hasDirectListNavigationSignal(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) && $this->hasNavigationSignal($child) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
@@ -23,6 +24,8 @@ final class HtmlTransformer
     private readonly ButtonsPattern $buttonsPattern;
 
     private readonly DetailsPattern $detailsPattern;
+
+    private readonly LogoPattern $logoPattern;
 
     private readonly NavigationPattern $navigationPattern;
 
@@ -58,6 +61,7 @@ final class HtmlTransformer
         $this->blockFactory      = new BlockFactory();
         $this->buttonsPattern    = new ButtonsPattern();
         $this->detailsPattern    = new DetailsPattern();
+        $this->logoPattern       = new LogoPattern();
         $this->navigationPattern = new NavigationPattern();
     }
 
@@ -430,7 +434,18 @@ final class HtmlTransformer
         }
 
         if ( 'a' === $tagName && '' !== trim($element->textContent ?? '') ) {
-            return $this->buttonsPattern->matchAnchor(
+            $logo = $this->logoPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->outerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
+            if ( null !== $logo ) {
+                return $logo;
+            }
+
+            $button = $this->buttonsPattern->matchAnchor(
                 $element,
                 fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
@@ -438,6 +453,11 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
             );
+            if ( null !== $button ) {
+                return $button;
+            }
+
+            return $this->createBlock('core/paragraph', array( 'content' => $this->outerHtml($element) ), array(), $element);
         }
 
         if ( 'button' === $tagName ) {
@@ -498,9 +518,30 @@ final class HtmlTransformer
         }
 
         if ( in_array($tagName, array( 'article', 'body', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+            $logo = $this->logoPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->outerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
+            if ( null !== $logo ) {
+                return $logo;
+            }
+
             $spacer = $this->spacerBlockFromElement($element);
             if ( null !== $spacer ) {
                 return $spacer;
+            }
+
+            $navigation = $this->navigationPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
+            if ( null !== $navigation ) {
+                return $navigation;
             }
 
             $columns = $this->columnsBlockFromElement($element, $fallbacks);
