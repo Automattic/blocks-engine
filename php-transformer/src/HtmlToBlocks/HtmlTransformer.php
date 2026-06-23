@@ -450,12 +450,12 @@ final class HtmlTransformer
                 return $codeWindow;
             }
 
-            $image = $this->firstChildElement($element, 'img');
+            $image = $this->figureMediaElement($element, 'img');
             if ( $image instanceof DOMElement ) {
                 return $this->convertImageElement($image, $element);
             }
 
-            $picture = $this->firstChildElement($element, 'picture');
+            $picture = $this->figureMediaElement($element, 'picture');
             if ( $picture instanceof DOMElement ) {
                 return $this->convertPictureElement($picture, $element);
             }
@@ -1539,6 +1539,55 @@ final class HtmlTransformer
             }
         }
         return null;
+    }
+
+    private function figureMediaElement(DOMElement $figure, string $tagName): ?DOMElement
+    {
+        $direct = $this->firstChildElement($figure, $tagName);
+        if ( $direct instanceof DOMElement ) {
+            return $direct;
+        }
+
+        $wrapper = null;
+        foreach ( $figure->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'figcaption' === strtolower($child->tagName) ) {
+                continue;
+            }
+
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement || null !== $wrapper ) {
+                return null;
+            }
+
+            $wrapper = $child;
+        }
+
+        if ( ! $wrapper instanceof DOMElement || ! in_array(strtolower($wrapper->tagName), array( 'div', 'span' ), true) || '' !== trim($wrapper->textContent ?? '') ) {
+            return null;
+        }
+
+        return $this->onlyChildElement($wrapper, $tagName);
+    }
+
+    private function onlyChildElement(DOMElement $element, string $tagName): ?DOMElement
+    {
+        $match = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement || strtolower($child->tagName) !== $tagName || null !== $match ) {
+                return null;
+            }
+
+            $match = $child;
+        }
+
+        return $match;
     }
 
     /**
