@@ -857,7 +857,17 @@ final class HtmlTransformer
             return array( 'type' => 'grid' );
         }
 
+        if ( $this->hasGridLikeClass($element) && 1 < $this->cardLikeChildCount($element) ) {
+            return array( 'type' => 'grid' );
+        }
+
         return array();
+    }
+
+    private function hasGridLikeClass(DOMElement $element): bool
+    {
+        $className = strtolower($this->attr($element, 'class'));
+        return (bool) preg_match('/(?:^|[\s_-])(?:cards|grid|tiles|collection|gallery)(?:$|[\s_-])/', $className);
     }
 
     /**
@@ -1098,17 +1108,24 @@ final class HtmlTransformer
             $signals['grid_like'] = true;
         }
 
+        $itemCount = $this->cardLikeChildCount($element);
+        if ( 1 < $itemCount ) {
+            $signals['repeated_card_children'] = $itemCount;
+        }
+
+        return $signals;
+    }
+
+    private function cardLikeChildCount(DOMElement $element): int
+    {
         $itemCount = 0;
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement && $this->isCardLikeElement($child) ) {
                 ++$itemCount;
             }
         }
-        if ( 1 < $itemCount ) {
-            $signals['repeated_card_children'] = $itemCount;
-        }
 
-        return $signals;
+        return $itemCount;
     }
 
     private function isCardLikeElement(DOMElement $element): bool
