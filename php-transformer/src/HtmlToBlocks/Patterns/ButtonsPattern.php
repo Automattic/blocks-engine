@@ -106,6 +106,9 @@ final class ButtonsPattern
 				if ( 'a' !== strtolower($child->tagName) || '' === trim($child->textContent ?? '') ) {
 					return false;
 				}
+				if ( ! $this->isSimpleAnchor($child) ) {
+					return false;
+				}
 				++$anchors;
 				if ( $this->hasButtonSignal($child) ) {
 					++$buttonSignals;
@@ -119,6 +122,25 @@ final class ButtonsPattern
 		}
 
 		return $anchors > 1 && 0 === $buttonSignals;
+	}
+
+	private function isSimpleAnchor(DOMElement $anchor): bool
+	{
+		foreach ( $anchor->childNodes as $child ) {
+			if ( ! $child instanceof DOMElement ) {
+				continue;
+			}
+
+			if ( ! in_array(strtolower($child->tagName), array( 'abbr', 'b', 'br', 'cite', 'code', 'em', 'i', 'mark', 'small', 'span', 'strong', 'sub', 'sup', 'time' ), true) ) {
+				return false;
+			}
+
+			if ( ! $this->isSimpleAnchor($child) ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
     /**
