@@ -1,0 +1,41 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-inline-style-extraction",
+  "description": "Extracts inline stylesheet rules from full HTML documents into materializable CSS assets while preserving block conversion.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-inline-style-extraction.json",
+    "notes": "Generic coverage for full-document HTML artifacts that carry their visual system in head style tags."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream artifact primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "files": [
+        {
+          "path": "index.html",
+          "content": "<!doctype html><html><head><title>Styled Portfolio</title><style>:root{--accent:#c4a35a}.hero{min-height:100vh;color:var(--accent)}.work-grid{display:grid;grid-template-columns:repeat(3,1fr)}</style></head><body><main><section class=\"hero\"><h1>Styled Portfolio</h1><p>Visual classes need their stylesheet.</p></section><section class=\"work-grid\"><article><h2>Case Study</h2></article></section></main></body></html>",
+          "kind": "html"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "assets", "assert": "count", "count": 1 },
+    { "path": "assets.0.path", "assert": "equals", "value": "index.inline.css" },
+    { "path": "assets.0.kind", "assert": "equals", "value": "css" },
+    { "path": "assets.0.role", "assert": "equals", "value": "stylesheet" },
+    { "path": "assets.0.content", "assert": "contains", "value": ".hero{min-height:100vh" },
+    { "path": "source_reports.artifact.files_by_source.inline-style", "assert": "equals", "value": 1 },
+    { "path": "source_reports.artifact.files_by_intent.style", "assert": "equals", "value": 1 },
+    { "path": "source_reports.compiled_site.theme.stylesheets.0", "assert": "equals", "value": "index.inline.css" },
+    { "path": "source_reports.materialization_plan.assets.0.target_path", "assert": "equals", "value": "index.inline.css" },
+    { "path": "source_reports.materialization_plan.assets.0.content", "assert": "contains", "value": ".work-grid{display:grid" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Styled Portfolio" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "hero" }
+  ]
+}

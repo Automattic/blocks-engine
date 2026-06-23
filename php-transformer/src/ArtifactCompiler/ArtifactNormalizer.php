@@ -42,7 +42,7 @@ final class ArtifactNormalizer
             }
         }
 
-        $rawFiles = $this->rawFiles($artifact);
+        $rawFiles = $this->withInlineStyleFiles($this->rawFiles($artifact));
         $safeEntrypoints = array();
         foreach ( array_unique($entrypoints) as $entrypoint ) {
             $path = ArtifactPath::safeRelativePath($entrypoint);
@@ -201,6 +201,71 @@ final class ArtifactNormalizer
         }
 
         return $files;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function withInlineStyleFiles(array $files): array
+    {
+        $expanded = array();
+        foreach ( $files as $file ) {
+            $expanded[] = $file;
+
+            $content = is_string($file['content'] ?? null) ? (string) $file['content'] : '';
+            if ( '' === trim($content) || ! $this->isHtmlLikeFile($file) || ! preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $content, $matches) ) {
+                continue;
+            }
+
+            $css = trim(implode("\n", array_filter(array_map(
+                static fn (string $style): string => trim($style),
+                $matches[1]
+            ), static fn (string $style): bool => '' !== $style)));
+            if ( '' === $css ) {
+                continue;
+            }
+
+            $expanded[] = array(
+                'path'      => $this->inlineStylePath((string) ($file['path'] ?? 'index.html')),
+                'content'   => $css,
+                'kind'      => 'css',
+                'mime_type' => 'text/css',
+                'role'      => 'stylesheet',
+                'intent'    => 'style',
+                'source'    => 'inline-style',
+            );
+        }
+
+        return $expanded;
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     */
+    private function isHtmlLikeFile(array $file): bool
+    {
+        $kind = strtolower((string) ($file['kind'] ?? $file['type'] ?? ''));
+        $mimeType = strtolower((string) ($file['mime_type'] ?? $file['mime'] ?? $file['media_type'] ?? ''));
+        $path = strtolower((string) ($file['path'] ?? ''));
+
+        return ( in_array($kind, array( '', 'html' ), true) || str_contains($kind, 'html') )
+            && ( '' === $mimeType || str_contains($mimeType, 'html') )
+            && ( '' === $path || preg_match('/\.html?$/', $path) || 'index.html' === $path );
+    }
+
+    private function inlineStylePath(string $htmlPath): string
+    {
+        $path = ArtifactPath::safeRelativePath($htmlPath);
+        if ( '' === $path ) {
+            return 'inline-styles.css';
+        }
+
+        $directory = trim((string) pathinfo($path, PATHINFO_DIRNAME), '.');
+        $filename = pathinfo($path, PATHINFO_FILENAME);
+        $stylePath = ('' === $filename ? 'inline' : $filename) . '.inline.css';
+
+        return '' === $directory ? $stylePath : $directory . '/' . $stylePath;
     }
 
     /**
