@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatAdapterInterface;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
@@ -49,6 +50,36 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     fwrite(STDERR, 'FAIL: ' . $message . ('' !== $detail ? ' - ' . $detail : '') . PHP_EOL);
     exit(1);
 };
+
+$referenceAnalyzer = new ReferenceAnalyzer();
+$htmlCandidates = $referenceAnalyzer->htmlReferenceCandidates('<a href="about.html">About</a><img src="assets/logo.png" alt="Logo">', 'index.html');
+$assert('href' === ($htmlCandidates[0]['attribute'] ?? ''), 'reference analyzer extracts HTML href references');
+$assert('about.html' === ($htmlCandidates[0]['url'] ?? ''), 'reference analyzer preserves HTML href URL values');
+$assert('src' === ($htmlCandidates[1]['attribute'] ?? ''), 'reference analyzer extracts HTML src references');
+$assert('assets/logo.png' === ($htmlCandidates[1]['url'] ?? ''), 'reference analyzer preserves HTML src URL values');
+
+$cssCandidates = $referenceAnalyzer->cssReferenceCandidates('@import "fonts/fonts.css"; body{background:url("../assets/paper.png")} @font-face{font-family:"Fixture Sans";src:url("FixtureSans.woff2") format("woff2")}', 'theme/site.css');
+$assert('css-import' === ($cssCandidates[0]['context'] ?? ''), 'reference analyzer extracts CSS @import references');
+$assert('fonts/fonts.css' === ($cssCandidates[0]['url'] ?? ''), 'reference analyzer preserves CSS @import URL values');
+$assert('css-url' === ($cssCandidates[1]['context'] ?? ''), 'reference analyzer extracts CSS url() references');
+$assert('../assets/paper.png' === ($cssCandidates[1]['url'] ?? ''), 'reference analyzer preserves CSS url() values');
+$assert('css-font-face' === ($cssCandidates[2]['context'] ?? ''), 'reference analyzer marks @font-face url() references');
+$assert('FixtureSans.woff2' === ($cssCandidates[2]['url'] ?? ''), 'reference analyzer preserves @font-face local font references');
+
+$referenceReports = $referenceAnalyzer->referenceReports(array(
+    array('path' => 'index.html', 'kind' => 'html', 'content' => '<a href="about.html">About</a><img src="assets/logo.png" alt="Logo">', 'binary' => false),
+    array('path' => 'about.html', 'kind' => 'html', 'content' => '<h1>About</h1>', 'binary' => false),
+    array('path' => 'theme/site.css', 'kind' => 'css', 'content' => '@import "fonts/fonts.css"; body{background:url("../assets/paper.png")} @font-face{font-family:"Fixture Sans";src:url("FixtureSans.woff2") format("woff2")}', 'binary' => false),
+    array('path' => 'theme/fonts/fonts.css', 'kind' => 'css', 'content' => '', 'binary' => false, 'mime_type' => 'text/css', 'role' => 'style', 'bytes' => 0),
+    array('path' => 'assets/logo.png', 'kind' => 'image', 'content_base64' => base64_encode('logo'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 4),
+    array('path' => 'assets/paper.png', 'kind' => 'image', 'content_base64' => base64_encode('paper'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 5),
+    array('path' => 'theme/FixtureSans.woff2', 'kind' => 'font', 'content_base64' => base64_encode('font'), 'binary' => true, 'mime_type' => 'font/woff2', 'role' => 'asset', 'bytes' => 4),
+));
+$assert('about.html' === ($referenceReports['internal_links'][0]['target_path'] ?? ''), 'reference analyzer assembles HTML href internal link reports');
+$assert('assets/logo.png' === ($referenceReports['asset_references'][0]['asset_path'] ?? ''), 'reference analyzer assembles HTML src asset reference reports');
+$assert('theme/fonts/fonts.css' === ($referenceReports['asset_references'][1]['asset_path'] ?? ''), 'reference analyzer assembles CSS @import asset reference reports');
+$assert('assets/paper.png' === ($referenceReports['asset_references'][2]['asset_path'] ?? ''), 'reference analyzer resolves CSS url() reports relative to source CSS');
+$assert('theme/FixtureSans.woff2' === ($referenceReports['asset_references'][3]['asset_path'] ?? ''), 'reference analyzer assembles @font-face local font reference reports');
 
 $assertNormalizedFallbackDiagnostic = static function (array $diagnostic, string $code, string $severity, string $runtimeRequirement, string $suggestedPrimitive) use ($assert): void {
     $assert($code === ($diagnostic['diagnostic_code'] ?? ''), "conversion report exposes {$code} diagnostic code");
