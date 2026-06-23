@@ -13,6 +13,7 @@ final class ButtonMenuVisualProbe
     public const SCHEMA = 'blocks-engine/php-transformer/visual-parity-probes/v1';
 
     private const STYLE_FIELDS = array(
+        'background',
         'background-color',
         'border',
         'border-bottom-color',
@@ -68,7 +69,8 @@ final class ButtonMenuVisualProbe
     {
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
-        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $this->bodyHtml($html) . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $sourceHtml = preg_match('/<(?:!doctype|html|head|body)\b/i', $html) ? $html : '<body>' . $this->bodyHtml($html) . '</body>';
+        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?>' . $sourceHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
 
@@ -496,8 +498,12 @@ final class ButtonMenuVisualProbe
     private function matchesSimpleSelector(DOMElement $element, string $selector): bool
     {
         $selector = trim(preg_replace('/:(hover|focus|active|visited|before|after)\b.*/', '', $selector) ?? $selector);
-        if ( '' === $selector || str_contains($selector, ' ') || str_contains($selector, '>') || str_contains($selector, '+') || str_contains($selector, '~') ) {
+        if ( '' === $selector || str_contains($selector, '>') || str_contains($selector, '+') || str_contains($selector, '~') ) {
             return false;
+        }
+
+        if ( str_contains($selector, ' ') ) {
+            return $this->matchesDescendantSelector($element, $selector);
         }
 
         if ( preg_match('/^#([A-Za-z0-9_-]+)$/', $selector, $match) ) {
@@ -525,6 +531,31 @@ final class ButtonMenuVisualProbe
         }
 
         return strtolower($selector) === strtolower($element->tagName);
+    }
+
+    private function matchesDescendantSelector(DOMElement $element, string $selector): bool
+    {
+        $parts = preg_split('/\s+/', trim($selector)) ?: array();
+        if ( array() === $parts || ! $this->matchesSimpleSelector($element, array_pop($parts)) ) {
+            return false;
+        }
+
+        $current = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
+        for ( $index = count($parts) - 1; $index >= 0; --$index ) {
+            $matched = false;
+            for ( $node = $current; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+                if ( $this->matchesSimpleSelector($node, $parts[$index]) ) {
+                    $matched = true;
+                    $current = $node->parentNode instanceof DOMElement ? $node->parentNode : null;
+                    break;
+                }
+            }
+            if ( ! $matched ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function selector(DOMElement $element): string
