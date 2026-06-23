@@ -162,13 +162,13 @@ final class BlockFactory
 
         if ( 'core/navigation-link' === $name ) {
             $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-            return '<li' . $this->blockSupportAttrs($attrs, 'wp-block-navigation-item wp-block-navigation-link') . '><a class="wp-block-navigation-item__content"' . $href . '><span class="wp-block-navigation-item__label">' . ($attrs['label'] ?? '') . '</span></a></li>';
+            return '<li' . $this->blockSupportAttrs($attrs, 'wp-block-navigation-item wp-block-navigation-link') . '><a' . $this->navigationAnchorAttrs($attrs, $href) . '><span class="wp-block-navigation-item__label">' . ($attrs['label'] ?? '') . '</span></a></li>';
         }
 
         if ( 'core/navigation-submenu' === $name ) {
             $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
             return array(
-                'opening' => '<li' . $this->blockSupportAttrs($attrs, 'wp-block-navigation-item has-child wp-block-navigation-submenu') . '><a class="wp-block-navigation-item__content"' . $href . '><span class="wp-block-navigation-item__label">' . ($attrs['label'] ?? '') . '</span></a><ul class="wp-block-navigation__submenu-container">',
+                'opening' => '<li' . $this->blockSupportAttrs($attrs, 'wp-block-navigation-item has-child wp-block-navigation-submenu') . '><a' . $this->navigationAnchorAttrs($attrs, $href) . '><span class="wp-block-navigation-item__label">' . ($attrs['label'] ?? '') . '</span></a><ul' . $this->navigationSubmenuAttrs($attrs) . '>',
                 'closing' => '</ul></li>',
             );
         }
@@ -331,6 +331,28 @@ final class BlockFactory
         return $this->htmlAttrs(array(
             'class' => $classes,
             'style' => (string) ($attrs['style'] ?? ''),
+        ));
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function navigationAnchorAttrs(array $attrs, string $href): string
+    {
+        return $this->htmlAttrs(array(
+            'class' => $this->mergeClassNames('wp-block-navigation-item__content', (string) ($attrs['anchorClassName'] ?? '')),
+            'style' => (string) ($attrs['anchorStyle'] ?? ''),
+        )) . $href;
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function navigationSubmenuAttrs(array $attrs): string
+    {
+        return $this->htmlAttrs(array(
+            'class' => $this->mergeClassNames('wp-block-navigation__submenu-container', (string) ($attrs['submenuClassName'] ?? '')),
+            'style' => (string) ($attrs['submenuStyle'] ?? ''),
         ));
     }
 

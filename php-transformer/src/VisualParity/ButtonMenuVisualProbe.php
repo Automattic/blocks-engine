@@ -15,6 +15,7 @@ final class ButtonMenuVisualProbe
     private const STYLE_FIELDS = array(
         'background-color',
         'border',
+        'border-bottom',
         'border-bottom-color',
         'border-bottom-left-radius',
         'border-bottom-right-radius',
@@ -35,6 +36,7 @@ final class ButtonMenuVisualProbe
         'border-top-style',
         'border-top-width',
         'border-width',
+        'box-shadow',
         'color',
         'display',
         'font-size',
@@ -279,6 +281,15 @@ final class ButtonMenuVisualProbe
         if ( $this->isMenuItem($element) ) {
             $signals[] = 'menu-ancestor';
         }
+        if ( $this->hasCurrentSignal($element) ) {
+            $signals[] = 'current-active';
+        }
+        if ( $this->hasSeparatorSignal($element) ) {
+            $signals[] = 'separator-rule';
+        }
+        if ( null !== $this->submenuPanel($element) ) {
+            $signals[] = 'submenu-panel';
+        }
         if ( $this->isLinkedCard($element) ) {
             $signals[] = 'linked-card-content';
         }
@@ -320,6 +331,38 @@ final class ButtonMenuVisualProbe
         return $unstyledButton || $defaultGreyBackground || $defaultGreyBorder;
     }
 
+    private function hasCurrentSignal(DOMElement $element): bool
+    {
+        if ( '' !== trim($element->hasAttribute('aria-current') ? $element->getAttribute('aria-current') : '') ) {
+            return true;
+        }
+
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $this->hasAnyToken($node, array( 'active', 'current', 'current-menu-item', 'current_page_item', 'is-active', 'selected' )) ) {
+                return true;
+            }
+            if ( in_array(strtolower($node->tagName), array( 'nav', 'body' ), true) ) {
+                break;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasSeparatorSignal(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $this->hasAnyToken($node, array( 'separator', 'divider', 'rule' )) ) {
+                return true;
+            }
+            if ( in_array(strtolower($node->tagName), array( 'nav', 'body' ), true) ) {
+                break;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -340,7 +383,39 @@ final class ButtonMenuVisualProbe
             'menu_depth' => $listDepth,
             'parent_text' => $parentItem,
             'has_submenu' => $this->hasSubmenu($element),
+            'submenu_panel' => $this->submenuPanelSnapshot($element),
         ), static fn ($value): bool => null !== $value && '' !== $value && false !== $value);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function submenuPanelSnapshot(DOMElement $element): ?array
+    {
+        $panel = $this->submenuPanel($element);
+        if ( ! $panel instanceof DOMElement ) {
+            return null;
+        }
+
+        return array_filter(array(
+            'tag' => strtolower($panel->tagName),
+            'classes' => $this->tokens($panel->hasAttribute('class') ? $panel->getAttribute('class') : ''),
+            'style' => $this->computedStyle($panel, $this->styleRules($panel->ownerDocument)),
+        ), static fn ($value): bool => array() !== $value && '' !== $value);
+    }
+
+    private function submenuPanel(DOMElement $element): ?DOMElement
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( in_array(strtolower($node->tagName), array( 'ul', 'ol', 'div' ), true) && $this->hasAnyToken($node, array( 'dropdown', 'submenu', 'subnav', 'flyout', 'menu-panel', 'dropdown-panel', 'wp-block-navigation__submenu-container' )) ) {
+                return $node;
+            }
+            if ( 'nav' === strtolower($node->tagName) ) {
+                break;
+            }
+        }
+
+        return null;
     }
 
     private function menuDepth(DOMElement $element): int
