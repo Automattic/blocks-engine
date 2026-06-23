@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-runtime-form-readable-controls",
-  "description": "Keeps runtime-backed forms visible as readable blocks while still reporting the form handler fallback.",
+  "description": "Keeps runtime-backed forms available as readable fallback metadata while preserving canonical block semantics.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-runtime-form-readable-controls.json",
@@ -16,12 +16,7 @@
     "content": "<section><h2>Newsletter</h2><form class=\"signup\" onsubmit=\"return subscribe(event)\"><input type=\"email\" required placeholder=\"you@example.com\" aria-label=\"Email address\"><button class=\"btn\">Subscribe</button></form></section>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Newsletter", "level": 2 } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "signup" } },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Email address: you@example.com (required)" } },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.1.innerBlocks.0", "name": "core/button", "attrs": { "className": "btn", "text": "Subscribe" } }
+    { "path": "blocks.0", "name": "core/heading", "attrs": { "content": "Newsletter", "level": 2 } }
   ],
   "expected_fallbacks": [
     { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback", "tag": "form", "control_count": 2 }
@@ -31,8 +26,9 @@
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "fallbacks", "assert": "count", "count": 1 },
     { "path": "fallbacks.0.events.0.type", "assert": "equals", "value": "submit" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "Email address: you@example.com (required)" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:button" },
+    { "path": "source_reports.conversion_report.fallback_diagnostics.0.readable_blocks.0.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "source_reports.conversion_report.fallback_diagnostics.0.readable_blocks.0.innerBlocks.0.attrs.content", "assert": "equals", "value": "Email address: you@example.com (required)" },
+    { "path": "source_reports.conversion_report.fallback_diagnostics.0.readable_blocks.0.innerBlocks.1.innerBlocks.0.attrs.text", "assert": "equals", "value": "Subscribe" },
     { "path": "source_reports.conversion_report.fallback_diagnostics.0.reason", "assert": "equals", "value": "form_requires_runtime" }
   ]
 }

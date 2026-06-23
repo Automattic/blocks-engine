@@ -578,6 +578,7 @@ final class HtmlTransformer
             }
 
             $controls = $this->formControls($element);
+            $readableFormBlock = $this->readableFormBlockFromForm($element, true);
             $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
             $fallbacks[] = FallbackDiagnostic::build(array(
                 'type'            => 'html',
@@ -591,6 +592,7 @@ final class HtmlTransformer
                 'form'            => $this->formMetadata($element),
                 'context'         => $this->sourceContext($element),
                 'events'          => $this->eventMetadata($element),
+                'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
                 'controls'        => $controls,
                 'control_count'   => count($controls),
                 'text_length'     => strlen(trim($element->textContent ?? '')),
@@ -600,7 +602,7 @@ final class HtmlTransformer
                 'html_truncated'  => $boundedHtml['truncated'],
             ), $this->fallbackProvenance);
 
-            return $this->readableFormBlockFromForm($element, true);
+            return null;
         }
 
         if ( 'nav' === $tagName ) {
