@@ -226,6 +226,18 @@ final class BlockFactory
         );
 
         $img = '<img' . $this->htmlAttrs($imageAttrs, array( 'alt' )) . '/>';
+        if ( ! empty($attrs['href']) ) {
+            $linkAttrs = array(
+                'href'        => (string) $attrs['href'],
+                'target'      => (string) ($attrs['linkTarget'] ?? ''),
+                'rel'         => (string) ($attrs['rel'] ?? ''),
+                'class'       => (string) ($attrs['linkClass'] ?? ''),
+                'aria-label'  => (string) ($attrs['linkAriaLabel'] ?? ''),
+                'aria-hidden' => (string) ($attrs['linkAriaHidden'] ?? ''),
+                'tabindex'    => (string) ($attrs['linkTabIndex'] ?? ''),
+            );
+            $img = '<a' . $this->htmlAttrs($linkAttrs) . '>' . $img . '</a>';
+        }
         $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $attrs['caption'] . '</figcaption>' : '';
         return '<figure' . $this->blockSupportAttrs($figureAttrs, 'wp-block-image') . '>' . $img . $caption . '</figure>';
     }

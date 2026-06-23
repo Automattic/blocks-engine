@@ -468,7 +468,20 @@ final class HtmlTransformer
             return $this->convertMediaElement($element);
         }
 
-        if ( 'a' === $tagName && '' !== trim($element->textContent ?? '') ) {
+        if ( 'a' === $tagName ) {
+            $linkedImage = $this->imageBlockFromAnchor($element);
+            if ( null !== $linkedImage ) {
+                return $linkedImage;
+            }
+
+            if ( '' === trim($element->textContent ?? '') && '' !== $this->safeLinkUrl($this->attr($element, 'href')) && '' !== trim($this->attr($element, 'aria-label')) ) {
+                return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->outerHtml($element) )), array(), $element);
+            }
+
+            if ( '' === trim($element->textContent ?? '') ) {
+                return null;
+            }
+
             $logo = $this->logoPattern->match(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
@@ -2231,7 +2244,44 @@ final class HtmlTransformer
         return $this->convertImageElement($image, $figure ?? $picture, $picture);
     }
 
-    private function convertImageElement(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null): ?array
+    private function imageBlockFromAnchor(DOMElement $anchor): ?array
+    {
+        $href = $this->safeLinkUrl($this->attr($anchor, 'href'));
+        if ( '' === $href || ! $this->isImageOnlyAnchor($anchor) ) {
+            return null;
+        }
+
+        $picture = $this->firstChildElement($anchor, 'picture');
+        if ( $picture instanceof DOMElement ) {
+            $image = $this->firstChildElement($picture, 'img');
+            return $image instanceof DOMElement ? $this->convertImageElement($image, null, $picture, $anchor) : null;
+        }
+
+        $image = $this->firstChildElement($anchor, 'img');
+        return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $anchor) : null;
+    }
+
+    private function isImageOnlyAnchor(DOMElement $anchor): bool
+    {
+        $imageChildren = 0;
+        foreach ( $anchor->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( ! in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) ) {
+                    return false;
+                }
+                ++$imageChildren;
+                continue;
+            }
+
+            if ( '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+        }
+
+        return 1 === $imageChildren;
+    }
+
+    private function convertImageElement(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array
     {
         $url = $this->safeImageUrl($this->attr($image, 'src'));
         if ( '' === $url ) {
@@ -2269,7 +2319,40 @@ final class HtmlTransformer
             }
         }
 
+        if ( $link instanceof DOMElement ) {
+            $attrs = array_filter(array_merge($attrs, $this->imageLinkAttributes($link)), static fn ($value): bool => '' !== $value);
+        }
+
         return $this->createBlock('core/image', $attrs, array(), $figure ?? $image);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function imageLinkAttributes(DOMElement $link): array
+    {
+        $attrs = array(
+            'href'            => $this->safeLinkUrl($this->attr($link, 'href')),
+            'linkDestination' => 'custom',
+            'linkTarget'      => $this->attr($link, 'target'),
+            'rel'             => $this->attr($link, 'rel'),
+            'linkClass'       => $this->attr($link, 'class'),
+            'linkAriaLabel'   => $this->attr($link, 'aria-label'),
+            'linkAriaHidden'  => $this->attr($link, 'aria-hidden'),
+            'linkTabIndex'    => $this->attr($link, 'tabindex'),
+        );
+
+        return array_filter($attrs, static fn (string $value): bool => '' !== trim($value));
+    }
+
+    private function safeLinkUrl(string $url): string
+    {
+        $url = trim($url);
+        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
+            return '';
+        }
+
+        return $url;
     }
 
     /**
