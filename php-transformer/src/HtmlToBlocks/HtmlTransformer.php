@@ -6,6 +6,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
 use DOMElement;
@@ -16,6 +19,12 @@ final class HtmlTransformer
     private const MAX_INTERACTION_CANDIDATES = 100;
 
     private readonly BlockFactory $blockFactory;
+
+    private readonly ButtonsPattern $buttonsPattern;
+
+    private readonly DetailsPattern $detailsPattern;
+
+    private readonly NavigationPattern $navigationPattern;
 
     /**
      * @var array<string, string>
@@ -46,7 +55,10 @@ final class HtmlTransformer
 
     public function __construct(private readonly Runtime $runtime = new Runtime())
     {
-        $this->blockFactory = new BlockFactory();
+        $this->blockFactory      = new BlockFactory();
+        $this->buttonsPattern    = new ButtonsPattern();
+        $this->detailsPattern    = new DetailsPattern();
+        $this->navigationPattern = new NavigationPattern();
     }
 
     /**
@@ -391,15 +403,14 @@ final class HtmlTransformer
         }
 
         if ( 'details' === $tagName ) {
-            $summary = $this->firstChildElement($element, 'summary');
-            $children = $this->convertChildrenWithoutTags($element, $fallbacks, array( 'summary' ));
-            if ( null === $summary && array() === $children ) {
-                return null;
-            }
-
-            return $this->createBlock('core/details', array_filter(array_merge($this->presentationAttributes($element), array(
-                'summary' => $summary instanceof DOMElement ? $this->innerHtml($summary) : '',
-            )), static fn ($value): bool => '' !== $value), $children, $element);
+            return $this->detailsPattern->match(
+                $element,
+                $fallbacks,
+                fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags),
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
         }
 
         if ( 'img' === $tagName ) {
@@ -419,16 +430,23 @@ final class HtmlTransformer
         }
 
         if ( 'a' === $tagName && '' !== trim($element->textContent ?? '') ) {
-            $fileBlock = $this->fileBlockFromAnchor($element);
-            if ( null !== $fileBlock ) {
-                return $fileBlock;
-            }
-
-            return $this->createBlock('core/buttons', array(), array( $this->buttonBlockFromAnchor($element) ), $element);
+            return $this->buttonsPattern->matchAnchor(
+                $element,
+                fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
         }
 
         if ( 'button' === $tagName ) {
-            return $this->createBlock('core/buttons', array(), array( $this->createBlock('core/button', array_merge($this->presentationAttributes($element), array( 'text' => $this->innerHtml($element) )), array(), $element) ), $element);
+            return $this->buttonsPattern->matchButton(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
         }
 
         if ( 'svg' === $tagName ) {
@@ -468,9 +486,14 @@ final class HtmlTransformer
         }
 
         if ( 'nav' === $tagName ) {
-            $navigationLinks = $this->navigationLinks($element);
-            if ( array() !== $navigationLinks ) {
-                return $this->createBlock('core/navigation', $this->presentationAttributes($element), $navigationLinks, $element);
+            $navigation = $this->navigationPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
+            if ( null !== $navigation ) {
+                return $navigation;
             }
         }
 
@@ -495,9 +518,15 @@ final class HtmlTransformer
                 return $codeWindow;
             }
 
-            $buttonChildren = $this->buttonChildren($element);
-            if ( array() !== $buttonChildren ) {
-                return $this->createBlock('core/buttons', $this->presentationAttributes($element), $buttonChildren, $element);
+            $buttons = $this->buttonsPattern->matchContainer(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
+            if ( null !== $buttons ) {
+                return $buttons;
             }
 
             $children = $this->convertChildren($element, $fallbacks, true);
@@ -2230,14 +2259,6 @@ final class HtmlTransformer
         return implode(' ', $classes);
     }
 
-    private function buttonBlockFromAnchor(DOMElement $anchor): array
-    {
-        return $this->createBlock('core/button', array_filter(array_merge($this->presentationAttributes($anchor), array(
-            'text' => $this->innerHtml($anchor),
-            'url'  => $this->attr($anchor, 'href'),
-        )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $anchor);
-    }
-
     /**
      * @return array<string, mixed>
      */
@@ -2377,89 +2398,6 @@ final class HtmlTransformer
         }
 
         return $events;
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function navigationLinks(DOMElement $element): array
-    {
-        $links = array();
-        foreach ( $this->directNavigationAnchors($element) as $anchor ) {
-            $links[] = $this->createBlock('core/navigation-link', array_filter(array(
-                'label' => $this->innerHtml($anchor),
-                'url'   => $this->safeNavigationUrl($this->attr($anchor, 'href')),
-                'kind'  => 'custom',
-            ), static fn ($value): bool => '' !== $value), array(), $anchor);
-        }
-
-        return $links;
-    }
-
-    private function safeNavigationUrl(string $url): string
-    {
-        $url = trim($url);
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
-            return '';
-        }
-
-        return $url;
-    }
-
-    /**
-     * @return array<int, DOMElement>
-     */
-    private function directNavigationAnchors(DOMElement $element): array
-    {
-        $anchors = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-
-            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') ) {
-                $anchors[] = $child;
-                continue;
-            }
-
-            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
-                foreach ( $child->childNodes as $item ) {
-                    if ( XML_TEXT_NODE === $item->nodeType && '' === trim($item->textContent ?? '') ) {
-                        continue;
-                    }
-
-                    if ( ! $item instanceof DOMElement || 'li' !== strtolower($item->tagName) ) {
-                        return array();
-                    }
-
-                    $anchor = $this->firstChildElement($item, 'a');
-                    if ( ! $anchor instanceof DOMElement || '' === trim($anchor->textContent ?? '') || 1 !== $this->childElementCount($item) ) {
-                        return array();
-                    }
-
-                    $anchors[] = $anchor;
-                }
-                continue;
-            }
-
-            return array();
-        }
-
-        return $anchors;
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function buttonChildren(DOMElement $element): array
-    {
-        $buttons = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') ) {
-                $buttons[] = $this->buttonBlockFromAnchor($child);
-            }
-        }
-        return 1 < count($buttons) ? $buttons : array();
     }
 
 }
