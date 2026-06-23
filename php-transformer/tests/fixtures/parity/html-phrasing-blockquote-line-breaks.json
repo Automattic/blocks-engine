@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-phrasing-blockquote-line-breaks",
+  "description": "Preserves phrasing-only blockquotes with inline emphasis and line breaks as one quote paragraph without unsupported br fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-phrasing-blockquote-line-breaks.json",
+    "notes": "Product-neutral coverage for stylized testimonial and editorial quotes."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<blockquote class=\"ethos-quote\">We do not invent scent.<br>We <em>listen</em> to the garden,<br>then carry it carefully into glass.<cite>The distiller</cite></blockquote>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/quote", "attrs": { "className": "ethos-quote", "citation": "The distiller" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "We do not invent scent.<br>We <em>listen</em> to the garden,<br>then carry it carefully into glass." } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 1 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "We do not invent scent.<br>We <em>listen</em> to the garden,<br>then carry it carefully into glass." },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
