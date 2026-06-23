@@ -629,7 +629,7 @@ final class HtmlTransformer
                 'html_truncated'  => $boundedHtml['truncated'],
             ), $this->fallbackProvenance);
 
-            return null;
+            return $this->shouldMaterializeReadableRuntimeForm($element) ? $readableFormBlock : null;
         }
 
         if ( 'nav' === $tagName ) {
@@ -689,6 +689,11 @@ final class HtmlTransformer
             $inlineContent = $this->paragraphBlockFromInlineContentWrapper($element);
             if ( null !== $inlineContent ) {
                 return $inlineContent;
+            }
+
+            $standaloneSearch = $this->searchBlockFromStandaloneControl($element);
+            if ( null !== $standaloneSearch ) {
+                return $standaloneSearch;
             }
 
             $buttons = $this->buttonsPattern->matchContainer(
@@ -2202,6 +2207,57 @@ final class HtmlTransformer
     /**
      * @return array<string, mixed>|null
      */
+    private function searchBlockFromStandaloneControl(DOMElement $element): ?array
+    {
+        if ( 0 < $element->getElementsByTagName('form')->length || 0 < $element->getElementsByTagName('script')->length || array() !== $this->eventMetadata($element) ) {
+            return null;
+        }
+
+        $inputs = array();
+        foreach ( $element->getElementsByTagName('input') as $input ) {
+            if ( $input instanceof DOMElement && $input->parentNode === $element && 'search' === $this->formControlType($input) ) {
+                $inputs[] = $input;
+            }
+        }
+        if ( 1 !== count($inputs) || array() !== $this->eventMetadata($inputs[0]) ) {
+            return null;
+        }
+
+        $controls = $this->formControlElements($element);
+        if ( 1 !== count($controls) ) {
+            return null;
+        }
+
+        $searchInput = $inputs[0];
+        if ( ! $this->hasStandaloneSearchSignal($element, $searchInput) ) {
+            return null;
+        }
+
+        $label = $this->formControlLabel($searchInput);
+        if ( '' === $label ) {
+            $label = $this->attr($searchInput, 'aria-label');
+        }
+        if ( '' === $label ) {
+            $label = $this->attr($searchInput, 'placeholder');
+        }
+        if ( '' === $label ) {
+            $label = 'Search';
+        }
+
+        $attrs = array_filter(array_merge(
+            $this->presentationAttributes($element),
+            array(
+                'label'       => $label,
+                'placeholder' => $this->attr($searchInput, 'placeholder'),
+            )
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+
+        return $this->createBlock('core/search', $attrs, array(), $element);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
     private function readableFormBlockFromForm(DOMElement $form, bool $allowFormEvents = false): ?array
     {
         if ( 0 < $form->getElementsByTagName('script')->length || ( ! $allowFormEvents && array() !== $this->eventMetadata($form) ) ) {
@@ -2301,6 +2357,12 @@ final class HtmlTransformer
 
         $summary = $this->readableFormControlText($element);
         return '' !== $summary ? $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $element) : null;
+    }
+
+    private function shouldMaterializeReadableRuntimeForm(DOMElement $form): bool
+    {
+        $metadata = $this->formMetadata($form);
+        return '' === ($metadata['action'] ?? '') && '' === ($metadata['method'] ?? '') && '' === ($metadata['enctype'] ?? '');
     }
 
     private function isReadableFormControl(DOMElement $control): bool
@@ -2414,6 +2476,26 @@ final class HtmlTransformer
             $this->attr($form, 'aria-label'),
             $this->attr($form, 'id'),
             $this->attr($form, 'class'),
+        )));
+
+        return str_contains($haystack, 'search');
+    }
+
+    private function hasStandaloneSearchSignal(DOMElement $element, DOMElement $input): bool
+    {
+        if ( 'search' === $this->formControlType($input) || 'search' === strtolower(trim($this->attr($element, 'role'))) ) {
+            return true;
+        }
+
+        $haystack = strtolower(implode(' ', array(
+            $this->attr($element, 'aria-label'),
+            $this->attr($element, 'id'),
+            $this->attr($element, 'class'),
+            $this->attr($input, 'aria-label'),
+            $this->attr($input, 'id'),
+            $this->attr($input, 'class'),
+            $this->attr($input, 'name'),
+            $this->attr($input, 'placeholder'),
         )));
 
         return str_contains($haystack, 'search');
