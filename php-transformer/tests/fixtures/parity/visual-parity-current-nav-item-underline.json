@@ -1,0 +1,27 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "visual-parity-current-nav-item-underline",
+  "description": "Extracts current/active and separator/rule signals from styled navigation items.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/visual-parity-current-nav-item-underline.json",
+    "notes": "Generic visual parity probe fixture for current menu underline and rule classes."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Probe output is a new upstream diagnostic surface."
+  },
+  "operation": "visual_parity_probe.extract",
+  "input": {
+    "content": "<nav class=\"primary-menu\"><ul><li class=\"current-menu-item nav-rule\"><a class=\"is-active\" aria-current=\"page\" style=\"border-bottom:3px solid #111;padding-bottom:6px\" href=\"/\">Home</a></li><li><a href=\"/about\">About</a></li></ul></nav>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "summary.total", "assert": "equals", "value": 2 },
+    { "path": "probes.0.kind", "assert": "equals", "value": "menu_item" },
+    { "path": "probes.0.signals.1", "assert": "equals", "value": "current-active" },
+    { "path": "probes.0.signals.2", "assert": "equals", "value": "separator-rule" },
+    { "path": "probes.0.style.border-bottom", "assert": "equals", "value": "3px solid #111" },
+    { "path": "probes.1.kind", "assert": "equals", "value": "menu_item" }
+  ]
+}

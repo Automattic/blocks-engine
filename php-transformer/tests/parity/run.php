@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\ButtonMenuVisualProbe;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\ButtonMenuVisualProbeComparator;
 
 if ( in_array('--legacy-child', $argv ?? array(), true) ) {
     runLegacyChildProcess();
@@ -299,6 +300,14 @@ function runFixture(array $fixture): array
 
     if ( 'visual_parity_probe.extract' === $fixture['operation'] ) {
         return ( new ButtonMenuVisualProbe() )->extract((string) ($input['content'] ?? ''));
+    }
+
+    if ( 'visual_parity_probe.compare' === $fixture['operation'] ) {
+        $probe = new ButtonMenuVisualProbe();
+        return ( new ButtonMenuVisualProbeComparator() )->compare(
+            $probe->extract((string) ($input['source_content'] ?? '')),
+            $probe->extract((string) ($input['target_content'] ?? ''))
+        );
     }
 
     fail("Fixture {$fixture['name']} declares unsupported operation: {$fixture['operation']}");

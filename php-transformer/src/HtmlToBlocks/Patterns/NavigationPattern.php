@@ -58,7 +58,7 @@ final class NavigationPattern
                 if ( ! $allowsDirectItems ) {
                     return array();
                 }
-                $blocks[] = $this->navigationLinkBlock($child, $presentationAttributes, $innerHtml, $createBlock);
+                $blocks[] = $this->navigationLinkBlock($child, $presentationAttributes, $innerHtml, $createBlock, $child);
                 continue;
             }
 
@@ -129,27 +129,51 @@ final class NavigationPattern
         }
 
         if ( array() !== $submenuBlocks ) {
-            return $createBlock('core/navigation-submenu', array_filter(array_merge($presentationAttributes($anchor), array(
+            $submenuAttrs = array(
                 'label' => $innerHtml($anchor),
                 'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
                 'kind'  => 'custom',
-            )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), $submenuBlocks, $element);
+            );
+            $submenuContainer = $this->submenuContainers($element, $anchor)[0] ?? null;
+            return $createBlock('core/navigation-submenu', $this->navigationItemAttributes($element, $anchor, $submenuContainer, $submenuAttrs, $presentationAttributes), $submenuBlocks, $element);
         }
 
         if ( 1 !== count($this->anchorsExcludingSubmenus($element, $anchor)) ) {
             return null;
         }
 
-        return $this->navigationLinkBlock($anchor, $presentationAttributes, $innerHtml, $createBlock);
+        return $this->navigationLinkBlock($anchor, $presentationAttributes, $innerHtml, $createBlock, $element);
     }
 
-    private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock): array
+    private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?DOMElement $item = null): array
     {
-        return $createBlock('core/navigation-link', array_filter(array_merge($presentationAttributes($anchor), array(
+        return $createBlock('core/navigation-link', $this->navigationItemAttributes($item ?? $anchor, $anchor, null, array(
             'label' => $innerHtml($anchor),
             'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
             'kind'  => 'custom',
-        )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $anchor);
+        ), $presentationAttributes), array(), $anchor);
+    }
+
+    /**
+     * @param array<string, mixed> $baseAttrs
+     * @return array<string, mixed>
+     */
+    private function navigationItemAttributes(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, array $baseAttrs, callable $presentationAttributes): array
+    {
+        $itemAttrs = $item->isSameNode($anchor) ? array() : $presentationAttributes($item);
+        $anchorAttrs = $presentationAttributes($anchor);
+        $submenuAttrs = $submenuContainer instanceof DOMElement ? $presentationAttributes($submenuContainer) : array();
+        return array_filter(array_merge($itemAttrs, $baseAttrs, array(
+            'anchorClassName'  => $anchorAttrs['className'] ?? '',
+            'anchorStyle'      => $anchorAttrs['style'] ?? '',
+            'submenuClassName' => $submenuAttrs['className'] ?? '',
+            'submenuStyle'     => $submenuAttrs['style'] ?? '',
+        )), static fn ($value): bool => '' !== $value);
+    }
+
+    private function attr(DOMElement $element, string $name): string
+    {
+        return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
     }
 
     private function primaryNavigationAnchor(DOMElement $element): ?DOMElement
