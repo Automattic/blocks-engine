@@ -14,6 +14,7 @@ final class ButtonMenuVisualProbe
 
     private const STYLE_FIELDS = array(
         'background-color',
+        'border',
         'border-bottom-color',
         'border-bottom-left-radius',
         'border-bottom-right-radius',
@@ -284,11 +285,39 @@ final class ButtonMenuVisualProbe
         if ( $this->hasRegressionRiskSignal($element) ) {
             $signals[] = 'plain-link-regression-watch';
         }
+        if ( $this->hasDefaultButtonStyleRisk($element) ) {
+            $signals[] = 'default-button-style-watch';
+        }
         if ( $element->hasAttribute('style') ) {
             $signals[] = 'inline-style';
         }
 
         return array_values(array_unique($signals));
+    }
+
+    private function hasDefaultButtonStyleRisk(DOMElement $element): bool
+    {
+        if ( ! $this->hasButtonSignal($element) && ! $this->hasCtaSignal($element) && 'button' !== strtolower($element->tagName) ) {
+            return false;
+        }
+
+        $style = $this->computedStyle($element, $this->styleRules($element->ownerDocument));
+        $background = strtolower($style['background-color'] ?? '');
+        $border = strtolower(trim(implode(' ', array(
+            $style['border'] ?? '',
+            $style['border-color'] ?? '',
+            $style['border-top-color'] ?? '',
+            $style['border-right-color'] ?? '',
+            $style['border-bottom-color'] ?? '',
+            $style['border-left-color'] ?? '',
+        ))));
+        $radius = strtolower($style['border-radius'] ?? '');
+
+        $defaultGreyBackground = in_array($background, array( '#f7f7f7', '#eee', '#eeeeee', '#e5e5e5', '#ddd', '#dddddd', 'rgb(247, 247, 247)', 'rgb(238, 238, 238)', 'rgb(229, 229, 229)', 'rgb(221, 221, 221)' ), true);
+        $defaultGreyBorder = '' !== $border && ( str_contains($border, '#ccc') || str_contains($border, '#cccccc') || str_contains($border, 'rgb(204, 204, 204)') );
+        $unstyledButton = '' === $background && '' === $radius && '' === trim((string) ($style['padding'] ?? ''));
+
+        return $unstyledButton || $defaultGreyBackground || $defaultGreyBorder;
     }
 
     /**
