@@ -130,6 +130,22 @@ final class ArtifactCompiler
      */
     private function compileEntryBlocks(string $html, string $entryPath, array $files): array
     {
+        $result = $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry');
+
+        return array(
+            'blocks'            => $result['blocks'],
+            'serialized_blocks' => $result['serialized_blocks'],
+            'diagnostics'       => $this->entryTransformDiagnostics($result['diagnostics']),
+            'fallbacks'         => $result['fallbacks'],
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>}
+     */
+    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope): array
+    {
         if ( $this->containsBlockMarkup($html) ) {
             return array(
                 'blocks'            => array(),
@@ -148,15 +164,15 @@ final class ArtifactCompiler
             );
         }
 
-        $result = ( new HtmlTransformer() )->transform($this->safeEntryImageHtml($html, $entryPath, $files), array(
-            'source'       => $entryPath,
-            'source_scope' => 'artifact-entry',
+        $result = ( new HtmlTransformer() )->transform($this->safeHtmlDocumentImageHtml($html, $sourcePath, $files), array(
+            'source'       => $sourcePath,
+            'source_scope' => $sourceScope,
         ))->toArray();
 
         return array(
             'blocks'            => is_array($result['blocks'] ?? null) ? $result['blocks'] : array(),
             'serialized_blocks' => (string) ($result['serialized_blocks'] ?? ''),
-            'diagnostics'       => $this->entryTransformDiagnostics(is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array()),
+            'diagnostics'       => is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array(),
             'fallbacks'         => is_array($result['fallbacks'] ?? null) ? $result['fallbacks'] : array(),
         );
     }
@@ -164,7 +180,7 @@ final class ArtifactCompiler
     /**
      * @param array<int, array<string, mixed>> $files
      */
-    private function safeEntryImageHtml(string $html, string $entryPath, array $files): string
+    private function safeHtmlDocumentImageHtml(string $html, string $entryPath, array $files): string
     {
         $html = preg_replace_callback('/<img\s+[^>]*src\s*=\s*(["\'])([^"\']+)\1[^>]*>/i', function (array $matches) use ($entryPath, $files): string {
             $asset = $this->findAssetByHtmlReference((string) $matches[2], $entryPath, $files);
@@ -217,7 +233,14 @@ final class ArtifactCompiler
             $path = (string) ($file['path'] ?? '');
             $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path);
             $slug = $this->slugFromPath($path);
-            $blockMarkup = $path === $entryPath ? $serializedBlocks : $this->htmlDocumentBlockMarkup((string) ($file['content'] ?? ''));
+            $content = (string) ($file['content'] ?? '');
+            $compiledBlocks = $path === $entryPath
+                ? array('serialized_blocks' => $serializedBlocks)
+                : $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document');
+            $blockMarkup = (string) ($compiledBlocks['serialized_blocks'] ?? '');
+            if ( '' === $blockMarkup && '' !== trim($content) ) {
+                $blockMarkup = $this->htmlDocumentBlockMarkup($content);
+            }
             $pages[] = array_filter(
                 array(
                     'source_path'    => $path,

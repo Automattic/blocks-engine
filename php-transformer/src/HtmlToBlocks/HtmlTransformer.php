@@ -184,7 +184,7 @@ final class HtmlTransformer
             sourceReports: $sourceReports,
             coverage: array(
                 array(
-                    'supported_blocks' => array( 'core/audio', 'core/button', 'core/buttons', 'core/code', 'core/column', 'core/columns', 'core/details', 'core/embed', 'core/file', 'core/gallery', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/separator', 'core/shortcode', 'core/spacer', 'core/table', 'core/video' ),
+                    'supported_blocks' => array( 'core/audio', 'core/button', 'core/buttons', 'core/code', 'core/column', 'core/columns', 'core/details', 'core/embed', 'core/file', 'core/gallery', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/separator', 'core/shortcode', 'core/spacer', 'core/table', 'core/video', 'core/search' ),
                     'block_count'      => count($blocks),
                     'fallback_count'   => count($fallbacks),
                     'source_provenance_count' => count($sourceProvenance),
@@ -464,6 +464,11 @@ final class HtmlTransformer
         }
 
         if ( 'form' === $tagName ) {
+            $searchBlock = $this->searchBlockFromForm($element);
+            if ( null !== $searchBlock ) {
+                return $searchBlock;
+            }
+
             $controls = $this->formControls($element);
             $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
             $fallbacks[] = FallbackDiagnostic::build(array(
@@ -1602,11 +1607,7 @@ final class HtmlTransformer
     private function formControls(DOMElement $form): array
     {
         $controls = array();
-        foreach ( $form->getElementsByTagName('*') as $control ) {
-            if ( ! $control instanceof DOMElement || ! $this->isFormControlElement($control) ) {
-                continue;
-            }
-
+        foreach ( $this->formControlElements($form) as $control ) {
             $metadata = $this->formControlMetadata($control);
             if ( array() !== $metadata ) {
                 $controls[] = $metadata;
@@ -1629,6 +1630,104 @@ final class HtmlTransformer
             ),
             static fn (string $value): bool => '' !== $value
         );
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function searchBlockFromForm(DOMElement $form): ?array
+    {
+        $method = strtolower(trim($this->attr($form, 'method')));
+        if ( '' !== $method && 'get' !== $method ) {
+            return null;
+        }
+
+        $textInput = null;
+        $submitControl = null;
+        foreach ( $this->formControlElements($form) as $control ) {
+            $tagName = strtolower($control->tagName);
+            $type = $this->formControlType($control);
+            if ( 'input' === $tagName && in_array($type, array( 'text', 'search' ), true) ) {
+                if ( null !== $textInput ) {
+                    return null;
+                }
+                $textInput = $control;
+                continue;
+            }
+
+            if ( ( 'button' === $tagName || 'input' === $tagName ) && 'submit' === $type ) {
+                if ( null !== $submitControl ) {
+                    return null;
+                }
+                $submitControl = $control;
+                continue;
+            }
+
+            return null;
+        }
+
+        if ( ! $textInput instanceof DOMElement || ! $submitControl instanceof DOMElement || ! $this->hasSearchFormSignal($form, $textInput) ) {
+            return null;
+        }
+
+        $inputLabel = $this->formControlLabel($textInput);
+        $attrs = array_filter(array_merge(
+            $this->presentationAttributes($form),
+            array(
+                'label'       => '' !== $inputLabel ? $inputLabel : 'Search',
+                'placeholder' => $this->attr($textInput, 'placeholder'),
+                'buttonText'  => $this->submitButtonText($submitControl),
+            )
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+
+        return $this->createBlock('core/search', $attrs, array(), $form);
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function formControlElements(DOMElement $form): array
+    {
+        $controls = array();
+        foreach ( $form->getElementsByTagName('*') as $control ) {
+            if ( $control instanceof DOMElement && $this->isFormControlElement($control) ) {
+                $controls[] = $control;
+            }
+        }
+
+        return $controls;
+    }
+
+    private function hasSearchFormSignal(DOMElement $form, DOMElement $input): bool
+    {
+        if ( 'search' === $this->formControlType($input) || 'search' === strtolower(trim($this->attr($form, 'role'))) ) {
+            return true;
+        }
+
+        $queryName = strtolower(trim($this->attr($input, 'name')));
+        if ( in_array($queryName, array( 's', 'q', 'query', 'search' ), true) ) {
+            return true;
+        }
+
+        $haystack = strtolower(implode(' ', array(
+            $this->attr($form, 'action'),
+            $this->attr($form, 'aria-label'),
+            $this->attr($form, 'id'),
+            $this->attr($form, 'class'),
+        )));
+
+        return str_contains($haystack, 'search');
+    }
+
+    private function submitButtonText(DOMElement $control): string
+    {
+        $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
+        if ( '' !== $text ) {
+            return $text;
+        }
+
+        $value = trim($this->attr($control, 'value'));
+        return '' !== $value ? $value : 'Search';
     }
 
     /**
