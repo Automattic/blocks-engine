@@ -1007,7 +1007,7 @@ final class HtmlTransformer
 
     private function shouldPreserveWrapper(DOMElement $element): bool
     {
-        return in_array(strtolower($element->tagName), array( 'article', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) && ( array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
+        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) && ( array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
     }
 
     private function shouldPreserveEmptyVisualElement(DOMElement $element): bool
@@ -2200,7 +2200,7 @@ final class HtmlTransformer
             return true;
         }
 
-        return 'button' === $tagName || ( 'input' === $tagName && in_array($this->formControlType($control), array( 'email', 'number', 'search', 'submit', 'tel', 'text', 'url' ), true) );
+        return 'button' === $tagName || ( 'input' === $tagName && in_array($this->formControlType($control), array( 'checkbox', 'email', 'number', 'radio', 'search', 'submit', 'tel', 'text', 'url' ), true) );
     }
 
     private function readableFormControlText(DOMElement $control): string

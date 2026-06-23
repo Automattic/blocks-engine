@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-readable-checklist-callouts",
+  "description": "Converts generic label-wrapped checklist controls and aside callouts into readable blocks without unsupported fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-readable-checklist-callouts.json",
+    "notes": "Product-neutral fixture for static content libraries that use labels as checklist rows and asides as informational sidebars."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><section class=\"checklist\"><h2>Launch checklist</h2><label class=\"checklist-item\" for=\"task-1\"><input type=\"checkbox\" id=\"task-1\" aria-label=\"Confirm meeting room\"><span>Confirm meeting room</span><small>Call the venue before printing flyers.</small></label><label><input type=\"radio\" name=\"format\" value=\"in-person\"> In-person meeting</label></section><aside class=\"callout callout--tip\" aria-label=\"Field tip\"><p><strong>Tip:</strong> Keep the sign-in sheet by the entrance.</p></aside></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "checklist" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Launch checklist", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Confirm meeting room" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/paragraph", "attrs": { "content": "In-person meeting: in-person" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "callout callout--tip" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "<strong>Tip:</strong> Keep the sign-in sheet by the entrance." } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Confirm meeting room" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "callout callout--tip" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
