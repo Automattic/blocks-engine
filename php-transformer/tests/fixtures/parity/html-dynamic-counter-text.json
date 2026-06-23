@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-dynamic-counter-text",
+  "description": "Uses data-target counter metadata as static text so generated imports do not freeze pre-animation placeholder values.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-dynamic-counter-text.json",
+    "notes": "Generic fixture for animated counter/static import parity."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"impact\"><div class=\"metric-card\"><span class=\"metric-number\" data-target=\"47200\" data-float=\"false\" data-prefix=\"\" data-suffix=\"\">0</span><span class=\"metric-unit\" aria-hidden=\"true\">+</span><p>Households reached</p></div><div class=\"metric-card\"><span class=\"metric-number\" data-target=\"8.4\" data-float=\"true\" data-prefix=\"$\" data-suffix=\"M\">$0</span><p>Resources mobilized</p></div></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "impact" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "metric-card" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "metric-number", "content": "47,200" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "<span class=\"metric-unit\" aria-hidden=\"true\">+</span>" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "metric-number", "content": "$8.4M" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "47,200" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "$8.4M" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": ">$0<" }
+  ]
+}
