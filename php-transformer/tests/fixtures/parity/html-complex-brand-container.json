@@ -1,0 +1,40 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-complex-brand-container",
+  "description": "Keeps complex brand/footer containers editable instead of collapsing every brand-like wrapper into one logo paragraph.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-complex-brand-container.json",
+    "notes": "Product-neutral fixture for generic brand/logo pattern recognition."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<footer><div class=\"footer-brand\"><a href=\"/\" class=\"site-logo\"><span>Northstar</span><span>Pantry</span></a><p class=\"tagline\">Dinner plans for busy families.</p><form class=\"newsletter-form\" aria-label=\"Newsletter\"><input type=\"email\" placeholder=\"you@example.com\" aria-label=\"Email address\" required><button class=\"btn btn-primary\">Subscribe</button></form><p class=\"success\">You are in.</p></div><div class=\"brand\"><span>Simple</span><span>Mark</span></div></footer>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "footer-brand" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "site-logo" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "tagline", "content": "Dinner plans for busy families." } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/group", "attrs": { "className": "newsletter-form" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.3", "name": "core/paragraph", "attrs": { "className": "success", "content": "You are in." } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "brand", "content": "<span>Simple</span><span>Mark</span>" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 4 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks.0.attrs.content", "assert": "equals", "value": "Email address: you@example.com (required)" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks.1.innerBlocks.0.attrs.text", "assert": "equals", "value": "Subscribe" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"footer-brand\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Dinner plans for busy families." },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Email address: you@example.com (required)" }
+  ]
+}
