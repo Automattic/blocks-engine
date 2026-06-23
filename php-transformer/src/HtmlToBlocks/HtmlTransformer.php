@@ -484,6 +484,11 @@ final class HtmlTransformer
             return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
         }
 
+        $parameterTable = $this->parameterTableBlockFromElement($element);
+        if ( null !== $parameterTable ) {
+            return $parameterTable;
+        }
+
         if ( 'hr' === $tagName ) {
             return $this->createBlock('core/separator', $this->presentationAttributes($element), array(), $element);
         }
@@ -667,6 +672,11 @@ final class HtmlTransformer
             $spacer = $this->spacerBlockFromElement($element);
             if ( null !== $spacer ) {
                 return $spacer;
+            }
+
+            $navigationSection = $this->navigationSectionBlockFromElement($element);
+            if ( null !== $navigationSection ) {
+                return $navigationSection;
             }
 
             $navigation = $this->navigationPattern->match(
@@ -1855,6 +1865,53 @@ final class HtmlTransformer
     }
 
     /**
+     * @return array<string, mixed>|null
+     */
+    private function parameterTableBlockFromElement(DOMElement $element): ?array
+    {
+        if ( ! $this->hasClass($element, 'param-table') ) {
+            return null;
+        }
+
+        $rows = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement || ! $this->hasClass($child, 'param-row') ) {
+                return null;
+            }
+
+            $name = $this->firstDirectChildWithClass($child, 'param-name');
+            $type = $this->firstDirectChildWithClass($child, 'param-type');
+            $desc = $this->firstDirectChildWithClass($child, 'param-desc');
+            if ( ! $name instanceof DOMElement || ! $type instanceof DOMElement || ! $desc instanceof DOMElement ) {
+                return null;
+            }
+
+            $rows[] = array( 'cells' => array(
+                array( 'content' => $this->innerHtml($name), 'tag' => 'td' ),
+                array( 'content' => $this->innerHtml($type), 'tag' => 'td' ),
+                array( 'content' => $this->innerHtml($desc), 'tag' => 'td' ),
+            ) );
+        }
+
+        if ( array() === $rows ) {
+            return null;
+        }
+
+        return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), array(
+            'head' => array( array( 'cells' => array(
+                array( 'content' => 'Parameter', 'tag' => 'th' ),
+                array( 'content' => 'Type', 'tag' => 'th' ),
+                array( 'content' => 'Description', 'tag' => 'th' ),
+            ) ) ),
+            'body' => $rows,
+        )), array(), $element);
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     private function definitionListItems(DOMElement $list): array
@@ -2934,7 +2991,114 @@ final class HtmlTransformer
         }
 
         return (bool) preg_match('/(?:^|[\s_-])columns?(?:$|[\s_-])/', $className)
+            || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element) )
             || preg_match('/(?:^|;)\s*(?:display\s*:\s*(?:inline-)?flex|grid-template-columns\s*:)/', $style);
+    }
+
+    private function looksLikeDocumentationLayout(DOMElement $element): bool
+    {
+        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id')));
+        return (bool) preg_match('/(?:^|[\s_-])(?:docs?|documentation|article|content)(?:[\s_-]+(?:layout|shell|page|with[\s_-]+sidebar)|$)|(?:^|[\s_-])sidebar[\s_-]+layout(?:$|[\s_-])/', $name);
+    }
+
+    private function hasSidebarAndContentChildren(DOMElement $element): bool
+    {
+        $hasSidebar = false;
+        $hasContent = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $name = strtolower(trim($child->tagName . ' ' . $this->attr($child, 'class') . ' ' . $this->attr($child, 'id') . ' ' . $this->attr($child, 'role')));
+            $hasSidebar = $hasSidebar || (bool) preg_match('/(?:^|[\s_-])(?:aside|sidebar|toc|table[\s_-]+of[\s_-]+contents)(?:$|[\s_-])/', $name);
+            $hasContent = $hasContent || in_array(strtolower($child->tagName), array( 'article', 'main', 'section' ), true)
+                || (bool) preg_match('/(?:^|[\s_-])(?:main|content|article|docs?[\s_-]+content|documentation[\s_-]+content)(?:$|[\s_-])/', $name);
+        }
+
+        return $hasSidebar && $hasContent;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function navigationSectionBlockFromElement(DOMElement $element): ?array
+    {
+        if ( ! $this->hasNavigationContainerSignal($element) ) {
+            return null;
+        }
+
+        $heading = null;
+        $anchors = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( $child instanceof DOMElement && preg_match('/^h[1-6]$/i', $child->tagName) ) {
+                if ( $heading instanceof DOMElement ) {
+                    return null;
+                }
+                $heading = $child;
+                continue;
+            }
+
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') ) {
+                $anchors[] = $child;
+                continue;
+            }
+
+            return null;
+        }
+
+        if ( ! $heading instanceof DOMElement || array() === $anchors ) {
+            return null;
+        }
+
+        $sectionFallbacks = array();
+        $blocks = array( $this->convertElement($heading, $sectionFallbacks, true) );
+        $links = array();
+        foreach ( $anchors as $anchor ) {
+            $links[] = $this->createBlock('core/navigation-link', array_filter(array(
+                'label' => $this->innerHtml($anchor),
+                'url'   => $this->safeNavigationUrl($this->attr($anchor, 'href')),
+                'kind'  => 'custom',
+            ), static fn ($value): bool => '' !== $value), array(), $anchor);
+        }
+        $blocks[] = $this->createBlock('core/navigation', array(), $links, $element);
+
+        return $this->createBlock('core/group', $this->presentationAttributes($element), array_values(array_filter($blocks)), $element);
+    }
+
+    private function hasNavigationContainerSignal(DOMElement $element): bool
+    {
+        if ( 'navigation' === strtolower($this->attr($element, 'role')) ) {
+            return true;
+        }
+
+        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id')));
+        return (bool) preg_match('/(?:^|[\s_-])(?:nav|navbar|navigation|menu|links)(?:$|[\s_-])/', $name);
+    }
+
+    private function safeNavigationUrl(string $url): string
+    {
+        $url = trim($url);
+        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
+            return '';
+        }
+
+        return $url;
+    }
+
+    private function firstDirectChildWithClass(DOMElement $element, string $className): ?DOMElement
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->hasClass($child, $className) ) {
+                return $child;
+            }
+        }
+
+        return null;
     }
 
     private function hasDirectChildElement(DOMElement $element, string $tagName): bool
