@@ -469,6 +469,10 @@ final class HtmlTransformer
             return $this->createBlock('core/separator', $this->presentationAttributes($element), array(), $element);
         }
 
+        if ( 'br' === $tagName ) {
+            return null;
+        }
+
         if ( 'details' === $tagName ) {
             return $this->detailsPattern->match(
                 $element,
@@ -2467,8 +2471,23 @@ final class HtmlTransformer
         $className = strtolower($this->attr($element, 'class'));
         $style = strtolower($this->attr($element, 'style'));
 
+        if ( preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style) && $this->hasDirectChildElement($element, 'svg') ) {
+            return false;
+        }
+
         return (bool) preg_match('/(?:^|[\s_-])columns?(?:$|[\s_-])/', $className)
             || preg_match('/(?:^|;)\s*(?:display\s*:\s*(?:inline-)?flex|grid-template-columns\s*:)/', $style);
+    }
+
+    private function hasDirectChildElement(DOMElement $element, string $tagName): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $tagName === strtolower($child->tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
