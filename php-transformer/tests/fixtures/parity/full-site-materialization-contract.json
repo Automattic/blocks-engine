@@ -123,7 +123,7 @@
     { "path": "source_reports.materialization_plan.menus.0.items", "assert": "equals", "value": 3 },
     { "path": "source_reports.materialization_plan.template_part_writes", "assert": "count", "count": 2 },
     { "path": "source_reports.materialization_plan.template_part_writes.0.type", "assert": "equals", "value": "wp_template_part" },
-    { "path": "source_reports.materialization_plan.template_part_writes.0.content", "assert": "contains", "value": "<header>" },
+    { "path": "source_reports.materialization_plan.template_part_writes.0.content", "assert": "contains", "value": "<!-- wp:navigation" },
     { "path": "source_reports.materialization_plan.template_part_writes.1.area", "assert": "equals", "value": "footer" },
     { "path": "source_reports.materialization_plan.assets.4.path", "assert": "equals", "value": "site/assets/site.css" },
     { "path": "source_reports.materialization_plan.assets.4.content_encoding", "assert": "equals", "value": "text" },

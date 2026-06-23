@@ -160,7 +160,7 @@ $assert(str_contains($css, '.figma-node-1-1-hero-section{width:1200px;height:600
 $assert(str_contains($css, '.figma-node-1-2-hero-title{font-size:48px;font-weight:700;color:#1a334d;flex-shrink:0}'), 'css-text-style');
 $assert(str_contains($css, '.figma-node-1-4-hero-image-rectangle{width:320px;height:180px;position:absolute;left:10px;top:20px;background:#ff0000;background-image:url("assets/hero-image.svg")'), 'css-rectangle-asset-style');
 $assert(str_contains($css, '.figma-node-1-5-nested-image-paint{') && str_contains($css, 'background-image:url("assets/fixture-photo.jpg")'), 'css-nested-image-hash-asset-style');
-$assert(str_contains($html, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"'), 'html-vector-blob-svg');
+$assert(str_contains($html, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-0.5 -0.5 11 11"'), 'html-vector-blob-svg');
 $assert(str_contains($html, 'd="M 0 0 L 10 0 L 10 10 Z"'), 'html-vector-blob-path');
 $assert(! str_contains($css, 'order:'), 'css-avoids-source-order');
 $assert(! str_contains($css, 'font-family:Inter') && ! str_contains($css, 'body{margin:0;background') && ! str_contains($css, 'body{margin:0;color'), 'css-avoids-hardcoded-theme-style');
@@ -182,6 +182,22 @@ $oversizedVectorHtml = $fileContent($oversizedVectorResult, 'index.html');
 $oversizedVectorCss = $fileContent($oversizedVectorResult, 'style.css');
 $assert(str_contains($oversizedVectorHtml, 'viewBox="0 0 10 10"'), 'oversized-vector-viewbox-uses-path-bounds');
 $assert(str_contains($oversizedVectorCss, '.figma-node-vector-oversized-bounds-oversized-bounds{width:5px;height:5px'), 'oversized-vector-css-keeps-node-size');
+
+$matrixTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Matrix Transform Fixture',
+    'nodes' => array(
+        array(
+            'id'        => 'matrix:flip',
+            'type'      => 'FRAME',
+            'name'      => 'Matrix Flip',
+            'width'     => 20,
+            'height'    => 20,
+            'transform' => array('m00' => -1, 'm01' => 0, 'm02' => 0, 'm10' => 0, 'm11' => 1, 'm12' => 0),
+        ),
+    ),
+));
+$matrixTransformCss = $fileContent($matrixTransformResult, 'style.css');
+$assert(str_contains($matrixTransformCss, 'transform:matrix(-1,0,0,1,0,0);transform-origin:0 0'), 'matrix-transform-uses-figma-origin');
 $assetPaths = array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $result['assets'] ?? array());
 $assert(in_array('assets/hero-image.svg', $assetPaths, true), 'asset-report-path');
 $assert(in_array('external_asset_omitted', $diagnosticCodes, true), 'external-asset-diagnostic');
@@ -1388,7 +1404,7 @@ $assert(str_contains($layoutFidelityCss, '.figma-node-5-2-fixed-card{width:100px
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-3-hug-label{width:fit-content;height:fit-content;font-size:12px;flex-shrink:0}'), 'layout-hug-sizing');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-4-fill-panel{width:100%;height:100%;flex-grow:1;flex-shrink:1;align-self:stretch}'), 'layout-fill-sizing-without-source-order');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-5-absolute-badge{width:50px;height:20px;position:absolute;left:20px;right:430px;top:20px;bottom:260px;background:#000000;flex-shrink:0}'), 'layout-absolute-constraints-without-source-z-index');
-$assert(str_contains($layoutFidelityCss, '.figma-node-5-6-matrix-transform{width:30px;height:30px;transform:matrix(0,1,-1,0,40,60);flex-shrink:0}'), 'layout-relative-transform-matrix');
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-6-matrix-transform{width:30px;height:30px;transform:matrix(0,1,-1,0,40,60);transform-origin:0 0;flex-shrink:0}'), 'layout-relative-transform-matrix');
 $assert(! str_contains($layoutFidelityCss, 'font-family:Inter') && ! str_contains($layoutFidelityCss, 'body{margin:0;background') && ! str_contains($layoutFidelityCss, 'body{margin:0;color'), 'layout-css-avoids-theme-defaults');
 
 $plainFrameLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(

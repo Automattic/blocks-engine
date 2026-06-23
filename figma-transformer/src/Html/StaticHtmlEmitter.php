@@ -552,6 +552,9 @@ final class StaticHtmlEmitter
         $transform = $this->transformStyle($box);
         if ( null !== $transform ) {
             $styles[] = 'transform:' . $transform;
+            if ( $this->hasExplicitTransformMatrix($box) ) {
+                $styles[] = 'transform-origin:0 0';
+            }
         }
 
         foreach ( $this->radiusStyles($box) as $style ) {
@@ -750,6 +753,14 @@ final class StaticHtmlEmitter
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     */
+    private function hasExplicitTransformMatrix(array $box): bool
+    {
+        return isset($box['transform']) && is_array($box['transform']);
     }
 
     /**
@@ -1744,6 +1755,14 @@ final class StaticHtmlEmitter
         $pathBounds = $this->vectorPathBounds($node);
         if ( null !== $pathBounds && ( $pathBounds['width'] > $width + 0.001 || $pathBounds['height'] > $height + 0.001 || $pathBounds['x'] < -0.001 || $pathBounds['y'] < -0.001 ) ) {
             $viewBox = $pathBounds;
+        } elseif ( null !== $pathBounds && $this->vectorPathTouchesViewBoxEdge($pathBounds, $viewBox) ) {
+            $padding = 0.5;
+            $viewBox = array(
+                'x' => $viewBox['x'] - $padding,
+                'y' => $viewBox['y'] - $padding,
+                'width' => $viewBox['width'] + ( $padding * 2 ),
+                'height' => $viewBox['height'] + ( $padding * 2 ),
+            );
         }
 
         $attributes = array(
@@ -1765,6 +1784,19 @@ final class StaticHtmlEmitter
         }
 
         return '<svg ' . implode(' ', $attributes) . '>' . $body . '</svg>';
+    }
+
+    /**
+     * @param array{x: float, y: float, width: float, height: float} $pathBounds
+     * @param array{x: float, y: float, width: float, height: float} $viewBox
+     */
+    private function vectorPathTouchesViewBoxEdge(array $pathBounds, array $viewBox): bool
+    {
+        $epsilon = 0.001;
+        return abs($pathBounds['x'] - $viewBox['x']) <= $epsilon
+            || abs($pathBounds['y'] - $viewBox['y']) <= $epsilon
+            || abs(($pathBounds['x'] + $pathBounds['width']) - ($viewBox['x'] + $viewBox['width'])) <= $epsilon
+            || abs(($pathBounds['y'] + $pathBounds['height']) - ($viewBox['y'] + $viewBox['height'])) <= $epsilon;
     }
 
     /**
