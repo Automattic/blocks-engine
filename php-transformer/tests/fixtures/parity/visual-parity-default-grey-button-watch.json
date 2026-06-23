@@ -1,0 +1,27 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "visual-parity-default-grey-button-watch",
+  "description": "Flags rendered default-grey WordPress button styling as a visual parity risk for source CTAs that should preserve custom shape, color, border, and hierarchy.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/visual-parity-default-grey-button-watch.json",
+    "notes": "Generic probe for imported CTA regressions where a custom source button renders as default WordPress grey."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Probe output is a diagnostic surface for downstream browser parity validation."
+  },
+  "operation": "visual_parity_probe.extract",
+  "input": {
+    "content": "<style>.wp-block-button__link{background-color:#f7f7f7;color:#333;border:1px solid #ccc;border-radius:0;padding:8px 12px}.hero-cta{font-weight:700}</style><main><div class=\"wp-block-button\"><a class=\"wp-block-button__link wp-element-button hero-cta\" href=\"/book\">Book now</a></div></main>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "summary.total", "assert": "equals", "value": 1 },
+    { "path": "summary.by_kind.cta", "assert": "equals", "value": 1 },
+    { "path": "probes.0.href", "assert": "equals", "value": "/book" },
+    { "path": "probes.0.style.background-color", "assert": "equals", "value": "#f7f7f7" },
+    { "path": "probes.0.style.border", "assert": "equals", "value": "1px solid #ccc" },
+    { "path": "probes.0.signals.2", "assert": "equals", "value": "default-button-style-watch" }
+  ]
+}
