@@ -24,6 +24,7 @@ final class StaticHtmlEmitter
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $nodes = $this->nodeList($scenegraph);
         $diagnostics = array();
+        $nodeStyleDiagnostics = array();
         $assetFiles = $this->normalizeAssets($scenegraph['assets'] ?? array(), $diagnostics);
 
         $body = '';
@@ -31,14 +32,16 @@ final class StaticHtmlEmitter
             'html{box-sizing:border-box}',
             '*,*::before,*::after{box-sizing:inherit}',
             'body{margin:0}',
+            'p,h1,h2,h3,h4,h5,h6{margin:0}',
             'img{display:block;max-width:100%;height:auto}',
         );
+        $fontCss = $this->fontCss($options);
 
         foreach ( $nodes as $node ) {
             if ( ! is_array($node) ) {
                 continue;
             }
-            $body .= $this->emitNode($node, $cssRules, $diagnostics, 0, null);
+            $body .= $this->emitNode($node, $cssRules, $diagnostics, $nodeStyleDiagnostics, 0, null);
         }
 
         $files = array(
@@ -52,12 +55,28 @@ final class StaticHtmlEmitter
                 'path'      => 'style.css',
                 'role'      => 'stylesheet',
                 'mime_type' => 'text/css',
-                'content'   => implode("\n", $cssRules) . "\n",
+                'content'   => ('' !== $fontCss ? $fontCss . "\n" : '') . implode("\n", $cssRules) . "\n",
             ),
         );
 
         foreach ( $assetFiles as $assetFile ) {
             $files[] = $assetFile;
+        }
+
+        $visualNodeMap = $this->visualNodeMap($nodes);
+        $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
+        if ( '' === $fontCss ) {
+            foreach ( $fontFamilies as $fontFamily ) {
+                if ( $this->isWebSafeFontFamily($fontFamily) ) {
+                    continue;
+                }
+                $diagnostics[] = array(
+                    'severity' => 'info',
+                    'code' => 'font_css_missing_for_source_font',
+                    'message' => 'Source font family was emitted without supplied font CSS; browser font fallback may reduce visual parity.',
+                    'context' => array('font_family' => $fontFamily),
+                );
+            }
         }
 
         return array(
@@ -66,9 +85,16 @@ final class StaticHtmlEmitter
             'files'         => $files,
             'assets'        => $this->assetReport($assetFiles),
             'source_report' => array(
-                'name'       => $title,
-                'node_count' => $this->countNodes($nodes),
-                'schema'     => $scenegraph['schema'] ?? null,
+                'name'                         => $title,
+                'node_count'                   => $this->countNodes($nodes),
+                'schema'                       => $scenegraph['schema'] ?? null,
+                'node_style_diagnostic_count'  => count($nodeStyleDiagnostics),
+                'node_style_mismatch_count'    => $this->countNodeStyleMismatches($nodeStyleDiagnostics),
+                'node_style_diagnostics'       => $nodeStyleDiagnostics,
+                'visual_node_count'            => count($visualNodeMap),
+                'visual_node_map'              => $visualNodeMap,
+                'font_families'                => $fontFamilies,
+                'font_css_supplied'            => '' !== $fontCss,
             ),
             'metrics'       => array(
                 'node_count'  => $this->countNodes($nodes),
@@ -82,7 +108,7 @@ final class StaticHtmlEmitter
      * @param array<int, string>                 $cssRules
      * @param array<int, array<string, mixed>>   $diagnostics
      */
-    private function emitNode(array $node, array &$cssRules, array &$diagnostics, int $depth, ?array $parentNode): string
+    private function emitNode(array $node, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics, int $depth, ?array $parentNode): string
     {
         $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
         $name = (string) ($node['name'] ?? '');
@@ -93,14 +119,16 @@ final class StaticHtmlEmitter
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
         $children = $this->nodeList($node);
         $content = $text;
+        $vectorSvg = $this->supportedVectorSvg($node, $type);
 
-        foreach ( $children as $child ) {
-            if ( is_array($child) ) {
-                $content .= $this->emitNode($child, $cssRules, $diagnostics, $depth + 1, $node);
+        if ( ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) ) {
+            foreach ( $children as $child ) {
+                if ( is_array($child) ) {
+                    $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node);
+                }
             }
         }
 
-        $vectorSvg = $this->supportedVectorSvg($node, $type);
         if ( null !== $vectorSvg ) {
             $content = $vectorSvg . $content;
         }
@@ -123,6 +151,7 @@ final class StaticHtmlEmitter
         if ( ! empty($styles) ) {
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
         }
+        $nodeStyleDiagnostics[] = $this->nodeStyleDiagnostic($node, $type, $className, $tag, $styles, $parentNode);
 
         $attributes = sprintf(' class="%1$s" data-figma-node-id="%2$s" data-figma-node-name="%3$s"', $className, $id, $attributeName);
         if ( 'RECTANGLE' === $type && '' === $content ) {
@@ -171,6 +200,294 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array<string, mixed> $options
+     */
+    private function fontCss(array $options): string
+    {
+        if ( isset($options['font_css']) && is_scalar($options['font_css']) ) {
+            return trim((string) $options['font_css']);
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, string> $styles
+     * @return array<string, mixed>
+     */
+    private function nodeStyleDiagnostic(array $node, string $type, string $className, string $tag, array $styles, ?array $parentNode): array
+    {
+        $expected = $this->expectedNodeStyleData($node, $type, $parentNode);
+        $emitted = $this->emittedNodeStyleData($styles);
+        $matches = array();
+        $mismatches = array();
+
+        foreach ( array_keys($expected + $emitted) as $key ) {
+            $left = $expected[$key] ?? null;
+            $right = $emitted[$key] ?? null;
+            $matches[$key] = $left === $right;
+            if ( ! $matches[$key] ) {
+                $mismatches[] = $key;
+            }
+        }
+
+        return array(
+            'node'       => array(
+                'id'    => (string) ($node['id'] ?? ''),
+                'name'  => (string) ($node['name'] ?? ''),
+                'type'  => $type,
+                'tag'   => $tag,
+                'class' => $className,
+            ),
+            'expected'   => $expected,
+            'emitted'    => $emitted,
+            'matches'    => $matches,
+            'mismatches' => $mismatches,
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, string|null>
+     */
+    private function expectedNodeStyleData(array $node, string $type, ?array $parentNode): array
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $data = array(
+            'background'  => 'TEXT' !== $type && ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) ? $this->backgroundColor($node) : null,
+            'width'       => $this->expectedCssLength($box['width'] ?? null),
+            'height'      => $this->expectedCssLength($box['height'] ?? null),
+            'x'           => null,
+            'y'           => null,
+            'text_color'  => null,
+            'font_family' => null,
+            'font_size'   => null,
+            'font_weight' => null,
+            'line_height' => null,
+        );
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( null !== $parentNode && $this->isFreeformContainer($parentNode) ) {
+            $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+            $data['x'] = $this->expectedCssLength($this->positionOffset($box, $parentBox, 'x'));
+            $data['y'] = $this->expectedCssLength($this->positionOffset($box, $parentBox, 'y'));
+        } elseif ( null !== $parentNode && 'absolute' === ($layout['positioning'] ?? null) ) {
+            $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+            $data['x'] = $this->expectedCssLength($this->relativeOffset($box, $parentBox, 'x'));
+            $data['y'] = $this->expectedCssLength($this->relativeOffset($box, $parentBox, 'y'));
+        }
+
+        if ( 'TEXT' === $type ) {
+            foreach ( $this->expectedTextStyleData($node) as $key => $value ) {
+                $data[$key] = $value;
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, string|null>
+     */
+    private function expectedTextStyleData(array $node): array
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        if ( ! isset($style['color']) ) {
+            $paints = is_array($node['figma_paints']['fills'] ?? null) ? $node['figma_paints']['fills'] : array();
+            $color = $this->firstSolidPaint($paints);
+            if ( null !== $color ) {
+                $style['css_color'] = $color;
+            }
+        }
+
+        $declarations = $this->styleDeclarationMap($this->textStyleDeclarations($style));
+        return array(
+            'text_color'  => $declarations['color'] ?? null,
+            'font_family' => $declarations['font-family'] ?? null,
+            'font_size'   => $declarations['font-size'] ?? null,
+            'font_weight' => $declarations['font-weight'] ?? null,
+            'line_height' => $declarations['line-height'] ?? null,
+        );
+    }
+
+    /**
+     * @param array<int, string> $styles
+     * @return array<string, string|null>
+     */
+    private function emittedNodeStyleData(array $styles): array
+    {
+        $map = $this->styleDeclarationMap($styles);
+        return array(
+            'background'  => $map['background'] ?? null,
+            'width'       => $map['width'] ?? null,
+            'height'      => $map['height'] ?? null,
+            'x'           => $map['left'] ?? null,
+            'y'           => $map['top'] ?? null,
+            'text_color'  => $map['color'] ?? null,
+            'font_family' => $map['font-family'] ?? null,
+            'font_size'   => $map['font-size'] ?? null,
+            'font_weight' => $map['font-weight'] ?? null,
+            'line_height' => $map['line-height'] ?? null,
+        );
+    }
+
+    /**
+     * @param array<int, string> $styles
+     * @return array<string, string>
+     */
+    private function styleDeclarationMap(array $styles): array
+    {
+        $map = array();
+        foreach ( $styles as $style ) {
+            $parts = explode(':', $style, 2);
+            if ( 2 === count($parts) ) {
+                $map[trim($parts[0])] = trim($parts[1]);
+            }
+        }
+
+        return $map;
+    }
+
+    private function expectedCssLength(mixed $value): ?string
+    {
+        return is_numeric($value) ? $this->number((float) $value) . 'px' : null;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodeStyleDiagnostics
+     */
+    private function countNodeStyleMismatches(array $nodeStyleDiagnostics): int
+    {
+        $count = 0;
+        foreach ( $nodeStyleDiagnostics as $diagnostic ) {
+            $count += count(is_array($diagnostic['mismatches'] ?? null) ? $diagnostic['mismatches'] : array());
+        }
+
+        return $count;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodeStyleDiagnostics
+     * @return array<int, string>
+     */
+    private function fontFamilies(array $nodeStyleDiagnostics): array
+    {
+        $families = array();
+        foreach ( $nodeStyleDiagnostics as $diagnostic ) {
+            $family = $diagnostic['expected']['font_family'] ?? null;
+            if ( is_scalar($family) && '' !== (string) $family ) {
+                $families[] = trim((string) $family, '"');
+            }
+        }
+
+        sort($families);
+        return array_values(array_unique($families));
+    }
+
+    private function isWebSafeFontFamily(string $family): bool
+    {
+        return in_array(strtolower($family), array('arial', 'georgia', 'helvetica', 'serif', 'sans-serif', 'times new roman', 'verdana'), true);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodes
+     * @return array<int, array<string, mixed>>
+     */
+    private function visualNodeMap(array $nodes): array
+    {
+        $map = array();
+        foreach ( $nodes as $node ) {
+            if ( is_array($node) ) {
+                $this->appendVisualNodeMap($node, $map, 0.0, 0.0, null);
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, array<string, mixed>> $map
+     */
+    private function appendVisualNodeMap(array $node, array &$map, float $x, float $y, ?array $parentNode): void
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+
+        if ( null !== $parentNode && $this->isFreeformContainer($parentNode) ) {
+            $x += $this->positionOffset($box, $parentBox, 'x') ?? 0.0;
+            $y += $this->positionOffset($box, $parentBox, 'y') ?? 0.0;
+        } elseif ( null !== $parentNode && 'absolute' === ($layout['positioning'] ?? null) ) {
+            $x += $this->relativeOffset($box, $parentBox, 'x') ?? 0.0;
+            $y += $this->relativeOffset($box, $parentBox, 'y') ?? 0.0;
+        }
+
+        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : null;
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
+        if ( null !== $width && null !== $height ) {
+            $imagePaint = $this->firstImagePaint($node);
+            $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+            $map[] = array(
+                'id' => (string) ($node['id'] ?? ''),
+                'parent_id' => null !== $parentNode ? (string) ($parentNode['id'] ?? '') : '',
+                'name' => (string) ($node['name'] ?? ''),
+                'type' => strtoupper((string) ($node['type'] ?? '')),
+                'rect' => array(
+                    'x' => $x,
+                    'y' => $y,
+                    'width' => $width,
+                    'height' => $height,
+                ),
+                'layout' => array(
+                    'display' => $layout['display'] ?? null,
+                    'flex_direction' => $layout['flex_direction'] ?? null,
+                    'positioning' => $layout['positioning'] ?? null,
+                    'coordinate_space' => $box['coordinate_space'] ?? null,
+                ),
+                'image' => null === $imagePaint ? null : $this->visualImageMetadata($imagePaint),
+                'text' => empty($text) ? null : $this->visualTextMetadata($text),
+            );
+        }
+
+        $children = $this->nodeList($node);
+        if ( empty($children) ) {
+            return;
+        }
+
+        $padding = is_array($layout['padding'] ?? null) ? $layout['padding'] : array();
+        $childX = $x + ( isset($padding['left']) && is_numeric($padding['left']) ? (float) $padding['left'] : 0.0 );
+        $childY = $y + ( isset($padding['top']) && is_numeric($padding['top']) ? (float) $padding['top'] : 0.0 );
+        $gap = isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ? (float) $layout['item_spacing'] : 0.0;
+        $cursorX = $childX;
+        $cursorY = $childY;
+        $isRow = 'row' === ($layout['flex_direction'] ?? null);
+
+        foreach ( $children as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $childLayout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
+            if ( $this->isFreeformContainer($node) || 'absolute' === ($childLayout['positioning'] ?? null) ) {
+                $this->appendVisualNodeMap($child, $map, $x, $y, $node);
+                continue;
+            }
+
+            $this->appendVisualNodeMap($child, $map, $cursorX, $cursorY, $node);
+            if ( $isRow ) {
+                $cursorX += ( isset($childBox['width']) && is_numeric($childBox['width']) ? (float) $childBox['width'] : 0.0 ) + $gap;
+            } else {
+                $cursorY += ( isset($childBox['height']) && is_numeric($childBox['height']) ? (float) $childBox['height'] : 0.0 ) + $gap;
+            }
+        }
+    }
+
+    /**
      * @param array<string, mixed> $node
      * @return array<int, string>
      */
@@ -196,18 +513,24 @@ final class StaticHtmlEmitter
             $styles[] = 'overflow:hidden';
         }
 
-        if ( $this->hasAbsoluteChild($node) ) {
+        $willPositionAbsolute = (null !== $parentNode && $this->isFreeformContainer($parentNode)) || 'absolute' === ($layout['positioning'] ?? null);
+        if ( ! $willPositionAbsolute && ($this->hasAbsoluteChild($node) || $this->isFreeformContainer($node)) ) {
             $styles[] = 'position:relative';
         }
 
-        if ( 'absolute' === ($layout['positioning'] ?? null) ) {
+		if ( null !== $parentNode && $this->isFreeformContainer($parentNode) ) {
+			$styles[] = 'position:absolute';
+			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode) as $style ) {
+				$styles[] = $style;
+			}
+		} elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
             $styles[] = 'position:absolute';
             foreach ( $this->absolutePositionStyles($box, $layout, $parentNode) as $style ) {
                 $styles[] = $style;
             }
         }
 
-        if ( 'TEXT' !== $type && ! in_array($type, array('VECTOR', 'LINE', 'ELLIPSE'), true) ) {
+        if ( 'TEXT' !== $type && ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) ) {
             $background = $this->backgroundColor($node);
             if ( null !== $background ) {
                 $styles[] = 'background:' . $background;
@@ -235,14 +558,19 @@ final class StaticHtmlEmitter
         $assetPath = $this->nodeAssetPath($node);
         if ( null !== $assetPath ) {
             $styles[] = 'background-image:url("' . $assetPath . '")';
-            $styles[] = 'background-size:cover';
-            $styles[] = 'background-position:center';
+            foreach ( $this->imageBackgroundStyles($node) as $style ) {
+                $styles[] = $style;
+            }
         }
 
         if ( 'TEXT' === $type ) {
             foreach ( $this->textStyles($node) as $style ) {
                 $styles[] = $style;
             }
+        }
+
+        foreach ( $this->effectStyles($node, $type) as $style ) {
+            $styles[] = $style;
         }
 
         foreach ( array(
@@ -269,7 +597,7 @@ final class StaticHtmlEmitter
             $styles[] = 'gap:' . $this->number((float) $layout['item_spacing']) . 'px';
         }
 
-        foreach ( $this->flexItemStyles($layout) as $style ) {
+        foreach ( $this->flexItemStyles($layout, $parentNode) as $style ) {
             $styles[] = $style;
         }
 
@@ -285,8 +613,8 @@ final class StaticHtmlEmitter
     {
         $styles = array();
         $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-        $left = $this->relativeOffset($box, $parentBox, 'x');
-        $top = $this->relativeOffset($box, $parentBox, 'y');
+        $left = $this->positionOffset($box, $parentBox, 'x');
+        $top = $this->positionOffset($box, $parentBox, 'y');
         $constraints = is_array($layout['constraints'] ?? null) ? $layout['constraints'] : array();
 
         if ( null !== $left ) {
@@ -307,6 +635,46 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<string, mixed> $box
+     * @return array<int, string>
+     */
+    private function localPositionStyles(array $box): array
+    {
+        $styles = array();
+        if ( isset($box['x']) && is_numeric($box['x']) ) {
+            $styles[] = 'left:' . $this->number((float) $box['x']) . 'px';
+        }
+        if ( isset($box['y']) && is_numeric($box['y']) ) {
+            $styles[] = 'top:' . $this->number((float) $box['y']) . 'px';
+        }
+
+        return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isFreeformContainer(array $node): bool
+    {
+        if ( true === ($node['layout']['freeform'] ?? false) ) {
+            return true;
+        }
+
+        $children = $this->nodeList($node);
+        if ( 1 !== count($children) || ! is_array($children[0]) ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $childBox = is_array($children[0]['box'] ?? null) ? $children[0]['box'] : array();
+        if ( ! isset($box['width'], $box['height'], $childBox['width'], $childBox['height']) || ! is_numeric($box['width']) || ! is_numeric($box['height']) || ! is_numeric($childBox['width']) || ! is_numeric($childBox['height']) ) {
+            return false;
+        }
+
+        return (float) $childBox['width'] > (float) $box['width'] || (float) $childBox['height'] > (float) $box['height'];
+    }
+
+    /**
+     * @param array<string, mixed> $box
      * @param array<string, mixed> $parentBox
      */
     private function relativeOffset(array $box, array $parentBox, string $dimension): ?float
@@ -321,6 +689,23 @@ final class StaticHtmlEmitter
         }
 
         return $offset;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $parentBox
+     */
+    private function positionOffset(array $box, array $parentBox, string $dimension): ?float
+    {
+        if ( ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) ) {
+            return null;
+        }
+
+        if ( 'local' === ($box['coordinate_space'] ?? null) ) {
+            return (float) $box[$dimension];
+        }
+
+        return $this->relativeOffset($box, $parentBox, $dimension);
     }
 
     /**
@@ -361,11 +746,17 @@ final class StaticHtmlEmitter
      */
     private function cssMatrix(array $transform): ?string
     {
-        if ( 2 !== count($transform) || ! is_array($transform[0] ?? null) || ! is_array($transform[1] ?? null) ) {
+        if ( isset($transform['m00'], $transform['m01'], $transform['m02'], $transform['m10'], $transform['m11'], $transform['m12']) ) {
+            if ( 0.00001 > abs((float) $transform['m00'] - 1.0) && 0.00001 > abs((float) $transform['m01']) && 0.00001 > abs((float) $transform['m10']) && 0.00001 > abs((float) $transform['m11'] - 1.0) ) {
+                return null;
+            }
+            $values = array($transform['m00'], $transform['m10'], $transform['m01'], $transform['m11'], 0, 0);
+        } elseif ( 2 === count($transform) && is_array($transform[0] ?? null) && is_array($transform[1] ?? null) ) {
+            $values = array($transform[0][0] ?? null, $transform[1][0] ?? null, $transform[0][1] ?? null, $transform[1][1] ?? null, $transform[0][2] ?? null, $transform[1][2] ?? null);
+        } else {
             return null;
         }
 
-        $values = array($transform[0][0] ?? null, $transform[1][0] ?? null, $transform[0][1] ?? null, $transform[1][1] ?? null, $transform[0][2] ?? null, $transform[1][2] ?? null);
         foreach ( $values as $value ) {
             if ( ! is_numeric($value) ) {
                 return null;
@@ -379,31 +770,23 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $layout
      * @return array<int, string>
      */
-    private function flexItemStyles(array $layout): array
+    private function flexItemStyles(array $layout, ?array $parentNode): array
     {
         $styles = array();
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        $isFlexChild = in_array((string) ($parentLayout['display'] ?? ''), array('flex', 'inline-flex'), true);
 
         if ( 'FILL' === ($layout['sizing_horizontal'] ?? null) || 'FILL' === ($layout['sizing_vertical'] ?? null) ) {
             $styles[] = 'flex-grow:1';
             $styles[] = 'flex-shrink:1';
         } elseif ( isset($layout['grow']) && is_numeric($layout['grow']) ) {
             $styles[] = 'flex-grow:' . $this->number((float) $layout['grow']);
+        } elseif ( $isFlexChild ) {
+            $styles[] = 'flex-shrink:0';
         }
 
         if ( isset($layout['align']) && 'STRETCH' === $layout['align'] ) {
             $styles[] = 'align-self:stretch';
-        }
-
-        $usesSourceOrder = 'absolute' === ($layout['positioning'] ?? null)
-            || 'FILL' === ($layout['sizing_horizontal'] ?? null)
-            || 'FILL' === ($layout['sizing_vertical'] ?? null)
-            || isset($layout['grow'])
-            || isset($layout['align']);
-
-        if ( $usesSourceOrder && isset($layout['source_order']) && is_numeric($layout['source_order']) ) {
-            $order = (int) $layout['source_order'];
-            $styles[] = 'order:' . $order;
-            $styles[] = 'z-index:' . $order;
         }
 
         return $styles;
@@ -443,7 +826,7 @@ final class StaticHtmlEmitter
         }
 
         if ( isset($text['characters']) && is_scalar($text['characters']) ) {
-            return $this->sanitizeText((string) $text['characters']);
+            return $this->sanitizeText($this->derivedLineBreakText((string) $text['characters'], $text));
         }
 
         return $this->sanitizeText((string) ($node['characters'] ?? $node['text'] ?? ''));
@@ -465,7 +848,80 @@ final class StaticHtmlEmitter
             }
         }
 
-        return $this->textStyleDeclarations($style);
+        $styles = $this->textStyleDeclarations($style);
+        if ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) {
+            $styles[] = 'white-space:pre-line';
+        }
+
+        return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function textHasLineBreaks(array $node): bool
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $segments = is_array($text['segments'] ?? null) ? $text['segments'] : array();
+        foreach ( $segments as $segment ) {
+            if ( is_array($segment) && isset($segment['characters']) && is_scalar($segment['characters']) && str_contains((string) $segment['characters'], "\n") ) {
+                return true;
+            }
+        }
+
+        foreach ( array($text['characters'] ?? null, $node['characters'] ?? null, $node['text'] ?? null) as $value ) {
+            if ( is_scalar($value) && str_contains((string) $value, "\n") ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $text
+     */
+    private function derivedLineBreakText(string $characters, array $text): string
+    {
+        if ( str_contains($characters, "\n") ) {
+            return $characters;
+        }
+
+        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
+        $baselines = is_array($derivedLayout['baselines'] ?? null) ? $derivedLayout['baselines'] : array();
+        if ( 2 > count($baselines) ) {
+            return $characters;
+        }
+
+        $chars = preg_split('//u', $characters, -1, PREG_SPLIT_NO_EMPTY);
+        if ( ! is_array($chars) || empty($chars) ) {
+            return $characters;
+        }
+
+        $lines = array();
+        foreach ( $baselines as $baseline ) {
+            if ( ! is_array($baseline) || ! isset($baseline['firstCharacter'], $baseline['endCharacter']) || ! is_numeric($baseline['firstCharacter']) || ! is_numeric($baseline['endCharacter']) ) {
+                return $characters;
+            }
+            $start = max(0, (int) $baseline['firstCharacter']);
+            $end = min(count($chars), (int) $baseline['endCharacter']);
+            if ( $end <= $start ) {
+                continue;
+            }
+            $lines[] = implode('', array_slice($chars, $start, $end - $start));
+        }
+
+        return empty($lines) ? $characters : implode("\n", $lines);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function textHasDerivedLineBreaks(array $node): bool
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
+        return isset($derivedLayout['baseline_count']) && is_numeric($derivedLayout['baseline_count']) && 1 < (int) $derivedLayout['baseline_count'];
     }
 
     /**
@@ -490,6 +946,8 @@ final class StaticHtmlEmitter
 
         if ( isset($style['line_height_px']) && is_numeric($style['line_height_px']) ) {
             $styles[] = 'line-height:' . $this->number((float) $style['line_height_px']) . 'px';
+        } elseif ( isset($style['line_height_raw']) && is_numeric($style['line_height_raw']) ) {
+            $styles[] = 'line-height:' . $this->number((float) $style['line_height_raw']);
         } elseif ( isset($style['line_height_percent']) && is_numeric($style['line_height_percent']) ) {
             $styles[] = 'line-height:' . $this->number((float) $style['line_height_percent']) . '%';
         }
@@ -582,7 +1040,84 @@ final class StaticHtmlEmitter
             $width = (float) $node['strokeWeight'];
         }
 
+        if ( 'OUTSIDE' === strtoupper((string) ($node['strokeAlign'] ?? '')) ) {
+            return array('box-shadow:0 0 0 ' . $this->number((float) $width) . 'px ' . $stroke);
+        }
+
         return array('border:' . $this->number((float) $width) . 'px solid ' . $stroke);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function effectStyles(array $node, string $type): array
+    {
+        $effects = is_array($node['figma_effects'] ?? null) ? $node['figma_effects'] : array();
+        $boxShadows = array();
+        $textShadows = array();
+        $filters = array();
+        $backdropFilters = array();
+
+        foreach ( $effects as $effect ) {
+            if ( ! is_array($effect) ) {
+                continue;
+            }
+
+            $effectType = (string) ($effect['type'] ?? '');
+            if ( in_array($effectType, array('drop_shadow', 'inner_shadow'), true) ) {
+                $shadow = $this->shadowValue($effect, 'inner_shadow' === $effectType);
+                if ( null === $shadow ) {
+                    continue;
+                }
+                if ( 'TEXT' === $type && 'drop_shadow' === $effectType ) {
+                    $textShadows[] = $shadow;
+                } else {
+                    $boxShadows[] = $shadow;
+                }
+                continue;
+            }
+
+            if ( 'layer_blur' === $effectType && isset($effect['radius']) && is_numeric($effect['radius']) ) {
+                $filters[] = 'blur(' . $this->number((float) $effect['radius']) . 'px)';
+            } elseif ( 'background_blur' === $effectType && isset($effect['radius']) && is_numeric($effect['radius']) ) {
+                $backdropFilters[] = 'blur(' . $this->number((float) $effect['radius']) . 'px)';
+            }
+        }
+
+        $styles = array();
+        if ( ! empty($boxShadows) ) {
+            $styles[] = 'box-shadow:' . implode(',', $boxShadows);
+        }
+        if ( ! empty($textShadows) ) {
+            $styles[] = 'text-shadow:' . implode(',', $textShadows);
+        }
+        if ( ! empty($filters) ) {
+            $styles[] = 'filter:' . implode(' ', $filters);
+        }
+        if ( ! empty($backdropFilters) ) {
+            $styles[] = 'backdrop-filter:' . implode(' ', $backdropFilters);
+        }
+
+        return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $effect
+     */
+    private function shadowValue(array $effect, bool $inset): ?string
+    {
+        $color = $this->color($effect['color'] ?? null);
+        if ( null === $color ) {
+            $color = 'rgba(0,0,0,0.25)';
+        }
+
+        return ( $inset ? 'inset ' : '' )
+            . $this->number((float) ($effect['offset_x'] ?? 0)) . 'px '
+            . $this->number((float) ($effect['offset_y'] ?? 0)) . 'px '
+            . $this->number((float) ($effect['radius'] ?? 0)) . 'px '
+            . $this->number((float) ($effect['spread'] ?? 0)) . 'px '
+            . $color;
     }
 
     /**
@@ -679,6 +1214,229 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function imageBackgroundStyles(array $node): array
+    {
+        $scaleMode = $this->nodeImageScaleMode($node);
+        $transformStyles = $this->imagePaintTransformStyles($node, $scaleMode);
+        if ( ! empty($transformStyles) ) {
+            return $transformStyles;
+        }
+
+        if ( 'STRETCH' === $scaleMode ) {
+            return array('background-size:100% 100%', 'background-repeat:no-repeat', 'background-position:center');
+        }
+
+        if ( 'TILE' === $scaleMode ) {
+            return array('background-repeat:repeat', 'background-position:center');
+        }
+
+        return array('background-size:cover', 'background-position:center');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function imagePaintTransformStyles(array $node, string $scaleMode): array
+    {
+        if ( 'STRETCH' !== $scaleMode ) {
+            return array();
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : (is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array());
+        $width = $box['width'] ?? $node['width'] ?? null;
+        $height = $box['height'] ?? $node['height'] ?? null;
+        if ( ! is_numeric($width) || ! is_numeric($height) || 0 >= (float) $width || 0 >= (float) $height ) {
+            return array();
+        }
+
+        foreach ( $this->nodeImagePaints($node) as $paint ) {
+            $matrix = $this->imagePaintTransformMatrix($paint);
+            if ( null === $matrix || $this->isIdentityImageTransform($matrix) ) {
+                continue;
+            }
+
+            if ( 0.00001 < abs($matrix['m01']) || 0.00001 < abs($matrix['m10']) || 0 >= $matrix['m00'] || 0 >= $matrix['m11'] ) {
+                continue;
+            }
+
+            $backgroundWidth = (float) $width / $matrix['m00'];
+            $backgroundHeight = (float) $height / $matrix['m11'];
+            $backgroundX = -1 * $matrix['m02'] * $backgroundWidth;
+            $backgroundY = -1 * $matrix['m12'] * $backgroundHeight;
+
+            return array(
+                'background-size:' . $this->number($backgroundWidth) . 'px ' . $this->number($backgroundHeight) . 'px',
+                'background-repeat:no-repeat',
+                'background-position:' . $this->number($backgroundX) . 'px ' . $this->number($backgroundY) . 'px',
+            );
+        }
+
+        return array();
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>|null
+     */
+    private function firstImagePaint(array $node): ?array
+    {
+        foreach ( $this->nodeImagePaints($node) as $paint ) {
+            return $paint;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $paint
+     * @return array<string, mixed>
+     */
+    private function visualImageMetadata(array $paint): array
+    {
+        $transform = $this->imagePaintTransformMatrix($paint);
+        $metadata = array(
+            'scale_mode' => strtoupper((string) ($paint['imageScaleMode'] ?? $paint['scaleMode'] ?? 'FILL')),
+            'has_transform' => null !== $transform && ! $this->isIdentityImageTransform($transform),
+            'color_managed' => true === ($paint['imageShouldColorManage'] ?? false),
+        );
+
+        foreach ( array('ref', 'imageHash', 'imageName', 'originalImageWidth', 'originalImageHeight', 'scale', 'rotation') as $key ) {
+            if ( isset($paint[$key]) && is_scalar($paint[$key]) ) {
+                $metadata[$key] = $paint[$key];
+            }
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @param array<string, mixed> $text
+     * @return array<string, mixed>
+     */
+    private function visualTextMetadata(array $text): array
+    {
+        $metadata = array(
+            'character_count' => isset($text['characters']) && is_scalar($text['characters']) ? strlen((string) $text['characters']) : 0,
+            'segment_count' => is_array($text['segments'] ?? null) ? count($text['segments']) : 0,
+        );
+
+        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
+        if ( ! empty($derivedLayout) ) {
+            $metadata['derived_layout'] = $derivedLayout;
+            $metadata['has_derived_layout'] = true;
+            $metadata['baseline_count'] = $derivedLayout['baseline_count'] ?? 0;
+            $metadata['glyph_count'] = $derivedLayout['glyph_count'] ?? 0;
+        } else {
+            $metadata['has_derived_layout'] = false;
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @param array<string, mixed> $paint
+     * @return array{m00: float, m01: float, m02: float, m10: float, m11: float, m12: float}|null
+     */
+    private function imagePaintTransformMatrix(array $paint): ?array
+    {
+        $transform = $paint['transform'] ?? null;
+        if ( ! is_array($transform) ) {
+            return null;
+        }
+
+        if ( isset($transform['m00'], $transform['m01'], $transform['m02'], $transform['m10'], $transform['m11'], $transform['m12']) ) {
+            $values = array(
+                'm00' => $transform['m00'],
+                'm01' => $transform['m01'],
+                'm02' => $transform['m02'],
+                'm10' => $transform['m10'],
+                'm11' => $transform['m11'],
+                'm12' => $transform['m12'],
+            );
+        } elseif ( is_array($transform[0] ?? null) && is_array($transform[1] ?? null) ) {
+            $values = array(
+                'm00' => $transform[0][0] ?? null,
+                'm01' => $transform[0][1] ?? null,
+                'm02' => $transform[0][2] ?? null,
+                'm10' => $transform[1][0] ?? null,
+                'm11' => $transform[1][1] ?? null,
+                'm12' => $transform[1][2] ?? null,
+            );
+        } else {
+            return null;
+        }
+
+        foreach ( $values as $value ) {
+            if ( ! is_numeric($value) ) {
+                return null;
+            }
+        }
+
+        return array_map(static fn (mixed $value): float => (float) $value, $values);
+    }
+
+    /**
+     * @param array{m00: float, m01: float, m02: float, m10: float, m11: float, m12: float} $matrix
+     */
+    private function isIdentityImageTransform(array $matrix): bool
+    {
+        return 0.00001 > abs($matrix['m00'] - 1.0)
+            && 0.00001 > abs($matrix['m01'])
+            && 0.00001 > abs($matrix['m02'])
+            && 0.00001 > abs($matrix['m10'])
+            && 0.00001 > abs($matrix['m11'] - 1.0)
+            && 0.00001 > abs($matrix['m12']);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodeImageScaleMode(array $node): string
+    {
+        foreach ( $this->nodeImagePaints($node) as $paint ) {
+            foreach ( array('imageScaleMode', 'scaleMode') as $key ) {
+                if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
+                    return strtoupper((string) $paint[$key]);
+                }
+            }
+        }
+
+        return 'FILL';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, array<string, mixed>>
+     */
+    private function nodeImagePaints(array $node): array
+    {
+        $imagePaints = array();
+        foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
+            $paintCollections = array();
+            if ( is_array($node[$paintKey] ?? null) ) {
+                $paintCollections[] = $node[$paintKey];
+            }
+            if ( is_array($node['figma_paints'][$paintKey] ?? null) ) {
+                $paintCollections[] = $node['figma_paints'][$paintKey];
+            }
+
+            foreach ( $paintCollections as $paints ) {
+                foreach ( $paints as $paint ) {
+                    if ( is_array($paint) && 'IMAGE' === strtoupper((string) ($paint['type'] ?? '')) ) {
+                        $imagePaints[] = $paint;
+                    }
+                }
+            }
+        }
+
+        return $imagePaints;
+    }
+
+    /**
      * @param array<string, mixed> $asset
      * @return array<int, string>
      */
@@ -708,25 +1466,31 @@ final class StaticHtmlEmitter
     private function nodeAssetReferences(array $node): array
     {
         $references = array();
-        foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash') as $key ) {
+        foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref') as $key ) {
             if ( isset($node[$key]) && is_scalar($node[$key]) ) {
                 $references[] = (string) $node[$key];
             }
         }
 
         foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
-            if ( ! is_array($node[$paintKey] ?? null) ) {
-                continue;
+            $paintCollections = array();
+            if ( is_array($node[$paintKey] ?? null) ) {
+                $paintCollections[] = $node[$paintKey];
+            }
+            if ( is_array($node['figma_paints'][$paintKey] ?? null) ) {
+                $paintCollections[] = $node['figma_paints'][$paintKey];
             }
 
-            foreach ( $node[$paintKey] as $paint ) {
-                if ( ! is_array($paint) || 'IMAGE' !== strtoupper((string) ($paint['type'] ?? '')) ) {
-                    continue;
-                }
+            foreach ( $paintCollections as $paints ) {
+                foreach ( $paints as $paint ) {
+                    if ( ! is_array($paint) || 'IMAGE' !== strtoupper((string) ($paint['type'] ?? '')) ) {
+                        continue;
+                    }
 
-                foreach ( array('imageRef', 'imageHash', 'asset_id', 'image_ref') as $key ) {
-                    if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
-                        $references[] = (string) $paint[$key];
+                    foreach ( array('ref', 'imageRef', 'imageHash', 'asset_id', 'image_ref') as $key ) {
+                        if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
+                            $references[] = (string) $paint[$key];
+                        }
                     }
                 }
             }
@@ -745,7 +1509,7 @@ final class StaticHtmlEmitter
      */
     private function supportedVectorSvg(array $node, string $type): ?string
     {
-        if ( ! in_array($type, array('VECTOR', 'LINE', 'ELLIPSE', 'RECTANGLE'), true) ) {
+        if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE'), true) ) {
             return null;
         }
 
@@ -774,7 +1538,15 @@ final class StaticHtmlEmitter
             'data-figma-vector="true"',
         );
 
-        return '<svg ' . implode(' ', $attributes) . '>' . implode('', $elements) . '</svg>';
+        $body = implode('', $elements);
+        $scale = is_array($node['figma_vector_scale'] ?? null) ? $node['figma_vector_scale'] : array();
+        $scaleX = isset($scale['x']) && is_numeric($scale['x']) ? (float) $scale['x'] : 1.0;
+        $scaleY = isset($scale['y']) && is_numeric($scale['y']) ? (float) $scale['y'] : 1.0;
+        if ( abs($scaleX - 1.0) >= 0.0001 || abs($scaleY - 1.0) >= 0.0001 ) {
+            $body = '<g transform="scale(' . $this->number($scaleX) . ' ' . $this->number($scaleY) . ')">' . $body . '</g>';
+        }
+
+        return '<svg ' . implode(' ', $attributes) . '>' . $body . '</svg>';
     }
 
     /**
@@ -784,6 +1556,9 @@ final class StaticHtmlEmitter
     private function vectorPathElements(array $node): array
     {
         $rawPaths = array();
+        if ( is_array($node['figma_vector_paths'] ?? null) ) {
+            $rawPaths = array_merge($rawPaths, $node['figma_vector_paths']);
+        }
         foreach ( array('vectorPaths', 'paths') as $key ) {
             if ( is_array($node[$key] ?? null) ) {
                 $rawPaths = array_merge($rawPaths, $node[$key]);

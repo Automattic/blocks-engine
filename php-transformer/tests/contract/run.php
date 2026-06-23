@@ -117,6 +117,15 @@ $assert(true === ($formDiagnostic['controls'][0]['required'] ?? null), 'conversi
 $assert('support' === ($formDiagnostic['controls'][1]['options'][0]['value'] ?? ''), 'conversion report exposes select option values');
 $assert(is_int($formDiagnostic['html_bytes'] ?? null), 'conversion report exposes bounded fallback HTML byte size');
 
+$buttonResult = ( new HtmlTransformer() )->transform(
+    '<main><a class="primary-button" href="#"><h3>Reserve now</h3><span aria-hidden="true"></span></a><button><strong>Call us</strong></button></main>'
+)->toArray();
+$buttonBlocks = $buttonResult['blocks'][0]['innerBlocks'] ?? array();
+$assert('core/buttons' === ($buttonBlocks[0]['blockName'] ?? ''), 'anchor converts to buttons block');
+$assert('Reserve now' === ($buttonBlocks[0]['innerBlocks'][0]['attrs']['text'] ?? ''), 'anchor button text strips nested markup');
+$assert('Call us' === ($buttonBlocks[1]['innerBlocks'][0]['attrs']['text'] ?? ''), 'button text strips nested markup');
+$assert(! str_contains((string) $buttonResult['serialized_blocks'], '\\u003c'), 'button serialization avoids escaped nested HTML attrs');
+
 $assetMetadataOptions = array(
     'context' => array(
         'asset_metadata' => array(
@@ -154,12 +163,12 @@ $assert('success' === $simple['status'], 'simple artifact compiles successfully'
 $assert(ArtifactCompiler::INPUT_SCHEMA === ($simple['source_reports']['artifact']['schema'] ?? ''), 'artifact report exposes canonical site artifact schema');
 $assert(ArtifactCompiler::INPUT_SCHEMA === ($simple['source_reports']['artifact']['original_schema'] ?? ''), 'canonical site artifact input schema is accepted and preserved');
 $assert('index.html' === ($simple['source_reports']['artifact']['entry_path'] ?? ''), 'generated HTML becomes an index entry');
-$assert(str_contains((string) $simple['serialized_blocks'], '<!-- wp:html -->'), 'HTML is preserved as serialized block markup');
+$assert(str_contains((string) $simple['serialized_blocks'], '<!-- wp:group -->'), 'HTML is converted to serialized block markup');
 $assert('hero' === ($simple['components'][0]['name'] ?? ''), 'component candidates are exposed');
 $assert(! array_key_exists('legacy_mapping', $simple), 'artifact result omits compatibility-only legacy mapping');
 $assert(strlen('<main><article data-component="Hero"><h1>Hello artifact</h1></article></main>') === ($simple['metrics']['input_bytes'] ?? null), 'artifact metrics expose input bytes');
 $assert(strlen((string) $simple['serialized_blocks']) === ($simple['metrics']['output_bytes'] ?? null), 'artifact metrics expose output bytes');
-$assert(0 === ($simple['metrics']['block_count'] ?? null), 'artifact metrics expose block count');
+$assert(2 === ($simple['metrics']['block_count'] ?? null), 'artifact metrics expose block count');
 $assert(0 === ($simple['metrics']['fallback_count'] ?? null), 'artifact metrics expose fallback count');
 $assert(0 === ($simple['metrics']['diagnostic_count'] ?? null), 'artifact metrics expose diagnostic count');
 $assert(is_float($simple['metrics']['transform_duration_ms'] ?? null), 'artifact metrics expose transform duration');
@@ -167,6 +176,7 @@ $assert(MaterializationPlanBuilder::SCHEMA === ($simple['source_reports']['mater
 $assert('index.html' === ($simple['source_reports']['materialization_plan']['entry_path'] ?? ''), 'materialization plan exposes entry path');
 $assert(1 === ($simple['source_reports']['materialization_plan']['totals']['pages'] ?? null), 'materialization plan counts pages');
 $assert('index' === ($simple['source_reports']['materialization_plan']['pages'][0]['slug'] ?? ''), 'materialization plan exposes page slug');
+$assert('blocks' === ($simple['source_reports']['materialization_plan']['pages'][0]['body_format'] ?? ''), 'materialization plan exposes converted block body format');
 
 $missingMaterializationPlan = $simple;
 unset($missingMaterializationPlan['source_reports']['materialization_plan']);

@@ -30,14 +30,15 @@
     }
   },
   "require": {
-    "ext-zstd": "*",
     "php": ">=8.1"
   },
   "suggest": {
+    "ext-zstd": "Decode zstd-compressed canvas.fig chunks when inspecting .fig archives.",
     "ext-zip": "Read zipped .fig archives when the extension is not provided by the host PHP build."
   },
   "bin": [
-    "bin/figma-transformer"
+    "bin/figma-transformer",
+    "bin/figma-visual-attribution"
   ],
   "scripts": {
     "test": [

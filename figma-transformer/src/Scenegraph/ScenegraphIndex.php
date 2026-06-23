@@ -52,7 +52,7 @@ final class ScenegraphIndex
         }
 
         foreach ( $childrenIndex as $parent => $children ) {
-            $childrenIndex[$parent] = $this->sortNodeIds($children, $nodeMap);
+            $childrenIndex[$parent] = $this->sortNodeIds($children, $nodeMap, $nodeMap[$parent] ?? array());
         }
 
         $topLevelNodeIds = array();
@@ -161,6 +161,10 @@ final class ScenegraphIndex
         if ( null !== $sourceOrder ) {
             $node['_source_order'] = $sourceOrder;
         }
+        $parentSortPosition = $this->readParentSortPosition($node);
+        if ( null !== $parentSortPosition ) {
+            $node['_parent_sort_position'] = $parentSortPosition;
+        }
 
         if ( isset($rawNodes[$id]) ) {
             $diagnostics[] = array(
@@ -201,6 +205,24 @@ final class ScenegraphIndex
 
         if ( isset($value['type']) || isset($value['id']) || isset($value['guid']) || isset($value['children']) ) {
             return $value;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function readParentSortPosition(array $node): ?string
+    {
+        if ( isset($node['parentIndex']['position']) && is_scalar($node['parentIndex']['position']) ) {
+            $position = (string) $node['parentIndex']['position'];
+            return '' === $position ? null : $position;
+        }
+
+        if ( isset($node['parent_index']['position']) && is_scalar($node['parent_index']['position']) ) {
+            $position = (string) $node['parent_index']['position'];
+            return '' === $position ? null : $position;
         }
 
         return null;
@@ -252,16 +274,27 @@ final class ScenegraphIndex
      * @param array<string, array<string, mixed>> $nodeMap
      * @return array<int, string>
      */
-    private function sortNodeIds(array $ids, array $nodeMap): array
+    private function sortNodeIds(array $ids, array $nodeMap, array $parentNode = array()): array
     {
+        $parentMode = strtoupper((string) ($parentNode['layoutMode'] ?? $parentNode['stackMode'] ?? ''));
         usort(
             $ids,
-            static function (string $left, string $right) use ($nodeMap): int {
+            static function (string $left, string $right) use ($nodeMap, $parentMode, $parentNode): int {
                 $leftNode  = $nodeMap[$left] ?? array();
                 $rightNode = $nodeMap[$right] ?? array();
 
                 $leftBox  = self::readBounds($leftNode);
                 $rightBox = self::readBounds($rightNode);
+
+                if ( 'HORIZONTAL' === $parentMode ) {
+                    return array($leftBox['x'], $leftBox['y'], (string) ($leftNode['name'] ?? ''), $left)
+                        <=> array($rightBox['x'], $rightBox['y'], (string) ($rightNode['name'] ?? ''), $right);
+                }
+
+                $parentType = strtoupper((string) ($parentNode['type'] ?? ''));
+                if ( '' === $parentMode && ( 'GROUP' === $parentType || true === ($parentNode['resizeToFit'] ?? false) ) ) {
+                    return self::layerOrderKey($leftNode, $left) <=> self::layerOrderKey($rightNode, $right);
+                }
 
                 return array($leftBox['y'], $leftBox['x'], (string) ($leftNode['name'] ?? ''), $left)
                     <=> array($rightBox['y'], $rightBox['x'], (string) ($rightNode['name'] ?? ''), $right);
@@ -269,6 +302,19 @@ final class ScenegraphIndex
         );
 
         return $ids;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array{0: int, 1: string|int, 2: string}
+     */
+    private static function layerOrderKey(array $node, string $id): array
+    {
+        if ( isset($node['_parent_sort_position']) && is_scalar($node['_parent_sort_position']) ) {
+            return array(0, (string) $node['_parent_sort_position'], $id);
+        }
+
+        return array(1, (int) ($node['_source_order'] ?? 0), $id);
     }
 
     /**

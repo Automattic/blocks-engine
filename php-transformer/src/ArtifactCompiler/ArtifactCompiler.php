@@ -37,9 +37,6 @@ final class ArtifactCompiler
         $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files']);
         $diagnostics = array_merge($diagnostics, $entryBlocks['diagnostics']);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
-        if ( '' === $serializedBlocks && '' !== trim($html) ) {
-            $serializedBlocks = '<!-- wp:html -->' . "\n" . $html . "\n" . '<!-- /wp:html -->';
-        }
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
             $serializedBlocks = (string) $documents['documents'][0]['block_markup'];
         }
@@ -137,7 +134,7 @@ final class ArtifactCompiler
             );
         }
 
-        if ( '' === trim($html) || ! $this->entryHtmlReferencesImageAsset($html, $entryPath, $files) ) {
+        if ( '' === trim($html) ) {
             return array(
                 'blocks'            => array(),
                 'serialized_blocks' => '',
@@ -491,6 +488,7 @@ final class ArtifactCompiler
             $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path);
             $slug = $this->slugFromPath($path);
             $blockMarkup = $path === $entryPath ? $serializedBlocks : $this->htmlDocumentBlockMarkup((string) ($file['content'] ?? ''));
+            $bodyFormat = '' !== trim($blockMarkup) ? 'blocks' : 'html';
             $pages[] = array_filter(
                 array(
                     'source_path'    => $path,
@@ -499,9 +497,9 @@ final class ArtifactCompiler
                     'entrypoint'     => $path === $entryPath || ! empty($file['entrypoint']),
                     'slug'           => $slug,
                     'title'          => $title,
-                    'metadata'       => $this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, 'html'),
+                    'metadata'       => $this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat),
                     'html'           => $file['content'] ?? '',
-                    'body_format'    => 'html',
+                    'body_format'    => $bodyFormat,
                     'block_markup'   => $blockMarkup,
                     'bytes'          => $file['bytes'] ?? 0,
                     'mime_type'      => $file['mime_type'] ?? 'text/html',
@@ -577,7 +575,12 @@ final class ArtifactCompiler
             return $html;
         }
 
-        return '<!-- wp:html -->' . "\n" . $html . "\n" . '<!-- /wp:html -->';
+        $result = ( new HtmlTransformer() )->transform($html, array(
+            'source'       => 'html-document',
+            'source_scope' => 'artifact-document',
+        ))->toArray();
+
+        return isset($result['serialized_blocks']) && is_scalar($result['serialized_blocks']) ? trim((string) $result['serialized_blocks']) : '';
     }
 
     /**

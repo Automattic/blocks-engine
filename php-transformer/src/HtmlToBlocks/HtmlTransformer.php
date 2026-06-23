@@ -68,7 +68,7 @@ final class HtmlTransformer
             ), $this->fallbackProvenance),
         );
 
-        $normalizedHtml = $this->normalizeHtml5VoidElements($html);
+        $normalizedHtml = $this->normalizeHtml5VoidElements($this->documentBodyHtml($html));
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
         $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $normalizedHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
@@ -217,6 +217,30 @@ final class HtmlTransformer
     private function normalizeHtml5VoidElements(string $html): string
     {
         return preg_replace('/<source\b([^>]*?)(?<!\/)\s*>/i', '<source$1></source>', $html) ?? $html;
+    }
+
+    private function documentBodyHtml(string $html): string
+    {
+        if ( ! preg_match('/<(?:!doctype|html|head|body)\b/i', $html) ) {
+            return $html;
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        if ( ! $loaded ) {
+            return $html;
+        }
+
+        $body = $document->getElementsByTagName('body')->item(0);
+        if ( ! $body instanceof DOMElement ) {
+            return $html;
+        }
+
+        return $this->innerHtml($body);
     }
 
     /**
@@ -424,7 +448,7 @@ final class HtmlTransformer
         }
 
         if ( 'button' === $tagName ) {
-            return $this->createBlock('core/buttons', array(), array( $this->createBlock('core/button', array_merge($this->presentationAttributes($element), array( 'text' => $this->innerHtml($element) )), array(), $element) ), $element);
+            return $this->createBlock('core/buttons', array(), array( $this->createBlock('core/button', array_merge($this->presentationAttributes($element), array( 'text' => $this->buttonText($element) )), array(), $element) ), $element);
         }
 
         if ( 'svg' === $tagName ) {
@@ -2056,9 +2080,14 @@ final class HtmlTransformer
     private function buttonBlockFromAnchor(DOMElement $anchor): array
     {
         return $this->createBlock('core/button', array_filter(array_merge($this->presentationAttributes($anchor), array(
-            'text' => $this->innerHtml($anchor),
+            'text' => $this->buttonText($anchor),
             'url'  => $this->attr($anchor, 'href'),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $anchor);
+    }
+
+    private function buttonText(DOMElement $element): string
+    {
+        return trim(preg_replace('/\s+/', ' ', (string) ($element->textContent ?? '')) ?? '');
     }
 
     /**

@@ -12,7 +12,7 @@ if ( is_readable($autoload) ) {
 
 $path = $argv[1] ?? '';
 if ( '' === $path || '--help' === $path || '-h' === $path ) {
-    fwrite(STDERR, "Usage: figma-transformer <path-to-fig-or-scenegraph-json> [--zstd-command=<path>] [--frame-id=<id>] [--parity-status=<status>] [--parity-source-screenshot-url=<url>] [--parity-source-screenshot-path=<path>] [--parity-generated-screenshot-artifact=<artifact>] [--parity-diff-image-artifact=<artifact>] [--parity-pixel-mismatch-count=<count>] [--parity-pixel-mismatch-ratio=<ratio>] [--parity-threshold=<ratio>] [--parity-viewport=<width>x<height>]\n");
+    fwrite(STDERR, "Usage: figma-transformer <path-to-fig-or-scenegraph-json> [--zstd-command=<path>] [--frame-id=<id>] [--font-css=<css>] [--font-css-file=<path>] [--parity-status=<status>] [--parity-source-screenshot-url=<url>] [--parity-source-screenshot-path=<path>] [--parity-generated-screenshot-artifact=<artifact>] [--parity-diff-image-artifact=<artifact>] [--parity-pixel-mismatch-count=<count>] [--parity-pixel-mismatch-ratio=<ratio>] [--parity-threshold=<ratio>] [--parity-viewport=<width>x<height>]\n");
     exit(1);
 }
 
@@ -35,6 +35,19 @@ foreach ( array_slice($argv, 2) as $argument ) {
     if ( 'frame-id' === $name ) {
         $options['frame_id'] = $value;
         $options['parity']['frame_id'] = $value;
+        continue;
+    }
+
+    if ( 'font-css' === $name ) {
+        $options['font_css'] = $value;
+        continue;
+    }
+
+    if ( 'font-css-file' === $name ) {
+        $fontCss = is_readable($value) ? file_get_contents($value) : false;
+        if ( false !== $fontCss ) {
+            $options['font_css'] = $fontCss;
+        }
         continue;
     }
 

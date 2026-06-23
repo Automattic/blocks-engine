@@ -151,29 +151,49 @@ final class FigArchiveReader
             $stat = $zip->statIndex($index);
             $content = $zip->getFromIndex($index);
             $hash = basename($name);
+            $contentString = false === $content ? '' : $content;
             $assets[] = array(
                 'id'        => $hash,
                 'name'      => $hash,
                 'path'      => $name,
                 'hash'      => $hash,
                 'bytes'     => is_array($stat) ? (int) ($stat['size'] ?? 0) : 0,
-                'mime_type' => $this->mimeTypeForPath($name),
-                'content'   => false === $content ? '' : $content,
+                'mime_type' => $this->mimeTypeForPath($name, $contentString),
+                'content'   => $contentString,
             );
         }
 
         return $assets;
     }
 
-    private function mimeTypeForPath(string $path): string
+    private function mimeTypeForPath(string $path, string $content = ''): string
     {
-        return match ( strtolower(pathinfo($path, PATHINFO_EXTENSION)) ) {
+        $extensionMimeType = match ( strtolower(pathinfo($path, PATHINFO_EXTENSION)) ) {
             'jpg', 'jpeg' => 'image/jpeg',
             'png' => 'image/png',
             'svg' => 'image/svg+xml',
             'webp' => 'image/webp',
             default => 'application/octet-stream',
         };
+
+        if ( 'application/octet-stream' !== $extensionMimeType || '' === $content ) {
+            return $extensionMimeType;
+        }
+
+        if ( str_starts_with($content, "\x89PNG\r\n\x1a\n") ) {
+            return 'image/png';
+        }
+        if ( str_starts_with($content, "\xff\xd8\xff") ) {
+            return 'image/jpeg';
+        }
+        if ( str_starts_with($content, 'RIFF') && 'WEBP' === substr($content, 8, 4) ) {
+            return 'image/webp';
+        }
+        if ( str_starts_with(ltrim($content), '<svg') ) {
+            return 'image/svg+xml';
+        }
+
+        return 'application/octet-stream';
     }
 
     /**
