@@ -288,6 +288,7 @@ final class MaterializationPlanBuilder
                 'content'          => $asset['content'] ?? null,
                 'content_base64'   => $asset['content_base64'] ?? null,
                 'hash'             => (string) ($asset['hash'] ?? $asset['provenance']['hash'] ?? ''),
+                'references'       => is_array($asset['references'] ?? null) ? $asset['references'] : array(),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && 0 !== $value && false !== $value);
         }
         return $planned;

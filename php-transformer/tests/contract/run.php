@@ -238,6 +238,49 @@ $assert(! empty($logoAssetPlanRow['hash'] ?? ''), 'materialization plan asset ro
 $assert('text' === ($cssAssetPlanRow['content_encoding'] ?? ''), 'materialization plan asset rows expose text content encoding');
 $assert('.wp-site-blocks{min-height:100vh}' === ($cssAssetPlanRow['content'] ?? ''), 'materialization plan asset rows expose text payloads for writable assets');
 
+$cssReferences = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><link rel="stylesheet" href="theme/site.css"><h1>Fonts</h1></main>',
+            'theme/site.css' => '@import "fonts/fonts.css"; body{background:url("../assets/paper.png")}',
+            'theme/fonts/fonts.css' => '@font-face{font-family:"Fixture Sans";src:url("FixtureSans.woff2") format("woff2");font-weight:400}',
+            'theme/fonts/FixtureSans.woff2' => array(
+                'content_base64' => base64_encode('fixture-font'),
+                'mime_type'      => 'font/woff2',
+            ),
+            'assets/paper.png' => array(
+                'content_base64' => base64_encode("\x89PNG\r\n\x1a\n"),
+                'mime_type'      => 'image/png',
+            ),
+        ),
+    )
+)->toArray();
+$cssAssetReferences = $cssReferences['source_reports']['artifact']['asset_references'] ?? array();
+$assert(4 === count($cssAssetReferences), 'CSS asset analysis reports linked stylesheet, @import, url(), and @font-face url references');
+$assert('css-import' === ($cssAssetReferences[1]['context'] ?? ''), 'CSS @import references expose a neutral context');
+$assert('theme/fonts/fonts.css' === ($cssAssetReferences[1]['asset_path'] ?? ''), 'CSS @import references resolve relative to the source stylesheet');
+$assert('css:@import(1)' === ($cssAssetReferences[1]['selector'] ?? ''), 'CSS @import references expose a stable selector');
+$assert('css-url' === ($cssAssetReferences[2]['context'] ?? ''), 'CSS url() references expose a neutral context');
+$assert('assets/paper.png' === ($cssAssetReferences[2]['asset_path'] ?? ''), 'CSS url() references continue resolving asset paths');
+$assert('css-font-face' === ($cssAssetReferences[3]['context'] ?? ''), 'CSS @font-face url references expose a neutral context');
+$assert('theme/fonts/FixtureSans.woff2' === ($cssAssetReferences[3]['asset_path'] ?? ''), 'CSS @font-face url references resolve local font assets');
+$fontCompiledAsset = null;
+$fontPlanAsset = null;
+foreach ( $cssReferences['source_reports']['compiled_site']['assets'] ?? array() as $asset ) {
+    if ( 'theme/fonts/FixtureSans.woff2' === ($asset['path'] ?? '') ) {
+        $fontCompiledAsset = $asset;
+    }
+}
+foreach ( $cssReferences['source_reports']['materialization_plan']['assets'] ?? array() as $asset ) {
+    if ( 'theme/fonts/FixtureSans.woff2' === ($asset['path'] ?? '') ) {
+        $fontPlanAsset = $asset;
+    }
+}
+$assert('font/woff2' === ($fontCompiledAsset['media_type'] ?? ''), 'compiled site assets preserve local font media type');
+$assert('css-font-face' === ($fontCompiledAsset['references'][0]['context'] ?? ''), 'compiled site assets expose structured reference metadata');
+$assert('css-font-face' === ($fontPlanAsset['references'][0]['context'] ?? ''), 'materialization plan assets preserve structured reference metadata');
+
 $neutralPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(
     array(
         'products' => array(
