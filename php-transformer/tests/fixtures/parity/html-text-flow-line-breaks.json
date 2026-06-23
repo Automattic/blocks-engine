@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-text-flow-line-breaks",
+  "description": "Converts text-only wrapper divs with inline markup and line breaks into paragraphs without unsupported br fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-text-flow-line-breaks.json",
+    "notes": "Generic fixture for static text wrappers that use br-separated address or schedule copy."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture covers generic br and text-flow wrapper recognition."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section><div class=\"event-time\">Thursday &mdash; Saturday<br>5:00 PM &ndash; 10:00 PM</div><div class=\"address\">The Dockyard Courtyard<br>72 Morrison Drive<br><em>Charleston, SC</em></div><div><br></div></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "event-time", "content": "Thursday — Saturday<br>5:00 PM – 10:00 PM" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "address", "content": "The Dockyard Courtyard<br>72 Morrison Drive<br><em>Charleston, SC</em>" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Thursday — Saturday<br>5:00 PM – 10:00 PM" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "The Dockyard Courtyard<br>72 Morrison Drive<br><em>Charleston, SC</em>" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
