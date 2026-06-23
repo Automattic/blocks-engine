@@ -604,7 +604,7 @@ final class HtmlTransformer
             }
         }
 
-        if ( in_array($tagName, array( 'article', 'body', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+        if ( in_array($tagName, array( 'article', 'aside', 'body', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
             $logo = $this->logoPattern->match(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),

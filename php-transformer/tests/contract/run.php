@@ -112,7 +112,7 @@ $assert('' === ArtifactPath::resolveRelativePath('https://example.com/logo.png',
 $assert('' === ArtifactPath::resolveRelativePath('../../logo.png', 'pages/home.html'), 'artifact references reject traversal above the artifact root');
 
 $fixture = file_get_contents(dirname(__DIR__) . '/fixtures/simple-html.html');
-$result  = ( new HtmlTransformer() )->transform($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><aside>Fallback</aside>")->toArray();
+$result  = ( new HtmlTransformer() )->transform($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><canvas>Fallback</canvas>")->toArray();
 
 $assert(TransformerResult::SCHEMA === $result['schema'], 'result exposes schema');
 TransformerResult::assertCanonicalEnvelope($result);
@@ -140,7 +140,7 @@ $assertInvalidCanonicalEnvelope($missingConversionReport, 'source_reports.conver
 $assertInvalidCanonicalEnvelope($result, 'source_reports.materialization_plan', 'canonical validation can require materialization plans for downstream artifact consumers', true);
 
 $contextual = ( new HtmlTransformer() )->transform(
-    '<main><h1>Context</h1><aside>Fallback</aside></main>',
+    '<main><h1>Context</h1><canvas>Fallback</canvas></main>',
     array(
         'source'          => 'fixture:contextual-html',
         'source_scope'    => 'contract-test',
@@ -208,8 +208,21 @@ $assert(! str_contains(rawurldecode($safeInlineSvgSerialized), '<svg'), 'decorat
 $unsafeInlineSvg = ( new HtmlTransformer() )->transform('<main><svg onload="alert(1)"><path d="M0 0h1v1z"></path></svg></main>')->toArray();
 $assert('html_unsafe_inline_svg' === ($unsafeInlineSvg['fallbacks'][0]['diagnostic_code'] ?? ''), 'unsafe inline SVG remains a fallback diagnostic');
 
+$asideContainer = ( new HtmlTransformer() )->transform(
+    '<main><aside class="sidebar"><h2>Docs</h2><nav><a href="/start">Start</a><a href="/api">API</a></nav></aside><section><h1>Content</h1></section></main>',
+    array(
+        'strict'          => true,
+        'allow_fallbacks' => false,
+    )
+)->toArray();
+$asideSerialized = (string) ($asideContainer['serialized_blocks'] ?? '');
+$assert('success' === ($asideContainer['status'] ?? ''), 'semantic aside containers convert without strict fallback failures', (string) ($asideContainer['status'] ?? ''));
+$assert(array() === ($asideContainer['fallbacks'] ?? array()), 'semantic aside containers are treated as layout wrappers, not unsupported fallbacks');
+$assert(str_contains($asideSerialized, 'sidebar'), 'semantic aside container preserves CSS-addressable sidebar class');
+$assert(str_contains($asideSerialized, '<!-- wp:navigation'), 'semantic aside container preserves nested navigation patterns');
+
 $normalizedFallbacks = ( new HtmlTransformer() )->transform(
-    '<main><svg><circle cx="5" cy="5" r="5"></circle></svg><svg><script>alert(1)</script></svg><script src="/app.js">init()</script><aside>Fallback</aside><iframe src="javascript:alert(1)"></iframe></main>'
+    '<main><svg><circle cx="5" cy="5" r="5"></circle></svg><svg><script>alert(1)</script></svg><script src="/app.js">init()</script><canvas>Fallback</canvas><iframe src="javascript:alert(1)"></iframe></main>'
 )->toArray();
 $normalizedDiagnostics = $normalizedFallbacks['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
 $diagnosticsByCode = array();
@@ -694,10 +707,10 @@ assertSame('unsupported_element', $result['fallbacks'][0]['type'], 'unsupported 
 assertSame('unsupported_element', $result['fallbacks'][0]['reason'], 'fallbacks should expose a stable generic reason.');
 assertSame('html_unsupported_element', $result['fallbacks'][0]['diagnostic_code'], 'fallbacks should expose a diagnostic code for cross-process consumers.');
 assertSame('html', $result['fallbacks'][0]['source_format'], 'fallbacks should expose the source format.');
-assertSame('aside', $result['fallbacks'][0]['tag'], 'fallback should identify the unsupported tag.');
+assertSame('canvas', $result['fallbacks'][0]['tag'], 'fallback should identify the unsupported tag.');
 assertContains('html_to_blocks_core_slice', array_column($result['diagnostics'], 'code'), 'expanded core-slice conversion diagnostic should be present.');
 assertSame('html', $result['provenance'][0]['source_format'], 'source provenance should identify HTML input.');
-assertSame(strlen($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><aside>Fallback</aside>"), $result['metrics']['input_bytes'], 'HTML metrics should expose input bytes.');
+assertSame(strlen($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><canvas>Fallback</canvas>"), $result['metrics']['input_bytes'], 'HTML metrics should expose input bytes.');
 assertSame(strlen($result['serialized_blocks']), $result['metrics']['output_bytes'], 'HTML metrics should expose output bytes.');
 assertSame(6, $result['metrics']['block_count'], 'HTML metrics should count nested blocks.');
 assertSame(1, $result['metrics']['fallback_count'], 'HTML metrics should expose fallback count.');
