@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+
 /**
  * Normalizes loose website artifact envelopes into compiler-ready file records.
  *
@@ -43,7 +45,7 @@ final class ArtifactNormalizer
         $rawFiles = $this->rawFiles($artifact);
         $safeEntrypoints = array();
         foreach ( array_unique($entrypoints) as $entrypoint ) {
-            $path = $this->safeRelativePath($entrypoint);
+            $path = ArtifactPath::safeRelativePath($entrypoint);
             if ( '' === $path ) {
                 $diagnostics[] = $this->diagnostic('unsafe_entrypoint_path', 'warning', 'An artifact entrypoint was ignored because its path is empty, absolute, or escapes the artifact root.', array('path' => $entrypoint));
                 continue;
@@ -58,7 +60,7 @@ final class ArtifactNormalizer
                 break;
             }
 
-            $path = $this->safeRelativePath((string) ($file['path'] ?? ''));
+            $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
             if ( '' === $path ) {
                 ++$rejected;
                 $diagnostics[] = $this->diagnostic('unsafe_artifact_path', 'warning', 'An artifact file was ignored because its path is empty, absolute, or escapes the artifact root.', array('index' => $index));
@@ -225,26 +227,6 @@ final class ArtifactNormalizer
 
         $content = $this->normalizeContent($file['content'] ?? $file['body'] ?? $file['text'] ?? '');
         return array('accepted' => true, 'content' => $content, 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => strlen($content), 'diagnostics' => array());
-    }
-
-    private function safeRelativePath(string $path): string
-    {
-        $path = str_replace('\\', '/', trim($path));
-        if ( '' === $path || str_starts_with($path, '/') || preg_match('#^[A-Za-z]:/#', $path) ) {
-            return '';
-        }
-        $parts = array();
-        foreach ( explode('/', $path) as $part ) {
-            if ( '' === $part || '.' === $part ) {
-                continue;
-            }
-            if ( '..' === $part ) {
-                return '';
-            }
-            $parts[] = $part;
-        }
-
-        return implode('/', $parts);
     }
 
     private function kind(string $kind, string $path, string $content, string $mimeType): string

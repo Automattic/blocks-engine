@@ -1,0 +1,47 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-interaction-candidates-report",
+  "description": "Reports bounded static interaction candidates from declarative HTML signals without requiring browser runtime execution.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-interaction-candidates-report.json",
+    "notes": "Product-neutral first-pass static interaction report fixture."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream report fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><details id=\"faq\"><summary>FAQ</summary><p>Answer.</p></details><form action=\"/contact\" method=\"post\"><input name=\"email\"><button type=\"submit\">Send</button></form><section class=\"faq-list\"><h2><button id=\"faq-trigger\" aria-controls=\"faq-panel\" aria-expanded=\"false\">Shipping</button></h2><div id=\"faq-panel\" role=\"region\">Shipping details.</div></section><div role=\"tablist\" aria-label=\"Product tabs\"><button id=\"tab-one\" role=\"tab\" aria-controls=\"panel-one\" aria-selected=\"true\">Overview</button></div><section id=\"panel-one\" role=\"tabpanel\" aria-labelledby=\"tab-one\">Overview panel.</section><dialog id=\"signup-modal\" open>Join</dialog><div id=\"promo-modal\" role=\"dialog\" aria-modal=\"true\">Promo modal</div><div id=\"hero-carousel\" class=\"carousel\"><div class=\"carousel-indicators\"><button data-bs-target=\"#hero-carousel\" data-bs-slide-to=\"0\" aria-label=\"Slide 1\">1</button></div><div class=\"carousel-item active\" id=\"slide-one\">Slide one</div><button class=\"carousel-next\" data-action=\"carousel#next\">Next</button></div><button id=\"menu-button\" data-controller=\"menu\" data-action=\"menu#toggle\" aria-controls=\"menu-panel\">Menu</button><div id=\"menu-panel\" data-menu-target=\"panel\">Menu panel</div></main>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.interaction_candidates", "assert": "count", "count": 17 },
+    { "path": "source_reports.interaction_candidates.0.kind", "assert": "equals", "value": "details" },
+    { "path": "source_reports.interaction_candidates.0.target", "assert": "equals", "value": "#faq" },
+    { "path": "source_reports.interaction_candidates.1.kind", "assert": "equals", "value": "form" },
+    { "path": "source_reports.interaction_candidates.1.trigger", "assert": "equals", "value": "submit" },
+    { "path": "source_reports.interaction_candidates.1.target", "assert": "equals", "value": "/contact" },
+    { "path": "source_reports.interaction_candidates.2.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.interaction_candidates.2.target", "assert": "equals", "value": "#faq-panel" },
+    { "path": "source_reports.interaction_candidates.3.kind", "assert": "equals", "value": "accordion" },
+    { "path": "source_reports.interaction_candidates.4.kind", "assert": "equals", "value": "tabs" },
+    { "path": "source_reports.interaction_candidates.5.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.interaction_candidates.5.target", "assert": "equals", "value": "#panel-one" },
+    { "path": "source_reports.interaction_candidates.6.kind", "assert": "equals", "value": "tabs" },
+    { "path": "source_reports.interaction_candidates.7.kind", "assert": "equals", "value": "tabs" },
+    { "path": "source_reports.interaction_candidates.7.trigger", "assert": "equals", "value": "tabpanel" },
+    { "path": "source_reports.interaction_candidates.8.kind", "assert": "equals", "value": "modal" },
+    { "path": "source_reports.interaction_candidates.9.kind", "assert": "equals", "value": "modal" },
+    { "path": "source_reports.interaction_candidates.10.kind", "assert": "equals", "value": "carousel" },
+    { "path": "source_reports.interaction_candidates.11.kind", "assert": "equals", "value": "carousel" },
+    { "path": "source_reports.interaction_candidates.12.kind", "assert": "equals", "value": "carousel" },
+    { "path": "source_reports.interaction_candidates.13.kind", "assert": "equals", "value": "carousel" },
+    { "path": "source_reports.interaction_candidates.14.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.interaction_candidates.15.kind", "assert": "equals", "value": "carousel" },
+    { "path": "source_reports.interaction_candidates.16.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.conversion_report.interaction_candidates", "assert": "count", "count": 17 },
+    { "path": "source_reports.conversion_report.interaction_candidates.16.evidence.0", "assert": "equals", "value": "data-action" }
+  ]
+}

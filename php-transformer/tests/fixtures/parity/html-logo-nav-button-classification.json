@@ -1,0 +1,47 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-logo-nav-button-classification",
+  "description": "Classifies logo anchors, wrapped navigation links, footer list navigation, and ordinary anchors without turning every standalone link into a button.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-logo-nav-button-classification.json",
+    "notes": "Generic fixture for logo/navigation/button HTML pattern classification."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header class=\"site-header\"><a class=\"site-logo\" href=\"/\"><svg viewBox=\"0 0 10 10\" aria-hidden=\"true\"><path d=\"M0 0h10v10H0z\"></path></svg><span>Acme</span></a><nav class=\"primary-nav\"><ul><li><a href=\"/docs\"><span>Docs</span><i aria-hidden=\"true\"></i></a></li><li><span class=\"nav-item\"><a href=\"/pricing\"><span>Pricing</span></a></span></li></ul></nav></header><main><a href=\"/about\">About us</a><a class=\"cta\" href=\"/start\">Start now</a></main><footer><ul class=\"footer-links\"><li><a href=\"/privacy\"><span>Privacy</span></a></li><li><a href=\"/terms\"><span class=\"icon\" aria-hidden=\"true\"></span><span>Terms</span></a></li></ul></footer>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "primary-nav" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "url": "/docs", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/navigation-link", "attrs": { "url": "/pricing", "kind": "custom" } },
+    { "path": "blocks.1", "name": "core/group" },
+    { "path": "blocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "<a href=\"/about\">About us</a>" } },
+    { "path": "blocks.1.innerBlocks.1", "name": "core/buttons" },
+    { "path": "blocks.1.innerBlocks.1.innerBlocks.0", "name": "core/button", "attrs": { "text": "Start now", "url": "/start", "className": "cta" } },
+    { "path": "blocks.2", "name": "core/navigation" },
+    { "path": "blocks.2.innerBlocks.0", "name": "core/navigation-link", "attrs": { "url": "/privacy", "kind": "custom" } },
+    { "path": "blocks.2.innerBlocks.1", "name": "core/navigation-link", "attrs": { "url": "/terms", "kind": "custom" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "site-logo" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<svg" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.1.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.2.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:button" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

@@ -6,9 +6,12 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactNormalizer;
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatAdapterInterface;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationView;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 
 if ( ! function_exists('serialize_blocks') ) {
@@ -49,6 +52,46 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     exit(1);
 };
 
+$referenceAnalyzer = new ReferenceAnalyzer();
+$htmlCandidates = $referenceAnalyzer->htmlReferenceCandidates('<a href="about.html">About</a><img src="assets/logo.png" alt="Logo">', 'index.html');
+$assert('href' === ($htmlCandidates[0]['attribute'] ?? ''), 'reference analyzer extracts HTML href references');
+$assert('about.html' === ($htmlCandidates[0]['url'] ?? ''), 'reference analyzer preserves HTML href URL values');
+$assert('src' === ($htmlCandidates[1]['attribute'] ?? ''), 'reference analyzer extracts HTML src references');
+$assert('assets/logo.png' === ($htmlCandidates[1]['url'] ?? ''), 'reference analyzer preserves HTML src URL values');
+
+$cssCandidates = $referenceAnalyzer->cssReferenceCandidates('@import "fonts/fonts.css"; body{background:url("../assets/paper.png")} @font-face{font-family:"Fixture Sans";src:url("FixtureSans.woff2") format("woff2")}', 'theme/site.css');
+$assert('css-import' === ($cssCandidates[0]['context'] ?? ''), 'reference analyzer extracts CSS @import references');
+$assert('fonts/fonts.css' === ($cssCandidates[0]['url'] ?? ''), 'reference analyzer preserves CSS @import URL values');
+$assert('css-url' === ($cssCandidates[1]['context'] ?? ''), 'reference analyzer extracts CSS url() references');
+$assert('../assets/paper.png' === ($cssCandidates[1]['url'] ?? ''), 'reference analyzer preserves CSS url() values');
+$assert('css-font-face' === ($cssCandidates[2]['context'] ?? ''), 'reference analyzer marks @font-face url() references');
+$assert('FixtureSans.woff2' === ($cssCandidates[2]['url'] ?? ''), 'reference analyzer preserves @font-face local font references');
+
+$referenceReports = $referenceAnalyzer->referenceReports(array(
+    array('path' => 'index.html', 'kind' => 'html', 'content' => '<a href="about.html">About</a><img src="assets/logo.png" alt="Logo">', 'binary' => false),
+    array('path' => 'about.html', 'kind' => 'html', 'content' => '<h1>About</h1>', 'binary' => false),
+    array('path' => 'theme/site.css', 'kind' => 'css', 'content' => '@import "fonts/fonts.css"; body{background:url("../assets/paper.png")} @font-face{font-family:"Fixture Sans";src:url("FixtureSans.woff2") format("woff2")}', 'binary' => false),
+    array('path' => 'theme/fonts/fonts.css', 'kind' => 'css', 'content' => '', 'binary' => false, 'mime_type' => 'text/css', 'role' => 'style', 'bytes' => 0),
+    array('path' => 'assets/logo.png', 'kind' => 'image', 'content_base64' => base64_encode('logo'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 4),
+    array('path' => 'assets/paper.png', 'kind' => 'image', 'content_base64' => base64_encode('paper'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 5),
+    array('path' => 'theme/FixtureSans.woff2', 'kind' => 'font', 'content_base64' => base64_encode('font'), 'binary' => true, 'mime_type' => 'font/woff2', 'role' => 'asset', 'bytes' => 4),
+));
+$assert('about.html' === ($referenceReports['internal_links'][0]['target_path'] ?? ''), 'reference analyzer assembles HTML href internal link reports');
+$assert('assets/logo.png' === ($referenceReports['asset_references'][0]['asset_path'] ?? ''), 'reference analyzer assembles HTML src asset reference reports');
+$assert('theme/fonts/fonts.css' === ($referenceReports['asset_references'][1]['asset_path'] ?? ''), 'reference analyzer assembles CSS @import asset reference reports');
+$assert('assets/paper.png' === ($referenceReports['asset_references'][2]['asset_path'] ?? ''), 'reference analyzer resolves CSS url() reports relative to source CSS');
+$assert('theme/FixtureSans.woff2' === ($referenceReports['asset_references'][3]['asset_path'] ?? ''), 'reference analyzer assembles @font-face local font reference reports');
+
+$assertNormalizedFallbackDiagnostic = static function (array $diagnostic, string $code, string $severity, string $runtimeRequirement, string $suggestedPrimitive) use ($assert): void {
+    $assert($code === ($diagnostic['diagnostic_code'] ?? ''), "conversion report exposes {$code} diagnostic code");
+    $assert($severity === ($diagnostic['severity'] ?? ''), "conversion report exposes {$code} severity");
+    $assert($runtimeRequirement === ($diagnostic['runtime_requirement'] ?? ''), "conversion report exposes {$code} runtime requirement");
+    $assert(isset($diagnostic['recoverability']) && '' !== $diagnostic['recoverability'], "conversion report exposes {$code} recoverability");
+    $assert(isset($diagnostic['actionability']) && '' !== $diagnostic['actionability'], "conversion report exposes {$code} actionability");
+    $assert($suggestedPrimitive === ($diagnostic['suggested_primitive'] ?? ''), "conversion report exposes {$code} suggested primitive");
+    $assert(isset($diagnostic['materialization_hint']) && '' !== $diagnostic['materialization_hint'], "conversion report exposes {$code} materialization hint");
+};
+
 $assertInvalidCanonicalEnvelope = static function (array $result, string $expectedMessage, string $message, bool $requireMaterializationPlan = false) use ($assert): void {
     try {
         TransformerResult::assertCanonicalEnvelope($result, $requireMaterializationPlan);
@@ -59,6 +102,14 @@ $assertInvalidCanonicalEnvelope = static function (array $result, string $expect
 
     $assert(false, $message, 'Canonical envelope validation unexpectedly passed.');
 };
+
+$assert('assets/logo.png' === ArtifactPath::safeRelativePath(' ./assets//logo.png '), 'artifact paths trim relative markers and duplicate separators');
+$assert('' === ArtifactPath::safeRelativePath('/assets/logo.png'), 'artifact paths reject root-absolute paths');
+$assert('' === ArtifactPath::safeRelativePath('C:\\assets\\logo.png'), 'artifact paths reject drive-absolute paths');
+$assert('' === ArtifactPath::safeRelativePath('../secrets/logo.png'), 'artifact paths reject traversal paths');
+$assert('assets/logo.png' === ArtifactPath::resolveRelativePath('../assets/logo.png?version=1#hash', 'pages/home.html'), 'artifact references resolve relative paths without query or fragment');
+$assert('' === ArtifactPath::resolveRelativePath('https://example.com/logo.png', 'pages/home.html'), 'artifact references reject URL references');
+$assert('' === ArtifactPath::resolveRelativePath('../../logo.png', 'pages/home.html'), 'artifact references reject traversal above the artifact root');
 
 $fixture = file_get_contents(dirname(__DIR__) . '/fixtures/simple-html.html');
 $result  = ( new HtmlTransformer() )->transform($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><aside>Fallback</aside>")->toArray();
@@ -108,6 +159,10 @@ $formFallback = ( new HtmlTransformer() )->transform(
 )->toArray();
 $formDiagnostic = $formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
 $assert(array() === ($formFallback['blocks'] ?? array()), 'form fallback does not synthesize canonical blocks');
+$assertNormalizedFallbackDiagnostic($formDiagnostic, 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
+$assert('form' === ($formFallback['source_reports']['interaction_candidates'][0]['kind'] ?? ''), 'HTML source report exposes form interaction candidate');
+$assert('form' === ($formFallback['source_reports']['conversion_report']['interaction_candidates'][0]['kind'] ?? ''), 'conversion report projects interaction candidates');
+$assert('/contact' === ($formFallback['source_reports']['interaction_candidates'][0]['target'] ?? ''), 'form interaction candidate exposes action target');
 $assert('html_form_fallback' === ($formDiagnostic['diagnostic_code'] ?? ''), 'conversion report exposes form fallback diagnostic code');
 $assert('/contact' === ($formDiagnostic['form']['action'] ?? ''), 'conversion report exposes form action metadata');
 $assert('post' === ($formDiagnostic['form']['method'] ?? ''), 'conversion report exposes normalized form method metadata');
@@ -123,8 +178,8 @@ $buttonResult = ( new HtmlTransformer() )->transform(
 )->toArray();
 $buttonBlocks = $buttonResult['blocks'][0]['innerBlocks'] ?? array();
 $assert('core/buttons' === ($buttonBlocks[0]['blockName'] ?? ''), 'anchor converts to buttons block');
-$assert('Reserve now' === ($buttonBlocks[0]['innerBlocks'][0]['attrs']['text'] ?? ''), 'anchor button text strips nested markup');
-$assert('Call us' === ($buttonBlocks[1]['innerBlocks'][0]['attrs']['text'] ?? ''), 'button text strips nested markup');
+$assert(str_contains((string) ($buttonBlocks[0]['innerBlocks'][0]['attrs']['text'] ?? ''), 'Reserve now'), 'anchor button text preserves visible label');
+$assert(str_contains((string) ($buttonBlocks[1]['innerBlocks'][0]['attrs']['text'] ?? ''), 'Call us'), 'button text preserves visible label');
 $assert(! str_contains((string) $buttonResult['serialized_blocks'], '\\u003c'), 'button serialization avoids escaped nested HTML attrs');
 
 $inlineSvgVisualWrapper = ( new HtmlTransformer() )->transform(
@@ -152,6 +207,50 @@ $assert(str_contains(rawurldecode($safeInlineSvgSerialized), '<svg viewbox="0 0 
 
 $unsafeInlineSvg = ( new HtmlTransformer() )->transform('<main><svg onload="alert(1)"><path d="M0 0h1v1z"></path></svg></main>')->toArray();
 $assert('html_unsafe_inline_svg' === ($unsafeInlineSvg['fallbacks'][0]['diagnostic_code'] ?? ''), 'unsafe inline SVG remains a fallback diagnostic');
+
+$normalizedFallbacks = ( new HtmlTransformer() )->transform(
+    '<main><svg><circle cx="5" cy="5" r="5"></circle></svg><svg><script>alert(1)</script></svg><script src="/app.js">init()</script><aside>Fallback</aside><iframe src="javascript:alert(1)"></iframe></main>'
+)->toArray();
+$normalizedDiagnostics = $normalizedFallbacks['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$diagnosticsByCode = array();
+foreach ( $normalizedDiagnostics as $diagnostic ) {
+    $diagnosticsByCode[$diagnostic['diagnostic_code'] ?? ''] = $diagnostic;
+}
+$assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_unsafe_inline_svg'] ?? array(), 'html_unsafe_inline_svg', 'warning', 'sanitization_review', 'image_asset');
+$assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_script_fallback'] ?? array(), 'html_script_fallback', 'warning', 'client_script_execution', 'script_asset');
+$assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_unsupported_element'] ?? array(), 'html_unsupported_element', 'info', 'unknown', 'core/html');
+$assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallback'] ?? array(), 'html_iframe_embed_fallback', 'warning', 'third_party_embed_runtime', 'embed');
+$assert(! isset($diagnosticsByCode['html_inline_svg_fallback']), 'safe inline SVGs convert to image blocks instead of fallback diagnostics');
+
+$safeDecorativeSvg = ( new HtmlTransformer() )->transform(
+    '<main><svg aria-hidden="true" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"></circle></svg><div class="site-logo"><svg viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg></div></main>'
+)->toArray();
+$safeDecorativeDiagnostics = $safeDecorativeSvg['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$assert(array() === $safeDecorativeDiagnostics, 'safe decorative inline SVGs do not emit fallback diagnostics');
+$assert(2 <= ($safeDecorativeSvg['metrics']['block_count'] ?? 0), 'safe decorative inline SVGs materialize as blocks');
+$assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'safe decorative inline SVGs serialize as image data URIs');
+$assert(str_contains(rawurldecode((string) ($safeDecorativeSvg['serialized_blocks'] ?? '')), '<svg aria-hidden="true" viewbox="0 0 10 10"><circle cx="5" cy="5" r="5"></circle></svg>'), 'safe aria-hidden inline SVG markup is preserved');
+$assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'site-logo') && str_contains(rawurldecode((string) ($safeDecorativeSvg['serialized_blocks'] ?? '')), '<path d="M0 0h10v10H0z"></path>'), 'safe logo-like inline SVG context is preserved');
+
+$unsafeDecorativeSvg = ( new HtmlTransformer() )->transform(
+    '<main><svg aria-hidden="true" viewBox="0 0 10 10"><script>alert(1)</script><circle onclick="alert(1)" cx="5" cy="5" r="5"></circle></svg></main>'
+)->toArray();
+$unsafeDecorativeDiagnostics = $unsafeDecorativeSvg['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$unsafeDecorativeDiagnostic = $unsafeDecorativeDiagnostics[0] ?? array();
+$assert(array() === ($unsafeDecorativeSvg['blocks'] ?? array()), 'unsafe decorative inline SVG does not materialize as a block');
+$assertNormalizedFallbackDiagnostic($unsafeDecorativeDiagnostic, 'html_unsafe_inline_svg', 'warning', 'sanitization_review', 'image_asset');
+$assert(! str_contains((string) ($unsafeDecorativeDiagnostic['html'] ?? ''), '<script'), 'unsafe inline SVG fallback metadata strips scripts');
+$assert(! str_contains((string) ($unsafeDecorativeDiagnostic['html'] ?? ''), 'onclick='), 'unsafe inline SVG fallback metadata strips event attributes');
+
+$interactions = ( new HtmlTransformer() )->transform(
+    '<main><button aria-controls="panel" aria-expanded="false" data-action="toggle">Toggle</button><section id="panel">Panel</section><div role="tablist"><button role="tab" aria-controls="tab-one">One</button></div><div id="tab-one">Tab one</div><dialog id="signup">Join</dialog><div class="hero-carousel"><button class="carousel-next">Next</button></div></main>'
+)->toArray();
+$interactionKinds = array_map(static fn (array $candidate): string => (string) ($candidate['kind'] ?? ''), $interactions['source_reports']['interaction_candidates'] ?? array());
+$assert(in_array('control', $interactionKinds, true), 'HTML source report detects declarative control interactions');
+$assert(in_array('tabs', $interactionKinds, true), 'HTML source report detects tab interactions');
+$assert(in_array('modal', $interactionKinds, true), 'HTML source report detects modal-ish interactions');
+$assert(in_array('carousel', $interactionKinds, true), 'HTML source report detects carousel-ish interactions');
+$assert('#panel' === ($interactions['source_reports']['interaction_candidates'][0]['target'] ?? ''), 'control interaction candidate exposes aria-controls target');
 
 $assetMetadataOptions = array(
     'context' => array(
@@ -190,12 +289,13 @@ $assert('success' === $simple['status'], 'simple artifact compiles successfully'
 $assert(ArtifactCompiler::INPUT_SCHEMA === ($simple['source_reports']['artifact']['schema'] ?? ''), 'artifact report exposes canonical site artifact schema');
 $assert(ArtifactCompiler::INPUT_SCHEMA === ($simple['source_reports']['artifact']['original_schema'] ?? ''), 'canonical site artifact input schema is accepted and preserved');
 $assert('index.html' === ($simple['source_reports']['artifact']['entry_path'] ?? ''), 'generated HTML becomes an index entry');
-$assert(str_contains((string) $simple['serialized_blocks'], '<!-- wp:group -->'), 'HTML is converted to serialized block markup');
+$assert(str_contains((string) $simple['serialized_blocks'], '<!-- wp:heading'), 'artifact HTML is transformed into native serialized block markup');
+$assert(! str_contains((string) $simple['serialized_blocks'], '<!-- wp:html -->'), 'artifact HTML does not fall back to raw HTML when transformer-safe');
 $assert('hero' === ($simple['components'][0]['name'] ?? ''), 'component candidates are exposed');
 $assert(! array_key_exists('legacy_mapping', $simple), 'artifact result omits compatibility-only legacy mapping');
 $assert(strlen('<main><article data-component="Hero"><h1>Hello artifact</h1></article></main>') === ($simple['metrics']['input_bytes'] ?? null), 'artifact metrics expose input bytes');
 $assert(strlen((string) $simple['serialized_blocks']) === ($simple['metrics']['output_bytes'] ?? null), 'artifact metrics expose output bytes');
-$assert(2 === ($simple['metrics']['block_count'] ?? null), 'artifact metrics expose block count');
+$assert(2 === ($simple['metrics']['block_count'] ?? null), 'artifact metrics expose nested block count');
 $assert(0 === ($simple['metrics']['fallback_count'] ?? null), 'artifact metrics expose fallback count');
 $assert(0 === ($simple['metrics']['diagnostic_count'] ?? null), 'artifact metrics expose diagnostic count');
 $assert(is_float($simple['metrics']['transform_duration_ms'] ?? null), 'artifact metrics expose transform duration');
@@ -240,6 +340,21 @@ $staticSite = $compiler->compile(
     )
 )->toArray();
 $staticPlan = $staticSite['source_reports']['materialization_plan'] ?? array();
+$aboutCompiledPage = null;
+foreach ( $staticSite['source_reports']['compiled_site']['pages'] ?? array() as $compiledPage ) {
+    if ( 'about.html' === ($compiledPage['source_path'] ?? '') ) {
+        $aboutCompiledPage = $compiledPage;
+    }
+}
+$aboutPlanPage = null;
+foreach ( $staticPlan['pages'] ?? array() as $planPage ) {
+    if ( 'about.html' === ($planPage['source_path'] ?? '') ) {
+        $aboutPlanPage = $planPage;
+    }
+}
+$assert(str_contains((string) ($aboutCompiledPage['block_markup'] ?? ''), '<!-- wp:heading'), 'compiled site transforms non-entry HTML pages into semantic block markup');
+$assert(! str_contains((string) ($aboutCompiledPage['block_markup'] ?? ''), '<!-- wp:html -->'), 'compiled site avoids full-document core/html wrappers for transformer-safe non-entry HTML pages');
+$assert(str_contains((string) ($aboutPlanPage['block_markup'] ?? ''), '<!-- wp:heading'), 'materialization plan preserves transformed non-entry HTML page markup');
 $assert('parts/header.html' === ($staticPlan['template_part_writes'][0]['source_path'] ?? ''), 'materialization plan exposes template part writes');
 $assert('wp_template_part' === ($staticPlan['template_part_writes'][0]['type'] ?? ''), 'template part writes identify the WordPress write target');
 $assert(str_contains((string) ($staticPlan['visual_repair_css'] ?? ''), 'min-height:100vh'), 'materialization plan exposes visual repair CSS');
@@ -275,6 +390,71 @@ $assert(! empty($logoAssetPlanRow['hash'] ?? ''), 'materialization plan asset ro
 $assert('text' === ($cssAssetPlanRow['content_encoding'] ?? ''), 'materialization plan asset rows expose text content encoding');
 $assert('.wp-site-blocks{min-height:100vh}' === ($cssAssetPlanRow['content'] ?? ''), 'materialization plan asset rows expose text payloads for writable assets');
 
+$cssReferences = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><link rel="stylesheet" href="theme/site.css"><h1>Fonts</h1></main>',
+            'theme/site.css' => '@import "fonts/fonts.css"; body{background:url("../assets/paper.png")}',
+            'theme/fonts/fonts.css' => '@font-face{font-family:"Fixture Sans";src:url("FixtureSans.woff2") format("woff2");font-weight:400}',
+            'theme/fonts/FixtureSans.woff2' => array(
+                'content_base64' => base64_encode('fixture-font'),
+                'mime_type'      => 'font/woff2',
+            ),
+            'assets/paper.png' => array(
+                'content_base64' => base64_encode("\x89PNG\r\n\x1a\n"),
+                'mime_type'      => 'image/png',
+            ),
+        ),
+    )
+)->toArray();
+$cssAssetReferences = $cssReferences['source_reports']['artifact']['asset_references'] ?? array();
+$assert(4 === count($cssAssetReferences), 'CSS asset analysis reports linked stylesheet, @import, url(), and @font-face url references');
+$assert('css-import' === ($cssAssetReferences[1]['context'] ?? ''), 'CSS @import references expose a neutral context');
+$assert('theme/fonts/fonts.css' === ($cssAssetReferences[1]['asset_path'] ?? ''), 'CSS @import references resolve relative to the source stylesheet');
+$assert('css:@import(1)' === ($cssAssetReferences[1]['selector'] ?? ''), 'CSS @import references expose a stable selector');
+$assert('css-url' === ($cssAssetReferences[2]['context'] ?? ''), 'CSS url() references expose a neutral context');
+$assert('assets/paper.png' === ($cssAssetReferences[2]['asset_path'] ?? ''), 'CSS url() references continue resolving asset paths');
+$assert('css-font-face' === ($cssAssetReferences[3]['context'] ?? ''), 'CSS @font-face url references expose a neutral context');
+$assert('theme/fonts/FixtureSans.woff2' === ($cssAssetReferences[3]['asset_path'] ?? ''), 'CSS @font-face url references resolve local font assets');
+$fontCompiledAsset = null;
+$fontPlanAsset = null;
+foreach ( $cssReferences['source_reports']['compiled_site']['assets'] ?? array() as $asset ) {
+    if ( 'theme/fonts/FixtureSans.woff2' === ($asset['path'] ?? '') ) {
+        $fontCompiledAsset = $asset;
+    }
+}
+foreach ( $cssReferences['source_reports']['materialization_plan']['assets'] ?? array() as $asset ) {
+    if ( 'theme/fonts/FixtureSans.woff2' === ($asset['path'] ?? '') ) {
+        $fontPlanAsset = $asset;
+    }
+}
+$assert('font/woff2' === ($fontCompiledAsset['media_type'] ?? ''), 'compiled site assets preserve local font media type');
+$assert('css-font-face' === ($fontCompiledAsset['references'][0]['context'] ?? ''), 'compiled site assets expose structured reference metadata');
+$assert('css-font-face' === ($fontPlanAsset['references'][0]['context'] ?? ''), 'materialization plan assets preserve structured reference metadata');
+
+$materializationView = ( new MaterializationView() )->fromResult($staticSite);
+$assert(MaterializationView::SCHEMA === ($materializationView['schema'] ?? ''), 'materialization view exposes its own schema');
+$assert(TransformerResult::SCHEMA === ($materializationView['result_schema'] ?? ''), 'materialization view exposes transformer result schema');
+$assert($staticSite['status'] === ($materializationView['status'] ?? ''), 'materialization view exposes result status');
+$assert($staticSite['source_reports']['artifact'] === ($materializationView['artifact_summary'] ?? null), 'materialization view exposes artifact summary');
+$assert($staticPlan === ($materializationView['materialization_plan'] ?? null), 'materialization view exposes materialization plan');
+$assert($staticSite['source_reports']['compiled_site'] === ($materializationView['compiled_site'] ?? null), 'materialization view exposes compiled site report');
+$assert($staticSite['assets'] === ($materializationView['assets'] ?? null), 'materialization view exposes assets');
+$assert($staticSite['documents'] === ($materializationView['documents'] ?? null), 'materialization view exposes documents');
+$assert($staticSite['serialized_blocks'] === ($materializationView['block_markup'] ?? null), 'materialization view exposes block markup');
+$assert($staticSite['blocks'] === ($materializationView['blocks'] ?? null), 'materialization view exposes blocks');
+$assert($staticSite['block_types'] === ($materializationView['block_types'] ?? null), 'materialization view exposes block types');
+$assert($staticSite['components'] === ($materializationView['components'] ?? null), 'materialization view exposes components');
+$assert($staticSite['diagnostics'] === ($materializationView['diagnostics'] ?? null), 'materialization view exposes diagnostics');
+$assert($staticSite['provenance'] === ($materializationView['provenance'] ?? null), 'materialization view exposes provenance');
+$assert($staticSite['source_reports']['conversion_report'] === ($materializationView['conversion_report'] ?? null), 'materialization view exposes conversion report');
+
+$objectMaterializationView = ( new MaterializationView() )->fromResult($compiler->compile(array('generated_html' => '<main><h1>Object</h1></main>')));
+$assert('success' === ($objectMaterializationView['status'] ?? ''), 'materialization view accepts TransformerResult objects');
+$assert('index.html' === ($objectMaterializationView['materialization_plan']['entry_path'] ?? ''), 'materialization view exposes plans from TransformerResult objects');
+assertThrows(static fn () => ( new MaterializationView() )->fromResult((object) array('status' => 'success')), 'Materialization view expects a TransformerResult, result array, or object with toArray().');
+
 $neutralPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(
     array(
         'products' => array(
@@ -298,14 +478,17 @@ $unsafe = $compiler->compile(
     array(
         'entrypoints' => array('../unsafe.html'),
         'files'       => array(
-            '../secret.html' => '<main>Nope</main>',
-            'safe.html'     => '<main>Safe</main>',
+            '../secret.html'          => '<main>Nope</main>',
+            '/absolute.html'          => '<main>Nope</main>',
+            'safe.html'              => '<main>Safe</main>',
+            'assets//nested/style.css' => '.safe{}',
         ),
     )
 )->toArray();
 $assert('success_with_warnings' === $unsafe['status'], 'unsafe paths produce warning status', (string) $unsafe['status']);
-$assert(1 === ($unsafe['source_reports']['artifact']['rejected_count'] ?? null), 'unsafe paths are rejected');
+$assert(2 === ($unsafe['source_reports']['artifact']['rejected_count'] ?? null), 'unsafe paths are rejected');
 $assert('unsafe_entrypoint_path' === ($unsafe['diagnostics'][0]['code'] ?? ''), 'unsafe entrypoints are diagnosed');
+$assert(! empty(array_filter($unsafe['assets'], static fn (array $asset): bool => 'assets/nested/style.css' === ($asset['path'] ?? ''))), 'safe artifact paths collapse duplicate separators');
 
 $binary = $compiler->compile(
     array(

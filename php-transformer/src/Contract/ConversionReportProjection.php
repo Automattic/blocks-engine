@@ -28,6 +28,7 @@ final class ConversionReportProjection
             'fallback_diagnostics'  => self::fallbackDiagnostics($fallbacks),
             'asset_refs'            => self::assetReferences($blocks, $sourceReports),
             'navigation_candidates' => self::navigationCandidates($blocks, $sourceReports),
+            'interaction_candidates' => self::interactionCandidates($sourceReports),
             'presentation_gaps'     => self::presentationGaps($sourceReports),
             'metrics'               => $metrics,
         );
@@ -118,6 +119,12 @@ final class ConversionReportProjection
                     'type'            => $fallback['type'] ?? '',
                     'reason'          => $fallback['reason'] ?? '',
                     'diagnostic_code' => $fallback['diagnostic_code'] ?? '',
+                    'severity'        => $fallback['severity'] ?? '',
+                    'runtime_requirement' => $fallback['runtime_requirement'] ?? '',
+                    'recoverability'  => $fallback['recoverability'] ?? '',
+                    'actionability'   => $fallback['actionability'] ?? '',
+                    'suggested_primitive' => $fallback['suggested_primitive'] ?? '',
+                    'materialization_hint' => $fallback['materialization_hint'] ?? '',
                     'source_format'   => $fallback['source_format'] ?? '',
                     'source'          => $fallback['source'] ?? '',
                     'scope'           => $fallback['scope'] ?? '',
@@ -248,6 +255,20 @@ final class ConversionReportProjection
         }
 
         return $gaps;
+    }
+
+    /**
+     * @param array<string, mixed> $sourceReports
+     * @return array<int, array<string, mixed>>
+     */
+    private static function interactionCandidates(array $sourceReports): array
+    {
+        $candidates = $sourceReports['interaction_candidates'] ?? array();
+        if ( ! is_array($candidates) ) {
+            return array();
+        }
+
+        return self::dedupeRows(array_values(array_filter($candidates, static fn (mixed $candidate): bool => is_array($candidate))));
     }
 
     /**
