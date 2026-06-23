@@ -21,6 +21,10 @@ final class LogoPattern
         }
 
         $tagName = strtolower($element->tagName);
+        if ( 'a' !== $tagName && $this->containsBlockContent($element) ) {
+            return null;
+        }
+
         $content = 'a' === $tagName ? $outerHtml($element) : $innerHtml($element);
         if ( '' === trim($content) ) {
             return null;
@@ -45,5 +49,59 @@ final class LogoPattern
         }
 
         return false;
+    }
+
+    private function containsBlockContent(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( $this->isBlockContentTag(strtolower($child->tagName)) ) {
+                return true;
+            }
+
+            if ( $this->containsBlockContent($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isBlockContentTag(string $tagName): bool
+    {
+        return in_array($tagName, array(
+            'address',
+            'article',
+            'aside',
+            'blockquote',
+            'details',
+            'div',
+            'dl',
+            'fieldset',
+            'figcaption',
+            'figure',
+            'footer',
+            'form',
+            'h1',
+            'h2',
+            'h3',
+            'h4',
+            'h5',
+            'h6',
+            'header',
+            'hr',
+            'li',
+            'main',
+            'nav',
+            'ol',
+            'p',
+            'pre',
+            'section',
+            'table',
+            'ul',
+        ), true);
     }
 }
