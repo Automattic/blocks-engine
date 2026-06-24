@@ -1,4 +1,3 @@
-import { escapeHtmlAttr } from '../escape.js';
 import { rewriteHtmlImageSrcs, type StaticImgRef } from './assets-static.js';
 import type {
   AssetFile,
@@ -206,7 +205,7 @@ function orderedPageBlocks(
     if (seen.has(slug)) continue;
     const blocks = rewritePageBlocks(
       slug,
-      joinSectionBlocks(sections, imgRefsByPage[slug] ?? []),
+      joinSectionBlocks(sections),
       imgRefsByPage,
       themeSlug
     );
@@ -224,53 +223,17 @@ function blocksForPage(
 ): string | null {
   return rewritePageBlocks(
     slug,
-    joinSectionBlocks(pages[slug] ?? [], imgRefsByPage[slug] ?? []),
+    joinSectionBlocks(pages[slug] ?? []),
     imgRefsByPage,
     themeSlug
   );
 }
 
-function joinSectionBlocks(sections: SectionBlocks[], refs: StaticImgRef[]): string | null {
+function joinSectionBlocks(sections: SectionBlocks[]): string | null {
   const blocks = sections
-    .map((section) => sectionBlocksWithMissingImages(section, refs).trim())
+    .map((section) => section.blocks.trim())
     .filter(Boolean);
   return blocks.length > 0 ? blocks.join('\n\n') : null;
-}
-
-function sectionBlocksWithMissingImages(section: SectionBlocks, refs: StaticImgRef[]): string {
-  const blocks = section.blocks.trim();
-  const missingImages = missingImageBlocks(section, refs, blocks);
-  if (missingImages.length === 0) return blocks;
-  return [blocks, ...missingImages].filter(Boolean).join('\n\n');
-}
-
-function missingImageBlocks(
-  section: SectionBlocks,
-  refs: StaticImgRef[],
-  blocks: string
-): string[] {
-  const out: string[] = [];
-  const emitted = new Set<string>();
-
-  for (const image of section.spec.images) {
-    const ref = refs.find(
-      (candidate) => candidate.ref === image.url || candidate.ref === image.sourceUrl
-    );
-    if (!ref || emitted.has(ref.ref) || blocks.includes(ref.ref)) continue;
-
-    emitted.add(ref.ref);
-    out.push(imageBlock(ref.ref, image.alt));
-  }
-
-  return out;
-}
-
-function imageBlock(src: string, alt: string): string {
-  return [
-    '<!-- wp:image -->',
-    `<figure class="wp-block-image"><img src="${escapeHtmlAttr(src)}" alt="${escapeHtmlAttr(alt)}"/></figure>`,
-    '<!-- /wp:image -->',
-  ].join('\n');
 }
 
 function rewritePageBlocks(

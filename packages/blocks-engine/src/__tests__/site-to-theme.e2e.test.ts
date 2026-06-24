@@ -333,8 +333,6 @@ describe('site-to-theme P0-3 orchestration', () => {
 
       const result = await siteToTheme(siteDir, {
         outDir,
-        pool: p1Pool(),
-        sections: p1Sections(),
         fetchImpl,
         themeMeta: themeMeta(),
       });
@@ -355,6 +353,10 @@ describe('site-to-theme P0-3 orchestration', () => {
 
       const template = readFileSync(join(outDir, 'templates', 'index.html'), 'utf8');
       expect(template).toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(template).toMatch(
+        /<!-- wp:html \{"metadata":\{"name":"lib-coverage-island"\}\} -->[\s\S]*<img src="\/wp-content\/themes\/fixture-theme\/assets\/logo\.png" alt="Blocks Engine mark">[\s\S]*<!-- \/wp:html -->/
+      );
+      expect(template).not.toContain('<!-- wp:image -->');
       expect(template).not.toContain('src="assets/logo.png"');
     });
   });
