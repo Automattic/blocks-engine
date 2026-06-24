@@ -1,6 +1,8 @@
 import { convert } from '../convert.js';
 import { escapeHtmlAttr, escapeHtmlText } from '../escape.js';
 import type { WorkerPool } from '../pool/types.js';
+import { buildCoverageIsland } from './html-fallback.js';
+import { captureSectionContent, measureSectionCoverage } from './section-coverage.js';
 import type { SectionSpec, SectionSpecButton, SectionSpecImage } from './section-spec.js';
 import type { SectionBlocks, SiteToThemeHooks, StageCtx } from './types.js';
 
@@ -77,7 +79,14 @@ export async function reconstruct(
   const sections: SectionBlocks[] = [];
 
   for (const spec of specs) {
-    const blocks = await convert(sectionInputHtml(spec), { url: '' }, { pool });
+    let blocks = await convert(sectionInputHtml(spec), { url: '' }, { pool });
+    if (
+      !HTML_ISLAND_RE.test(blocks) &&
+      measureSectionCoverage(captureSectionContent(spec), blocks).lost
+    ) {
+      blocks = buildCoverageIsland(spec);
+    }
+
     const section: SectionBlocks = {
       spec,
       blocks,

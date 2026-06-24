@@ -688,6 +688,7 @@ describe('site-to-theme P0-3 orchestration', () => {
       expect(template).toContain(footerRef);
       expect(template).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
       expect(body).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
+      expect(template).toContain('Build calmer block themes');
       expect(template).toContain('/wp-content/themes/fixture-theme/assets/logo.png');
       expect(template).toMatch(
         /<!-- wp:html \{"metadata":\{"name":"lib-coverage-island"\}\} -->[\s\S]*<img src="\/wp-content\/themes\/fixture-theme\/assets\/logo\.png" alt="Blocks Engine mark">[\s\S]*<!-- \/wp:html -->/
@@ -700,6 +701,28 @@ describe('site-to-theme P0-3 orchestration', () => {
       expect(pageTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/logo.png');
       expect(headerPart).toContain('About');
       expect(footerPart).toContain('Blocks Engine');
+    });
+  });
+
+  it('siteToTheme-e2e-hero-survives coverage-gated reconstruct', async () => {
+    const { siteToTheme } = await import('../theme/index.js');
+    const { fetchImpl } = mockFontFetch();
+
+    await withTempDir('blocks-engine-site-to-theme-hero-survives-', async (siteDir) => {
+      copyFixtureSite(siteDir);
+      const outDir = join(siteDir, 'theme-out');
+
+      await siteToTheme(siteDir, {
+        outDir,
+        fetchImpl,
+        themeMeta: themeMeta(),
+      });
+
+      const template = readFileSync(join(outDir, 'templates', 'front-page.html'), 'utf8');
+
+      expect(template).toContain('Build calmer block themes');
+      expect(template).toContain('Static source pages become a structured theme pipeline.');
+      expect(template).toContain('Learn more');
     });
   });
 
