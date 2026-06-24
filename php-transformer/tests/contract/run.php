@@ -412,9 +412,21 @@ foreach ( $normalizedDiagnostics as $diagnostic ) {
 }
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_unsafe_inline_svg'] ?? array(), 'html_unsafe_inline_svg', 'warning', 'sanitization_review', 'image_asset');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_script_fallback'] ?? array(), 'html_script_fallback', 'warning', 'client_script_execution', 'script_asset');
-$assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_unsupported_element'] ?? array(), 'html_unsupported_element', 'info', 'unknown', 'core/html');
+$assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_canvas_runtime_fallback'] ?? array(), 'html_canvas_runtime_fallback', 'warning', 'canvas_element_and_client_script_execution', 'runtime_canvas');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallback'] ?? array(), 'html_iframe_embed_fallback', 'warning', 'third_party_embed_runtime', 'embed');
 $assert(! isset($diagnosticsByCode['html_inline_svg_fallback']), 'safe inline SVGs convert to image blocks instead of fallback diagnostics');
+
+$canvasFallback = ( new HtmlTransformer() )->transform(
+    '<main><canvas id="bonsai" class="stage" width="640" height="360">Fallback</canvas><script src="/js/script.js"></script></main>'
+)->toArray();
+$canvasDiagnostic = $canvasFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
+$assertNormalizedFallbackDiagnostic($canvasDiagnostic, 'html_canvas_runtime_fallback', 'warning', 'canvas_element_and_client_script_execution', 'runtime_canvas');
+$assert('canvas_requires_runtime' === ($canvasDiagnostic['reason'] ?? ''), 'canvas fallback exposes runtime-specific reason');
+$assert('bonsai' === ($canvasFallback['fallbacks'][0]['attributes']['id'] ?? ''), 'canvas fallback preserves id for runtime mapping');
+$assert(str_contains((string) ($canvasFallback['fallbacks'][0]['html'] ?? ''), '<canvas id="bonsai"'), 'canvas fallback preserves bounded safe canvas markup');
+$assert(str_contains((string) ($canvasDiagnostic['script_dependency_hint'] ?? ''), '#bonsai'), 'canvas diagnostic flags id-based script dependency risk');
+$assert(! str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'canvas fallback does not emit core/html');
+$assert(! str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<canvas'), 'canvas fallback does not smuggle raw canvas markup into generated core blocks');
 
 $safeDecorativeSvg = ( new HtmlTransformer() )->transform(
     '<main><svg aria-hidden="true" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"></circle></svg><div class="site-logo"><svg viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg></div></main>'
@@ -930,9 +942,9 @@ assertSame(1, $result['blocks'][0]['innerBlocks'][0]['attrs']['level'], 'h1 leve
 assertSame('core/paragraph', $result['blocks'][0]['innerBlocks'][1]['blockName'], 'p should convert to a paragraph block.');
 assertSame('core/list', $result['blocks'][1]['blockName'], 'ul should convert to a list block.');
 assertSame('core/list-item', $result['blocks'][1]['innerBlocks'][0]['blockName'], 'li should convert to list-item blocks.');
-assertSame('unsupported_element', $result['fallbacks'][0]['type'], 'unsupported top-level elements should be reported as fallbacks.');
-assertSame('unsupported_element', $result['fallbacks'][0]['reason'], 'fallbacks should expose a stable generic reason.');
-assertSame('html_unsupported_element', $result['fallbacks'][0]['diagnostic_code'], 'fallbacks should expose a diagnostic code for cross-process consumers.');
+assertSame('html', $result['fallbacks'][0]['type'], 'canvas elements should be reported as HTML runtime fallbacks.');
+assertSame('canvas_requires_runtime', $result['fallbacks'][0]['reason'], 'canvas fallbacks should expose a runtime-specific reason.');
+assertSame('html_canvas_runtime_fallback', $result['fallbacks'][0]['diagnostic_code'], 'canvas fallbacks should expose a runtime-specific diagnostic code for cross-process consumers.');
 assertSame('html', $result['fallbacks'][0]['source_format'], 'fallbacks should expose the source format.');
 assertSame('canvas', $result['fallbacks'][0]['tag'], 'fallback should identify the unsupported tag.');
 assertContains('html_to_blocks_core_slice', array_column($result['diagnostics'], 'code'), 'expanded core-slice conversion diagnostic should be present.');
