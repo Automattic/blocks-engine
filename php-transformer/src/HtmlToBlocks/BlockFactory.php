@@ -29,11 +29,24 @@ final class BlockFactory
 
         return array(
             'blockName'    => $name,
-            'attrs'        => $attrs,
+            'attrs'        => $this->commentAttrs($name, $attrs),
             'innerBlocks'  => $innerBlocks,
             'innerHTML'    => $innerHtml,
             'innerContent' => $innerContent,
         );
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function commentAttrs(string $name, array $attrs): array
+    {
+        if ( 'core/paragraph' === $name && preg_match('/^\s*<a\b/i', (string) ($attrs['content'] ?? '')) ) {
+            unset($attrs['content']);
+        }
+
+        return $attrs;
     }
 
     /**

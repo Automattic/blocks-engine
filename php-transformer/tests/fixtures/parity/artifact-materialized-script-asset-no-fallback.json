@@ -33,6 +33,8 @@
     { "path": "status", "assert": "equals", "value": "success_with_warnings" },
     { "path": "fallbacks", "assert": "count", "count": 1 },
     { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_script_fallback" },
+    { "path": "fallbacks.0.script_role", "assert": "equals", "value": "runtime" },
+    { "path": "fallbacks.0.script_source_kind", "assert": "equals", "value": "inline" },
     { "path": "fallbacks.0.body", "assert": "equals", "value": "window.inlineRuntime = true;" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Content remains block-convertible." },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "assets/site.js" },
