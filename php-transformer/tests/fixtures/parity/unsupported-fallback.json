@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "unsupported-html-fallback",
-  "description": "Reports unsupported top-level HTML as fallback metadata without failing the transform.",
+  "description": "Reports native canvas HTML as runtime-critical fallback metadata without emitting raw HTML blocks.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/smoke-unsupported-html-fallback-hook.php",
@@ -17,13 +17,15 @@
   },
   "expected_blocks": [],
   "expected_fallbacks": [
-    { "type": "unsupported_element", "reason": "unsupported_element", "tag": "canvas", "selector": "canvas:nth-of-type(1)", "child_count": 1 }
+    { "type": "html", "reason": "canvas_requires_runtime", "diagnostic_code": "html_canvas_runtime_fallback", "tag": "canvas", "selector": "canvas:nth-of-type(1)", "child_count": 1 }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 0 },
     { "path": "fallbacks", "assert": "count", "count": 1 },
-    { "path": "fallbacks.0.type", "assert": "equals", "value": "unsupported_element" },
+    { "path": "fallbacks.0.type", "assert": "equals", "value": "html" },
+    { "path": "fallbacks.0.reason", "assert": "equals", "value": "canvas_requires_runtime" },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_canvas_runtime_fallback" },
     { "path": "fallbacks.0.tag", "assert": "equals", "value": "canvas" },
     { "path": "fallbacks.0.selector", "assert": "equals", "value": "canvas:nth-of-type(1)" },
     { "path": "diagnostics.1.selector", "assert": "equals", "value": "canvas:nth-of-type(1)" },

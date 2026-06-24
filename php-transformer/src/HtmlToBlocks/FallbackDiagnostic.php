@@ -64,6 +64,14 @@ final class FallbackDiagnostic
                 'suggested_primitive'   => 'embed',
                 'materialization_hint'  => 'convert_supported_src_to_core_embed_or_preserve_sanitized_iframe_html',
             ),
+            'html_canvas_runtime_fallback' => array(
+                'severity'              => 'warning',
+                'runtime_requirement'   => 'canvas_element_and_client_script_execution',
+                'recoverability'        => 'recoverable_with_canvas_markup_preservation_or_rebuilt_interactive_block',
+                'actionability'         => 'preserve_canvas_markup_with_matching_script_runtime_or_rebuild_canvas_behavior',
+                'suggested_primitive'   => 'runtime_canvas',
+                'materialization_hint'  => 'core_blocks_cannot_emit_a_native_canvas_element_without_raw_html; preserve_bounded_canvas_metadata_for_runtime_mapping',
+            ),
             'html_unsupported_element' => array(
                 'severity'              => 'info',
                 'runtime_requirement'   => 'unknown',

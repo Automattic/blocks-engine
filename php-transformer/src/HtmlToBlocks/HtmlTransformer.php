@@ -189,12 +189,14 @@ final class HtmlTransformer
         foreach ( $fallbacks as $fallback ) {
             if ( ! empty($fallback['diagnostic_code']) ) {
                 $diagnostics[] = array(
-                    'code'    => $fallback['diagnostic_code'],
-                    'message' => $fallback['message'] ?? 'HTML element preserved as fallback metadata.',
-                    'source'  => self::class,
-                    'reason'  => $fallback['reason'] ?? null,
-                    'tag'     => $fallback['tag'] ?? null,
-                    'selector' => $fallback['selector'] ?? null,
+                    'code'                => $fallback['diagnostic_code'],
+                    'message'             => $fallback['message'] ?? 'HTML element preserved as fallback metadata.',
+                    'source'              => self::class,
+                    'reason'              => $fallback['reason'] ?? null,
+                    'severity'            => $fallback['severity'] ?? null,
+                    'runtime_requirement' => $fallback['runtime_requirement'] ?? null,
+                    'tag'                 => $fallback['tag'] ?? null,
+                    'selector'            => $fallback['selector'] ?? null,
                 );
             }
         }
@@ -1140,6 +1142,11 @@ final class HtmlTransformer
             }
 
             $this->captureInlineSvgFallback($element, $fallbacks);
+            return null;
+        }
+
+        if ( 'canvas' === $tagName ) {
+            $this->captureCanvasFallback($element, $fallbacks);
             return null;
         }
 
@@ -2860,6 +2867,36 @@ final class HtmlTransformer
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      */
+    private function captureCanvasFallback(DOMElement $element, array &$fallbacks): void
+    {
+        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+        $id = trim($this->attr($element, 'id'));
+
+        $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
+            'type'            => 'html',
+            'reason'          => 'canvas_requires_runtime',
+            'diagnostic_code' => 'html_canvas_runtime_fallback',
+            'message'         => 'Canvas HTML requires a native canvas element and client script runtime; core blocks cannot preserve it without raw HTML.',
+            'source_format'   => 'html',
+            'tag'             => 'canvas',
+            'selector'        => $this->elementSelector($element),
+            'attributes'      => $this->safeCanvasAttributes($element),
+            'context'         => $this->sourceContext($element),
+            'events'                 => $this->eventMetadata($element),
+            'script_dependency_hint' => '' !== $id
+                ? 'Scripts may target #' . $id . ' and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.'
+                : 'Scripts may target this canvas by selector and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.',
+            'text_length'            => strlen(trim($element->textContent ?? '')),
+            'child_count'            => $this->childElementCount($element),
+            'html'                   => $boundedHtml['html'],
+            'html_bytes'             => $boundedHtml['bytes'],
+            'html_truncated'         => $boundedHtml['truncated'],
+        ), static fn (mixed $value): bool => '' !== $value && array() !== $value), $this->fallbackProvenance);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
     private function captureScriptFallback(DOMElement $element, array &$fallbacks): void
     {
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
@@ -2946,6 +2983,22 @@ final class HtmlTransformer
         $allowed = array_flip(array( 'async', 'class', 'defer', 'id', 'src', 'type' ));
         foreach ( $this->htmlAttributes($element) as $name => $value ) {
             if ( isset($allowed[$name]) && ! preg_match('/javascript\s*:/i', $value) ) {
+                $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
+            }
+        }
+
+        return $safe;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function safeCanvasAttributes(DOMElement $element): array
+    {
+        $safe = array();
+        $allowed = array_flip(array( 'aria-label', 'class', 'height', 'id', 'role', 'style', 'title', 'width' ));
+        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+            if ( isset($allowed[$name]) ) {
                 $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
             }
         }
