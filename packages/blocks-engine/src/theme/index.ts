@@ -1,5 +1,6 @@
 export { assemble } from './assemble.js';
 export { assets } from './assets.js';
+export { assignChromeVariants, chromeSignature } from './chrome-signature.js';
 export { splitPageChrome } from './chrome-split.js';
 export { foundation } from './foundation.js';
 export { ingest } from './ingest.js';
@@ -11,6 +12,7 @@ export { writeTheme } from './write-theme.js';
 
 export type * from './assets-static.js';
 export type * from './assets.js';
+export type { ChromeSlugs } from './chrome-signature.js';
 export type { RegionSplit } from './chrome-split.js';
 export type * from './font-faces.js';
 export type * from './section-spec.js';
