@@ -50,6 +50,7 @@ final class StaticHtmlEmitter
             $body .= $this->emitNode($node, $cssRules, $diagnostics, $nodeStyleDiagnostics, 0, null);
         }
 
+        $css = ('' !== $fontCss ? $fontCss . "\n" : '') . implode("\n", $cssRules) . "\n";
         $files = array(
             array(
                 'path'      => 'index.html',
@@ -61,7 +62,7 @@ final class StaticHtmlEmitter
                 'path'      => 'style.css',
                 'role'      => 'stylesheet',
                 'mime_type' => 'text/css',
-                'content'   => ('' !== $fontCss ? $fontCss . "\n" : '') . implode("\n", $cssRules) . "\n",
+                'content'   => $css,
             ),
         );
 
@@ -71,6 +72,7 @@ final class StaticHtmlEmitter
 
         $visualNodeMap = $this->visualNodeMap($nodes);
         $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
+        $transformDiagnostics = $this->transformDiagnostics($nodes, $assetFiles, $fontFamilies, $fontCss, $css, $diagnostics);
         if ( '' === $fontCss ) {
             foreach ( $fontFamilies as $fontFamily ) {
                 if ( $this->isWebSafeFontFamily($fontFamily) ) {
@@ -103,6 +105,7 @@ final class StaticHtmlEmitter
                 'font_usage'                   => $this->fontUsage($nodeStyleDiagnostics),
                 'font_css_supplied'            => '' !== $fontCss,
                 'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
+                'transform_diagnostics'        => $transformDiagnostics,
             ),
             'metrics'       => array(
                 'node_count'  => $this->countNodes($nodes),
@@ -451,6 +454,174 @@ final class StaticHtmlEmitter
         }
 
         return $map;
+    }
+
+    /**
+     * Build production-transform diagnostics for Figma import development.
+     *
+     * @param array<int, array<string, mixed>> $nodes
+     * @param array<int, array<string, mixed>> $assetFiles
+     * @param array<int, string> $fontFamilies
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, mixed>
+     */
+    private function transformDiagnostics(array $nodes, array $assetFiles, array $fontFamilies, string $fontCss, string $css, array $diagnostics): array
+    {
+        $image = array(
+            'paint_refs'      => 0,
+            'node_refs'       => 0,
+            'resolved_assets' => 0,
+            'missing_assets'  => array(),
+        );
+        $vectors = array(
+            'nodes'                    => 0,
+            'rendered_paths'           => 0,
+            'rendered_asset_fallbacks' => 0,
+            'placeholders'             => 0,
+            'placeholder_nodes'        => array(),
+        );
+
+        foreach ( $nodes as $node ) {
+            if ( is_array($node) ) {
+                $this->collectTransformDiagnostics($node, $image, $vectors);
+            }
+        }
+
+        $image['missing_assets'] = array_values($image['missing_assets']);
+        $vectors['placeholder_nodes'] = array_values($vectors['placeholder_nodes']);
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
+            'images' => $image,
+            'vectors' => $vectors,
+            'fonts' => array(
+                'families'      => $fontFamilies,
+                'count'         => count($fontFamilies),
+                'css_supplied'  => '' !== $fontCss,
+                'materialized'  => '' !== $fontCss,
+                'missing_css'   => '' === $fontCss ? array_values(array_filter($fontFamilies, fn (string $family): bool => ! $this->isWebSafeFontFamily($family))) : array(),
+            ),
+            'assets' => array(
+                'emitted_files' => count($assetFiles),
+                'paths'         => array_values(array_map(static fn (array $file): string => (string) ($file['path'] ?? ''), $assetFiles)),
+            ),
+            'layout' => array(
+                'large_negative_left_count' => preg_match_all('/left:-[0-9]{3,}/', $css),
+            ),
+            'diagnostic_codes' => $this->diagnosticCodeCounts($diagnostics),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $image
+     * @param array<string, mixed> $vectors
+     */
+    private function collectTransformDiagnostics(array $node, array &$image, array &$vectors): void
+    {
+        $imagePaints = $this->nodeImagePaints($node);
+        if ( ! empty($imagePaints) ) {
+            $image['paint_refs'] += count($imagePaints);
+        }
+
+        $assetReferences = $this->explicitNodeAssetReferences($node);
+        $hasAssetExpectation = ! empty($assetReferences) || ! empty($imagePaints);
+        if ( $hasAssetExpectation ) {
+            ++$image['node_refs'];
+            if ( null !== $this->nodeAssetPath($node) ) {
+                ++$image['resolved_assets'];
+            } else {
+                $image['missing_assets'][] = array(
+                    'node_id' => (string) ($node['id'] ?? ''),
+                    'name'    => (string) ($node['name'] ?? ''),
+                    'type'    => strtoupper((string) ($node['type'] ?? '')),
+                    'refs'    => array_values(array_unique(array_merge($assetReferences, $this->imagePaintReferences($node)))),
+                );
+            }
+        }
+
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        if ( $this->isUnsupportedVectorType($type) ) {
+            ++$vectors['nodes'];
+            if ( null !== $this->supportedVectorSvg($node, $type) ) {
+                ++$vectors['rendered_paths'];
+            } elseif ( null !== $this->nodeAssetPath($node) ) {
+                ++$vectors['rendered_asset_fallbacks'];
+            } else {
+                ++$vectors['placeholders'];
+                $vectors['placeholder_nodes'][] = array(
+                    'node_id' => (string) ($node['id'] ?? ''),
+                    'name'    => (string) ($node['name'] ?? ''),
+                    'type'    => $type,
+                );
+            }
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) ) {
+                $this->collectTransformDiagnostics($child, $image, $vectors);
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function explicitNodeAssetReferences(array $node): array
+    {
+        $references = array();
+        foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== (string) $node[$key] ) {
+                $references[] = (string) $node[$key];
+            }
+        }
+        if ( is_array($node['image'] ?? null) ) {
+            foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref') as $key ) {
+                if ( isset($node['image'][$key]) && is_scalar($node['image'][$key]) && '' !== (string) $node['image'][$key] ) {
+                    $references[] = (string) $node['image'][$key];
+                }
+            }
+        }
+
+        return array_values(array_unique($references));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function imagePaintReferences(array $node): array
+    {
+        $references = array();
+        foreach ( $this->nodeImagePaints($node) as $paint ) {
+            foreach ( array('ref', 'imageRef', 'imageHash', 'asset_id', 'image_ref') as $key ) {
+                if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
+                    $references[] = (string) $paint[$key];
+                }
+            }
+        }
+
+        return array_values(array_unique($references));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, int>
+     */
+    private function diagnosticCodeCounts(array $diagnostics): array
+    {
+        $counts = array();
+        foreach ( $diagnostics as $diagnostic ) {
+            $code = is_array($diagnostic) ? (string) ($diagnostic['code'] ?? '') : '';
+            if ( '' === $code ) {
+                continue;
+            }
+            $counts[$code] = ($counts[$code] ?? 0) + 1;
+        }
+        ksort($counts);
+
+        return $counts;
     }
 
     /**
