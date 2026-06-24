@@ -1330,6 +1330,70 @@ $assert(str_contains($assetReferenceHtml, 'data-figma-unsupported-vector="true"'
 $assert(str_contains($assetReferenceHtml, 'Unsupported Figma VECTOR'), 'unsupported-vector-placeholder-text');
 $assert(in_array('unsupported_vector_node_placeholder', $assetReferenceDiagnosticCodes, true), 'unsupported-vector-diagnostic');
 
+$pluginAssetResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'   => 'Plugin Asset Fixture',
+    'assets' => array(
+        'plugin-photo-asset' => array(
+            'id'        => 'plugin-photo-asset',
+            'name'      => 'Plugin Photo',
+            'imageHash' => 'plugin-image-hash',
+            'dataUrl'   => 'data:image/png;base64,' . base64_encode('plugin-png-bytes'),
+        ),
+        'plugin-icon-asset'  => array(
+            'id'             => 'plugin-icon-asset',
+            'name'           => 'Plugin Icon',
+            'node_id'        => 'plugin:vector',
+            'mime_type'      => 'image/svg+xml',
+            'content_base64' => base64_encode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><path d="M0 0h8v8z"/></svg>'),
+        ),
+    ),
+    'nodes'  => array(
+        array(
+            'id'       => 'plugin:frame',
+            'type'     => 'FRAME',
+            'name'     => 'Plugin frame',
+            'children' => array(
+                array(
+                    'id'     => 'plugin:image',
+                    'type'   => 'RECTANGLE',
+                    'name'   => 'Plugin image',
+                    'width'  => 40,
+                    'height' => 30,
+                    'fills'  => array(
+                        array('type' => 'IMAGE', 'imageRef' => 'plugin-image-hash'),
+                    ),
+                ),
+                array(
+                    'id'     => 'plugin:vector',
+                    'type'   => 'VECTOR',
+                    'name'   => 'Plugin Icon',
+                    'width'  => 8,
+                    'height' => 8,
+                ),
+            ),
+        ),
+    ),
+));
+$pluginAssetCss = $fileContent($pluginAssetResult, 'style.css');
+$pluginAssetHtml = $fileContent($pluginAssetResult, 'index.html');
+$pluginAssetFiles = $pluginAssetResult['files'] ?? array();
+$pluginAssetFileContent = static function (array $files, string $path): string {
+    foreach ( $files as $file ) {
+        if ( is_array($file) && $path === ($file['path'] ?? null) ) {
+            return (string) ($file['content'] ?? '');
+        }
+    }
+
+    return '';
+};
+
+$assert(str_contains($pluginAssetCss, '.figma-node-plugin-image-plugin-image{width:40px;height:30px;position:absolute;background-image:url("assets/plugin-photo.png")'), 'plugin-data-url-image-background-css');
+$assert('plugin-png-bytes' === $pluginAssetFileContent($pluginAssetFiles, 'assets/plugin-photo.png'), 'plugin-data-url-image-asset-file');
+$assert(str_contains($pluginAssetCss, '.figma-node-plugin-vector-plugin-icon{width:8px;height:8px;position:absolute;background-image:url("assets/plugin-icon.svg")'), 'plugin-vector-fallback-background-css');
+$assert(! str_contains($pluginAssetHtml, 'Unsupported Figma VECTOR'), 'plugin-vector-fallback-avoids-unsupported-placeholder');
+$assert(str_contains($pluginAssetHtml, 'data-figma-node-id="plugin:vector"') && ! str_contains($pluginAssetHtml, 'data-figma-unsupported-vector="true"'), 'plugin-vector-fallback-not-marked-unsupported');
+$assert(str_contains($pluginAssetFileContent($pluginAssetFiles, 'assets/plugin-icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"'), 'plugin-content-base64-vector-asset-file');
+
 $layoutFidelityResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Layout Fidelity Fixture',
     'nodes' => array(
@@ -1472,6 +1536,38 @@ $selectedFrameOriginResult = blocks_engine_figma_transformer_transform_scenegrap
 $selectedFrameOriginCss = $fileContent($selectedFrameOriginResult, 'style.css');
 $assert(str_contains($selectedFrameOriginCss, '.figma-node-origin-hero-hero{width:1200px;height:600px;position:absolute;left:0px;top:0px'), 'selected-frame-origin-normalizes-first-child');
 $assert(str_contains($selectedFrameOriginCss, '.figma-node-origin-cta-cta{width:240px;height:40px;position:absolute;left:200px;top:400px'), 'selected-frame-origin-normalizes-text-child');
+
+$zeroOriginSelectedFrameResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Zero Origin Selected Frame Fixture',
+    'nodes' => array(
+        array(
+            'id'                  => 'zero:frame',
+            'type'                => 'FRAME',
+            'name'                => 'Zero origin selected frame',
+            'absoluteBoundingBox' => array('x' => 0, 'y' => 0, 'width' => 1200, 'height' => 800),
+            'children'            => array(
+                array(
+                    'id'                  => 'zero:hero',
+                    'type'                => 'FRAME',
+                    'name'                => 'Hero',
+                    'absoluteBoundingBox' => array('x' => -1333, 'y' => -184, 'width' => 1200, 'height' => 600),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                ),
+                array(
+                    'id'                  => 'zero:cta',
+                    'type'                => 'TEXT',
+                    'name'                => 'CTA',
+                    'characters'          => 'Visible copy',
+                    'absoluteBoundingBox' => array('x' => -1133, 'y' => 216, 'width' => 240, 'height' => 40),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                ),
+            ),
+        ),
+    ),
+));
+$zeroOriginSelectedFrameCss = $fileContent($zeroOriginSelectedFrameResult, 'style.css');
+$assert(str_contains($zeroOriginSelectedFrameCss, '.figma-node-zero-hero-hero{width:1200px;height:600px;position:absolute;left:0px;top:0px'), 'zero-origin-selected-frame-normalizes-first-child');
+$assert(str_contains($zeroOriginSelectedFrameCss, '.figma-node-zero-cta-cta{width:240px;height:40px;position:absolute;left:200px;top:400px'), 'zero-origin-selected-frame-normalizes-text-child');
 
 $resolvedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Component Instance Fixture',
