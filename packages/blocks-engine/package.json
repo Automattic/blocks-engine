@@ -16,6 +16,12 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
+    "./theme": {
+      "types": "./dist/theme/index.d.ts",
+      "source": "./src/theme/index.ts",
+      "import": "./dist/theme/index.js",
+      "require": "./dist/theme/index.cjs"
+    },
     "./wp": {
       "types": "./dist/wp/index.d.ts",
       "source": "./src/wp/index.ts",

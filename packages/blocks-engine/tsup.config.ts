@@ -5,6 +5,7 @@ export default defineConfig({
     cli: 'src/cli.ts',
     index: 'src/index.ts',
     'internals/index': 'src/internals/index.ts',
+    'theme/index': 'src/theme/index.ts',
     'wp/index': 'src/wp/index.ts',
     'wp/worker-child': 'src/wp/worker-child.ts',
   },
