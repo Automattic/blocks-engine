@@ -14,9 +14,9 @@ final class RuntimeDependencyParityReport
      * @param array<int, array<string, mixed>> $files
      * @return array<string, mixed>
      */
-    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml): array
+    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = ''): array
     {
-        $sourceTargets = $this->sourceTargets($sourceHtml);
+        $sourceTargets = $this->sourceTargets($sourceHtml, $sourcePath);
         $generatedTargets = $this->htmlTargets($generatedHtml);
         $dependencies = array();
         $findings = array();
@@ -39,9 +39,12 @@ final class RuntimeDependencyParityReport
                 $exists = $this->targetExists($dependency, $generatedTargets);
                 $canvasApi = true === $dependency['canvas_api'] && 'canvas' === ($target['tag'] ?? '');
                 $dependencyRow = array_filter(array(
+                    'source_path'       => $target['source_path'] ?? $sourcePath,
                     'script_path'       => $scriptPath,
                     'script_kind'       => $scriptKind,
                     'selector'          => $selector,
+                    'target_id'         => $target['id'] ?? '',
+                    'target_class'      => $target['class'] ?? '',
                     'target_kind'       => $target['tag'] ?? '',
                     'dependency_kind'   => $dependency['kind'],
                     'events'            => $dependency['events'],
@@ -56,16 +59,24 @@ final class RuntimeDependencyParityReport
                 }
 
                 $severity = 'telemetry' === $scriptKind ? 'info' : 'warning';
+                $repairBucket = $canvasApi ? 'runtime_canvas_target_preservation' : 'runtime_dom_target_preservation';
                 $findings[] = array_filter(array(
                     'code'              => 'runtime_dependency_target_missing',
                     'severity'          => $severity,
+                    'source_path'       => $target['source_path'] ?? $sourcePath,
                     'script_path'       => $scriptPath,
                     'script_kind'       => $scriptKind,
                     'selector'          => $selector,
+                    'target_id'         => $target['id'] ?? '',
+                    'target_class'      => $target['class'] ?? '',
                     'target_kind'       => $target['tag'] ?? '',
                     'dependency_kind'   => $dependency['kind'],
                     'events'            => $dependency['events'],
                     'canvas_api'        => $canvasApi,
+                    'repair_bucket'     => $repairBucket,
+                    'suggested_primitive' => $canvasApi ? 'runtime_canvas' : 'runtime_dom_target',
+                    'actionability'     => $canvasApi ? 'preserve_canvas_markup_with_matching_script_runtime_or_rebuild_canvas_behavior' : 'preserve_or_recreate_the_referenced_dom_target_for_script_runtime',
+                    'materialization_hint' => $canvasApi ? 'preserve_canvas_id_class_and_markup_for_runtime_mapping' : 'preserve_id_class_or_wrapper_markup_required_by_first_party_script',
                     'message'           => sprintf('Script %s references %s, but the generated block markup does not expose that DOM target.', $scriptPath, $selector),
                 ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
             }
@@ -90,9 +101,9 @@ final class RuntimeDependencyParityReport
     }
 
     /**
-     * @return array<string, array{tag: string}>
+     * @return array<string, array{tag: string, source_path: string, id?: string, class?: string}>
      */
-    private function sourceTargets(string $html): array
+    private function sourceTargets(string $html, string $sourcePath): array
     {
         $targets = array();
         $document = new DOMDocument();
@@ -111,11 +122,11 @@ final class RuntimeDependencyParityReport
             $tag = strtolower($element->tagName);
             $id = trim($element->hasAttribute('id') ? $element->getAttribute('id') : '');
             if ( '' !== $id ) {
-                $targets['#' . $id] = array('tag' => $tag);
+                $targets['#' . $id] = array('tag' => $tag, 'source_path' => $sourcePath, 'id' => $id);
             }
             foreach ( preg_split('/\s+/', trim($element->hasAttribute('class') ? $element->getAttribute('class') : '')) ?: array() as $class ) {
                 if ( '' !== $class ) {
-                    $targets['.' . $class] = array('tag' => $tag);
+                    $targets['.' . $class] = array('tag' => $tag, 'source_path' => $sourcePath, 'class' => $class);
                 }
             }
         }
