@@ -1,0 +1,297 @@
+<?php
+declare(strict_types=1);
+
+namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
+
+use DOMDocument;
+use DOMElement;
+
+final class RuntimeDependencyParityReport
+{
+    public const SCHEMA = 'blocks-engine/php-transformer/runtime-dependency-parity/v1';
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, mixed>
+     */
+    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml): array
+    {
+        $sourceTargets = $this->sourceTargets($sourceHtml);
+        $generatedTargets = $this->htmlTargets($generatedHtml);
+        $dependencies = array();
+        $findings = array();
+
+        foreach ( $files as $file ) {
+            if ( ! $this->isScriptFile($file) ) {
+                continue;
+            }
+
+            $scriptPath = (string) ($file['path'] ?? '');
+            $script = (string) ($file['content'] ?? '');
+            if ( '' === trim($script) ) {
+                continue;
+            }
+
+            $scriptKind = $this->scriptKind($scriptPath, $script);
+            foreach ( $this->scriptDependencies($script) as $dependency ) {
+                $selector = (string) $dependency['selector'];
+                $target = $sourceTargets[$selector] ?? array();
+                $exists = $this->targetExists($dependency, $generatedTargets);
+                $canvasApi = true === $dependency['canvas_api'] && 'canvas' === ($target['tag'] ?? '');
+                $dependencyRow = array_filter(array(
+                    'script_path'       => $scriptPath,
+                    'script_kind'       => $scriptKind,
+                    'selector'          => $selector,
+                    'target_kind'       => $target['tag'] ?? '',
+                    'dependency_kind'   => $dependency['kind'],
+                    'events'            => $dependency['events'],
+                    'canvas_api'        => $canvasApi,
+                    'source_present'    => array() !== $target,
+                    'generated_present' => $exists,
+                ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+                $dependencies[] = $dependencyRow;
+
+                if ( $exists ) {
+                    continue;
+                }
+
+                $severity = 'telemetry' === $scriptKind ? 'info' : 'warning';
+                $findings[] = array_filter(array(
+                    'code'              => 'runtime_dependency_target_missing',
+                    'severity'          => $severity,
+                    'script_path'       => $scriptPath,
+                    'script_kind'       => $scriptKind,
+                    'selector'          => $selector,
+                    'target_kind'       => $target['tag'] ?? '',
+                    'dependency_kind'   => $dependency['kind'],
+                    'events'            => $dependency['events'],
+                    'canvas_api'        => $canvasApi,
+                    'message'           => sprintf('Script %s references %s, but the generated block markup does not expose that DOM target.', $scriptPath, $selector),
+                ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+            }
+        }
+
+        return array_filter(array(
+            'schema'       => self::SCHEMA,
+            'status'       => array() === $findings ? 'pass' : 'warning',
+            'dependencies' => $this->dedupeRows($dependencies),
+            'findings'     => $this->dedupeRows($findings),
+        ), static fn (mixed $value): bool => array() !== $value);
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     */
+    private function isScriptFile(array $file): bool
+    {
+        return in_array($file['kind'] ?? '', array('js', 'mjs'), true)
+            || 'script' === ($file['role'] ?? '')
+            || in_array($file['mime_type'] ?? '', array('application/javascript', 'text/javascript', 'application/ecmascript', 'text/ecmascript'), true);
+    }
+
+    /**
+     * @return array<string, array{tag: string}>
+     */
+    private function sourceTargets(string $html): array
+    {
+        $targets = array();
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if ( ! $loaded ) {
+            return array();
+        }
+
+        foreach ( $document->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement ) {
+                continue;
+            }
+            $tag = strtolower($element->tagName);
+            $id = trim($element->hasAttribute('id') ? $element->getAttribute('id') : '');
+            if ( '' !== $id ) {
+                $targets['#' . $id] = array('tag' => $tag);
+            }
+            foreach ( preg_split('/\s+/', trim($element->hasAttribute('class') ? $element->getAttribute('class') : '')) ?: array() as $class ) {
+                if ( '' !== $class ) {
+                    $targets['.' . $class] = array('tag' => $tag);
+                }
+            }
+        }
+
+        return $targets;
+    }
+
+    /**
+     * @return array{ids: array<string, bool>, classes: array<string, bool>}
+     */
+    private function htmlTargets(string $html): array
+    {
+        $targets = array('ids' => array(), 'classes' => array());
+        if ( preg_match_all('/\sid\s*=\s*(["\'])(.*?)\1/is', $html, $matches) ) {
+            foreach ( $matches[2] as $id ) {
+                $id = trim(html_entity_decode((string) $id, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                if ( '' !== $id ) {
+                    $targets['ids'][$id] = true;
+                }
+            }
+        }
+        if ( preg_match_all('/\sclass\s*=\s*(["\'])(.*?)\1/is', $html, $matches) ) {
+            foreach ( $matches[2] as $classList ) {
+                foreach ( preg_split('/\s+/', trim(html_entity_decode((string) $classList, ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ?: array() as $class ) {
+                    if ( '' !== $class ) {
+                        $targets['classes'][$class] = true;
+                    }
+                }
+            }
+        }
+
+        return $targets;
+    }
+
+    /**
+     * @return array<int, array{kind: string, selector: string, events: array<int, string>, canvas_api: bool}>
+     */
+    private function scriptDependencies(string $script): array
+    {
+        $dependencies = array();
+        $eventsBySelector = $this->eventsBySelector($script);
+        $canvasApi = preg_match('/\.\s*getContext\s*\(\s*(["\'])2d\1\s*\)/', $script) === 1;
+
+        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
+            foreach ( $matches[2] as $id ) {
+                $selector = '#' . (string) $id;
+                $dependencies[] = array(
+                    'kind'       => 'id',
+                    'selector'   => $selector,
+                    'events'     => $eventsBySelector[$selector] ?? array(),
+                    'canvas_api' => $canvasApi,
+                );
+            }
+        }
+
+        if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
+            foreach ( $matches[2] as $selector ) {
+                $selector = (string) $selector;
+                $dependencies[] = array(
+                    'kind'       => str_starts_with($selector, '#') ? 'id' : 'class',
+                    'selector'   => $selector,
+                    'events'     => $eventsBySelector[$selector] ?? array(),
+                    'canvas_api' => $canvasApi,
+                );
+            }
+        }
+
+        return $this->dedupeDependencies($dependencies);
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    private function eventsBySelector(string $script): array
+    {
+        $events = array();
+        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*\.\s*addEventListener\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\3/', $script, $matches) ) {
+            foreach ( $matches[2] as $index => $id ) {
+                $events['#' . (string) $id][] = (string) $matches[4][$index];
+            }
+        }
+        if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*\.\s*addEventListener\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\3/', $script, $matches) ) {
+            foreach ( $matches[2] as $index => $selector ) {
+                $events[(string) $selector][] = (string) $matches[4][$index];
+            }
+        }
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+            foreach ( $assignments as $assignment ) {
+                if ( preg_match_all('/\b' . preg_quote((string) $assignment[1], '/') . '\s*\.\s*addEventListener\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1/', $script, $matches) ) {
+                    foreach ( $matches[2] as $event ) {
+                        $events['#' . (string) $assignment[3]][] = (string) $event;
+                    }
+                }
+            }
+        }
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+            foreach ( $assignments as $assignment ) {
+                if ( preg_match_all('/\b' . preg_quote((string) $assignment[1], '/') . '\s*\.\s*addEventListener\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1/', $script, $matches) ) {
+                    foreach ( $matches[2] as $event ) {
+                        $events[(string) $assignment[3]][] = (string) $event;
+                    }
+                }
+            }
+        }
+
+        foreach ( $events as $selector => $selectorEvents ) {
+            $events[$selector] = array_values(array_unique($selectorEvents));
+        }
+
+        return $events;
+    }
+
+    /**
+     * @param array{kind: string, selector: string, events: array<int, string>, canvas_api: bool} $dependency
+     * @param array{ids: array<string, bool>, classes: array<string, bool>} $targets
+     */
+    private function targetExists(array $dependency, array $targets): bool
+    {
+        $selector = (string) $dependency['selector'];
+        if ( str_starts_with($selector, '#') ) {
+            return isset($targets['ids'][substr($selector, 1)]);
+        }
+        if ( str_starts_with($selector, '.') ) {
+            return isset($targets['classes'][substr($selector, 1)]);
+        }
+
+        return false;
+    }
+
+    private function scriptKind(string $path, string $script): string
+    {
+        $haystack = strtolower($path . "\n" . substr($script, 0, 2000));
+        if ( str_contains($haystack, 'netlify') || str_contains($haystack, 'rum') || str_contains($haystack, 'analytics') || str_contains($haystack, 'gtag') ) {
+            return 'telemetry';
+        }
+
+        return 'first_party';
+    }
+
+    /**
+     * @param array<int, array{kind: string, selector: string, events: array<int, string>, canvas_api: bool}> $dependencies
+     * @return array<int, array{kind: string, selector: string, events: array<int, string>, canvas_api: bool}>
+     */
+    private function dedupeDependencies(array $dependencies): array
+    {
+        $deduped = array();
+        foreach ( $dependencies as $dependency ) {
+            $selector = $dependency['selector'];
+            if ( isset($deduped[$selector]) ) {
+                $deduped[$selector]['events'] = array_values(array_unique(array_merge($deduped[$selector]['events'], $dependency['events'])));
+                $deduped[$selector]['canvas_api'] = $deduped[$selector]['canvas_api'] || $dependency['canvas_api'];
+                continue;
+            }
+            $deduped[$selector] = $dependency;
+        }
+
+        return array_values($deduped);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function dedupeRows(array $rows): array
+    {
+        $seen = array();
+        $deduped = array();
+        foreach ( $rows as $row ) {
+            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
+            if ( ! is_string($key) || isset($seen[$key]) ) {
+                continue;
+            }
+            $seen[$key] = true;
+            $deduped[] = $row;
+        }
+
+        return $deduped;
+    }
+}

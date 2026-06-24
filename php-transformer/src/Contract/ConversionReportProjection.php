@@ -29,6 +29,7 @@ final class ConversionReportProjection
             'asset_refs'            => self::assetReferences($blocks, $sourceReports),
             'navigation_candidates' => self::navigationCandidates($blocks, $sourceReports),
             'semantic_parity'       => self::semanticParity($sourceReports),
+            'runtime_dependency_parity' => self::runtimeDependencyParity($sourceReports),
             'interaction_candidates' => self::interactionCandidates($sourceReports),
             'presentation_gaps'     => self::presentationGaps($sourceReports),
             'metrics'               => $metrics,
@@ -281,6 +282,16 @@ final class ConversionReportProjection
     private static function semanticParity(array $sourceReports): array
     {
         $report = $sourceReports['semantic_parity'] ?? array();
+        return is_array($report) ? $report : array();
+    }
+
+    /**
+     * @param array<string, mixed> $sourceReports
+     * @return array<string, mixed>
+     */
+    private static function runtimeDependencyParity(array $sourceReports): array
+    {
+        $report = $sourceReports['runtime_dependency_parity'] ?? array();
         return is_array($report) ? $report : array();
     }
 

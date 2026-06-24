@@ -580,6 +580,46 @@ $assert(($staticPlan['totals']['routes'] ?? null) === ($staticSummary['route_cou
 $assert(($staticPlan['totals']['navigation_links'] ?? null) === ($staticSummary['navigation_link_count'] ?? null), 'conversion report navigation link count matches materialization plan totals');
 $assert(($staticPlan['totals']['menus'] ?? null) === ($staticSummary['menu_count'] ?? null), 'conversion report menu count matches materialization plan totals');
 
+$runtimeDependencySite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><canvas id="canvas"></canvas><div id="status-container"><h2>Status</h2><p>Ready</p></div><script src="js/script.js"></script><script src="js/rum.js"></script></main>',
+            'js/script.js' => 'const canvas = document.getElementById("canvas"); canvas.getContext("2d"); const status = document.querySelector("#status-container"); status.addEventListener("click", function () {});',
+            'js/rum.js' => 'document.querySelector("#netlify-rum-target");',
+        ),
+    )
+)->toArray();
+$runtimeDependencyReport = $runtimeDependencySite['source_reports']['runtime_dependency_parity'] ?? array();
+$runtimeDependencyConversionReport = $runtimeDependencySite['source_reports']['conversion_report']['runtime_dependency_parity'] ?? array();
+$runtimeFindings = $runtimeDependencyReport['findings'] ?? array();
+$canvasFinding = null;
+$rumFinding = null;
+foreach ( $runtimeFindings as $finding ) {
+    if ( '#canvas' === ($finding['selector'] ?? '') ) {
+        $canvasFinding = $finding;
+    }
+    if ( '#netlify-rum-target' === ($finding['selector'] ?? '') ) {
+        $rumFinding = $finding;
+    }
+}
+$statusDependency = null;
+foreach ( $runtimeDependencyReport['dependencies'] ?? array() as $dependency ) {
+    if ( '#status-container' === ($dependency['selector'] ?? '') ) {
+        $statusDependency = $dependency;
+    }
+}
+$assert('blocks-engine/php-transformer/runtime-dependency-parity/v1' === ($runtimeDependencyReport['schema'] ?? ''), 'runtime dependency parity report exposes schema');
+$assert($runtimeDependencyReport === $runtimeDependencyConversionReport, 'conversion report projects runtime dependency parity');
+$assert('runtime_dependency_target_missing' === ($canvasFinding['code'] ?? ''), 'runtime dependency parity reports missing canvas DOM target');
+$assert('canvas' === ($canvasFinding['target_kind'] ?? ''), 'runtime dependency parity identifies canvas source target kind');
+$assert(true === ($canvasFinding['canvas_api'] ?? null), 'runtime dependency parity flags canvas 2d API usage');
+$assert('warning' === ($canvasFinding['severity'] ?? ''), 'first-party missing runtime dependency target is warning severity');
+$assert(null !== $statusDependency, 'runtime dependency parity records preserved status container dependency');
+$assert(true === ($statusDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved div id target');
+$assert(! empty($statusDependency['events'] ?? array()), 'runtime dependency parity records simple addEventListener usage');
+$assert('info' === ($rumFinding['severity'] ?? ''), 'telemetry-like runtime dependency misses are info severity');
+
 $legacyFrontPageSite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
