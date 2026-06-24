@@ -14,7 +14,13 @@ export { ingest } from './ingest.js';
 export { planTemplates } from './template-plan.js';
 export { reconstruct } from './reconstruct.js';
 export { buildCoverageIsland } from './html-fallback.js';
-export { captureSectionContent, measureSectionCoverage, TEXT_FLOOR } from './section-coverage.js';
+export {
+  captureSectionContent,
+  foldText,
+  measureConvertedCoverage,
+  measureSectionCoverage,
+  TEXT_FLOOR,
+} from './section-coverage.js';
 export { sectionExtract } from './section-extract.js';
 export { siteToTheme } from './site-to-theme.js';
 export { lintThemeJson } from './theme-json-lint.js';

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   captureSectionContent,
+  foldText,
+  measureConvertedCoverage,
   measureSectionCoverage,
   TEXT_FLOOR,
   type CapturedSectionContent,
@@ -161,6 +163,72 @@ describe('theme section coverage contract', () => {
         missingImages: [],
         lost: false,
       });
+    });
+  });
+
+  describe('measureConvertedCoverage DLA parity', () => {
+    it('reports full converted text and image coverage as not lost', () => {
+      const result = measureConvertedCoverage(
+        captured(['Hero headline', 'Detailed copy', 'Start now'], ['assets/hero.jpg']),
+        [
+          '<section>',
+          '<h2>Hero headline</h2>',
+          '<p>Detailed copy</p>',
+          '<a href="/start">Start now</a>',
+          '<img src="assets/hero.jpg" alt="Hero">',
+          '</section>',
+        ].join('')
+      );
+
+      expect(result).toEqual({
+        textCoverage: 1,
+        missingImages: [],
+        lost: false,
+      });
+    });
+
+    it('matches converted images by basename across CDN and uploads URL forms', () => {
+      const result = measureConvertedCoverage(
+        captured(['Hero headline'], ['https://cdn.example.com/media/hero.jpg?resize=1200']),
+        '<section><h2>Hero headline</h2><img src="/wp-content/uploads/2026/hero.jpg"></section>'
+      );
+
+      expect(result).toEqual({
+        textCoverage: 1,
+        missingImages: [],
+        lost: false,
+      });
+    });
+
+    it('marks converted coverage lost when an image basename is missing', () => {
+      const result = measureConvertedCoverage(
+        captured(['Hero headline'], ['https://cdn.example.com/media/missing.jpg']),
+        '<section><h2>Hero headline</h2><img src="/wp-content/uploads/2026/hero.jpg"></section>'
+      );
+
+      expect(result.textCoverage).toBe(1);
+      expect(result.missingImages).toEqual(['https://cdn.example.com/media/missing.jpg']);
+      expect(result.lost).toBe(true);
+    });
+
+    it('marks converted coverage lost when folded text coverage is below the text floor', () => {
+      const result = measureConvertedCoverage(
+        captured(['Hero headline', 'Detailed copy', 'Start now']),
+        '<section><p>Detailed copy</p></section>'
+      );
+
+      expect(result.textCoverage).toBeCloseTo(1 / 3);
+      expect(result.textCoverage).toBeLessThan(TEXT_FLOOR);
+      expect(result.missingImages).toEqual([]);
+      expect(result.lost).toBe(true);
+    });
+
+    it('folds glyph variants like the DLA section coverage oracle', () => {
+      expect(
+        foldText(
+          '\u2018Smart\u2019 \u201cquotes\u201d \u2013 \u2014 \u2012 wait\u2026\nagain'
+        )
+      ).toBe("'smart' \"quotes\" - - - wait... again");
     });
   });
 });

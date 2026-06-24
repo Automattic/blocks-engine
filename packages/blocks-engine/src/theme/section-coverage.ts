@@ -14,7 +14,7 @@ export interface CoverageResult {
 
 export const TEXT_FLOOR = 0.5;
 
-function foldText(value: string): string {
+export function foldText(value: string): string {
   return value
     .replace(/[\u2018\u2019\u201b]/g, "'")
     .replace(/[\u201c\u201d]/g, '"')
@@ -58,6 +58,28 @@ export function captureSectionContent(spec: SectionSpec): CapturedSectionContent
     .filter((url): url is string => url !== null);
 
   return { text, images };
+}
+
+export function measureConvertedCoverage(
+  captured: CapturedSectionContent,
+  convertedMarkup: string
+): CoverageResult {
+  const haystack = foldText(cheerio.load(convertedMarkup, null, false).root().text());
+  const texts = captured.text.map(foldText).filter((text) => text.length > 0);
+  const present = texts.filter((text) => haystack.includes(text)).length;
+  const textCoverage = texts.length === 0 ? 1 : present / texts.length;
+
+  const basename = (url: string): string =>
+    (url.split(/[?#]/)[0].split('/').pop() || '').toLowerCase();
+  const markupLc = convertedMarkup.toLowerCase();
+  const missingImages = captured.images.filter((url) => {
+    const base = basename(url);
+    return base ? !markupLc.includes(base) : !!url && !markupLc.includes(url.toLowerCase());
+  });
+
+  const lost = missingImages.length > 0 || textCoverage < TEXT_FLOOR;
+
+  return { textCoverage, missingImages, lost };
 }
 
 export function measureSectionCoverage(
