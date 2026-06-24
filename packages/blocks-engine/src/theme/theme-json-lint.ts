@@ -4,6 +4,19 @@ export interface ThemeJsonLintResult {
 }
 
 export function lintThemeJson(theme: Record<string, unknown>): ThemeJsonLintResult {
-  void theme;
-  return { ok: false, errors: ['not implemented'] };
+  const errors: string[] = [];
+  if (theme.version !== 3) errors.push('theme.json version must be 3');
+  if (!theme.$schema) errors.push('theme.json must include $schema');
+  const settings = theme.settings as Record<string, unknown> | undefined;
+  const spacing = settings?.spacing as Record<string, unknown> | undefined;
+  const spacingScale = spacing?.spacingScale as Record<string, unknown> | undefined;
+  if (spacingScale && spacingScale.theme === false) {
+    errors.push(
+      'settings.spacing.spacingScale.theme:false fatals on activation; omit spacingScale when providing spacingSizes'
+    );
+  }
+  if (spacing?.spacingSizes && spacing?.spacingScale) {
+    errors.push('provide settings.spacing.spacingSizes OR spacingScale, not both');
+  }
+  return { ok: errors.length === 0, errors };
 }

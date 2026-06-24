@@ -157,6 +157,7 @@ describe('default entry', () => {
       'compose',
       'convert',
       'createWorker',
+      'lintThemeJson',
       'siteToTheme',
       'writeTheme',
     ].sort();
@@ -189,6 +190,7 @@ describe('default entry', () => {
     expect(typeof defaultEntry.compose).toBe('function');
     expect(typeof defaultEntry.BlocksEngineError).toBe('function');
     expect(typeof defaultEntry.createWorker).toBe('function');
+    expect(typeof defaultEntry.lintThemeJson).toBe('function');
     expect(typeof defaultEntry.siteToTheme).toBe('function');
     expect(typeof defaultEntry.writeTheme).toBe('function');
 

@@ -2,11 +2,11 @@ export { convert } from './convert.js';
 export { compose } from './compose.js';
 export { createWorker } from './pool/pool.js';
 export { BlocksEngineError } from './errors.js';
-export { siteToTheme, writeTheme } from './theme/index.js';
+export { lintThemeJson, siteToTheme, writeTheme } from './theme/index.js';
 
 export type { ConvertOptions } from './convert.js';
 export type { BlocksEngineErrorOptions } from './errors.js';
-export type { SiteToThemeOptions, ThemeBuildResult } from './theme/index.js';
+export type { SiteToThemeOptions, ThemeBuildResult, ThemeJsonLintResult } from './theme/index.js';
 export type { ConversionContext, Converter, HtmlFallback } from './types.js';
 export type {
   CreateWorker,
