@@ -128,6 +128,8 @@ final class StaticHtmlEmitter
         $children = $this->nodeList($node);
         $content = $text;
         $vectorSvg = $this->supportedVectorSvg($node, $type);
+        $assetPath = $this->nodeAssetPath($node);
+        $hasVectorAssetFallback = $this->isUnsupportedVectorType($type) && null !== $assetPath;
 
         if ( ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) ) {
             foreach ( $children as $child ) {
@@ -141,7 +143,7 @@ final class StaticHtmlEmitter
             $content = $vectorSvg . $content;
         }
 
-        if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg ) {
+        if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback ) {
             $diagnostics[] = array(
                 'severity' => 'warning',
                 'code'     => 'unsupported_vector_node_placeholder',
@@ -165,8 +167,10 @@ final class StaticHtmlEmitter
         if ( 'RECTANGLE' === $type && '' === $content ) {
             $attributes .= ' aria-hidden="true"';
         }
-        if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg ) {
+        if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback ) {
             $attributes .= ' data-figma-unsupported-vector="true" role="img" aria-label="Unsupported Figma ' . $this->sanitizeAttribute($type) . ' node"';
+        } elseif ( $hasVectorAssetFallback ) {
+            $attributes .= ' role="img" aria-label="' . $this->sanitizeAttribute('' !== $name ? $name : $type) . '"';
         }
 
         return sprintf("<%1\$s%2\$s>%3\$s</%1\$s>\n", $tag, $attributes, $content);
@@ -753,7 +757,7 @@ final class StaticHtmlEmitter
             return (float) $box[$dimension];
         }
 
-        if ( ! isset($parentBox[$dimension]) && null !== $parentNode ) {
+        if ( null !== $parentNode && (! isset($parentBox[$dimension]) || $this->shouldInferZeroRootOrigin($parentBox, $parentNode, $dimension)) ) {
             $origin = $this->inferredContainingBlockOrigin($parentNode, $dimension);
             if ( null !== $origin ) {
                 return (float) $box[$dimension] - $origin;
@@ -761,6 +765,28 @@ final class StaticHtmlEmitter
         }
 
         return $this->relativeOffset($box, $parentBox, $dimension);
+    }
+
+    /**
+     * Figma plugin payloads can normalize a selected frame origin to 0 while
+     * preserving child coordinates in the original canvas space.
+     *
+     * @param array<string, mixed> $parentBox
+     * @param array<string, mixed> $parentNode
+     */
+    private function shouldInferZeroRootOrigin(array $parentBox, array $parentNode, string $dimension): bool
+    {
+        if ( ! isset($parentBox[$dimension]) || ! is_numeric($parentBox[$dimension]) || 0.0 !== (float) $parentBox[$dimension] ) {
+            return false;
+        }
+
+        if ( ! empty($parentNode['_parent_id']) ) {
+            return false;
+        }
+
+        $origin = $this->inferredContainingBlockOrigin($parentNode, $dimension);
+
+        return null !== $origin && $origin < 0.0;
     }
 
     /**
@@ -1426,6 +1452,10 @@ final class StaticHtmlEmitter
             $id = (string) ($asset['id'] ?? $key);
             $content = $asset['content'] ?? $asset['data'] ?? null;
             $source = (string) ($asset['url'] ?? $asset['src'] ?? '');
+            $mimeType = (string) ($asset['mime_type'] ?? $asset['mimeType'] ?? 'application/octet-stream');
+            $decodedAsset = $this->decodeInlineAssetContent($asset, $content, $mimeType);
+            $content = $decodedAsset['content'];
+            $mimeType = $decodedAsset['mime_type'];
 
             if ( null === $content ) {
                 if ( preg_match('/^https?:\/\//', $source) ) {
@@ -1439,7 +1469,6 @@ final class StaticHtmlEmitter
                 continue;
             }
 
-            $mimeType = (string) ($asset['mime_type'] ?? $asset['mimeType'] ?? 'application/octet-stream');
             $path = 'assets/' . $this->slug((string) ($asset['name'] ?? $id)) . '.' . $this->extensionForMimeType($mimeType);
             $file = array(
                 'path'      => $path,
@@ -1461,6 +1490,56 @@ final class StaticHtmlEmitter
         );
 
         return $files;
+    }
+
+    /**
+     * @param array<string, mixed> $asset
+     * @return array{content: mixed, mime_type: string}
+     */
+    private function decodeInlineAssetContent(array $asset, mixed $content, string $mimeType): array
+    {
+        if ( null !== $content ) {
+            return array('content' => $content, 'mime_type' => $mimeType);
+        }
+
+        foreach ( array('dataUrl', 'dataURL', 'data_url') as $key ) {
+            if ( ! isset($asset[$key]) || ! is_scalar($asset[$key]) ) {
+                continue;
+            }
+
+            $dataUrl = (string) $asset[$key];
+            if ( 1 !== preg_match('/^data:([^;,]+)?(;base64)?,(.*)$/s', $dataUrl, $matches) ) {
+                continue;
+            }
+
+            $data = rawurldecode($matches[3]);
+            if ( ';base64' === ($matches[2] ?? '') ) {
+                $decoded = base64_decode($data, true);
+                if ( false === $decoded ) {
+                    continue;
+                }
+                $data = $decoded;
+            }
+
+            $dataUrlMimeType = (string) ($matches[1] ?? '');
+            return array(
+                'content'   => $data,
+                'mime_type' => '' !== $dataUrlMimeType ? $dataUrlMimeType : $mimeType,
+            );
+        }
+
+        foreach ( array('content_base64', 'contentBase64', 'base64') as $key ) {
+            if ( ! isset($asset[$key]) || ! is_scalar($asset[$key]) ) {
+                continue;
+            }
+
+            $decoded = base64_decode((string) $asset[$key], true);
+            if ( false !== $decoded ) {
+                return array('content' => $decoded, 'mime_type' => $mimeType);
+            }
+        }
+
+        return array('content' => null, 'mime_type' => $mimeType);
     }
 
     /**
@@ -1732,10 +1811,14 @@ final class StaticHtmlEmitter
     private function assetAliases(array $asset, string $id): array
     {
         $aliases = array($id);
-        foreach ( array('hash', 'imageRef', 'imageHash', 'asset_id', 'image_ref', 'source_id') as $key ) {
+        foreach ( array('hash', 'imageRef', 'imageHash', 'asset_id', 'assetId', 'image_ref', 'source_id', 'node_id', 'nodeId', 'name', 'fileName', 'filename') as $key ) {
             if ( isset($asset[$key]) && is_scalar($asset[$key]) ) {
                 $aliases[] = (string) $asset[$key];
             }
+        }
+
+        foreach ( $aliases as $alias ) {
+            $aliases[] = $this->slug($alias);
         }
 
         if ( isset($asset['path']) && is_scalar($asset['path']) ) {
@@ -1755,10 +1838,14 @@ final class StaticHtmlEmitter
     private function nodeAssetReferences(array $node): array
     {
         $references = array();
-        foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref') as $key ) {
+        foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref', 'id', 'name') as $key ) {
             if ( isset($node[$key]) && is_scalar($node[$key]) ) {
                 $references[] = (string) $node[$key];
             }
+        }
+
+        foreach ( $references as $reference ) {
+            $references[] = $this->slug($reference);
         }
 
         foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
