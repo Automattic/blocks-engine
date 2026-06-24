@@ -4,6 +4,7 @@ import {
   assemble,
   foundation,
   ingest,
+  planTemplates,
   reconstruct,
   sectionExtract,
   siteToTheme,
@@ -28,6 +29,7 @@ import {
   type SiteToThemeHooks,
   type SiteToThemeOptions,
   type StageCtx,
+  type TemplatePlan,
   type ThemeBuildResult,
   type ThemeMeta,
   type ThemeModel,
@@ -41,6 +43,7 @@ type ThemeStageSignatures = {
   ingest: (srcDir: string) => SiteModel;
   sectionExtract: (page: SitePage) => SectionSpec[];
   foundation: (site: SiteModel, aggregates?: FoundationAggregates) => FoundationTokens;
+  planTemplates: (site: SiteModel) => TemplatePlan;
   reconstruct: (
     specs: SectionSpec[],
     ctx: StageCtx,
@@ -62,6 +65,7 @@ const themeStageSignatures: ThemeStageSignatures = {
   ingest,
   sectionExtract,
   foundation,
+  planTemplates,
   reconstruct,
   assemble,
 };
@@ -223,6 +227,12 @@ type CompileOnlyThemeContractAssignments = {
       assets: AssetFile[];
     }
   >;
+  templatePlan: Satisfies<
+    TemplatePlan,
+    {
+      templatesByPage: Record<string, 'front-page' | 'page'>;
+    }
+  >;
   sectionBlocks: Satisfies<
     SectionBlocks,
     {
@@ -304,6 +314,7 @@ describe('theme public contract', () => {
       [ingest, 1],
       [sectionExtract, 1],
       [foundation, 2],
+      [planTemplates, 1],
       [reconstruct, 5],
       [assemble, 1],
     ] as const;

@@ -1,5 +1,6 @@
 import { rewriteHtmlImageSrcs, type StaticImgRef } from './assets-static.js';
 import type { ChromeSlugs } from './chrome-signature.js';
+import { planTemplates, type TemplatePlan } from './template-plan.js';
 import type {
   AssetFile,
   FoundationTokens,
@@ -38,19 +39,23 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
   const palette = buildPalette(parts.tokens);
   const fontFamilies = buildFontFamilies(parts.tokens);
   const styleCss = buildStyleCss(parts.meta, themeSlug);
+  const templatePlan = planTemplates(parts.site);
 
   return {
     styleCss: appendFontCss(styleCss, parts.fontCss),
     themeJson: buildThemeJson(parts.tokens, palette, fontFamilies),
     templates: {
-      'index.html': buildIndexTemplate(
+      'front-page.html': buildFrontPageTemplate(
         parts.site,
         parts.pages,
         parts.imgRefsByPage ?? {},
         themeSlug,
         parts.chromeParts ?? {},
-        parts.chromeSlugsByPage
+        parts.chromeSlugsByPage,
+        templatePlan
       ),
+      'index.html': buildGenericQueriedContentTemplate(parts.chromeParts ?? {}),
+      'page.html': buildGenericQueriedContentTemplate(parts.chromeParts ?? {}),
     },
     parts: { ...(parts.chromeParts ?? {}) },
     patterns: {},
@@ -171,18 +176,19 @@ function colorValueFor(palette: PaletteEntry[], preferredSlugs: string[], fallba
   return fallback;
 }
 
-function buildIndexTemplate(
+function buildFrontPageTemplate(
   site: SiteModel,
   pages: Record<string, SectionBlocks[]>,
   imgRefsByPage: Record<string, StaticImgRef[]>,
   themeSlug: string,
   chromeParts: Record<string, string>,
-  chromeSlugsByPage: Record<string, ChromeSlugs> | undefined
+  chromeSlugsByPage: Record<string, ChromeSlugs> | undefined,
+  templatePlan: TemplatePlan
 ): string {
-  const pageBlocks = orderedPageBlocks(site, pages, imgRefsByPage, themeSlug);
-  const blocks = pageBlocks.length > 0
-    ? pageBlocks.join('\n\n')
-    : '<!-- wp:paragraph -->\n<p></p>\n<!-- /wp:paragraph -->';
+  const homeSlug = homeSlugFromPlan(site, templatePlan);
+  const blocks =
+    blocksForPage(homeSlug, pages, imgRefsByPage, themeSlug) ??
+    '<!-- wp:paragraph -->\n<p></p>\n<!-- /wp:paragraph -->';
 
   const mainTemplate = `<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->
 <main class="wp-block-group">
@@ -192,7 +198,7 @@ ${blocks}
 `;
   if (!chromeSlugsByPage) return mainTemplate;
 
-  const homeSlugs = chromeSlugsByPage[homeSlugForSite(site)] ?? {
+  const homeSlugs = chromeSlugsByPage[homeSlug] ?? {
     header: 'header',
     footer: 'footer',
   };
@@ -208,14 +214,33 @@ ${blocks}
   ].join('\n');
 }
 
+function buildGenericQueriedContentTemplate(chromeParts: Record<string, string>): string {
+  const mainTemplate =
+    '<!-- wp:group {"tagName":"main"} --><main class="wp-block-group"><!-- wp:post-content {"layout":{"type":"constrained"}} /--></main><!-- /wp:group -->';
+
+  if (!hasChromePart(chromeParts, 'header') || !hasChromePart(chromeParts, 'footer')) {
+    return `${mainTemplate}\n`;
+  }
+
+  return [
+    templatePartRef('header', 'header'),
+    mainTemplate,
+    templatePartRef('footer', 'footer'),
+    '',
+  ].join('\n');
+}
+
 function hasChromePart(chromeParts: Record<string, string>, slug: string): boolean {
   return Object.prototype.hasOwnProperty.call(chromeParts, `${slug}.html`);
 }
 
-function homeSlugForSite(site: SiteModel): string {
+function homeSlugFromPlan(site: SiteModel, templatePlan: TemplatePlan): string {
+  const plannedHome = Object.entries(templatePlan.templatesByPage).find(
+    ([, template]) => template === 'front-page'
+  )?.[0];
+
   return (
-    site.pages.find((page) => page.slug === 'home')?.slug ??
-    site.pages.find((page) => /(^|[\\/])index\.html?$/i.test(page.relPath))?.slug ??
+    plannedHome ??
     site.pages[0]?.slug ??
     'home'
   );
@@ -223,36 +248,6 @@ function homeSlugForSite(site: SiteModel): string {
 
 function templatePartRef(slug: string, tagName: 'header' | 'footer'): string {
   return `<!-- wp:template-part ${JSON.stringify({ slug, tagName })} /-->`;
-}
-
-function orderedPageBlocks(
-  site: SiteModel,
-  pages: Record<string, SectionBlocks[]>,
-  imgRefsByPage: Record<string, StaticImgRef[]>,
-  themeSlug: string
-): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-
-  for (const page of site.pages) {
-    const blocks = blocksForPage(page.slug, pages, imgRefsByPage, themeSlug);
-    if (!blocks) continue;
-    out.push(blocks);
-    seen.add(page.slug);
-  }
-
-  for (const [slug, sections] of Object.entries(pages).sort(([a], [b]) => a.localeCompare(b))) {
-    if (seen.has(slug)) continue;
-    const blocks = rewritePageBlocks(
-      slug,
-      joinSectionBlocks(sections),
-      imgRefsByPage,
-      themeSlug
-    );
-    if (blocks) out.push(blocks);
-  }
-
-  return out;
 }
 
 function blocksForPage(

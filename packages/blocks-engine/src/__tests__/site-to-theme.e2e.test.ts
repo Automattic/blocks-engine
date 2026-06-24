@@ -281,12 +281,150 @@ function betweenChromeRefs(template: string): string {
   return template.slice(headerIndex + headerRef.length, footerIndex);
 }
 
+function expectGenericQueriedContentTemplate(template: string): void {
+  const { headerRef, footerRef } = homeChromeRefs();
+
+  expect(template).toContain(headerRef);
+  expect(template).toContain(footerRef);
+  expect(template).toContain('<!-- wp:post-content {"layout":{"type":"constrained"}} /-->');
+  expect(template).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
+}
+
 afterEach(() => {
   vi.doUnmock('../pool/pool.js');
   vi.resetModules();
 });
 
 describe('site-to-theme P0-3 orchestration', () => {
+  it('planTemplates maps home to front-page and source pages to page', async () => {
+    const { planTemplates } = await import('../theme/index.js');
+    const homePage = siteModel().pages[0];
+    const aboutPage = {
+      relPath: 'about.html',
+      slug: 'about',
+      html: readFileSync(join(fixtureRoot, 'about.html'), 'utf8'),
+      title: 'About',
+    };
+
+    expect(planTemplates({ root: fixtureRoot, pages: [homePage, aboutPage] })).toEqual({
+      templatesByPage: {
+        home: 'front-page',
+        about: 'page',
+      },
+    });
+  });
+
+  it('planTemplates falls back to index.html as front-page when home slug is absent', async () => {
+    const { planTemplates } = await import('../theme/index.js');
+
+    expect(
+      planTemplates({
+        root: fixtureRoot,
+        pages: [
+          {
+            relPath: 'landing/index.html',
+            slug: 'landing',
+            html: '<main>Landing</main>',
+            title: 'Landing',
+          },
+          {
+            relPath: 'about.html',
+            slug: 'about',
+            html: '<main>About</main>',
+            title: 'About',
+          },
+        ],
+      })
+    ).toEqual({
+      templatesByPage: {
+        landing: 'front-page',
+        about: 'page',
+      },
+    });
+  });
+
+  it('planTemplates falls back to the first page when no home or index page exists', async () => {
+    const { planTemplates } = await import('../theme/index.js');
+
+    expect(
+      planTemplates({
+        root: fixtureRoot,
+        pages: [
+          {
+            relPath: 'about.html',
+            slug: 'about',
+            html: '<main>About</main>',
+            title: 'About',
+          },
+          {
+            relPath: 'services.html',
+            slug: 'services',
+            html: '<main>Services</main>',
+            title: 'Services',
+          },
+        ],
+      })
+    ).toEqual({
+      templatesByPage: {
+        about: 'front-page',
+        services: 'page',
+      },
+    });
+  });
+
+  it('assemble-template-plan leaves non-home source bodies for queried page content', async () => {
+    const { assemble } = await import('../theme/index.js');
+    const homePage = siteModel().pages[0];
+    const aboutPage = {
+      relPath: 'about.html',
+      slug: 'about',
+      html: readFileSync(join(fixtureRoot, 'about.html'), 'utf8'),
+      title: 'About',
+    };
+
+    const model = assemble({
+      site: {
+        root: fixtureRoot,
+        pages: [homePage, aboutPage],
+      },
+      tokens: foundationTokens(),
+      pages: {
+        home: [
+          {
+            spec: semanticSpec(0),
+            blocks: '<!-- wp:paragraph -->\n<p>Home body.</p>\n<!-- /wp:paragraph -->',
+            coverage: 1,
+          },
+        ],
+        about: [
+          {
+            spec: semanticSpec(0),
+            blocks: '<!-- wp:paragraph -->\n<p>About body.</p>\n<!-- /wp:paragraph -->',
+            coverage: 1,
+          },
+        ],
+      },
+      meta: themeMeta(),
+      chromeParts: {
+        'header.html': '<!-- wp:html -->header<!-- /wp:html -->',
+        'footer.html': '<!-- wp:html -->footer<!-- /wp:html -->',
+      },
+      chromeSlugsByPage: {
+        home: { header: 'header', footer: 'footer' },
+        about: { header: 'header', footer: 'footer' },
+      },
+    } as Parameters<typeof assemble>[0]);
+
+    expect(model.templates['front-page.html']).toContain('Home body.');
+    expect(model.templates['front-page.html']).not.toContain('About body.');
+    expect(model.templates['index.html']).not.toContain('Home body.');
+    expect(model.templates['index.html']).not.toContain('About body.');
+    expect(model.templates['page.html']).not.toContain('Home body.');
+    expect(model.templates['page.html']).not.toContain('About body.');
+    expectGenericQueriedContentTemplate(model.templates['index.html']);
+    expectGenericQueriedContentTemplate(model.templates['page.html']);
+  });
+
   it('assemble-threads-assets adds copied assets, font CSS, and rewrites template images', async () => {
     const { assemble } = await import('../theme/index.js');
     const parts: AssemblePartsWithAssets = {
@@ -319,13 +457,15 @@ describe('site-to-theme P0-3 orchestration', () => {
       ])
     );
     expect(model.styleCss).toContain('/*f*/');
-    expect(model.templates['index.html']).toContain(
+    expect(model.templates['front-page.html']).toContain(
       '/wp-content/themes/fixture-theme/assets/logo.png'
     );
-    expect(model.templates['index.html']).not.toContain('src="assets/logo.png"');
+    expect(model.templates['front-page.html']).not.toContain('src="assets/logo.png"');
+    expect(model.templates['index.html']).toContain('wp:post-content');
+    expect(model.templates['page.html']).toContain('wp:post-content');
   });
 
-  it('assemble-threads-chrome emits real parts and wraps index with template-part refs', async () => {
+  it('assemble-threads-chrome emits real parts and wraps front-page with template-part refs', async () => {
     const { assemble } = await import('../theme/index.js');
     const { headerRef, footerRef } = homeChromeRefs();
     const chromeParts = {
@@ -357,7 +497,7 @@ describe('site-to-theme P0-3 orchestration', () => {
       },
     } as Parameters<typeof assemble>[0]);
 
-    const template = model.templates['index.html'];
+    const template = model.templates['front-page.html'];
     const body = betweenChromeRefs(template);
 
     expect(model.parts).toEqual(chromeParts);
@@ -365,6 +505,8 @@ describe('site-to-theme P0-3 orchestration', () => {
     expect(template.indexOf(footerRef)).toBeGreaterThan(template.indexOf('<!-- /wp:group -->'));
     expect(body).toContain('/wp-content/themes/fixture-theme/assets/logo.png');
     expect(body).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
+    expectGenericQueriedContentTemplate(model.templates['index.html']);
+    expectGenericQueriedContentTemplate(model.templates['page.html']);
   });
 
   it('assemble-threads-chrome defaults missing home slugs to canonical header and footer', async () => {
@@ -391,8 +533,10 @@ describe('site-to-theme P0-3 orchestration', () => {
       chromeSlugsByPage: {},
     } as Parameters<typeof assemble>[0]);
 
-    expect(model.templates['index.html']).toContain(headerRef);
-    expect(model.templates['index.html']).toContain(footerRef);
+    expect(model.templates['front-page.html']).toContain(headerRef);
+    expect(model.templates['front-page.html']).toContain(footerRef);
+    expectGenericQueriedContentTemplate(model.templates['index.html']);
+    expectGenericQueriedContentTemplate(model.templates['page.html']);
   });
 
   it('assemble-threads-chrome does not reference chrome parts that were not emitted', async () => {
@@ -418,7 +562,11 @@ describe('site-to-theme P0-3 orchestration', () => {
     } as Parameters<typeof assemble>[0]);
 
     expect(model.parts).toEqual({});
+    expect(model.templates['front-page.html']).not.toContain('wp:template-part');
     expect(model.templates['index.html']).not.toContain('wp:template-part');
+    expect(model.templates['page.html']).not.toContain('wp:template-part');
+    expect(model.templates['index.html']).toContain('wp:post-content');
+    expect(model.templates['page.html']).toContain('wp:post-content');
   });
 
   it('assemble-threads-chrome chooses the home page slugs even when home is not first', async () => {
@@ -459,13 +607,14 @@ describe('site-to-theme P0-3 orchestration', () => {
       },
     } as Parameters<typeof assemble>[0]);
 
-    expect(model.templates['index.html']).toContain(
+    expect(model.templates['front-page.html']).toContain(
       '<!-- wp:template-part {"slug":"home-header","tagName":"header"} /-->'
     );
-    expect(model.templates['index.html']).toContain(
+    expect(model.templates['front-page.html']).toContain(
       '<!-- wp:template-part {"slug":"home-footer","tagName":"footer"} /-->'
     );
-    expect(model.templates['index.html']).not.toContain('"slug":"about-header"');
+    expect(model.templates['front-page.html']).not.toContain('"slug":"about-header"');
+    expect(model.templates['index.html']).toContain('wp:post-content');
   });
 
   it('assemble-threads-assets lets asset-stage entries win relPath collisions', async () => {
@@ -527,7 +676,9 @@ describe('site-to-theme P0-3 orchestration', () => {
       expect(styleCss).toContain('assets/fonts/');
       expect(styleCss).not.toContain(gstaticFontUrl);
 
-      const template = readFileSync(join(outDir, 'templates', 'index.html'), 'utf8');
+      const template = readFileSync(join(outDir, 'templates', 'front-page.html'), 'utf8');
+      const indexTemplate = readFileSync(join(outDir, 'templates', 'index.html'), 'utf8');
+      const pageTemplate = readFileSync(join(outDir, 'templates', 'page.html'), 'utf8');
       const { headerRef, footerRef } = homeChromeRefs();
       const body = betweenChromeRefs(template);
       const headerPart = readFileSync(join(outDir, 'parts', 'header.html'), 'utf8');
@@ -543,6 +694,10 @@ describe('site-to-theme P0-3 orchestration', () => {
       );
       expect(template).not.toContain('<!-- wp:image -->');
       expect(template).not.toContain('src="assets/logo.png"');
+      expectGenericQueriedContentTemplate(indexTemplate);
+      expectGenericQueriedContentTemplate(pageTemplate);
+      expect(indexTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(pageTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/logo.png');
       expect(headerPart).toContain('About');
       expect(footerPart).toContain('Blocks Engine');
     });
@@ -586,12 +741,16 @@ describe('site-to-theme P0-3 orchestration', () => {
         themeMeta: themeMeta(),
       });
 
-      const template = readFileSync(join(outDir, 'templates', 'index.html'), 'utf8');
+      const template = readFileSync(join(outDir, 'templates', 'front-page.html'), 'utf8');
+      const indexTemplate = readFileSync(join(outDir, 'templates', 'index.html'), 'utf8');
+      const pageTemplate = readFileSync(join(outDir, 'templates', 'page.html'), 'utf8');
       const body = betweenChromeRefs(template);
 
       expect(template).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
       expect(body).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
       expect(body).toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expectGenericQueriedContentTemplate(indexTemplate);
+      expectGenericQueriedContentTemplate(pageTemplate);
     });
   });
 
@@ -617,6 +776,34 @@ describe('site-to-theme P0-3 orchestration', () => {
     });
   });
 
+  it('siteToTheme-e2e-template-structure writes front-page and generic page shells', async () => {
+    const { siteToTheme } = await import('../theme/index.js');
+
+    await withTempDir('blocks-engine-site-to-theme-templates-', async (siteDir) => {
+      copyFixtureSite(siteDir);
+      const outDir = join(siteDir, 'theme-out');
+
+      await siteToTheme(siteDir, {
+        outDir,
+        pool: p1Pool(),
+        sections: p1Sections(),
+        fetchImpl: mockFontFetch().fetchImpl,
+        themeMeta: themeMeta(),
+      });
+
+      const frontPage = readFileSync(join(outDir, 'templates', 'front-page.html'), 'utf8');
+      const indexTemplate = readFileSync(join(outDir, 'templates', 'index.html'), 'utf8');
+      const pageTemplate = readFileSync(join(outDir, 'templates', 'page.html'), 'utf8');
+
+      expect(frontPage).toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(frontPage).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
+      expectGenericQueriedContentTemplate(indexTemplate);
+      expectGenericQueriedContentTemplate(pageTemplate);
+      expect(indexTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(pageTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+    });
+  });
+
   it('siteToTheme-e2e-assets-on-disk keeps assets stage and assemble slug parity', async () => {
     const { siteToTheme } = await import('../theme/index.js');
 
@@ -634,7 +821,7 @@ describe('site-to-theme P0-3 orchestration', () => {
         },
       });
 
-      const template = readFileSync(join(outDir, 'templates', 'index.html'), 'utf8');
+      const template = readFileSync(join(outDir, 'templates', 'front-page.html'), 'utf8');
       expect(result.model.assets.map((asset) => asset.relPath)).toContain('assets/logo.png');
       expect(template).toContain('/wp-content/themes/fixture-theme/assets/logo.png');
       expect(template).not.toContain('/wp-content/themes/Fixture Theme!');
@@ -753,19 +940,31 @@ describe('site-to-theme P0-3 orchestration', () => {
       });
 
       expect(result.written).toEqual(
-        expect.arrayContaining(['style.css', 'theme.json', 'templates/index.html'])
+        expect.arrayContaining([
+          'style.css',
+          'theme.json',
+          'templates/front-page.html',
+          'templates/index.html',
+          'templates/page.html',
+        ])
       );
       expect(existsSync(join(outDir, 'style.css'))).toBe(true);
       expect(existsSync(join(outDir, 'theme.json'))).toBe(true);
+      expect(existsSync(join(outDir, 'templates', 'front-page.html'))).toBe(true);
       expect(existsSync(join(outDir, 'templates', 'index.html'))).toBe(true);
+      expect(existsSync(join(outDir, 'templates', 'page.html'))).toBe(true);
 
       const themeJson = JSON.parse(readFileSync(join(outDir, 'theme.json'), 'utf8'));
       expect(lintThemeJson(themeJson)).toEqual({ ok: true, errors: [] });
 
-      const template = readFileSync(join(outDir, 'templates', 'index.html'), 'utf8');
-      expect(template).toContain('<!-- wp:heading');
-      expect(template).toContain('<!-- wp:paragraph');
-      expect(template).not.toMatch(/^<!-- wp:html -->[\s\S]*<!-- \/wp:html -->$/);
+      const frontPage = readFileSync(join(outDir, 'templates', 'front-page.html'), 'utf8');
+      const indexTemplate = readFileSync(join(outDir, 'templates', 'index.html'), 'utf8');
+      const pageTemplate = readFileSync(join(outDir, 'templates', 'page.html'), 'utf8');
+      expect(frontPage).toContain('<!-- wp:heading');
+      expect(frontPage).toContain('<!-- wp:paragraph');
+      expect(frontPage).not.toMatch(/^<!-- wp:html -->[\s\S]*<!-- \/wp:html -->$/);
+      expectGenericQueriedContentTemplate(indexTemplate);
+      expectGenericQueriedContentTemplate(pageTemplate);
     });
   });
 
@@ -815,16 +1014,20 @@ describe('site-to-theme P0-3 orchestration', () => {
       expect(readFileSync(join(secondOut, 'theme.json'), 'utf8')).toBe(
         readFileSync(join(firstOut, 'theme.json'), 'utf8')
       );
-      expect(readFileSync(join(secondOut, 'templates', 'index.html'), 'utf8')).toBe(
-        readFileSync(join(firstOut, 'templates', 'index.html'), 'utf8')
-      );
+      for (const templateFile of ['front-page.html', 'index.html', 'page.html']) {
+        expect(readFileSync(join(secondOut, 'templates', templateFile), 'utf8')).toBe(
+          readFileSync(join(firstOut, 'templates', templateFile), 'utf8')
+        );
+      }
       expect(third.model).toEqual(first.model);
       expect(readFileSync(join(thirdOut, 'theme.json'), 'utf8')).toBe(
         readFileSync(join(firstOut, 'theme.json'), 'utf8')
       );
-      expect(readFileSync(join(thirdOut, 'templates', 'index.html'), 'utf8')).toBe(
-        readFileSync(join(firstOut, 'templates', 'index.html'), 'utf8')
-      );
+      for (const templateFile of ['front-page.html', 'index.html', 'page.html']) {
+        expect(readFileSync(join(thirdOut, 'templates', templateFile), 'utf8')).toBe(
+          readFileSync(join(firstOut, 'templates', templateFile), 'utf8')
+        );
+      }
     });
   });
 
