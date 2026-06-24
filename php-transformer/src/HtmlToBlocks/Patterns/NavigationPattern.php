@@ -19,6 +19,10 @@ final class NavigationPattern
             return null;
         }
 
+        if ( $this->hasNavigationChrome($element) ) {
+            return null;
+        }
+
         $links = $this->navigationBlocks($element, $presentationAttributes, $innerHtml, $createBlock);
 
         if ( array() === $links ) {
@@ -72,9 +76,14 @@ final class NavigationPattern
             }
 
             if ( $child instanceof DOMElement ) {
+                if ( $this->isMenuToggleControl($child) ) {
+                    continue;
+                }
+
                 if ( ! $allowsDirectItems ) {
                     return array();
                 }
+
                 $block = $this->navigationBlockFromItem($child, $presentationAttributes, $innerHtml, $createBlock);
                 if ( null !== $block ) {
                     $blocks[] = $block;
@@ -223,9 +232,74 @@ final class NavigationPattern
         foreach ( array( 'class', 'id', 'role' ) as $attribute ) {
             $value = $element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '';
             foreach ( preg_split('/[^a-z0-9]+/', strtolower($value)) ?: array() as $token ) {
-                if ( in_array($token, array( 'dropdown', 'submenu', 'subnav', 'flyout', 'menu' ), true) ) {
+                if ( in_array($token, array( 'dropdown', 'submenu', 'subnav', 'flyout' ), true) ) {
                     return true;
                 }
+            }
+        }
+
+        return false;
+    }
+
+    private function isMenuToggleControl(DOMElement $element): bool
+    {
+        if ( 'button' !== strtolower($element->tagName) ) {
+            return false;
+        }
+
+        if ( $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded') ) {
+            return true;
+        }
+
+        foreach ( preg_split('/[^a-z0-9]+/', strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-label'))) ?: array() as $token ) {
+            if ( in_array($token, array( 'hamburger', 'menu', 'toggle' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasNavigationChrome(DOMElement $element): bool
+    {
+        $hasToggle = false;
+        foreach ( $element->getElementsByTagName('button') as $button ) {
+            if ( $button instanceof DOMElement && $this->isMenuToggleControl($button) ) {
+                $hasToggle = true;
+                break;
+            }
+        }
+
+        if ( ! $hasToggle ) {
+            return false;
+        }
+
+        $hasList = false;
+        foreach ( $element->getElementsByTagName('ul') as $list ) {
+            if ( $list instanceof DOMElement && $this->hasNavigationSignal($list) ) {
+                $hasList = true;
+                break;
+            }
+        }
+
+        if ( ! $hasList ) {
+            return false;
+        }
+
+        foreach ( $element->getElementsByTagName('a') as $anchor ) {
+            if ( $anchor instanceof DOMElement && ! $this->hasListAncestor($anchor, $element) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasListAncestor(DOMElement $element, DOMElement $boundary): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode ) {
+            if ( in_array(strtolower($node->tagName), array( 'ul', 'ol' ), true) ) {
+                return true;
             }
         }
 
