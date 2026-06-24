@@ -160,6 +160,46 @@ $assert(str_contains($css, '.figma-node-1-1-hero-section{width:1200px;height:600
 $assert(str_contains($css, '.figma-node-1-2-hero-title{font-size:48px;font-weight:700;color:#1a334d;flex-shrink:0}'), 'css-text-style');
 $assert(str_contains($css, '.figma-node-1-4-hero-image-rectangle{width:320px;height:180px;position:absolute;left:10px;top:20px;background:#ff0000;background-image:url("assets/hero-image.svg")'), 'css-rectangle-asset-style');
 $assert(str_contains($css, '.figma-node-1-5-nested-image-paint{') && str_contains($css, 'background-image:url("assets/fixture-photo.jpg")'), 'css-nested-image-hash-asset-style');
+$assert('fixture image bytes' === $fileContent($result, 'assets/fixture-photo.jpg'), 'asset-content-preserved');
+
+$cliOutputRoot = sys_get_temp_dir() . '/figma-transformer-cli-output-' . getmypid() . '-' . bin2hex(random_bytes(4));
+$cliScenegraphPath = $cliOutputRoot . '/scenegraph.json';
+$cliScenegraph = array(
+    'name'   => 'CLI Output Fixture',
+    'assets' => array(
+        'cli-image' => array(
+            'name'      => 'CLI Image',
+            'mime_type' => 'image/svg+xml',
+            'content'   => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"></svg>',
+        ),
+    ),
+    'nodes'  => array(
+        array(
+            'id'       => 'cli:1',
+            'type'     => 'RECTANGLE',
+            'name'     => 'CLI Card',
+            'width'    => 40,
+            'height'   => 20,
+            'asset_id' => 'cli-image',
+        ),
+    ),
+);
+mkdir($cliOutputRoot, 0777, true);
+file_put_contents($cliScenegraphPath, json_encode($cliScenegraph, JSON_UNESCAPED_SLASHES));
+$cliCommand = escapeshellarg(PHP_BINARY)
+    . ' ' . escapeshellarg(__DIR__ . '/../../bin/figma-transformer')
+    . ' ' . escapeshellarg($cliScenegraphPath)
+    . ' --output-dir=' . escapeshellarg($cliOutputRoot . '/artifact');
+$cliJson = shell_exec($cliCommand);
+$cliResult = is_string($cliJson) ? json_decode($cliJson, true) : null;
+$assert(is_array($cliResult), 'cli-output-dir-json-result');
+$assert('success' === ($cliResult['status'] ?? null), 'cli-output-dir-transform-success');
+$assert($cliOutputRoot . '/artifact' === ($cliResult['output']['directory'] ?? null), 'cli-output-dir-report-directory');
+$assert(! isset($cliResult['files'][0]['content']), 'cli-output-dir-omits-file-content-from-json');
+$assert(is_file($cliOutputRoot . '/artifact/index.html'), 'cli-output-dir-writes-index');
+$assert(is_file($cliOutputRoot . '/artifact/style.css'), 'cli-output-dir-writes-style');
+$assert('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"></svg>' === file_get_contents($cliOutputRoot . '/artifact/assets/cli-image.svg'), 'cli-output-dir-preserves-asset-content');
+$assert(str_contains((string) file_get_contents($cliOutputRoot . '/artifact/style.css'), 'background-image:url("assets/cli-image.svg")'), 'cli-output-dir-preserves-asset-reference');
 $assert(str_contains($html, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-0.5 -0.5 11 11"'), 'html-vector-blob-svg');
 $assert(str_contains($html, 'd="M 0 0 L 10 0 L 10 10 Z"'), 'html-vector-blob-path');
 $assert(! str_contains($css, 'order:'), 'css-avoids-source-order');

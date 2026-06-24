@@ -12,12 +12,13 @@ if ( is_readable($autoload) ) {
 
 $path = $argv[1] ?? '';
 if ( '' === $path || '--help' === $path || '-h' === $path ) {
-    fwrite(STDERR, "Usage: figma-transformer <path-to-fig-or-scenegraph-json> [--zstd-command=<path>] [--frame-id=<id>] [--font-css=<css>] [--font-css-file=<path>] [--render-text-glyph-paths] [--parity-status=<status>] [--parity-source-screenshot-url=<url>] [--parity-source-screenshot-path=<path>] [--parity-generated-screenshot-artifact=<artifact>] [--parity-diff-image-artifact=<artifact>] [--parity-pixel-mismatch-count=<count>] [--parity-pixel-mismatch-ratio=<ratio>] [--parity-threshold=<ratio>] [--parity-viewport=<width>x<height>]\n");
+    fwrite(STDERR, "Usage: figma-transformer <path-to-fig-or-scenegraph-json> [--output-dir=<dir>] [--zstd-command=<path>] [--frame-id=<id>] [--font-css=<css>] [--font-css-file=<path>] [--render-text-glyph-paths] [--parity-status=<status>] [--parity-source-screenshot-url=<url>] [--parity-source-screenshot-path=<path>] [--parity-generated-screenshot-artifact=<artifact>] [--parity-diff-image-artifact=<artifact>] [--parity-pixel-mismatch-count=<count>] [--parity-pixel-mismatch-ratio=<ratio>] [--parity-threshold=<ratio>] [--parity-viewport=<width>x<height>]\n");
     exit(1);
 }
 
 $options = array();
 $zstdCommand = getenv('FIGMA_TRANSFORMER_ZSTD_COMMAND') ?: null;
+$outputDir = null;
 foreach ( array_slice($argv, 2) as $argument ) {
     if ( ! str_starts_with($argument, '--') ) {
         continue;
@@ -29,6 +30,11 @@ foreach ( array_slice($argv, 2) as $argument ) {
 
     if ( 'zstd-command' === $name ) {
         $zstdCommand = $value;
+        continue;
+    }
+
+    if ( 'output-dir' === $name ) {
+        $outputDir = $value;
         continue;
     }
 
@@ -88,12 +94,25 @@ foreach ( array_slice($argv, 2) as $argument ) {
     }
 }
 
+if ( is_string($outputDir) && '' !== $outputDir ) {
+    $outputDir = rtrim($outputDir, DIRECTORY_SEPARATOR);
+}
+
 $transformer = blocks_engine_figma_transformer_cli_transformer(is_string($zstdCommand) && '' !== $zstdCommand ? $zstdCommand : null);
 if ( str_ends_with(strtolower($path), '.json') ) {
     $decoded = json_decode((string) file_get_contents($path), true);
     $result = $transformer->transformScenegraph(is_array($decoded) ? $decoded : array(), $options)->toArray();
 } else {
     $result = $transformer->transformFile($path, $options)->toArray();
+}
+
+if ( is_string($outputDir) && '' !== $outputDir ) {
+    $writeResult = blocks_engine_figma_transformer_cli_write_output_dir($result, $outputDir);
+    if ( ! empty($writeResult['diagnostics']) ) {
+        $result['diagnostics'] = array_merge($result['diagnostics'] ?? array(), $writeResult['diagnostics']);
+    }
+    $result['files'] = blocks_engine_figma_transformer_cli_file_manifest($result['files'] ?? array());
+    $result['output'] = $writeResult['output'];
 }
 
 fwrite(STDOUT, blocks_engine_figma_transformer_cli_json_encode($result) . "\n");
@@ -128,6 +147,111 @@ function blocks_engine_figma_transformer_cli_transformer(?string $zstdCommand): 
         new Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader(
             new Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiParser($zstd)
         )
+    );
+}
+
+/**
+ * @param array<string, mixed> $result
+ * @return array{output: array<string, mixed>, diagnostics: array<int, array<string, mixed>>}
+ */
+function blocks_engine_figma_transformer_cli_write_output_dir(array $result, string $outputDir): array
+{
+    $diagnostics = array();
+    $written = array();
+
+    if ( ! is_dir($outputDir) && ! mkdir($outputDir, 0777, true) && ! is_dir($outputDir) ) {
+        return array(
+            'output' => array(
+                'directory' => $outputDir,
+                'files'     => array(),
+            ),
+            'diagnostics' => array(blocks_engine_figma_transformer_cli_diagnostic('figma_transformer_cli_output_dir_create_failed', 'Output directory could not be created.', array('directory' => $outputDir))),
+        );
+    }
+
+    foreach ( $result['files'] ?? array() as $file ) {
+        if ( ! is_array($file) ) {
+            continue;
+        }
+
+        $path = isset($file['path']) && is_scalar($file['path']) ? (string) $file['path'] : '';
+        if ( '' === $path || ! blocks_engine_figma_transformer_cli_safe_output_path($path) ) {
+            $diagnostics[] = blocks_engine_figma_transformer_cli_diagnostic('figma_transformer_cli_output_path_unsafe', 'Generated artifact file path is not safe to write.', array('path' => $path));
+            continue;
+        }
+
+        $target = $outputDir . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $path);
+        $targetDir = dirname($target);
+        if ( ! is_dir($targetDir) && ! mkdir($targetDir, 0777, true) && ! is_dir($targetDir) ) {
+            $diagnostics[] = blocks_engine_figma_transformer_cli_diagnostic('figma_transformer_cli_output_file_dir_create_failed', 'Generated artifact file directory could not be created.', array('path' => $path, 'directory' => $targetDir));
+            continue;
+        }
+
+        $content = isset($file['content']) && is_scalar($file['content']) ? (string) $file['content'] : '';
+        if ( false === file_put_contents($target, $content) ) {
+            $diagnostics[] = blocks_engine_figma_transformer_cli_diagnostic('figma_transformer_cli_output_file_write_failed', 'Generated artifact file could not be written.', array('path' => $path, 'target' => $target));
+            continue;
+        }
+
+        $written[] = $path;
+    }
+
+    return array(
+        'output' => array(
+            'directory' => $outputDir,
+            'files'     => $written,
+        ),
+        'diagnostics' => $diagnostics,
+    );
+}
+
+/**
+ * @param mixed $files
+ * @return array<int, array<string, mixed>>
+ */
+function blocks_engine_figma_transformer_cli_file_manifest(mixed $files): array
+{
+    $manifest = array();
+
+    foreach ( is_array($files) ? $files : array() as $file ) {
+        if ( ! is_array($file) ) {
+            continue;
+        }
+
+        unset($file['content']);
+        $manifest[] = $file;
+    }
+
+    return $manifest;
+}
+
+function blocks_engine_figma_transformer_cli_safe_output_path(string $path): bool
+{
+    if ( '' === $path || str_starts_with($path, '/') || str_starts_with($path, '\\') || str_contains($path, "\0") ) {
+        return false;
+    }
+
+    foreach ( explode('/', str_replace('\\', '/', $path)) as $part ) {
+        if ( '' === $part || '.' === $part || '..' === $part ) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * @param array<string, mixed> $context
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_transformer_cli_diagnostic(string $code, string $message, array $context = array()): array
+{
+    return array(
+        'severity' => 'warning',
+        'code'     => $code,
+        'message'  => $message,
+        'source'   => 'figma-transformer-cli',
+        'context'  => $context,
     );
 }
 
