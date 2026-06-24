@@ -1,4 +1,5 @@
 import { rewriteHtmlImageSrcs, type StaticImgRef } from './assets-static.js';
+import type { ChromeSlugs } from './chrome-signature.js';
 import type {
   AssetFile,
   FoundationTokens,
@@ -16,6 +17,8 @@ type ThemeAssemblyParts = {
   assets?: AssetFile[];
   fontCss?: string;
   imgRefsByPage?: Record<string, StaticImgRef[]>;
+  chromeParts?: Record<string, string>;
+  chromeSlugsByPage?: Record<string, ChromeSlugs>;
 };
 
 type PaletteEntry = {
@@ -44,10 +47,12 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
         parts.site,
         parts.pages,
         parts.imgRefsByPage ?? {},
-        themeSlug
+        themeSlug,
+        parts.chromeParts ?? {},
+        parts.chromeSlugsByPage
       ),
     },
-    parts: {},
+    parts: { ...(parts.chromeParts ?? {}) },
     patterns: {},
     assets: collectAssets(parts),
   };
@@ -170,19 +175,54 @@ function buildIndexTemplate(
   site: SiteModel,
   pages: Record<string, SectionBlocks[]>,
   imgRefsByPage: Record<string, StaticImgRef[]>,
-  themeSlug: string
+  themeSlug: string,
+  chromeParts: Record<string, string>,
+  chromeSlugsByPage: Record<string, ChromeSlugs> | undefined
 ): string {
   const pageBlocks = orderedPageBlocks(site, pages, imgRefsByPage, themeSlug);
   const blocks = pageBlocks.length > 0
     ? pageBlocks.join('\n\n')
     : '<!-- wp:paragraph -->\n<p></p>\n<!-- /wp:paragraph -->';
 
-  return `<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->
+  const mainTemplate = `<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->
 <main class="wp-block-group">
 ${blocks}
 </main>
 <!-- /wp:group -->
 `;
+  if (!chromeSlugsByPage) return mainTemplate;
+
+  const homeSlugs = chromeSlugsByPage[homeSlugForSite(site)] ?? {
+    header: 'header',
+    footer: 'footer',
+  };
+  if (!hasChromePart(chromeParts, homeSlugs.header) || !hasChromePart(chromeParts, homeSlugs.footer)) {
+    return mainTemplate;
+  }
+
+  return [
+    templatePartRef(homeSlugs.header, 'header'),
+    mainTemplate.trimEnd(),
+    templatePartRef(homeSlugs.footer, 'footer'),
+    '',
+  ].join('\n');
+}
+
+function hasChromePart(chromeParts: Record<string, string>, slug: string): boolean {
+  return Object.prototype.hasOwnProperty.call(chromeParts, `${slug}.html`);
+}
+
+function homeSlugForSite(site: SiteModel): string {
+  return (
+    site.pages.find((page) => page.slug === 'home')?.slug ??
+    site.pages.find((page) => /(^|[\\/])index\.html?$/i.test(page.relPath))?.slug ??
+    site.pages[0]?.slug ??
+    'home'
+  );
+}
+
+function templatePartRef(slug: string, tagName: 'header' | 'footer'): string {
+  return `<!-- wp:template-part ${JSON.stringify({ slug, tagName })} /-->`;
 }
 
 function orderedPageBlocks(

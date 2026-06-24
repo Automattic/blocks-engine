@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { createWorker } from '../pool/pool.js';
 import { assemble } from './assemble.js';
 import { assets as runAssetsStage } from './assets.js';
+import { chrome } from './chrome.js';
 import { foundation } from './foundation.js';
 import { ingest } from './ingest.js';
 import { reconstruct } from './reconstruct.js';
@@ -42,10 +43,13 @@ export async function siteToTheme(
   try {
     const baseTokens = foundation(site, options?.foundationAggregates);
     const tokens = hooks.onFoundation ? await hooks.onFoundation(baseTokens, ctx) : baseTokens;
+    const chromeRes = await chrome(ctx, pool);
     const pages: Record<string, SectionBlocks[]> = {};
 
     for (const page of site.pages) {
-      const specs = options?.sections?.[page.slug] ?? sectionExtract(page);
+      const specs =
+        options?.sections?.[page.slug] ??
+        sectionExtract({ ...page, html: chromeRes.mainHtmlByPage[page.slug] ?? page.html });
       pages[page.slug] = await reconstruct(specs, ctx, pool, hooks, coverageFloor);
     }
 
@@ -64,6 +68,8 @@ export async function siteToTheme(
       assets: inventory.assets,
       fontCss: assetStage.fontCss,
       imgRefsByPage: assetStage.imgRefsByPage,
+      chromeParts: chromeRes.parts,
+      chromeSlugsByPage: chromeRes.slugsByPage,
     });
     const model = hooks.onRefine ? await hooks.onRefine(assembled, ctx) : assembled;
     const written = await writeTheme(model, outDir);
