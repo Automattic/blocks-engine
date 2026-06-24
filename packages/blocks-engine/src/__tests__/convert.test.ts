@@ -148,21 +148,49 @@ describe('/wp convert', () => {
 });
 
 describe('default entry', () => {
-  it('exports the React-free public surface', async () => {
+  it('exports only the runtime public surface and keeps demoted symbols under internals', async () => {
     const defaultEntry = await import('../index.js');
+    const internalsEntry = await import('../internals/index.js');
+
+    const publicRuntimeSymbols = [
+      'BlocksEngineError',
+      'compose',
+      'convert',
+      'createWorker',
+    ].sort();
+    const demotedRuntimeSymbols = [
+      'PIPELINE_ISLAND_NAME',
+      'PIPELINE_ISLAND_OPENER',
+      'UNWRAP_SELECTOR',
+      'blockMarkupRoundtrips',
+      'buildEmbedBlock',
+      'composeFromRecipes',
+      'escapeHtml',
+      'escapeHtmlAttr',
+      'escapeHtmlText',
+      'genericHtmlToBlocks',
+      'guessEmbedProvider',
+      'heuristicBlocks',
+      'isRawConvertible',
+      'sanitize',
+      'scanForInjection',
+      'serializeBlockAttrs',
+      'validateBlockContract',
+      'validateBlockMarkup',
+      'verifyComposedOutput',
+      'walkBlocks',
+    ];
+
+    expect(Object.keys(defaultEntry).sort()).toEqual(publicRuntimeSymbols);
 
     expect(typeof defaultEntry.convert).toBe('function');
     expect(typeof defaultEntry.compose).toBe('function');
     expect(typeof defaultEntry.BlocksEngineError).toBe('function');
     expect(typeof defaultEntry.createWorker).toBe('function');
-    expect(typeof defaultEntry.isRawConvertible).toBe('function');
-    expect(typeof defaultEntry.escapeHtmlText).toBe('function');
-    expect(typeof defaultEntry.escapeHtmlAttr).toBe('function');
-    expect(typeof defaultEntry.buildEmbedBlock).toBe('function');
-    expect(typeof defaultEntry.guessEmbedProvider).toBe('function');
-    expect(typeof defaultEntry.sanitize).toBe('function');
-    expect(typeof defaultEntry.blockMarkupRoundtrips).toBe('function');
-    expect(typeof defaultEntry.verifyComposedOutput).toBe('function');
-    expect(typeof defaultEntry.heuristicBlocks).toBe('function');
+
+    for (const symbol of demotedRuntimeSymbols) {
+      expect(defaultEntry).not.toHaveProperty(symbol);
+      expect(internalsEntry).toHaveProperty(symbol);
+    }
   });
 });
