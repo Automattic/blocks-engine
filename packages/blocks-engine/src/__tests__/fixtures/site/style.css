@@ -1,0 +1,12 @@
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+}
+
+main {
+  display: block;
+}
+
+.button {
+  display: inline-block;
+}
