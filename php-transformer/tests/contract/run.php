@@ -336,6 +336,37 @@ $assert(array() === ($asideContainer['fallbacks'] ?? array()), 'semantic aside c
 $assert(str_contains($asideSerialized, 'sidebar'), 'semantic aside container preserves CSS-addressable sidebar class');
 $assert(str_contains($asideSerialized, '<!-- wp:navigation'), 'semantic aside container preserves nested navigation patterns');
 
+$nonprofitNavigation = ( new HtmlTransformer() )->transform(
+    '<header><nav aria-label="Main navigation"><ul><li><a href="/">Home</a></li><li><a href="/the-measure/">The Measure</a></li><li><a href="/supporters/">Supporters</a></li><li><a href="/volunteer/">Volunteer</a></li><li><a href="/donate/">Donate</a></li><li><a href="/faq/">FAQ</a></li><li><a href="/vote-yes/">Vote YES</a></li></ul></nav></header><main><h1>Campaign</h1></main><footer>Paid for by neighbors.</footer>',
+    array(
+        'strict'          => true,
+        'allow_fallbacks' => false,
+    )
+)->toArray();
+$nonprofitSemanticParity = $nonprofitNavigation['source_reports']['semantic_parity'] ?? array();
+$nonprofitConversionSemanticParity = $nonprofitNavigation['source_reports']['conversion_report']['semantic_parity'] ?? array();
+$nonprofitBlockMenu = $nonprofitSemanticParity['navigation_menus']['blocks'][0] ?? array();
+$assert('success' === ($nonprofitNavigation['status'] ?? ''), 'nonprofit-style navigation converts without strict fallback failures', (string) ($nonprofitNavigation['status'] ?? ''));
+$assert('pass' === ($nonprofitSemanticParity['status'] ?? ''), 'semantic parity passes for nonprofit-style source navigation');
+$assert('pass' === ($nonprofitConversionSemanticParity['status'] ?? ''), 'conversion report projects semantic parity status');
+$assert(1 === ($nonprofitSemanticParity['landmarks']['source']['nav'] ?? null), 'semantic parity counts source nav landmarks');
+$assert(1 === ($nonprofitSemanticParity['landmarks']['blocks']['nav'] ?? null), 'semantic parity counts generated core navigation landmarks');
+$assert(7 === ($nonprofitBlockMenu['item_count'] ?? null), 'semantic parity counts generated core navigation menu items');
+$assert(true === ($nonprofitBlockMenu['represented_as_core_navigation'] ?? null), 'semantic parity reports menus represented as core/navigation');
+$assert('The Measure' === ($nonprofitBlockMenu['items'][1]['label'] ?? ''), 'semantic parity preserves navigation item labels');
+$assert('/vote-yes/' === ($nonprofitBlockMenu['items'][6]['url'] ?? ''), 'semantic parity preserves navigation item URLs');
+
+$unmappedNavigation = ( new HtmlTransformer() )->transform(
+    '<main><nav aria-label="Main navigation"><ul><li><a href="/">Home</a></li></ul><p>Unexpected helper copy</p></nav></main>'
+)->toArray();
+$unmappedSemanticParity = $unmappedNavigation['source_reports']['semantic_parity'] ?? array();
+$unmappedFinding = $unmappedSemanticParity['findings'][0] ?? array();
+$assert('warning' === ($unmappedSemanticParity['status'] ?? ''), 'semantic parity warns when source nav is not represented as core navigation');
+$assert('landmark_count_mismatch' === ($unmappedFinding['code'] ?? ''), 'semantic parity reports a precise missing nav landmark finding');
+$assert('nav' === ($unmappedFinding['kind'] ?? ''), 'semantic parity missing landmark finding names the nav kind');
+$assert(1 === ($unmappedFinding['source_count'] ?? null), 'semantic parity missing landmark finding exposes source count');
+$assert(0 === ($unmappedFinding['block_count'] ?? null), 'semantic parity missing landmark finding exposes generated block count');
+
 $assertNoInnerContentChildCountMismatch = static function (array $result, string $message) use ($assert): void {
     $findingCodes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $result['source_reports']['wp_block_validity']['findings'] ?? array());
     $assert(! in_array('inner_content_child_count_mismatch', $findingCodes, true), $message, implode(', ', $findingCodes));

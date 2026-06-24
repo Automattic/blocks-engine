@@ -28,6 +28,7 @@ final class ConversionReportProjection
             'fallback_diagnostics'  => self::fallbackDiagnostics($fallbacks),
             'asset_refs'            => self::assetReferences($blocks, $sourceReports),
             'navigation_candidates' => self::navigationCandidates($blocks, $sourceReports),
+            'semantic_parity'       => self::semanticParity($sourceReports),
             'interaction_candidates' => self::interactionCandidates($sourceReports),
             'presentation_gaps'     => self::presentationGaps($sourceReports),
             'metrics'               => $metrics,
@@ -270,6 +271,16 @@ final class ConversionReportProjection
         }
 
         return self::dedupeRows(array_values(array_filter($candidates, static fn (mixed $candidate): bool => is_array($candidate))));
+    }
+
+    /**
+     * @param array<string, mixed> $sourceReports
+     * @return array<string, mixed>
+     */
+    private static function semanticParity(array $sourceReports): array
+    {
+        $report = $sourceReports['semantic_parity'] ?? array();
+        return is_array($report) ? $report : array();
     }
 
     /**

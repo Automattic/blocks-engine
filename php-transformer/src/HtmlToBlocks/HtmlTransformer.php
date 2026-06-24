@@ -165,6 +165,7 @@ final class HtmlTransformer
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
+        $semanticParityReport = $this->semanticParityReport($body, $blocks, $sourceProvenance);
         $diagnostics = array(
             array(
                 'code'    => 'html_to_blocks_core_slice',
@@ -213,10 +214,25 @@ final class HtmlTransformer
             );
         }
 
+        foreach ( $semanticParityReport['findings'] ?? array() as $finding ) {
+            if ( ! is_array($finding) ) {
+                continue;
+            }
+
+            $diagnostics[] = array(
+                'code'     => 'html_semantic_parity_' . (string) ($finding['code'] ?? 'warning'),
+                'message'  => (string) ($finding['summary'] ?? 'Generated blocks differ from source semantic structure.'),
+                'source'   => self::class,
+                'severity' => $finding['severity'] ?? 'warning',
+                'selector' => $finding['selector'] ?? null,
+            );
+        }
+
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $sourceReports = array(
             'interaction_candidates' => $interactionCandidates,
             'wp_block_validity' => $blockValidityReport,
+            'semantic_parity' => $semanticParityReport,
             'html' => array(
                 'presentation_signals' => $this->presentationProvenance,
                 'source_provenance'    => $sourceProvenance,
@@ -290,6 +306,345 @@ final class HtmlTransformer
     {
         $seen = array();
         return $this->deduplicateNavigationBlocksRecursive($blocks, $seen);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     * @return array<string, mixed>
+     */
+    private function semanticParityReport(DOMElement $body, array $blocks, array $sourceProvenance): array
+    {
+        $sourceLandmarks = $this->sourceLandmarkReport($body);
+        $blockLandmarks = $this->blockLandmarkReport($blocks, $sourceProvenance, $sourceLandmarks);
+        $sourceMenus = $this->sourceNavigationMenus($body);
+        $blockMenus = $this->blockNavigationMenus($blocks);
+        $findings = $this->semanticParityFindings($sourceLandmarks, $blockLandmarks, $sourceMenus, $blockMenus);
+
+        return array(
+            'schema' => 'blocks-engine/php-transformer/semantic-parity/v1',
+            'status' => array() === $findings ? 'pass' : 'warning',
+            'landmarks' => array(
+                'source' => $sourceLandmarks['counts'],
+                'blocks' => $blockLandmarks['counts'],
+            ),
+            'navigation_menus' => array(
+                'source' => $sourceMenus,
+                'blocks' => $blockMenus,
+            ),
+            'findings' => $findings,
+        );
+    }
+
+    /**
+     * @return array{counts: array<string, int>, selectors: array<string, array<int, string>>}
+     */
+    private function sourceLandmarkReport(DOMElement $body): array
+    {
+        $counts = array('header' => 0, 'nav' => 0, 'main' => 0, 'footer' => 0);
+        $selectors = array('header' => array(), 'nav' => array(), 'main' => array(), 'footer' => array());
+        $this->collectSourceLandmarks($body, $counts, $selectors);
+
+        return array('counts' => $counts, 'selectors' => $selectors);
+    }
+
+    /**
+     * @param array<string, int> $counts
+     * @param array<string, array<int, string>> $selectors
+     */
+    private function collectSourceLandmarks(DOMElement $element, array &$counts, array &$selectors): void
+    {
+        $landmark = $this->landmarkKindForElement($element);
+        if ( '' !== $landmark ) {
+            ++$counts[$landmark];
+            $selectors[$landmark][] = $this->elementSelector($element);
+        }
+
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $this->collectSourceLandmarks($child, $counts, $selectors);
+            }
+        }
+    }
+
+    private function landmarkKindForElement(DOMElement $element): string
+    {
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'header', 'nav', 'main', 'footer' ), true) ) {
+            return 'nav' === $tagName ? 'nav' : $tagName;
+        }
+
+        return match ( strtolower($this->attr($element, 'role')) ) {
+            'banner' => 'header',
+            'navigation' => 'nav',
+            'main' => 'main',
+            'contentinfo' => 'footer',
+            default => '',
+        };
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     * @param array{counts: array<string, int>, selectors: array<string, array<int, string>>} $sourceLandmarks
+     * @return array{counts: array<string, int>, selectors: array<string, array<int, string>>}
+     */
+    private function blockLandmarkReport(array $blocks, array $sourceProvenance, array $sourceLandmarks): array
+    {
+        $counts = array('header' => 0, 'nav' => 0, 'main' => 0, 'footer' => 0);
+        $selectors = array('header' => array(), 'nav' => array(), 'main' => array(), 'footer' => array());
+        $this->collectBlockNavigationLandmarks($blocks, $counts);
+
+        foreach ( array( 'header', 'main', 'footer' ) as $kind ) {
+            foreach ( $sourceLandmarks['selectors'][$kind] ?? array() as $sourceSelector ) {
+                if ( $this->sourceSelectorHasBlockRepresentation((string) $sourceSelector, $sourceProvenance) ) {
+                    $selectors[$kind][] = (string) $sourceSelector;
+                }
+            }
+            $counts[$kind] = count($selectors[$kind]);
+        }
+
+        return array('counts' => $counts, 'selectors' => $selectors);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     */
+    private function sourceSelectorHasBlockRepresentation(string $sourceSelector, array $sourceProvenance): bool
+    {
+        if ( '' === $sourceSelector ) {
+            return false;
+        }
+
+        foreach ( $sourceProvenance as $entry ) {
+            if ( ! is_array($entry) ) {
+                continue;
+            }
+
+            $blockSelector = (string) ($entry['selector'] ?? '');
+            if ( $sourceSelector === $blockSelector || str_starts_with($blockSelector, $sourceSelector . ' > ') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<string, int> $counts
+     */
+    private function collectBlockNavigationLandmarks(array $blocks, array &$counts): void
+    {
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
+                ++$counts['nav'];
+            }
+
+            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $this->collectBlockNavigationLandmarks($block['innerBlocks'], $counts);
+            }
+        }
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function sourceNavigationMenus(DOMElement $body): array
+    {
+        $menus = array();
+        $this->collectSourceNavigationMenus($body, $menus);
+        return $menus;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $menus
+     */
+    private function collectSourceNavigationMenus(DOMElement $element, array &$menus): void
+    {
+        if ( 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role')) ) {
+            $items = array();
+            foreach ( $element->getElementsByTagName('a') as $anchor ) {
+                if ( $anchor instanceof DOMElement ) {
+                    $label = $this->normalizedNavigationLabel($anchor->textContent ?? '');
+                    if ( '' !== $label ) {
+                        $items[] = array(
+                            'label' => $label,
+                            'url' => $this->safeNavigationUrl($this->attr($anchor, 'href')),
+                        );
+                    }
+                }
+            }
+
+            $menus[] = array(
+                'selector' => $this->elementSelector($element),
+                'item_count' => count($items),
+                'items' => $items,
+            );
+        }
+
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $this->collectSourceNavigationMenus($child, $menus);
+            }
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<int, array<string, mixed>>
+     */
+    private function blockNavigationMenus(array $blocks): array
+    {
+        $menus = array();
+        $this->collectBlockNavigationMenus($blocks, 'blocks', $menus);
+        return $menus;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, mixed>> $menus
+     */
+    private function collectBlockNavigationMenus(array $blocks, string $path, array &$menus): void
+    {
+        foreach ( $blocks as $index => $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            $blockPath = $path . '.' . $index;
+            if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
+                $items = array();
+                $this->collectBlockNavigationItems(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $items);
+                $menus[] = array(
+                    'block_path' => $blockPath,
+                    'represented_as_core_navigation' => true,
+                    'item_count' => count($items),
+                    'items' => $items,
+                );
+            }
+
+            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $this->collectBlockNavigationMenus($block['innerBlocks'], $blockPath . '.innerBlocks', $menus);
+            }
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, string>> $items
+     */
+    private function collectBlockNavigationItems(array $blocks, array &$items): void
+    {
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            if ( in_array($block['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
+                $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+                $items[] = array(
+                    'label' => $this->normalizedNavigationLabel((string) ($attrs['label'] ?? '')),
+                    'url' => (string) ($attrs['url'] ?? ''),
+                );
+            }
+
+            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $this->collectBlockNavigationItems($block['innerBlocks'], $items);
+            }
+        }
+    }
+
+    private function normalizedNavigationLabel(string $label): string
+    {
+        return trim(preg_replace('/\s+/', ' ', html_entity_decode($this->runtime->stripAllTags($label), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? $label);
+    }
+
+    /**
+     * @param array{counts: array<string, int>, selectors: array<string, array<int, string>>} $sourceLandmarks
+     * @param array{counts: array<string, int>, selectors: array<string, array<int, string>>} $blockLandmarks
+     * @param array<int, array<string, mixed>> $sourceMenus
+     * @param array<int, array<string, mixed>> $blockMenus
+     * @return array<int, array<string, mixed>>
+     */
+    private function semanticParityFindings(array $sourceLandmarks, array $blockLandmarks, array $sourceMenus, array $blockMenus): array
+    {
+        $findings = array();
+        foreach ( array( 'header', 'nav', 'main', 'footer' ) as $kind ) {
+            $sourceCount = (int) ($sourceLandmarks['counts'][$kind] ?? 0);
+            $blockCount = (int) ($blockLandmarks['counts'][$kind] ?? 0);
+            if ( $sourceCount > $blockCount ) {
+                $findings[] = array_filter(array(
+                    'code' => 'landmark_count_mismatch',
+                    'severity' => 'warning',
+                    'kind' => $kind,
+                    'source_count' => $sourceCount,
+                    'block_count' => $blockCount,
+                    'selector' => $sourceLandmarks['selectors'][$kind][0] ?? '',
+                    'summary' => 'Source ' . $kind . ' landmarks exceed generated core block representation.',
+                ), static fn (mixed $value): bool => '' !== $value);
+            }
+        }
+
+        foreach ( $sourceMenus as $index => $sourceMenu ) {
+            $blockMenu = $blockMenus[$index] ?? null;
+            if ( ! is_array($blockMenu) ) {
+                $findings[] = array(
+                    'code' => 'navigation_menu_missing',
+                    'severity' => 'warning',
+                    'selector' => $sourceMenu['selector'] ?? '',
+                    'source_item_count' => $sourceMenu['item_count'] ?? 0,
+                    'block_item_count' => 0,
+                    'summary' => 'Source navigation menu was not represented as a core/navigation block.',
+                );
+                continue;
+            }
+
+            if ( true !== ($blockMenu['represented_as_core_navigation'] ?? false) ) {
+                $findings[] = array(
+                    'code' => 'navigation_core_block_missing',
+                    'severity' => 'warning',
+                    'selector' => $sourceMenu['selector'] ?? '',
+                    'summary' => 'Generated navigation menu is not represented by core/navigation.',
+                );
+            }
+
+            $sourceItems = is_array($sourceMenu['items'] ?? null) ? array_values($sourceMenu['items']) : array();
+            $blockItems = is_array($blockMenu['items'] ?? null) ? array_values($blockMenu['items']) : array();
+            if ( count($sourceItems) !== count($blockItems) ) {
+                $findings[] = array(
+                    'code' => 'navigation_item_count_mismatch',
+                    'severity' => 'warning',
+                    'selector' => $sourceMenu['selector'] ?? '',
+                    'source_item_count' => count($sourceItems),
+                    'block_item_count' => count($blockItems),
+                    'summary' => 'Source navigation item count differs from generated core navigation items.',
+                );
+                continue;
+            }
+
+            foreach ( $sourceItems as $itemIndex => $sourceItem ) {
+                $blockItem = $blockItems[$itemIndex] ?? array();
+                if ( ($sourceItem['label'] ?? '') !== ($blockItem['label'] ?? '') || ($sourceItem['url'] ?? '') !== ($blockItem['url'] ?? '') ) {
+                    $findings[] = array(
+                        'code' => 'navigation_item_mismatch',
+                        'severity' => 'warning',
+                        'selector' => $sourceMenu['selector'] ?? '',
+                        'item_index' => $itemIndex,
+                        'source_item' => $sourceItem,
+                        'block_item' => $blockItem,
+                        'summary' => 'Source navigation item label or URL differs from generated core navigation item.',
+                    );
+                    break;
+                }
+            }
+        }
+
+        return $findings;
     }
 
     /**
