@@ -13,7 +13,13 @@ export { foundation } from './foundation.js';
 export { ingest } from './ingest.js';
 export { planTemplates } from './template-plan.js';
 export { reconstruct } from './reconstruct.js';
-export { buildCoverageIsland } from './html-fallback.js';
+export {
+  buildCoverageIsland,
+  buildHtmlFallbackBlock,
+  isWpLayoutMarkup,
+  sanitize,
+  selectIslandSource,
+} from './html-fallback.js';
 export {
   captureSectionContent,
   foldText,
@@ -31,8 +37,12 @@ export type * from './assets.js';
 export type { ChromeResult } from './chrome.js';
 export type { ChromeSlugs } from './chrome-signature.js';
 export type { RegionSplit } from './chrome-split.js';
+export type { IslandTier } from './html-fallback.js';
+export { rewriteInternalLinks, rewriteMediaUrls } from './url-rewrite.js';
+export { scanForInjection } from './injection-scan.js';
 export type { CapturedSectionContent, CoverageResult } from './section-coverage.js';
 export type * from './font-faces.js';
+export type { InternalLinkMap } from './url-rewrite.js';
 export type * from './section-spec.js';
 export type { TemplatePlan } from './template-plan.js';
 export type * from './types.js';

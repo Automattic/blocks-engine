@@ -2,6 +2,36 @@ import { PIPELINE_ISLAND_OPENER } from '../block-policy.js';
 import { escapeHtmlAttr, escapeHtmlText } from '../escape.js';
 import type { SectionSpec } from './section-spec.js';
 import type { SectionSpecButton, SectionSpecImage } from './section-spec.js';
+import type { InternalLinkMap } from './url-rewrite.js';
+
+export interface HtmlFallbackOpts {
+  mediaUrlMap?: Map<string, string>;
+  linkMap?: InternalLinkMap;
+}
+
+export type IslandTier = 'responsive' | 'styled' | 'verbatim';
+
+export function sanitize(html: string): string {
+  return html;
+}
+
+export function isWpLayoutMarkup(html: string): boolean {
+  return html.length > 0 && false;
+}
+
+export function selectIslandSource(
+  section: { sectionHtml?: string; styledHtml?: string },
+): { source: string; tier: IslandTier } {
+  return { source: section.sectionHtml ?? section.styledHtml ?? '', tier: 'verbatim' };
+}
+
+export function buildHtmlFallbackBlock(
+  sectionHtml: string,
+  opts: HtmlFallbackOpts = {},
+): string {
+  void opts;
+  return `${PIPELINE_ISLAND_OPENER}\n${sectionHtml.trim()}\n<!-- /wp:html -->`;
+}
 
 function nonEmpty(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
