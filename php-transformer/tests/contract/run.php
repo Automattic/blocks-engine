@@ -336,6 +336,41 @@ $assert(array() === ($asideContainer['fallbacks'] ?? array()), 'semantic aside c
 $assert(str_contains($asideSerialized, 'sidebar'), 'semantic aside container preserves CSS-addressable sidebar class');
 $assert(str_contains($asideSerialized, '<!-- wp:navigation'), 'semantic aside container preserves nested navigation patterns');
 
+$assertNoInnerContentChildCountMismatch = static function (array $result, string $message) use ($assert): void {
+    $findingCodes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $result['source_reports']['wp_block_validity']['findings'] ?? array());
+    $assert(! in_array('inner_content_child_count_mismatch', $findingCodes, true), $message, implode(', ', $findingCodes));
+};
+$assertPlaceholderCountsMatchChildren = static function (array $blocks, string $path = 'blocks') use (&$assertPlaceholderCountsMatchChildren, $assert): void {
+    foreach ( $blocks as $index => $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+
+        $blockPath = $path . '.' . $index;
+        $innerBlocks = is_array($block['innerBlocks'] ?? null) ? array_values($block['innerBlocks']) : array();
+        $innerContent = is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array();
+        $placeholderCount = count(array_filter($innerContent, static fn ($part): bool => null === $part));
+        $assert(count($innerBlocks) === $placeholderCount, 'innerContent placeholder count matches innerBlocks count at ' . $blockPath, 'children=' . count($innerBlocks) . ' placeholders=' . $placeholderCount);
+        $assertPlaceholderCountsMatchChildren($innerBlocks, $blockPath . '.innerBlocks');
+    }
+};
+
+$deduplicatedMobileNavigation = ( new HtmlTransformer() )->transform(
+    '<header class="site-header"><nav class="primary-nav"><a href="/">Home</a><a href="/shop">Shop</a><a href="/contact">Contact</a></nav><div class="mobile-nav overlay"><div class="mobile-nav-panel"><nav class="drawer-nav"><a href="/">Home</a><a href="/shop">Shop</a><a href="/contact">Contact</a></nav></div></div></header>'
+)->toArray();
+$assert('pass' === ($deduplicatedMobileNavigation['source_reports']['wp_block_validity']['status'] ?? ''), 'deduplicated desktop/mobile navigation passes WordPress block validity');
+$assertNoInnerContentChildCountMismatch($deduplicatedMobileNavigation, 'deduplicated desktop/mobile navigation does not report innerContent child-count mismatch');
+$assertPlaceholderCountsMatchChildren($deduplicatedMobileNavigation['blocks'] ?? array());
+$assert(1 === count($deduplicatedMobileNavigation['blocks'][0]['innerBlocks'] ?? array()), 'deduplicated desktop/mobile navigation removes duplicate drawer navigation children');
+
+$deduplicatedNestedNavigation = ( new HtmlTransformer() )->transform(
+    '<main><section class="shell"><div class="desktop-wrap"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div><div class="mobile-nav drawer"><div class="drawer-panel"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div></div><article><h2>Services</h2><p>Copy</p></article></section></main>'
+)->toArray();
+$assert('pass' === ($deduplicatedNestedNavigation['source_reports']['wp_block_validity']['status'] ?? ''), 'nested wrapper navigation dedupe passes WordPress block validity');
+$assertNoInnerContentChildCountMismatch($deduplicatedNestedNavigation, 'nested wrapper navigation dedupe does not report innerContent child-count mismatch');
+$assertPlaceholderCountsMatchChildren($deduplicatedNestedNavigation['blocks'] ?? array());
+$assert(str_contains((string) ($deduplicatedNestedNavigation['serialized_blocks'] ?? ''), '<!-- wp:heading'), 'nested wrapper navigation dedupe preserves non-navigation siblings');
+
 $normalizedFallbacks = ( new HtmlTransformer() )->transform(
     '<main><svg><circle cx="5" cy="5" r="5"></circle></svg><svg><script>alert(1)</script></svg><script src="/app.js">init()</script><canvas>Fallback</canvas><iframe src="javascript:alert(1)"></iframe></main>'
 )->toArray();
