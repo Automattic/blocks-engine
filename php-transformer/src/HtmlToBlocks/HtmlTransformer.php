@@ -1451,10 +1451,21 @@ final class HtmlTransformer
         $style = $this->mergedPresentationStyle($element);
 
         return array_filter(array(
+            'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
             'className' => $this->promotedClassName($this->attr($element, 'class')),
             'style'     => $style,
             'layout'    => $this->layoutAttribute($element, $style),
         ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+    }
+
+    private function safeAnchor(string $id): string
+    {
+        $id = trim($id);
+        if ( '' === $id || ! preg_match('/^[A-Za-z][A-Za-z0-9_-]*$/', $id) ) {
+            return '';
+        }
+
+        return $id;
     }
 
     private function mergedPresentationStyle(DOMElement $element): string

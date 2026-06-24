@@ -347,6 +347,7 @@ final class BlockFactory
     {
         $classes = $this->mergeClassNames($baseClass, (string) ($attrs['className'] ?? ''));
         return $this->htmlAttrs(array(
+            'id'    => (string) ($attrs['anchor'] ?? ''),
             'class' => $classes,
             'style' => (string) ($attrs['style'] ?? ''),
         ));
