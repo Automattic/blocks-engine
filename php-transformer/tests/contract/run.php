@@ -612,10 +612,17 @@ foreach ( $runtimeDependencyReport['dependencies'] ?? array() as $dependency ) {
 $assert('blocks-engine/php-transformer/runtime-dependency-parity/v1' === ($runtimeDependencyReport['schema'] ?? ''), 'runtime dependency parity report exposes schema');
 $assert($runtimeDependencyReport === $runtimeDependencyConversionReport, 'conversion report projects runtime dependency parity');
 $assert('runtime_dependency_target_missing' === ($canvasFinding['code'] ?? ''), 'runtime dependency parity reports missing canvas DOM target');
+$assert('index.html' === ($canvasFinding['source_path'] ?? ''), 'runtime dependency parity reports source path for missing canvas DOM target');
+$assert('canvas' === ($canvasFinding['target_id'] ?? ''), 'runtime dependency parity reports missing canvas target id');
 $assert('canvas' === ($canvasFinding['target_kind'] ?? ''), 'runtime dependency parity identifies canvas source target kind');
 $assert(true === ($canvasFinding['canvas_api'] ?? null), 'runtime dependency parity flags canvas 2d API usage');
 $assert('warning' === ($canvasFinding['severity'] ?? ''), 'first-party missing runtime dependency target is warning severity');
+$assert('runtime_canvas_target_preservation' === ($canvasFinding['repair_bucket'] ?? ''), 'runtime dependency parity reports repair bucket for missing canvas DOM target');
+$assert('runtime_canvas' === ($canvasFinding['suggested_primitive'] ?? ''), 'runtime dependency parity reports suggested primitive for missing canvas DOM target');
+$assert(isset($canvasFinding['actionability']) && '' !== $canvasFinding['actionability'], 'runtime dependency parity reports actionability for missing canvas DOM target');
+$assert(isset($canvasFinding['materialization_hint']) && '' !== $canvasFinding['materialization_hint'], 'runtime dependency parity reports materialization hint for missing canvas DOM target');
 $assert(null !== $statusDependency, 'runtime dependency parity records preserved status container dependency');
+$assert('index.html' === ($statusDependency['source_path'] ?? ''), 'runtime dependency parity records source path for preserved DOM dependency');
 $assert(true === ($statusDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved div id target');
 $assert(! empty($statusDependency['events'] ?? array()), 'runtime dependency parity records simple addEventListener usage');
 $assert('info' === ($rumFinding['severity'] ?? ''), 'telemetry-like runtime dependency misses are info severity');
