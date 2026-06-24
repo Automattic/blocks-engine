@@ -21,6 +21,13 @@ export {
   selectIslandSource,
 } from './html-fallback.js';
 export {
+  collectHtmlImages,
+  collectSourceAssets,
+  localizeCssImages,
+  rewriteHtmlImageSrcs,
+  WP_COMPAT_CSS,
+} from './source-assets.js';
+export {
   captureSectionContent,
   foldText,
   measureConvertedCoverage,
@@ -44,6 +51,7 @@ export type { CapturedSectionContent, CoverageResult } from './section-coverage.
 export type * from './font-faces.js';
 export type { InternalLinkMap } from './url-rewrite.js';
 export type * from './section-spec.js';
+export type * from './source-assets.js';
 export type { TemplatePlan } from './template-plan.js';
 export type * from './types.js';
 export type { ThemeJsonLintResult } from './theme-json-lint.js';
