@@ -157,6 +157,8 @@ describe('default entry', () => {
       'compose',
       'convert',
       'createWorker',
+      'siteToTheme',
+      'writeTheme',
     ].sort();
     const demotedRuntimeSymbols = [
       'PIPELINE_ISLAND_NAME',
@@ -187,6 +189,8 @@ describe('default entry', () => {
     expect(typeof defaultEntry.compose).toBe('function');
     expect(typeof defaultEntry.BlocksEngineError).toBe('function');
     expect(typeof defaultEntry.createWorker).toBe('function');
+    expect(typeof defaultEntry.siteToTheme).toBe('function');
+    expect(typeof defaultEntry.writeTheme).toBe('function');
 
     for (const symbol of demotedRuntimeSymbols) {
       expect(defaultEntry).not.toHaveProperty(symbol);

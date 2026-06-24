@@ -30,6 +30,15 @@ describe('package exports', () => {
     expect(exports['.'].import).not.toContain('/src/');
     expect(exports['.'].types).not.toContain('/src/');
 
+    expect(exports['./theme']).toEqual({
+      types: './dist/theme/index.d.ts',
+      source: './src/theme/index.ts',
+      import: './dist/theme/index.js',
+      require: './dist/theme/index.cjs',
+    });
+    expect(exports['./theme'].import).not.toContain('/src/');
+    expect(exports['./theme'].types).not.toContain('/src/');
+
     expect(exports['./wp']).toEqual({
       import: './dist/wp/index.js',
       require: './dist/wp/index.cjs',
