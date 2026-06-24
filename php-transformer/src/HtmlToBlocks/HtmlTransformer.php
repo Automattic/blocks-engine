@@ -307,6 +307,7 @@ final class HtmlTransformer
 
             if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
                 $block['innerBlocks'] = $this->deduplicateNavigationBlocksRecursive($block['innerBlocks'], $seen);
+                $block = $this->reconcileInnerContentChildPlaceholders($block);
             }
 
             if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
@@ -327,6 +328,48 @@ final class HtmlTransformer
         }
 
         return $deduplicated;
+    }
+
+    /**
+     * @param array<string, mixed> $block
+     * @return array<string, mixed>
+     */
+    private function reconcileInnerContentChildPlaceholders(array $block): array
+    {
+        $innerBlocks = is_array($block['innerBlocks'] ?? null) ? array_values($block['innerBlocks']) : array();
+        $innerContent = is_array($block['innerContent'] ?? null) ? array_values($block['innerContent']) : null;
+        if ( null === $innerContent ) {
+            return $block;
+        }
+
+        $placeholderCount = 0;
+        $firstPlaceholderIndex = null;
+        $lastPlaceholderIndex = null;
+        foreach ( $innerContent as $index => $part ) {
+            if ( null !== $part ) {
+                continue;
+            }
+
+            ++$placeholderCount;
+            $firstPlaceholderIndex ??= $index;
+            $lastPlaceholderIndex = $index;
+        }
+
+        if ( count($innerBlocks) === $placeholderCount ) {
+            return $block;
+        }
+
+        if ( null === $firstPlaceholderIndex || null === $lastPlaceholderIndex ) {
+            return $block;
+        }
+
+        $opening = array_slice($innerContent, 0, $firstPlaceholderIndex);
+        $closing = array_slice($innerContent, $lastPlaceholderIndex + 1);
+        $block['innerBlocks'] = $innerBlocks;
+        $block['innerContent'] = array_merge($opening, array_fill(0, count($innerBlocks), null), $closing);
+        $block['innerHTML'] = implode('', array_map(static fn ($part): string => null === $part ? '' : (string) $part, array_merge($opening, $closing)));
+
+        return $block;
     }
 
     /**
