@@ -1062,7 +1062,7 @@ final class HtmlTransformer
             $this->attr($element, 'role'),
         ))));
 
-        if ( preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action|nav|menu|card|tile|panel|pricing|price|product)(?:[^a-z0-9]|$)/', $tokens) ) {
+        if ( preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action|nav|menu|card|tile|panel|pricing|price|product|grid|columns|layout|stack|cluster|row|wrap)(?:[^a-z0-9]|$)/', $tokens) ) {
             return true;
         }
 
@@ -1133,10 +1133,17 @@ final class HtmlTransformer
             'border-width',
             'box-shadow',
             'color',
+            'align-items',
+            'column-gap',
             'display',
+            'flex-direction',
+            'flex-wrap',
             'font-size',
             'font-weight',
             'gap',
+            'grid-template-columns',
+            'grid-template-rows',
+            'justify-content',
             'line-height',
             'margin',
             'margin-bottom',
@@ -1148,6 +1155,7 @@ final class HtmlTransformer
             'padding-left',
             'padding-right',
             'padding-top',
+            'row-gap',
             'text-align',
             'text-decoration',
             'text-transform',
