@@ -4,6 +4,7 @@ import { cpus } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { BlocksEngineError } from '../errors.js';
 import type { ChildToParentMessage, WorkerOp } from './protocol.js';
 import type {
   CreateWorker,
@@ -99,7 +100,13 @@ function workerChildPath(): string {
   if (workerPath) {
     return workerPath;
   }
-  throw new Error(`Unable to resolve worker child path. Tried: ${candidates.join(', ')}`);
+  throw new BlocksEngineError(
+    `Unable to resolve worker child path. Tried: ${candidates.join(', ')}`,
+    {
+      code: 'WORKER_CHILD_UNRESOLVED',
+      hint: 'Run npm run build and confirm the expected dist layout includes the pool/wp worker child file.',
+    },
+  );
 }
 
 function forkExecArgv(path: string): string[] {

@@ -1,4 +1,5 @@
-import { BlocksEngineError } from './errors.js';
+import { compose } from './compose.js';
+import { createWorker } from './pool/pool.js';
 import type { WorkerPool } from './pool/types.js';
 import type { ConversionContext, Converter, HtmlFallback } from './types.js';
 
@@ -13,11 +14,27 @@ export async function convert(
   ctx?: Partial<ConversionContext>,
   opts?: ConvertOptions,
 ): Promise<string> {
-  void html;
-  void ctx;
-  void opts;
-  throw new BlocksEngineError('Main-entry convert is not wired yet.', {
-    code: 'CONVERT_NOT_IMPLEMENTED',
-    hint: 'Use the /wp entry until the async main-entry convert implementation is wired.',
-  });
+  const fullCtx: ConversionContext =
+    ctx?.mediaMap === undefined
+      ? { url: ctx?.url ?? '' }
+      : { url: ctx?.url ?? '', mediaMap: ctx.mediaMap };
+  const ownsPool = opts?.pool === undefined;
+  const pool = opts?.pool ?? createWorker();
+
+  try {
+    const [raw] = await pool.rawConvert([html]);
+    const blockMarkup =
+      raw.html !== null && raw.wpHtmlResidue === 0
+        ? raw.html
+        : compose(html, fullCtx, {
+            converters: opts?.converters,
+            htmlFallback: opts?.htmlFallback,
+          });
+    const [fixed] = await pool.canonicalize([blockMarkup]);
+    return fixed.html;
+  } finally {
+    if (ownsPool) {
+      await pool.stop();
+    }
+  }
 }
