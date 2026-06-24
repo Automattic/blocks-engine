@@ -161,7 +161,7 @@ final class ArtifactCompiler
             );
         }
 
-        $result = ( new HtmlTransformer() )->transform($this->safeHtmlDocumentImageHtml($html, $sourcePath, $files), array(
+        $result = ( new HtmlTransformer() )->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'       => $sourcePath,
             'source_scope' => $sourceScope,
             'static_css'   => $this->linkedStylesheetCss($html, $sourcePath, $files),
@@ -178,8 +178,9 @@ final class ArtifactCompiler
     /**
      * @param array<int, array<string, mixed>> $files
      */
-    private function safeHtmlDocumentImageHtml(string $html, string $entryPath, array $files): string
+    private function safeHtmlDocumentHtml(string $html, string $entryPath, array $files): string
     {
+        $html = $this->withoutMaterializedScriptTags($html, $entryPath, $files);
         $html = preg_replace_callback('/<img\s+[^>]*src\s*=\s*(["\'])([^"\']+)\1[^>]*>/i', function (array $matches) use ($entryPath, $files): string {
             $asset = $this->findAssetByHtmlReference((string) $matches[2], $entryPath, $files);
             if ( is_array($asset) && 'image/svg+xml' === ($asset['mime_type'] ?? '') && ! $this->isSafeImageAsset($asset) ) {
@@ -190,6 +191,36 @@ final class ArtifactCompiler
         }, $html) ?? $html;
 
         return preg_replace('/<figure\b[^>]*>\s*<\/figure>/i', '', $html) ?? $html;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function withoutMaterializedScriptTags(string $html, string $entryPath, array $files): string
+    {
+        return preg_replace_callback('/<script\b([^>]*)>\s*<\/script>/i', function (array $matches) use ($entryPath, $files): string {
+            $src = $this->htmlAttribute((string) $matches[1], 'src');
+            if ( '' === $src ) {
+                return (string) $matches[0];
+            }
+
+            $asset = $this->findAssetByHtmlReference($src, $entryPath, $files);
+            if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) ) {
+                return (string) $matches[0];
+            }
+
+            return '';
+        }, $html) ?? $html;
+    }
+
+    /**
+     * @param array<string, mixed> $asset
+     */
+    private function isMaterializedScriptAsset(array $asset): bool
+    {
+        return in_array($asset['kind'] ?? '', array('js', 'mjs'), true)
+            || 'script' === ($asset['role'] ?? '')
+            || in_array($asset['mime_type'] ?? '', array('application/javascript', 'text/javascript', 'application/ecmascript', 'text/ecmascript'), true);
     }
 
     /**

@@ -87,15 +87,12 @@
     { "path": "source_reports.conversion_report.selector_summary.source_paths", "assert": "count", "count": 2 },
     { "path": "source_reports.conversion_report.asset_refs", "assert": "count", "count": 7 },
     { "path": "source_reports.conversion_report.asset_refs.5.asset_path", "assert": "equals", "value": "assets/site.css" },
+    { "path": "source_reports.compiled_site.theme.scripts.0", "assert": "equals", "value": "assets/app.js" },
+    { "path": "source_reports.materialization_plan.theme.scripts.0", "assert": "equals", "value": "assets/app.js" },
     { "path": "source_reports.conversion_report.navigation_candidates", "assert": "count", "count": 1 },
     { "path": "source_reports.conversion_report.navigation_candidates.0.target_path", "assert": "equals", "value": "pages/about.html" }
   ],
   "expected_fallbacks": [
-    {
-      "diagnostic_code": "html_script_fallback",
-      "tag": "script",
-      "reason": "script_requires_runtime"
-    },
     {
       "diagnostic_code": "html_unsupported_element",
       "tag": "link",

@@ -1,0 +1,42 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-materialized-script-asset-no-fallback",
+  "description": "Treats bundled external script tags as materialized theme script assets while preserving inline runtime scripts as fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-materialized-script-asset-no-fallback.json",
+    "notes": "Covers raw static-site artifacts that include same-site JavaScript files referenced from entry HTML."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream script asset materialization fixture has no downstream legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<!doctype html><html><head><title>Script Asset</title></head><body><main><h1>Script Asset</h1><p>Content remains block-convertible.</p></main><script src=\"assets/site.js\" defer></script><script>window.inlineRuntime = true;</script></body></html>"
+        },
+        {
+          "path": "assets/site.js",
+          "kind": "js",
+          "content": "document.documentElement.classList.add('ready');"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success_with_warnings" },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_script_fallback" },
+    { "path": "fallbacks.0.body", "assert": "equals", "value": "window.inlineRuntime = true;" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Content remains block-convertible." },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "assets/site.js" },
+    { "path": "source_reports.compiled_site.theme.scripts.0", "assert": "equals", "value": "assets/site.js" },
+    { "path": "source_reports.materialization_plan.theme.scripts.0", "assert": "equals", "value": "assets/site.js" }
+  ]
+}
