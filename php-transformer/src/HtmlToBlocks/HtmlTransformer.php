@@ -50,6 +50,11 @@ final class HtmlTransformer
     private array $structureProvenance = array();
 
     /**
+     * @var array<int, array<string, mixed>>
+     */
+    private array $scriptMetadata = array();
+
+    /**
      * @var array<string, array<string, mixed>>
      */
     private array $assetMetadata = array();
@@ -86,6 +91,7 @@ final class HtmlTransformer
         $this->presentationProvenance = array();
         $this->sourceProvenance = array();
         $this->structureProvenance = array();
+        $this->scriptMetadata = array();
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
@@ -167,6 +173,18 @@ final class HtmlTransformer
             ),
         );
 
+        foreach ( $this->scriptMetadata as $metadata ) {
+            $diagnostics[] = array(
+                'code'        => 'html_static_script_metadata',
+                'message'     => 'Static script data was preserved as bounded metadata and does not require client script execution.',
+                'source'      => self::class,
+                'reason'      => 'script_static_metadata',
+                'tag'         => 'script',
+                'selector'    => $metadata['selector'] ?? null,
+                'script_role' => $metadata['script_role'] ?? null,
+            );
+        }
+
         foreach ( $fallbacks as $fallback ) {
             if ( ! empty($fallback['diagnostic_code']) ) {
                 $diagnostics[] = array(
@@ -203,6 +221,7 @@ final class HtmlTransformer
                 'presentation_signals' => $this->presentationProvenance,
                 'source_provenance'    => $sourceProvenance,
                 'structure_signals'    => $this->structureProvenance,
+                'script_metadata'      => $this->scriptMetadata,
             ),
         );
         $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('html', $blocks, $fallbacks, $sourceReports, array(), $provenance, $metrics);
@@ -596,6 +615,15 @@ final class HtmlTransformer
             return $this->createBlock('core/preformatted', array_merge($this->presentationAttributes($element), array( 'content' => $this->innerHtmlPreservingWhitespace($element) )), array(), $element);
         }
 
+        if ( 'plaintext' === $tagName ) {
+            $content = $this->runtime->escapeHtml($element->textContent ?? '');
+            if ( '' === trim($content) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/preformatted', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        }
+
         if ( 'table' === $tagName ) {
             return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
         }
@@ -718,6 +746,10 @@ final class HtmlTransformer
         }
 
         if ( 'script' === $tagName ) {
+            if ( $this->captureStaticScriptMetadata($element) ) {
+                return null;
+            }
+
             $this->captureScriptFallback($element, $fallbacks);
             return null;
         }
@@ -773,7 +805,7 @@ final class HtmlTransformer
             }
         }
 
-        if ( in_array($tagName, array( 'article', 'aside', 'body', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+        if ( in_array($tagName, array( 'article', 'aside', 'body', 'center', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
             $logo = $this->logoPattern->match(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
@@ -1438,7 +1470,7 @@ final class HtmlTransformer
 
     private function isInlineContentElement(string $tagName): bool
     {
-        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'i', 'mark', 'small', 'span', 'strong', 'sub', 'sup', 'time' ), true);
+        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'font', 'i', 'mark', 'rp', 'rt', 'ruby', 'small', 'span', 'strong', 'sub', 'sup', 'time' ), true);
     }
 
     private function hasBlockContentChildren(DOMElement $element): bool
@@ -2434,6 +2466,7 @@ final class HtmlTransformer
     {
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
+        $scriptRole = $this->scriptRole($element);
         $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'html',
             'reason'          => 'script_requires_runtime',
@@ -2445,6 +2478,8 @@ final class HtmlTransformer
             'attributes'      => $this->safeScriptAttributes($element),
             'context'         => $this->sourceContext($element),
             'events'          => $this->eventMetadata($element),
+            'script_role'        => $scriptRole,
+            'script_source_kind' => '' !== trim($this->attr($element, 'src')) ? 'external' : 'inline',
             'text_length'     => strlen(trim($element->textContent ?? '')),
             'child_count'     => $this->childElementCount($element),
             'html'            => $boundedHtml['html'],
@@ -2454,6 +2489,54 @@ final class HtmlTransformer
             'body_bytes'      => $boundedBody['bytes'],
             'body_truncated'  => $boundedBody['truncated'],
         ), $this->fallbackProvenance);
+    }
+
+    private function captureStaticScriptMetadata(DOMElement $element): bool
+    {
+        if ( '' !== trim($this->attr($element, 'src')) ) {
+            return false;
+        }
+
+        $scriptRole = $this->scriptRole($element);
+        if ( 'data' !== $scriptRole ) {
+            return false;
+        }
+
+        $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
+        $this->scriptMetadata[] = array(
+            'type'               => 'script_metadata',
+            'reason'             => 'script_static_metadata',
+            'source_format'      => 'html',
+            'tag'                => 'script',
+            'selector'           => $this->elementSelector($element),
+            'attributes'         => $this->safeScriptAttributes($element),
+            'context'            => $this->sourceContext($element),
+            'script_role'        => $scriptRole,
+            'script_source_kind' => 'inline',
+            'body'               => $boundedBody['text'],
+            'body_bytes'         => $boundedBody['bytes'],
+            'body_truncated'     => $boundedBody['truncated'],
+        );
+
+        return true;
+    }
+
+    private function scriptRole(DOMElement $element): string
+    {
+        $type = strtolower(trim($this->attr($element, 'type')));
+        if ( '' === $type || in_array($type, array( 'text/javascript', 'application/javascript', 'module' ), true) ) {
+            return 'runtime';
+        }
+
+        if ( str_starts_with($type, 'application/ld+json') || in_array($type, array( 'application/json', 'importmap', 'speculationrules' ), true) ) {
+            return 'data';
+        }
+
+        if ( str_starts_with($type, 'text/') && ! in_array($type, array( 'text/javascript', 'text/ecmascript' ), true) ) {
+            return 'data';
+        }
+
+        return 'runtime';
     }
 
     /**

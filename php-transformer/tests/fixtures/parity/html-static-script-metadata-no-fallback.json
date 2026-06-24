@@ -1,0 +1,43 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-static-script-metadata-no-fallback",
+  "description": "Preserves non-executable inline script data as metadata while keeping executable scripts as runtime fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-static-script-metadata-no-fallback.json",
+    "notes": "JSON-LD script tags are structured data, not client runtime behavior; executable inline scripts still require runtime fallback diagnostics."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><h1>Bakery</h1><script type=\"application/ld+json\">{\"@context\":\"https://schema.org\",\"@type\":\"Bakery\",\"name\":\"Loaf Lab\"}</script><script type=\"text/javascript\">window.loafLab.init();</script><p>Fresh bread daily.</p></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph" }
+  ],
+  "expected_fallbacks": [
+    {
+      "reason": "script_requires_runtime",
+      "diagnostic_code": "html_script_fallback",
+      "script_role": "runtime",
+      "script_source_kind": "inline",
+      "body": "window.loafLab.init();"
+    }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "diagnostics.1.code", "assert": "equals", "value": "html_static_script_metadata" },
+    { "path": "diagnostics.1.reason", "assert": "equals", "value": "script_static_metadata" },
+    { "path": "source_reports.html.script_metadata", "assert": "count", "count": 1 },
+    { "path": "source_reports.html.script_metadata.0.script_role", "assert": "equals", "value": "data" },
+    { "path": "source_reports.html.script_metadata.0.attributes.type", "assert": "equals", "value": "application/ld+json" },
+    { "path": "source_reports.html.script_metadata.0.body", "assert": "contains", "value": "schema.org" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+  ]
+}

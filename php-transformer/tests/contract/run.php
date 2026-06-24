@@ -244,6 +244,33 @@ $assert(str_contains((string) ($buttonBlocks[1]['innerBlocks'][0]['attrs']['text
 $assert(! str_contains((string) $buttonResult['serialized_blocks'], '\\u003c'), 'button serialization avoids escaped nested HTML attrs');
 $assert('pass' === ($buttonResult['source_reports']['wp_block_validity']['status'] ?? ''), 'HTML transform exposes passing WordPress block validity report for generated buttons');
 
+$rubyResult = ( new HtmlTransformer() )->transform(
+    '<main><blockquote><ruby>翻訳<rt>ほんやく</rt></ruby> keeps pronunciation visible.</blockquote></main>'
+)->toArray();
+$rubyQuote = $rubyResult['blocks'][0] ?? array();
+$assert(array() === ($rubyResult['fallbacks'] ?? array()), 'ruby phrasing content does not create unsupported fallbacks');
+$assert('core/quote' === ($rubyQuote['blockName'] ?? ''), 'ruby phrasing content remains inside quote block');
+$assert(str_contains((string) ($rubyResult['serialized_blocks'] ?? ''), '<ruby>翻訳<rt>ほんやく</rt></ruby>'), 'ruby markup is preserved in quote content');
+
+$plaintextResult = ( new HtmlTransformer() )->transform(
+    '<main><plaintext>Plain legacy text with &lt;b&gt;literal tags&lt;/b&gt;</plaintext></main>'
+)->toArray();
+$plaintextBlock = $plaintextResult['blocks'][0] ?? array();
+$assert(array() === ($plaintextResult['fallbacks'] ?? array()), 'plaintext content does not create unsupported fallbacks');
+$assert('core/preformatted' === ($plaintextBlock['blockName'] ?? ''), 'plaintext content converts to a preformatted block');
+$assert(str_contains((string) ($plaintextBlock['innerHTML'] ?? ''), '&lt;b&gt;literal tags&lt;/b&gt;'), 'plaintext literal tags are escaped in preformatted content');
+
+$linkedLogoResult = ( new HtmlTransformer() )->transform(
+    '<main><a class="site-logo" href="/">Mara Vale</a></main>'
+)->toArray();
+$linkedLogoBlock = $linkedLogoResult['blocks'][0] ?? array();
+$linkedLogoSerialized = (string) ($linkedLogoResult['serialized_blocks'] ?? '');
+$assert('core/paragraph' === ($linkedLogoBlock['blockName'] ?? ''), 'linked logo text converts to a paragraph block');
+$assert(! array_key_exists('content', is_array($linkedLogoBlock['attrs'] ?? null) ? $linkedLogoBlock['attrs'] : array()), 'paragraph source content is not serialized as a block comment attribute');
+$assert(str_contains($linkedLogoSerialized, '<p class="site-logo"><a class="site-logo" href="/">Mara Vale</a></p>'), 'linked logo paragraph preserves anchor markup in saved HTML');
+$assert(! str_contains($linkedLogoSerialized, '\\u003ca'), 'linked logo paragraph avoids raw anchor HTML in delimiter JSON');
+$assert('pass' === ($linkedLogoResult['source_reports']['wp_block_validity']['status'] ?? ''), 'linked logo paragraph passes generated block validity checks');
+
 $invalidButtonBlocks = array(
     array(
         'blockName'    => 'core/button',
@@ -474,6 +501,31 @@ $assert(($staticPlan['totals']['assets'] ?? null) === ($staticSummary['asset_cou
 $assert(($staticPlan['totals']['routes'] ?? null) === ($staticSummary['route_count'] ?? null), 'conversion report route count matches materialization plan totals');
 $assert(($staticPlan['totals']['navigation_links'] ?? null) === ($staticSummary['navigation_link_count'] ?? null), 'conversion report navigation link count matches materialization plan totals');
 $assert(($staticPlan['totals']['menus'] ?? null) === ($staticSummary['menu_count'] ?? null), 'conversion report menu count matches materialization plan totals');
+
+$legacyFrontPageSite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html'    => '<main><h1>Home</h1></main>',
+            'about-us.html' => '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd"><HTML><HEAD><META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=windows-1252"><TITLE>About Us</TITLE></HEAD><BODY BGCOLOR="#FFFFFF" TEXT="#003366"><CENTER><TABLE BORDER="0" WIDTH="600"><TR><TD><CENTER><FONT FACE="Times New Roman" SIZE="6"><B>About Hank\'s Tool Rental</B></FONT></CENTER><FONT FACE="Arial" SIZE="2">Family owned since 1987.<BR>We answer the phone.</FONT></TD></TR></TABLE></CENTER></BODY></HTML>',
+        ),
+    )
+)->toArray();
+$legacyPlanPage = null;
+foreach ( $legacyFrontPageSite['source_reports']['materialization_plan']['pages'] ?? array() as $planPage ) {
+    if ( 'about-us.html' === ($planPage['source_path'] ?? '') ) {
+        $legacyPlanPage = $planPage;
+    }
+}
+$legacyBlockMarkup = (string) ($legacyPlanPage['block_markup'] ?? '');
+$assert('' !== trim($legacyBlockMarkup), 'legacy HTML 4 FrontPage-era documents produce non-empty materialization block markup');
+$assert(str_contains($legacyBlockMarkup, 'About Hank\'s Tool Rental'), 'legacy HTML 4 FrontPage-era table/font/center content is preserved');
+$assert(str_contains($legacyBlockMarkup, '<!-- wp:table'), 'legacy HTML 4 layout tables convert to table block markup instead of empty fallback metadata');
+
+$legacyInline = ( new HtmlTransformer() )->transform('<CENTER><FONT FACE="Arial" SIZE="2">Visible legacy inline copy</FONT></CENTER>')->toArray();
+$assert(str_contains((string) ($legacyInline['serialized_blocks'] ?? ''), 'Visible legacy inline copy'), 'center/font-only legacy fragments preserve visible text');
+$assert(str_contains((string) ($legacyInline['serialized_blocks'] ?? ''), '<!-- wp:paragraph'), 'center/font-only legacy fragments convert to semantic paragraph blocks');
+
 $logoAssetPlanRow = null;
 $cssAssetPlanRow = null;
 foreach ( $staticPlan['assets'] ?? array() as $assetPlanRow ) {
