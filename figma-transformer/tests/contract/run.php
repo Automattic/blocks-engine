@@ -1235,6 +1235,12 @@ $assert(array('Example Sans') === ($metadataWithFontCssResult['source_reports'][
 $assert(array(array('family' => 'Example Sans', 'weights' => array(600))) === ($metadataResult['source_reports']['figma']['html']['font_usage'] ?? null), 'font-usage-reports-source-family-weights');
 $assert(array(array('family' => 'Example Sans', 'weights' => array(600))) === ($metadataResult['source_reports']['compiled_site']['theme']['font_usage'] ?? null), 'compiled-site-theme-promotes-figma-font-usage');
 $assert(true === ($metadataWithFontCssResult['source_reports']['figma']['html']['font_css_supplied'] ?? null), 'font-css-supplied-report');
+$metadataTransformDiagnostics = $metadataResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+$metadataWithFontCssTransformDiagnostics = $metadataWithFontCssResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+$assert(array('Example Sans') === ($metadataTransformDiagnostics['fonts']['families'] ?? null), 'transform-diagnostics-font-families');
+$assert(false === ($metadataTransformDiagnostics['fonts']['materialized'] ?? null), 'transform-diagnostics-font-not-materialized-without-css');
+$assert(array('Example Sans') === ($metadataTransformDiagnostics['fonts']['missing_css'] ?? null), 'transform-diagnostics-font-missing-css');
+$assert(true === ($metadataWithFontCssTransformDiagnostics['fonts']['materialized'] ?? null), 'transform-diagnostics-font-materialized-with-css');
 $styleDiagnostics = $metadataResult['source_reports']['figma']['html']['node_style_diagnostics'] ?? array();
 $mixedTextStyleDiagnostic = null;
 $frameStyleDiagnostic = null;
@@ -1329,6 +1335,12 @@ $assert(str_contains($assetReferenceHtml, '<path d="M 1 1 L 23 1 L 12 23 Z" fill
 $assert(str_contains($assetReferenceHtml, 'data-figma-unsupported-vector="true"'), 'unsupported-vector-placeholder-html');
 $assert(str_contains($assetReferenceHtml, 'Unsupported Figma VECTOR'), 'unsupported-vector-placeholder-text');
 $assert(in_array('unsupported_vector_node_placeholder', $assetReferenceDiagnosticCodes, true), 'unsupported-vector-diagnostic');
+$assetReferenceTransformDiagnostics = $assetReferenceResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+$assert(1 === ($assetReferenceTransformDiagnostics['images']['resolved_assets'] ?? null), 'asset-reference-diagnostics-image-resolved');
+$assert(2 === ($assetReferenceTransformDiagnostics['vectors']['nodes'] ?? null), 'asset-reference-diagnostics-vector-count');
+$assert(1 === ($assetReferenceTransformDiagnostics['vectors']['rendered_paths'] ?? null), 'asset-reference-diagnostics-vector-path-count');
+$assert(1 === ($assetReferenceTransformDiagnostics['vectors']['placeholders'] ?? null), 'asset-reference-diagnostics-vector-placeholder-count');
+$assert('4:3' === ($assetReferenceTransformDiagnostics['vectors']['placeholder_nodes'][0]['node_id'] ?? null), 'asset-reference-diagnostics-vector-placeholder-node');
 
 $pluginAssetResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'   => 'Plugin Asset Fixture',
@@ -1393,6 +1405,16 @@ $assert(str_contains($pluginAssetCss, '.figma-node-plugin-vector-plugin-icon{wid
 $assert(! str_contains($pluginAssetHtml, 'Unsupported Figma VECTOR'), 'plugin-vector-fallback-avoids-unsupported-placeholder');
 $assert(str_contains($pluginAssetHtml, 'data-figma-node-id="plugin:vector"') && ! str_contains($pluginAssetHtml, 'data-figma-unsupported-vector="true"'), 'plugin-vector-fallback-not-marked-unsupported');
 $assert(str_contains($pluginAssetFileContent($pluginAssetFiles, 'assets/plugin-icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"'), 'plugin-content-base64-vector-asset-file');
+$pluginTransformDiagnostics = $pluginAssetResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+$assert('blocks-engine/figma-transformer/transform-diagnostics/v1' === ($pluginTransformDiagnostics['schema'] ?? null), 'plugin-transform-diagnostics-schema');
+$assert(2 === ($pluginTransformDiagnostics['images']['paint_refs'] ?? null), 'plugin-transform-diagnostics-image-paint-refs');
+$assert(1 === ($pluginTransformDiagnostics['images']['resolved_assets'] ?? null), 'plugin-transform-diagnostics-image-resolved-assets');
+$assert(array() === ($pluginTransformDiagnostics['images']['missing_assets'] ?? null), 'plugin-transform-diagnostics-no-missing-image-assets');
+$assert(1 === ($pluginTransformDiagnostics['vectors']['nodes'] ?? null), 'plugin-transform-diagnostics-vector-node-count');
+$assert(1 === ($pluginTransformDiagnostics['vectors']['rendered_asset_fallbacks'] ?? null), 'plugin-transform-diagnostics-vector-asset-fallback');
+$assert(0 === ($pluginTransformDiagnostics['vectors']['placeholders'] ?? null), 'plugin-transform-diagnostics-no-vector-placeholders');
+$assert(in_array('assets/plugin-icon.svg', $pluginTransformDiagnostics['assets']['paths'] ?? array(), true), 'plugin-transform-diagnostics-asset-paths-vector');
+$assert(0 === ($pluginTransformDiagnostics['layout']['large_negative_left_count'] ?? null), 'plugin-transform-diagnostics-layout-no-large-negative-left');
 
 $layoutFidelityResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Layout Fidelity Fixture',
