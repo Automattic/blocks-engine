@@ -2,6 +2,7 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig({
   entry: {
+    cli: 'src/cli.ts',
     index: 'src/index.ts',
     'internals/index': 'src/internals/index.ts',
     'wp/index': 'src/wp/index.ts',
