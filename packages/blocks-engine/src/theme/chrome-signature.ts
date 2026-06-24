@@ -37,14 +37,14 @@ export function assignChromeVariants(
   return { slugsByPage, canonical };
 }
 
-function stripActiveNavState(html: string): string {
+export function stripActiveNavState(html: string): string {
   return html
     .replace(/ ?data-selected="true"/g, '')
     .replace(/ ?aria-current="page"/g, '')
     .replace(/data-interactive="false"/g, 'data-interactive="true"');
 }
 
-function canonicalizeInstanceIds(s: string): string {
+export function canonicalizeInstanceIds(s: string): string {
   const order: string[] = [];
   const seen = new Set<string>();
 

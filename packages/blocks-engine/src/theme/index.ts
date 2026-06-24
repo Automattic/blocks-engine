@@ -2,7 +2,12 @@ export { assemble } from './assemble.js';
 export { assets } from './assets.js';
 export { buildChromePart } from './chrome-parts.js';
 export { chrome } from './chrome.js';
-export { assignChromeVariants, chromeSignature } from './chrome-signature.js';
+export {
+  assignChromeVariants,
+  canonicalizeInstanceIds,
+  chromeSignature,
+  stripActiveNavState,
+} from './chrome-signature.js';
 export { splitPageChrome } from './chrome-split.js';
 export { foundation } from './foundation.js';
 export { ingest } from './ingest.js';
