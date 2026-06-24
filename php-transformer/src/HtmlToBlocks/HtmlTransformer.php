@@ -1098,7 +1098,7 @@ final class HtmlTransformer
         return array_filter(array(
             'className' => $this->promotedClassName($this->attr($element, 'class')),
             'style'     => $style,
-            'layout'    => $this->layoutAttribute($element),
+            'layout'    => $this->layoutAttribute($element, $style),
         ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
     }
 
@@ -1137,7 +1137,7 @@ final class HtmlTransformer
             $this->attr($element, 'role'),
         ))));
 
-        if ( preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action|nav|menu|card|tile|panel|pricing|price|product|grid|columns|layout|stack|cluster|row|wrap)(?:[^a-z0-9]|$)/', $tokens) ) {
+        if ( preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action|nav|menu|cards?|tile|panel|pricing|price|product|grid|columns|layout|stack|cluster|row|wrap)(?:[^a-z0-9]|$)/', $tokens) ) {
             return true;
         }
 
@@ -1403,7 +1403,7 @@ final class HtmlTransformer
     /**
      * @return array<string, string>
      */
-    private function layoutAttribute(DOMElement $element): array
+    private function layoutAttribute(DOMElement $element, string $mergedStyle = ''): array
     {
         $declared = trim($this->attr($element, 'data-layout'));
         if ( '' === $declared ) {
@@ -1418,7 +1418,7 @@ final class HtmlTransformer
             }
         }
 
-        $style = strtolower($this->attr($element, 'style'));
+        $style = strtolower('' !== trim($mergedStyle) ? $mergedStyle : $this->attr($element, 'style'));
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style) ) {
             return array( 'type' => 'flex' );
         }
