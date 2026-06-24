@@ -4,4 +4,5 @@ Blocks Engine is a collection of tools for generating, transforming, and materia
 
 ## Packages
 
+- [`@automattic/blocks-engine`](packages/blocks-engine/) - JavaScript primitives for transforming content into WordPress-native block outputs.
 - [`php-transformer`](php-transformer/) - PHP primitives for converting HTML, Markdown, and generated website artifacts into WordPress-native block outputs.
