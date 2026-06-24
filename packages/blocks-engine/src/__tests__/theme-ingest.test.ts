@@ -25,14 +25,15 @@ function writeHtml(path: string, title: string): void {
 }
 
 describe('theme ingest', () => {
-  it('ingests fixture index and about pages with stable slugs and body data', () => {
+  it('ingests fixture pages with stable slugs and body data', () => {
     const site = ingest(fixtureRoot);
 
     expect(site.root).toBe(fixtureRoot);
-    expect(site.pages.map((page) => page.slug)).toEqual(['about', 'home']);
+    expect(site.pages.map((page) => page.slug)).toEqual(['about', 'home', 'services']);
 
     const home = site.pages.find((page) => page.slug === 'home');
     const about = site.pages.find((page) => page.slug === 'about');
+    const services = site.pages.find((page) => page.slug === 'services');
 
     expect(home).toMatchObject({
       relPath: 'index.html',
@@ -43,6 +44,8 @@ describe('theme ingest', () => {
       },
     });
     expect(home?.html).toContain('Build calmer block themes');
+    expect(home?.html).toContain('<header>');
+    expect(home?.html).toContain('<footer>');
 
     expect(about).toMatchObject({
       relPath: 'about.html',
@@ -51,6 +54,20 @@ describe('theme ingest', () => {
         page: 'about',
       },
     });
+    expect(about?.html).toContain('About the assembler');
+    expect(about?.html).toContain('<header>');
+    expect(about?.html).toContain('<footer>');
+
+    expect(services).toMatchObject({
+      relPath: 'services.html',
+      title: 'Services',
+      bodyData: {
+        page: 'services',
+        template: 'services',
+      },
+    });
+    expect(services?.html).toContain('Service design for block themes');
+    expect(services?.html).toContain('Blocks Engine Services');
   });
 
   it('maps nested paths to DLA-compatible slugs', () => {

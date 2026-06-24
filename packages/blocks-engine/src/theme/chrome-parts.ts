@@ -1,3 +1,4 @@
+import { convert } from '../convert.js';
 import type { WorkerPool } from '../pool/types.js';
 import type { StageCtx } from './types.js';
 
@@ -6,8 +7,6 @@ export async function buildChromePart(
   ctx: StageCtx,
   pool: WorkerPool
 ): Promise<string> {
-  void html;
   void ctx;
-  void pool;
-  return '';
+  return convert(html, { url: '' }, { pool });
 }
