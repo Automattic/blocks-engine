@@ -1,8 +1,14 @@
 {
   "name": "@automattic/blocks-engine",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "license": "GPL-3.0-or-later",
   "type": "module",
+  "bin": {
+    "blocks-engine": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
