@@ -458,6 +458,12 @@ $assert(in_array('modal', $interactionKinds, true), 'HTML source report detects 
 $assert(in_array('carousel', $interactionKinds, true), 'HTML source report detects carousel-ish interactions');
 $assert('#panel' === ($interactions['source_reports']['interaction_candidates'][0]['target'] ?? ''), 'control interaction candidate exposes aria-controls target');
 
+$emptyRuntimeControl = ( new HtmlTransformer() )->transform(
+    '<main><button class="nav-toggle" aria-label="Open navigation" aria-expanded="false"><span></span><span></span><span></span></button></main>'
+)->toArray();
+$assert(str_contains((string) ($emptyRuntimeControl['serialized_blocks'] ?? ''), 'nav-toggle'), 'empty runtime control button class is preserved for scripts');
+$assert(str_contains((string) ($emptyRuntimeControl['serialized_blocks'] ?? ''), 'aria-expanded="false"'), 'empty runtime control button ARIA state is preserved');
+
 $assetMetadataOptions = array(
     'context' => array(
         'asset_metadata' => array(

@@ -19,17 +19,19 @@
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-nav" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "nav-inner" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "nav-logo" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "nav-menu" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Home", "url": "index.html", "kind": "custom", "anchorClassName": "nav-link" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.4", "name": "core/navigation-link", "attrs": { "label": "Join Us", "url": "membership.html", "kind": "custom", "anchorClassName": "nav-cta" } }
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/html" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/navigation", "attrs": { "className": "nav-menu" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Home", "url": "index.html", "kind": "custom", "anchorClassName": "nav-link" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks.4", "name": "core/navigation-link", "attrs": { "label": "Join Us", "url": "membership.html", "kind": "custom", "anchorClassName": "nav-cta" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 5 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks", "assert": "count", "count": 5 },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:navigation-submenu" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "hamburger" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }

@@ -1117,7 +1117,7 @@ final class HtmlTransformer
 
         if ( 'button' === $tagName ) {
             if ( $this->isNonContentRuntimeControl($element) ) {
-                return null;
+                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
             }
 
             return $this->buttonsPattern->matchButton(

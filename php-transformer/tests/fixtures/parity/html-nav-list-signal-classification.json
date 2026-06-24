@@ -19,23 +19,25 @@
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "nav-inner" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "nav-logo" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "nav-links" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Curriculum", "url": "/curriculum", "kind": "custom" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Pricing", "url": "/pricing", "kind": "custom" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.2", "name": "core/navigation-link", "attrs": { "label": "Enroll Now", "url": "/enroll", "kind": "custom" } }
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/html" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/navigation", "attrs": { "className": "nav-links" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Curriculum", "url": "/curriculum", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Pricing", "url": "/pricing", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks.2", "name": "core/navigation-link", "attrs": { "label": "Enroll Now", "url": "/enroll", "kind": "custom" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks", "assert": "count", "count": 3 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "nav-toggle" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:list {\"className\":\"nav-links\"}" },
-    { "path": "source_reports.html.source_provenance.4.block_name", "assert": "equals", "value": "core/navigation-link" },
-    { "path": "source_reports.html.source_provenance.4.selector", "assert": "equals", "value": "header:nth-of-type(1) > nav:nth-of-type(1) > ul:nth-of-type(1) > li:nth-of-type(1) > a:nth-of-type(1)" },
+    { "path": "source_reports.html.source_provenance.5.block_name", "assert": "equals", "value": "core/navigation-link" },
+    { "path": "source_reports.html.source_provenance.5.selector", "assert": "equals", "value": "header:nth-of-type(1) > nav:nth-of-type(1) > ul:nth-of-type(1) > li:nth-of-type(1) > a:nth-of-type(1)" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }
