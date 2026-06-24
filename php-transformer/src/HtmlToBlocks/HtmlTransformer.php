@@ -615,6 +615,15 @@ final class HtmlTransformer
             return $this->createBlock('core/preformatted', array_merge($this->presentationAttributes($element), array( 'content' => $this->innerHtmlPreservingWhitespace($element) )), array(), $element);
         }
 
+        if ( 'plaintext' === $tagName ) {
+            $content = $this->runtime->escapeHtml($element->textContent ?? '');
+            if ( '' === trim($content) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/preformatted', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        }
+
         if ( 'table' === $tagName ) {
             return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
         }
@@ -1461,7 +1470,7 @@ final class HtmlTransformer
 
     private function isInlineContentElement(string $tagName): bool
     {
-        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'font', 'i', 'mark', 'small', 'span', 'strong', 'sub', 'sup', 'time' ), true);
+        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'font', 'i', 'mark', 'rp', 'rt', 'ruby', 'small', 'span', 'strong', 'sub', 'sup', 'time' ), true);
     }
 
     private function hasBlockContentChildren(DOMElement $element): bool

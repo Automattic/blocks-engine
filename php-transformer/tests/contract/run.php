@@ -244,6 +244,22 @@ $assert(str_contains((string) ($buttonBlocks[1]['innerBlocks'][0]['attrs']['text
 $assert(! str_contains((string) $buttonResult['serialized_blocks'], '\\u003c'), 'button serialization avoids escaped nested HTML attrs');
 $assert('pass' === ($buttonResult['source_reports']['wp_block_validity']['status'] ?? ''), 'HTML transform exposes passing WordPress block validity report for generated buttons');
 
+$rubyResult = ( new HtmlTransformer() )->transform(
+    '<main><blockquote><ruby>翻訳<rt>ほんやく</rt></ruby> keeps pronunciation visible.</blockquote></main>'
+)->toArray();
+$rubyQuote = $rubyResult['blocks'][0] ?? array();
+$assert(array() === ($rubyResult['fallbacks'] ?? array()), 'ruby phrasing content does not create unsupported fallbacks');
+$assert('core/quote' === ($rubyQuote['blockName'] ?? ''), 'ruby phrasing content remains inside quote block');
+$assert(str_contains((string) ($rubyResult['serialized_blocks'] ?? ''), '<ruby>翻訳<rt>ほんやく</rt></ruby>'), 'ruby markup is preserved in quote content');
+
+$plaintextResult = ( new HtmlTransformer() )->transform(
+    '<main><plaintext>Plain legacy text with &lt;b&gt;literal tags&lt;/b&gt;</plaintext></main>'
+)->toArray();
+$plaintextBlock = $plaintextResult['blocks'][0] ?? array();
+$assert(array() === ($plaintextResult['fallbacks'] ?? array()), 'plaintext content does not create unsupported fallbacks');
+$assert('core/preformatted' === ($plaintextBlock['blockName'] ?? ''), 'plaintext content converts to a preformatted block');
+$assert(str_contains((string) ($plaintextBlock['innerHTML'] ?? ''), '&lt;b&gt;literal tags&lt;/b&gt;'), 'plaintext literal tags are escaped in preformatted content');
+
 $linkedLogoResult = ( new HtmlTransformer() )->transform(
     '<main><a class="site-logo" href="/">Mara Vale</a></main>'
 )->toArray();
