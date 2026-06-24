@@ -2,12 +2,15 @@ import { join } from 'node:path';
 
 import { createWorker } from '../pool/pool.js';
 import { assemble } from './assemble.js';
+import { assets as runAssetsStage } from './assets.js';
 import { foundation } from './foundation.js';
 import { ingest } from './ingest.js';
 import { reconstruct } from './reconstruct.js';
 import { sectionExtract } from './section-extract.js';
 import { writeTheme } from './write-theme.js';
 import type {
+  AssetInventory,
+  AssetVerdicts,
   SectionBlocks,
   SiteToThemeOptions,
   StageCtx,
@@ -35,7 +38,6 @@ export async function siteToTheme(
   const outDir = options?.outDir ?? join(srcDir, 'theme');
   const coverageFloor = options?.coverageFloor ?? 0;
   const hooks = options?.hooks ?? {};
-  void options?.fetchImpl;
 
   try {
     const baseTokens = foundation(site, options?.foundationAggregates);
@@ -47,7 +49,22 @@ export async function siteToTheme(
       pages[page.slug] = await reconstruct(specs, ctx, pool, hooks, coverageFloor);
     }
 
-    const assembled = assemble({ site, tokens, pages, meta: themeMeta });
+    const assetStage = await runAssetsStage(ctx, { fetchImpl: options?.fetchImpl });
+    const inventory = hooks.onAssets
+      ? filterDecorativeAssets(
+          assetStage.inventory,
+          await hooks.onAssets(assetStage.inventory, ctx)
+        )
+      : assetStage.inventory;
+    const assembled = assemble({
+      site,
+      tokens,
+      pages,
+      meta: themeMeta,
+      assets: inventory.assets,
+      fontCss: assetStage.fontCss,
+      imgRefsByPage: assetStage.imgRefsByPage,
+    });
     const model = hooks.onRefine ? await hooks.onRefine(assembled, ctx) : assembled;
     const written = await writeTheme(model, outDir);
 
@@ -71,6 +88,18 @@ export async function siteToTheme(
       await pool.stop();
     }
   }
+}
+
+function filterDecorativeAssets(
+  inventory: AssetInventory,
+  verdicts: AssetVerdicts
+): AssetInventory {
+  const decoration = new Set(verdicts.decoration);
+  if (decoration.size === 0) return inventory;
+
+  return {
+    assets: inventory.assets.filter((asset) => !decoration.has(asset.relPath)),
+  };
 }
 
 function normalizeThemeMeta(srcDir: string, meta: Partial<ThemeMeta> | undefined): ThemeMeta {

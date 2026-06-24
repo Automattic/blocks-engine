@@ -1,3 +1,5 @@
+import { escapeHtmlAttr } from '../escape.js';
+import { rewriteHtmlImageSrcs, type StaticImgRef } from './assets-static.js';
 import type {
   AssetFile,
   FoundationTokens,
@@ -12,6 +14,9 @@ type ThemeAssemblyParts = {
   tokens: FoundationTokens;
   pages: Record<string, SectionBlocks[]>;
   meta: ThemeMeta;
+  assets?: AssetFile[];
+  fontCss?: string;
+  imgRefsByPage?: Record<string, StaticImgRef[]>;
 };
 
 type PaletteEntry = {
@@ -30,17 +35,27 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
   const themeSlug = slugify(parts.meta.slug || parts.meta.name) || 'blocks-engine-theme';
   const palette = buildPalette(parts.tokens);
   const fontFamilies = buildFontFamilies(parts.tokens);
+  const styleCss = buildStyleCss(parts.meta, themeSlug);
 
   return {
-    styleCss: buildStyleCss(parts.meta, themeSlug),
+    styleCss: appendFontCss(styleCss, parts.fontCss),
     themeJson: buildThemeJson(parts.tokens, palette, fontFamilies),
     templates: {
-      'index.html': buildIndexTemplate(parts.site, parts.pages),
+      'index.html': buildIndexTemplate(
+        parts.site,
+        parts.pages,
+        parts.imgRefsByPage ?? {},
+        themeSlug
+      ),
     },
     parts: {},
     patterns: {},
     assets: collectAssets(parts),
   };
+}
+
+function appendFontCss(styleCss: string, fontCss: string | undefined): string {
+  return fontCss ? `${styleCss}${fontCss}` : styleCss;
 }
 
 function buildStyleCss(meta: ThemeMeta, themeSlug: string): string {
@@ -152,8 +167,13 @@ function colorValueFor(palette: PaletteEntry[], preferredSlugs: string[], fallba
   return fallback;
 }
 
-function buildIndexTemplate(site: SiteModel, pages: Record<string, SectionBlocks[]>): string {
-  const pageBlocks = orderedPageBlocks(site, pages);
+function buildIndexTemplate(
+  site: SiteModel,
+  pages: Record<string, SectionBlocks[]>,
+  imgRefsByPage: Record<string, StaticImgRef[]>,
+  themeSlug: string
+): string {
+  const pageBlocks = orderedPageBlocks(site, pages, imgRefsByPage, themeSlug);
   const blocks = pageBlocks.length > 0
     ? pageBlocks.join('\n\n')
     : '<!-- wp:paragraph -->\n<p></p>\n<!-- /wp:paragraph -->';
@@ -166,12 +186,17 @@ ${blocks}
 `;
 }
 
-function orderedPageBlocks(site: SiteModel, pages: Record<string, SectionBlocks[]>): string[] {
+function orderedPageBlocks(
+  site: SiteModel,
+  pages: Record<string, SectionBlocks[]>,
+  imgRefsByPage: Record<string, StaticImgRef[]>,
+  themeSlug: string
+): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
 
   for (const page of site.pages) {
-    const blocks = blocksForPage(page.slug, pages);
+    const blocks = blocksForPage(page.slug, pages, imgRefsByPage, themeSlug);
     if (!blocks) continue;
     out.push(blocks);
     seen.add(page.slug);
@@ -179,28 +204,101 @@ function orderedPageBlocks(site: SiteModel, pages: Record<string, SectionBlocks[
 
   for (const [slug, sections] of Object.entries(pages).sort(([a], [b]) => a.localeCompare(b))) {
     if (seen.has(slug)) continue;
-    const blocks = joinSectionBlocks(sections);
+    const blocks = rewritePageBlocks(
+      slug,
+      joinSectionBlocks(sections, imgRefsByPage[slug] ?? []),
+      imgRefsByPage,
+      themeSlug
+    );
     if (blocks) out.push(blocks);
   }
 
   return out;
 }
 
-function blocksForPage(slug: string, pages: Record<string, SectionBlocks[]>): string | null {
-  return joinSectionBlocks(pages[slug] ?? []);
+function blocksForPage(
+  slug: string,
+  pages: Record<string, SectionBlocks[]>,
+  imgRefsByPage: Record<string, StaticImgRef[]>,
+  themeSlug: string
+): string | null {
+  return rewritePageBlocks(
+    slug,
+    joinSectionBlocks(pages[slug] ?? [], imgRefsByPage[slug] ?? []),
+    imgRefsByPage,
+    themeSlug
+  );
 }
 
-function joinSectionBlocks(sections: SectionBlocks[]): string | null {
-  const blocks = sections.map((section) => section.blocks.trim()).filter(Boolean);
+function joinSectionBlocks(sections: SectionBlocks[], refs: StaticImgRef[]): string | null {
+  const blocks = sections
+    .map((section) => sectionBlocksWithMissingImages(section, refs).trim())
+    .filter(Boolean);
   return blocks.length > 0 ? blocks.join('\n\n') : null;
 }
 
-function collectAssets(parts: ThemeAssemblyParts): AssetFile[] {
+function sectionBlocksWithMissingImages(section: SectionBlocks, refs: StaticImgRef[]): string {
+  const blocks = section.blocks.trim();
+  const missingImages = missingImageBlocks(section, refs, blocks);
+  if (missingImages.length === 0) return blocks;
+  return [blocks, ...missingImages].filter(Boolean).join('\n\n');
+}
+
+function missingImageBlocks(
+  section: SectionBlocks,
+  refs: StaticImgRef[],
+  blocks: string
+): string[] {
+  const out: string[] = [];
+  const emitted = new Set<string>();
+
+  for (const image of section.spec.images) {
+    const ref = refs.find(
+      (candidate) => candidate.ref === image.url || candidate.ref === image.sourceUrl
+    );
+    if (!ref || emitted.has(ref.ref) || blocks.includes(ref.ref)) continue;
+
+    emitted.add(ref.ref);
+    out.push(imageBlock(ref.ref, image.alt));
+  }
+
+  return out;
+}
+
+function imageBlock(src: string, alt: string): string {
   return [
+    '<!-- wp:image -->',
+    `<figure class="wp-block-image"><img src="${escapeHtmlAttr(src)}" alt="${escapeHtmlAttr(alt)}"/></figure>`,
+    '<!-- /wp:image -->',
+  ].join('\n');
+}
+
+function rewritePageBlocks(
+  slug: string,
+  blocks: string | null,
+  imgRefsByPage: Record<string, StaticImgRef[]>,
+  themeSlug: string
+): string | null {
+  if (!blocks) return null;
+  return rewriteHtmlImageSrcs(blocks, imgRefsByPage[slug] ?? [], themeSlug);
+}
+
+function collectAssets(parts: ThemeAssemblyParts): AssetFile[] {
+  const assetsByRelPath = new Map<string, AssetFile>();
+
+  for (const asset of [
     ...assetFilesFromUnknown(parts.site),
     ...assetFilesFromUnknown(parts.tokens),
     ...assetFilesFromUnknown(parts.meta),
-  ];
+  ]) {
+    assetsByRelPath.set(asset.relPath, asset);
+  }
+
+  for (const asset of parts.assets ?? []) {
+    assetsByRelPath.set(asset.relPath, asset);
+  }
+
+  return [...assetsByRelPath.values()];
 }
 
 function assetFilesFromUnknown(value: unknown): AssetFile[] {
