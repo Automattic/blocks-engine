@@ -1440,6 +1440,39 @@ $assert(str_contains($plainFrameLayoutCss, '.figma-node-plain-frame-plain-layout
 $assert(str_contains($plainFrameLayoutCss, '.figma-node-plain-first-first-positioned-layer{width:90px;height:40px;position:absolute;left:20px;top:20px'), 'plain-frame-first-child-positioned-relative-to-parent');
 $assert(str_contains($plainFrameLayoutCss, '.figma-node-plain-second-second-positioned-text{width:120px;height:32px;position:absolute;left:200px;top:150px'), 'plain-frame-text-child-positioned-relative-to-parent');
 
+$selectedFrameOriginResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Selected Frame Origin Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'origin:frame',
+            'type'     => 'FRAME',
+            'name'     => 'Selected frame',
+            'width'    => 1200,
+            'height'   => 800,
+            'children' => array(
+                array(
+                    'id'                  => 'origin:hero',
+                    'type'                => 'FRAME',
+                    'name'                => 'Hero',
+                    'absoluteBoundingBox' => array('x' => -1333, 'y' => -184, 'width' => 1200, 'height' => 600),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                ),
+                array(
+                    'id'                  => 'origin:cta',
+                    'type'                => 'TEXT',
+                    'name'                => 'CTA',
+                    'characters'          => 'Visible copy',
+                    'absoluteBoundingBox' => array('x' => -1133, 'y' => 216, 'width' => 240, 'height' => 40),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                ),
+            ),
+        ),
+    ),
+));
+$selectedFrameOriginCss = $fileContent($selectedFrameOriginResult, 'style.css');
+$assert(str_contains($selectedFrameOriginCss, '.figma-node-origin-hero-hero{width:1200px;height:600px;position:absolute;left:0px;top:0px'), 'selected-frame-origin-normalizes-first-child');
+$assert(str_contains($selectedFrameOriginCss, '.figma-node-origin-cta-cta{width:240px;height:40px;position:absolute;left:200px;top:400px'), 'selected-frame-origin-normalizes-text-child');
+
 $resolvedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Component Instance Fixture',
     'nodes' => array(

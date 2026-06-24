@@ -460,11 +460,11 @@ final class StaticHtmlEmitter
         $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
 
         if ( null !== $parentNode && $this->isFreeformContainer($parentNode) ) {
-            $x += $this->positionOffset($box, $parentBox, 'x') ?? 0.0;
-            $y += $this->positionOffset($box, $parentBox, 'y') ?? 0.0;
+            $x += $this->positionOffset($box, $parentBox, 'x', $parentNode) ?? 0.0;
+            $y += $this->positionOffset($box, $parentBox, 'y', $parentNode) ?? 0.0;
         } elseif ( null !== $parentNode && 'absolute' === ($layout['positioning'] ?? null) ) {
-            $x += $this->relativeOffset($box, $parentBox, 'x') ?? 0.0;
-            $y += $this->relativeOffset($box, $parentBox, 'y') ?? 0.0;
+            $x += $this->positionOffset($box, $parentBox, 'x', $parentNode) ?? 0.0;
+            $y += $this->positionOffset($box, $parentBox, 'y', $parentNode) ?? 0.0;
         }
 
         $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : null;
@@ -657,8 +657,8 @@ final class StaticHtmlEmitter
     {
         $styles = array();
         $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-        $left = $this->positionOffset($box, $parentBox, 'x');
-        $top = $this->positionOffset($box, $parentBox, 'y');
+        $left = $this->positionOffset($box, $parentBox, 'x', $parentNode);
+        $top = $this->positionOffset($box, $parentBox, 'y', $parentNode);
         $constraints = is_array($layout['constraints'] ?? null) ? $layout['constraints'] : array();
 
         if ( null !== $left ) {
@@ -743,7 +743,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $box
      * @param array<string, mixed> $parentBox
      */
-    private function positionOffset(array $box, array $parentBox, string $dimension): ?float
+    private function positionOffset(array $box, array $parentBox, string $dimension, ?array $parentNode = null): ?float
     {
         if ( ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) ) {
             return null;
@@ -753,7 +753,39 @@ final class StaticHtmlEmitter
             return (float) $box[$dimension];
         }
 
+        if ( ! isset($parentBox[$dimension]) && null !== $parentNode ) {
+            $origin = $this->inferredContainingBlockOrigin($parentNode, $dimension);
+            if ( null !== $origin ) {
+                return (float) $box[$dimension] - $origin;
+            }
+        }
+
         return $this->relativeOffset($box, $parentBox, $dimension);
+    }
+
+    /**
+     * Infer a root origin for selected frames that carry only size while their children remain in canvas coordinates.
+     *
+     * @param array<string, mixed> $parentNode
+     */
+    private function inferredContainingBlockOrigin(array $parentNode, string $dimension): ?float
+    {
+        $origin = null;
+        foreach ( $this->nodeList($parentNode) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
+            if ( 'local' === ($childBox['coordinate_space'] ?? null) || ! isset($childBox[$dimension]) || ! is_numeric($childBox[$dimension]) ) {
+                continue;
+            }
+
+            $value = (float) $childBox[$dimension];
+            $origin = null === $origin ? $value : min($origin, $value);
+        }
+
+        return $origin;
     }
 
     /**
