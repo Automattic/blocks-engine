@@ -9,6 +9,7 @@ export {
   stripActiveNavState,
 } from './chrome-signature.js';
 export { splitPageChrome } from './chrome-split.js';
+export { segmentPage } from './segment.js';
 export { foundation } from './foundation.js';
 export { ingest } from './ingest.js';
 export { planTemplates } from './template-plan.js';
@@ -57,6 +58,12 @@ export type * from './assets.js';
 export type { ChromeResult } from './chrome.js';
 export type { ChromeSlugs } from './chrome-signature.js';
 export type { RegionSplit } from './chrome-split.js';
+export type {
+  LayoutRailWrapperMetadata,
+  LayoutWrapperRailPosition,
+  Section,
+  SectionRole,
+} from './segment.js';
 export type { IslandTier } from './html-fallback.js';
 export { rewriteInternalLinks, rewriteMediaUrls } from './url-rewrite.js';
 export { scanForInjection } from './injection-scan.js';
