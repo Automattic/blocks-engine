@@ -41,7 +41,7 @@ final class ReferenceAnalyzer
                     if ( is_array($target) && ! $this->isLinkableDocument($target, $isLinkableDocument) ) {
                         unset($reference['target']);
                         $assetReferences[] = $reference;
-                        if ( 'img' === $candidate['element'] && 'src' === $candidate['attribute'] ) {
+                        if ( str_starts_with((string) ($target['mime_type'] ?? ''), 'image/') ) {
                             $imageReferences[] = $this->legacyImageReference($reference, count($imageReferences));
                         }
                     }
@@ -59,6 +59,9 @@ final class ReferenceAnalyzer
                     if ( is_array($target) && ! $this->isLinkableDocument($target, $isLinkableDocument) ) {
                         unset($reference['target']);
                         $assetReferences[] = $reference;
+                        if ( str_starts_with((string) ($target['mime_type'] ?? ''), 'image/') ) {
+                            $imageReferences[] = $this->legacyImageReference($reference, count($imageReferences));
+                        }
                     }
                 }
             }
@@ -76,7 +79,7 @@ final class ReferenceAnalyzer
      */
     public function htmlReferenceCandidates(string $html, string $sourcePath): array
     {
-        if ( '' === trim($html) || ! preg_match_all('/<\s*(a|audio|img|script|link|source|video)\b([^>]*)>/i', $html, $matches, PREG_SET_ORDER) ) {
+        if ( '' === trim($html) || ! preg_match_all('/<\s*([a-z][a-z0-9:-]*)\b([^>]*)>/i', $html, $matches, PREG_SET_ORDER) ) {
             return array();
         }
 
@@ -98,6 +101,21 @@ final class ReferenceAnalyzer
                         'attribute'   => $attribute,
                         'value'       => $value,
                         'url'         => $url,
+                    );
+                }
+            }
+
+            if ( isset($attributes['style']) ) {
+                $value = (string) $attributes['style'];
+                foreach ( $this->cssReferenceCandidates($value, $sourcePath) as $styleCandidate ) {
+                    $candidates[] = array(
+                        'source_path' => $sourcePath,
+                        'selector'    => $selector,
+                        'element'     => $element,
+                        'attribute'   => 'style',
+                        'value'       => $value,
+                        'url'         => $styleCandidate['url'],
+                        'context'     => 'inline-style',
                     );
                 }
             }
@@ -229,6 +247,7 @@ final class ReferenceAnalyzer
             'link'   => array('href'),
             'source' => array('src', 'srcset'),
             'video'  => array('src', 'poster'),
+            'image'  => array('href', 'xlink:href'),
         );
 
         return array_values(array_filter(
@@ -316,13 +335,16 @@ final class ReferenceAnalyzer
         return array_filter(
             array(
                 'source_path'   => $reference['source_path'] ?? '',
-                'selector'      => 'img:nth-of-type(' . ($index + 1) . ')',
+                'selector'      => $reference['selector'] ?? 'image-reference:nth-of-type(' . ($index + 1) . ')',
                 'src'           => $reference['url'] ?? '',
                 'resolved_path' => $reference['resolved_path'] ?? '',
                 'asset_path'    => $reference['asset_path'] ?? '',
                 'mime_type'     => $reference['mime_type'] ?? '',
                 'bytes'         => $reference['bytes'] ?? 0,
                 'safe'          => $reference['safe'] ?? null,
+                'element'       => $reference['element'] ?? '',
+                'attribute'     => $reference['attribute'] ?? '',
+                'context'       => $reference['context'] ?? '',
             ),
             static fn (mixed $value): bool => null !== $value && '' !== $value
         );
