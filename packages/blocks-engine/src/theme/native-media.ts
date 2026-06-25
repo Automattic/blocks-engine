@@ -1,7 +1,9 @@
 import type { NativeRenderCtx, NativeRenderOut } from './native-reconstruct-types.js';
+import { sanitizeSvgAsset } from './page-reconstruct-helpers.js';
 import type { SectionSpecIcon, SectionSpecImage } from './section-spec.js';
 
 export const MISSING_IMAGE_PLACEHOLDER = '[image unavailable — not captured]';
+const MIN_LEAD_IMAGE_PX = 200;
 
 export interface ResolvedNativeImage {
   url: string;
@@ -16,19 +18,18 @@ export interface IconImageBlockOptions {
 }
 
 export function pickLeadImage(images: SectionSpecImage[]): SectionSpecImage | undefined {
-  void images;
-  throw new Error('native-media pickLeadImage is not implemented');
+  return images.find((image) => Math.min(image.width || 0, image.height || 0) >= MIN_LEAD_IMAGE_PX);
 }
 
 export function isWpMediaUrl(url: string): boolean {
-  void url;
-  throw new Error('native-media isWpMediaUrl is not implemented');
+  return /\/wp-content\/uploads\//i.test(url);
 }
 
 export function recolorSvg(svg: string, hex: string): string {
-  void svg;
-  void hex;
-  throw new Error('native-media recolorSvg is not implemented');
+  const stripped = svg
+    .replace(/\sfill="(?!none")[^"]*"/gi, '')
+    .replace(/\sstroke="(?!none")[^"]*"/gi, '');
+  return stripped.replace(/<svg\b/i, `<svg fill="${hex}"`);
 }
 
 export function resolveImage(
@@ -36,10 +37,15 @@ export function resolveImage(
   out: NativeRenderOut,
   context: string,
 ): ResolvedNativeImage {
-  void image;
-  void out;
-  void context;
-  throw new Error('native-media resolveImage is not implemented');
+  if (!image) {
+    out.flags.push(`${context}: no image in spec — placeholder emitted`);
+    return { url: '', alt: MISSING_IMAGE_PLACEHOLDER, usable: false };
+  }
+  if (!isWpMediaUrl(image.url)) {
+    out.flags.push(`${context}: image not in WP library (${image.sourceUrl}) — placeholder emitted`);
+    return { url: '', alt: MISSING_IMAGE_PLACEHOLDER, usable: false };
+  }
+  return { url: image.url, alt: image.alt || '', usable: true };
 }
 
 export function iconImageBlock(
@@ -48,9 +54,20 @@ export function iconImageBlock(
   ctx: NativeRenderCtx,
   opts?: IconImageBlockOptions,
 ): string {
-  void icon;
-  void out;
-  void ctx;
-  void opts;
-  throw new Error('native-media iconImageBlock is not implemented');
+  const sizePx = opts?.sizePx ?? 48;
+  if (icon.kind !== 'svg' || !icon.markup) return '';
+  let svg = sanitizeSvgAsset(icon.markup);
+  if (!svg || !/<svg[\s>]/i.test(svg)) return '';
+  if (opts?.fill) svg = recolorSvg(svg, opts.fill);
+  const path = `assets/icon-${ctx.iconCounter++}.svg`;
+  out.iconAssets.push({ path, svg });
+  const src = `<?php echo esc_url(get_theme_file_uri('${path}')); ?>`;
+  const align = opts?.align ?? 'center';
+  const alignAttr = align === 'center' ? ',"align":"center"' : align === 'right' ? ',"align":"right"' : '';
+  const alignClass = align === 'center' ? ' aligncenter' : align === 'right' ? ' alignright' : '';
+  return (
+    `<!-- wp:image {"width":"${sizePx}px","height":"${sizePx}px","sizeSlug":"full"${alignAttr}} -->\n` +
+    `<figure class="wp-block-image${alignClass} size-full is-resized"><img src="${src}" alt="" style="width:${sizePx}px;height:${sizePx}px"/></figure>\n` +
+    `<!-- /wp:image -->`
+  );
 }
