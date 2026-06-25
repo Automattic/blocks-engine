@@ -1287,7 +1287,7 @@ final class StaticHtmlEmitter
             return (float) $box[$dimension];
         }
 
-        if ( null !== $parentNode && (! isset($parentBox[$dimension]) || $this->shouldInferZeroRootOrigin($parentBox, $parentNode, $dimension)) ) {
+        if ( null !== $parentNode && (! isset($parentBox[$dimension]) || $this->shouldInferRootCanvasOrigin($parentBox, $parentNode, $dimension)) ) {
             $origin = $this->inferredContainingBlockOrigin($parentNode, $dimension);
             if ( null !== $origin ) {
                 return (float) $box[$dimension] - $origin;
@@ -1298,15 +1298,15 @@ final class StaticHtmlEmitter
     }
 
     /**
-     * Figma plugin payloads can normalize a selected frame origin to 0 while
-     * preserving child coordinates in the original canvas space.
+     * Figma plugin payloads can preserve root children in source canvas coordinates
+     * while giving the selected root/page a normalized or unrelated absolute origin.
      *
      * @param array<string, mixed> $parentBox
      * @param array<string, mixed> $parentNode
      */
-    private function shouldInferZeroRootOrigin(array $parentBox, array $parentNode, string $dimension): bool
+    private function shouldInferRootCanvasOrigin(array $parentBox, array $parentNode, string $dimension): bool
     {
-        if ( ! isset($parentBox[$dimension]) || ! is_numeric($parentBox[$dimension]) || 0.0 !== (float) $parentBox[$dimension] ) {
+        if ( ! isset($parentBox[$dimension]) || ! is_numeric($parentBox[$dimension]) ) {
             return false;
         }
 
@@ -1315,8 +1315,16 @@ final class StaticHtmlEmitter
         }
 
         $origin = $this->inferredContainingBlockOrigin($parentNode, $dimension);
+        if ( null === $origin ) {
+            return false;
+        }
 
-        return null !== $origin && $origin < 0.0;
+        $parentOrigin = (float) $parentBox[$dimension];
+        if ( 0.0 === $parentOrigin ) {
+            return $origin < 0.0;
+        }
+
+        return $origin < 0.0 && ($parentOrigin - $origin) >= 100.0;
     }
 
     /**
