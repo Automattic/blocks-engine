@@ -172,6 +172,7 @@ final class ArtifactCompiler
             'source_scope' => $sourceScope,
             'static_css'                => $this->linkedStylesheetCss($html, $sourcePath, $files),
             'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
+            'runtime_dom_selectors'     => $this->runtimeDomSelectors($html, $sourcePath, $files),
             'runtime_canvas_selectors' => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
         ))->toArray();
 
@@ -263,6 +264,22 @@ final class ArtifactCompiler
         }
 
         return trim(implode("\n", $css));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, string>
+     */
+    private function runtimeDomSelectors(string $html, string $sourcePath, array $files): array
+    {
+        $selectors = array();
+        foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
+            foreach ( $this->scriptDomSelectors($script) as $selector ) {
+                $selectors[$selector] = true;
+            }
+        }
+
+        return array_keys($selectors);
     }
 
     /**

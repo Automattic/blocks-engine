@@ -77,6 +77,11 @@ final class HtmlTransformer
     /**
      * @var array<string, bool>
      */
+    private array $runtimeDomSelectors = array();
+
+    /**
+     * @var array<string, bool>
+     */
     private array $runtimeCanvasSelectors = array();
 
     private int $nextSourceProvenanceId = 1;
@@ -106,6 +111,7 @@ final class HtmlTransformer
         $this->generatedAssets = array();
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
+        $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
         $this->nextSourceProvenanceId = 1;
         $provenance               = array(
@@ -912,7 +918,8 @@ final class HtmlTransformer
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement),
+                fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement)
             );
             if ( null !== $navigation ) {
                 return $navigation;
@@ -1228,7 +1235,8 @@ final class HtmlTransformer
                     $element,
                     fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
                     fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement),
+                    fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement)
                 );
                 if ( null !== $navigation ) {
                     return $navigation;
@@ -1846,7 +1854,7 @@ final class HtmlTransformer
 
     private function shouldPreserveWrapper(DOMElement $element): bool
     {
-        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) && ( array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
+        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) && ( $this->isRuntimeDomTarget($element) || array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
     }
 
     private function shouldDeferNavigationPatternToChildren(DOMElement $element): bool
@@ -2964,8 +2972,33 @@ final class HtmlTransformer
      */
     private function runtimeCanvasSelectorsFromOptions(array $options): array
     {
+        return $this->runtimeSelectorsFromOptions($options, 'runtime_canvas_selectors');
+    }
+
+    private function isRuntimeDomTarget(DOMElement $element): bool
+    {
+        $id = trim($this->attr($element, 'id'));
+        if ( '' !== $id && isset($this->runtimeDomSelectors['#' . $id]) ) {
+            return true;
+        }
+
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+            if ( '' !== $class && isset($this->runtimeDomSelectors['.' . $class]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, bool>
+     */
+    private function runtimeSelectorsFromOptions(array $options, string $key): array
+    {
         $selectors = array();
-        foreach ( $options['runtime_canvas_selectors'] ?? array() as $selector ) {
+        foreach ( $options[$key] ?? array() as $selector ) {
             if ( is_string($selector) && preg_match('/^[#.][A-Za-z][A-Za-z0-9_-]*$/', $selector) ) {
                 $selectors[$selector] = true;
             }
