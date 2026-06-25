@@ -1,5 +1,10 @@
 import { rewriteHtmlImageSrcs, type StaticImgRef } from './assets-static.js';
 import type { ChromeSlugs } from './chrome-signature.js';
+import {
+  appendCarriedSourceCss,
+  hasCarriedSourceCss,
+  type ThemeAssemblySourceCssInput,
+} from './source-css-carry.js';
 import { planTemplates, type TemplatePlan } from './template-plan.js';
 import type {
   AssetFile,
@@ -10,7 +15,7 @@ import type {
   ThemeModel,
 } from './types.js';
 
-type ThemeAssemblyParts = {
+type ThemeAssemblyParts = ThemeAssemblySourceCssInput & {
   site: SiteModel;
   tokens: FoundationTokens;
   pages: Record<string, SectionBlocks[]>;
@@ -40,11 +45,14 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
   const palette = buildPalette(parts.tokens);
   const fontFamilies = buildFontFamilies(parts.tokens);
   const styleCss = buildStyleCss(parts.meta, themeSlug);
+  const carriedSourceCss = hasCarriedSourceCss(parts.sourceCss);
   const templatePlan = planTemplates(parts.site);
 
   return {
-    styleCss: appendFontCss(styleCss, parts.fontCss),
-    themeJson: buildThemeJson(parts.tokens, palette, fontFamilies),
+    styleCss: appendCarriedSourceCss(appendFontCss(styleCss, parts.fontCss), parts.sourceCss),
+    themeJson: buildThemeJson(parts.tokens, palette, fontFamilies, {
+      omitStyles: carriedSourceCss,
+    }),
     templates: {
       'front-page.html': buildFrontPageTemplate(
         parts.site,
@@ -91,11 +99,11 @@ function buildThemeHeader(fields: Array<[string, string]>): string {
 function buildThemeJson(
   tokens: FoundationTokens,
   palette: PaletteEntry[],
-  fontFamilies: FontFamilyEntry[]
+  fontFamilies: FontFamilyEntry[],
+  options?: { omitStyles?: boolean }
 ): Record<string, unknown> {
   const bodyFontSlug = fontFamilies[0]?.slug;
-
-  return {
+  const themeJson: Record<string, unknown> = {
     $schema: 'https://schemas.wp.org/trunk/theme.json',
     version: 3,
     settings: {
@@ -119,7 +127,10 @@ function buildThemeJson(
         units: ['px', 'em', 'rem', '%', 'vh', 'vw'],
       },
     },
-    styles: {
+  };
+
+  if (!options?.omitStyles) {
+    themeJson.styles = {
       color: {
         background: colorValueFor(palette, ['surface-base', 'background', 'white'], '#ffffff'),
         text: colorValueFor(palette, ['text-default', 'foreground', 'black'], '#111111'),
@@ -127,8 +138,10 @@ function buildThemeJson(
       ...(bodyFontSlug
         ? { typography: { fontFamily: `var(--wp--preset--font-family--${bodyFontSlug})` } }
         : {}),
-    },
-  };
+    };
+  }
+
+  return themeJson;
 }
 
 function buildPalette(tokens: FoundationTokens): PaletteEntry[] {

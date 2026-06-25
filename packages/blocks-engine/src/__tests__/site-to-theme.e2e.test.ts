@@ -54,6 +54,18 @@ function copyFixtureSite(dest: string): void {
   cpSync(join(fixtureRoot, 'assets'), join(dest, 'assets'), { recursive: true });
 }
 
+function appendFtpSourceCssSentinel(siteDir: string): void {
+  const imagePath = join(siteDir, 'assets', 'ftp-bg.png');
+  const stylePath = join(siteDir, 'style.css');
+  const sourceCss = readFileSync(stylePath, 'utf8');
+  writeFileSync(imagePath, new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+  writeFileSync(
+    stylePath,
+    `${sourceCss}\n.ftp-sentinel{max-width:960px;background-image:url("assets/ftp-bg.png")}\n`,
+    'utf8'
+  );
+}
+
 function semanticSpec(sectionIndex = 0): SectionSpec {
   return {
     sectionIndex,
@@ -701,6 +713,65 @@ describe('site-to-theme P0-3 orchestration', () => {
       expect(pageTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/logo.png');
       expect(headerPart).toContain('About');
       expect(footerPart).toContain('Blocks Engine');
+    });
+  });
+
+  it('FTP1-engine-acceptance-source-css-carry writes sentinel, admin-bar CSS, and no top-level theme styles', async () => {
+    const { siteToTheme } = await import('../theme/index.js');
+
+    await withTempDir('blocks-engine-site-to-theme-ftp1-css-', async (siteDir) => {
+      copyFixtureSite(siteDir);
+      appendFtpSourceCssSentinel(siteDir);
+      const outDir = join(siteDir, 'theme-out');
+
+      await siteToTheme(siteDir, {
+        outDir,
+        pool: p1Pool(),
+        sections: p1Sections(),
+        fetchImpl: mockFontFetch().fetchImpl,
+        themeMeta: themeMeta(),
+      });
+
+      const styleCss = readFileSync(join(outDir, 'style.css'), 'utf8');
+      const themeJson = JSON.parse(readFileSync(join(outDir, 'theme.json'), 'utf8'));
+
+      expect(styleCss).toContain('.ftp-sentinel');
+      expect(styleCss).toContain('url(assets/css/media/ftp-bg.png)');
+      expect(styleCss).not.toContain('url(media/ftp-bg.png)');
+      expect(styleCss).toContain('body.admin-bar');
+      expect(existsSync(join(outDir, 'assets', 'css', 'media', 'ftp-bg.png'))).toBe(true);
+      expect(Object.prototype.hasOwnProperty.call(themeJson, 'styles')).toBe(false);
+    });
+  });
+
+  it('FTP1-engine-acceptance-source-css-carry writes deterministic style.css and theme.json bytes', async () => {
+    const { siteToTheme } = await import('../theme/index.js');
+
+    await withTempDir('blocks-engine-site-to-theme-ftp1-determinism-', async (rootDir) => {
+      const siteDir = join(rootDir, 'site');
+      mkdirSync(siteDir);
+      copyFixtureSite(siteDir);
+      appendFtpSourceCssSentinel(siteDir);
+
+      const firstOut = join(rootDir, 'theme-first');
+      const secondOut = join(rootDir, 'theme-second');
+
+      await siteToTheme(siteDir, {
+        outDir: firstOut,
+        pool: p1Pool(),
+        sections: p1Sections(),
+        fetchImpl: mockFontFetch().fetchImpl,
+        themeMeta: themeMeta(),
+      });
+      await siteToTheme(siteDir, {
+        outDir: secondOut,
+        pool: p1Pool(),
+        sections: p1Sections(),
+        fetchImpl: mockFontFetch().fetchImpl,
+        themeMeta: themeMeta(),
+      });
+
+      expectThemesByteIdentical(firstOut, secondOut, ['style.css', 'theme.json']);
     });
   });
 

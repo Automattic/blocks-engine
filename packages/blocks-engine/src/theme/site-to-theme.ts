@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { basename, extname, join, resolve } from 'node:path';
 
 import { createWorker } from '../pool/pool.js';
 import { assemble } from './assemble.js';
@@ -9,9 +9,11 @@ import { ingest } from './ingest.js';
 import { detectLayoutOffsetWrapper } from './layout-offset-wrapper.js';
 import { reconstruct } from './reconstruct.js';
 import { sectionExtract } from './section-extract.js';
-import { collectSourceAssets } from './source-assets.js';
+import { collectSourceAssets, type MediaAsset } from './source-assets.js';
+import { shouldCarrySourceCss } from './source-css-carry.js';
 import { writeTheme } from './write-theme.js';
 import type {
+  AssetFile,
   AssetInventory,
   AssetVerdicts,
   SectionBlocks,
@@ -56,27 +58,36 @@ export async function siteToTheme(
     }
 
     const assetStage = await runAssetsStage(ctx, { fetchImpl: options?.fetchImpl });
+    const sourceAssets = collectSourceAssets(
+      site.root,
+      site.pages.map((page) => ({ relPath: page.relPath, html: page.html }))
+    );
     const layoutOffsetWrapperClass = detectLayoutOffsetWrapper(
       homePage(site)?.html ?? '',
-      collectSourceAssets(site.root, site.pages.map((page) => ({ relPath: page.relPath, html: page.html }))).css
+      sourceAssets.css
     );
+    const carrySourceCss = shouldCarrySourceCss(sourceAssets.css, options);
     const inventory = hooks.onAssets
       ? filterDecorativeAssets(
           assetStage.inventory,
           await hooks.onAssets(assetStage.inventory, ctx)
         )
       : assetStage.inventory;
+    const sourceCssCarry = carrySourceCss
+      ? prepareSourceCssCarry(sourceAssets.css, sourceAssets.mediaAssets, inventory.assets)
+      : undefined;
     const assembled = assemble({
       site,
       tokens,
       pages,
       meta: themeMeta,
-      assets: inventory.assets,
+      assets: sourceCssCarry?.assets ?? inventory.assets,
       fontCss: assetStage.fontCss,
       imgRefsByPage: assetStage.imgRefsByPage,
       chromeParts: chromeRes.parts,
       chromeSlugsByPage: chromeRes.slugsByPage,
       layoutOffsetWrapperClass,
+      sourceCss: sourceCssCarry?.css,
     });
     const model = hooks.onRefine ? await hooks.onRefine(assembled, ctx) : assembled;
     const written = await writeTheme(model, outDir);
@@ -101,6 +112,90 @@ export async function siteToTheme(
       await pool.stop();
     }
   }
+}
+
+function prepareSourceCssCarry(
+  css: string,
+  mediaAssets: MediaAsset[],
+  inventoryAssets: AssetFile[]
+): { css: string; assets: AssetFile[] } {
+  if (mediaAssets.length === 0) {
+    return { css: rebaseSourceCssMediaUrls(css, []), assets: inventoryAssets };
+  }
+
+  const occupiedByRel = new Map<string, AssetFile>();
+  for (const asset of inventoryAssets) {
+    occupiedByRel.set(asset.relPath, asset);
+  }
+
+  const carriedAssets: AssetFile[] = [];
+  const rewrites: Array<{ from: string; to: string }> = [];
+
+  for (const mediaAsset of mediaAssets) {
+    const targetRel = availableSourceCssMediaRel(mediaAsset, occupiedByRel);
+    rewrites.push({
+      from: `media/${basename(mediaAsset.themeRel)}`,
+      to: targetRel,
+    });
+
+    const existing = occupiedByRel.get(targetRel);
+    if (!existing || !sameSourceAsset(existing, mediaAsset.srcAbs)) {
+      const asset = { relPath: targetRel, sourcePath: mediaAsset.srcAbs };
+      occupiedByRel.set(targetRel, asset);
+      carriedAssets.push(asset);
+    }
+  }
+
+  return {
+    css: rebaseSourceCssMediaUrls(css, rewrites),
+    assets: sortAssetFiles([...inventoryAssets, ...carriedAssets]),
+  };
+}
+
+function availableSourceCssMediaRel(
+  mediaAsset: MediaAsset,
+  occupiedByRel: Map<string, AssetFile>
+): string {
+  const existing = occupiedByRel.get(mediaAsset.themeRel);
+  if (!existing || sameSourceAsset(existing, mediaAsset.srcAbs)) return mediaAsset.themeRel;
+
+  const ext = extname(mediaAsset.themeRel);
+  const base = ext ? mediaAsset.themeRel.slice(0, -ext.length) : mediaAsset.themeRel;
+  let suffix = 2;
+  let candidate = `${base}-${suffix}${ext}`;
+
+  while (
+    occupiedByRel.has(candidate) &&
+    !sameSourceAsset(occupiedByRel.get(candidate), mediaAsset.srcAbs)
+  ) {
+    suffix += 1;
+    candidate = `${base}-${suffix}${ext}`;
+  }
+
+  return candidate;
+}
+
+function sameSourceAsset(asset: AssetFile | undefined, sourcePath: string): boolean {
+  return Boolean(asset?.sourcePath && resolve(asset.sourcePath) === resolve(sourcePath));
+}
+
+function rebaseSourceCssMediaUrls(
+  css: string,
+  rewrites: Array<{ from: string; to: string }>
+): string {
+  let out = css;
+  for (const rewrite of rewrites) {
+    out = out.split(`url(${rewrite.from})`).join(`url(${rewrite.to})`);
+  }
+  return out;
+}
+
+function sortAssetFiles(files: AssetFile[]): AssetFile[] {
+  return [...files].sort((a, b) => {
+    const rel = a.relPath.localeCompare(b.relPath);
+    if (rel !== 0) return rel;
+    return (a.sourcePath ?? '').localeCompare(b.sourcePath ?? '');
+  });
 }
 
 function filterDecorativeAssets(
