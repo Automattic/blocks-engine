@@ -28,8 +28,8 @@
     { "path": "metrics.block_count", "assert": "equals", "value": 5 },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "data:image/svg+xml" },
-    { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "WIDTH" },
+    { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/inline-svg-" },
+    { "path": "assets.0.content", "assert": "contains", "value": "WIDTH" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "source_reports.conversion_report.metrics.fallback_count", "assert": "equals", "value": 0 }
   ]

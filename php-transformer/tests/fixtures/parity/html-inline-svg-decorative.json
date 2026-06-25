@@ -24,8 +24,9 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
-    { "path": "blocks.0.innerBlocks.2.attrs.url", "assert": "contains", "value": "data:image/svg+xml," },
-    { "path": "blocks.0.innerBlocks.2.attrs.url", "assert": "contains", "value": "aria-label%3D%22Acme%20integration%22" },
+    { "path": "blocks.0.innerBlocks.2.attrs.url", "assert": "contains", "value": "assets/inline-svg-" },
+    { "path": "blocks.0.innerBlocks.2.attrs.url", "assert": "contains", "value": ".svg" },
+    { "path": "assets.0.content", "assert": "contains", "value": "aria-label=\"Acme integration\"" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]

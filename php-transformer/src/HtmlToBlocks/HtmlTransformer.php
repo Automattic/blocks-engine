@@ -60,6 +60,11 @@ final class HtmlTransformer
     private array $assetMetadata = array();
 
     /**
+     * @var array<string, array<string, mixed>>
+     */
+    private array $generatedAssets = array();
+
+    /**
      * @var array<string, array<int, string>>
      */
     private array $staticClassPromotions = array();
@@ -98,6 +103,7 @@ final class HtmlTransformer
         $this->structureProvenance = array();
         $this->scriptMetadata = array();
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
+        $this->generatedAssets = array();
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
         $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
@@ -254,6 +260,7 @@ final class HtmlTransformer
             status: $this->statusForFallbacks($fallbacks, $context),
             blocks: $blocks,
             serializedBlocks: $serializedBlocks,
+            assets: array_values($this->generatedAssets),
             diagnostics: $diagnostics,
             fallbacks: $fallbacks,
             provenance: $provenance,
@@ -2809,7 +2816,7 @@ final class HtmlTransformer
         }
 
         $attrs = array_filter(array_merge($this->presentationAttributes($element), array(
-            'url'    => 'data:image/svg+xml,' . rawurlencode($html),
+            'url'    => $this->materializeInlineSvgAsset($html, $element),
             'alt'    => $this->inlineSvgAltText($element),
             'title'  => $this->inlineSvgTitleText($element),
             'width'  => $this->attr($element, 'width'),
@@ -2817,6 +2824,39 @@ final class HtmlTransformer
         )), static fn ($value): bool => '' !== $value);
 
         return $this->createBlock('core/image', $attrs, array(), $element);
+    }
+
+    private function materializeInlineSvgAsset(string $html, DOMElement $element): string
+    {
+        $hash = hash('sha256', $html);
+        $path = 'assets/inline-svg-' . substr($hash, 0, 16) . '.svg';
+
+        if ( ! isset($this->generatedAssets[$path]) ) {
+            $this->generatedAssets[$path] = array(
+                'source'           => 'html-inline-svg',
+                'path'             => $path,
+                'target_path'      => $path,
+                'kind'             => 'image',
+                'role'             => 'image',
+                'media_type'       => 'image/svg+xml',
+                'mime_type'        => 'image/svg+xml',
+                'bytes'            => strlen($html),
+                'binary'           => false,
+                'encoding'         => 'text',
+                'content_encoding' => 'text',
+                'content'          => $html,
+                'hash'             => $hash,
+                'references'       => array(
+                    array_filter(array(
+                        'selector'  => $this->elementSelector($element),
+                        'element'   => 'svg',
+                        'attribute' => 'generated-inline-svg',
+                    )),
+                ),
+            );
+        }
+
+        return $path;
     }
 
     private function inlineSvgAltText(DOMElement $element): string

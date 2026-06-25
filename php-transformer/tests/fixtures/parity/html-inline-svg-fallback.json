@@ -23,8 +23,10 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "contains", "value": "data:image/svg+xml," },
-    { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "contains", "value": "aria-label%3D%22Status%22" },
+    { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "contains", "value": "assets/inline-svg-" },
+    { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "contains", "value": ".svg" },
+    { "path": "assets.0.mime_type", "assert": "equals", "value": "image/svg+xml" },
+    { "path": "assets.0.content", "assert": "contains", "value": "aria-label=\"Status\"" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }

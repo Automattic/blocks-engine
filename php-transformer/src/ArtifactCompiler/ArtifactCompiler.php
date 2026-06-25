@@ -35,10 +35,10 @@ final class ArtifactCompiler
         $entryPath = is_array($entry) ? (string) $entry['path'] : '';
         $html = is_array($entry) ? (string) $entry['content'] : '';
         $referenceReports = $this->referenceReports($normalized['files']);
-        $assets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references']);
         $components = $this->detectComponents($normalized['files'], $entryPath, $documents['components']);
         $blockTypes = $this->detectBlockTypes($normalized['files'], $diagnostics);
         $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files']);
+        $assets = array_merge($this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references']), $entryBlocks['assets']);
         $diagnostics = array_merge($diagnostics, $entryBlocks['diagnostics']);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
@@ -126,7 +126,7 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>}
      */
     private function compileEntryBlocks(string $html, string $entryPath, array $files): array
     {
@@ -137,12 +137,13 @@ final class ArtifactCompiler
             'serialized_blocks' => $result['serialized_blocks'],
             'diagnostics'       => $this->entryTransformDiagnostics($result['diagnostics']),
             'fallbacks'         => $result['fallbacks'],
+            'assets'            => $result['assets'],
         );
     }
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>}
      */
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope): array
     {
@@ -152,6 +153,7 @@ final class ArtifactCompiler
                 'serialized_blocks' => $html,
                 'diagnostics'       => array(),
                 'fallbacks'         => array(),
+                'assets'            => array(),
             );
         }
 
@@ -161,6 +163,7 @@ final class ArtifactCompiler
                 'serialized_blocks' => '',
                 'diagnostics'       => array(),
                 'fallbacks'         => array(),
+                'assets'            => array(),
             );
         }
 
@@ -177,6 +180,7 @@ final class ArtifactCompiler
             'serialized_blocks' => (string) ($result['serialized_blocks'] ?? ''),
             'diagnostics'       => is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array(),
             'fallbacks'         => is_array($result['fallbacks'] ?? null) ? $result['fallbacks'] : array(),
+            'assets'            => is_array($result['assets'] ?? null) ? $result['assets'] : array(),
         );
     }
 
@@ -401,7 +405,7 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $blockTypes
      * @return array<string, mixed>
      */
-    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array $assets, array $blockTypes, string $serializedBlocks): array
+    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks): array
     {
         $pages = array();
         foreach ( $artifact['files'] as $file ) {
@@ -414,8 +418,13 @@ final class ArtifactCompiler
             $slug = $this->slugFromPath($path);
             $content = (string) ($file['content'] ?? '');
             $compiledBlocks = $path === $entryPath
-                ? array('serialized_blocks' => $serializedBlocks)
+                ? array('serialized_blocks' => $serializedBlocks, 'assets' => array())
                 : $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document');
+            foreach ( $compiledBlocks['assets'] ?? array() as $generatedAsset ) {
+                if ( is_array($generatedAsset) ) {
+                    $assets[] = $generatedAsset;
+                }
+            }
             $blockMarkup = (string) ($compiledBlocks['serialized_blocks'] ?? '');
             if ( '' === $blockMarkup && '' !== trim($content) ) {
                 $blockMarkup = $this->htmlDocumentBlockMarkup($content);
