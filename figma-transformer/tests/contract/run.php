@@ -210,9 +210,8 @@ $assert('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"></svg>' === f
 $assert(str_contains((string) file_get_contents($cliOutputRoot . '/artifact/style.css'), 'background-image:url("assets/cli-image.svg")'), 'cli-output-dir-preserves-asset-reference');
 $assert(str_contains($html, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-0.5 -0.5 11 11"'), 'html-vector-blob-svg');
 $assert(str_contains($html, 'd="M 0 0 L 10 0 L 10 10 Z"'), 'html-vector-blob-path');
-$assert(str_contains($css, 'body{margin:0;overflow-x:auto}'), 'css-static-page-body-shell');
-$assert(str_contains($css, '.figma-root{position:relative;width:max-content;min-width:100%;overflow-x:visible}'), 'css-static-page-root-shell');
-$assert(! str_contains($css, 'overflow-x:hidden'), 'css-static-page-allows-horizontal-scroll');
+$assert(str_contains($css, 'body{margin:0;overflow-x:hidden}'), 'css-static-page-body-shell');
+$assert(str_contains($css, '.figma-root{position:relative;width:100%;max-width:100%;overflow-x:hidden}'), 'css-static-page-root-shell');
 $assert(! str_contains($css, 'order:'), 'css-avoids-source-order');
 $assert(! str_contains($css, 'font-family:Inter') && ! str_contains($css, 'body{margin:0;background') && ! str_contains($css, 'body{margin:0;color'), 'css-avoids-hardcoded-theme-style');
 
@@ -283,6 +282,69 @@ $cleanQualityResult = blocks_engine_figma_transformer_transform_scenegraph(array
 ));
 $assert(array() === $artifactQualitySignalCodes($cleanQualityResult), 'quality-diagnostics-clean-page-no-signals');
 $assert('clean' === ($cleanQualityResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['status'] ?? null), 'quality-diagnostics-clean-page-status');
+
+$offsetPageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'     => 'Offset Board Fixture',
+    'document' => array(
+        'id'       => 'doc:1',
+        'type'     => 'DOCUMENT',
+        'name'     => 'Document',
+        'children' => array(
+            array(
+                'id'       => 'canvas:1',
+                'type'     => 'CANVAS',
+                'name'     => 'Page 1',
+                'children' => array(
+                    array(
+                        'id'                  => 'frame:selected',
+                        'type'                => 'FRAME',
+                        'name'                => 'Selected Website Page',
+                        'absoluteBoundingBox' => array('x' => 3497, 'y' => 212, 'width' => 1440, 'height' => 900),
+                        'children'            => array(
+                            array(
+                                'id'                  => 'frame:selected-card',
+                                'type'                => 'FRAME',
+                                'name'                => 'Hero Card',
+                                'absoluteBoundingBox' => array('x' => 3537, 'y' => 252, 'width' => 320, 'height' => 160),
+                                'layoutPositioning'   => 'ABSOLUTE',
+                                'children'            => array(
+                                    array(
+                                        'id'                  => 'text:selected-title',
+                                        'type'                => 'TEXT',
+                                        'name'                => 'Hero title',
+                                        'text'                => 'Selected page content',
+                                        'fontSize'            => 32,
+                                        'absoluteBoundingBox' => array('x' => 3561, 'y' => 280, 'width' => 220, 'height' => 44),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                    array(
+                        'id'                  => 'frame:off-canvas-one',
+                        'type'                => 'FRAME',
+                        'name'                => 'Off Canvas One',
+                        'absoluteBoundingBox' => array('x' => 4680, 'y' => 212, 'width' => 1440, 'height' => 900),
+                    ),
+                    array(
+                        'id'                  => 'frame:off-canvas-two',
+                        'type'                => 'FRAME',
+                        'name'                => 'Off Canvas Two',
+                        'absoluteBoundingBox' => array('x' => -2200, 'y' => 212, 'width' => 1440, 'height' => 900),
+                    ),
+                ),
+            ),
+        ),
+    ),
+), array('frame_id' => 'frame:selected'));
+$offsetPageHtml = $fileContent($offsetPageResult, 'index.html');
+$offsetPageCss = $fileContent($offsetPageResult, 'style.css');
+$assert('success' === ($offsetPageResult['status'] ?? null), 'offset-page-transform-success');
+$assert(str_contains($offsetPageHtml, 'Selected page content'), 'offset-page-selected-content-rendered');
+$assert(! str_contains($offsetPageHtml, 'Off Canvas One') && ! str_contains($offsetPageHtml, 'Off Canvas Two'), 'offset-page-off-canvas-siblings-omitted');
+$assert(str_contains($offsetPageCss, '.figma-node-frame-selected-selected-website-page{width:100%;max-width:1440px;height:900px;position:relative}'), 'offset-page-root-responsive-width');
+$assert(str_contains($offsetPageCss, '.figma-node-frame-selected-card-hero-card{width:320px;height:160px;position:absolute;left:40px;top:40px}'), 'offset-page-child-rebased-position');
+$assert(! str_contains($offsetPageCss, 'left:3497px') && ! str_contains($offsetPageCss, 'left:3537px') && ! str_contains($offsetPageCss, 'left:4680px'), 'offset-page-avoids-board-left-values');
 
 $decorativeUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Decorative Underlay Fixture',

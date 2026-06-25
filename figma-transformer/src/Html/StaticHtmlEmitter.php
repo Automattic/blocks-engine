@@ -56,8 +56,8 @@ final class StaticHtmlEmitter
         $cssRules = array(
             'html{box-sizing:border-box}',
             '*,*::before,*::after{box-sizing:inherit}',
-            'body{margin:0;overflow-x:auto}',
-            '.figma-root{position:relative;width:max-content;min-width:100%;overflow-x:visible}',
+            'body{margin:0;overflow-x:hidden}',
+            '.figma-root{position:relative;width:100%;max-width:100%;overflow-x:hidden}',
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
             'img{display:block;max-width:100%;height:auto}',
             '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
@@ -161,8 +161,8 @@ final class StaticHtmlEmitter
         $cssRules = array(
             'html{box-sizing:border-box}',
             '*,*::before,*::after{box-sizing:inherit}',
-            'body{margin:0;overflow-x:auto}',
-            '.figma-root{position:relative;width:max-content;min-width:100%;overflow-x:visible}',
+            'body{margin:0;overflow-x:hidden}',
+            '.figma-root{position:relative;width:100%;max-width:100%;overflow-x:hidden}',
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
             'img{display:block;max-width:100%;height:auto}',
             '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
@@ -1239,6 +1239,12 @@ final class StaticHtmlEmitter
             } elseif ( 'FILL' === $sizing ) {
                 $styles[] = $dimension . ':100%';
             } elseif ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
+                if ( true === ($node['_selected_frame_root'] ?? false) && null === $parentNode && 'width' === $dimension ) {
+                    $styles[] = 'width:100%';
+                    $styles[] = 'max-width:' . $this->number((float) $box[$dimension]) . 'px';
+                    continue;
+                }
+
                 $property = null === $parentNode && 'height' === $dimension && 'flex' === ($layout['display'] ?? null) ? 'min-height' : $dimension;
                 $styles[] = $property . ':' . $this->number((float) $box[$dimension]) . 'px';
             }

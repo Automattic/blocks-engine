@@ -36,8 +36,9 @@ final class ScenegraphNormalizer
         $topLevelIds = $index['top_level_node_ids'];
         $frameIds    = $this->selectTopLevelFrameIds($topLevelIds, $nodeMap);
 
+        $explicitSelectedFrameId = isset($options['frame_id']) && is_scalar($options['frame_id']) && isset($nodeMap[(string) $options['frame_id']]);
         $selectedFrameId = null;
-        if ( isset($options['frame_id']) && is_scalar($options['frame_id']) && isset($nodeMap[(string) $options['frame_id']]) ) {
+        if ( $explicitSelectedFrameId ) {
             $selectedFrameId = (string) $options['frame_id'];
         } elseif ( ! empty($frameIds) ) {
             $selectedFrameId = $frameIds[0];
@@ -52,7 +53,11 @@ final class ScenegraphNormalizer
         $renderNodes = array();
         foreach ( $renderIds as $id ) {
             if ( isset($nodeMap[$id]) ) {
-                $renderNodes[] = $this->refreshResolvedTree($nodeMap[$id], $nodeMap);
+                $node = $this->refreshResolvedTree($nodeMap[$id], $nodeMap);
+                if ( $explicitSelectedFrameId && $id === $selectedFrameId ) {
+                    $node = $this->rebaseSelectedFrameToOrigin($node);
+                }
+                $renderNodes[] = $node;
             }
         }
 
@@ -567,6 +572,72 @@ final class ScenegraphNormalizer
             $node['children'][$index] = $this->refreshResolvedTree($child, $nodeMap, $trail);
         }
 
+        return $node;
+    }
+
+    /**
+     * Treat an explicitly selected page frame as the emitted document origin instead of preserving Figma canvas offsets.
+     *
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function rebaseSelectedFrameToOrigin(array $node): array
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $originX = isset($box['x']) && is_numeric($box['x']) ? (float) $box['x'] : 0.0;
+        $originY = isset($box['y']) && is_numeric($box['y']) ? (float) $box['y'] : 0.0;
+        $node['_selected_frame_root'] = true;
+
+        return $this->rebaseNodeCoordinates($node, $originX, $originY, true);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function rebaseNodeCoordinates(array $node, float $originX, float $originY, bool $isRoot = false): array
+    {
+        $node = $this->rebaseNodeBox($node, 'box', $originX, $originY, $isRoot);
+        $node = $this->rebaseNodeBox($node, 'figma_box', $originX, $originY, $isRoot);
+
+        foreach ( array('children', 'nodes') as $childrenKey ) {
+            if ( ! is_array($node[$childrenKey] ?? null) ) {
+                continue;
+            }
+
+            foreach ( $node[$childrenKey] as $index => $child ) {
+                if ( is_array($child) ) {
+                    $node[$childrenKey][$index] = $this->rebaseNodeCoordinates($child, $originX, $originY);
+                }
+            }
+        }
+
+        return $node;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function rebaseNodeBox(array $node, string $boxKey, float $originX, float $originY, bool $isRoot): array
+    {
+        if ( ! is_array($node[$boxKey] ?? null) ) {
+            return $node;
+        }
+
+        $box = $node[$boxKey];
+        $coordinateSpace = (string) ($box['coordinate_space'] ?? 'absolute');
+        if ( $isRoot || 'absolute' === $coordinateSpace ) {
+            if ( isset($box['x']) && is_numeric($box['x']) ) {
+                $box['x'] = $isRoot ? 0.0 : (float) $box['x'] - $originX;
+            }
+            if ( isset($box['y']) && is_numeric($box['y']) ) {
+                $box['y'] = $isRoot ? 0.0 : (float) $box['y'] - $originY;
+            }
+            $box['coordinate_space'] = 'local';
+        }
+
+        $node[$boxKey] = $box;
         return $node;
     }
 
