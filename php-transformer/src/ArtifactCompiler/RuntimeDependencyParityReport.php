@@ -194,6 +194,30 @@ final class RuntimeDependencyParityReport
             }
         }
 
+        if ( preg_match_all('/\b(?!document\b)[A-Za-z_$][A-Za-z0-9_$]*\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
+            foreach ( $matches[2] as $selector ) {
+                $selector = (string) $selector;
+                $dependencies[] = array(
+                    'kind'       => str_starts_with($selector, '#') ? 'id' : 'class',
+                    'selector'   => $selector,
+                    'events'     => $eventsBySelector[$selector] ?? array(),
+                    'canvas_api' => $canvasApi,
+                );
+            }
+        }
+
+        if ( preg_match_all('/\.\s*closest\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
+            foreach ( $matches[2] as $selector ) {
+                $selector = (string) $selector;
+                $dependencies[] = array(
+                    'kind'       => str_starts_with($selector, '#') ? 'id' : 'class',
+                    'selector'   => $selector,
+                    'events'     => $eventsBySelector[$selector] ?? array(),
+                    'canvas_api' => $canvasApi,
+                );
+            }
+        }
+
         return $this->dedupeDependencies($dependencies);
     }
 

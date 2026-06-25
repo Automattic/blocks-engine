@@ -19,12 +19,12 @@
         {
           "path": "index.html",
           "kind": "html",
-          "content": "<main><section class=\"reveal\"><h2>Reveal</h2></section><header><nav class=\"primary-nav\"><a href=\"/\">Home</a></nav><div class=\"mobile-nav-overlay\"><div class=\"mobile-nav\"><nav class=\"drawer-nav\"><a href=\"/\">Home</a></nav></div></div></header><div class=\"faq-item\"><h3>Question</h3><p>Answer</p></div><div class=\"filter-bar\"><button class=\"filter-btn\">All</button><div class=\"filter-chips\"><span>Popular</span></div></div><div class=\"search-shell\"><input id=\"note-search\" class=\"search-input\" type=\"search\" placeholder=\"Search notes\"></div><form class=\"filters\"><select class=\"js-sort-select\"><option>Newest</option></select><input class=\"js-filter-check\" type=\"checkbox\" name=\"available\"></form><section id=\"contact-form\"><h2>Contact</h2></section><div id=\"form-success\"></div><script src=\"js/app.js\"></script></main>"
+          "content": "<main><section class=\"reveal\"><h2>Reveal</h2></section><header><div class=\"menu-shell\"><nav class=\"primary-nav\"><a href=\"/\">Home</a></nav></div><div class=\"mobile-nav-overlay\"><div class=\"mobile-nav\"><nav class=\"drawer-nav\"><a href=\"/\">Home</a></nav></div></div></header><div class=\"faq-item\"><h3>Question</h3><p>Answer</p></div><div class=\"filter-bar\"><div class=\"button-shell\"><button class=\"filter-btn\">All</button></div><div class=\"filter-chips\"><span>Popular</span></div></div><div class=\"search-shell\"><input id=\"note-search\" class=\"search-input\" type=\"search\" placeholder=\"Search notes\"></div><form class=\"filters\"><select class=\"js-sort-select\"><option>Newest</option></select><input class=\"js-filter-check\" type=\"checkbox\" name=\"available\"></form><section id=\"contact-form\"><h2>Contact</h2></section><div id=\"form-success\"></div><script src=\"js/app.js\"></script></main>"
         },
         {
           "path": "js/app.js",
           "kind": "js",
-          "content": "document.querySelectorAll('.reveal'); document.querySelector('.mobile-nav-overlay'); document.querySelector('.mobile-nav'); document.querySelector('.faq-item'); document.querySelector('.filter-btn').addEventListener('click', function () {}); document.querySelector('.filter-bar'); document.querySelector('.filter-chips'); document.getElementById('note-search'); document.querySelector('.search-input'); document.querySelector('.js-sort-select'); document.querySelector('.js-filter-check'); document.getElementById('contact-form'); document.getElementById('form-success');"
+          "content": "document.querySelectorAll('.reveal'); const menuShell = document.querySelector('.menu-shell'); menuShell.querySelector('.primary-nav'); document.querySelector('.mobile-nav-overlay'); document.querySelector('.mobile-nav'); document.querySelector('.faq-item'); document.querySelector('.filter-btn').addEventListener('click', function () {}); document.querySelector('.filter-btn').closest('.button-shell'); document.querySelector('.filter-bar'); document.querySelector('.filter-chips'); document.getElementById('note-search'); document.querySelector('.search-input'); document.querySelector('.js-sort-select'); document.querySelector('.js-filter-check'); document.getElementById('contact-form'); document.getElementById('form-success');"
         }
       ]
     }
@@ -32,12 +32,15 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success_with_warnings" },
     { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
-    { "path": "source_reports.runtime_dependency_parity.dependencies", "assert": "count", "count": 13 },
+    { "path": "source_reports.runtime_dependency_parity.dependencies", "assert": "count", "count": 16 },
     { "path": "serialized_blocks", "assert": "contains", "value": "reveal" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "menu-shell" },
     { "path": "serialized_blocks", "assert": "contains", "value": "mobile-nav-overlay" },
     { "path": "serialized_blocks", "assert": "contains", "value": "mobile-nav" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "primary-nav" },
     { "path": "serialized_blocks", "assert": "contains", "value": "faq-item" },
     { "path": "serialized_blocks", "assert": "contains", "value": "filter-btn" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "button-shell" },
     { "path": "serialized_blocks", "assert": "contains", "value": "filter-bar" },
     { "path": "serialized_blocks", "assert": "contains", "value": "filter-chips" },
     { "path": "serialized_blocks", "assert": "contains", "value": "note-search" },
