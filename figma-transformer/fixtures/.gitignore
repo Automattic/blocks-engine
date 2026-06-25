@@ -1,0 +1,4 @@
+# Local/private Figma fixtures can be large and may contain unreleased designs.
+*
+!.gitignore
+!README.md

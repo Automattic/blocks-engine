@@ -955,7 +955,7 @@ final class ScenegraphNormalizer
 
             $id = (string) ($child['id'] ?? '');
             $hasOverride = false;
-            $overrideFields = $overrides[$id] ?? array();
+            $overrideFields = $this->instanceOverrideFieldsForChild($child, $overrides);
             foreach ( $overrideFields as $field => $value ) {
                 $hasOverride = true;
                 $child[$field] = $value;
@@ -975,6 +975,55 @@ final class ScenegraphNormalizer
         }
 
         return $children;
+    }
+
+    /**
+     * @param array<string, mixed> $child
+     * @param array<string, array<string, mixed>> $overrides
+     * @return array<string, mixed>
+     */
+    private function instanceOverrideFieldsForChild(array $child, array $overrides): array
+    {
+        $fields = array();
+        foreach ( $this->instanceChildOverrideAliases($child) as $alias ) {
+            if ( isset($overrides[$alias]) && is_array($overrides[$alias]) ) {
+                $fields = array_merge($fields, $overrides[$alias]);
+            }
+
+            foreach ( $overrides as $target => $overrideFields ) {
+                if ( ! is_string($target) || ! is_array($overrideFields) || ! str_contains($target, '/') ) {
+                    continue;
+                }
+
+                $parts = explode('/', $target);
+                if ( $alias === end($parts) ) {
+                    $fields = array_merge($fields, $overrideFields);
+                }
+            }
+        }
+
+        return $fields;
+    }
+
+    /**
+     * @param array<string, mixed> $child
+     * @return array<int, string>
+     */
+    private function instanceChildOverrideAliases(array $child): array
+    {
+        $aliases = array();
+        foreach ( array('id', 'figma_component_source_id') as $key ) {
+            if ( isset($child[$key]) && is_scalar($child[$key]) && '' !== (string) $child[$key] ) {
+                $aliases[] = (string) $child[$key];
+            }
+        }
+
+        $guidId = $this->readGuidId($child['guid'] ?? null);
+        if ( null !== $guidId ) {
+            $aliases[] = $guidId;
+        }
+
+        return array_values(array_unique($aliases));
     }
 
     /**
@@ -1090,6 +1139,14 @@ final class ScenegraphNormalizer
             $text['style'] = $style;
         }
 
+        if ( isset($text['characters']) && is_scalar($text['characters']) ) {
+            $iconFallback = $this->fontAwesomeIconNameFallback((string) $text['characters'], $style);
+            if ( null !== $iconFallback ) {
+                $text['icon_name'] = (string) $text['characters'];
+                $text['characters'] = $iconFallback;
+            }
+        }
+
         $derivedLayout = $this->normalizeDerivedTextLayout($node, $blobs, $nodeId, $diagnostics);
         if ( ! empty($derivedLayout) ) {
             $text['derived_layout'] = $derivedLayout;
@@ -1101,6 +1158,31 @@ final class ScenegraphNormalizer
         }
 
         return $text;
+    }
+
+    /**
+     * @param array<string, mixed> $style
+     */
+    private function fontAwesomeIconNameFallback(string $characters, array $style): ?string
+    {
+        $fontFamily = strtolower((string) ($style['font_family'] ?? ''));
+        $postscript = strtolower((string) ($style['font_postscript_name'] ?? ''));
+        if ( ! str_contains($fontFamily, 'font awesome') && ! str_contains($postscript, 'fontawesome') ) {
+            return null;
+        }
+
+        return match ( strtolower(trim($characters)) ) {
+            'sparkle', 'sparkles' => '✦',
+            'circle-check', 'check-circle' => '✓',
+            'circle', 'circle-small' => '●',
+            'arrow-right' => '→',
+            'arrow-left' => '←',
+            'arrow-up' => '↑',
+            'arrow-down' => '↓',
+            'chevron-right' => '›',
+            'chevron-left' => '‹',
+            default => null,
+        };
     }
 
     /**

@@ -687,25 +687,97 @@ final class StaticHtmlEmitter
         $vectors['placeholder_nodes'] = array_values($vectors['placeholder_nodes']);
         $layout['decorative_underlays']['nodes'] = array_values($layout['decorative_underlays']['nodes']);
         $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
+        $generatedSvgAssets = $this->generatedSvgAssetDiagnostics($assetFiles);
+        $assets = array(
+            'emitted_files' => count($assetFiles),
+            'paths'         => array_values(array_map(static fn (array $file): string => (string) ($file['path'] ?? ''), $assetFiles)),
+        );
+        $fonts = array(
+            'families'      => $fontFamilies,
+            'count'         => count($fontFamilies),
+            'css_supplied'  => '' !== $fontCss,
+            'materialized'  => '' !== $fontCss,
+            'missing_css'   => '' === $fontCss ? array_values(array_filter($fontFamilies, fn (string $family): bool => ! $this->isWebSafeFontFamily($family))) : array(),
+        );
 
         return array(
             'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
             'images' => $image,
             'vectors' => $vectors,
-            'fonts' => array(
-                'families'      => $fontFamilies,
-                'count'         => count($fontFamilies),
-                'css_supplied'  => '' !== $fontCss,
-                'materialized'  => '' !== $fontCss,
-                'missing_css'   => '' === $fontCss ? array_values(array_filter($fontFamilies, fn (string $family): bool => ! $this->isWebSafeFontFamily($family))) : array(),
-            ),
-            'assets' => array(
-                'emitted_files' => count($assetFiles),
-                'paths'         => array_values(array_map(static fn (array $file): string => (string) ($file['path'] ?? ''), $assetFiles)),
-            ),
-            'generated_svg_assets' => $this->generatedSvgAssetDiagnostics($assetFiles),
+            'fonts' => $fonts,
+            'assets' => $assets,
+            'generated_svg_assets' => $generatedSvgAssets,
             'layout' => $layout,
+            'artifact_quality' => $this->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout),
             'diagnostic_codes' => $this->diagnosticCodeCounts($diagnostics),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $image
+     * @param array<string, mixed> $vectors
+     * @param array<string, mixed> $fonts
+     * @param array<string, mixed> $assets
+     * @param array<string, mixed> $generatedSvgAssets
+     * @param array<string, mixed> $layout
+     * @return array<string, mixed>
+     */
+    private function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout): array
+    {
+        $signals = array();
+
+        if ( ! empty($image['missing_assets']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'missing_render_assets',
+                'count' => count($image['missing_assets']),
+            );
+        }
+        if ( ! empty($vectors['placeholders']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'vector_placeholders',
+                'count' => (int) $vectors['placeholders'],
+            );
+        }
+        if ( ! empty($fonts['missing_css']) ) {
+            $signals[] = array(
+                'severity' => 'info',
+                'code' => 'font_css_missing',
+                'count' => count($fonts['missing_css']),
+            );
+        }
+        if ( ! empty($layout['large_negative_left_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'off_canvas_left_css',
+                'count' => (int) $layout['large_negative_left_count'],
+            );
+        }
+        if ( (int) ($generatedSvgAssets['bytes'] ?? 0) > 1048576 ) {
+            $signals[] = array(
+                'severity' => 'info',
+                'code' => 'large_generated_svg_assets',
+                'count' => (int) ($generatedSvgAssets['count'] ?? 0),
+                'bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
+            );
+        }
+
+        $warningCount = count(array_filter($signals, static fn (array $signal): bool => 'warning' === ($signal['severity'] ?? null)));
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/artifact-quality/v1',
+            'status' => $warningCount > 0 ? 'needs_review' : (empty($signals) ? 'clean' : 'info'),
+            'signals' => $signals,
+            'summary' => array(
+                'missing_asset_nodes' => count($image['missing_assets'] ?? array()),
+                'vector_placeholders' => (int) ($vectors['placeholders'] ?? 0),
+                'missing_font_css' => count($fonts['missing_css'] ?? array()),
+                'emitted_asset_files' => (int) ($assets['emitted_files'] ?? 0),
+                'generated_svg_count' => (int) ($generatedSvgAssets['count'] ?? 0),
+                'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
+                'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
+            ),
         );
     }
 
@@ -1538,10 +1610,34 @@ final class StaticHtmlEmitter
         }
 
         if ( isset($text['characters']) && is_scalar($text['characters']) ) {
-            return $this->sanitizeText($this->derivedLineBreakText((string) $text['characters'], $text));
+            $characters = (string) $text['characters'];
+            if ( $this->isUnresolvedComponentPlaceholderText($node, $characters) ) {
+                return '';
+            }
+
+            return $this->sanitizeText($this->derivedLineBreakText($characters, $text));
         }
 
-        return $this->sanitizeText((string) ($node['characters'] ?? $node['text'] ?? ''));
+        $characters = (string) ($node['characters'] ?? $node['text'] ?? '');
+        if ( $this->isUnresolvedComponentPlaceholderText($node, $characters) ) {
+            return '';
+        }
+
+        return $this->sanitizeText($characters);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isUnresolvedComponentPlaceholderText(array $node, string $characters): bool
+    {
+        $placeholder = strtolower(trim($characters));
+        if ( ! in_array($placeholder, array('button label'), true) ) {
+            return false;
+        }
+
+        $id = (string) ($node['id'] ?? '');
+        return str_contains($id, '/') || isset($node['figma_component_source_id']);
     }
 
     /**

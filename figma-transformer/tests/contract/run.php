@@ -2327,6 +2327,93 @@ $assert(array() === ($resolvedInstanceReport['unresolved_component_references'] 
 $assert(str_contains($resolvedInstanceHtml, 'data-figma-node-id="instance:button"'), 'resolved-instance-preserves-instance-id');
 $assert(str_contains($resolvedInstanceHtml, 'Buy now'), 'resolved-instance-applies-text-override');
 
+$guidOverrideInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'GUID Override Instance Fixture',
+    'nodes' => array(
+        array(
+            'guid'     => array('sessionID' => 47, 'localID' => 25),
+            'type'     => 'COMPONENT',
+            'name'     => 'Menu item component',
+            'children' => array(
+                array(
+                    'guid'       => array('sessionID' => 180, 'localID' => 6416),
+                    'type'       => 'TEXT',
+                    'name'       => 'Menu label',
+                    'characters' => 'Default menu label',
+                ),
+            ),
+        ),
+        array(
+            'id'         => 'instance:menu-item',
+            'type'       => 'INSTANCE',
+            'name'       => 'NewMenuItem',
+            'symbolData' => array(
+                'symbolID' => array('sessionID' => 47, 'localID' => 25),
+                'symbolOverrides' => array(
+                    array(
+                        'guidPath' => array('guids' => array(array('sessionID' => 180, 'localID' => 6416))),
+                        'textData' => array('characters' => 'Learn'),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$guidOverrideInstanceHtml = $fileContent($guidOverrideInstanceResult, 'index.html');
+$assert(str_contains($guidOverrideInstanceHtml, 'Learn'), 'guid-override-instance-applies-text');
+$assert(str_contains($guidOverrideInstanceHtml, 'data-figma-node-id="instance:menu-item/180:6416"') && str_contains($guidOverrideInstanceHtml, '>Learn<'), 'guid-override-instance-replaces-default-text');
+
+$fontAwesomeIconNameResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Font Awesome Icon Name Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'text:sparkles',
+            'type'     => 'TEXT',
+            'name'     => 'sparkles',
+            'textData' => array('characters' => 'sparkles'),
+            'fontName' => array('family' => 'Font Awesome 7 Pro', 'style' => 'Solid', 'postscript' => 'FontAwesome7Pro-Solid'),
+        ),
+        array(
+            'id'       => 'text:circle-check',
+            'type'     => 'TEXT',
+            'name'     => 'circle-check',
+            'textData' => array('characters' => 'circle-check'),
+            'fontName' => array('family' => 'Font Awesome 7 Pro', 'style' => 'Regular', 'postscript' => 'FontAwesome7Pro-Regular'),
+        ),
+    ),
+));
+$fontAwesomeIconNameHtml = $fileContent($fontAwesomeIconNameResult, 'index.html');
+$assert(str_contains($fontAwesomeIconNameHtml, '✦') && ! str_contains($fontAwesomeIconNameHtml, '>sparkles<'), 'font-awesome-sparkles-name-fallback');
+$assert(str_contains($fontAwesomeIconNameHtml, '✓') && ! str_contains($fontAwesomeIconNameHtml, '>circle-check<'), 'font-awesome-circle-check-name-fallback');
+
+$componentPlaceholderTextResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Component Placeholder Text Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'component:placeholder-button',
+            'type'     => 'COMPONENT',
+            'name'     => 'Placeholder button component',
+            'key'      => 'placeholder-button-key',
+            'children' => array(
+                array(
+                    'id'         => 'component:placeholder-button-label',
+                    'type'       => 'TEXT',
+                    'name'       => 'Button label',
+                    'characters' => 'Button label',
+                ),
+            ),
+        ),
+        array(
+            'id'          => 'instance:placeholder-button',
+            'type'        => 'INSTANCE',
+            'name'        => 'Button-color',
+            'componentId' => 'placeholder-button-key',
+        ),
+    ),
+), array('frame_id' => 'instance:placeholder-button'));
+$componentPlaceholderTextHtml = $fileContent($componentPlaceholderTextResult, 'index.html');
+$assert(str_contains($componentPlaceholderTextHtml, 'data-figma-node-id="instance:placeholder-button/component:placeholder-button-label" data-figma-node-name="Button label"></p>'), 'component-placeholder-button-label-hidden');
+
 $unresolvedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Unresolved Component Instance Fixture',
     'nodes' => array(
