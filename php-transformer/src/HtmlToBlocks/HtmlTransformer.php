@@ -3508,7 +3508,7 @@ final class HtmlTransformer
             return true;
         }
 
-        return 'button' === $tagName || ( 'input' === $tagName && in_array($this->formControlType($control), array( 'checkbox', 'email', 'number', 'radio', 'search', 'submit', 'tel', 'text', 'url' ), true) );
+        return 'button' === $tagName || ( 'input' === $tagName && in_array($this->formControlType($control), array( 'checkbox', 'email', 'number', 'radio', 'range', 'search', 'submit', 'tel', 'text', 'url' ), true) );
     }
 
     private function readableFormControlText(DOMElement $control): string
@@ -3548,6 +3548,22 @@ final class HtmlTransformer
             }
             if ( array() !== $selected ) {
                 $details[] = 'selected: ' . implode(', ', $selected);
+            }
+        } elseif ( 'range' === $type ) {
+            $value = trim($this->attr($control, 'value'));
+            if ( '' !== $value ) {
+                $details[] = $value;
+            }
+
+            $bounds = array();
+            foreach ( array( 'min', 'max', 'step' ) as $attribute ) {
+                $value = trim($this->attr($control, $attribute));
+                if ( '' !== $value ) {
+                    $bounds[] = $attribute . ' ' . $value;
+                }
+            }
+            if ( array() !== $bounds ) {
+                $details[] = implode(', ', $bounds);
             }
         } else {
             foreach ( array( 'value', 'placeholder' ) as $attribute ) {
