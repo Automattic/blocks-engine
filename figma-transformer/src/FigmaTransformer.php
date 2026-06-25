@@ -671,6 +671,18 @@ final class FigmaTransformer
 
         $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
         ksort($diagnosticCodes);
+        $fonts = array(
+            'families' => $fontFamilies,
+            'count' => count($fontFamilies),
+            'css_supplied' => $fontCssSupplied,
+            'materialized' => $fontMaterialized,
+            'missing_css' => $missingCss,
+        );
+        $assets = array(
+            'emitted_files' => count($assetReport),
+            'paths' => array_values(array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $assetReport)),
+        );
+        $generatedSvgAssets = $this->generatedSvgAssetsFromReport($assetReport);
 
         return array(
             'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
@@ -678,20 +690,64 @@ final class FigmaTransformer
             'pages' => $pages,
             'images' => $images,
             'vectors' => $vectors,
-            'fonts' => array(
-                'families' => $fontFamilies,
-                'count' => count($fontFamilies),
-                'css_supplied' => $fontCssSupplied,
-                'materialized' => $fontMaterialized,
-                'missing_css' => $missingCss,
-            ),
-            'assets' => array(
-                'emitted_files' => count($assetReport),
-                'paths' => array_values(array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $assetReport)),
-            ),
-            'generated_svg_assets' => $this->generatedSvgAssetsFromReport($assetReport),
+            'fonts' => $fonts,
+            'assets' => $assets,
+            'generated_svg_assets' => $generatedSvgAssets,
             'layout' => $layout,
+            'artifact_quality' => $this->artifactQualityDiagnostics($images, $vectors, $fonts, $assets, $generatedSvgAssets, $layout),
             'diagnostic_codes' => $diagnosticCodes,
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $images
+     * @param array<string, mixed> $vectors
+     * @param array<string, mixed> $fonts
+     * @param array<string, mixed> $assets
+     * @param array<string, mixed> $generatedSvgAssets
+     * @param array<string, mixed> $layout
+     * @return array<string, mixed>
+     */
+    private function artifactQualityDiagnostics(array $images, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout): array
+    {
+        $signals = array();
+
+        if ( ! empty($images['missing_assets']) ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'missing_render_assets', 'count' => count($images['missing_assets']));
+        }
+        if ( ! empty($vectors['placeholders']) ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'vector_placeholders', 'count' => (int) $vectors['placeholders']);
+        }
+        if ( ! empty($fonts['missing_css']) ) {
+            $signals[] = array('severity' => 'info', 'code' => 'font_css_missing', 'count' => count($fonts['missing_css']));
+        }
+        if ( ! empty($layout['large_negative_left_count']) ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'off_canvas_left_css', 'count' => (int) $layout['large_negative_left_count']);
+        }
+        if ( (int) ($generatedSvgAssets['bytes'] ?? 0) > 1048576 ) {
+            $signals[] = array(
+                'severity' => 'info',
+                'code' => 'large_generated_svg_assets',
+                'count' => (int) ($generatedSvgAssets['count'] ?? 0),
+                'bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
+            );
+        }
+
+        $warningCount = count(array_filter($signals, static fn (array $signal): bool => 'warning' === ($signal['severity'] ?? null)));
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/artifact-quality/v1',
+            'status' => $warningCount > 0 ? 'needs_review' : (empty($signals) ? 'clean' : 'info'),
+            'signals' => $signals,
+            'summary' => array(
+                'missing_asset_nodes' => count($images['missing_assets'] ?? array()),
+                'vector_placeholders' => (int) ($vectors['placeholders'] ?? 0),
+                'missing_font_css' => count($fonts['missing_css'] ?? array()),
+                'emitted_asset_files' => (int) ($assets['emitted_files'] ?? 0),
+                'generated_svg_count' => (int) ($generatedSvgAssets['count'] ?? 0),
+                'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
+                'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
+            ),
         );
     }
 

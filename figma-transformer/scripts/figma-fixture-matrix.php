@@ -12,7 +12,7 @@ $outputDir = $options['output_dir'] ?? ($defaultOutputRoot . '/figma-transformer
 $zstdCommand = $options['zstd_command'] ?? (getenv('FIGMA_TRANSFORMER_ZSTD_COMMAND') ?: matrix_default_zstd_command());
 $maxNodes = (int) ($options['max_nodes'] ?? 5000);
 $maxPages = (int) ($options['max_pages'] ?? 3);
-$inspectLimit = (int) ($options['inspect_limit'] ?? 40);
+$inspectLimit = (int) ($options['inspect_limit'] ?? 100);
 $dryRun = true === ($options['dry_run'] ?? false);
 $inspectOnly = true === ($options['inspect_only'] ?? false);
 $only = isset($options['only']) ? array_filter(array_map('trim', explode(',', (string) $options['only']))) : array();
@@ -138,6 +138,7 @@ foreach ( $fixtures as $fixture ) {
                 $record['diagnostic_codes'] = $diagnostics['diagnostic_codes'] ?? array();
                 $record['vector_placeholders'] = $diagnostics['vectors']['placeholders'] ?? null;
                 $record['generated_svg_assets'] = $diagnostics['generated_svg_assets'] ?? null;
+                $record['artifact_quality'] = $diagnostics['artifact_quality'] ?? null;
             }
         }
     }
@@ -324,6 +325,8 @@ function matrix_select_frame_ids(array $inspection, int $maxPages): array
     usort($candidates, static fn (mixed $a, mixed $b): int => matrix_candidate_rank(is_array($b) ? $b : array()) <=> matrix_candidate_rank(is_array($a) ? $a : array()));
 
     $selected = array();
+    $selectedBuckets = array();
+    $deferred = array();
     foreach ( $candidates as $candidate ) {
         if ( count($selected) >= $maxPages || ! is_array($candidate) ) {
             break;
@@ -334,7 +337,25 @@ function matrix_select_frame_ids(array $inspection, int $maxPages): array
             continue;
         }
 
+        $bucket = matrix_candidate_bucket($candidate);
+        if ( isset($selectedBuckets[$bucket]) ) {
+            $deferred[] = $candidate;
+            continue;
+        }
+
         $selected[] = $id;
+        $selectedBuckets[$bucket] = true;
+    }
+
+    foreach ( $deferred as $candidate ) {
+        if ( count($selected) >= $maxPages || ! is_array($candidate) ) {
+            break;
+        }
+
+        $id = isset($candidate['id']) && is_scalar($candidate['id']) ? (string) $candidate['id'] : '';
+        if ( '' !== $id && ! in_array($id, $selected, true) ) {
+            $selected[] = $id;
+        }
     }
 
     if ( empty($selected) ) {
@@ -349,6 +370,41 @@ function matrix_select_frame_ids(array $inspection, int $maxPages): array
             }
         }
     }
+
+    return matrix_order_selected_frame_ids($selected, $candidates);
+}
+
+/**
+ * @param array<int, string> $selected
+ * @param array<int, mixed>  $candidates
+ * @return array<int, string>
+ */
+function matrix_order_selected_frame_ids(array $selected, array $candidates): array
+{
+    $byId = array();
+    $positions = array();
+    foreach ( $selected as $index => $id ) {
+        $positions[$id] = $index;
+    }
+
+    foreach ( $candidates as $candidate ) {
+        if ( is_array($candidate) && isset($candidate['id']) && is_scalar($candidate['id']) ) {
+            $byId[(string) $candidate['id']] = $candidate;
+        }
+    }
+
+    usort(
+        $selected,
+        static function (string $left, string $right) use ($byId, $positions): int {
+            $leftBucket = isset($byId[$left]) ? matrix_candidate_bucket($byId[$left]) : '';
+            $rightBucket = isset($byId[$right]) ? matrix_candidate_bucket($byId[$right]) : '';
+            if ( 'homepage' === $leftBucket || 'homepage' === $rightBucket ) {
+                return ('homepage' === $leftBucket ? 0 : 1) <=> ('homepage' === $rightBucket ? 0 : 1);
+            }
+
+            return ((int) ($positions[$left] ?? 0)) <=> ((int) ($positions[$right] ?? 0));
+        }
+    );
 
     return $selected;
 }
@@ -374,6 +430,8 @@ function matrix_selected_frame_records(array $inspection, array $frameIds): arra
             'height' => $candidate['height'] ?? null,
             'score' => $candidate['score'] ?? null,
             'rank' => matrix_candidate_rank($candidate),
+            'bucket' => matrix_candidate_bucket($candidate),
+            'selection_reasons' => matrix_candidate_selection_reasons($candidate),
         );
     }
 
@@ -388,19 +446,107 @@ function matrix_candidate_rank(array $candidate): int
     $score = isset($candidate['score']) && is_numeric($candidate['score']) ? (int) $candidate['score'] : 0;
     $name = strtolower((string) ($candidate['name'] ?? ''));
     $pageName = strtolower((string) ($candidate['page']['name'] ?? ''));
+    $type = strtoupper((string) ($candidate['type'] ?? ''));
     $parentType = strtoupper((string) ($candidate['parent']['type'] ?? ''));
 
+    if ( 'FRAME' === $type ) {
+        $score += 160;
+    } elseif ( in_array($type, array('COMPONENT', 'INSTANCE'), true) ) {
+        $score -= 400;
+    }
     if ( in_array($parentType, array('CANVAS', 'SECTION'), true) ) {
         $score += 100;
     }
-    if ( 1 === preg_match('/\b(home|homepage|desktop|page|website|landing|lp|archive|single|blog|theme|build)\b/', $name . ' ' . $pageName) ) {
+    if ( 1 === preg_match('/\b(home|homepage|desktop|page|website|landing|lp|archive|single|blog|theme|build|hosts?|agenc(?:y|ies)|pricing|features?|about|contact)\b/', $name . ' ' . $pageName) ) {
         $score += 200;
     }
-    if ( 1 === preg_match('/\b(style tile|template|preview|core blocks|component|footer|header|menu)\b/', $name) ) {
+    if ( 1 === preg_match('/\b(website comps?|pages?|screens?|final|production|dev handoff)\b/', $pageName) ) {
+        $score += 240;
+    }
+    if ( 1 === preg_match('/\b(for hosts?|for agenc(?:y|ies)|pricing|features?|about|contact)\b/', $name) ) {
+        $score += 160;
+    }
+    if ( 1 === preg_match('/\blp\s*i\s*([0-9]+)\b/', $name, $nameMatches) && 1 === preg_match('/\bi\s*([0-9]+)\b/', $pageName, $pageMatches) && $nameMatches[1] !== $pageMatches[1] ) {
+        $score -= 90;
+    }
+    if ( 1 === preg_match('/\b(style guide|style tile|template|preview|core blocks|component|footer|header|menu)\b/', $name) ) {
         $score -= 250;
+    }
+    if ( 1 === preg_match('/\b(playground|presentation|addit?ional links?|graphics|imageries|exploration|scratch|old|deprecated|archive copy|copy\b|wip)\b/', $name . ' ' . $pageName) ) {
+        $score -= 320;
     }
 
     return $score;
+}
+
+/**
+ * @param array<string, mixed> $candidate
+ */
+function matrix_candidate_bucket(array $candidate): string
+{
+    $name = strtolower((string) ($candidate['name'] ?? ''));
+    $pageName = strtolower((string) ($candidate['page']['name'] ?? ''));
+    $haystack = $name . ' ' . $pageName;
+
+    if ( 1 === preg_match('/\blp\s*i\s*([0-9]+)\b/', $haystack, $matches) ) {
+        return 'landing:i' . $matches[1];
+    }
+    if ( 1 === preg_match('/\blp\b.*\bnew\b/', $haystack) ) {
+        return 'landing:new';
+    }
+    if ( 1 === preg_match('/\bi\s*([0-9]+)\b/', $pageName, $matches) && 1 === preg_match('/\blp\b/', $name) ) {
+        return 'landing:i' . $matches[1];
+    }
+
+    foreach ( array(
+        'homepage' => '/\b(home|homepage)\b/',
+        'hosts' => '/\bhosts?\b/',
+        'agencies' => '/\bagenc(?:y|ies)\b/',
+        'pricing' => '/\bpricing\b/',
+        'features' => '/\bfeatures?\b/',
+        'about' => '/\babout\b/',
+        'contact' => '/\bcontact\b/',
+        'archive' => '/\barchive\b/',
+        'single' => '/\b(single|post page)\b/',
+        'theme' => '/\b(theme|build)\b/',
+        'landing' => '/\b(landing|lp)\b/',
+    ) as $bucket => $pattern ) {
+        if ( 1 === preg_match($pattern, $haystack) ) {
+            return $bucket;
+        }
+    }
+
+    $normalized = preg_replace('/\b(desktop|mobile|tablet|copy|wip|new|old|v\d+|i\d+)\b/', '', $name) ?? $name;
+    $normalized = trim(preg_replace('/[^a-z0-9]+/', '-', $normalized) ?? '');
+    return '' !== $normalized ? 'frame:' . $normalized : 'generic';
+}
+
+/**
+ * @param array<string, mixed> $candidate
+ * @return array<int, string>
+ */
+function matrix_candidate_selection_reasons(array $candidate): array
+{
+    $reasons = array();
+    $name = strtolower((string) ($candidate['name'] ?? ''));
+    $pageName = strtolower((string) ($candidate['page']['name'] ?? ''));
+    $type = strtoupper((string) ($candidate['type'] ?? ''));
+    $parentType = strtoupper((string) ($candidate['parent']['type'] ?? ''));
+
+    if ( 'FRAME' === $type ) {
+        $reasons[] = 'transformable_frame';
+    }
+    if ( in_array($parentType, array('CANVAS', 'SECTION'), true) ) {
+        $reasons[] = 'top_level_candidate';
+    }
+    if ( 1 === preg_match('/\b(home|homepage|website|landing|lp|archive|single|blog|theme|build|hosts?|agenc(?:y|ies)|pricing|features?|about|contact)\b/', $name . ' ' . $pageName) ) {
+        $reasons[] = 'page_like_name';
+    }
+    if ( 1 === preg_match('/\b(website comps?|pages?|screens?|final|production|dev handoff)\b/', $pageName) ) {
+        $reasons[] = 'page_collection';
+    }
+
+    return $reasons;
 }
 
 /**
@@ -410,15 +556,19 @@ function matrix_is_page_like_candidate(array $candidate): bool
 {
     $name = strtolower((string) ($candidate['name'] ?? ''));
     $pageName = strtolower((string) ($candidate['page']['name'] ?? ''));
+    $type = strtoupper((string) ($candidate['type'] ?? ''));
     $width = isset($candidate['width']) && is_numeric($candidate['width']) ? (float) $candidate['width'] : 0.0;
     $height = isset($candidate['height']) && is_numeric($candidate['height']) ? (float) $candidate['height'] : 0.0;
     $textCount = isset($candidate['text_count']) && is_numeric($candidate['text_count']) ? (int) $candidate['text_count'] : 0;
     $parentType = strtoupper((string) ($candidate['parent']['type'] ?? ''));
 
-    if ( 1 === preg_match('/\b(style tile|template|preview|core blocks|component|footer|header|menu)\b/', $name) ) {
+    if ( 'FRAME' !== $type ) {
         return false;
     }
-    if ( 1 === preg_match('/\b(style tile|style tiles|presentation|template|templates|components)\b/', $pageName) ) {
+    if ( 1 === preg_match('/\b(style guide|style tile|template|preview|core blocks|component|footer|header|menu)\b/', $name) ) {
+        return false;
+    }
+    if ( 1 === preg_match('/\b(style guide|style tile|style tiles|presentation|template|templates|components)\b/', $pageName) ) {
         return false;
     }
 
