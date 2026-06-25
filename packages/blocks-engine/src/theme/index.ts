@@ -1,6 +1,13 @@
 export { assemble } from './assemble.js';
 export { assets } from './assets.js';
 export { buildChromePart } from './chrome-parts.js';
+export {
+  buildCarriedHeaderPart,
+  buildFooterPart,
+  buildHeaderPart,
+  findChromeMounts,
+  mountPartMarkup,
+} from './chrome-parts-builders.js';
 export { chrome } from './chrome.js';
 export {
   assignChromeVariants,
@@ -56,6 +63,17 @@ export { writeTheme } from './write-theme.js';
 export type * from './assets-static.js';
 export type * from './assets.js';
 export type { ChromeResult } from './chrome.js';
+export type {
+  CarriedHeaderPartOpts,
+  ChromeMount,
+  ChromeMounts,
+  ChromePartConverter,
+  ChromePartSection,
+  FooterPartOpts,
+  HeaderPartOpts,
+  NavLink,
+  StickyBehavior,
+} from './chrome-parts-builders.js';
 export type { ChromeSlugs } from './chrome-signature.js';
 export type { RegionSplit } from './chrome-split.js';
 export type {
