@@ -8,7 +8,9 @@ use Automattic\BlocksEngine\FigmaTransformer\Contract\FigmaTransformResult;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader;
 use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
+use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameInspector;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
+use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphPagePlanner;
 
 /**
  * Public Figma transformation entrypoint.
@@ -19,8 +21,61 @@ final class FigmaTransformer
         private readonly FigArchiveReader $archiveReader = new FigArchiveReader(),
         private readonly StaticHtmlEmitter $htmlEmitter = new StaticHtmlEmitter(),
         private readonly ParityReportBuilder $parityReportBuilder = new ParityReportBuilder(),
-        private readonly ScenegraphNormalizer $scenegraphNormalizer = new ScenegraphNormalizer()
+        private readonly ScenegraphNormalizer $scenegraphNormalizer = new ScenegraphNormalizer(),
+        private readonly ScenegraphFrameInspector $frameInspector = new ScenegraphFrameInspector(),
+        private readonly ScenegraphPagePlanner $pagePlanner = new ScenegraphPagePlanner()
     ) {
+    }
+
+    /**
+     * Inspect frame/page candidates in a .fig file or .fig wrapper archive.
+     *
+     * @param array<string, mixed> $options Inspection options.
+     * @return array<string, mixed>
+     */
+    public function inspectFramesFile(string $path, array $options = array()): array
+    {
+        $archive = $this->archiveReader->read($path, $options);
+        $scenegraphCandidate = $this->decodedScenegraphCandidate($archive);
+        if ( null === $scenegraphCandidate ) {
+            return array(
+                'schema'      => 'blocks-engine/figma-transformer/frame-inspection/v1',
+                'status'      => $this->fallbackStatus($archive),
+                'input'       => $archive['input'] ?? array(),
+                'node_count'  => 0,
+                'candidate_count' => 0,
+                'returned_count' => 0,
+                'candidates'  => array(),
+                'diagnostics' => array_merge(
+                    is_array($archive['diagnostics'] ?? null) ? $archive['diagnostics'] : array(),
+                    array(
+                        array(
+                            'severity' => 'warning',
+                            'code'     => 'figma_transformer_decoded_scenegraph_missing',
+                            'message'  => 'No decoded NODE_CHANGES, document, or nodes payload was available for frame inspection.',
+                            'source'   => 'FigmaTransformer',
+                        ),
+                    )
+                ),
+            );
+        }
+
+        $report = $this->inspectFramesScenegraph($scenegraphCandidate['payload'], $options);
+        $report['status'] = empty($archive['diagnostics']) ? 'success' : 'success_with_warnings';
+        $report['input'] = $archive['input'] ?? array();
+        $report['decoded_scenegraph'] = $scenegraphCandidate['report'];
+        $report['diagnostics'] = array_merge(is_array($archive['diagnostics'] ?? null) ? $archive['diagnostics'] : array(), is_array($report['diagnostics'] ?? null) ? $report['diagnostics'] : array());
+        return $report;
+    }
+
+    /**
+     * @param array<string, mixed> $scenegraph Decoded scenegraph.
+     * @param array<string, mixed> $options Inspection options.
+     * @return array<string, mixed>
+     */
+    public function inspectFramesScenegraph(array $scenegraph, array $options = array()): array
+    {
+        return $this->frameInspector->inspect($scenegraph, $options);
     }
 
     /**
@@ -31,7 +86,7 @@ final class FigmaTransformer
     public function transformFile(string $path, array $options = array()): FigmaTransformResult
     {
         $startedAt = microtime(true);
-        $archive   = $this->archiveReader->read($path);
+        $archive   = $this->archiveReader->read($path, $options);
 
         $diagnostics = $archive['diagnostics'];
         $sourceReports = array(
@@ -63,18 +118,25 @@ final class FigmaTransformer
                 $scenegraphStatus = 'success_with_warnings';
             }
 
-            $scenegraphSourceReports = $scenegraphResult['source_reports']['figma'] ?? array();
+            $scenegraphSourceReports = is_array($scenegraphResult['source_reports'] ?? null) ? $scenegraphResult['source_reports'] : array();
+            $scenegraphFigmaSourceReports = is_array($scenegraphSourceReports['figma'] ?? null) ? $scenegraphSourceReports['figma'] : array();
+            unset($scenegraphSourceReports['figma']);
+            $mergedSourceReports = array_merge(
+                array(
+                    'figma' => array_merge(
+                        array_merge($sourceReports['figma'], array('decoded_scenegraph' => $scenegraphCandidate['report'])),
+                        $scenegraphFigmaSourceReports
+                    ),
+                ),
+                $scenegraphSourceReports
+            );
+
             return FigmaTransformResult::create(
                 $scenegraphStatus,
                 array_merge($diagnostics, $scenegraphResult['diagnostics'] ?? array()),
                 $scenegraphResult['files'] ?? array(),
                 $scenegraphResult['assets'] ?? array(),
-                array(
-                    'figma' => array_merge(
-                        array_merge($sourceReports['figma'], array('decoded_scenegraph' => $scenegraphCandidate['report'])),
-                        is_array($scenegraphSourceReports) ? $scenegraphSourceReports : array()
-                    ),
-                ),
+                $mergedSourceReports,
                 $scenegraphResult['parity'] ?? $parity,
                 array_merge(
                     $metrics,
@@ -330,6 +392,10 @@ final class FigmaTransformer
      */
     public function transformScenegraph(array $scenegraph, array $options = array()): FigmaTransformResult
     {
+        if ( $this->isMultiPageTransform($options) ) {
+            return $this->transformScenegraphPages($scenegraph, $options);
+        }
+
         $startedAt = microtime(true);
         $normalized = $this->scenegraphNormalizer->normalize($scenegraph, $options);
         $artifact    = $this->htmlEmitter->emit($normalized, $options);
@@ -361,6 +427,418 @@ final class FigmaTransformer
     }
 
     /**
+     * @param array<string, mixed> $options
+     */
+    private function isMultiPageTransform(array $options): bool
+    {
+        return true === ($options['multi_page'] ?? false)
+            || true === ($options['include_all_pages'] ?? false)
+            || ! empty($options['frame_ids'])
+            || ! empty($options['max_pages']);
+    }
+
+    /**
+     * @param array<string, mixed> $scenegraph
+     * @param array<string, mixed> $options
+     */
+    private function transformScenegraphPages(array $scenegraph, array $options = array()): FigmaTransformResult
+    {
+        $startedAt = microtime(true);
+        $pagePlan = $this->pagePlanner->plan($scenegraph, $options);
+        $diagnostics = is_array($pagePlan['diagnostics'] ?? null) ? $pagePlan['diagnostics'] : array();
+        $pages = is_array($pagePlan['pages'] ?? null) ? $pagePlan['pages'] : array();
+        $files = array();
+        $assetsByPath = array();
+        $cssChunks = array();
+        $pageReports = array();
+        $fontFamilies = array();
+        $fontUsage = array();
+        $fontCssSupplied = false;
+        $nodeCount = 0;
+        $textNodeCount = 0;
+        $assetReferenceCount = 0;
+
+        foreach ( $pages as $page ) {
+            if ( ! is_array($page) ) {
+                continue;
+            }
+
+            $frameId = isset($page['frame_id']) && is_scalar($page['frame_id']) ? (string) $page['frame_id'] : '';
+            if ( '' === $frameId ) {
+                continue;
+            }
+
+            $pageOptions = $options;
+            $pageOptions['frame_id'] = $frameId;
+            unset($pageOptions['multi_page'], $pageOptions['include_all_pages'], $pageOptions['frame_ids'], $pageOptions['entry_frame_id'], $pageOptions['max_pages'], $pageOptions['frame_slug_map']);
+            $pageResult = $this->transformScenegraph($scenegraph, $pageOptions)->toArray();
+            $pageDiagnostics = is_array($pageResult['diagnostics'] ?? null) ? $pageResult['diagnostics'] : array();
+            $diagnostics = array_merge($diagnostics, $pageDiagnostics);
+            $nodeCount += (int) ($pageResult['metrics']['node_count'] ?? 0);
+            $textNodeCount += (int) ($pageResult['metrics']['text_node_count'] ?? 0);
+            $assetReferenceCount += (int) ($pageResult['metrics']['asset_reference_count'] ?? 0);
+            $pageHtmlReport = is_array($pageResult['source_reports']['figma']['html'] ?? null) ? $pageResult['source_reports']['figma']['html'] : array();
+            $pageFontFamilies = is_array($pageHtmlReport['font_families'] ?? null) ? $pageHtmlReport['font_families'] : array();
+            $pageFontUsage = is_array($pageHtmlReport['font_usage'] ?? null) ? $pageHtmlReport['font_usage'] : array();
+            $pageTransformDiagnostics = is_array($pageHtmlReport['transform_diagnostics'] ?? null) ? $pageHtmlReport['transform_diagnostics'] : array();
+            $fontFamilies = $this->mergeFontFamilies($fontFamilies, $pageFontFamilies);
+            $fontUsage = $this->mergeFontUsage($fontUsage, $pageFontUsage);
+            $fontCssSupplied = $fontCssSupplied || true === ($pageHtmlReport['font_css_supplied'] ?? false);
+
+            $html = $this->fileContent($pageResult['files'] ?? array(), 'index.html');
+            $css = $this->fileContent($pageResult['files'] ?? array(), 'style.css');
+            if ( '' !== $css ) {
+                $cssChunks[] = $css;
+            }
+
+            $path = isset($page['path']) && is_scalar($page['path']) && '' !== (string) $page['path'] ? (string) $page['path'] : ((true === ($page['entrypoint'] ?? false)) ? 'index.html' : (string) ($page['slug'] ?? $frameId) . '.html');
+            if ( '' !== $html ) {
+                $files[] = array(
+                    'path'      => $path,
+                    'role'      => true === ($page['entrypoint'] ?? false) ? 'entrypoint' : 'document',
+                    'mime_type' => 'text/html',
+                    'content'   => $html,
+                );
+            }
+
+            foreach ( is_array($pageResult['files'] ?? null) ? $pageResult['files'] : array() as $file ) {
+                if ( ! is_array($file) || ! isset($file['path']) || ! is_scalar($file['path']) ) {
+                    continue;
+                }
+                $assetPath = (string) $file['path'];
+                if ( ! str_starts_with($assetPath, 'assets/') ) {
+                    continue;
+                }
+                $assetsByPath[$assetPath] = $file;
+            }
+
+            $pageReports[] = array(
+                'frame_id'   => $frameId,
+                'name'       => (string) ($page['name'] ?? $frameId),
+                'slug'       => (string) ($page['slug'] ?? ''),
+                'path'       => $path,
+                'entrypoint' => true === ($page['entrypoint'] ?? false),
+                'node_count' => (int) ($pageResult['metrics']['node_count'] ?? 0),
+                'text_node_count' => (int) ($pageResult['metrics']['text_node_count'] ?? 0),
+                'asset_reference_count' => (int) ($pageResult['metrics']['asset_reference_count'] ?? 0),
+                'font_families' => $pageFontFamilies,
+                'font_usage' => $pageFontUsage,
+                'font_css_supplied' => true === ($pageHtmlReport['font_css_supplied'] ?? false),
+                'transform_diagnostics' => $pageTransformDiagnostics,
+                'diagnostic_codes' => $this->diagnosticCodeCounts($pageDiagnostics),
+            );
+        }
+
+        $css = $this->mergeCssChunks($cssChunks);
+        if ( '' !== $css ) {
+            $files[] = array(
+                'path'      => 'style.css',
+                'role'      => 'stylesheet',
+                'mime_type' => 'text/css',
+                'content'   => $css,
+            );
+        }
+
+        foreach ( $assetsByPath as $assetFile ) {
+            $files[] = $assetFile;
+        }
+
+        $assetReport = $this->assetReportFromFiles(array_values($assetsByPath));
+        $transformDiagnostics = $this->mergePageTransformDiagnostics($pageReports, $assetReport);
+        $parity = $this->parityReportBuilder->build($options['parity'] ?? array());
+        $artifact = array(
+            'files' => $files,
+            'assets' => $assetReport,
+            'source_report' => array(
+                'pages' => $pageReports,
+                'page_plan' => $pagePlan,
+                'font_families' => $fontFamilies,
+                'font_usage' => $fontUsage,
+                'font_css_supplied' => $fontCssSupplied,
+                'transform_diagnostics' => $transformDiagnostics,
+            ),
+            'metrics' => array(
+                'asset_count' => count($assetReport),
+                'file_count' => count($files),
+            ),
+        );
+
+        return FigmaTransformResult::create(
+            empty($diagnostics) ? 'success' : 'success_with_warnings',
+            $diagnostics,
+            $files,
+            $assetReport,
+            array(
+                'figma' => array(
+                    'pages' => $pagePlan,
+                    'html'  => $artifact['source_report'],
+                ),
+                'compiled_site' => $this->compiledSiteSourceReport($artifact),
+            ),
+            $parity,
+            array(
+                'node_count'             => $nodeCount,
+                'text_node_count'        => $textNodeCount,
+                'asset_reference_count'  => $assetReferenceCount,
+                'asset_count'            => count($assetReport),
+                'file_count'             => count($files),
+                'page_count'             => count($pageReports),
+                'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
+            )
+        );
+    }
+
+    /**
+     * @param mixed $files
+     */
+    private function fileContent(mixed $files, string $path): string
+    {
+        foreach ( is_array($files) ? $files : array() as $file ) {
+            if ( is_array($file) && $path === ($file['path'] ?? null) ) {
+                return isset($file['content']) && is_scalar($file['content']) ? (string) $file['content'] : '';
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $pageReports
+     * @param array<int, array<string, mixed>> $assetReport
+     * @return array<string, mixed>
+     */
+    private function mergePageTransformDiagnostics(array $pageReports, array $assetReport): array
+    {
+        $images = array('paint_refs' => 0, 'node_refs' => 0, 'resolved_assets' => 0, 'missing_assets' => array());
+        $vectors = array('nodes' => 0, 'rendered_paths' => 0, 'rendered_asset_fallbacks' => 0, 'placeholders' => 0, 'placeholder_nodes' => array());
+        $layout = array('large_negative_left_count' => 0, 'decorative_underlays' => array('count' => 0, 'nodes' => array()));
+        $fontFamilies = array();
+        $missingCss = array();
+        $fontCssSupplied = false;
+        $fontMaterialized = false;
+        $diagnosticCodes = array();
+        $pages = array();
+
+        foreach ( $pageReports as $page ) {
+            $diagnostics = is_array($page['transform_diagnostics'] ?? null) ? $page['transform_diagnostics'] : array();
+            $pageContext = array(
+                'frame_id' => (string) ($page['frame_id'] ?? ''),
+                'page_path' => (string) ($page['path'] ?? ''),
+                'page_name' => (string) ($page['name'] ?? ''),
+            );
+            $pages[] = array_merge($pageContext, array('transform_diagnostics' => $diagnostics));
+
+            $pageImages = is_array($diagnostics['images'] ?? null) ? $diagnostics['images'] : array();
+            foreach ( array('paint_refs', 'node_refs', 'resolved_assets') as $key ) {
+                $images[$key] += (int) ($pageImages[$key] ?? 0);
+            }
+            foreach ( is_array($pageImages['missing_assets'] ?? null) ? $pageImages['missing_assets'] : array() as $item ) {
+                if ( is_array($item) ) {
+                    $images['missing_assets'][] = array_merge($pageContext, $item);
+                }
+            }
+
+            $pageVectors = is_array($diagnostics['vectors'] ?? null) ? $diagnostics['vectors'] : array();
+            foreach ( array('nodes', 'rendered_paths', 'rendered_asset_fallbacks', 'placeholders') as $key ) {
+                $vectors[$key] += (int) ($pageVectors[$key] ?? 0);
+            }
+            foreach ( is_array($pageVectors['placeholder_nodes'] ?? null) ? $pageVectors['placeholder_nodes'] : array() as $item ) {
+                if ( is_array($item) ) {
+                    $vectors['placeholder_nodes'][] = array_merge($pageContext, $item);
+                }
+            }
+
+            $pageFonts = is_array($diagnostics['fonts'] ?? null) ? $diagnostics['fonts'] : array();
+            $fontFamilies = $this->mergeFontFamilies($fontFamilies, is_array($pageFonts['families'] ?? null) ? $pageFonts['families'] : array());
+            $missingCss = $this->mergeFontFamilies($missingCss, is_array($pageFonts['missing_css'] ?? null) ? $pageFonts['missing_css'] : array());
+            $fontCssSupplied = $fontCssSupplied || true === ($pageFonts['css_supplied'] ?? false);
+            $fontMaterialized = $fontMaterialized || true === ($pageFonts['materialized'] ?? false);
+
+            $pageLayout = is_array($diagnostics['layout'] ?? null) ? $diagnostics['layout'] : array();
+            $layout['large_negative_left_count'] += (int) ($pageLayout['large_negative_left_count'] ?? 0);
+            $underlays = is_array($pageLayout['decorative_underlays']['nodes'] ?? null) ? $pageLayout['decorative_underlays']['nodes'] : array();
+            foreach ( $underlays as $item ) {
+                if ( is_array($item) ) {
+                    $layout['decorative_underlays']['nodes'][] = array_merge($pageContext, $item);
+                }
+            }
+
+            $pageDiagnosticCodes = is_array($page['diagnostic_codes'] ?? null) ? $page['diagnostic_codes'] : (is_array($diagnostics['diagnostic_codes'] ?? null) ? $diagnostics['diagnostic_codes'] : array());
+            foreach ( $pageDiagnosticCodes as $code => $count ) {
+                $diagnosticCodes[(string) $code] = ($diagnosticCodes[(string) $code] ?? 0) + (int) $count;
+            }
+        }
+
+        $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
+        ksort($diagnosticCodes);
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
+            'scope' => 'multi_page',
+            'pages' => $pages,
+            'images' => $images,
+            'vectors' => $vectors,
+            'fonts' => array(
+                'families' => $fontFamilies,
+                'count' => count($fontFamilies),
+                'css_supplied' => $fontCssSupplied,
+                'materialized' => $fontMaterialized,
+                'missing_css' => $missingCss,
+            ),
+            'assets' => array(
+                'emitted_files' => count($assetReport),
+                'paths' => array_values(array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $assetReport)),
+            ),
+            'generated_svg_assets' => $this->generatedSvgAssetsFromReport($assetReport),
+            'layout' => $layout,
+            'diagnostic_codes' => $diagnosticCodes,
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assetReport
+     * @return array<string, mixed>
+     */
+    private function generatedSvgAssetsFromReport(array $assetReport): array
+    {
+        $assets = array_values(array_filter(
+            $assetReport,
+            static fn (array $asset): bool => 'image/svg+xml' === ($asset['mime_type'] ?? null) && str_starts_with((string) ($asset['id'] ?? ''), 'generated-vector-')
+        ));
+        usort($assets, static fn (array $a, array $b): int => ((int) ($b['bytes'] ?? 0) <=> (int) ($a['bytes'] ?? 0)) ?: strcmp((string) ($a['path'] ?? ''), (string) ($b['path'] ?? '')));
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/generated-svg-assets/v1',
+            'count' => count($assets),
+            'bytes' => array_sum(array_map(static fn (array $asset): int => (int) ($asset['bytes'] ?? 0), $assets)),
+            'paths' => array_values(array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $assets)),
+            'largest_assets' => array_slice($assets, 0, 10),
+            'assets' => $assets,
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, int>
+     */
+    private function diagnosticCodeCounts(array $diagnostics): array
+    {
+        $counts = array();
+        foreach ( $diagnostics as $diagnostic ) {
+            if ( ! is_array($diagnostic) || ! isset($diagnostic['code']) || ! is_scalar($diagnostic['code']) ) {
+                continue;
+            }
+
+            $code = (string) $diagnostic['code'];
+            $counts[$code] = ($counts[$code] ?? 0) + 1;
+        }
+
+        ksort($counts);
+        return $counts;
+    }
+
+    /**
+     * @param array<int, string> $chunks
+     */
+    private function mergeCssChunks(array $chunks): string
+    {
+        $rules = array();
+        foreach ( $chunks as $chunk ) {
+            foreach ( explode("\n", $chunk) as $line ) {
+                $line = trim($line);
+                if ( '' !== $line ) {
+                    $rules[$line] = true;
+                }
+            }
+        }
+
+        return implode("\n", array_keys($rules)) . (empty($rules) ? '' : "\n");
+    }
+
+    /**
+     * @param array<int, mixed> ...$familySets
+     * @return array<int, string>
+     */
+    private function mergeFontFamilies(array ...$familySets): array
+    {
+        $families = array();
+        foreach ( $familySets as $familySet ) {
+            foreach ( $familySet as $family ) {
+                if ( is_scalar($family) && '' !== (string) $family ) {
+                    $families[(string) $family] = true;
+                }
+            }
+        }
+
+        $merged = array_keys($families);
+        sort($merged, SORT_NATURAL | SORT_FLAG_CASE);
+        return $merged;
+    }
+
+    /**
+     * @param array<int, mixed> ...$usageSets
+     * @return array<int, array{family: string, weights: array<int, int>}>
+     */
+    private function mergeFontUsage(array ...$usageSets): array
+    {
+        $usage = array();
+        foreach ( $usageSets as $usageSet ) {
+            foreach ( $usageSet as $item ) {
+                if ( ! is_array($item) ) {
+                    continue;
+                }
+
+                $family = isset($item['family']) && is_scalar($item['family']) ? (string) $item['family'] : '';
+                if ( '' === $family ) {
+                    continue;
+                }
+
+                if ( ! isset($usage[$family]) ) {
+                    $usage[$family] = array();
+                }
+
+                $weights = is_array($item['weights'] ?? null) ? $item['weights'] : array($item['weight'] ?? 400);
+                foreach ( $weights as $weight ) {
+                    if ( is_numeric($weight) ) {
+                        $usage[$family][(int) $weight] = true;
+                    }
+                }
+            }
+        }
+
+        ksort($usage, SORT_NATURAL | SORT_FLAG_CASE);
+        $merged = array();
+        foreach ( $usage as $family => $weights ) {
+            $weightValues = array_keys($weights);
+            sort($weightValues, SORT_NUMERIC);
+            $merged[] = array('family' => $family, 'weights' => $weightValues);
+        }
+
+        return $merged;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function assetReportFromFiles(array $files): array
+    {
+        $assets = array();
+        foreach ( $files as $file ) {
+            $content = isset($file['content']) && is_scalar($file['content']) ? (string) $file['content'] : '';
+            $assets[] = array(
+                'id'        => (string) ($file['source_id'] ?? ''),
+                'path'      => (string) ($file['path'] ?? ''),
+                'mime_type' => (string) ($file['mime_type'] ?? 'application/octet-stream'),
+                'bytes'     => strlen($content),
+                'hash'      => hash('sha256', $content),
+            );
+        }
+
+        return $assets;
+    }
+
+    /**
      * Project Figma's static artifact into the generic compiled-site metadata contract.
      *
      * @param array<string, mixed> $artifact Static HTML emitter result.
@@ -374,6 +852,13 @@ final class FigmaTransformer
         return array_filter(array(
             'schema'     => 'blocks-engine/figma-transformer/compiled-site/v1',
             'entry_path' => 'index.html',
+            'pages'      => is_array($htmlReport['pages'] ?? null) ? $htmlReport['pages'] : array(),
+            'assets'     => is_array($artifact['assets'] ?? null) ? $artifact['assets'] : array(),
+            'totals'     => array_filter(array(
+                'page_count'  => is_array($htmlReport['pages'] ?? null) ? count($htmlReport['pages']) : 0,
+                'asset_count' => is_array($artifact['assets'] ?? null) ? count($artifact['assets']) : 0,
+                'file_count'  => is_array($artifact['files'] ?? null) ? count($artifact['files']) : 0,
+            ), static fn (mixed $value): bool => 0 !== $value),
             'theme'      => array_filter(array(
                 'font_usage' => $fontUsage,
             ), static fn (mixed $value): bool => array() !== $value && '' !== $value),

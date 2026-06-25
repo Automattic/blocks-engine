@@ -19,7 +19,7 @@ final class FigArchiveReader
     /**
      * @return array<string, mixed>
      */
-    public function read(string $path): array
+    public function read(string $path, array $options = array()): array
     {
         if ( ! is_readable($path) ) {
             return $this->errorResult($path, 'figma_transformer_unreadable_file', 'Figma file is not readable.');
@@ -63,15 +63,15 @@ final class FigArchiveReader
             }
 
             file_put_contents($tmp, $stream);
-            $result = $this->read($tmp);
+            $result = $this->read($tmp, $options);
             @unlink($tmp);
             $result['input'] = $input + array('nested_fig' => $figEntry);
             return $result;
         }
 
         $meta = $this->readMeta($zip);
-        $assets = $this->assetManifest($zip);
-        $canvasResult = $this->readCanvas($zip);
+        $assets = $this->assetManifest($zip, $options);
+        $canvasResult = $this->readCanvas($zip, $options);
         $canvas = $canvasResult['canvas'];
         $zip->close();
 
@@ -139,9 +139,10 @@ final class FigArchiveReader
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function assetManifest(ZipArchive $zip): array
+    private function assetManifest(ZipArchive $zip, array $options = array()): array
     {
         $assets = array();
+        $includeContent = false !== ($options['include_asset_content'] ?? true);
         for ( $index = 0; $index < $zip->numFiles; $index++ ) {
             $name = $zip->getNameIndex($index);
             if ( false === $name || ! str_starts_with($name, 'images/') || str_ends_with($name, '/') ) {
@@ -149,18 +150,23 @@ final class FigArchiveReader
             }
 
             $stat = $zip->statIndex($index);
-            $content = $zip->getFromIndex($index);
+            $content = $includeContent ? $zip->getFromIndex($index) : $zip->getFromIndex($index, 64);
             $hash = basename($name);
             $contentString = false === $content ? '' : $content;
-            $assets[] = array(
+            $asset = array(
                 'id'        => $hash,
                 'name'      => $hash,
                 'path'      => $name,
                 'hash'      => $hash,
                 'bytes'     => is_array($stat) ? (int) ($stat['size'] ?? 0) : 0,
                 'mime_type' => $this->mimeTypeForPath($name, $contentString),
-                'content'   => $contentString,
             );
+
+            if ( $includeContent ) {
+                $asset['content'] = $contentString;
+            }
+
+            $assets[] = $asset;
         }
 
         return $assets;
@@ -199,7 +205,7 @@ final class FigArchiveReader
     /**
      * @return array{canvas: array<string, mixed>|null, diagnostics: array<int, array<string, mixed>>}
      */
-    private function readCanvas(ZipArchive $zip): array
+    private function readCanvas(ZipArchive $zip, array $options = array()): array
     {
         $raw = $zip->getFromName('canvas.fig');
         if ( false === $raw ) {
@@ -209,7 +215,7 @@ final class FigArchiveReader
             );
         }
 
-        return $this->figKiwiParser->parse($raw);
+        return $this->figKiwiParser->parse($raw, $options);
     }
 
     /**

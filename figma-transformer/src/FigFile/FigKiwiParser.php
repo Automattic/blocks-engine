@@ -18,6 +18,7 @@ final class FigKiwiParser
     private const WIRE_TYPE_LENGTH_DELIMITED = 2;
     private const WIRE_TYPE_FIXED32 = 5;
     private const WIRE_RECORD_LIMIT = 64;
+    private const DEFAULT_MAX_KIWI_MESSAGE_DECODE_BYTES = 16777216;
 
     public function __construct(
         private readonly ZstdCapability $zstdCapability = new ZstdCapability(),
@@ -28,7 +29,7 @@ final class FigKiwiParser
     /**
      * @return array{canvas: array<string, mixed>|null, diagnostics: array<int, array<string, mixed>>}
      */
-    public function parse(string $raw): array
+    public function parse(string $raw, array $options = array()): array
     {
         if ( strlen($raw) < 12 ) {
             return array(
@@ -99,7 +100,7 @@ final class FigKiwiParser
                 } else {
                     $chunk['inflated_bytes'] = strlen($inflated);
                     $chunk['inflated_preview_hex'] = bin2hex(substr($inflated, 0, 32));
-                    $chunk['payload'] = $this->classifyPayload($inflated, $kiwiSchema, $diagnostics);
+                    $chunk['payload'] = $this->classifyPayload($inflated, $kiwiSchema, $diagnostics, $options);
                 }
             } elseif ( 'zstd' === $chunk['compression'] ) {
                 $zstdResult = $this->zstdCapability->uncompress($payload, 'FigKiwiParser', $index);
@@ -107,10 +108,10 @@ final class FigKiwiParser
                 if ( null !== $zstdResult['data'] ) {
                     $chunk['inflated_bytes'] = strlen($zstdResult['data']);
                     $chunk['inflated_preview_hex'] = bin2hex(substr($zstdResult['data'], 0, 32));
-                    $chunk['payload'] = $this->classifyPayload($zstdResult['data'], $kiwiSchema, $diagnostics);
+                    $chunk['payload'] = $this->classifyPayload($zstdResult['data'], $kiwiSchema, $diagnostics, $options);
                 }
             } else {
-                $chunk['payload'] = $this->classifyPayload($payload, $kiwiSchema, $diagnostics);
+                $chunk['payload'] = $this->classifyPayload($payload, $kiwiSchema, $diagnostics, $options);
                 $diagnostics[] = $this->diagnostic('figma_transformer_kiwi_unknown_compression', 'fig-kiwi chunk compression could not be identified.', array('chunk_index' => $index));
             }
 
@@ -149,7 +150,7 @@ final class FigKiwiParser
     /**
      * @return array<string, mixed>
      */
-    private function classifyPayload(string $payload, ?array &$kiwiSchema, array &$diagnostics): array
+    private function classifyPayload(string $payload, ?array &$kiwiSchema, array &$diagnostics, array $options = array()): array
     {
         $classification = $this->looksJsonLike($payload) ? 'json_invalid' : 'binary';
         $metadata = array(
@@ -172,6 +173,38 @@ final class FigKiwiParser
                     return $metadata;
                 }
             } else {
+                $maxMessageDecodeBytes = (int) ($options['max_kiwi_message_decode_bytes'] ?? self::DEFAULT_MAX_KIWI_MESSAGE_DECODE_BYTES);
+                if ( $maxMessageDecodeBytes > 0 && strlen($payload) > $maxMessageDecodeBytes ) {
+                    $messageResult = $this->kiwiDecoder->decodeMessageSelective($payload, $kiwiSchema);
+                    $diagnostics = array_merge($diagnostics, $messageResult['diagnostics']);
+                    if ( null !== $messageResult['message'] ) {
+                        $diagnostics[] = $this->diagnostic(
+                            'figma_transformer_kiwi_message_selective_decode_used',
+                            'Kiwi message chunk exceeded the eager decode byte limit and was selectively decoded for scenegraph fields.',
+                            array(
+                                'bytes'            => strlen($payload),
+                                'max_decode_bytes' => $maxMessageDecodeBytes,
+                            )
+                        );
+                        $metadata['classification'] = 'kiwi_message';
+                        $metadata['kiwi_message'] = $messageResult['message'];
+                        $metadata['kiwi_message_decode'] = 'selective';
+                        return $metadata;
+                    }
+
+                    $diagnostics[] = $this->diagnostic(
+                        'figma_transformer_kiwi_message_decode_skipped_size',
+                        'Kiwi message chunk exceeds the configured eager decode byte limit and selective decode did not produce a message.',
+                        array(
+                            'bytes'                 => strlen($payload),
+                            'max_decode_bytes'      => $maxMessageDecodeBytes,
+                            'recommended_next_step' => 'Expand selective Kiwi decoding for production .fig scenegraph extraction.',
+                        )
+                    );
+                    $metadata['classification'] = 'kiwi_message_skipped';
+                    return $metadata;
+                }
+
                 $messageResult = $this->kiwiDecoder->decodeMessage($payload, $kiwiSchema);
                 $diagnostics = array_merge($diagnostics, $messageResult['diagnostics']);
                 if ( null !== $messageResult['message'] ) {

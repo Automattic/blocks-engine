@@ -29,30 +29,48 @@ final class ZstdCommandDecoder
             );
         }
 
+        $inputPath = tempnam(sys_get_temp_dir(), 'blocks-engine-zstd-in-');
+        $outputPath = tempnam(sys_get_temp_dir(), 'blocks-engine-zstd-out-');
+        if ( false === $inputPath || false === $outputPath ) {
+            if ( false !== $inputPath ) {
+                @unlink($inputPath);
+            }
+            if ( false !== $outputPath ) {
+                @unlink($outputPath);
+            }
+
+            return array(
+                'data'        => null,
+                'diagnostics' => array($this->diagnostic('figma_transformer_zstd_command_tempfile_failed', 'Temporary files could not be created for Zstandard command decoding.', $context)),
+            );
+        }
+
+        file_put_contents($inputPath, $payload);
+
         $descriptors = array(
-            0 => array('pipe', 'r'),
-            1 => array('pipe', 'w'),
+            0 => array('file', $inputPath, 'r'),
+            1 => array('file', $outputPath, 'w'),
             2 => array('pipe', 'w'),
         );
 
         $process = @proc_open($this->command, $descriptors, $pipes);
         if ( ! is_resource($process) ) {
+            @unlink($inputPath);
+            @unlink($outputPath);
+
             return array(
                 'data'        => null,
                 'diagnostics' => array($this->diagnostic('figma_transformer_zstd_command_open_failed', 'Configured Zstandard command could not be started.', $context)),
             );
         }
 
-        fwrite($pipes[0], $payload);
-        fclose($pipes[0]);
-
-        $decoded = stream_get_contents($pipes[1]);
-        fclose($pipes[1]);
-
         $stderr = stream_get_contents($pipes[2]);
         fclose($pipes[2]);
 
         $exitCode = proc_close($process);
+        $decoded = 0 === $exitCode && is_readable($outputPath) ? file_get_contents($outputPath) : false;
+        @unlink($inputPath);
+        @unlink($outputPath);
         if ( 0 !== $exitCode || ! is_string($decoded) ) {
             return array(
                 'data'        => null,

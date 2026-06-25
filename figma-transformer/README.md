@@ -207,6 +207,17 @@ php figma-transformer/bin/figma-transformer "$HOME/Downloads/figma-transformer-f
 php figma-transformer/bin/figma-transformer "$HOME/Downloads/figma-transformer-fixtures/source-api.json" > "$HOME/Downloads/figma-transformer-fixtures/evidence/source-api-result.json"
 ```
 
+For large production `.fig` files, keep diagnostics bounded by omitting embedded asset bytes from the JSON envelope:
+
+```sh
+php figma-transformer/bin/figma-transformer "$HOME/Downloads/figma-transformer-fixtures/source.fig" \
+  --omit-asset-content \
+  --zstd-command=/path/to/zstd \
+  > "$HOME/Downloads/figma-transformer-fixtures/evidence/source-result.json"
+```
+
+The CLI also accepts `--max-kiwi-message-decode-bytes=<bytes>` to control the eager Kiwi message decode guard. Large production messages above the limit are reported with `figma_transformer_kiwi_message_decode_skipped_size` instead of being materialized into memory. Full production scenegraph extraction should use selective Kiwi decoding rather than eager whole-message materialization.
+
 Evidence to keep with the issue or PR:
 
 - The original Figma URL and file key, not the `.fig` file.

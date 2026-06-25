@@ -89,6 +89,31 @@ final class FigKiwiDecoder
     }
 
     /**
+     * Decode only fields needed to build a static scenegraph from production Kiwi messages.
+     *
+     * @param array<string, mixed> $schema
+     * @return array{message: array<string, mixed>|null, diagnostics: array<int, array<string, mixed>>}
+     */
+    public function decodeMessageSelective(string $payload, array $schema, string $rootType = 'Message', array $fieldPolicy = array()): array
+    {
+        try {
+            $definitions = $this->definitionsByName($schema);
+            if ( ! isset($definitions[$rootType]) ) {
+                return array('message' => null, 'diagnostics' => array($this->diagnostic('figma_transformer_kiwi_message_schema_missing', 'Kiwi schema does not define the expected root message.', $rootType)));
+            }
+
+            $policy = empty($fieldPolicy) ? $this->defaultScenegraphFieldPolicy() : $fieldPolicy;
+            $message = $this->decodeDefinitionSelective(new FigKiwiByteReader($payload), $definitions[$rootType], $definitions, $policy);
+            return array('message' => is_array($message) ? $message : null, 'diagnostics' => array());
+        } catch ( \Throwable $throwable ) {
+            return array(
+                'message'     => null,
+                'diagnostics' => array($this->diagnostic('figma_transformer_kiwi_message_decode_failed', 'Kiwi message chunk could not be selectively decoded.', $throwable->getMessage())),
+            );
+        }
+    }
+
+    /**
      * @param array<string, mixed> $schema
      * @return array<string, array<string, mixed>>
      */
@@ -138,6 +163,261 @@ final class FigKiwiDecoder
         }
 
         return $result;
+    }
+
+    /**
+     * @param array<string, mixed>                $definition
+     * @param array<string, array<string, mixed>> $definitions
+     * @param array<string, array<int, string>>   $fieldPolicy
+     */
+    private function decodeDefinitionSelective(FigKiwiByteReader $reader, array $definition, array $definitions, array $fieldPolicy): array
+    {
+        $result = array();
+        $typeName = (string) ($definition['name'] ?? '');
+        $allowed = array_flip($fieldPolicy[$typeName] ?? array());
+
+        if ( 'MESSAGE' === ($definition['kind'] ?? null) ) {
+            $fieldsByValue = array();
+            foreach ( $definition['fields'] ?? array() as $field ) {
+                if ( is_array($field) ) {
+                    $fieldsByValue[(int) ($field['value'] ?? 0)] = $field;
+                }
+            }
+
+            while ( true ) {
+                $fieldValue = $reader->readVarUint();
+                if ( 0 === $fieldValue ) {
+                    return $result;
+                }
+                if ( ! isset($fieldsByValue[$fieldValue]) ) {
+                    throw new \RuntimeException('Attempted to parse invalid message field ' . $fieldValue . '.');
+                }
+
+                $field = $fieldsByValue[$fieldValue];
+                $fieldName = (string) ($field['name'] ?? '');
+                if ( isset($allowed[$fieldName]) ) {
+                    $this->decodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $result);
+                } else {
+                    $this->skipField($reader, $field, $definitions);
+                }
+            }
+        }
+
+        foreach ( $definition['fields'] ?? array() as $field ) {
+            if ( ! is_array($field) ) {
+                continue;
+            }
+
+            $fieldName = (string) ($field['name'] ?? '');
+            if ( isset($allowed[$fieldName]) ) {
+                $this->decodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $result);
+            } else {
+                $this->skipField($reader, $field, $definitions);
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<string, mixed>                $field
+     * @param array<string, array<string, mixed>> $definitions
+     * @param array<string, array<int, string>>   $fieldPolicy
+     * @param array<string, mixed>                $result
+     */
+    private function decodeFieldSelective(FigKiwiByteReader $reader, array $field, array $definitions, array $fieldPolicy, array &$result): void
+    {
+        $type = (string) ($field['type'] ?? '');
+        if ( true === ($field['is_array'] ?? false) ) {
+            if ( 'byte' === $type ) {
+                $value = $reader->readByteArray();
+            } else {
+                $length = $reader->readVarUint();
+                $value = array();
+                for ( $i = 0; $i < $length; $i++ ) {
+                    $value[] = $this->decodeValueSelective($reader, $type, $definitions, $fieldPolicy);
+                }
+            }
+        } else {
+            $value = $this->decodeValueSelective($reader, $type, $definitions, $fieldPolicy);
+        }
+
+        if ( true !== ($field['is_deprecated'] ?? false) && isset($field['name']) ) {
+            $result[(string) $field['name']] = $value;
+        }
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $definitions
+     * @param array<string, array<int, string>>   $fieldPolicy
+     */
+    private function decodeValueSelective(FigKiwiByteReader $reader, string $type, array $definitions, array $fieldPolicy): mixed
+    {
+        return match ( $type ) {
+            'bool' => 0 !== $reader->readByte(),
+            'byte' => $reader->readByte(),
+            'int' => $reader->readVarInt(),
+            'uint' => $reader->readVarUint(),
+            'float' => $reader->readVarFloat(),
+            'string' => $reader->readString(),
+            'int64' => $reader->readVarInt64(),
+            'uint64' => $reader->readVarUint64(),
+            default => $this->decodeNamedValueSelective($reader, $type, $definitions, $fieldPolicy),
+        };
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $definitions
+     * @param array<string, array<int, string>>   $fieldPolicy
+     */
+    private function decodeNamedValueSelective(FigKiwiByteReader $reader, string $type, array $definitions, array $fieldPolicy): mixed
+    {
+        $definition = $definitions[$type] ?? null;
+        if ( ! is_array($definition) ) {
+            throw new \RuntimeException('Invalid Kiwi type ' . $type . '.');
+        }
+
+        if ( 'ENUM' === ($definition['kind'] ?? null) ) {
+            $value = $reader->readVarUint();
+            foreach ( $definition['fields'] ?? array() as $field ) {
+                if ( is_array($field) && (int) ($field['value'] ?? -1) === $value ) {
+                    return (string) ($field['name'] ?? $value);
+                }
+            }
+            return $value;
+        }
+
+        return $this->decodeDefinitionSelective($reader, $definition, $definitions, $fieldPolicy);
+    }
+
+    /**
+     * @param array<string, mixed>                $field
+     * @param array<string, array<string, mixed>> $definitions
+     */
+    private function skipField(FigKiwiByteReader $reader, array $field, array $definitions): void
+    {
+        $type = (string) ($field['type'] ?? '');
+        if ( true === ($field['is_array'] ?? false) ) {
+            if ( 'byte' === $type ) {
+                $reader->skipByteArray();
+                return;
+            }
+
+            $length = $reader->readVarUint();
+            for ( $i = 0; $i < $length; $i++ ) {
+                $this->skipValue($reader, $type, $definitions);
+            }
+            return;
+        }
+
+        $this->skipValue($reader, $type, $definitions);
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $definitions
+     */
+    private function skipValue(FigKiwiByteReader $reader, string $type, array $definitions): void
+    {
+        match ( $type ) {
+            'bool', 'byte' => $reader->readByte(),
+            'int' => $reader->readVarInt(),
+            'uint' => $reader->readVarUint(),
+            'float' => $reader->readVarFloat(),
+            'string' => $reader->skipString(),
+            'int64' => $reader->readVarInt64(),
+            'uint64' => $reader->readVarUint64(),
+            default => $this->skipNamedValue($reader, $type, $definitions),
+        };
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $definitions
+     */
+    private function skipNamedValue(FigKiwiByteReader $reader, string $type, array $definitions): void
+    {
+        $definition = $definitions[$type] ?? null;
+        if ( ! is_array($definition) ) {
+            throw new \RuntimeException('Invalid Kiwi type ' . $type . '.');
+        }
+
+        if ( 'ENUM' === ($definition['kind'] ?? null) ) {
+            $reader->readVarUint();
+            return;
+        }
+
+        if ( 'MESSAGE' === ($definition['kind'] ?? null) ) {
+            $fieldsByValue = array();
+            foreach ( $definition['fields'] ?? array() as $field ) {
+                if ( is_array($field) ) {
+                    $fieldsByValue[(int) ($field['value'] ?? 0)] = $field;
+                }
+            }
+
+            while ( true ) {
+                $fieldValue = $reader->readVarUint();
+                if ( 0 === $fieldValue ) {
+                    return;
+                }
+                if ( ! isset($fieldsByValue[$fieldValue]) ) {
+                    throw new \RuntimeException('Attempted to skip invalid message field ' . $fieldValue . '.');
+                }
+                $this->skipField($reader, $fieldsByValue[$fieldValue], $definitions);
+            }
+        }
+
+        foreach ( $definition['fields'] ?? array() as $field ) {
+            if ( is_array($field) ) {
+                $this->skipField($reader, $field, $definitions);
+            }
+        }
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    private function defaultScenegraphFieldPolicy(): array
+    {
+        return array(
+            'Message' => array('type', 'nodeChanges', 'blobs', 'blobBaseIndex', 'fileVersion'),
+            'NodeChange' => array(
+                'guid', 'parentIndex', 'type', 'name', 'visible', 'opacity', 'size', 'transform',
+                'useAbsoluteBounds', 'cornerRadius', 'rectangleTopLeftCornerRadius',
+                'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius',
+                'rectangleBottomRightCornerRadius', 'fillPaints', 'strokePaints', 'backgroundPaints',
+                'fillGeometry', 'strokeGeometry', 'vectorData', 'key', 'componentKey',
+                'componentOrStateGroupKey', 'originComponentKey', 'componentId', 'mainComponentId',
+                'mainComponent', 'component', 'symbolData', 'derivedSymbolData', 'guidPath',
+                'fontSize', 'fontName', 'textData', 'lineHeight', 'letterSpacing',
+                'paragraphIndent', 'paragraphSpacing', 'styleID',
+                'textAlignHorizontal', 'textAlignVertical', 'textCase', 'textDecoration', 'textAutoResize', 'horizontalConstraint',
+                'verticalConstraint', 'stackWidth', 'stackHeight', 'stackPrimarySizing',
+                'stackMode', 'stackSpacing', 'stackHorizontalPadding', 'stackVerticalPadding',
+                'stackPadding', 'stackPaddingLeft', 'stackPaddingRight', 'stackPaddingTop', 'stackPaddingBottom',
+                'stackPrimaryAlignItems', 'stackCounterAlignItems', 'stackCounterSizing',
+                'stackWrap', 'stackCounterSpacing', 'stackReverseZIndex',
+                'stackChildPrimaryGrow', 'stackChildAlignSelf', 'stackPositioning', 'resizeToFit', 'isClip', 'minSize', 'maxSize',
+            ),
+            'GUID' => array('sessionID', 'localID'),
+            'ParentIndex' => array('guid', 'position'),
+            'Vector' => array('x', 'y'),
+            'Matrix' => array('m00', 'm01', 'm02', 'm10', 'm11', 'm12'),
+            'OptionalVector' => array('x', 'y'),
+            'Color' => array('r', 'g', 'b', 'a'),
+            'ColorStop' => array('position', 'color'),
+            'FontName' => array('family', 'style', 'postscript'),
+            'TextData' => array('characters', 'layoutSize'),
+            'Number' => array('value', 'units'),
+            'Paint' => array('type', 'color', 'opacity', 'visible', 'stops', 'transform', 'image', 'imageScaleMode', 'originalImageWidth', 'originalImageHeight', 'altText'),
+            'Image' => array('hash', 'name'),
+            'Blob' => array('bytes'),
+            'Path' => array('commandsBlob', 'windingRule', 'styleID'),
+            'VectorPath' => array('commandsBlob', 'windingRule', 'styleID'),
+            'VectorData' => array('vectorNetworkBlob', 'vectorNetwork'),
+            'SymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
+            'DerivedSymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
+            'GUIDPath' => array('guids'),
+            'StyleId' => array('guid'),
+        );
     }
 
     /**
@@ -245,6 +525,11 @@ final class FigKiwiByteReader
         return $value;
     }
 
+    public function skipByteArray(): void
+    {
+        $this->skipBytes($this->readVarUint());
+    }
+
     public function readVarUint(): int
     {
         $value = 0;
@@ -308,5 +593,21 @@ final class FigKiwiByteReader
             }
             $bytes .= chr($byte);
         }
+    }
+
+    public function skipString(): void
+    {
+        while ( 0 !== $this->readByte() ) {
+            // Strings are null-terminated in the Kiwi schema chunk.
+        }
+    }
+
+    public function skipBytes(int $length): void
+    {
+        if ( $length < 0 || $this->offset + $length > strlen($this->data) ) {
+            throw new \RuntimeException('Skip out of bounds.');
+        }
+
+        $this->offset += $length;
     }
 }

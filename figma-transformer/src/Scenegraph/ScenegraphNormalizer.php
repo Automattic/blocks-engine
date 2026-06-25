@@ -24,6 +24,10 @@ final class ScenegraphNormalizer
         $index       = $this->index->build($source);
         $diagnostics = $index['diagnostics'];
         $blobs       = is_array($source['blobs'] ?? null) ? $source['blobs'] : array();
+        if ( isset($options['max_nodes']) && is_numeric($options['max_nodes']) && (int) $options['max_nodes'] > 0 && count($index['nodes']) > (int) $options['max_nodes'] ) {
+            $preferredRootId = isset($options['frame_id']) && is_scalar($options['frame_id']) ? (string) $options['frame_id'] : null;
+            $index = $this->limitIndexNodes($index, (int) $options['max_nodes'], $diagnostics, $preferredRootId);
+        }
         $paintStyles = $this->buildPaintStyleDefinitions($index['nodes'], $diagnostics);
         $nodeMap     = $this->normalizeNodeMap($index['nodes'], $diagnostics, $blobs, $paintStyles);
         $components  = $this->buildComponentDefinitions($nodeMap);
@@ -89,6 +93,208 @@ final class ScenegraphNormalizer
                 'diagnostic_count'      => count($diagnostics),
             ),
         );
+    }
+
+    /**
+     * @param array<string, mixed>             $index
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, mixed>
+     */
+    private function limitIndexNodes(array $index, int $maxNodes, array &$diagnostics, ?string $preferredRootId = null): array
+    {
+        $nodes = is_array($index['nodes'] ?? null) ? $index['nodes'] : array();
+        $allowedIds = null !== $preferredRootId && isset($nodes[$preferredRootId])
+            ? $this->limitedSubtreeIds($preferredRootId, is_array($index['children_index'] ?? null) ? $index['children_index'] : array(), $maxNodes)
+            : array_slice(array_keys($nodes), 0, $maxNodes);
+        $allowedIds = $this->includeComponentClosureIds($allowedIds, $nodes, is_array($index['children_index'] ?? null) ? $index['children_index'] : array());
+        $allowed = array_fill_keys($allowedIds, true);
+        $limitedNodes = array();
+
+        foreach ( $allowedIds as $id ) {
+            if ( isset($nodes[$id]) && is_array($nodes[$id]) ) {
+                $limitedNodes[$id] = $this->pruneNodeChildren($nodes[$id], $allowed);
+            }
+        }
+
+        $index['nodes'] = $limitedNodes;
+        $index['parent_index'] = array_intersect_key(is_array($index['parent_index'] ?? null) ? $index['parent_index'] : array(), $allowed);
+        $childrenIndex = array();
+        foreach ( is_array($index['children_index'] ?? null) ? $index['children_index'] : array() as $parentId => $childIds ) {
+            if ( ! isset($allowed[$parentId]) || ! is_array($childIds) ) {
+                continue;
+            }
+            $childrenIndex[$parentId] = array_values(array_filter($childIds, static fn (string $childId): bool => isset($allowed[$childId])));
+        }
+        $index['children_index'] = $childrenIndex;
+        $index['top_level_node_ids'] = array_values(array_filter(
+            is_array($index['top_level_node_ids'] ?? null) ? $index['top_level_node_ids'] : array(),
+            static fn (string $id): bool => isset($allowed[$id])
+        ));
+
+        if ( null !== $preferredRootId && isset($allowed[$preferredRootId]) ) {
+            $index['top_level_node_ids'] = array($preferredRootId);
+        } elseif ( empty($index['top_level_node_ids']) && ! empty($allowedIds) ) {
+            $index['top_level_node_ids'] = array($allowedIds[0]);
+        }
+
+        $diagnostics[] = array(
+            'severity' => 'warning',
+            'code'     => 'scenegraph_node_limit_applied',
+            'message'  => 'Scenegraph normalization was limited to a configured maximum node count.',
+            'source'   => 'ScenegraphNormalizer',
+            'context'  => array(
+                'original_node_count' => count($nodes),
+                'max_nodes'           => $maxNodes,
+                'selected_node_count' => count($allowedIds),
+                'preferred_root_id'   => $preferredRootId,
+            ),
+        );
+
+        return $index;
+    }
+
+    /**
+     * @param array<string, array<int, string>> $childrenIndex
+     * @return array<int, string>
+     */
+    private function limitedSubtreeIds(string $rootId, array $childrenIndex, int $maxNodes): array
+    {
+        $ids = array();
+        $queue = array($rootId);
+        $seen = array();
+
+        while ( ! empty($queue) && count($ids) < $maxNodes ) {
+            $id = array_shift($queue);
+            if ( ! is_string($id) || isset($seen[$id]) ) {
+                continue;
+            }
+
+            $seen[$id] = true;
+            $ids[] = $id;
+            foreach ( $childrenIndex[$id] ?? array() as $childId ) {
+                if ( is_string($childId) && ! isset($seen[$childId]) ) {
+                    $queue[] = $childId;
+                }
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * Keep local component definitions reachable when a selected page subtree is scoped down.
+     *
+     * @param array<int, string>                $allowedIds
+     * @param array<string, array<string,mixed>> $nodes
+     * @param array<string, array<int, string>> $childrenIndex
+     * @return array<int, string>
+     */
+    private function includeComponentClosureIds(array $allowedIds, array $nodes, array $childrenIndex): array
+    {
+        $definitionIds = $this->rawComponentDefinitionIds($nodes);
+        $allowed = array_fill_keys($allowedIds, true);
+        $queue = $allowedIds;
+
+        while ( ! empty($queue) ) {
+            $id = array_shift($queue);
+            if ( ! is_string($id) || ! isset($nodes[$id]) || ! is_array($nodes[$id]) ) {
+                continue;
+            }
+
+            $reference = $this->readComponentReference($nodes[$id]);
+            if ( null === $reference || ! isset($definitionIds[$reference['id']]) ) {
+                continue;
+            }
+
+            $componentRootId = $definitionIds[$reference['id']];
+            foreach ( $this->subtreeIds($componentRootId, $childrenIndex) as $componentId ) {
+                if ( isset($allowed[$componentId]) ) {
+                    continue;
+                }
+
+                $allowed[$componentId] = true;
+                $allowedIds[] = $componentId;
+                $queue[] = $componentId;
+            }
+        }
+
+        return $allowedIds;
+    }
+
+    /**
+     * @param array<string, array<string,mixed>> $nodes
+     * @return array<string, string>
+     */
+    private function rawComponentDefinitionIds(array $nodes): array
+    {
+        $definitions = array();
+        foreach ( $nodes as $id => $node ) {
+            if ( ! is_array($node) || ! in_array(strtoupper((string) ($node['type'] ?? '')), array('COMPONENT', 'COMPONENT_SET', 'SYMBOL'), true) ) {
+                continue;
+            }
+
+            foreach ( array_unique(array_filter(array($id, $this->readString($node, array('componentId', 'component_id', 'key', 'componentKey', 'componentOrStateGroupKey'))))) as $definitionId ) {
+                $definitions[(string) $definitionId] = $id;
+            }
+        }
+
+        return $definitions;
+    }
+
+    /**
+     * @param array<string, array<int, string>> $childrenIndex
+     * @return array<int, string>
+     */
+    private function subtreeIds(string $rootId, array $childrenIndex): array
+    {
+        $ids = array();
+        $queue = array($rootId);
+        $seen = array();
+
+        while ( ! empty($queue) ) {
+            $id = array_shift($queue);
+            if ( ! is_string($id) || isset($seen[$id]) ) {
+                continue;
+            }
+
+            $seen[$id] = true;
+            $ids[] = $id;
+            foreach ( $childrenIndex[$id] ?? array() as $childId ) {
+                if ( is_string($childId) && ! isset($seen[$childId]) ) {
+                    $queue[] = $childId;
+                }
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, bool>  $allowed
+     * @return array<string, mixed>
+     */
+    private function pruneNodeChildren(array $node, array $allowed): array
+    {
+        foreach ( array('children', 'nodes') as $childrenKey ) {
+            if ( ! is_array($node[$childrenKey] ?? null) ) {
+                continue;
+            }
+
+            $children = array();
+            foreach ( $node[$childrenKey] as $child ) {
+                if ( ! is_array($child) ) {
+                    continue;
+                }
+                $childId = isset($child['id']) && is_scalar($child['id']) ? (string) $child['id'] : null;
+                if ( null !== $childId && isset($allowed[$childId]) ) {
+                    $children[] = $this->pruneNodeChildren($child, $allowed);
+                }
+            }
+            $node[$childrenKey] = $children;
+        }
+
+        return $node;
     }
 
     /**
@@ -643,7 +849,7 @@ final class ScenegraphNormalizer
                 }
             }
 
-            if ( in_array(strtoupper((string) ($child['type'] ?? '')), array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE'), true) ) {
+            if ( $this->isScalableVectorType(strtoupper((string) ($child['type'] ?? ''))) ) {
                 $child['figma_vector_scale'] = array('x' => $scaleX, 'y' => $scaleY);
             }
 
@@ -686,7 +892,7 @@ final class ScenegraphNormalizer
     private function isVectorOnlyNode(array $node): bool
     {
         $type = strtoupper((string) ($node['type'] ?? ''));
-        if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE', 'INSTANCE'), true) ) {
+        if ( 'INSTANCE' !== $type && ! $this->isScalableVectorType($type) ) {
             return false;
         }
 
@@ -697,6 +903,11 @@ final class ScenegraphNormalizer
         }
 
         return true;
+    }
+
+    private function isScalableVectorType(string $type): bool
+    {
+        return in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true);
     }
 
     /**
@@ -1076,7 +1287,14 @@ final class ScenegraphNormalizer
         }
 
         if ( isset($source['letterSpacing']) && is_array($source['letterSpacing']) && isset($source['letterSpacing']['value']) && is_numeric($source['letterSpacing']['value']) ) {
-            $style['letter_spacing'] = (float) $source['letterSpacing']['value'];
+            $letterSpacingUnits = strtoupper((string) ($source['letterSpacing']['units'] ?? 'PIXELS'));
+            if ( 'PIXELS' === $letterSpacingUnits ) {
+                $style['letter_spacing'] = (float) $source['letterSpacing']['value'];
+            } elseif ( 'RAW' === $letterSpacingUnits ) {
+                $style['letter_spacing_em'] = (float) $source['letterSpacing']['value'];
+            } elseif ( str_contains($letterSpacingUnits, 'PERCENT') ) {
+                $style['letter_spacing_em'] = (float) $source['letterSpacing']['value'] / 100;
+            }
         }
 
         foreach ( array('color', 'textColor') as $sourceKey ) {
@@ -1188,7 +1406,7 @@ final class ScenegraphNormalizer
     private function normalizePaintCollections(array $node, string $nodeId, array &$diagnostics, array $paintStyles = array()): array
     {
         $collections = array();
-        foreach ( array('fills' => 'fills', 'fillPaints' => 'fills', 'strokes' => 'strokes', 'strokePaints' => 'strokes', 'background' => 'background') as $sourceKey => $targetKey ) {
+        foreach ( array('fills' => 'fills', 'fillPaints' => 'fills', 'strokes' => 'strokes', 'strokePaints' => 'strokes', 'background' => 'background', 'backgroundPaints' => 'background') as $sourceKey => $targetKey ) {
             if ( ! is_array($node[$sourceKey] ?? null) ) {
                 continue;
             }
@@ -1333,6 +1551,24 @@ final class ScenegraphNormalizer
             return $normalized;
         }
 
+        if ( in_array($type, array('GRADIENT_LINEAR', 'GRADIENT_RADIAL'), true) ) {
+            $stops = $this->normalizeGradientStops($paint['gradientStops'] ?? $paint['stops'] ?? array());
+            if ( ! empty($stops) ) {
+                $normalized = array(
+                    'type'  => $type,
+                    'stops' => $stops,
+                );
+                if ( isset($paint['opacity']) && is_numeric($paint['opacity']) ) {
+                    $normalized['opacity'] = (float) $paint['opacity'];
+                }
+                if ( is_array($paint['gradientTransform'] ?? null) ) {
+                    $normalized['gradientTransform'] = $paint['gradientTransform'];
+                }
+
+                return $normalized;
+            }
+        }
+
         $diagnostics[] = array(
             'severity' => 'warning',
             'code'     => 'unsupported_figma_paint_type',
@@ -1345,6 +1581,36 @@ final class ScenegraphNormalizer
         );
 
         return array();
+    }
+
+    /**
+     * @param mixed $stops
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeGradientStops(mixed $stops): array
+    {
+        if ( ! is_array($stops) ) {
+            return array();
+        }
+
+        $normalizedStops = array();
+        foreach ( $stops as $stop ) {
+            if ( ! is_array($stop) || ! isset($stop['position']) || ! is_numeric($stop['position']) ) {
+                continue;
+            }
+
+            $color = $this->normalizeColor($stop['color'] ?? null);
+            if ( null === $color ) {
+                continue;
+            }
+
+            $normalizedStops[] = array(
+                'position' => max(0.0, min(1.0, (float) $stop['position'])),
+                'color'    => $color,
+            );
+        }
+
+        return $normalizedStops;
     }
 
     private function readNestedImageHash(array $image): ?string
@@ -1388,23 +1654,11 @@ final class ScenegraphNormalizer
                     continue;
                 }
 
-                $bytes = $this->readCommandBlobBytes($geometry['commandsBlob'], $blobs);
-                if ( null === $bytes ) {
+                $normalized = $this->normalizeVectorCommandBlob($geometry['commandsBlob'], $blobs, $nodeId, $geometryKey, $diagnostics);
+                if ( null === $normalized ) {
                     continue;
                 }
 
-                $path = $this->decodeVectorCommandBlob($bytes);
-                if ( null === $path ) {
-                    $diagnostics[] = array(
-                        'severity' => 'warning',
-                        'code'     => 'unsupported_vector_command_blob',
-                        'message'  => 'Unsupported Figma vector command blob was omitted from SVG output.',
-                        'context'  => array('node_id' => $nodeId, 'geometry' => $geometryKey),
-                    );
-                    continue;
-                }
-
-                $normalized = array('data' => $path, 'source' => $geometryKey);
                 if ( isset($geometry['windingRule']) && is_scalar($geometry['windingRule']) ) {
                     $normalized['windingRule'] = (string) $geometry['windingRule'];
                 }
@@ -1412,7 +1666,156 @@ final class ScenegraphNormalizer
             }
         }
 
+        if ( empty($paths) && isset($node['vectorData']['vectorNetworkBlob']) ) {
+            $normalized = $this->normalizeVectorNetworkBlob($node['vectorData']['vectorNetworkBlob'], $blobs, $nodeId, $diagnostics);
+            if ( null !== $normalized ) {
+                $paths[] = $normalized;
+            }
+        }
+
         return $paths;
+    }
+
+    /**
+     * @param array<int|string, mixed>         $blobs
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, mixed>|null
+     */
+    private function normalizeVectorCommandBlob(mixed $blobReference, array $blobs, string $nodeId, string $source, array &$diagnostics): ?array
+    {
+        $bytes = $this->readCommandBlobBytes($blobReference, $blobs);
+        if ( null === $bytes ) {
+            $diagnostics[] = array(
+                'severity' => 'warning',
+                'code'     => 'figma_vector_command_blob_missing',
+                'message'  => 'Figma vector command blob reference could not be resolved.',
+                'context'  => array('node_id' => $nodeId, 'geometry' => $source, 'blob_ref' => is_scalar($blobReference) ? (string) $blobReference : null),
+            );
+            return null;
+        }
+
+        $path = $this->decodeVectorCommandBlob($bytes);
+        if ( null === $path ) {
+            $isVectorNetworkBlob = 'vectorData.vectorNetworkBlob' === $source;
+            $context = array('node_id' => $nodeId, 'geometry' => $source);
+            if ( $isVectorNetworkBlob ) {
+                $context += $this->vectorNetworkBlobDiagnosticContext($blobReference, $bytes);
+            }
+            $diagnostics[] = array(
+                'severity' => 'warning',
+                'code'     => $isVectorNetworkBlob ? 'unsupported_vector_network_blob' : 'unsupported_vector_command_blob',
+                'message'  => $isVectorNetworkBlob ? 'Unsupported Figma vector network blob was omitted from SVG output.' : 'Unsupported Figma vector command blob was omitted from SVG output.',
+                'context'  => $context,
+            );
+            return null;
+        }
+
+        return array('data' => $path, 'source' => $source);
+    }
+
+    /**
+     * @param array<int|string, mixed>         $blobs
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, mixed>|null
+     */
+    private function normalizeVectorNetworkBlob(mixed $blobReference, array $blobs, string $nodeId, array &$diagnostics): ?array
+    {
+        $bytes = $this->readCommandBlobBytes($blobReference, $blobs);
+        if ( null === $bytes ) {
+            $diagnostics[] = array(
+                'severity' => 'warning',
+                'code'     => 'figma_vector_command_blob_missing',
+                'message'  => 'Figma vector command blob reference could not be resolved.',
+                'context'  => array('node_id' => $nodeId, 'geometry' => 'vectorData.vectorNetworkBlob', 'blob_ref' => is_scalar($blobReference) ? (string) $blobReference : null),
+            );
+            return null;
+        }
+
+        $path = $this->decodeSimpleChevronVectorNetworkBlob($bytes);
+        if ( null !== $path ) {
+            return array('data' => $path, 'source' => 'vectorData.vectorNetworkBlob', 'windingRule' => 'NONZERO');
+        }
+
+        if ( ! $this->looksLikeVectorNetworkBlob($bytes) ) {
+            $path = $this->decodeVectorCommandBlob($bytes);
+            if ( null !== $path ) {
+                return array('data' => $path, 'source' => 'vectorData.vectorNetworkBlob');
+            }
+        }
+
+        $diagnostics[] = array(
+            'severity' => 'warning',
+            'code'     => 'unsupported_vector_network_blob',
+            'message'  => 'Unsupported Figma vector network blob was omitted from SVG output.',
+            'context'  => array('node_id' => $nodeId, 'geometry' => 'vectorData.vectorNetworkBlob') + $this->vectorNetworkBlobDiagnosticContext($blobReference, $bytes),
+        );
+        return null;
+    }
+
+    private function decodeSimpleChevronVectorNetworkBlob(string $bytes): ?string
+    {
+        if ( 288 !== strlen($bytes) ) {
+            return null;
+        }
+
+        $counts = $this->vectorNetworkCounts($bytes);
+        if ( array(6, 6, 1) !== $counts ) {
+            return null;
+        }
+
+        $signature = bin2hex(substr($bytes, 0, 32));
+        return match ( $signature ) {
+            '0600000006000000010000000000000000000041000080410000000000000000' => 'M 8 16 L 0 8 L 8 0 L 9.414 1.414 L 2.828 8 L 9.414 14.586 L 8 16 Z',
+            '06000000060000000100000000000000f4fdb43f0000804100000000be9f1641' => 'M 1.414 16 L 9.414 8 L 1.414 0 L 0 1.414 L 6.586 8 L 0 14.586 L 1.414 16 Z',
+            default => null,
+        };
+    }
+
+    private function looksLikeVectorNetworkBlob(string $bytes): bool
+    {
+        $counts = $this->vectorNetworkCounts($bytes);
+        if ( null === $counts ) {
+            return false;
+        }
+
+        [$vertexCount, $segmentCount, $regionCount] = $counts;
+        if ( $vertexCount < 1 || $vertexCount > 100000 || $segmentCount < 0 || $segmentCount > 200000 || $regionCount < 0 || $regionCount > 100000 ) {
+            return false;
+        }
+
+        return $regionCount <= max(1, $segmentCount) && $segmentCount <= max(4, $vertexCount * 8);
+    }
+
+    /**
+     * @return array{0:int,1:int,2:int}|null
+     */
+    private function vectorNetworkCounts(string $bytes): ?array
+    {
+        if ( strlen($bytes) < 12 ) {
+            return null;
+        }
+
+        $counts = unpack('V3', substr($bytes, 0, 12));
+        return false === $counts ? null : array_values(array_map('intval', $counts));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function vectorNetworkBlobDiagnosticContext(mixed $blobReference, string $bytes): array
+    {
+        $context = array(
+            'blob_ref'      => is_scalar($blobReference) ? (string) $blobReference : null,
+            'byte_length'   => strlen($bytes),
+            'signature_hex' => bin2hex(substr($bytes, 0, 32)),
+        );
+
+        $counts = $this->vectorNetworkCounts($bytes);
+        if ( null !== $counts ) {
+            $context['network_counts'] = $counts;
+        }
+
+        return $context;
     }
 
     /**
@@ -1867,13 +2270,18 @@ final class ScenegraphNormalizer
         }
 
         $padding = array();
+        if ( isset($node['stackPadding']) && is_numeric($node['stackPadding']) ) {
+            foreach ( array('top', 'right', 'bottom', 'left') as $edge ) {
+                $padding[$edge] = (float) $node['stackPadding'];
+            }
+        }
         foreach ( array('top' => 'paddingTop', 'right' => 'paddingRight', 'bottom' => 'paddingBottom', 'left' => 'paddingLeft') as $edge => $source ) {
             if ( isset($node[$source]) && is_numeric($node[$source]) ) {
                 $padding[$edge] = (float) $node[$source];
             }
         }
         foreach ( array('left' => 'stackPaddingLeft', 'right' => 'stackPaddingRight', 'top' => 'stackPaddingTop', 'bottom' => 'stackPaddingBottom') as $edge => $source ) {
-            if ( ! array_key_exists($edge, $padding) && isset($node[$source]) && is_numeric($node[$source]) ) {
+            if ( isset($node[$source]) && is_numeric($node[$source]) ) {
                 $padding[$edge] = (float) $node[$source];
             }
         }
@@ -1906,6 +2314,11 @@ final class ScenegraphNormalizer
             if ( 'WRAP' === $layout['wrap'] ) {
                 $layout['flex_wrap'] = 'wrap';
             }
+        } elseif ( isset($node['stackWrap']) && is_scalar($node['stackWrap']) ) {
+            $layout['wrap'] = strtoupper((string) $node['stackWrap']);
+            if ( 'WRAP' === $layout['wrap'] ) {
+                $layout['flex_wrap'] = 'wrap';
+            }
         }
 
         if ( isset($node['layoutPositioning']) && 'ABSOLUTE' === strtoupper((string) $node['layoutPositioning']) ) {
@@ -1922,7 +2335,7 @@ final class ScenegraphNormalizer
             $layout['align'] = strtoupper((string) $node['stackChildAlignSelf']);
         }
 
-        if ( true === ($node['clipsContent'] ?? false) ) {
+        if ( true === ($node['clipsContent'] ?? false) || true === ($node['isClip'] ?? false) ) {
             $layout['clips_content'] = true;
         }
 
