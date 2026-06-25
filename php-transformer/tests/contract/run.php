@@ -320,6 +320,15 @@ $assert(! str_contains($safeInlineSvgSerialized, '<!-- wp:html'), 'safe inline S
 $assert(! str_contains($safeInlineSvgSerialized, 'data:image/svg+xml,'), 'decorative inline SVG avoids image data URI noise');
 $assert(! str_contains(rawurldecode($safeInlineSvgSerialized), '<svg'), 'decorative inline SVG markup is omitted from serialized blocks');
 
+$safeInlineSvgAsset = ( new HtmlTransformer() )->transform(
+    '<svg role="img" aria-label="Status badge" viewBox="0 0 10 10"><title>Status badge</title><circle cx="5" cy="5" r="4"></circle></svg>'
+)->toArray();
+$safeInlineSvgAssetPath = (string) ($safeInlineSvgAsset['blocks'][0]['attrs']['url'] ?? '');
+$assert(str_starts_with($safeInlineSvgAssetPath, 'assets/inline-svg-'), 'safe accessible inline SVG image references a generated SVG asset');
+$assert('image/svg+xml' === ($safeInlineSvgAsset['assets'][0]['mime_type'] ?? ''), 'safe accessible inline SVG exposes a materializable SVG asset');
+$assert(str_contains((string) ($safeInlineSvgAsset['assets'][0]['content'] ?? ''), 'aria-label="Status badge"'), 'safe accessible inline SVG asset preserves accessible label');
+$assert(! str_contains((string) ($safeInlineSvgAsset['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'safe accessible inline SVG avoids data URI serialization');
+
 $unsafeInlineSvg = ( new HtmlTransformer() )->transform('<main><svg onload="alert(1)"><path d="M0 0h1v1z"></path></svg></main>')->toArray();
 $assert('html_unsafe_inline_svg' === ($unsafeInlineSvg['fallbacks'][0]['diagnostic_code'] ?? ''), 'unsafe inline SVG remains a fallback diagnostic');
 
@@ -513,6 +522,35 @@ $assert(0 === ($simple['metrics']['diagnostic_count'] ?? null), 'artifact metric
 $assert(is_float($simple['metrics']['transform_duration_ms'] ?? null), 'artifact metrics expose transform duration');
 $assert(MaterializationPlanBuilder::SCHEMA === ($simple['source_reports']['materialization_plan']['schema'] ?? ''), 'artifact exposes canonical materialization plan');
 $assert('index.html' === ($simple['source_reports']['materialization_plan']['entry_path'] ?? ''), 'materialization plan exposes entry path');
+
+$artifactInlineSvg = $compiler->compile(
+    array(
+        'schema'         => ArtifactCompiler::INPUT_SCHEMA,
+        'generated_html' => '<svg role="img" aria-label="Inline logo" viewBox="0 0 12 12"><title>Inline logo</title><path d="M0 0h12v12H0z"></path></svg>',
+    )
+)->toArray();
+$artifactInlineSvgPath = (string) ($artifactInlineSvg['blocks'][0]['attrs']['url'] ?? '');
+$artifactInlineSvgAsset = $artifactInlineSvg['source_reports']['materialization_plan']['assets'][0] ?? array();
+$assert(str_starts_with($artifactInlineSvgPath, 'assets/inline-svg-'), 'artifact safe inline SVG block references a generated SVG asset');
+$assert($artifactInlineSvgPath === ($artifactInlineSvgAsset['path'] ?? ''), 'artifact materialization plan includes generated inline SVG asset path');
+$assert('image/svg+xml' === ($artifactInlineSvgAsset['mime_type'] ?? ''), 'artifact generated inline SVG asset has SVG MIME type');
+$assert(str_contains((string) ($artifactInlineSvgAsset['content'] ?? ''), 'aria-label="Inline logo"'), 'artifact generated inline SVG asset preserves sanitized SVG content');
+$assert(! str_contains((string) ($artifactInlineSvg['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'artifact safe inline SVG avoids data URI serialization');
+
+$artifactNonEntryInlineSvg = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<main><h1>Home</h1></main>',
+            'about.html' => '<main><svg role="img" aria-label="About icon" viewBox="0 0 8 8"><title>About icon</title><circle cx="4" cy="4" r="3"></circle></svg></main>',
+        ),
+    )
+)->toArray();
+$artifactNonEntryInlineSvgPage = $artifactNonEntryInlineSvg['source_reports']['materialization_plan']['pages'][1] ?? array();
+$artifactNonEntryInlineSvgAsset = $artifactNonEntryInlineSvg['source_reports']['materialization_plan']['assets'][0] ?? array();
+$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), 'assets/inline-svg-'), 'non-entry artifact page references generated inline SVG asset');
+$assert('image/svg+xml' === ($artifactNonEntryInlineSvgAsset['mime_type'] ?? ''), 'non-entry artifact generated inline SVG asset is materialized');
+$assert(str_contains((string) ($artifactNonEntryInlineSvgAsset['content'] ?? ''), 'aria-label="About icon"'), 'non-entry artifact generated inline SVG asset preserves safe SVG content');
 $assert(1 === ($simple['source_reports']['materialization_plan']['totals']['pages'] ?? null), 'materialization plan counts pages');
 $assert('index' === ($simple['source_reports']['materialization_plan']['pages'][0]['slug'] ?? ''), 'materialization plan exposes page slug');
 $assert('blocks' === ($simple['source_reports']['materialization_plan']['pages'][0]['body_format'] ?? ''), 'materialization plan exposes converted block body format');
