@@ -1,0 +1,47 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-runtime-target-container-preservation",
+  "description": "Preserves generic DOM target containers referenced by first-party JavaScript while still converting content to blocks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-runtime-target-container-preservation.json",
+    "notes": "Covers runtime dependency parity for classes and IDs used by common UI scripts without fixture-specific selector preservation."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Runtime dependency parity is an upstream artifact compiler contract with no legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<main><section class=\"reveal\"><h2>Reveal</h2></section><header><nav class=\"primary-nav\"><a href=\"/\">Home</a></nav><div class=\"mobile-nav-overlay\"><div class=\"mobile-nav\"><nav class=\"drawer-nav\"><a href=\"/\">Home</a></nav></div></div></header><div class=\"faq-item\"><h3>Question</h3><p>Answer</p></div><div class=\"filter-bar\"><button class=\"filter-btn\">All</button><div class=\"filter-chips\"><span>Popular</span></div></div><section id=\"contact-form\"><h2>Contact</h2></section><div id=\"form-success\"></div><script src=\"js/app.js\"></script></main>"
+        },
+        {
+          "path": "js/app.js",
+          "kind": "js",
+          "content": "document.querySelectorAll('.reveal'); document.querySelector('.mobile-nav-overlay'); document.querySelector('.mobile-nav'); document.querySelector('.faq-item'); document.querySelector('.filter-btn').addEventListener('click', function () {}); document.querySelector('.filter-bar'); document.querySelector('.filter-chips'); document.getElementById('contact-form'); document.getElementById('form-success');"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success_with_warnings" },
+    { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
+    { "path": "source_reports.runtime_dependency_parity.dependencies", "assert": "count", "count": 9 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "reveal" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "mobile-nav-overlay" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "mobile-nav" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "faq-item" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "filter-btn" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "filter-bar" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "filter-chips" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "contact-form" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "form-success" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "drawer-nav" }
+  ]
+}

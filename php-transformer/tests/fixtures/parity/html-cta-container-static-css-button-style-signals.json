@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-cta-container-static-css-button-style-signals",
+  "description": "Promotes static CSS styles for CTA container anchors that become core/button output even when the anchor classes are generic variant names.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-cta-container-static-css-button-style-signals.json",
+    "notes": "Covers generic CTA/action container style preservation without fixture-specific selectors."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New upstream button style preservation behavior has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<!doctype html><html><head><style>.cta-row .primary{background-color:#2563eb;color:#fff;border:2px solid #2563eb;border-radius:999px;padding:14px 28px;font-weight:700}.cta-row .secondary{background-color:transparent;color:#2563eb;border:2px solid currentColor;border-radius:999px;padding:14px 28px;font-weight:700}</style></head><body><main><div class=\"cta-row\"><a class=\"primary\" href=\"/book\">Book now</a><a class=\"secondary\" href=\"/learn\">Learn more</a></div></main></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Book now", "url": "/book", "className": "primary", "style": "background-color:#2563eb;color:#fff;border:2px solid #2563eb;border-radius:999px;padding:14px 28px;font-weight:700" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/button", "attrs": { "text": "Learn more", "url": "/learn", "className": "secondary is-style-outline", "style": "background-color:transparent;color:#2563eb;border:2px solid currentColor;border-radius:999px;padding:14px 28px;font-weight:700" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link wp-element-button primary\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "background-color:#2563eb;color:#fff;border:2px solid #2563eb;border-radius:999px;padding:14px 28px;font-weight:700" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button is-style-outline\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link wp-element-button secondary is-style-outline\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "background-color:transparent;color:#2563eb;border:2px solid currentColor;border-radius:999px;padding:14px 28px;font-weight:700" }
+  ]
+}

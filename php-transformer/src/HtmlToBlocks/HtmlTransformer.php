@@ -69,6 +69,11 @@ final class HtmlTransformer
      */
     private array $staticStyleRules = array();
 
+    /**
+     * @var array<string, bool>
+     */
+    private array $runtimeCanvasSelectors = array();
+
     private int $nextSourceProvenanceId = 1;
 
     public function __construct(private readonly Runtime $runtime = new Runtime())
@@ -95,6 +100,7 @@ final class HtmlTransformer
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
+        $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
         $this->nextSourceProvenanceId = 1;
         $provenance               = array(
             array_merge(array(
@@ -677,10 +683,6 @@ final class HtmlTransformer
                 }
             }
 
-            if ( 'core/group' === ($block['blockName'] ?? '') && empty($block['innerBlocks']) && $this->isMobileNavigationWrapperAttrs($block['attrs'] ?? array()) ) {
-                continue;
-            }
-
             $deduplicated[] = $block;
         }
 
@@ -755,24 +757,6 @@ final class HtmlTransformer
                 $this->collectNavigationBlockLinks($innerBlock, $links);
             }
         }
-    }
-
-    /**
-     * @param array<string, mixed> $attrs
-     */
-    private function isMobileNavigationWrapperAttrs(array $attrs): bool
-    {
-        $className = strtolower((string) ($attrs['className'] ?? ''));
-        if ( '' === $className ) {
-            return false;
-        }
-
-        if ( preg_match('/(?:^|[\s_-])(?:mobile|drawer|offcanvas)(?:$|[\s_-])/', $className) ) {
-            return true;
-        }
-
-        return (bool) preg_match('/(?:^|[\s_-])(?:overlay|panel|dialog)(?:$|[\s_-])/', $className)
-            && preg_match('/(?:^|[\s_-])(?:nav|menu|drawer|offcanvas)(?:$|[\s_-])/', $className);
     }
 
     private function normalizeHtml5VoidElements(string $html): string
@@ -1116,10 +1100,6 @@ final class HtmlTransformer
         }
 
         if ( 'button' === $tagName ) {
-            if ( $this->isNonContentRuntimeControl($element) ) {
-                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
-            }
-
             return $this->buttonsPattern->matchButton(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
@@ -1147,6 +1127,10 @@ final class HtmlTransformer
 
         if ( 'canvas' === $tagName ) {
             $this->captureCanvasFallback($element, $fallbacks);
+            if ( $this->isRuntimeCanvasTarget($element) ) {
+                $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+                return $this->createBlock('core/html', array( 'content' => $boundedHtml['html'] ), array(), $element);
+            }
             return null;
         }
 
@@ -1232,14 +1216,16 @@ final class HtmlTransformer
                 return $navigationSection;
             }
 
-            $navigation = $this->navigationPattern->match(
-                $element,
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
-            if ( null !== $navigation ) {
-                return $navigation;
+            if ( ! $this->shouldDeferNavigationPatternToChildren($element) ) {
+                $navigation = $this->navigationPattern->match(
+                    $element,
+                    fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                    fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+                );
+                if ( null !== $navigation ) {
+                    return $navigation;
+                }
             }
 
             $columns = $this->columnsBlockFromElement($element, $fallbacks);
@@ -1517,7 +1503,7 @@ final class HtmlTransformer
         if ( 'a' === $tagName ) {
             for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
                 $ancestorTokens = strtolower($this->attr($node, 'class') . ' ' . $this->attr($node, 'id'));
-                if ( preg_match('/(?:^|[^a-z0-9])(?:nav|menu|card|tile|panel|pricing|product)(?:[^a-z0-9]|$)/', $ancestorTokens) ) {
+                if ( preg_match('/(?:^|[^a-z0-9])(?:actions?|btns?|buttons?|cta|nav|menu|card|tile|panel|pricing|product)(?:[^a-z0-9]|$)/', $ancestorTokens) ) {
                     return true;
                 }
             }
@@ -1856,6 +1842,28 @@ final class HtmlTransformer
         return in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) && ( array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
     }
 
+    private function shouldDeferNavigationPatternToChildren(DOMElement $element): bool
+    {
+        if ( 'nav' === strtolower($element->tagName) || ! $this->shouldPreserveWrapper($element) ) {
+            return false;
+        }
+
+        $hasNavigationDescendant = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( in_array(strtolower($child->tagName), array( 'a', 'ul', 'ol' ), true) ) {
+                return false;
+            }
+
+            $hasNavigationDescendant = $hasNavigationDescendant || 'nav' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('a')->length;
+        }
+
+        return $hasNavigationDescendant;
+    }
+
     private function shouldPreserveEmptyVisualElement(DOMElement $element): bool
     {
         if ( '' !== trim($element->textContent ?? '') ) {
@@ -1871,17 +1879,6 @@ final class HtmlTransformer
         }
 
         return in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true) || 'true' === strtolower($this->attr($element, 'aria-hidden'));
-    }
-
-    private function isNonContentRuntimeControl(DOMElement $element): bool
-    {
-        if ( '' !== trim($element->textContent ?? '') ) {
-            return false;
-        }
-
-        return '' !== trim($this->attr($element, 'aria-controls'))
-            || '' !== trim($this->attr($element, 'aria-expanded'))
-            || array() !== array_intersect_key($this->safeDataAttributes($element), array_flip(array( 'data-action', 'data-on', 'data-event' )));
     }
 
     private function isInlineContentElement(string $tagName): bool
@@ -2903,6 +2900,38 @@ final class HtmlTransformer
             'html_bytes'             => $boundedHtml['bytes'],
             'html_truncated'         => $boundedHtml['truncated'],
         ), static fn (mixed $value): bool => '' !== $value && array() !== $value), $this->fallbackProvenance);
+    }
+
+    private function isRuntimeCanvasTarget(DOMElement $element): bool
+    {
+        $id = trim($this->attr($element, 'id'));
+        if ( '' !== $id && isset($this->runtimeCanvasSelectors['#' . $id]) ) {
+            return true;
+        }
+
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+            if ( '' !== $class && isset($this->runtimeCanvasSelectors['.' . $class]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, bool>
+     */
+    private function runtimeCanvasSelectorsFromOptions(array $options): array
+    {
+        $selectors = array();
+        foreach ( $options['runtime_canvas_selectors'] ?? array() as $selector ) {
+            if ( is_string($selector) && preg_match('/^[#.][A-Za-z][A-Za-z0-9_-]*$/', $selector) ) {
+                $selectors[$selector] = true;
+            }
+        }
+
+        return $selectors;
     }
 
     /**
