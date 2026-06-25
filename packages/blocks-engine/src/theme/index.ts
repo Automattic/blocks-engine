@@ -20,6 +20,12 @@ export { segmentPage } from './segment.js';
 export { foundation } from './foundation.js';
 export { ingest } from './ingest.js';
 export { planTemplates } from './template-plan.js';
+export {
+  normalizeCopy,
+  sanitizePatternHeaderField,
+  sanitizeSvgAsset,
+  stripChrome,
+} from './page-reconstruct-helpers.js';
 export { reconstruct } from './reconstruct.js';
 export {
   buildCoverageIsland,
@@ -92,6 +98,7 @@ export type {
   ThemeFontFamily,
 } from './font-capture.js';
 export type * from './font-faces.js';
+export type { FontFamilyToken } from './page-reconstruct-helpers.js';
 export type { InternalLinkMap } from './url-rewrite.js';
 export type * from './section-spec.js';
 export type * from './source-assets.js';
