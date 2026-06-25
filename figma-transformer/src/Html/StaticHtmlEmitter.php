@@ -2873,7 +2873,32 @@ final class StaticHtmlEmitter
             return null;
         }
 
-        return preg_match('/^[MmZzLlHhVvCcSsQqTtAa0-9,\.\-+\s]+$/', $path) ? $path : null;
+        if ( ! preg_match('/^[MmZzLlHhVvCcSsQqTtAa0-9,\.\-+\s]+$/', $path) ) {
+            return null;
+        }
+
+        return $this->canonicalSvgPathData($path);
+    }
+
+    private function canonicalSvgPathData(string $path): ?string
+    {
+        preg_match_all('/[MmZzLlHhVvCcSsQqTtAa]|[-+]?(?:\d*\.\d+|\d+\.?)(?:e[-+]?\d+)?/i', $path, $matches);
+        $tokens = $matches[0] ?? array();
+        if ( empty($tokens) ) {
+            return null;
+        }
+
+        $canonical = array();
+        foreach ( $tokens as $token ) {
+            if ( 1 === strlen($token) && preg_match('/^[MmZzLlHhVvCcSsQqTtAa]$/', $token) ) {
+                $canonical[] = $token;
+                continue;
+            }
+
+            $canonical[] = $this->number((float) $token);
+        }
+
+        return implode(' ', $canonical);
     }
 
     private function svgPathDataByteLimit(mixed $rawPath): int

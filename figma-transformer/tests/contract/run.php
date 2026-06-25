@@ -393,7 +393,8 @@ $assert(str_contains($largeDecodedVectorHtml, 'data-figma-node-id="vector:large-
 $assert(str_contains($largeDecodedVectorHtml, 'data-figma-node-id="vector:large-raw"') && str_contains($largeDecodedVectorHtml, 'data-figma-unsupported-vector="true"'), 'large-raw-vector-path-remains-capped');
 $assert(in_array('unsupported_vector_node_placeholder', $largeDecodedVectorDiagnosticCodes, true), 'large-raw-vector-placeholder-diagnostic');
 
-$externalizedVectorPath = 'M 0 0' . str_repeat(' L 10 10', 9000) . ' Z';
+$externalizedVectorPath = 'M 0.0000 0.0000' . str_repeat(' L 10.000001 10.000001', 9000) . ' Z';
+$externalizedEquivalentVectorPath = 'M0,0' . str_repeat('L10,10', 9000) . 'Z';
 $externalizedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Externalized Vector Fixture',
     'nodes' => array(
@@ -411,7 +412,7 @@ $externalizedVectorResult = blocks_engine_figma_transformer_transform_scenegraph
             'name'               => 'Externalized Vector',
             'width'              => 10,
             'height'             => 10,
-            'figma_vector_paths' => array(array('data' => $externalizedVectorPath, 'source' => 'strokeGeometry')),
+            'figma_vector_paths' => array(array('data' => $externalizedEquivalentVectorPath, 'source' => 'strokeGeometry')),
         ),
     ),
 ));
@@ -424,7 +425,10 @@ $externalizedVectorAssets = array_values(array_filter(
 $assert(2 === substr_count($externalizedVectorHtml, 'class="figma-vector-asset"'), 'large-vector-externalized-img-references');
 $assert(1 === count($externalizedVectorAssets), 'large-vector-externalized-deduped-asset');
 $assert(str_contains($externalizedVectorCss, '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}'), 'large-vector-asset-css');
-$assert(str_contains($fileContent($externalizedVectorResult, (string) ($externalizedVectorAssets[0]['path'] ?? '')), '<svg '), 'large-vector-externalized-svg-content');
+$externalizedVectorAssetContent = $fileContent($externalizedVectorResult, (string) ($externalizedVectorAssets[0]['path'] ?? ''));
+$assert(str_contains($externalizedVectorAssetContent, '<svg '), 'large-vector-externalized-svg-content');
+$assert(str_contains($externalizedVectorAssetContent, 'd="M 0 0 L 10 10'), 'large-vector-path-data-canonicalized');
+$assert(! str_contains($externalizedVectorAssetContent, '10.000001'), 'large-vector-path-data-precision-reduced');
 $externalizedVectorDiagnostics = $externalizedVectorResult['source_reports']['figma']['html']['transform_diagnostics']['generated_svg_assets'] ?? array();
 $assert('blocks-engine/figma-transformer/generated-svg-assets/v1' === ($externalizedVectorDiagnostics['schema'] ?? null), 'generated-svg-assets-diagnostics-schema');
 $assert(1 === ($externalizedVectorDiagnostics['count'] ?? null), 'generated-svg-assets-diagnostics-count');
