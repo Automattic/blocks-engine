@@ -1,0 +1,40 @@
+{
+  "id": "figma-transformer-fixture-matrix",
+  "description": "Repo-local Figma transformer fixture matrix rig. Runs large local .fig fixtures through the PHP transformer and captures HTML/result artifacts for fidelity review.",
+  "components": {
+    "blocks-engine": {
+      "path": "${package.root}/../..",
+      "branch": "trunk",
+      "extensions": {}
+    }
+  },
+  "resources": {
+    "paths": [
+      "${components.blocks-engine.path}"
+    ]
+  },
+  "pipeline": {
+    "check": [
+      {
+        "kind": "check",
+        "label": "Figma fixture matrix runner exists",
+        "file": "${components.blocks-engine.path}/figma-transformer/scripts/figma-fixture-matrix.php"
+      },
+      {
+        "kind": "command",
+        "label": "Figma fixture matrix dry run",
+        "cwd": "${components.blocks-engine.path}",
+        "command": "php figma-transformer/scripts/figma-fixture-matrix.php --dry-run"
+      }
+    ],
+    "up": [
+      {
+        "kind": "command",
+        "label": "Run Figma fixture matrix",
+        "cwd": "${components.blocks-engine.path}",
+        "command": "php figma-transformer/scripts/figma-fixture-matrix.php"
+      }
+    ],
+    "down": []
+  }
+}

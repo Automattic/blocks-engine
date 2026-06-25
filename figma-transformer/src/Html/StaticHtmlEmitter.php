@@ -1538,10 +1538,34 @@ final class StaticHtmlEmitter
         }
 
         if ( isset($text['characters']) && is_scalar($text['characters']) ) {
-            return $this->sanitizeText($this->derivedLineBreakText((string) $text['characters'], $text));
+            $characters = (string) $text['characters'];
+            if ( $this->isUnresolvedComponentPlaceholderText($node, $characters) ) {
+                return '';
+            }
+
+            return $this->sanitizeText($this->derivedLineBreakText($characters, $text));
         }
 
-        return $this->sanitizeText((string) ($node['characters'] ?? $node['text'] ?? ''));
+        $characters = (string) ($node['characters'] ?? $node['text'] ?? '');
+        if ( $this->isUnresolvedComponentPlaceholderText($node, $characters) ) {
+            return '';
+        }
+
+        return $this->sanitizeText($characters);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isUnresolvedComponentPlaceholderText(array $node, string $characters): bool
+    {
+        $placeholder = strtolower(trim($characters));
+        if ( ! in_array($placeholder, array('button label'), true) ) {
+            return false;
+        }
+
+        $id = (string) ($node['id'] ?? '');
+        return str_contains($id, '/') || isset($node['figma_component_source_id']);
     }
 
     /**
