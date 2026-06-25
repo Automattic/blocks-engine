@@ -677,10 +677,6 @@ final class HtmlTransformer
                 }
             }
 
-            if ( 'core/group' === ($block['blockName'] ?? '') && empty($block['innerBlocks']) && $this->isMobileNavigationWrapperAttrs($block['attrs'] ?? array()) ) {
-                continue;
-            }
-
             $deduplicated[] = $block;
         }
 
@@ -755,24 +751,6 @@ final class HtmlTransformer
                 $this->collectNavigationBlockLinks($innerBlock, $links);
             }
         }
-    }
-
-    /**
-     * @param array<string, mixed> $attrs
-     */
-    private function isMobileNavigationWrapperAttrs(array $attrs): bool
-    {
-        $className = strtolower((string) ($attrs['className'] ?? ''));
-        if ( '' === $className ) {
-            return false;
-        }
-
-        if ( preg_match('/(?:^|[\s_-])(?:mobile|drawer|offcanvas)(?:$|[\s_-])/', $className) ) {
-            return true;
-        }
-
-        return (bool) preg_match('/(?:^|[\s_-])(?:overlay|panel|dialog)(?:$|[\s_-])/', $className)
-            && preg_match('/(?:^|[\s_-])(?:nav|menu|drawer|offcanvas)(?:$|[\s_-])/', $className);
     }
 
     private function normalizeHtml5VoidElements(string $html): string
@@ -1232,14 +1210,16 @@ final class HtmlTransformer
                 return $navigationSection;
             }
 
-            $navigation = $this->navigationPattern->match(
-                $element,
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
-            if ( null !== $navigation ) {
-                return $navigation;
+            if ( ! $this->shouldDeferNavigationPatternToChildren($element) ) {
+                $navigation = $this->navigationPattern->match(
+                    $element,
+                    fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                    fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+                );
+                if ( null !== $navigation ) {
+                    return $navigation;
+                }
             }
 
             $columns = $this->columnsBlockFromElement($element, $fallbacks);
@@ -1854,6 +1834,28 @@ final class HtmlTransformer
     private function shouldPreserveWrapper(DOMElement $element): bool
     {
         return in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) && ( array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
+    }
+
+    private function shouldDeferNavigationPatternToChildren(DOMElement $element): bool
+    {
+        if ( 'nav' === strtolower($element->tagName) || ! $this->shouldPreserveWrapper($element) ) {
+            return false;
+        }
+
+        $hasNavigationDescendant = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( in_array(strtolower($child->tagName), array( 'a', 'ul', 'ol' ), true) ) {
+                return false;
+            }
+
+            $hasNavigationDescendant = $hasNavigationDescendant || 'nav' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('a')->length;
+        }
+
+        return $hasNavigationDescendant;
     }
 
     private function shouldPreserveEmptyVisualElement(DOMElement $element): bool

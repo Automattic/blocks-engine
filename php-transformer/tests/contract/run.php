@@ -392,7 +392,9 @@ $deduplicatedMobileNavigation = ( new HtmlTransformer() )->transform(
 $assert('pass' === ($deduplicatedMobileNavigation['source_reports']['wp_block_validity']['status'] ?? ''), 'deduplicated desktop/mobile navigation passes WordPress block validity');
 $assertNoInnerContentChildCountMismatch($deduplicatedMobileNavigation, 'deduplicated desktop/mobile navigation does not report innerContent child-count mismatch');
 $assertPlaceholderCountsMatchChildren($deduplicatedMobileNavigation['blocks'] ?? array());
-$assert(1 === count($deduplicatedMobileNavigation['blocks'][0]['innerBlocks'] ?? array()), 'deduplicated desktop/mobile navigation removes duplicate drawer navigation children');
+$assert(2 === count($deduplicatedMobileNavigation['blocks'][0]['innerBlocks'] ?? array()), 'deduplicated desktop/mobile navigation preserves drawer target wrapper');
+$assert(str_contains((string) ($deduplicatedMobileNavigation['serialized_blocks'] ?? ''), 'mobile-nav'), 'deduplicated desktop/mobile navigation preserves mobile navigation target class');
+$assert(! str_contains((string) ($deduplicatedMobileNavigation['serialized_blocks'] ?? ''), 'drawer-nav'), 'deduplicated desktop/mobile navigation removes duplicate drawer navigation children');
 
 $deduplicatedNestedNavigation = ( new HtmlTransformer() )->transform(
     '<main><section class="shell"><div class="desktop-wrap"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div><div class="mobile-nav drawer"><div class="drawer-panel"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div></div><article><h2>Services</h2><p>Copy</p></article></section></main>'
@@ -632,6 +634,27 @@ $assert('index.html' === ($statusDependency['source_path'] ?? ''), 'runtime depe
 $assert(true === ($statusDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved div id target');
 $assert(! empty($statusDependency['events'] ?? array()), 'runtime dependency parity records simple addEventListener usage');
 $assert('info' === ($rumFinding['severity'] ?? ''), 'telemetry-like runtime dependency misses are info severity');
+
+$runtimeTargetContainerSite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><section class="reveal"><h2>Reveal</h2></section><header><nav class="primary-nav"><a href="/">Home</a></nav><div class="mobile-nav-overlay"><div class="mobile-nav"><nav class="drawer-nav"><a href="/">Home</a></nav></div></div></header><div class="faq-item"><h3>Question</h3><p>Answer</p></div><div class="filter-bar"><button class="filter-btn">All</button><div class="filter-chips"><span>Popular</span></div></div><section id="contact-form"><h2>Contact</h2></section><div id="form-success"></div><script src="js/app.js"></script></main>',
+            'js/app.js' => 'document.querySelectorAll(".reveal"); document.querySelector(".mobile-nav-overlay"); document.querySelector(".mobile-nav"); document.querySelector(".faq-item"); document.querySelector(".filter-btn").addEventListener("click", function () {}); document.querySelector(".filter-bar"); document.querySelector(".filter-chips"); document.getElementById("contact-form"); document.getElementById("form-success");',
+        ),
+    )
+)->toArray();
+$runtimeTargetContainerReport = $runtimeTargetContainerSite['source_reports']['runtime_dependency_parity'] ?? array();
+$runtimeTargetDependencies = array();
+foreach ( $runtimeTargetContainerReport['dependencies'] ?? array() as $dependency ) {
+    $runtimeTargetDependencies[$dependency['selector'] ?? ''] = $dependency;
+}
+$assert('pass' === ($runtimeTargetContainerReport['status'] ?? ''), 'runtime dependency parity passes generic preserved JS target containers');
+foreach ( array( '.reveal', '.mobile-nav-overlay', '.mobile-nav', '.faq-item', '.filter-btn', '.filter-bar', '.filter-chips', '#contact-form', '#form-success' ) as $selector ) {
+    $assert(true === ($runtimeTargetDependencies[$selector]['generated_present'] ?? null), 'runtime dependency parity records preserved target ' . $selector);
+}
+$assert(str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'mobile-nav-overlay'), 'artifact block markup preserves mobile nav overlay target class after navigation dedupe');
+$assert(! str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'drawer-nav'), 'artifact block markup still removes duplicate drawer navigation links after preserving target wrapper');
 
 $legacyFrontPageSite = $compiler->compile(
     array(
