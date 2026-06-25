@@ -1,9 +1,9 @@
 {
   "id": "figma-transformer-fixture-matrix",
-  "description": "Repo-local Figma transformer fixture matrix rig. Runs large local .fig fixtures through the PHP transformer and captures HTML/result artifacts for fidelity review.",
+  "description": "Figma transformer fixture matrix rig. Runs large local .fig fixtures through the PHP transformer and captures HTML/result artifacts for fidelity review.",
   "components": {
     "blocks-engine": {
-      "path": "${package.root}/../..",
+      "path": "${package.root}/../../..",
       "branch": "trunk",
       "extensions": {}
     }
