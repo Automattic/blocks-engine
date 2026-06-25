@@ -1,5 +1,6 @@
 import type { WorkerPool } from '../pool/types.js';
 import type { SectionSpec } from './section-spec.js';
+import type { SourceCssCarryOptions } from './source-css-carry.js';
 
 export interface SiteModel {
   root: string;
@@ -76,7 +77,7 @@ export interface SiteToThemeHooks {
   onRefine?(theme: ThemeModel, ctx: StageCtx): Promise<ThemeModel>;
 }
 
-export interface SiteToThemeOptions {
+export interface SiteToThemeOptions extends SourceCssCarryOptions {
   outDir?: string;
   pool?: WorkerPool;
   sections?: Record<string, SectionSpec[]>;
