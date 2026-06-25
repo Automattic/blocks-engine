@@ -113,4 +113,31 @@ describe('segmentPage DLA parity', () => {
       },
     ]);
   });
+
+  it('promotes a right rail nested inside an outer content-landmark wrapper', () => {
+    // The library/grant-readiness layout: <section class="section"> wraps the
+    // whole two-column block. The <aside> is a grid SIBLING of <main> (afterMain),
+    // not in-content chrome — the content-landmark-ancestor gate must not drop it.
+    const html =
+      '<body><section class="section"><div class="container"><div class="sidebar-layout"><main class="article-body"><div class="guide-section"><h1>Guide</h1><p>Body copy that is long enough to be a real section.</p></div></main><aside class="sidebar" aria-label="Table of contents"><nav><a href="#a">One</a><a href="#b">Two</a></nav></aside></div></div></section></body>';
+
+    expect(segmentPage(html)).toEqual([
+      {
+        id: 'sidebar',
+        role: 'nav',
+        chromeSource: 'layout-rail',
+        html: '<aside class="sidebar" aria-label="Table of contents"><nav><a href="#a">One</a><a href="#b">Two</a></nav></aside>',
+        classes: ['sidebar'],
+        layoutWrapperTag: 'div',
+        layoutWrapperClasses: ['sidebar-layout'],
+        layoutWrapperRailPosition: 'afterMain',
+      },
+      {
+        id: 'guide',
+        role: 'body',
+        html: '<div class="guide-section"><h1>Guide</h1><p>Body copy that is long enough to be a real section.</p></div>',
+        classes: ['guide-section'],
+      },
+    ]);
+  });
 });

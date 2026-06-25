@@ -134,11 +134,26 @@ function isLayoutChromeCandidate($: CheerioAPI, el: Element): boolean {
   const isNav = tag === 'nav' || role === 'navigation';
   const isComplementary = tag === 'aside' || role === 'complementary';
   if (!isNav && !isComplementary) return false;
-  if (hasContentLandmarkAncestor($, el)) return false;
+
+  // A PROVEN layout rail — a grid/flex SIBLING of <main> under a shared wrapper
+  // (findLayoutRailWrapper is non-null ONLY for a main-sibling; a rail nested
+  // INSIDE <main> yields null) — is page-level chrome even when an outer
+  // content-landmark wrapper encloses the whole two-column block, e.g.
+  // <section><div class="cols"><main/><aside/></div></section>. The
+  // content-landmark-ANCESTOR gates below exist to reject chrome nested INSIDE
+  // main/article CONTENT; a main-sibling rail sits BESIDE that content, not in
+  // it, so those gates must not drop it (the library/grant-readiness right-rail
+  // case: an <aside> TOC wrapped in <section class="section">). The
+  // content-landmark-DESCENDANT gate still applies — a rail holding its own
+  // section/article is suspect regardless of where it sits.
+  const isLayoutRailSibling = findLayoutRailWrapper($, el) !== null;
+  if (!isLayoutRailSibling) {
+    if (hasContentLandmarkAncestor($, el)) return false;
+    const nearest = nearestLandmarkAncestor(el);
+    if (nearest && CONTENT_LANDMARK_TAGS.has(nearest)) return false;
+    if (nearest && CHROME_LANDMARK_TAGS.has(nearest)) return false;
+  }
   if (hasContentLandmarkDescendant($, el)) return false;
-  const nearest = nearestLandmarkAncestor(el);
-  if (nearest && CONTENT_LANDMARK_TAGS.has(nearest)) return false;
-  if (nearest && CHROME_LANDMARK_TAGS.has(nearest)) return false;
   return isNav || isActionableComplementary($, el);
 }
 
