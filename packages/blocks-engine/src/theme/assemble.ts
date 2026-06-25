@@ -20,6 +20,7 @@ type ThemeAssemblyParts = {
   imgRefsByPage?: Record<string, StaticImgRef[]>;
   chromeParts?: Record<string, string>;
   chromeSlugsByPage?: Record<string, ChromeSlugs>;
+  layoutOffsetWrapperClass?: string;
 };
 
 type PaletteEntry = {
@@ -52,10 +53,11 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
         themeSlug,
         parts.chromeParts ?? {},
         parts.chromeSlugsByPage,
-        templatePlan
+        templatePlan,
+        parts.layoutOffsetWrapperClass
       ),
-      'index.html': buildGenericQueriedContentTemplate(parts.chromeParts ?? {}),
-      'page.html': buildGenericQueriedContentTemplate(parts.chromeParts ?? {}),
+      'index.html': buildGenericQueriedContentTemplate(parts.chromeParts ?? {}, parts.layoutOffsetWrapperClass),
+      'page.html': buildGenericQueriedContentTemplate(parts.chromeParts ?? {}, parts.layoutOffsetWrapperClass),
     },
     parts: { ...(parts.chromeParts ?? {}) },
     patterns: {},
@@ -183,15 +185,16 @@ function buildFrontPageTemplate(
   themeSlug: string,
   chromeParts: Record<string, string>,
   chromeSlugsByPage: Record<string, ChromeSlugs> | undefined,
-  templatePlan: TemplatePlan
+  templatePlan: TemplatePlan,
+  layoutOffsetWrapperClass: string | undefined
 ): string {
   const homeSlug = homeSlugFromPlan(site, templatePlan);
   const blocks =
     blocksForPage(homeSlug, pages, imgRefsByPage, themeSlug) ??
     '<!-- wp:paragraph -->\n<p></p>\n<!-- /wp:paragraph -->';
 
-  const mainTemplate = `<!-- wp:group {"tagName":"main","layout":{"type":"constrained"}} -->
-<main class="wp-block-group">
+  const mainTemplate = `<!-- wp:group ${mainGroupAttrs(layoutOffsetWrapperClass, { type: 'constrained' })} -->
+<main class="${mainGroupClass(layoutOffsetWrapperClass)}">
 ${blocks}
 </main>
 <!-- /wp:group -->
@@ -214,9 +217,12 @@ ${blocks}
   ].join('\n');
 }
 
-function buildGenericQueriedContentTemplate(chromeParts: Record<string, string>): string {
+function buildGenericQueriedContentTemplate(
+  chromeParts: Record<string, string>,
+  layoutOffsetWrapperClass: string | undefined
+): string {
   const mainTemplate =
-    '<!-- wp:group {"tagName":"main"} --><main class="wp-block-group"><!-- wp:post-content {"layout":{"type":"constrained"}} /--></main><!-- /wp:group -->';
+    `<!-- wp:group ${mainGroupAttrs(layoutOffsetWrapperClass)} --><main class="${mainGroupClass(layoutOffsetWrapperClass)}"><!-- wp:post-content {"layout":{"type":"constrained"}} /--></main><!-- /wp:group -->`;
 
   if (!hasChromePart(chromeParts, 'header') || !hasChromePart(chromeParts, 'footer')) {
     return `${mainTemplate}\n`;
@@ -232,6 +238,24 @@ function buildGenericQueriedContentTemplate(chromeParts: Record<string, string>)
 
 function hasChromePart(chromeParts: Record<string, string>, slug: string): boolean {
   return Object.prototype.hasOwnProperty.call(chromeParts, `${slug}.html`);
+}
+
+function mainGroupAttrs(
+  layoutOffsetWrapperClass: string | undefined,
+  layout?: Record<string, unknown>
+): string {
+  return JSON.stringify({
+    tagName: 'main',
+    ...(layoutOffsetWrapperClass ? { className: layoutOffsetWrapperClass } : {}),
+    ...(layout ? { layout } : {}),
+  });
+}
+
+function mainGroupClass(layoutOffsetWrapperClass: string | undefined): string {
+  return ['wp-block-group', layoutOffsetWrapperClass]
+    .filter((value): value is string => Boolean(value))
+    .map(escapeHtmlAttr)
+    .join(' ');
 }
 
 function homeSlugFromPlan(site: SiteModel, templatePlan: TemplatePlan): string {
@@ -332,4 +356,12 @@ function slugify(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }

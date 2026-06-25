@@ -6,8 +6,10 @@ import { assets as runAssetsStage } from './assets.js';
 import { chrome } from './chrome.js';
 import { foundation } from './foundation.js';
 import { ingest } from './ingest.js';
+import { detectLayoutOffsetWrapper } from './layout-offset-wrapper.js';
 import { reconstruct } from './reconstruct.js';
 import { sectionExtract } from './section-extract.js';
+import { collectSourceAssets } from './source-assets.js';
 import { writeTheme } from './write-theme.js';
 import type {
   AssetInventory,
@@ -54,6 +56,10 @@ export async function siteToTheme(
     }
 
     const assetStage = await runAssetsStage(ctx, { fetchImpl: options?.fetchImpl });
+    const layoutOffsetWrapperClass = detectLayoutOffsetWrapper(
+      homePage(site)?.html ?? '',
+      collectSourceAssets(site.root, site.pages.map((page) => ({ relPath: page.relPath, html: page.html }))).css
+    );
     const inventory = hooks.onAssets
       ? filterDecorativeAssets(
           assetStage.inventory,
@@ -70,6 +76,7 @@ export async function siteToTheme(
       imgRefsByPage: assetStage.imgRefsByPage,
       chromeParts: chromeRes.parts,
       chromeSlugsByPage: chromeRes.slugsByPage,
+      layoutOffsetWrapperClass,
     });
     const model = hooks.onRefine ? await hooks.onRefine(assembled, ctx) : assembled;
     const written = await writeTheme(model, outDir);
@@ -116,6 +123,10 @@ function normalizeThemeMeta(srcDir: string, meta: Partial<ThemeMeta> | undefined
     slug,
     ...(meta?.author ? { author: meta.author } : {}),
   };
+}
+
+function homePage(site: { pages: Array<{ slug: string; html: string }> }): { html: string } | undefined {
+  return site.pages.find((page) => page.slug === 'home') ?? site.pages[0];
 }
 
 function titleFromSlug(slug: string): string {
