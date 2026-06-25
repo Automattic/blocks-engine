@@ -110,3 +110,28 @@ function blocks_engine_figma_transformer_transform_scenegraph(array $scenegraph,
         ->transformScenegraph($scenegraph, $options)
         ->toArray();
 }
+
+/**
+ * Inspect frame/page candidates in a Figma file.
+ *
+ * @param array<string, mixed> $options Inspection options.
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_transformer_inspect_frames_file(string $path, array $options = array()): array
+{
+    return ( new Automattic\BlocksEngine\FigmaTransformer\FigmaTransformer() )
+        ->inspectFramesFile($path, $options);
+}
+
+/**
+ * Inspect frame/page candidates in a decoded scenegraph.
+ *
+ * @param array<string, mixed> $scenegraph Decoded scenegraph.
+ * @param array<string, mixed> $options Inspection options.
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_transformer_inspect_frames_scenegraph(array $scenegraph, array $options = array()): array
+{
+    return ( new Automattic\BlocksEngine\FigmaTransformer\FigmaTransformer() )
+        ->inspectFramesScenegraph($scenegraph, $options);
+}

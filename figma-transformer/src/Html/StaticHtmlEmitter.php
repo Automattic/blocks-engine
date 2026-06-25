@@ -9,10 +9,29 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class StaticHtmlEmitter
 {
+    private const MAX_RAW_SVG_PATH_DATA_BYTES = 20000;
+    private const MAX_DECODED_FIGMA_SVG_PATH_DATA_BYTES = 4194304;
+    private const EXTERNAL_VECTOR_SVG_BYTES = 65536;
+
     /**
      * @var array<string, array<string, mixed>>
      */
     private array $assetsById = array();
+
+    /**
+     * @var array<string, bool>
+     */
+    private array $usedAssetPaths = array();
+
+    /**
+     * @var array<string, array<string, mixed>>
+     */
+    private array $generatedAssetFiles = array();
+
+    /**
+     * @var array<string, string>
+     */
+    private array $generatedVectorSvgPathsByHash = array();
 
     private bool $renderTextGlyphPaths = false;
 
@@ -24,6 +43,9 @@ final class StaticHtmlEmitter
     public function emit(array $scenegraph, array $options = array()): array
     {
         $this->renderTextGlyphPaths = true === ($options['render_text_glyph_paths'] ?? false);
+        $this->usedAssetPaths = array();
+        $this->generatedAssetFiles = array();
+        $this->generatedVectorSvgPathsByHash = array();
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $nodes = $this->nodeList($scenegraph);
         $diagnostics = array();
@@ -34,9 +56,11 @@ final class StaticHtmlEmitter
         $cssRules = array(
             'html{box-sizing:border-box}',
             '*,*::before,*::after{box-sizing:inherit}',
-            'body{margin:0}',
+            'body{margin:0;overflow-x:auto}',
+            '.figma-root{position:relative;width:max-content;min-width:100%;overflow-x:visible}',
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
             'img{display:block;max-width:100%;height:auto}',
+            '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
         );
         if ( $this->renderTextGlyphPaths ) {
             $cssRules[] = '.figma-text-glyphs{display:block;width:100%;height:100%;overflow:visible}';
@@ -49,6 +73,8 @@ final class StaticHtmlEmitter
             }
             $body .= $this->emitNode($node, $cssRules, $diagnostics, $nodeStyleDiagnostics, 0, null);
         }
+
+        $assetFiles = array_merge($this->referencedAssetFiles($assetFiles), array_values($this->generatedAssetFiles));
 
         $css = ('' !== $fontCss ? $fontCss . "\n" : '') . implode("\n", $cssRules) . "\n";
         $files = array(
@@ -115,6 +141,171 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array<string, mixed> $scenegraph Normalized Figma scenegraph.
+     * @param array<string, mixed> $pagePlan Planned pages with frame_id, name, path, and entrypoint.
+     * @param array<string, mixed> $options Transformation options.
+     * @return array<string, mixed>
+     */
+    public function emitSite(array $scenegraph, array $pagePlan, array $options = array()): array
+    {
+        $this->renderTextGlyphPaths = true === ($options['render_text_glyph_paths'] ?? false);
+        $this->usedAssetPaths = array();
+        $this->generatedAssetFiles = array();
+        $this->generatedVectorSvgPathsByHash = array();
+        $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
+        $diagnostics = array();
+        $nodeStyleDiagnostics = array();
+        $assetFiles = $this->normalizeAssets($scenegraph['assets'] ?? array(), $diagnostics);
+        $nodeMap = $this->nodeMap($scenegraph);
+
+        $cssRules = array(
+            'html{box-sizing:border-box}',
+            '*,*::before,*::after{box-sizing:inherit}',
+            'body{margin:0;overflow-x:auto}',
+            '.figma-root{position:relative;width:max-content;min-width:100%;overflow-x:visible}',
+            'p,h1,h2,h3,h4,h5,h6{margin:0}',
+            'img{display:block;max-width:100%;height:auto}',
+            '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
+        );
+        if ( $this->renderTextGlyphPaths ) {
+            $cssRules[] = '.figma-text-glyphs{display:block;width:100%;height:100%;overflow:visible}';
+        }
+        $fontCss = $this->fontCss($options);
+        $files = array();
+        $pages = array();
+        $renderedNodes = array();
+        $seenPaths = array();
+        $plannedPages = $this->plannedPages($pagePlan);
+
+        foreach ( $plannedPages as $index => $page ) {
+            if ( ! is_array($page) ) {
+                continue;
+            }
+
+            $frameId = (string) ($page['frame_id'] ?? '');
+            $frameNode = '' !== $frameId && isset($nodeMap[$frameId]) ? $nodeMap[$frameId] : null;
+            if ( null === $frameNode ) {
+                $diagnostics[] = array(
+                    'severity' => 'warning',
+                    'code'     => 'planned_page_frame_missing',
+                    'message'  => 'Planned page frame was not found in the scenegraph.',
+                    'frame_id' => $frameId,
+                );
+                continue;
+            }
+
+            $pageName = (string) ($page['name'] ?? $frameNode['name'] ?? 'Page');
+            $path = $this->pagePath($page, $pageName, $index);
+            if ( isset($seenPaths[$path]) ) {
+                $diagnostics[] = array(
+                    'severity' => 'warning',
+                    'code'     => 'duplicate_page_path_omitted',
+                    'message'  => 'Planned page path duplicates an earlier page and was omitted.',
+                    'path'     => $path,
+                    'frame_id' => $frameId,
+                );
+                continue;
+            }
+            $seenPaths[$path] = true;
+
+            $body = $this->emitNode($frameNode, $cssRules, $diagnostics, $nodeStyleDiagnostics, 0, null);
+            $files[] = array(
+                'path'      => $path,
+                'role'      => true === ($page['entrypoint'] ?? false) ? 'entrypoint' : 'document',
+                'mime_type' => 'text/html',
+                'content'   => $this->htmlDocument($this->sanitizeText($pageName), $this->stylesheetHref($path), $body),
+            );
+            $renderedNodes[] = $frameNode;
+            $pages[] = array(
+                'frame_id'   => $frameId,
+                'name'       => $pageName,
+                'path'       => $path,
+                'entrypoint' => true === ($page['entrypoint'] ?? false),
+                'node_count' => $this->countNodes(array($frameNode)),
+            );
+        }
+
+        if ( empty($files) ) {
+            foreach ( $this->nodeList($scenegraph) as $node ) {
+                if ( ! is_array($node) ) {
+                    continue;
+                }
+                $body = $this->emitNode($node, $cssRules, $diagnostics, $nodeStyleDiagnostics, 0, null);
+                $files[] = array(
+                    'path'      => 'index.html',
+                    'role'      => 'entrypoint',
+                    'mime_type' => 'text/html',
+                    'content'   => $this->htmlDocument($title, 'style.css', $body),
+                );
+                $renderedNodes[] = $node;
+            }
+        }
+
+        $assetFiles = array_merge($this->referencedAssetFiles($assetFiles), array_values($this->generatedAssetFiles));
+        $css = ('' !== $fontCss ? $fontCss . "\n" : '') . implode("\n", array_values(array_unique($cssRules))) . "\n";
+        $files[] = array(
+            'path'      => 'style.css',
+            'role'      => 'stylesheet',
+            'mime_type' => 'text/css',
+            'content'   => $css,
+        );
+
+        foreach ( $assetFiles as $assetFile ) {
+            $files[] = $assetFile;
+        }
+
+        $visualNodeMap = $this->visualNodeMap($renderedNodes);
+        $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
+        $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $assetFiles, $fontFamilies, $fontCss, $css, $diagnostics);
+        if ( '' === $fontCss ) {
+            foreach ( $fontFamilies as $fontFamily ) {
+                if ( $this->isWebSafeFontFamily($fontFamily) ) {
+                    continue;
+                }
+                $diagnostics[] = array(
+                    'severity' => 'info',
+                    'code' => 'font_css_missing_for_source_font',
+                    'message' => 'Source font family was emitted without supplied font CSS; browser font fallback may reduce visual parity.',
+                    'context' => array('font_family' => $fontFamily),
+                );
+            }
+        }
+
+        return array(
+            'status'        => 'success',
+            'diagnostics'   => $diagnostics,
+            'files'         => $files,
+            'assets'        => $this->assetReport($assetFiles),
+            'source_report' => array(
+                'name'                         => $title,
+                'node_count'                   => $this->countNodes($renderedNodes),
+                'schema'                       => $scenegraph['schema'] ?? null,
+                'pages'                        => $pages,
+                'node_style_diagnostic_count'  => count($nodeStyleDiagnostics),
+                'node_style_mismatch_count'    => $this->countNodeStyleMismatches($nodeStyleDiagnostics),
+                'node_style_diagnostics'       => $nodeStyleDiagnostics,
+                'visual_node_count'            => count($visualNodeMap),
+                'visual_node_map'              => $visualNodeMap,
+                'font_families'                => $fontFamilies,
+                'font_usage'                   => $this->fontUsage($nodeStyleDiagnostics),
+                'font_css_supplied'            => '' !== $fontCss,
+                'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
+                'transform_diagnostics'        => $transformDiagnostics,
+            ),
+            'metrics'       => array(
+                'node_count'  => $this->countNodes($renderedNodes),
+                'asset_count' => count($assetFiles),
+                'page_count'  => count($pages),
+            ),
+        );
+    }
+
+    private function htmlDocument(string $title, string $stylesheetHref, string $body): string
+    {
+        return "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>" . $title . "</title>\n<link rel=\"stylesheet\" href=\"" . $this->sanitizeAttribute($stylesheetHref) . "\">\n</head>\n<body>\n<main class=\"figma-root\" data-figma-root=\"true\">\n" . $body . "</main>\n</body>\n</html>\n";
+    }
+
+    /**
      * @param array<string, mixed> $node
      * @param array<int, string>                 $cssRules
      * @param array<int, array<string, mixed>>   $diagnostics
@@ -143,7 +334,7 @@ final class StaticHtmlEmitter
         }
 
         if ( null !== $vectorSvg ) {
-            $content = $vectorSvg . $content;
+            $content = $this->vectorSvgMarkup($vectorSvg, $node, $type) . $content;
         }
 
         if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback ) {
@@ -155,9 +346,7 @@ final class StaticHtmlEmitter
                 'type'     => $type,
             );
 
-            if ( '' === $content ) {
-                $content = '<span class="figma-unsupported-vector-placeholder">Unsupported Figma ' . $this->sanitizeText($type) . '</span>';
-            }
+            $content = '';
         }
 
         $styles = $this->styleDeclarations($node, $type, $parentNode);
@@ -171,7 +360,7 @@ final class StaticHtmlEmitter
             $attributes .= ' aria-hidden="true"';
         }
         if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback ) {
-            $attributes .= ' data-figma-unsupported-vector="true" role="img" aria-label="Unsupported Figma ' . $this->sanitizeAttribute($type) . ' node"';
+            $attributes .= ' data-figma-unsupported-vector="true" aria-hidden="true"';
         } elseif ( $hasVectorAssetFallback ) {
             $attributes .= ' role="img" aria-label="' . $this->sanitizeAttribute('' !== $name ? $name : $type) . '"';
         }
@@ -480,15 +669,24 @@ final class StaticHtmlEmitter
             'placeholders'             => 0,
             'placeholder_nodes'        => array(),
         );
+        $layout = array(
+            'large_negative_left_count' => preg_match_all('/left:-[0-9]{3,}/', $css),
+            'decorative_underlays'      => array(
+                'count' => 0,
+                'nodes' => array(),
+            ),
+        );
 
         foreach ( $nodes as $node ) {
             if ( is_array($node) ) {
-                $this->collectTransformDiagnostics($node, $image, $vectors);
+                $this->collectTransformDiagnostics($node, $image, $vectors, $layout);
             }
         }
 
         $image['missing_assets'] = array_values($image['missing_assets']);
         $vectors['placeholder_nodes'] = array_values($vectors['placeholder_nodes']);
+        $layout['decorative_underlays']['nodes'] = array_values($layout['decorative_underlays']['nodes']);
+        $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
 
         return array(
             'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
@@ -505,10 +703,45 @@ final class StaticHtmlEmitter
                 'emitted_files' => count($assetFiles),
                 'paths'         => array_values(array_map(static fn (array $file): string => (string) ($file['path'] ?? ''), $assetFiles)),
             ),
-            'layout' => array(
-                'large_negative_left_count' => preg_match_all('/left:-[0-9]{3,}/', $css),
-            ),
+            'generated_svg_assets' => $this->generatedSvgAssetDiagnostics($assetFiles),
+            'layout' => $layout,
             'diagnostic_codes' => $this->diagnosticCodeCounts($diagnostics),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assetFiles
+     * @return array<string, mixed>
+     */
+    private function generatedSvgAssetDiagnostics(array $assetFiles): array
+    {
+        $assets = array();
+        foreach ( $assetFiles as $file ) {
+            $sourceId = (string) ($file['source_id'] ?? '');
+            if ( 'image/svg+xml' !== ($file['mime_type'] ?? null) || ! str_starts_with($sourceId, 'generated-vector-') ) {
+                continue;
+            }
+
+            $content = (string) ($file['content'] ?? '');
+            $assets[] = array(
+                'id'        => $sourceId,
+                'path'      => (string) ($file['path'] ?? ''),
+                'mime_type' => 'image/svg+xml',
+                'bytes'     => strlen($content),
+                'hash'      => hash('sha256', $content),
+            );
+        }
+
+        usort($assets, static fn (array $a, array $b): int => ((int) $b['bytes'] <=> (int) $a['bytes']) ?: strcmp((string) $a['path'], (string) $b['path']));
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/generated-svg-assets/v1',
+            'threshold_bytes' => self::EXTERNAL_VECTOR_SVG_BYTES,
+            'count' => count($assets),
+            'bytes' => array_sum(array_map(static fn (array $asset): int => (int) ($asset['bytes'] ?? 0), $assets)),
+            'paths' => array_values(array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $assets)),
+            'largest_assets' => array_slice($assets, 0, 10),
+            'assets' => $assets,
         );
     }
 
@@ -516,9 +749,14 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @param array<string, mixed> $image
      * @param array<string, mixed> $vectors
+     * @param array<string, mixed> $layout
      */
-    private function collectTransformDiagnostics(array $node, array &$image, array &$vectors): void
+    private function collectTransformDiagnostics(array $node, array &$image, array &$vectors, array &$layout, ?array $parentNode = null): void
     {
+        if ( null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode) ) {
+            $layout['decorative_underlays']['nodes'][] = $this->decorativeUnderlayDiagnostic($node, $parentNode);
+        }
+
         $imagePaints = $this->nodeImagePaints($node);
         if ( ! empty($imagePaints) ) {
             $image['paint_refs'] += count($imagePaints);
@@ -559,9 +797,42 @@ final class StaticHtmlEmitter
 
         foreach ( $this->nodeList($node) as $child ) {
             if ( is_array($child) ) {
-                $this->collectTransformDiagnostics($child, $image, $vectors);
+                $this->collectTransformDiagnostics($child, $image, $vectors, $layout, $node);
             }
         }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     * @return array<string, mixed>
+     */
+    private function decorativeUnderlayDiagnostic(array $node, array $parentNode): array
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+
+        return array(
+            'node_id'       => (string) ($node['id'] ?? ''),
+            'name'          => (string) ($node['name'] ?? ''),
+            'parent_id'     => (string) ($parentNode['id'] ?? ''),
+            'parent_name'   => (string) ($parentNode['name'] ?? ''),
+            'width'         => $this->reportNumericValue($box['width'] ?? null),
+            'height'        => $this->reportNumericValue($box['height'] ?? null),
+            'parent_width'  => $this->reportNumericValue($parentBox['width'] ?? null),
+            'parent_height' => $this->reportNumericValue($parentBox['height'] ?? null),
+        );
+    }
+
+    private function reportNumericValue(mixed $value): mixed
+    {
+        if ( ! is_numeric($value) ) {
+            return null;
+        }
+
+        $number = (float) $value;
+
+        return floor($number) === $number ? (int) $number : $number;
     }
 
     /**
@@ -689,7 +960,7 @@ final class StaticHtmlEmitter
 
             $childLayout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
             $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
-            if ( $this->isFreeformContainer($node) || 'absolute' === ($childLayout['positioning'] ?? null) ) {
+            if ( $this->isFreeformContainer($node) || 'absolute' === ($childLayout['positioning'] ?? null) || $this->isDecorativeFlexUnderlay($child, $node) ) {
                 $this->appendVisualNodeMap($child, $map, $x, $y, $node);
                 continue;
             }
@@ -721,7 +992,8 @@ final class StaticHtmlEmitter
             } elseif ( 'FILL' === $sizing ) {
                 $styles[] = $dimension . ':100%';
             } elseif ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
-                $styles[] = $dimension . ':' . $this->number((float) $box[$dimension]) . 'px';
+                $property = null === $parentNode && 'height' === $dimension && 'flex' === ($layout['display'] ?? null) ? 'min-height' : $dimension;
+                $styles[] = $property . ':' . $this->number((float) $box[$dimension]) . 'px';
             }
         }
 
@@ -729,8 +1001,9 @@ final class StaticHtmlEmitter
             $styles[] = 'overflow:hidden';
         }
 
-        $willPositionAbsolute = (null !== $parentNode && $this->isFreeformContainer($parentNode)) || 'absolute' === ($layout['positioning'] ?? null);
-        if ( ! $willPositionAbsolute && ($this->hasAbsoluteChild($node) || $this->isFreeformContainer($node)) ) {
+        $isDecorativeFlexUnderlay = null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode);
+        $willPositionAbsolute = (null !== $parentNode && $this->isFreeformContainer($parentNode)) || 'absolute' === ($layout['positioning'] ?? null) || $isDecorativeFlexUnderlay;
+        if ( ! $willPositionAbsolute && ($this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node)) ) {
             $styles[] = 'position:relative';
         }
 
@@ -739,11 +1012,23 @@ final class StaticHtmlEmitter
 			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode) as $style ) {
 				$styles[] = $style;
 			}
+        } elseif ( $isDecorativeFlexUnderlay ) {
+            $styles[] = 'position:absolute';
+            foreach ( $this->absolutePositionStyles($box, $layout, $parentNode) as $style ) {
+                $styles[] = $style;
+            }
+            $styles[] = 'z-index:0';
+            $styles[] = 'pointer-events:none';
 		} elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
             $styles[] = 'position:absolute';
             foreach ( $this->absolutePositionStyles($box, $layout, $parentNode) as $style ) {
                 $styles[] = $style;
             }
+        }
+
+        if ( null !== $parentNode && ! $willPositionAbsolute && $this->hasDecorativeFlexUnderlayChild($parentNode) ) {
+            $styles[] = 'position:relative';
+            $styles[] = 'z-index:1';
         }
 
         if ( 'TEXT' !== $type && ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) ) {
@@ -816,11 +1101,13 @@ final class StaticHtmlEmitter
             $styles[] = 'gap:' . $this->number((float) $layout['item_spacing']) . 'px';
         }
 
-        foreach ( $this->flexItemStyles($layout, $parentNode) as $style ) {
-            $styles[] = $style;
+        if ( ! $isDecorativeFlexUnderlay ) {
+            foreach ( $this->flexItemStyles($layout, $parentNode) as $style ) {
+                $styles[] = $style;
+            }
         }
 
-        return $styles;
+        return array_values(array_unique($styles));
     }
 
     /**
@@ -997,6 +1284,146 @@ final class StaticHtmlEmitter
         }
 
         return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasDecorativeFlexUnderlayChild(array $node): bool
+    {
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && $this->isDecorativeFlexUnderlay($child, $node) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isDecorativeFlexUnderlay(array $node, array $parentNode): bool
+    {
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        if ( ! in_array((string) ($parentLayout['display'] ?? ''), array('flex', 'inline-flex'), true) ) {
+            return false;
+        }
+
+        if ( 'absolute' === ($node['layout']['positioning'] ?? null) || $this->treeHasText($node) || $this->treeHasImageReference($node) ) {
+            return false;
+        }
+
+        if ( ! $this->treeIsVectorShapeOnly($node) || ! $this->parentHasTextOutsideNode($parentNode, $node) ) {
+            return false;
+        }
+
+        return $this->isOversizedAgainstParent($node, $parentNode);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isOversizedAgainstParent(array $node, array $parentNode): bool
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        foreach ( array('width', 'height') as $dimension ) {
+            if ( ! isset($box[$dimension], $parentBox[$dimension]) || ! is_numeric($box[$dimension]) || ! is_numeric($parentBox[$dimension]) || 0.0 >= (float) $parentBox[$dimension] ) {
+                return false;
+            }
+        }
+
+        if ( (float) $box['width'] < 300.0 && (float) $box['height'] < 300.0 ) {
+            return false;
+        }
+
+        $widthRatio = (float) $box['width'] / (float) $parentBox['width'];
+        $heightRatio = (float) $box['height'] / (float) $parentBox['height'];
+        $areaRatio = ((float) $box['width'] * (float) $box['height']) / ((float) $parentBox['width'] * (float) $parentBox['height']);
+
+        return 0.75 <= $widthRatio || 0.75 <= $heightRatio || 0.45 <= $areaRatio;
+    }
+
+    /**
+     * @param array<string, mixed> $parentNode
+     * @param array<string, mixed> $node
+     */
+    private function parentHasTextOutsideNode(array $parentNode, array $node): bool
+    {
+        $nodeId = (string) ($node['id'] ?? '');
+        foreach ( $this->nodeList($parentNode) as $sibling ) {
+            if ( ! is_array($sibling) || (string) ($sibling['id'] ?? '') === $nodeId ) {
+                continue;
+            }
+            if ( $this->treeHasText($sibling) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function treeHasText(array $node): bool
+    {
+        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+            return '' !== trim(strip_tags($this->textContent($node)));
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && $this->treeHasText($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function treeHasImageReference(array $node): bool
+    {
+        if ( null !== $this->nodeAssetPath($node) || ! empty($this->explicitNodeAssetReferences($node)) || ! empty($this->nodeImagePaints($node)) ) {
+            return true;
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && $this->treeHasImageReference($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function treeIsVectorShapeOnly(array $node): bool
+    {
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        $children = $this->nodeList($node);
+        if ( empty($children) ) {
+            return in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON', 'RECTANGLE'), true);
+        }
+
+        if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'BOOLEAN_OPERATION'), true) ) {
+            return false;
+        }
+
+        foreach ( $children as $child ) {
+            if ( ! is_array($child) || ! $this->treeIsVectorShapeOnly($child) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -1290,7 +1717,7 @@ final class StaticHtmlEmitter
 
         $styles = $this->textStyleDeclarations($style);
         $derivedLineHeight = $this->textDerivedBaselineLineHeight($text);
-        if ( null !== $derivedLineHeight ) {
+        if ( null !== $derivedLineHeight && 0.0 < $derivedLineHeight ) {
             $styles = array_values(array_filter(
                 $styles,
                 static fn (string $style): bool => ! str_starts_with($style, 'line-height:')
@@ -1426,16 +1853,18 @@ final class StaticHtmlEmitter
             $styles[] = 'font-weight:' . $this->number((float) $style['font_weight']);
         }
 
-        if ( isset($style['line_height_px']) && is_numeric($style['line_height_px']) ) {
+        if ( isset($style['line_height_px']) && is_numeric($style['line_height_px']) && 0.0 < (float) $style['line_height_px'] ) {
             $styles[] = 'line-height:' . $this->number((float) $style['line_height_px']) . 'px';
-        } elseif ( isset($style['line_height_raw']) && is_numeric($style['line_height_raw']) ) {
+        } elseif ( isset($style['line_height_raw']) && is_numeric($style['line_height_raw']) && 0.0 < (float) $style['line_height_raw'] ) {
             $styles[] = 'line-height:' . $this->number((float) $style['line_height_raw']);
-        } elseif ( isset($style['line_height_percent']) && is_numeric($style['line_height_percent']) ) {
+        } elseif ( isset($style['line_height_percent']) && is_numeric($style['line_height_percent']) && 0.0 < (float) $style['line_height_percent'] ) {
             $styles[] = 'line-height:' . $this->number((float) $style['line_height_percent']) . '%';
         }
 
         if ( isset($style['letter_spacing']) && is_numeric($style['letter_spacing']) ) {
             $styles[] = 'letter-spacing:' . $this->number((float) $style['letter_spacing']) . 'px';
+        } elseif ( isset($style['letter_spacing_em']) && is_numeric($style['letter_spacing_em']) ) {
+            $styles[] = 'letter-spacing:' . $this->number((float) $style['letter_spacing_em']) . 'em';
         }
 
         $color = $this->color($style['color'] ?? null);
@@ -1512,7 +1941,7 @@ final class StaticHtmlEmitter
     private function strokeStyles(array $node): array
     {
         $paints = is_array($node['figma_paints']['strokes'] ?? null) ? $node['figma_paints']['strokes'] : array();
-        $stroke = $this->firstSolidPaint($paints);
+        $stroke = $this->firstCssPaint($paints);
         if ( null === $stroke ) {
             return array();
         }
@@ -1522,11 +1951,18 @@ final class StaticHtmlEmitter
             $width = (float) $node['strokeWeight'];
         }
 
-        if ( 'OUTSIDE' === strtoupper((string) ($node['strokeAlign'] ?? '')) ) {
-            return array('box-shadow:0 0 0 ' . $this->number((float) $width) . 'px ' . $stroke);
+        if ( true === $stroke['gradient'] ) {
+            return array(
+                'border:' . $this->number((float) $width) . 'px solid transparent',
+                'border-image:' . $stroke['css'] . ' 1',
+            );
         }
 
-        return array('border:' . $this->number((float) $width) . 'px solid ' . $stroke);
+        if ( 'OUTSIDE' === strtoupper((string) ($node['strokeAlign'] ?? '')) ) {
+            return array('box-shadow:0 0 0 ' . $this->number((float) $width) . 'px ' . $stroke['css']);
+        }
+
+        return array('border:' . $this->number((float) $width) . 'px solid ' . $stroke['css']);
     }
 
     /**
@@ -1741,11 +2177,29 @@ final class StaticHtmlEmitter
     {
         foreach ( $this->nodeAssetReferences($node) as $assetId ) {
             if ( isset($this->assetsById[$assetId]) ) {
-                return (string) $this->assetsById[$assetId]['path'];
+                $path = (string) $this->assetsById[$assetId]['path'];
+                $this->usedAssetPaths[$path] = true;
+                return $path;
             }
         }
 
         return null;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assetFiles
+     * @return array<int, array<string, mixed>>
+     */
+    private function referencedAssetFiles(array $assetFiles): array
+    {
+        if ( empty($this->usedAssetPaths) ) {
+            return array();
+        }
+
+        return array_values(array_filter(
+            $assetFiles,
+            fn (array $file): bool => isset($this->usedAssetPaths[(string) ($file['path'] ?? '')])
+        ));
     }
 
     /**
@@ -2015,10 +2469,6 @@ final class StaticHtmlEmitter
             }
         }
 
-        foreach ( $references as $reference ) {
-            $references[] = $this->slug($reference);
-        }
-
         foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
             $paintCollections = array();
             if ( is_array($node[$paintKey] ?? null) ) {
@@ -2043,6 +2493,10 @@ final class StaticHtmlEmitter
             }
         }
 
+        foreach ( $references as $reference ) {
+            $references[] = $this->slug($reference);
+        }
+
         return array_values(array_unique($references));
     }
 
@@ -2056,7 +2510,7 @@ final class StaticHtmlEmitter
      */
     private function supportedVectorSvg(array $node, string $type): ?string
     {
-        if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE'), true) ) {
+        if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
             return null;
         }
 
@@ -2111,6 +2565,33 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array<string, mixed> $node
+     */
+    private function vectorSvgMarkup(string $svg, array $node, string $type): string
+    {
+        $hash = hash('sha256', $svg);
+        if ( strlen($svg) <= self::EXTERNAL_VECTOR_SVG_BYTES && ! isset($this->generatedVectorSvgPathsByHash[$hash]) ) {
+            return $svg;
+        }
+
+        $path = $this->generatedVectorSvgPathsByHash[$hash] ?? null;
+        if ( null === $path ) {
+            $path = 'assets/vector-' . substr($hash, 0, 16) . '.svg';
+            $this->generatedVectorSvgPathsByHash[$hash] = $path;
+            $this->generatedAssetFiles[$path] = array(
+                'path'      => $path,
+                'role'      => 'asset',
+                'mime_type' => 'image/svg+xml',
+                'content'   => $svg,
+                'source_id' => 'generated-vector-' . substr($hash, 0, 16),
+            );
+        }
+
+        $label = (string) ($node['name'] ?? $type);
+        return '<img class="figma-vector-asset" src="' . $this->sanitizeAttribute($path) . '" alt="' . $this->sanitizeAttribute($label) . '" data-figma-vector="true">';
+    }
+
+    /**
      * @param array{x: float, y: float, width: float, height: float} $pathBounds
      * @param array{x: float, y: float, width: float, height: float} $viewBox
      */
@@ -2150,7 +2631,7 @@ final class StaticHtmlEmitter
         $maxY = null;
         foreach ( $paths as $rawPath ) {
             $path = is_array($rawPath) ? (string) ($rawPath['data'] ?? $rawPath['pathData'] ?? $rawPath['path'] ?? $rawPath['d'] ?? '') : (string) $rawPath;
-            $path = $this->safeSvgPathData($path);
+            $path = $this->safeSvgPathData($path, $this->svgPathDataByteLimit($rawPath));
             if ( null === $path || ! preg_match_all('/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/i', $path, $matches) ) {
                 continue;
             }
@@ -2196,7 +2677,7 @@ final class StaticHtmlEmitter
         $elements = array();
         foreach ( $rawPaths as $rawPath ) {
             $path = is_array($rawPath) ? (string) ($rawPath['data'] ?? $rawPath['pathData'] ?? $rawPath['path'] ?? $rawPath['d'] ?? '') : (string) $rawPath;
-            $path = $this->safeSvgPathData($path);
+            $path = $this->safeSvgPathData($path, $this->svgPathDataByteLimit($rawPath));
             if ( null === $path ) {
                 continue;
             }
@@ -2232,17 +2713,83 @@ final class StaticHtmlEmitter
         if ( 'ELLIPSE' === $type ) {
             return array('<ellipse cx="' . $this->number($width / 2) . '" cy="' . $this->number($height / 2) . '" rx="' . $this->number($width / 2) . '" ry="' . $this->number($height / 2) . '" ' . implode(' ', $paint) . '/>');
         }
+        if ( 'STAR' === $type ) {
+            $path = $this->primitiveStarPath($width, $height);
+            return array('<path d="' . $this->sanitizeAttribute($path) . '" ' . implode(' ', $paint) . '/>');
+        }
+        if ( in_array($type, array('POLYGON', 'REGULAR_POLYGON'), true) ) {
+            $path = $this->primitivePolygonPath($width, $height, $this->polygonPointCount($node));
+            return array('<path d="' . $this->sanitizeAttribute($path) . '" ' . implode(' ', $paint) . '/>');
+        }
         return array();
     }
 
-    private function safeSvgPathData(string $path): ?string
+    private function primitiveStarPath(float $width, float $height): string
+    {
+        $cx = $width / 2;
+        $cy = $height / 2;
+        $outer = max(0.0, min($width, $height) / 2);
+        $inner = $outer * 0.5;
+        $parts = array();
+        for ( $index = 0; $index < 10; $index++ ) {
+            $angle = -M_PI / 2 + ( $index * M_PI / 5 );
+            $radius = 0 === $index % 2 ? $outer : $inner;
+            $x = $cx + cos($angle) * $radius;
+            $y = $cy + sin($angle) * $radius;
+            $parts[] = ( 0 === $index ? 'M ' : 'L ' ) . $this->number($x) . ' ' . $this->number($y);
+        }
+
+        return implode(' ', $parts) . ' Z';
+    }
+
+    private function primitivePolygonPath(float $width, float $height, int $points): string
+    {
+        $points = max(3, $points);
+        $cx = $width / 2;
+        $cy = $height / 2;
+        $radius = max(0.0, min($width, $height) / 2);
+        $parts = array();
+        for ( $index = 0; $index < $points; $index++ ) {
+            $angle = -M_PI / 2 + ( $index * 2 * M_PI / $points );
+            $x = $cx + cos($angle) * $radius;
+            $y = $cy + sin($angle) * $radius;
+            $parts[] = ( 0 === $index ? 'M ' : 'L ' ) . $this->number($x) . ' ' . $this->number($y);
+        }
+
+        return implode(' ', $parts) . ' Z';
+    }
+
+    private function polygonPointCount(array $node): int
+    {
+        foreach ( array('pointCount', 'point_count', 'sides', 'side_count') as $key ) {
+            if ( isset($node[$key]) && is_numeric($node[$key]) ) {
+                return max(3, (int) $node[$key]);
+            }
+        }
+
+        return 3;
+    }
+
+    private function safeSvgPathData(string $path, int $maxBytes = self::MAX_RAW_SVG_PATH_DATA_BYTES): ?string
     {
         $path = trim(preg_replace('/\s+/', ' ', $path) ?? '');
-        if ( '' === $path || strlen($path) > 20000 ) {
+        if ( '' === $path || strlen($path) > $maxBytes ) {
             return null;
         }
 
         return preg_match('/^[MmZzLlHhVvCcSsQqTtAa0-9,\.\-+\s]+$/', $path) ? $path : null;
+    }
+
+    private function svgPathDataByteLimit(mixed $rawPath): int
+    {
+        if ( is_array($rawPath) && isset($rawPath['source']) && is_scalar($rawPath['source']) ) {
+            $source = (string) $rawPath['source'];
+            if ( str_starts_with($source, 'fillGeometry') || str_starts_with($source, 'strokeGeometry') || 'vectorData.vectorNetworkBlob' === $source ) {
+                return self::MAX_DECODED_FIGMA_SVG_PATH_DATA_BYTES;
+            }
+        }
+
+        return self::MAX_RAW_SVG_PATH_DATA_BYTES;
     }
 
     /**
@@ -2293,18 +2840,56 @@ final class StaticHtmlEmitter
     private function backgroundColor(array $node): ?string
     {
         $paints = is_array($node['figma_paints']['fills'] ?? null) ? $node['figma_paints']['fills'] : array();
-        $color = $this->firstSolidPaint($paints);
-        if ( null !== $color ) {
-            return $color;
+        $paint = $this->firstBackgroundPaint($paints);
+        if ( null !== $paint ) {
+            return $paint;
         }
 
         $paints = is_array($node['figma_paints']['background'] ?? null) ? $node['figma_paints']['background'] : array();
-        $color = $this->firstSolidPaint($paints);
-        if ( null !== $color ) {
-            return $color;
+        $paint = $this->firstBackgroundPaint($paints);
+        if ( null !== $paint ) {
+            return $paint;
         }
 
         return $this->color($node['background'] ?? $node['backgroundColor'] ?? $node['fill'] ?? $node['fills'][0]['color'] ?? null);
+    }
+
+    /**
+     * @param array<int, mixed> $paints
+     */
+    private function firstBackgroundPaint(array $paints): ?string
+    {
+        $paint = $this->firstCssPaint($paints);
+        return is_array($paint) ? $paint['css'] : null;
+    }
+
+    /**
+     * @param array<int, mixed> $paints
+     * @return array{css: string, gradient: bool}|null
+     */
+    private function firstCssPaint(array $paints): ?array
+    {
+        foreach ( $paints as $paint ) {
+            if ( ! is_array($paint) ) {
+                continue;
+            }
+
+            if ( 'SOLID' === ($paint['type'] ?? null) ) {
+                $color = $this->color($paint['color'] ?? null, $paint['opacity'] ?? null);
+                if ( null !== $color ) {
+                    return array('css' => $color, 'gradient' => false);
+                }
+            }
+
+            if ( in_array(($paint['type'] ?? null), array('GRADIENT_LINEAR', 'GRADIENT_RADIAL'), true) ) {
+                $gradient = $this->gradientPaint($paint);
+                if ( null !== $gradient ) {
+                    return array('css' => $gradient, 'gradient' => true);
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -2324,6 +2909,47 @@ final class StaticHtmlEmitter
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $paint
+     */
+    private function gradientPaint(array $paint): ?string
+    {
+        $stops = is_array($paint['stops'] ?? null) ? $paint['stops'] : array();
+        if ( empty($stops) ) {
+            return null;
+        }
+
+        $cssStops = array();
+        foreach ( $stops as $stop ) {
+            if ( ! is_array($stop) || ! isset($stop['position']) || ! is_numeric($stop['position']) ) {
+                continue;
+            }
+
+            $opacity = $paint['opacity'] ?? null;
+            $color = $stop['color'] ?? null;
+            if ( is_numeric($opacity) && is_array($color) && isset($color['a']) && is_numeric($color['a']) ) {
+                $opacity = (float) $opacity * (float) $color['a'];
+            }
+
+            $cssColor = $this->color($color, $opacity);
+            if ( null === $cssColor ) {
+                continue;
+            }
+
+            $cssStops[] = $cssColor . ' ' . $this->number((float) $stop['position'] * 100) . '%';
+        }
+
+        if ( empty($cssStops) ) {
+            return null;
+        }
+
+        if ( 'GRADIENT_RADIAL' === ($paint['type'] ?? null) ) {
+            return 'radial-gradient(circle,' . implode(',', $cssStops) . ')';
+        }
+
+        return 'linear-gradient(180deg,' . implode(',', $cssStops) . ')';
     }
 
     private function color(mixed $value, mixed $opacity = null): ?string
@@ -2395,6 +3021,100 @@ final class StaticHtmlEmitter
         }
 
         return array();
+    }
+
+    /**
+     * @param array<string, mixed> $scenegraph
+     * @return array<string, array<string, mixed>>
+     */
+    private function nodeMap(array $scenegraph): array
+    {
+        $map = array();
+        if ( is_array($scenegraph['node_map'] ?? null) ) {
+            foreach ( $scenegraph['node_map'] as $id => $node ) {
+                if ( is_array($node) ) {
+                    $nodeId = (string) ($node['id'] ?? $id);
+                    if ( '' !== $nodeId ) {
+                        $map[$nodeId] = $node;
+                    }
+                }
+            }
+        }
+
+        foreach ( $this->nodeList($scenegraph) as $node ) {
+            if ( is_array($node) ) {
+                $this->appendNodeMap($node, $map);
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, array<string, mixed>> $map
+     */
+    private function appendNodeMap(array $node, array &$map): void
+    {
+        $id = (string) ($node['id'] ?? '');
+        if ( '' !== $id ) {
+            $map[$id] = $node;
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) ) {
+                $this->appendNodeMap($child, $map);
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $pagePlan
+     * @return array<int, mixed>
+     */
+    private function plannedPages(array $pagePlan): array
+    {
+        if ( is_array($pagePlan['pages'] ?? null) ) {
+            return array_values($pagePlan['pages']);
+        }
+
+        return array_values($pagePlan);
+    }
+
+    /**
+     * @param array<string, mixed> $page
+     */
+    private function pagePath(array $page, string $name, int $index): string
+    {
+        if ( isset($page['path']) && is_scalar($page['path']) && '' !== trim((string) $page['path']) ) {
+            $path = trim(str_replace('\\', '/', (string) $page['path']));
+            $path = ltrim($path, '/');
+            $parts = array_values(array_filter(explode('/', $path), static fn (string $part): bool => '' !== $part && '.' !== $part && '..' !== $part));
+            $path = implode('/', $parts);
+            if ( '' !== $path && str_ends_with($path, '/') ) {
+                $path .= 'index.html';
+            }
+            if ( '' !== $path ) {
+                return str_contains(basename($path), '.') ? $path : rtrim($path, '/') . '/index.html';
+            }
+        }
+
+        if ( true === ($page['entrypoint'] ?? false) || 0 === $index ) {
+            return 'index.html';
+        }
+
+        return $this->slug($name) . '.html';
+    }
+
+    private function stylesheetHref(string $pagePath): string
+    {
+        $directory = trim(dirname($pagePath), '.');
+        if ( '' === $directory || '/' === $directory ) {
+            return 'style.css';
+        }
+
+        $depth = count(array_filter(explode('/', trim($directory, '/')), static fn (string $part): bool => '' !== $part));
+        return str_repeat('../', $depth) . 'style.css';
     }
 
     /**
