@@ -660,6 +660,8 @@ final class StaticHtmlEmitter
             'paint_refs'      => 0,
             'node_refs'       => 0,
             'resolved_assets' => 0,
+            'image_block_count' => 0,
+            'image_block_nodes' => array(),
             'missing_assets'  => array(),
         );
         $vectors = array(
@@ -671,10 +673,15 @@ final class StaticHtmlEmitter
         );
         $layout = array(
             'large_negative_left_count' => preg_match_all('/left:-[0-9]{3,}/', $css),
+            'fixed_root_width_count'    => 0,
+            'fixed_root_width_nodes'    => array(),
+            'large_absolute_offset_count' => 0,
+            'large_absolute_offset_nodes' => array(),
             'decorative_underlays'      => array(
                 'count' => 0,
                 'nodes' => array(),
             ),
+            'image_heavy_landmark_candidates' => array(),
         );
 
         foreach ( $nodes as $node ) {
@@ -684,9 +691,13 @@ final class StaticHtmlEmitter
         }
 
         $image['missing_assets'] = array_values($image['missing_assets']);
+        $image['image_block_nodes'] = array_values($image['image_block_nodes']);
         $vectors['placeholder_nodes'] = array_values($vectors['placeholder_nodes']);
         $layout['decorative_underlays']['nodes'] = array_values($layout['decorative_underlays']['nodes']);
         $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
+        $layout['fixed_root_width_nodes'] = array_values($layout['fixed_root_width_nodes']);
+        $layout['large_absolute_offset_nodes'] = array_values($layout['large_absolute_offset_nodes']);
+        $layout['image_heavy_landmark_candidates'] = array_values($layout['image_heavy_landmark_candidates']);
         $generatedSvgAssets = $this->generatedSvgAssetDiagnostics($assetFiles);
         $assets = array(
             'emitted_files' => count($assetFiles),
@@ -754,6 +765,41 @@ final class StaticHtmlEmitter
                 'count' => (int) $layout['large_negative_left_count'],
             );
         }
+        if ( ! empty($layout['fixed_root_width_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'fixed_root_width',
+                'count' => (int) $layout['fixed_root_width_count'],
+            );
+        }
+        if ( ! empty($layout['large_absolute_offset_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'large_absolute_offsets',
+                'count' => (int) $layout['large_absolute_offset_count'],
+            );
+        }
+        if ( ! empty($layout['image_heavy_landmark_candidates']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'image_heavy_landmark_candidate',
+                'count' => count($layout['image_heavy_landmark_candidates']),
+            );
+        }
+        if ( (int) ($image['image_block_count'] ?? 0) >= 12 ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'excessive_image_blocks',
+                'count' => (int) $image['image_block_count'],
+            );
+        }
+        if ( (int) ($vectors['rendered_asset_fallbacks'] ?? 0) >= 8 ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'excessive_vector_image_fallbacks',
+                'count' => (int) $vectors['rendered_asset_fallbacks'],
+            );
+        }
         if ( (int) ($generatedSvgAssets['bytes'] ?? 0) > 1048576 ) {
             $signals[] = array(
                 'severity' => 'info',
@@ -774,9 +820,14 @@ final class StaticHtmlEmitter
                 'vector_placeholders' => (int) ($vectors['placeholders'] ?? 0),
                 'missing_font_css' => count($fonts['missing_css'] ?? array()),
                 'emitted_asset_files' => (int) ($assets['emitted_files'] ?? 0),
+                'image_block_count' => (int) ($image['image_block_count'] ?? 0),
+                'vector_image_fallbacks' => (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
                 'generated_svg_count' => (int) ($generatedSvgAssets['count'] ?? 0),
                 'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
                 'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
+                'fixed_root_width_count' => (int) ($layout['fixed_root_width_count'] ?? 0),
+                'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
+                'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
             ),
         );
     }
@@ -825,8 +876,34 @@ final class StaticHtmlEmitter
      */
     private function collectTransformDiagnostics(array $node, array &$image, array &$vectors, array &$layout, ?array $parentNode = null): void
     {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $nodeLayout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+
+        if ( null === $parentNode && isset($box['width']) && is_numeric($box['width']) && (float) $box['width'] >= 1024.0 && 'FILL' !== strtoupper((string) ($nodeLayout['sizing_horizontal'] ?? '')) ) {
+            ++$layout['fixed_root_width_count'];
+            $layout['fixed_root_width_nodes'][] = array(
+                'node_id' => (string) ($node['id'] ?? ''),
+                'name'    => (string) ($node['name'] ?? ''),
+                'type'    => strtoupper((string) ($node['type'] ?? '')),
+                'width'   => $this->reportNumericValue($box['width'] ?? null),
+            );
+        }
+
+        if ( null !== $parentNode ) {
+            $offset = $this->largeAbsoluteOffsetDiagnostic($node, $parentNode);
+            if ( null !== $offset ) {
+                ++$layout['large_absolute_offset_count'];
+                $layout['large_absolute_offset_nodes'][] = $offset;
+            }
+        }
+
         if ( null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode) ) {
             $layout['decorative_underlays']['nodes'][] = $this->decorativeUnderlayDiagnostic($node, $parentNode);
+        }
+
+        $landmarkCandidate = $this->imageHeavyLandmarkCandidate($node);
+        if ( null !== $landmarkCandidate ) {
+            $layout['image_heavy_landmark_candidates'][] = $landmarkCandidate;
         }
 
         $imagePaints = $this->nodeImagePaints($node);
@@ -840,6 +917,12 @@ final class StaticHtmlEmitter
             ++$image['node_refs'];
             if ( null !== $this->nodeAssetPath($node) ) {
                 ++$image['resolved_assets'];
+                ++$image['image_block_count'];
+                $image['image_block_nodes'][] = array(
+                    'node_id' => (string) ($node['id'] ?? ''),
+                    'name'    => (string) ($node['name'] ?? ''),
+                    'type'    => strtoupper((string) ($node['type'] ?? '')),
+                );
             } else {
                 $image['missing_assets'][] = array(
                     'node_id' => (string) ($node['id'] ?? ''),
@@ -872,6 +955,98 @@ final class StaticHtmlEmitter
                 $this->collectTransformDiagnostics($child, $image, $vectors, $layout, $node);
             }
         }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     * @return array<string, mixed>|null
+     */
+    private function largeAbsoluteOffsetDiagnostic(array $node, array $parentNode): ?array
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( 'absolute' !== ($layout['positioning'] ?? null) && ! $this->isFreeformContainer($parentNode) && ! $this->isDecorativeFlexUnderlay($node, $parentNode) ) {
+            return null;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        $left = $this->positionOffset($box, $parentBox, 'x', $parentNode);
+        $top = $this->positionOffset($box, $parentBox, 'y', $parentNode);
+        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : 0.0;
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : 0.0;
+        $parentWidth = isset($parentBox['width']) && is_numeric($parentBox['width']) ? (float) $parentBox['width'] : null;
+        $parentHeight = isset($parentBox['height']) && is_numeric($parentBox['height']) ? (float) $parentBox['height'] : null;
+        $offCanvas = (null !== $left && ($left < -100.0 || (null !== $parentWidth && $left > $parentWidth + 100.0) || $left + $width < -100.0))
+            || (null !== $top && ($top < -100.0 || (null !== $parentHeight && $top > $parentHeight + 100.0) || $top + $height < -100.0));
+
+        if ( ! $offCanvas ) {
+            return null;
+        }
+
+        return array(
+            'node_id' => (string) ($node['id'] ?? ''),
+            'name' => (string) ($node['name'] ?? ''),
+            'type' => strtoupper((string) ($node['type'] ?? '')),
+            'parent_id' => (string) ($parentNode['id'] ?? ''),
+            'left' => null === $left ? null : $this->reportNumericValue($left),
+            'top' => null === $top ? null : $this->reportNumericValue($top),
+            'parent_width' => null === $parentWidth ? null : $this->reportNumericValue($parentWidth),
+            'parent_height' => null === $parentHeight ? null : $this->reportNumericValue($parentHeight),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>|null
+     */
+    private function imageHeavyLandmarkCandidate(array $node): ?array
+    {
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $role = str_contains($name, 'header') ? 'header' : (str_contains($name, 'footer') ? 'footer' : null);
+        if ( null === $role ) {
+            return null;
+        }
+
+        $summary = $this->subtreeVisualSummary($node);
+        if ( $summary['image_nodes'] < 3 || $summary['image_nodes'] < max(1, $summary['text_nodes'] * 2) ) {
+            return null;
+        }
+
+        return array(
+            'node_id' => (string) ($node['id'] ?? ''),
+            'name' => (string) ($node['name'] ?? ''),
+            'role' => $role,
+            'image_nodes' => $summary['image_nodes'],
+            'text_nodes' => $summary['text_nodes'],
+            'total_nodes' => $summary['total_nodes'],
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array{image_nodes: int, text_nodes: int, total_nodes: int}
+     */
+    private function subtreeVisualSummary(array $node): array
+    {
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        $summary = array(
+            'image_nodes' => null !== $this->nodeAssetPath($node) || ! empty($this->nodeImagePaints($node)) ? 1 : 0,
+            'text_nodes' => 'TEXT' === $type ? 1 : 0,
+            'total_nodes' => 1,
+        );
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $childSummary = $this->subtreeVisualSummary($child);
+            $summary['image_nodes'] += $childSummary['image_nodes'];
+            $summary['text_nodes'] += $childSummary['text_nodes'];
+            $summary['total_nodes'] += $childSummary['total_nodes'];
+        }
+
+        return $summary;
     }
 
     /**

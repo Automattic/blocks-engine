@@ -146,6 +146,13 @@ $diagnosticCodes = array_map(
     static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
     $result['diagnostics'] ?? array()
 );
+$artifactQualitySignalCodes = static function (array $result): array {
+    $signals = $result['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['signals'] ?? array();
+    return array_values(array_map(
+        static fn (array $signal): string => (string) ($signal['code'] ?? ''),
+        is_array($signals) ? $signals : array()
+    ));
+};
 
 $assert('blocks-engine/figma-transformer/result/v1' === ($result['schema'] ?? null), 'result-schema');
 $assert('success' === ($result['status'] ?? null), 'scenegraph-transform-success');
@@ -207,6 +214,74 @@ $assert(str_contains($css, 'body{margin:0;overflow-x:hidden}'), 'css-static-page
 $assert(str_contains($css, '.figma-root{position:relative;width:100%;max-width:100%;overflow-x:hidden}'), 'css-static-page-root-shell');
 $assert(! str_contains($css, 'order:'), 'css-avoids-source-order');
 $assert(! str_contains($css, 'font-family:Inter') && ! str_contains($css, 'body{margin:0;background') && ! str_contains($css, 'body{margin:0;color'), 'css-avoids-hardcoded-theme-style');
+
+$qualityAssets = array();
+for ( $i = 1; $i <= 20; $i++ ) {
+    $qualityAssets['quality-image-' . $i] = array('mime_type' => 'image/png', 'content' => 'image ' . $i);
+}
+$qualityChildren = array(
+    array(
+        'id'       => 'quality:header',
+        'type'     => 'GROUP',
+        'name'     => 'Site Header Raster Group',
+        'width'    => 1440,
+        'height'   => 120,
+        'children' => array(
+            array('id' => 'quality:header:1', 'type' => 'RECTANGLE', 'name' => 'Header slice 1', 'width' => 300, 'height' => 80, 'asset_id' => 'quality-image-1'),
+            array('id' => 'quality:header:2', 'type' => 'RECTANGLE', 'name' => 'Header slice 2', 'width' => 300, 'height' => 80, 'asset_id' => 'quality-image-2'),
+            array('id' => 'quality:header:3', 'type' => 'RECTANGLE', 'name' => 'Header slice 3', 'width' => 300, 'height' => 80, 'asset_id' => 'quality-image-3'),
+        ),
+    ),
+    array('id' => 'quality:offcanvas', 'type' => 'RECTANGLE', 'name' => 'Off canvas promo', 'x' => 2000, 'y' => -180, 'width' => 200, 'height' => 100, 'layoutPositioning' => 'ABSOLUTE', 'asset_id' => 'quality-image-4'),
+);
+for ( $i = 5; $i <= 12; $i++ ) {
+    $qualityChildren[] = array('id' => 'quality:image:' . $i, 'type' => 'RECTANGLE', 'name' => 'Raster card ' . $i, 'width' => 80, 'height' => 60, 'asset_id' => 'quality-image-' . $i);
+}
+for ( $i = 13; $i <= 20; $i++ ) {
+    $qualityChildren[] = array('id' => 'quality:vector:' . $i, 'type' => 'VECTOR', 'name' => 'Vector fallback ' . $i, 'width' => 24, 'height' => 24, 'asset_id' => 'quality-image-' . $i);
+}
+$qualityDiagnosticsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'   => 'Quality Diagnostics Fixture',
+    'assets' => $qualityAssets,
+    'nodes'  => array(
+        array(
+            'id'       => 'quality:root',
+            'type'     => 'FRAME',
+            'name'     => 'Desktop fixed root',
+            'width'    => 1440,
+            'height'   => 1200,
+            'layoutMode' => 'VERTICAL',
+            'children' => $qualityChildren,
+        ),
+    ),
+));
+$qualitySignalCodes = $artifactQualitySignalCodes($qualityDiagnosticsResult);
+$assert(in_array('fixed_root_width', $qualitySignalCodes, true), 'quality-diagnostics-fixed-root-width');
+$assert(in_array('large_absolute_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-absolute-offsets');
+$assert(in_array('image_heavy_landmark_candidate', $qualitySignalCodes, true), 'quality-diagnostics-image-heavy-landmark');
+$assert(in_array('excessive_image_blocks', $qualitySignalCodes, true), 'quality-diagnostics-excessive-image-blocks');
+$assert(in_array('excessive_vector_image_fallbacks', $qualitySignalCodes, true), 'quality-diagnostics-excessive-vector-fallbacks');
+$assert('needs_review' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['status'] ?? null), 'quality-diagnostics-status-needs-review');
+
+$cleanQualityResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Clean Quality Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'clean:root',
+            'type'     => 'FRAME',
+            'name'     => 'Simple content',
+            'width'    => 720,
+            'height'   => 320,
+            'layoutMode' => 'VERTICAL',
+            'children' => array(
+                array('id' => 'clean:title', 'type' => 'TEXT', 'name' => 'Page title', 'characters' => 'Clean page', 'fontSize' => 24),
+                array('id' => 'clean:copy', 'type' => 'TEXT', 'name' => 'Page copy', 'characters' => 'A simple responsive-friendly page.', 'fontSize' => 16),
+            ),
+        ),
+    ),
+));
+$assert(array() === $artifactQualitySignalCodes($cleanQualityResult), 'quality-diagnostics-clean-page-no-signals');
+$assert('clean' === ($cleanQualityResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['status'] ?? null), 'quality-diagnostics-clean-page-status');
 
 $offsetPageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'     => 'Offset Board Fixture',
