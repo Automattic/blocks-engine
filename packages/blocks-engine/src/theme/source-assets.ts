@@ -14,6 +14,7 @@
 //
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, posix } from 'node:path';
+import { buildAdminBarAccommodationCss } from './admin-bar-accommodation.js';
 
 /** Neutralize WP-injected wrappers so source layout selectors keep working.
  * Prepended (lowest precedence) — source rules always win over it. */
@@ -407,7 +408,13 @@ export function collectSourceAssets(
   // dir. Then strip Google-Fonts @imports: WP_COMPAT_CSS contains no @imports so
   // startsWith(WP_COMPAT_CSS) is preserved; Google imports only exist in cssParts.
   const { parts: localizedParts, mediaAssets } = localizeCssImages(cssParts, dir);
-  const css = (WP_COMPAT_CSS + localizedParts.join('\n\n')).replace(GOOGLE_IMPORT_RE, '');
+  const baseCss = (WP_COMPAT_CSS + localizedParts.join('\n\n')).replace(GOOGLE_IMPORT_RE, '');
+  // Append admin-bar accommodation LAST: scan the assembled source CSS for
+  // top-anchored fixed/sticky chrome and shift it below the WP admin bar for
+  // logged-in viewers (the bar otherwise overlays a `position:fixed; top:0`
+  // header/sidebar/topbar). `body.admin-bar <selector>` out-specifies the source
+  // rule, so order is not load-bearing, but appending keeps the layer self-evident.
+  const css = `${baseCss}\n\n${buildAdminBarAccommodationCss(baseCss)}`;
   // Carry HTML <img> assets too (content images the CSS pass never sees).
   const { imgAssets, rewritesByPage: imgRewritesByPage } = collectHtmlImages(pageHtmls, dir);
   return {

@@ -22,6 +22,7 @@ export { buildFallbackDiagnostic, buildTriageRemovalDiagnostic } from './fallbac
 export { formToBlocks, SKIPPED_FIELD_KINDS } from './form-blocks.js';
 export { ingest } from './ingest.js';
 export { detectLayoutOffsetWrapper } from './layout-offset-wrapper.js';
+export { buildAdminBarAccommodationCss } from './admin-bar-accommodation.js';
 export { planTemplates } from './template-plan.js';
 export {
   normalizeCopy,

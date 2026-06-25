@@ -274,14 +274,19 @@ describe('source assets DLA parity', () => {
       expect(result.cssFiles).toEqual(['assets/css/base.css', 'assets/css/override.css']);
       expect(result.jsFiles).toEqual(['assets/js/lib.js', 'assets/js/app.js']);
       expect(result.skippedUnlinked).toEqual(['stale.js', 'style.css']);
-      expect(result.css).toBe(
+      const expectedBase =
         DLA_WP_COMPAT_CSS +
-          [
-            '\n.base { background: url(media/bg.png); color: black; }',
-            '.base { color: white; }',
-            '.inline { background: url(media/root-inline.png); }',
-          ].join('\n\n')
-      );
+        [
+          '\n.base { background: url(media/bg.png); color: black; }',
+          '.base { color: white; }',
+          '.inline { background: url(media/root-inline.png); }',
+        ].join('\n\n');
+      // Carried CSS is preserved verbatim as the prefix; the admin-bar
+      // accommodation layer is appended last (no fixed/sticky rules here, so
+      // only the var defs + document-bump re-assert).
+      expect(result.css.startsWith(expectedBase)).toBe(true);
+      expect(result.css).toContain('body.admin-bar { --wp-admin-bar-h: 32px; }');
+      expect(result.css).toContain('html:has(body.admin-bar) { margin-top: 32px !important; }');
       expect(result.css).not.toContain('fonts.googleapis.com');
       expect(result.js).toBe(
         [
