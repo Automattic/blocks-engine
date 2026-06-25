@@ -167,7 +167,8 @@ final class ArtifactCompiler
         $result = ( new HtmlTransformer() )->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'       => $sourcePath,
             'source_scope' => $sourceScope,
-            'static_css'   => $this->linkedStylesheetCss($html, $sourcePath, $files),
+            'static_css'                => $this->linkedStylesheetCss($html, $sourcePath, $files),
+            'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
             'runtime_canvas_selectors' => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
         ))->toArray();
 
@@ -512,6 +513,75 @@ final class ArtifactCompiler
         ))->toArray();
 
         return isset($result['serialized_blocks']) && is_scalar($result['serialized_blocks']) ? trim((string) $result['serialized_blocks']) : '';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, array<string, mixed>>
+     */
+    private function assetMetadataForSource(string $sourcePath, array $files): array
+    {
+        $metadata = array();
+        foreach ( $files as $file ) {
+            if ( $this->isMaterializedHtmlDocument($file) ) {
+                continue;
+            }
+
+            $path = (string) ($file['path'] ?? '');
+            $mimeType = (string) ($file['mime_type'] ?? '');
+            if ( ! str_starts_with($mimeType, 'image/') ) {
+                continue;
+            }
+            if ( '' === $path ) {
+                continue;
+            }
+
+            $asset = array(
+                'url'       => $path,
+                'path'      => $path,
+                'mime_type' => $mimeType,
+            );
+
+            foreach ( $this->assetLookupKeysForSource($path, $sourcePath) as $key ) {
+                $metadata[$key] = $asset;
+            }
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function assetLookupKeysForSource(string $assetPath, string $sourcePath): array
+    {
+        $keys = array($assetPath, '/' . $assetPath);
+        $relativePath = $this->relativePathFromSource($assetPath, $sourcePath);
+        if ( '' !== $relativePath ) {
+            $keys[] = $relativePath;
+            if ( ! str_starts_with($relativePath, '../') ) {
+                $keys[] = './' . $relativePath;
+            }
+        }
+
+        return array_values(array_unique(array_filter($keys, static fn (string $key): bool => '' !== $key)));
+    }
+
+    private function relativePathFromSource(string $assetPath, string $sourcePath): string
+    {
+        $sourceDir = '' === $sourcePath || ! str_contains($sourcePath, '/') ? '' : dirname($sourcePath);
+        if ( '' === $sourceDir ) {
+            return $assetPath;
+        }
+
+        $sourceParts = explode('/', $sourceDir);
+        $assetParts = explode('/', $assetPath);
+        while ( array() !== $sourceParts && array() !== $assetParts && $sourceParts[0] === $assetParts[0] ) {
+            array_shift($sourceParts);
+            array_shift($assetParts);
+        }
+
+        return implode('/', array_merge(array_fill(0, count($sourceParts), '..'), $assetParts));
     }
 
     /**

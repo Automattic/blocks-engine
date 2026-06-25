@@ -4267,7 +4267,8 @@ final class HtmlTransformer
 
     private function convertImageElement(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array
     {
-        $url = $this->safeImageUrl($this->attr($image, 'src'));
+        $originalUrl = $this->safeImageUrl($this->attr($image, 'src'));
+        $url = $this->resolvedAssetImageUrl($originalUrl);
         if ( '' === $url ) {
             return null;
         }
@@ -4287,14 +4288,14 @@ final class HtmlTransformer
             'url'    => $url,
             'alt'    => $this->attr($image, 'alt'),
             'title'  => $this->attr($image, 'title'),
-            'srcset' => '' !== $this->attr($image, 'srcset') ? $this->attr($image, 'srcset') : (string) ($sourceAttrs['srcset'] ?? ''),
+            'srcset' => $this->resolvedAssetImageSrcset('' !== $this->attr($image, 'srcset') ? $this->attr($image, 'srcset') : (string) ($sourceAttrs['srcset'] ?? '')),
             'sizes'  => '' !== $this->attr($image, 'sizes') ? $this->attr($image, 'sizes') : (string) ($sourceAttrs['sizes'] ?? ''),
             'width'  => $width,
             'height' => $height,
         )), static fn ($value): bool => '' !== $value);
 
         $attrs = array_filter(array_merge($attrs, $this->imageIdentityAttributes($image, $figure)), static fn ($value): bool => '' !== $value);
-        $attrs = array_filter(array_merge($attrs, $this->assetMetadataImageAttributes($url)), static fn ($value): bool => '' !== $value);
+        $attrs = array_filter(array_merge($attrs, $this->assetMetadataImageAttributes($originalUrl)), static fn ($value): bool => '' !== $value);
 
         if ( $figure instanceof DOMElement ) {
             $caption = $this->firstChildElement($figure, 'figcaption');
@@ -4543,6 +4544,51 @@ final class HtmlTransformer
         }
 
         return $attrs;
+    }
+
+    private function resolvedAssetImageUrl(string $url): string
+    {
+        if ( '' === $url ) {
+            return '';
+        }
+
+        $asset = $this->assetMetadataForUrl($url);
+        if ( ! is_array($asset) || ! isset($asset['url']) || ! is_string($asset['url']) ) {
+            return $url;
+        }
+
+        $resolvedUrl = $this->safeResolvedAssetImageUrl(trim($asset['url']));
+        return '' !== $resolvedUrl ? $resolvedUrl : $url;
+    }
+
+    private function resolvedAssetImageSrcset(string $srcset): string
+    {
+        if ( '' === trim($srcset) ) {
+            return '';
+        }
+
+        $candidates = array();
+        foreach ( explode(',', $srcset) as $candidate ) {
+            $candidate = trim($candidate);
+            if ( '' === $candidate ) {
+                continue;
+            }
+
+            $parts = preg_split('/\s+/', $candidate, 2);
+            if ( ! is_array($parts) || '' === ($parts[0] ?? '') ) {
+                continue;
+            }
+
+            $url = $this->safeImageUrl((string) $parts[0]);
+            if ( '' === $url ) {
+                continue;
+            }
+
+            $descriptor = trim((string) ($parts[1] ?? ''));
+            $candidates[] = trim($this->resolvedAssetImageUrl($url) . ('' !== $descriptor ? ' ' . $descriptor : ''));
+        }
+
+        return implode(', ', $candidates);
     }
 
     /**
