@@ -7,6 +7,8 @@ use DOMElement;
 
 final class NavigationPattern
 {
+    private const BLOCK_LEVEL_LABEL_TAGS = 'address|article|aside|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|main|nav|ol|p|pre|section|table|ul';
+
     /**
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
      * @param callable(DOMElement): string $innerHtml
@@ -143,7 +145,7 @@ final class NavigationPattern
 
         if ( array() !== $submenuBlocks ) {
             $submenuAttrs = array(
-                'label' => $innerHtml($anchor),
+                'label' => $this->navigationLabel($innerHtml($anchor)),
                 'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
                 'kind'  => 'custom',
             );
@@ -161,10 +163,17 @@ final class NavigationPattern
     private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?DOMElement $item = null): array
     {
         return $createBlock('core/navigation-link', $this->navigationItemAttributes($item ?? $anchor, $anchor, null, array(
-            'label' => $innerHtml($anchor),
+            'label' => $this->navigationLabel($innerHtml($anchor)),
             'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
             'kind'  => 'custom',
         ), $presentationAttributes), array(), $anchor);
+    }
+
+    private function navigationLabel(string $html): string
+    {
+        $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
+        $html = preg_replace('/<\/?(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i', '', $html) ?? $html;
+        return trim($html);
     }
 
     /**

@@ -83,6 +83,27 @@ $assert('assets/logo.png' === ($referenceReports['asset_references'][0]['asset_p
 $assert('theme/fonts/fonts.css' === ($referenceReports['asset_references'][1]['asset_path'] ?? ''), 'reference analyzer assembles CSS @import asset reference reports');
 $assert('assets/paper.png' === ($referenceReports['asset_references'][2]['asset_path'] ?? ''), 'reference analyzer resolves CSS url() reports relative to source CSS');
 $assert('theme/FixtureSans.woff2' === ($referenceReports['asset_references'][3]['asset_path'] ?? ''), 'reference analyzer assembles @font-face local font reference reports');
+$assert(2 === count($referenceReports['image_references']), 'reference analyzer projects HTML and CSS image asset references');
+$assert('assets/paper.png' === ($referenceReports['image_references'][1]['asset_path'] ?? ''), 'reference analyzer projects CSS background images into image references');
+$assert('css-url' === ($referenceReports['image_references'][1]['context'] ?? ''), 'reference analyzer preserves CSS background image context');
+
+$imageReferenceReports = $referenceAnalyzer->referenceReports(array(
+    array('path' => 'pages/index.html', 'kind' => 'html', 'content' => '<picture><source srcset="../assets/hero-small.png 480w, ../assets/hero-large.png 960w"><img src="../assets/logo.png" srcset="../assets/logo@2x.png 2x" alt="Logo"></picture><section style="background-image:url(../assets/panel.png)"></section><svg><image href="../assets/vector.png"></image></svg>', 'binary' => false),
+    array('path' => 'assets/hero-small.png', 'kind' => 'image', 'content_base64' => base64_encode('small'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 5),
+    array('path' => 'assets/hero-large.png', 'kind' => 'image', 'content_base64' => base64_encode('large'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 5),
+    array('path' => 'assets/logo.png', 'kind' => 'image', 'content_base64' => base64_encode('logo'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 4),
+    array('path' => 'assets/logo@2x.png', 'kind' => 'image', 'content_base64' => base64_encode('retina'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 6),
+    array('path' => 'assets/panel.png', 'kind' => 'image', 'content_base64' => base64_encode('panel'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 5),
+    array('path' => 'assets/vector.png', 'kind' => 'image', 'content_base64' => base64_encode('vector'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 6),
+));
+$assert(6 === count($imageReferenceReports['image_references']), 'image reference analysis reports src, srcset, inline background, picture source, and SVG image href references');
+$assert('source' === ($imageReferenceReports['image_references'][0]['element'] ?? ''), 'image reference analysis reports picture source elements');
+$assert('srcset' === ($imageReferenceReports['image_references'][0]['attribute'] ?? ''), 'image reference analysis preserves srcset attributes');
+$assert('assets/hero-small.png' === ($imageReferenceReports['image_references'][0]['asset_path'] ?? ''), 'image reference analysis resolves source srcset paths relative to the HTML document');
+$assert('inline-style' === ($imageReferenceReports['image_references'][4]['context'] ?? ''), 'image reference analysis reports inline CSS background image references');
+$assert('assets/panel.png' === ($imageReferenceReports['image_references'][4]['asset_path'] ?? ''), 'image reference analysis resolves inline style image paths relative to the HTML document');
+$assert('image' === ($imageReferenceReports['image_references'][5]['element'] ?? ''), 'image reference analysis reports SVG image href elements');
+$assert('assets/vector.png' === ($imageReferenceReports['image_references'][5]['asset_path'] ?? ''), 'image reference analysis resolves SVG image href paths relative to the HTML document');
 
 $assertNormalizedFallbackDiagnostic = static function (array $diagnostic, string $code, string $severity, string $runtimeRequirement, string $suggestedPrimitive) use ($assert): void {
     $assert($code === ($diagnostic['diagnostic_code'] ?? ''), "conversion report exposes {$code} diagnostic code");
@@ -234,6 +255,14 @@ $assert(true === ($formDiagnostic['controls'][0]['required'] ?? null), 'conversi
 $assert('support' === ($formDiagnostic['controls'][1]['options'][0]['value'] ?? ''), 'conversion report exposes select option values');
 $assert(is_int($formDiagnostic['html_bytes'] ?? null), 'conversion report exposes bounded fallback HTML byte size');
 
+$rangeControlResult = ( new HtmlTransformer() )->transform(
+    '<main><section><label for="density">Density</label><input type="range" id="density" min="6" max="60" step="2" value="28"></section></main>'
+)->toArray();
+$rangeControlText = (string) ($rangeControlResult['blocks'][0]['innerBlocks'][1]['attrs']['content'] ?? '');
+$assert(array() === ($rangeControlResult['fallbacks'] ?? array()), 'standalone readable range input converts without unsupported-element fallback');
+$assert(str_contains($rangeControlText, 'Density: 28'), 'range input summary preserves current value');
+$assert(str_contains($rangeControlText, 'min 6, max 60, step 2'), 'range input summary preserves bounds');
+
 $buttonResult = ( new HtmlTransformer() )->transform(
     '<main><a class="primary-button" href="#"><h3>Reserve now</h3><span aria-hidden="true"></span></a><button><strong>Call us</strong></button></main>'
 )->toArray();
@@ -379,6 +408,17 @@ $assert(7 === ($nonprofitBlockMenu['item_count'] ?? null), 'semantic parity coun
 $assert(true === ($nonprofitBlockMenu['represented_as_core_navigation'] ?? null), 'semantic parity reports menus represented as core/navigation');
 $assert('The Measure' === ($nonprofitBlockMenu['items'][1]['label'] ?? ''), 'semantic parity preserves navigation item labels');
 $assert('/vote-yes/' === ($nonprofitBlockMenu['items'][6]['url'] ?? ''), 'semantic parity preserves navigation item URLs');
+
+$navigationLabelResult = ( new HtmlTransformer() )->transform(
+    '<header><nav><a href="/docs"><h3>Docs</h3><span aria-hidden="true"></span></a><ul><li><a href="/guides"><div>Guides</div></a><ul><li><a href="/api"><p>API</p></a></li></ul></li></ul></nav></header>'
+)->toArray();
+$navigationLabelBlocks = $navigationLabelResult['blocks'][0]['innerBlocks'] ?? array();
+$assert('Docs' === ($navigationLabelBlocks[0]['attrs']['label'] ?? ''), 'direct navigation link label unwraps block-level markup for valid inline RichText');
+$assert('Guides' === ($navigationLabelBlocks[1]['attrs']['label'] ?? ''), 'navigation submenu label unwraps block-level markup for valid inline RichText');
+$assert('API' === ($navigationLabelBlocks[1]['innerBlocks'][0]['attrs']['label'] ?? ''), 'nested navigation link label unwraps block-level markup for valid inline RichText');
+$assert(! str_contains((string) ($navigationLabelResult['serialized_blocks'] ?? ''), '<h3>Docs</h3>'), 'navigation serialization avoids heading markup inside link text');
+$assert(! str_contains((string) ($navigationLabelResult['serialized_blocks'] ?? ''), '<div>Guides</div>'), 'navigation serialization avoids div markup inside submenu link text');
+$assert('pass' === ($navigationLabelResult['source_reports']['wp_block_validity']['status'] ?? ''), 'navigation labels with block-level source markup pass WordPress block validity');
 
 $unmappedNavigation = ( new HtmlTransformer() )->transform(
     '<main><nav aria-label="Main navigation"><ul><li><a href="/">Home</a></li></ul><p>Unexpected helper copy</p></nav></main>'
@@ -702,8 +742,8 @@ $runtimeTargetContainerSite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
         'files'      => array(
-            'index.html' => '<main><section class="reveal"><h2>Reveal</h2></section><header><button class="nav-toggle" aria-label="Open navigation" aria-expanded="false">Menu</button><div class="menu-shell"><nav class="primary-nav"><a href="/">Home</a></nav></div><div class="mobile-nav-overlay"><div class="mobile-nav"><nav class="drawer-nav"><a href="/">Home</a></nav></div></div></header><div class="faq-item"><h3>Question</h3><p>Answer</p></div><div class="filter-bar"><div class="button-shell"><button class="filter-btn">All</button></div><div class="filter-chips"><span>Popular</span></div></div><section id="contact-form"><h2>Contact</h2></section><div id="form-success"></div><script src="js/app.js"></script></main>',
-            'js/app.js' => 'document.querySelectorAll(".reveal"); document.querySelector(".nav-toggle").addEventListener("click", function () {}); const menuShell = document.querySelector(".menu-shell"); menuShell.querySelector(".primary-nav"); document.querySelector(".mobile-nav-overlay"); document.querySelector(".mobile-nav"); document.querySelector(".faq-item"); document.querySelector(".filter-btn").addEventListener("click", function () {}); document.querySelector(".filter-btn").closest(".button-shell"); document.querySelector(".filter-bar"); document.querySelector(".filter-chips"); document.getElementById("contact-form"); document.getElementById("form-success");',
+            'index.html' => '<main><section class="reveal"><h2>Reveal</h2></section><header><button class="nav-toggle" aria-label="Open navigation" aria-expanded="false">Menu</button><div class="menu-shell"><nav class="primary-nav"><a href="/">Home</a></nav></div><div class="mobile-nav-overlay"><div class="mobile-nav"><nav class="drawer-nav"><a href="/">Home</a></nav></div></div></header><div class="faq-item"><h3>Question</h3><p>Answer</p></div><div class="filter-bar"><div class="button-shell"><button class="filter-btn">All</button></div><div class="filter-chips"><span>Popular</span></div></div><div class="search-shell"><input id="note-search" class="search-input" type="search" placeholder="Search notes"></div><form class="filters"><select class="js-sort-select"><option>Newest</option></select><input class="js-filter-check" type="checkbox" name="available"></form><section id="contact-form"><h2>Contact</h2></section><div id="form-success"></div><script src="js/app.js"></script></main>',
+            'js/app.js' => 'document.querySelectorAll(".reveal"); document.querySelector(".nav-toggle").addEventListener("click", function () {}); const menuShell = document.querySelector(".menu-shell"); menuShell.querySelector(".primary-nav"); document.querySelector(".mobile-nav-overlay"); document.querySelector(".mobile-nav"); document.querySelector(".faq-item"); document.querySelector(".filter-btn").addEventListener("click", function () {}); document.querySelector(".filter-btn").closest(".button-shell"); document.querySelector(".filter-bar"); document.querySelector(".filter-chips"); document.getElementById("note-search"); document.querySelector(".search-input"); document.querySelector(".js-sort-select"); document.querySelector(".js-filter-check"); document.getElementById("contact-form"); document.getElementById("form-success");',
         ),
     )
 )->toArray();
@@ -713,7 +753,7 @@ foreach ( $runtimeTargetContainerReport['dependencies'] ?? array() as $dependenc
     $runtimeTargetDependencies[$dependency['selector'] ?? ''] = $dependency;
 }
 $assert('pass' === ($runtimeTargetContainerReport['status'] ?? ''), 'runtime dependency parity passes generic preserved JS target containers');
-foreach ( array( '.reveal', '.nav-toggle', '.menu-shell', '.primary-nav', '.mobile-nav-overlay', '.mobile-nav', '.faq-item', '.filter-btn', '.button-shell', '.filter-bar', '.filter-chips', '#contact-form', '#form-success' ) as $selector ) {
+foreach ( array( '.reveal', '.nav-toggle', '.menu-shell', '.primary-nav', '.mobile-nav-overlay', '.mobile-nav', '.faq-item', '.filter-btn', '.button-shell', '.filter-bar', '.filter-chips', '#note-search', '.search-input', '.js-sort-select', '.js-filter-check', '#contact-form', '#form-success' ) as $selector ) {
     $assert(true === ($runtimeTargetDependencies[$selector]['generated_present'] ?? null), 'runtime dependency parity records preserved target ' . $selector);
 }
 $assert(str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'nav-toggle'), 'artifact block markup preserves runtime-targeted menu toggle class');
@@ -804,6 +844,27 @@ foreach ( $cssReferences['source_reports']['materialization_plan']['assets'] ?? 
 $assert('font/woff2' === ($fontCompiledAsset['media_type'] ?? ''), 'compiled site assets preserve local font media type');
 $assert('css-font-face' === ($fontCompiledAsset['references'][0]['context'] ?? ''), 'compiled site assets expose structured reference metadata');
 $assert('css-font-face' === ($fontPlanAsset['references'][0]['context'] ?? ''), 'materialization plan assets preserve structured reference metadata');
+
+$imageReferenceSite = $compiler->compile(
+    array(
+        'entrypoint' => 'pages/index.html',
+        'files'      => array(
+            'pages/index.html' => '<main><picture><source srcset="../assets/hero-small.png 480w, ../assets/hero-large.png 960w"><img src="../assets/logo.png" alt="Logo"></picture><section style="background-image:url(../assets/panel.png)"></section><svg><image href="../assets/vector.png"></image></svg></main>',
+            'assets/hero-small.png' => array('content_base64' => base64_encode('small'), 'mime_type' => 'image/png'),
+            'assets/hero-large.png' => array('content_base64' => base64_encode('large'), 'mime_type' => 'image/png'),
+            'assets/logo.png' => array('content_base64' => base64_encode('logo'), 'mime_type' => 'image/png'),
+            'assets/panel.png' => array('content_base64' => base64_encode('panel'), 'mime_type' => 'image/png'),
+            'assets/vector.png' => array('content_base64' => base64_encode('vector'), 'mime_type' => 'image/png'),
+        ),
+    )
+)->toArray();
+$imageReferencePlanAssets = array();
+foreach ( $imageReferenceSite['source_reports']['materialization_plan']['assets'] ?? array() as $asset ) {
+    $imageReferencePlanAssets[$asset['path'] ?? ''] = $asset;
+}
+$assert('source' === ($imageReferencePlanAssets['assets/hero-small.png']['references'][0]['element'] ?? ''), 'materialization plan image rows preserve picture source references');
+$assert('inline-style' === ($imageReferencePlanAssets['assets/panel.png']['references'][0]['context'] ?? ''), 'materialization plan image rows preserve inline background references');
+$assert('image' === ($imageReferencePlanAssets['assets/vector.png']['references'][0]['element'] ?? ''), 'materialization plan image rows preserve SVG image href references');
 
 $materializationView = ( new MaterializationView() )->fromResult($staticSite);
 $assert(MaterializationView::SCHEMA === ($materializationView['schema'] ?? ''), 'materialization view exposes its own schema');

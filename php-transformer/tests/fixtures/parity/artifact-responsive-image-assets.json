@@ -42,8 +42,10 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.artifact.asset_references", "assert": "count", "count": 2 },
-    { "path": "source_reports.artifact.image_references", "assert": "count", "count": 1 },
+    { "path": "source_reports.artifact.image_references", "assert": "count", "count": 2 },
     { "path": "source_reports.artifact.image_references.0.resolved_path", "assert": "equals", "value": "assets/images/hero.png" },
+    { "path": "source_reports.artifact.image_references.1.attribute", "assert": "equals", "value": "srcset" },
+    { "path": "source_reports.artifact.image_references.1.resolved_path", "assert": "equals", "value": "assets/images/hero-small.png" },
     { "path": "source_reports.materialization_plan.assets", "assert": "count", "count": 2 },
     { "path": "source_reports.materialization_plan.assets.0.path", "assert": "equals", "value": "assets/images/hero.png" },
     { "path": "source_reports.materialization_plan.assets.1.path", "assert": "equals", "value": "assets/images/hero-small.png" },
