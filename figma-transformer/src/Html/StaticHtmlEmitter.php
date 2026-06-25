@@ -337,7 +337,8 @@ final class StaticHtmlEmitter
             $content = $this->vectorSvgMarkup($vectorSvg, $node, $type) . $content;
         }
 
-        if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback ) {
+        $hasRenderableVectorFallback = '' !== trim($content);
+        if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback && ! $hasRenderableVectorFallback ) {
             $diagnostics[] = array(
                 'severity' => 'warning',
                 'code'     => 'unsupported_vector_node_placeholder',
@@ -359,7 +360,7 @@ final class StaticHtmlEmitter
         if ( 'RECTANGLE' === $type && '' === $content ) {
             $attributes .= ' aria-hidden="true"';
         }
-        if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback ) {
+        if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback && ! $hasRenderableVectorFallback ) {
             $attributes .= ' data-figma-unsupported-vector="true" aria-hidden="true"';
         } elseif ( $hasVectorAssetFallback ) {
             $attributes .= ' role="img" aria-label="' . $this->sanitizeAttribute('' !== $name ? $name : $type) . '"';

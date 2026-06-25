@@ -539,6 +539,41 @@ $assert(str_contains($agenticChevronHtml, 'data-figma-node-id="chevron:bad-count
 $assert(str_contains($agenticChevronHtml, 'data-figma-node-id="chevron:unknown-signature"') && str_contains($agenticChevronHtml, 'data-figma-unsupported-vector="true"'), 'agentic-chevron-unknown-signature-placeholder');
 $assert(in_array('unsupported_vector_network_blob', $agenticChevronDiagnosticCodes, true), 'agentic-chevron-guarded-failures-diagnosed');
 
+$vectorChildFallbackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Vector Child Fallback Fixture',
+    'blobs' => array(array('bytes' => "\xff")),
+    'nodes' => array(
+        array(
+            'id'         => 'boolean:child-fallback',
+            'type'       => 'BOOLEAN_OPERATION',
+            'name'       => 'Boolean With Child Fallback',
+            'width'      => 20,
+            'height'     => 20,
+            'vectorData' => array('vectorNetworkBlob' => 0),
+            'children'   => array(
+                array(
+                    'id'         => 'boolean:child-fallback-ellipse',
+                    'type'       => 'ELLIPSE',
+                    'name'       => 'Fallback Ellipse',
+                    'width'      => 20,
+                    'height'     => 20,
+                    'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 1))),
+                ),
+            ),
+        ),
+    ),
+));
+$vectorChildFallbackHtml = $fileContent($vectorChildFallbackResult, 'index.html');
+$vectorChildFallbackDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $vectorChildFallbackResult['diagnostics'] ?? array()
+);
+$assert(str_contains($vectorChildFallbackHtml, 'data-figma-node-id="boolean:child-fallback"'), 'vector-child-fallback-parent-renders');
+$assert(str_contains($vectorChildFallbackHtml, 'data-figma-node-id="boolean:child-fallback-ellipse"') && str_contains($vectorChildFallbackHtml, '<ellipse '), 'vector-child-fallback-child-renders');
+$assert(! str_contains($vectorChildFallbackHtml, 'data-figma-unsupported-vector="true"'), 'vector-child-fallback-not-placeholder');
+$assert(in_array('unsupported_vector_network_blob', $vectorChildFallbackDiagnosticCodes, true), 'vector-child-fallback-network-diagnostic-kept');
+$assert(! in_array('unsupported_vector_node_placeholder', $vectorChildFallbackDiagnosticCodes, true), 'vector-child-fallback-no-placeholder-diagnostic');
+
 $matrixTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Matrix Transform Fixture',
     'nodes' => array(
