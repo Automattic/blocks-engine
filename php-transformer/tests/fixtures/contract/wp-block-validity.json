@@ -17,6 +17,14 @@
       ]
     },
     {
+      "name": "invalid-button-block-level-link-markup",
+      "input": "<!-- wp:button {\"text\":\"Book now\",\"url\":\"/book\"} --><div class=\"wp-block-button\"><a class=\"wp-block-button__link wp-element-button\" href=\"/book\"><h3>Book now</h3></a></div><!-- /wp:button -->",
+      "expected_status": "warning",
+      "expected_codes": [
+        "button_block_level_link_markup"
+      ]
+    },
+    {
       "name": "invalid-navigation-serialized-child-comments",
       "blocks": [
         {

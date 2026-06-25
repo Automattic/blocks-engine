@@ -7,6 +7,8 @@ use DOMElement;
 
 final class ButtonsPattern
 {
+    private const BLOCK_LEVEL_LABEL_TAGS = 'address|article|aside|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|main|nav|ol|p|pre|section|table|ul';
+
     /**
      * @param callable(DOMElement): array<string, mixed>|null $fileBlockFromAnchor
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
@@ -38,7 +40,7 @@ final class ButtonsPattern
     public function matchButton(DOMElement $button, callable $presentationAttributes, callable $innerHtml, callable $createBlock): array
     {
         return $createBlock('core/buttons', array(), array(
-            $createBlock('core/button', array_merge($this->buttonPresentationAttributes($button, $presentationAttributes), array( 'text' => $innerHtml($button) )), array(), $button),
+            $createBlock('core/button', array_merge($this->buttonPresentationAttributes($button, $presentationAttributes), array( 'text' => $this->buttonText($innerHtml($button)) )), array(), $button),
         ), $button);
     }
 
@@ -76,9 +78,16 @@ final class ButtonsPattern
     private function buttonBlockFromAnchor(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $attr, callable $createBlock): array
     {
         return $createBlock('core/button', array_filter(array_merge($this->buttonPresentationAttributes($anchor, $presentationAttributes), array(
-            'text' => $innerHtml($anchor),
+            'text' => $this->buttonText($innerHtml($anchor)),
             'url'  => $attr($anchor, 'href'),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $anchor);
+    }
+
+    private function buttonText(string $html): string
+    {
+        $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
+        $html = preg_replace('/<\/?(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i', '', $html) ?? $html;
+        return trim($html);
     }
 
     /**

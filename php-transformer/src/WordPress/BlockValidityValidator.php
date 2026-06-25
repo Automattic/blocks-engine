@@ -147,6 +147,27 @@ final class BlockValidityValidator
                 array('attribute_url' => $expectedUrl, 'markup_url' => $actualUrl)
             );
         }
+
+        $linkInnerHtml = $this->firstAnchorInnerHtml($html);
+        if ( '' !== $linkInnerHtml && preg_match('/<(?:address|article|aside|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|main|nav|ol|p|pre|section|table|ul)\b/i', $linkInnerHtml) ) {
+            $this->addFinding(
+                $findings,
+                $kind . '_block_level_link_markup',
+                'warning',
+                $path,
+                $blockName,
+                'Serialized link text contains block-level markup that WordPress static link blocks do not save as valid inline RichText.'
+            );
+        }
+    }
+
+    private function firstAnchorInnerHtml(string $html): string
+    {
+        if ( preg_match('/<a\b[^>]*>(.*?)<\/a>/is', $html, $matches) ) {
+            return (string) ($matches[1] ?? '');
+        }
+
+        return '';
     }
 
     private function normalizeText(string $text): string
