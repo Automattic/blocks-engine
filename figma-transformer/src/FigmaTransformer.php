@@ -609,9 +609,17 @@ final class FigmaTransformer
      */
     private function mergePageTransformDiagnostics(array $pageReports, array $assetReport): array
     {
-        $images = array('paint_refs' => 0, 'node_refs' => 0, 'resolved_assets' => 0, 'missing_assets' => array());
+        $images = array('paint_refs' => 0, 'node_refs' => 0, 'resolved_assets' => 0, 'image_block_count' => 0, 'image_block_nodes' => array(), 'missing_assets' => array());
         $vectors = array('nodes' => 0, 'rendered_paths' => 0, 'rendered_asset_fallbacks' => 0, 'placeholders' => 0, 'placeholder_nodes' => array());
-        $layout = array('large_negative_left_count' => 0, 'decorative_underlays' => array('count' => 0, 'nodes' => array()));
+        $layout = array(
+            'large_negative_left_count' => 0,
+            'fixed_root_width_count' => 0,
+            'fixed_root_width_nodes' => array(),
+            'large_absolute_offset_count' => 0,
+            'large_absolute_offset_nodes' => array(),
+            'decorative_underlays' => array('count' => 0, 'nodes' => array()),
+            'image_heavy_landmark_candidates' => array(),
+        );
         $fontFamilies = array();
         $missingCss = array();
         $fontCssSupplied = false;
@@ -629,8 +637,13 @@ final class FigmaTransformer
             $pages[] = array_merge($pageContext, array('transform_diagnostics' => $diagnostics));
 
             $pageImages = is_array($diagnostics['images'] ?? null) ? $diagnostics['images'] : array();
-            foreach ( array('paint_refs', 'node_refs', 'resolved_assets') as $key ) {
+            foreach ( array('paint_refs', 'node_refs', 'resolved_assets', 'image_block_count') as $key ) {
                 $images[$key] += (int) ($pageImages[$key] ?? 0);
+            }
+            foreach ( is_array($pageImages['image_block_nodes'] ?? null) ? $pageImages['image_block_nodes'] : array() as $item ) {
+                if ( is_array($item) ) {
+                    $images['image_block_nodes'][] = array_merge($pageContext, $item);
+                }
             }
             foreach ( is_array($pageImages['missing_assets'] ?? null) ? $pageImages['missing_assets'] : array() as $item ) {
                 if ( is_array($item) ) {
@@ -656,10 +669,27 @@ final class FigmaTransformer
 
             $pageLayout = is_array($diagnostics['layout'] ?? null) ? $diagnostics['layout'] : array();
             $layout['large_negative_left_count'] += (int) ($pageLayout['large_negative_left_count'] ?? 0);
+            $layout['fixed_root_width_count'] += (int) ($pageLayout['fixed_root_width_count'] ?? 0);
+            $layout['large_absolute_offset_count'] += (int) ($pageLayout['large_absolute_offset_count'] ?? 0);
+            foreach ( is_array($pageLayout['fixed_root_width_nodes'] ?? null) ? $pageLayout['fixed_root_width_nodes'] : array() as $item ) {
+                if ( is_array($item) ) {
+                    $layout['fixed_root_width_nodes'][] = array_merge($pageContext, $item);
+                }
+            }
+            foreach ( is_array($pageLayout['large_absolute_offset_nodes'] ?? null) ? $pageLayout['large_absolute_offset_nodes'] : array() as $item ) {
+                if ( is_array($item) ) {
+                    $layout['large_absolute_offset_nodes'][] = array_merge($pageContext, $item);
+                }
+            }
             $underlays = is_array($pageLayout['decorative_underlays']['nodes'] ?? null) ? $pageLayout['decorative_underlays']['nodes'] : array();
             foreach ( $underlays as $item ) {
                 if ( is_array($item) ) {
                     $layout['decorative_underlays']['nodes'][] = array_merge($pageContext, $item);
+                }
+            }
+            foreach ( is_array($pageLayout['image_heavy_landmark_candidates'] ?? null) ? $pageLayout['image_heavy_landmark_candidates'] : array() as $item ) {
+                if ( is_array($item) ) {
+                    $layout['image_heavy_landmark_candidates'][] = array_merge($pageContext, $item);
                 }
             }
 
@@ -724,6 +754,21 @@ final class FigmaTransformer
         if ( ! empty($layout['large_negative_left_count']) ) {
             $signals[] = array('severity' => 'warning', 'code' => 'off_canvas_left_css', 'count' => (int) $layout['large_negative_left_count']);
         }
+        if ( ! empty($layout['fixed_root_width_count']) ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'fixed_root_width', 'count' => (int) $layout['fixed_root_width_count']);
+        }
+        if ( ! empty($layout['large_absolute_offset_count']) ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'large_absolute_offsets', 'count' => (int) $layout['large_absolute_offset_count']);
+        }
+        if ( ! empty($layout['image_heavy_landmark_candidates']) ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'image_heavy_landmark_candidate', 'count' => count($layout['image_heavy_landmark_candidates']));
+        }
+        if ( (int) ($images['image_block_count'] ?? 0) >= 12 ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'excessive_image_blocks', 'count' => (int) $images['image_block_count']);
+        }
+        if ( (int) ($vectors['rendered_asset_fallbacks'] ?? 0) >= 8 ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'excessive_vector_image_fallbacks', 'count' => (int) $vectors['rendered_asset_fallbacks']);
+        }
         if ( (int) ($generatedSvgAssets['bytes'] ?? 0) > 1048576 ) {
             $signals[] = array(
                 'severity' => 'info',
@@ -744,9 +789,14 @@ final class FigmaTransformer
                 'vector_placeholders' => (int) ($vectors['placeholders'] ?? 0),
                 'missing_font_css' => count($fonts['missing_css'] ?? array()),
                 'emitted_asset_files' => (int) ($assets['emitted_files'] ?? 0),
+                'image_block_count' => (int) ($images['image_block_count'] ?? 0),
+                'vector_image_fallbacks' => (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
                 'generated_svg_count' => (int) ($generatedSvgAssets['count'] ?? 0),
                 'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
                 'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
+                'fixed_root_width_count' => (int) ($layout['fixed_root_width_count'] ?? 0),
+                'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
+                'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
             ),
         );
     }
