@@ -89,8 +89,17 @@ describe('source assets DLA parity', () => {
         WP_COMPAT_CSS: expect.any(String),
         collectHtmlImages: expect.any(Function),
         collectSourceAssets: expect.any(Function),
+        extractGoogleFontCssUrls: expect.any(Function),
+        absolutizeFontUrl: expect.any(Function),
+        buildFontFaceCss: expect.any(Function),
+        consolidateFontFaces: expect.any(Function),
+        fontFilename: expect.any(Function),
         localizeCssImages: expect.any(Function),
+        matchCapturedFamily: expect.any(Function),
+        parseCapturedFontFaces: expect.any(Function),
         rewriteHtmlImageSrcs: expect.any(Function),
+        stripCssSourceMaps: expect.any(Function),
+        stripUnusedCarryFontFaces: expect.any(Function),
       })
     );
   });

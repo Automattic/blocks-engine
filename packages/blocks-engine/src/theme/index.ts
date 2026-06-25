@@ -27,6 +27,19 @@ export {
   rewriteHtmlImageSrcs,
   WP_COMPAT_CSS,
 } from './source-assets.js';
+export { extractGoogleFontCssUrls } from './google-fonts.js';
+export {
+  absolutizeFontUrl,
+  buildFontFaceCss,
+  consolidateFontFaces,
+  fontFilename,
+  matchCapturedFamily,
+  parseFontFaces as parseCapturedFontFaces,
+} from './font-capture.js';
+export {
+  stripCssSourceMaps,
+  stripUnusedFontFaces as stripUnusedCarryFontFaces,
+} from './carry-fonts.js';
 export {
   captureSectionContent,
   foldText,
@@ -48,6 +61,11 @@ export type { IslandTier } from './html-fallback.js';
 export { rewriteInternalLinks, rewriteMediaUrls } from './url-rewrite.js';
 export { scanForInjection } from './injection-scan.js';
 export type { CapturedSectionContent, CoverageResult } from './section-coverage.js';
+export type {
+  LocalFontFace,
+  ParsedFontFace as CapturedParsedFontFace,
+  ThemeFontFamily,
+} from './font-capture.js';
 export type * from './font-faces.js';
 export type { InternalLinkMap } from './url-rewrite.js';
 export type * from './section-spec.js';
