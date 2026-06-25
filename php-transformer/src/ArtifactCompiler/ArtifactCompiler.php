@@ -10,6 +10,8 @@ use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
+use DOMDocument;
+use DOMElement;
 
 final class ArtifactCompiler
 {
@@ -166,6 +168,7 @@ final class ArtifactCompiler
             'source'       => $sourcePath,
             'source_scope' => $sourceScope,
             'static_css'   => $this->linkedStylesheetCss($html, $sourcePath, $files),
+            'runtime_canvas_selectors' => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
         ))->toArray();
 
         return array(
@@ -255,6 +258,109 @@ final class ArtifactCompiler
         }
 
         return trim(implode("\n", $css));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, string>
+     */
+    private function runtimeCanvasSelectors(string $html, string $sourcePath, array $files): array
+    {
+        $canvasSelectors = $this->canvasSelectors($html);
+        if ( array() === $canvasSelectors ) {
+            return array();
+        }
+
+        $selectors = array();
+        foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
+            foreach ( $this->scriptDomSelectors($script) as $selector ) {
+                if ( isset($canvasSelectors[$selector]) ) {
+                    $selectors[$selector] = true;
+                }
+            }
+        }
+
+        return array_keys($selectors);
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    private function canvasSelectors(string $html): array
+    {
+        $selectors = array();
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if ( ! $loaded ) {
+            return array();
+        }
+
+        foreach ( $document->getElementsByTagName('canvas') as $canvas ) {
+            if ( ! $canvas instanceof DOMElement ) {
+                continue;
+            }
+            $id = trim($canvas->hasAttribute('id') ? $canvas->getAttribute('id') : '');
+            if ( '' !== $id ) {
+                $selectors['#' . $id] = true;
+            }
+            foreach ( preg_split('/\s+/', trim($canvas->hasAttribute('class') ? $canvas->getAttribute('class') : '')) ?: array() as $class ) {
+                if ( '' !== $class ) {
+                    $selectors['.' . $class] = true;
+                }
+            }
+        }
+
+        return $selectors;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, string>
+     */
+    private function documentScriptContents(string $html, string $sourcePath, array $files): array
+    {
+        $scripts = array();
+        if ( ! preg_match_all('/<script\b([^>]*)>(.*?)<\/script>/is', $html, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        foreach ( $matches as $match ) {
+            $src = $this->htmlAttribute((string) $match[1], 'src');
+            if ( '' === $src ) {
+                $scripts[] = (string) $match[2];
+                continue;
+            }
+
+            $asset = $this->findAssetByHtmlReference($src, $sourcePath, $files);
+            if ( is_array($asset) && $this->isMaterializedScriptAsset($asset) && is_string($asset['content'] ?? null) ) {
+                $scripts[] = (string) $asset['content'];
+            }
+        }
+
+        return $scripts;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function scriptDomSelectors(string $script): array
+    {
+        $selectors = array();
+        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
+            foreach ( $matches[2] as $id ) {
+                $selectors['#' . (string) $id] = true;
+            }
+        }
+        if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
+            foreach ( $matches[2] as $selector ) {
+                $selectors[(string) $selector] = true;
+            }
+        }
+
+        return array_keys($selectors);
     }
 
     private function htmlAttribute(string $tag, string $name): string
