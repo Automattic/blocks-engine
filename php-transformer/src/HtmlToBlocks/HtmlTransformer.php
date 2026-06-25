@@ -1503,7 +1503,7 @@ final class HtmlTransformer
         if ( 'a' === $tagName ) {
             for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
                 $ancestorTokens = strtolower($this->attr($node, 'class') . ' ' . $this->attr($node, 'id'));
-                if ( preg_match('/(?:^|[^a-z0-9])(?:nav|menu|card|tile|panel|pricing|product)(?:[^a-z0-9]|$)/', $ancestorTokens) ) {
+                if ( preg_match('/(?:^|[^a-z0-9])(?:actions?|btns?|buttons?|cta|nav|menu|card|tile|panel|pricing|product)(?:[^a-z0-9]|$)/', $ancestorTokens) ) {
                     return true;
                 }
             }
