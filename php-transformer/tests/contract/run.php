@@ -702,8 +702,8 @@ $runtimeTargetContainerSite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
         'files'      => array(
-            'index.html' => '<main><section class="reveal"><h2>Reveal</h2></section><header><nav class="primary-nav"><a href="/">Home</a></nav><div class="mobile-nav-overlay"><div class="mobile-nav"><nav class="drawer-nav"><a href="/">Home</a></nav></div></div></header><div class="faq-item"><h3>Question</h3><p>Answer</p></div><div class="filter-bar"><button class="filter-btn">All</button><div class="filter-chips"><span>Popular</span></div></div><section id="contact-form"><h2>Contact</h2></section><div id="form-success"></div><script src="js/app.js"></script></main>',
-            'js/app.js' => 'document.querySelectorAll(".reveal"); document.querySelector(".mobile-nav-overlay"); document.querySelector(".mobile-nav"); document.querySelector(".faq-item"); document.querySelector(".filter-btn").addEventListener("click", function () {}); document.querySelector(".filter-bar"); document.querySelector(".filter-chips"); document.getElementById("contact-form"); document.getElementById("form-success");',
+            'index.html' => '<main><section class="reveal"><h2>Reveal</h2></section><header><button class="nav-toggle" aria-label="Open navigation" aria-expanded="false">Menu</button><nav class="primary-nav"><a href="/">Home</a></nav><div class="mobile-nav-overlay"><div class="mobile-nav"><nav class="drawer-nav"><a href="/">Home</a></nav></div></div></header><div class="faq-item"><h3>Question</h3><p>Answer</p></div><div class="filter-bar"><button class="filter-btn">All</button><div class="filter-chips"><span>Popular</span></div></div><section id="contact-form"><h2>Contact</h2></section><div id="form-success"></div><script src="js/app.js"></script></main>',
+            'js/app.js' => 'document.querySelectorAll(".reveal"); document.querySelector(".nav-toggle").addEventListener("click", function () {}); document.querySelector(".mobile-nav-overlay"); document.querySelector(".mobile-nav"); document.querySelector(".faq-item"); document.querySelector(".filter-btn").addEventListener("click", function () {}); document.querySelector(".filter-bar"); document.querySelector(".filter-chips"); document.getElementById("contact-form"); document.getElementById("form-success");',
         ),
     )
 )->toArray();
@@ -713,9 +713,10 @@ foreach ( $runtimeTargetContainerReport['dependencies'] ?? array() as $dependenc
     $runtimeTargetDependencies[$dependency['selector'] ?? ''] = $dependency;
 }
 $assert('pass' === ($runtimeTargetContainerReport['status'] ?? ''), 'runtime dependency parity passes generic preserved JS target containers');
-foreach ( array( '.reveal', '.mobile-nav-overlay', '.mobile-nav', '.faq-item', '.filter-btn', '.filter-bar', '.filter-chips', '#contact-form', '#form-success' ) as $selector ) {
+foreach ( array( '.reveal', '.nav-toggle', '.mobile-nav-overlay', '.mobile-nav', '.faq-item', '.filter-btn', '.filter-bar', '.filter-chips', '#contact-form', '#form-success' ) as $selector ) {
     $assert(true === ($runtimeTargetDependencies[$selector]['generated_present'] ?? null), 'runtime dependency parity records preserved target ' . $selector);
 }
+$assert(str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'nav-toggle'), 'artifact block markup preserves runtime-targeted menu toggle class');
 $assert(str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'mobile-nav-overlay'), 'artifact block markup preserves mobile nav overlay target class after navigation dedupe');
 $assert(! str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'drawer-nav'), 'artifact block markup still removes duplicate drawer navigation links after preserving target wrapper');
 
