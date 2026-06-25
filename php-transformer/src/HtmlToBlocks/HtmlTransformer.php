@@ -3330,6 +3330,7 @@ final class HtmlTransformer
         $inputLabel = $this->formControlLabel($textInput);
         $attrs = array_filter(array_merge(
             $this->presentationAttributes($form),
+            $this->searchInputRuntimeAttributes($textInput),
             array(
                 'label'       => '' !== $inputLabel ? $inputLabel : 'Search',
                 'placeholder' => $this->attr($textInput, 'placeholder'),
@@ -3382,6 +3383,7 @@ final class HtmlTransformer
 
         $attrs = array_filter(array_merge(
             $this->presentationAttributes($element),
+            $this->searchInputRuntimeAttributes($searchInput),
             array(
                 'label'       => $label,
                 'placeholder' => $this->attr($searchInput, 'placeholder'),
@@ -3405,6 +3407,11 @@ final class HtmlTransformer
         foreach ( $this->formControlElements($form) as $control ) {
             if ( array() !== $this->eventMetadata($control) || ! $this->isReadableFormControl($control) ) {
                 return null;
+            }
+
+            if ( $this->isRuntimeDomTarget($control) ) {
+                $contentBlocks[] = $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($control) ), array(), $control);
+                continue;
             }
 
             if ( 'submit' === $this->formControlType($control) ) {
@@ -3446,6 +3453,11 @@ final class HtmlTransformer
                         return null;
                     }
 
+                    if ( $this->isRuntimeDomTarget($control) ) {
+                        $blocks[] = $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($control) ), array(), $control);
+                        continue;
+                    }
+
                     $summary = $this->readableFormControlText($control);
                     if ( '' !== $summary ) {
                         $blocks[] = $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $control);
@@ -3482,6 +3494,7 @@ final class HtmlTransformer
 
             $attrs = array_filter(array_merge(
                 $this->presentationAttributes($element),
+                $this->searchInputRuntimeAttributes($element),
                 array(
                     'label'       => $label,
                     'placeholder' => $this->attr($element, 'placeholder'),
@@ -3492,7 +3505,27 @@ final class HtmlTransformer
         }
 
         $summary = $this->readableFormControlText($element);
-        return '' !== $summary ? $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $element) : null;
+        if ( '' === $summary ) {
+            return null;
+        }
+
+        $attrs = $this->isRuntimeDomTarget($element) ? $this->presentationAttributes($element) : array();
+        return $this->createBlock('core/paragraph', array_merge($attrs, array( 'content' => $summary )), array(), $element);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function searchInputRuntimeAttributes(DOMElement $input): array
+    {
+        if ( ! $this->isRuntimeDomTarget($input) ) {
+            return array();
+        }
+
+        return array_filter(array(
+            'inputAnchor'    => $this->safeAnchor($this->attr($input, 'id')),
+            'inputClassName' => $this->promotedClassName($this->attr($input, 'class')),
+        ), static fn (string $value): bool => '' !== trim($value));
     }
 
     private function shouldMaterializeReadableRuntimeForm(DOMElement $form): bool
