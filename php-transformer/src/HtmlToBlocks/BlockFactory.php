@@ -156,6 +156,10 @@ final class BlockFactory
             return $this->mediaHtml('audio', $attrs);
         }
 
+        if ( 'core/search' === $name ) {
+            return $this->searchHtml($attrs);
+        }
+
         if ( 'core/html' === $name ) {
             return (string) ($attrs['content'] ?? '');
         }
@@ -340,6 +344,30 @@ final class BlockFactory
         $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $attrs['caption'] . '</figcaption>' : '';
 
         return '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-' . $tagName) . '><' . $tagName . $this->htmlAttrs($mediaAttrs) . '></' . $tagName . '>' . $caption . '</figure>';
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function searchHtml(array $attrs): string
+    {
+        $inputId = (string) ($attrs['inputAnchor'] ?? '');
+        $label = (string) ($attrs['label'] ?? 'Search');
+        $labelAttrs = array(
+            'class' => 'wp-block-search__label',
+            'for'   => $inputId,
+        );
+        $inputAttrs = array(
+            'type'        => 'search',
+            'id'          => $inputId,
+            'class'       => $this->mergeClassNames('wp-block-search__input', (string) ($attrs['inputClassName'] ?? '')),
+            'name'        => 's',
+            'placeholder' => (string) ($attrs['placeholder'] ?? ''),
+        );
+        $buttonText = (string) ($attrs['buttonText'] ?? 'Search');
+        $button = '' !== trim($buttonText) ? '<button type="submit" class="wp-block-search__button wp-element-button">' . $buttonText . '</button>' : '';
+
+        return '<form role="search" method="get"' . $this->blockSupportAttrs($attrs, 'wp-block-search') . '><label' . $this->htmlAttrs($labelAttrs) . '>' . $label . '</label><div class="wp-block-search__inside-wrapper"><input' . $this->htmlAttrs($inputAttrs) . ' />' . $button . '</div></form>';
     }
 
     private function mergeClassNames(string ...$classNames): string
