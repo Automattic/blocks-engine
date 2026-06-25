@@ -1,5 +1,6 @@
 import type { WorkerPool } from '../pool/types.js';
 import type { SectionSpec } from './section-spec.js';
+import type { FormRemainder } from './native-reconstruct-types.js';
 import type { SourceCssCarryOptions } from './source-css-carry.js';
 
 export interface SiteModel {
@@ -46,6 +47,7 @@ export interface SectionBlocks {
   spec: SectionSpec;
   blocks: string;
   coverage: number;
+  remainder?: FormRemainder;
 }
 
 export interface AssetInventory {
