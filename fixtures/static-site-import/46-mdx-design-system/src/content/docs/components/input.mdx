@@ -1,0 +1,116 @@
+---
+title: Input
+description: A single-line text field for collecting short, free-form values inside a form.
+group: Components
+order: 21
+status: stable
+since: 1.0.0
+a11y: WCAG 2.2 AA · label + error association verified
+figma: https://www.figma.com/file/halo-ui/components?node-id=Input
+source: packages/react/src/Input/Input.tsx
+tags: [input, form, text-field, validation]
+---
+
+import { Callout } from '@components/Callout'
+import { PropsTable } from '@components/PropsTable'
+import { CodePreview } from '@components/CodePreview'
+import { DoDont, Do, Dont } from '@components/DoDont'
+
+`Input` is the workhorse form control for short text: names, emails, search
+terms, amounts. It always pairs with a visible `Label` — placeholder text is
+never a substitute for a label.
+
+## Anatomy
+
+A field is a **label**, the **input box**, and an optional **hint** or **error**
+message beneath it. The hint and error share one live region so only one shows
+at a time.
+
+<CodePreview lang="html" code={`<div class="halo-field">
+  <label class="halo-label" for="email">Work email</label>
+  <input id="email" class="halo-input" type="email"
+         placeholder="you@company.com" />
+  <p class="halo-hint">We'll only use this for billing receipts.</p>
+</div>`}>
+  <div className="halo-field">
+    <label className="halo-label" htmlFor="demo-email">Work email</label>
+    <input id="demo-email" className="halo-input" type="email" placeholder="you@company.com" />
+    <p className="halo-hint">We'll only use this for billing receipts.</p>
+  </div>
+</CodePreview>
+
+## States
+
+Every input has resting, focus, filled, error, and disabled states. Error state
+sets `aria-invalid` and wires the message via `aria-describedby`.
+
+<CodePreview lang="html" code={`<input class="halo-input" placeholder="Resting" />
+<input class="halo-input is-error" value="not-an-email" aria-invalid="true" />
+<input class="halo-input" value="Filled value" />
+<input class="halo-input" placeholder="Disabled" disabled />`}>
+  <div className="preview-stack">
+    <input className="halo-input" placeholder="Resting" readOnly />
+    <div className="halo-field">
+      <input className="halo-input is-error" defaultValue="not-an-email" aria-invalid="true" aria-describedby="demo-err" />
+      <p id="demo-err" className="halo-error">Enter a valid email address.</p>
+    </div>
+    <input className="halo-input" defaultValue="Filled value" readOnly />
+    <input className="halo-input" placeholder="Disabled" disabled />
+  </div>
+</CodePreview>
+
+<Callout type="warning" title="Placeholders aren't labels">
+  Placeholder text disappears on focus and fails contrast at most browser
+  defaults. Always render a persistent `<label>`; use the placeholder only for a
+  format example like `MM / YY`.
+</Callout>
+
+## Props
+
+<PropsTable rows={[
+  { name: 'type', type: "'text' | 'email' | 'password' | 'number' | 'search' | 'tel' | 'url'", default: "'text'", description: 'Native input type; drives keyboard + validation.' },
+  { name: 'size', type: "'sm' | 'md' | 'lg'", default: "'md'", description: 'Control height and font size.' },
+  { name: 'invalid', type: 'boolean', default: 'false', description: 'Applies error styling and sets aria-invalid.' },
+  { name: 'iconStart', type: 'ReactNode', description: 'Leading adornment, e.g. a search glyph.' },
+  { name: 'prefix', type: 'string', description: 'Static text fused to the left, e.g. "https://".' },
+  { name: 'disabled', type: 'boolean', default: 'false', description: 'Non-interactive, dimmed, removed from tab order.' },
+  { name: 'required', type: 'boolean', default: 'false', required: true, description: 'Marks the field required for native + ARIA validation.' },
+]} />
+
+## Validation
+
+Validate on blur, not on every keystroke — interrupting someone mid-typing is
+hostile. Re-validate live only *after* the first error is shown.
+
+```tsx
+import { Input, Field } from '@halo-ui/react'
+
+<Field
+  label="Work email"
+  error={touched && !isValidEmail(value) ? 'Enter a valid email.' : undefined}
+>
+  <Input type="email" value={value} onBlur={() => setTouched(true)} />
+</Field>
+```
+
+## Guidelines
+
+<DoDont>
+  <Do>Size the field to its expected content — a 2-digit field shouldn't be 400px.</Do>
+  <Dont>Disable copy/paste on password or one-time-code fields.</Dont>
+</DoDont>
+
+## Accessibility
+
+- The `<label>` is programmatically associated via `htmlFor` / `id`.
+- Errors use `aria-describedby` and a `role="alert"` live region so they're
+  announced the moment they appear.
+- The focus ring matches the Button's `--halo-focus-ring` for a consistent,
+  AA-contrast indicator.
+- Required fields are marked in the label text *and* with the `required`
+  attribute — never with color alone.
+
+<Callout type="info">
+  Need multi-line input? Use the `Textarea` component — it shares this field
+  anatomy and styling.
+</Callout>

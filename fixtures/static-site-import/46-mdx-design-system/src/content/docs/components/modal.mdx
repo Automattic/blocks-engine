@@ -1,0 +1,116 @@
+---
+title: Modal
+description: A focused overlay that interrupts the workflow to require a response before continuing.
+group: Components
+order: 22
+status: beta
+since: 2.1.0
+a11y: WCAG 2.2 AA · focus-trap + Escape verified
+figma: https://www.figma.com/file/halo-ui/components?node-id=Modal
+source: packages/react/src/Modal/Modal.tsx
+tags: [modal, dialog, overlay, focus-trap]
+---
+
+import { Callout } from '@components/Callout'
+import { PropsTable } from '@components/PropsTable'
+import { CodePreview } from '@components/CodePreview'
+import { DoDont, Do, Dont } from '@components/DoDont'
+import { Button } from '@components/Button'
+
+A `Modal` is a dialog rendered above the page that **traps focus** and demands a
+decision before the user can return to the underlying content. Use it sparingly —
+it interrupts. For non-blocking messages, prefer a `Toast` or inline banner.
+
+<Callout type="warning" title="Beta">
+  Modal is in **beta** (since 2.1.0). The API is stable, but the
+  `dismissOnOverlay` default may change to `false` in 3.0 — set it explicitly.
+</Callout>
+
+## Live example
+
+The trigger below opens a real modal rendered into a portal. Focus moves to the
+dialog, Tab is trapped inside it, and Escape closes it.
+
+<CodePreview code={`import { Modal, Button } from '@halo-ui/react'
+
+function ConfirmDelete() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <Button tone="danger" onClick={() => setOpen(true)}>
+        Delete workspace
+      </Button>
+      <Modal open={open} onClose={() => setOpen(false)}
+             title="Delete workspace?">
+        <p>This permanently removes all 14 projects. This can't be undone.</p>
+        <Modal.Footer>
+          <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button tone="danger" onClick={confirm}>Delete</Button>
+        </Modal.Footer>
+      </Modal>
+    </>
+  )
+}`}>
+  <div className="modal-demo" data-modal-demo>
+    <Button tone="danger" data-modal-open>Delete workspace</Button>
+  </div>
+</CodePreview>
+
+## Anatomy
+
+A modal has a **title** (the accessible name), a **body**, and a **footer** for
+actions. The overlay (scrim) dims and blocks the page behind it.
+
+## Props
+
+<PropsTable rows={[
+  { name: 'open', type: 'boolean', default: 'false', required: true, description: 'Controls visibility. Modal is fully controlled.' },
+  { name: 'onClose', type: '() => void', required: true, description: 'Called on Escape, overlay click, or close button.' },
+  { name: 'title', type: 'string', required: true, description: 'Accessible name; wired to aria-labelledby.' },
+  { name: 'size', type: "'sm' | 'md' | 'lg' | 'fullscreen'", default: "'md'", description: 'Max-width of the dialog panel.' },
+  { name: 'dismissOnOverlay', type: 'boolean', default: 'true', description: 'Whether clicking the scrim closes the modal.' },
+  { name: 'initialFocus', type: 'RefObject<HTMLElement>', description: 'Element focused when the modal opens.' },
+]} />
+
+## Behavior
+
+When a modal opens, Halo UI:
+
+1. Saves the currently focused element to restore later.
+2. Moves focus to `initialFocus`, or the first focusable child, or the dialog.
+3. Sets `aria-hidden="true"` and `inert` on everything outside the dialog.
+4. Traps Tab / Shift+Tab within the dialog.
+5. On close, restores focus to the element from step 1.
+
+```tsx
+// Focus is restored to the trigger automatically on close.
+<Modal open={open} onClose={close} title="Settings" initialFocus={firstFieldRef}>
+  …
+</Modal>
+```
+
+## Guidelines
+
+<DoDont>
+  <Do>Use a modal for a single, blocking decision the user must resolve now.</Do>
+  <Dont>Stack modals on top of modals — close one before opening the next.</Dont>
+</DoDont>
+
+<DoDont>
+  <Do>Make the destructive action clearly labeled ("Delete", not "OK").</Do>
+  <Dont>Auto-open a modal on page load to show marketing content.</Dont>
+</DoDont>
+
+## Accessibility
+
+- Renders `role="dialog"` with `aria-modal="true"`.
+- `title` becomes the dialog's `aria-labelledby`; body text can be referenced via
+  `aria-describedby`.
+- **Escape** closes the dialog; focus is trapped while open and restored on close.
+- The scrim has `pointer-events` enabled so the inert page behind cannot be
+  interacted with — this is what makes it truly modal.
+
+<Callout type="danger" title="Don't trap users">
+  A modal must always offer a way out — a visible close button, Escape, or a
+  Cancel action. Never remove all three.
+</Callout>

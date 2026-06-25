@@ -1,0 +1,150 @@
+---
+title: Button
+description: Triggers an action or event — the primary way users commit to a decision in Halo UI.
+group: Components
+order: 20
+status: stable
+since: 1.0.0
+a11y: WCAG 2.2 AA · keyboard + screen-reader verified
+figma: https://www.figma.com/file/halo-ui/components?node-id=Button
+source: packages/react/src/Button/Button.tsx
+tags: [button, action, form, interactive]
+---
+
+import { Callout } from '@components/Callout'
+import { PropsTable } from '@components/PropsTable'
+import { CodePreview } from '@components/CodePreview'
+import { DoDont, Do, Dont } from '@components/DoDont'
+import { Tabs, Tab } from '@components/Tabs'
+import { Button } from '@components/Button'
+
+The `Button` component triggers an action — submitting a form, opening a dialog,
+or confirming a destructive operation. For navigation, use a `Link` styled as a
+button instead; a real `<button>` should never change the URL.
+
+## Anatomy
+
+A button is composed of an optional **start icon**, a **label**, and an optional
+**end icon**, inside a pressable target that is always at least 40×40px.
+
+<CodePreview code={`<Button>Default</Button>
+<Button tone="brand">Brand</Button>
+<Button tone="danger">Delete</Button>`}>
+  <div className="preview-row">
+    <Button>Default</Button>
+    <Button tone="brand">Brand</Button>
+    <Button tone="danger">Delete</Button>
+  </div>
+</CodePreview>
+
+## Variants
+
+`variant` controls emphasis; `tone` controls meaning. The two are orthogonal, so
+you can have a `soft danger` or an `outline brand`.
+
+<CodePreview code={`<Button variant="solid">Solid</Button>
+<Button variant="soft">Soft</Button>
+<Button variant="outline">Outline</Button>
+<Button variant="ghost">Ghost</Button>`}>
+  <div className="preview-row">
+    <Button variant="solid">Solid</Button>
+    <Button variant="soft">Soft</Button>
+    <Button variant="outline">Outline</Button>
+    <Button variant="ghost">Ghost</Button>
+  </div>
+</CodePreview>
+
+<Callout type="info" title="One solid per view">
+  Reserve the `solid brand` button for the single most important action on a
+  screen. Everything else should step down to `soft`, `outline`, or `ghost`.
+</Callout>
+
+## Sizes & states
+
+<CodePreview code={`<Button size="sm">Small</Button>
+<Button size="md">Medium</Button>
+<Button size="lg">Large</Button>
+<Button loading>Saving</Button>
+<Button disabled>Disabled</Button>`}>
+  <div className="preview-row">
+    <Button size="sm">Small</Button>
+    <Button size="md">Medium</Button>
+    <Button size="lg">Large</Button>
+    <Button loading>Saving</Button>
+    <Button disabled>Disabled</Button>
+  </div>
+</CodePreview>
+
+## Props
+
+<PropsTable rows={[
+  { name: 'variant', type: "'solid' | 'soft' | 'outline' | 'ghost'", default: "'solid'", description: 'Visual emphasis of the button.' },
+  { name: 'tone', type: "'brand' | 'neutral' | 'danger'", default: "'brand'", description: 'Semantic meaning, mapped to color roles.' },
+  { name: 'size', type: "'sm' | 'md' | 'lg'", default: "'md'", description: 'Control height and horizontal padding.' },
+  { name: 'loading', type: 'boolean', default: 'false', description: 'Shows a spinner and sets aria-busy.' },
+  { name: 'iconStart', type: 'ReactNode', description: 'Icon rendered before the label.' },
+  { name: 'iconEnd', type: 'ReactNode', description: 'Icon rendered after the label.' },
+  { name: 'fullWidth', type: 'boolean', default: 'false', description: 'Stretch to fill the inline container.' },
+  { name: 'disabled', type: 'boolean', default: 'false', required: true, description: 'Prevents interaction; not focusable.' },
+]} />
+
+## Usage
+
+<Tabs labels={['React', 'Vue', 'HTML/CSS']}>
+  <Tab>
+    ```tsx
+    import { Button } from '@halo-ui/react'
+
+    <Button tone="danger" variant="soft" onClick={remove}>
+      Delete project
+    </Button>
+    ```
+  </Tab>
+  <Tab>
+    ```vue
+    <script setup>
+    import { HaloButton } from '@halo-ui/vue'
+    </script>
+
+    <template>
+      <HaloButton tone="danger" variant="soft" @click="remove">
+        Delete project
+      </HaloButton>
+    </template>
+    ```
+  </Tab>
+  <Tab>
+    ```html
+    <button class="halo-button halo-button--soft halo-button--danger">
+      <span class="halo-button__label">Delete project</span>
+    </button>
+    ```
+  </Tab>
+</Tabs>
+
+## Guidelines
+
+<DoDont>
+  <Do>Lead with a verb: "Save changes", "Invite member", "Publish".</Do>
+  <Dont>Use vague labels like "OK", "Submit", or "Click here".</Dont>
+</DoDont>
+
+<DoDont>
+  <Do>Place the primary action on the right in a dialog footer.</Do>
+  <Dont>Stack two `solid brand` buttons of equal weight side by side.</Dont>
+</DoDont>
+
+## Accessibility
+
+- Renders a native `<button>` — focusable, Enter/Space activated, announced as a
+  button by screen readers.
+- `loading` sets `aria-busy="true"` and disables pointer + keyboard activation so
+  the action can't fire twice.
+- Focus shows a 2px `--halo-focus-ring` offset by 2px, meeting the 3:1 non-text
+  contrast requirement against every surface.
+- Icon-only buttons **must** pass an `aria-label`.
+
+<Callout type="danger" title="Don't disable the only path forward">
+  A disabled submit button gives no feedback about *why* it's disabled. Prefer
+  keeping it enabled and surfacing a validation message on click.
+</Callout>

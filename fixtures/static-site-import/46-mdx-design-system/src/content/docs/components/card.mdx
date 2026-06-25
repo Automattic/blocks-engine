@@ -1,0 +1,73 @@
+---
+title: Card
+description: A flexible surface that groups related content and actions into a single visual unit.
+group: Components
+order: 23
+status: stable
+since: 1.2.0
+a11y: WCAG 2.2 AA · whole-card link pattern verified
+figma: https://www.figma.com/file/halo-ui/components?node-id=Card
+source: packages/react/src/Card/Card.tsx
+tags: [card, surface, container, layout]
+---
+
+import { Callout } from '@components/Callout'
+import { PropsTable } from '@components/PropsTable'
+import { CodePreview } from '@components/CodePreview'
+import { DoDont, Do, Dont } from '@components/DoDont'
+
+A `Card` is a raised surface that bundles related information — a header, body,
+and optional footer — into one scannable unit. It's the building block for
+dashboards, settings panels, and content grids.
+
+## Example
+
+<CodePreview lang="html" code={`<article class="halo-card">
+  <header class="halo-card__header">
+    <h3>Production cluster</h3>
+    <span class="badge badge--stable">Healthy</span>
+  </header>
+  <div class="halo-card__body">
+    <p>12 nodes · 99.98% uptime over the last 30 days.</p>
+  </div>
+  <footer class="halo-card__footer">View metrics →</footer>
+</article>`}>
+  <article className="halo-card" style={{ maxWidth: '320px' }}>
+    <header className="halo-card__header">
+      <h3 style={{ margin: 0 }}>Production cluster</h3>
+      <span className="badge badge--stable">Healthy</span>
+    </header>
+    <div className="halo-card__body">
+      <p style={{ margin: 0 }}>12 nodes · 99.98% uptime over the last 30 days.</p>
+    </div>
+    <footer className="halo-card__footer">View metrics →</footer>
+  </article>
+</CodePreview>
+
+## Props
+
+<PropsTable rows={[
+  { name: 'elevation', type: "'flat' | 'raised'", default: "'raised'", description: 'Flat draws a border; raised adds a shadow.' },
+  { name: 'interactive', type: 'boolean', default: 'false', description: 'Adds hover/focus affordance for clickable cards.' },
+  { name: 'as', type: 'ElementType', default: "'div'", description: 'Polymorphic root element (e.g. article, a).' },
+  { name: 'padding', type: "'none' | 'sm' | 'md' | 'lg'", default: "'md'", required: true, description: 'Inner spacing of the card body.' },
+]} />
+
+## Guidelines
+
+<DoDont>
+  <Do>Keep one clear primary action per card.</Do>
+  <Dont>Nest cards inside cards — flatten the hierarchy instead.</Dont>
+</DoDont>
+
+## Accessibility
+
+- A whole-card link uses the "pseudo-content" pattern: a single `<a>` stretched
+  over the card with `::after`, so the entire surface is one accessible target.
+- When `interactive`, the card is keyboard-focusable and shows the standard
+  `--halo-focus-ring`.
+
+<Callout type="info">
+  For a grid of cards, wrap them in a `<ul>` of `<li>` items so screen readers
+  announce the count.
+</Callout>
