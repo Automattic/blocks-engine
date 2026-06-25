@@ -240,8 +240,10 @@ $buttonResult = ( new HtmlTransformer() )->transform(
 $buttonBlocks = $buttonResult['blocks'][0]['innerBlocks'] ?? array();
 $assert('core/buttons' === ($buttonBlocks[0]['blockName'] ?? ''), 'anchor converts to buttons block');
 $assert(str_contains((string) ($buttonBlocks[0]['innerBlocks'][0]['attrs']['text'] ?? ''), 'Reserve now'), 'anchor button text preserves visible label');
+$assert('Reserve now' === ($buttonBlocks[0]['innerBlocks'][0]['attrs']['text'] ?? ''), 'anchor button text unwraps block-level label markup for valid inline RichText');
 $assert(str_contains((string) ($buttonBlocks[1]['innerBlocks'][0]['attrs']['text'] ?? ''), 'Call us'), 'button text preserves visible label');
 $assert(! str_contains((string) $buttonResult['serialized_blocks'], '\\u003c'), 'button serialization avoids escaped nested HTML attrs');
+$assert(! str_contains((string) $buttonResult['serialized_blocks'], '<h3>Reserve now</h3>'), 'button serialization avoids block-level markup inside link text');
 $assert('pass' === ($buttonResult['source_reports']['wp_block_validity']['status'] ?? ''), 'HTML transform exposes passing WordPress block validity report for generated buttons');
 
 $rubyResult = ( new HtmlTransformer() )->transform(
@@ -286,6 +288,19 @@ $assert('blocks-engine/php-transformer/wp-block-validity-report/v1' === ($invali
 $assert('warning' === ($invalidButtonReport['status'] ?? ''), 'runtime warns on button attribute/markup mismatches');
 $assert(in_array('button_text_markup_mismatch', $invalidButtonCodes, true), 'runtime reports invalid button text serialization');
 $assert(in_array('button_url_markup_mismatch', $invalidButtonCodes, true), 'runtime reports invalid button URL serialization');
+
+$invalidBlockLevelButtonBlocks = array(
+    array(
+        'blockName'    => 'core/button',
+        'attrs'        => array('text' => 'Book now', 'url' => '/book'),
+        'innerBlocks'  => array(),
+        'innerHTML'    => '<div class="wp-block-button"><a class="wp-block-button__link wp-element-button" href="/book"><h3>Book now</h3></a></div>',
+        'innerContent' => array('<div class="wp-block-button"><a class="wp-block-button__link wp-element-button" href="/book"><h3>Book now</h3></a></div>'),
+    ),
+);
+$invalidBlockLevelButtonReport = ( new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime() )->validateBlockSerialization($invalidBlockLevelButtonBlocks);
+$invalidBlockLevelButtonCodes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $invalidBlockLevelButtonReport['findings'] ?? array());
+$assert(in_array('button_block_level_link_markup', $invalidBlockLevelButtonCodes, true), 'runtime reports invalid block-level button link markup');
 
 $inlineSvgVisualWrapper = ( new HtmlTransformer() )->transform(
     '<main><section class="visual-region"><div class="map-layer"><div class="map-image" style="background-image:url(assets/map.png)"><svg><path d="M0 0h1v1z"></path></svg></div></div></section></main>'
