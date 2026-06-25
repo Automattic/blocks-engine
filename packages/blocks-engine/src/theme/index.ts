@@ -90,7 +90,7 @@ export type {
 } from './segment.js';
 export type { IslandTier } from './html-fallback.js';
 export { rewriteInternalLinks, rewriteMediaUrls } from './url-rewrite.js';
-export { scanForInjection } from './injection-scan.js';
+export { hasUnmigratedRemoteAsset, scanForInjection } from './injection-scan.js';
 export type { CapturedSectionContent, CoverageResult } from './section-coverage.js';
 export type {
   LocalFontFace,

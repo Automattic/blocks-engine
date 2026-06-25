@@ -1,13 +1,22 @@
 import { convert } from '../convert.js';
 import { escapeHtmlAttr, escapeHtmlText } from '../escape.js';
 import type { WorkerPool } from '../pool/types.js';
-import { buildCoverageIsland } from './html-fallback.js';
-import { captureSectionContent, measureSectionCoverage } from './section-coverage.js';
+import { buildHtmlFallbackBlock, selectIslandSource, type HtmlFallbackOpts } from './html-fallback.js';
+import { hasUnmigratedRemoteAsset, scanForInjection } from './injection-scan.js';
+import { captureSectionContent, measureConvertedCoverage } from './section-coverage.js';
 import type { SectionSpec, SectionSpecButton, SectionSpecImage } from './section-spec.js';
 import type { SectionBlocks, SiteToThemeHooks, StageCtx } from './types.js';
+import { rewriteMediaUrls } from './url-rewrite.js';
+import type { InternalLinkMap } from './url-rewrite.js';
 
 const BLOCK_COMMENT_RE = /<!--\s+wp:/;
 const HTML_ISLAND_RE = /<!--\s+wp:(?:core\/)?html(?:\s|-->|{)/;
+const UNRESOLVED_PLACEHOLDER_RE = /\{\{[\w -]+\}\}/;
+
+type RewriteCtx = StageCtx & {
+  mediaUrlMap?: Map<string, string>;
+  linkMap?: InternalLinkMap;
+};
 
 function nonEmpty(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -69,6 +78,33 @@ function skeletonCoverage(blocks: string): number {
   return BLOCK_COMMENT_RE.test(blocks) ? 1 : 0;
 }
 
+function fallbackOptions(ctx: StageCtx): HtmlFallbackOpts {
+  const rewriteCtx = ctx as RewriteCtx;
+  const opts: HtmlFallbackOpts = {};
+  if (rewriteCtx.mediaUrlMap) opts.mediaUrlMap = rewriteCtx.mediaUrlMap;
+  if (rewriteCtx.linkMap) opts.linkMap = rewriteCtx.linkMap;
+  return opts;
+}
+
+function rewriteConvertedMedia(blocks: string, ctx: StageCtx): string {
+  const mediaUrlMap = (ctx as RewriteCtx).mediaUrlMap;
+  return mediaUrlMap && mediaUrlMap.size > 0 ? rewriteMediaUrls(blocks, mediaUrlMap) : blocks;
+}
+
+function convertedOutputLost(spec: SectionSpec, blocks: string): boolean {
+  return (
+    measureConvertedCoverage(captureSectionContent(spec), blocks).lost ||
+    scanForInjection(blocks).length > 0 ||
+    hasUnmigratedRemoteAsset(blocks) ||
+    UNRESOLVED_PLACEHOLDER_RE.test(blocks)
+  );
+}
+
+function buildLossFallback(spec: SectionSpec, ctx: StageCtx): string {
+  const { source } = selectIslandSource(spec);
+  return buildHtmlFallbackBlock(source, fallbackOptions(ctx));
+}
+
 export async function reconstruct(
   specs: SectionSpec[],
   ctx: StageCtx,
@@ -80,11 +116,11 @@ export async function reconstruct(
 
   for (const spec of specs) {
     let blocks = await convert(sectionInputHtml(spec), { url: '' }, { pool });
-    if (
-      !HTML_ISLAND_RE.test(blocks) &&
-      measureSectionCoverage(captureSectionContent(spec), blocks).lost
-    ) {
-      blocks = buildCoverageIsland(spec);
+    if (!HTML_ISLAND_RE.test(blocks)) {
+      blocks = rewriteConvertedMedia(blocks, ctx);
+      if (convertedOutputLost(spec, blocks)) {
+        blocks = buildLossFallback(spec, ctx);
+      }
     }
 
     const section: SectionBlocks = {

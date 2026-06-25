@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { WorkerPool } from '../pool/types.js';
 import {
   captureSectionContent,
+  hasUnmigratedRemoteAsset,
   measureSectionCoverage,
   reconstruct,
   type SectionSpec,
@@ -38,6 +39,21 @@ function sectionSpec(overrides: Partial<SectionSpec> = {}): SectionSpec {
       columnCount: 1,
       gap: '0',
     },
+    ...overrides,
+  };
+}
+
+function sectionImage(
+  url: string,
+  overrides: Partial<SectionSpec['images'][number]> = {}
+): SectionSpec['images'][number] {
+  return {
+    url,
+    sourceUrl: url,
+    alt: 'Hero image',
+    kind: 'img',
+    width: 1200,
+    height: 800,
     ...overrides,
   };
 }
@@ -121,6 +137,149 @@ describe('theme reconstruct coverage gate', () => {
       0
     );
 
+    expect(section.blocks).toBe(nativeBlocks);
+    expect(section.blocks).not.toContain('lib-coverage-island');
+    expect(section.coverage).toBe(1);
+  });
+
+  it('falls back from converted native blocks with unmigrated remote assets to an island', async () => {
+    const remoteImage = 'https://cdn.example.com/uploads/hero.jpg';
+    const spec = sectionSpec({
+      headings: ['Remote asset hero'],
+      bodyText: ['Coverage can pass while asset provenance fails.'],
+      images: [sectionImage(remoteImage)],
+      sectionHtml: [
+        '<section>',
+        '<h2>Remote asset hero</h2>',
+        '<p>Coverage can pass while asset provenance fails.</p>',
+        `<img src="${remoteImage}" alt="Hero image">`,
+        '</section>',
+      ].join(''),
+    });
+    const convertedNative = [
+      '<!-- wp:heading -->',
+      '<h2>Remote asset hero</h2>',
+      '<!-- /wp:heading -->',
+      '<!-- wp:paragraph -->',
+      '<p>Coverage can pass while asset provenance fails.</p>',
+      '<!-- /wp:paragraph -->',
+      '<!-- wp:image -->',
+      `<figure class="wp-block-image"><img src="${remoteImage}" alt="Hero image"></figure>`,
+      '<!-- /wp:image -->',
+    ].join('\n');
+
+    expect(hasUnmigratedRemoteAsset(convertedNative)).toBe(true);
+
+    const [section] = await reconstruct(
+      [spec],
+      stageCtx(),
+      fakePool(() => convertedNative),
+      {},
+      0
+    );
+
+    expect(section.blocks).toContain('metadata":{"name":"lib-coverage-island"}');
+    expect(section.blocks).not.toBe(convertedNative);
+    expect(section.coverage).toBe(0);
+  });
+
+  it('falls back from converted native blocks with injection or placeholders to an island', async () => {
+    const injectionSpec = sectionSpec({
+      headings: ['Safe hero'],
+      bodyText: ['Fallback copy survives.'],
+      sectionHtml:
+        '<section><h2>Safe hero</h2><p>Fallback copy survives.</p><script>alert(1)</script></section>',
+    });
+    const injectedNative = [
+      '<!-- wp:heading -->',
+      '<h2>Safe hero</h2>',
+      '<!-- /wp:heading -->',
+      '<!-- wp:paragraph -->',
+      '<p>Fallback copy survives.</p>',
+      '<!-- /wp:paragraph -->',
+      '<script>alert(1)</script>',
+    ].join('\n');
+
+    const [injectedSection] = await reconstruct(
+      [injectionSpec],
+      stageCtx(),
+      fakePool(() => injectedNative),
+      {},
+      0
+    );
+
+    expect(injectedSection.blocks).toContain('metadata":{"name":"lib-coverage-island"}');
+    expect(injectedSection.blocks).toContain('<p>Fallback copy survives.</p>');
+    expect(injectedSection.blocks).not.toContain('<script');
+    expect(injectedSection.blocks).not.toBe(injectedNative);
+
+    const placeholderSpec = sectionSpec({
+      headings: ['Personalized hero'],
+      bodyText: ['Clean fallback copy.'],
+      sectionHtml: '<section><h2>Personalized hero</h2><p>Clean fallback copy.</p></section>',
+    });
+    const placeholderNative = [
+      '<!-- wp:heading -->',
+      '<h2>Personalized hero</h2>',
+      '<!-- /wp:heading -->',
+      '<!-- wp:paragraph -->',
+      '<p>Clean fallback copy.</p>',
+      '<!-- /wp:paragraph -->',
+      '<!-- wp:paragraph -->',
+      '<p>{{first-name}}</p>',
+      '<!-- /wp:paragraph -->',
+    ].join('\n');
+
+    const [placeholderSection] = await reconstruct(
+      [placeholderSpec],
+      stageCtx(),
+      fakePool(() => placeholderNative),
+      {},
+      0
+    );
+
+    expect(placeholderSection.blocks).toContain('metadata":{"name":"lib-coverage-island"}');
+    expect(placeholderSection.blocks).toContain('<p>Clean fallback copy.</p>');
+    expect(placeholderSection.blocks).not.toContain('{{first-name}}');
+    expect(placeholderSection.blocks).not.toBe(placeholderNative);
+  });
+
+  it('keeps converted native blocks when converted coverage matches image basename', async () => {
+    const remoteImage = 'https://cdn.example.com/uploads/hero.jpg?width=1200';
+    const uploadsImage = '/wp-content/uploads/2026/06/hero.jpg';
+    const spec = sectionSpec({
+      headings: ['Native image hero'],
+      bodyText: ['Converted image basename is enough.'],
+      images: [sectionImage(remoteImage)],
+      sectionHtml: [
+        '<section>',
+        '<h2>Native image hero</h2>',
+        '<p>Converted image basename is enough.</p>',
+        `<img src="${remoteImage}" alt="Hero image">`,
+        '</section>',
+      ].join(''),
+    });
+    const nativeBlocks = [
+      '<!-- wp:heading -->',
+      '<h2>Native image hero</h2>',
+      '<!-- /wp:heading -->',
+      '<!-- wp:paragraph -->',
+      '<p>Converted image basename is enough.</p>',
+      '<!-- /wp:paragraph -->',
+      '<!-- wp:image -->',
+      `<figure class="wp-block-image"><img src="${uploadsImage}" alt="Hero image"></figure>`,
+      '<!-- /wp:image -->',
+    ].join('\n');
+
+    const [section] = await reconstruct(
+      [spec],
+      stageCtx(),
+      fakePool(() => nativeBlocks),
+      {},
+      0
+    );
+
+    expect(hasUnmigratedRemoteAsset(nativeBlocks)).toBe(false);
     expect(section.blocks).toBe(nativeBlocks);
     expect(section.blocks).not.toContain('lib-coverage-island');
     expect(section.coverage).toBe(1);
