@@ -69,6 +69,11 @@ final class HtmlTransformer
      */
     private array $staticStyleRules = array();
 
+    /**
+     * @var array<string, bool>
+     */
+    private array $runtimeCanvasSelectors = array();
+
     private int $nextSourceProvenanceId = 1;
 
     public function __construct(private readonly Runtime $runtime = new Runtime())
@@ -95,6 +100,7 @@ final class HtmlTransformer
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
+        $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
         $this->nextSourceProvenanceId = 1;
         $provenance               = array(
             array_merge(array(
@@ -1147,6 +1153,10 @@ final class HtmlTransformer
 
         if ( 'canvas' === $tagName ) {
             $this->captureCanvasFallback($element, $fallbacks);
+            if ( $this->isRuntimeCanvasTarget($element) ) {
+                $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+                return $this->createBlock('core/html', array( 'content' => $boundedHtml['html'] ), array(), $element);
+            }
             return null;
         }
 
@@ -2903,6 +2913,38 @@ final class HtmlTransformer
             'html_bytes'             => $boundedHtml['bytes'],
             'html_truncated'         => $boundedHtml['truncated'],
         ), static fn (mixed $value): bool => '' !== $value && array() !== $value), $this->fallbackProvenance);
+    }
+
+    private function isRuntimeCanvasTarget(DOMElement $element): bool
+    {
+        $id = trim($this->attr($element, 'id'));
+        if ( '' !== $id && isset($this->runtimeCanvasSelectors['#' . $id]) ) {
+            return true;
+        }
+
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+            if ( '' !== $class && isset($this->runtimeCanvasSelectors['.' . $class]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, bool>
+     */
+    private function runtimeCanvasSelectorsFromOptions(array $options): array
+    {
+        $selectors = array();
+        foreach ( $options['runtime_canvas_selectors'] ?? array() as $selector ) {
+            if ( is_string($selector) && preg_match('/^[#.][A-Za-z][A-Za-z0-9_-]*$/', $selector) ) {
+                $selectors[$selector] = true;
+            }
+        }
+
+        return $selectors;
     }
 
     /**
