@@ -234,6 +234,14 @@ $assert(true === ($formDiagnostic['controls'][0]['required'] ?? null), 'conversi
 $assert('support' === ($formDiagnostic['controls'][1]['options'][0]['value'] ?? ''), 'conversion report exposes select option values');
 $assert(is_int($formDiagnostic['html_bytes'] ?? null), 'conversion report exposes bounded fallback HTML byte size');
 
+$rangeControlResult = ( new HtmlTransformer() )->transform(
+    '<main><section><label for="density">Density</label><input type="range" id="density" min="6" max="60" step="2" value="28"></section></main>'
+)->toArray();
+$rangeControlText = (string) ($rangeControlResult['blocks'][0]['innerBlocks'][1]['attrs']['content'] ?? '');
+$assert(array() === ($rangeControlResult['fallbacks'] ?? array()), 'standalone readable range input converts without unsupported-element fallback');
+$assert(str_contains($rangeControlText, 'Density: 28'), 'range input summary preserves current value');
+$assert(str_contains($rangeControlText, 'min 6, max 60, step 2'), 'range input summary preserves bounds');
+
 $buttonResult = ( new HtmlTransformer() )->transform(
     '<main><a class="primary-button" href="#"><h3>Reserve now</h3><span aria-hidden="true"></span></a><button><strong>Call us</strong></button></main>'
 )->toArray();
