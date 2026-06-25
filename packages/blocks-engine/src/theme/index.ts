@@ -18,6 +18,7 @@ export {
 export { splitPageChrome } from './chrome-split.js';
 export { segmentPage } from './segment.js';
 export { foundation } from './foundation.js';
+export { buildFallbackDiagnostic, buildTriageRemovalDiagnostic } from './fallback-diagnostic.js';
 export { formToBlocks, SKIPPED_FIELD_KINDS } from './form-blocks.js';
 export { ingest } from './ingest.js';
 export { planTemplates } from './template-plan.js';
@@ -90,6 +91,7 @@ export type {
   SectionRole,
 } from './segment.js';
 export type { IslandTier } from './html-fallback.js';
+export type * from './fallback-diagnostic.js';
 export { rewriteInternalLinks, rewriteMediaUrls } from './url-rewrite.js';
 export { hasUnmigratedRemoteAsset, scanForInjection } from './injection-scan.js';
 export type { CapturedSectionContent, CoverageResult } from './section-coverage.js';
