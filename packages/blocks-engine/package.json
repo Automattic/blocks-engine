@@ -41,6 +41,7 @@
   },
   "dependencies": {
     "cheerio": "1.2.0",
+    "domhandler": "5.0.3",
     "@wordpress/block-serialization-default-parser": "5.47.0",
     "@wordpress/blocks": "15.15.0",
     "@wordpress/block-editor": "15.15.0",
