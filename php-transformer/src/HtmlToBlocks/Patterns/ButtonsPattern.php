@@ -38,7 +38,14 @@ final class ButtonsPattern
     public function matchButton(DOMElement $button, callable $presentationAttributes, callable $innerHtml, callable $createBlock): array
     {
         return $createBlock('core/buttons', array(), array(
-            $createBlock('core/button', array_merge($this->buttonPresentationAttributes($button, $presentationAttributes), array( 'text' => $innerHtml($button) )), array(), $button),
+            $createBlock('core/button', array_merge(
+                $this->buttonPresentationAttributes($button, $presentationAttributes),
+                $this->buttonRuntimeAttributes($button),
+                array(
+                    'tagName' => 'button',
+                    'text'    => $innerHtml($button),
+                )
+            ), array(), $button),
         ), $button);
     }
 
@@ -90,6 +97,27 @@ final class ButtonsPattern
         $attrs = $presentationAttributes($element);
         if ( $this->hasOutlineSignal($element, (string) ($attrs['style'] ?? '')) ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' is-style-outline');
+        }
+
+        return $attrs;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function buttonRuntimeAttributes(DOMElement $button): array
+    {
+        $attrs = array();
+        foreach ( array( 'type', 'role', 'aria-label', 'aria-controls', 'aria-expanded', 'aria-haspopup' ) as $name ) {
+            if ( $button->hasAttribute($name) ) {
+                $attrs[$name] = $button->getAttribute($name);
+            }
+        }
+
+        foreach ( $button->attributes ?? array() as $attribute ) {
+            if ( str_starts_with(strtolower($attribute->nodeName), 'data-') ) {
+                $attrs[$attribute->nodeName] = $attribute->nodeValue ?? '';
+            }
         }
 
         return $attrs;

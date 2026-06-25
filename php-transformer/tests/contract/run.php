@@ -401,7 +401,9 @@ $deduplicatedMobileNavigation = ( new HtmlTransformer() )->transform(
 $assert('pass' === ($deduplicatedMobileNavigation['source_reports']['wp_block_validity']['status'] ?? ''), 'deduplicated desktop/mobile navigation passes WordPress block validity');
 $assertNoInnerContentChildCountMismatch($deduplicatedMobileNavigation, 'deduplicated desktop/mobile navigation does not report innerContent child-count mismatch');
 $assertPlaceholderCountsMatchChildren($deduplicatedMobileNavigation['blocks'] ?? array());
-$assert(1 === count($deduplicatedMobileNavigation['blocks'][0]['innerBlocks'] ?? array()), 'deduplicated desktop/mobile navigation removes duplicate drawer navigation children');
+$assert(2 === count($deduplicatedMobileNavigation['blocks'][0]['innerBlocks'] ?? array()), 'deduplicated desktop/mobile navigation preserves drawer target wrapper');
+$assert(str_contains((string) ($deduplicatedMobileNavigation['serialized_blocks'] ?? ''), 'mobile-nav'), 'deduplicated desktop/mobile navigation preserves mobile navigation target class');
+$assert(! str_contains((string) ($deduplicatedMobileNavigation['serialized_blocks'] ?? ''), 'drawer-nav'), 'deduplicated desktop/mobile navigation removes duplicate drawer navigation children');
 
 $deduplicatedNestedNavigation = ( new HtmlTransformer() )->transform(
     '<main><section class="shell"><div class="desktop-wrap"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div><div class="mobile-nav drawer"><div class="drawer-panel"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div></div><article><h2>Services</h2><p>Copy</p></article></section></main>'
@@ -628,8 +630,8 @@ $runtimeDependencySite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
         'files'      => array(
-            'index.html' => '<main><canvas id="canvas"></canvas><div id="status-container"><h2>Status</h2><p>Ready</p></div><script src="js/script.js"></script><script src="js/rum.js"></script></main>',
-            'js/script.js' => 'const canvas = document.getElementById("canvas"); canvas.getContext("2d"); const status = document.querySelector("#status-container"); status.addEventListener("click", function () {});',
+            'index.html' => '<main><canvas id="canvas" class="stage"></canvas><canvas id="unused-canvas"></canvas><div id="status-container"><h2>Status</h2><p>Ready</p></div><script src="js/script.js"></script><script src="js/rum.js"></script></main>',
+            'js/script.js' => 'const canvas = document.getElementById("canvas"); canvas.getContext("2d"); const stage = document.querySelector(".stage"); stage.getContext("2d"); const status = document.querySelector("#status-container"); status.addEventListener("click", function () {});',
             'js/rum.js' => 'document.querySelector("#netlify-rum-target");',
         ),
     )
@@ -647,29 +649,60 @@ foreach ( $runtimeFindings as $finding ) {
         $rumFinding = $finding;
     }
 }
+$canvasDependency = null;
+$stageDependency = null;
 $statusDependency = null;
 foreach ( $runtimeDependencyReport['dependencies'] ?? array() as $dependency ) {
+    if ( '#canvas' === ($dependency['selector'] ?? '') ) {
+        $canvasDependency = $dependency;
+    }
+    if ( '.stage' === ($dependency['selector'] ?? '') ) {
+        $stageDependency = $dependency;
+    }
     if ( '#status-container' === ($dependency['selector'] ?? '') ) {
         $statusDependency = $dependency;
     }
 }
+$runtimeDependencyMarkup = (string) ($runtimeDependencySite['serialized_blocks'] ?? '');
 $assert('blocks-engine/php-transformer/runtime-dependency-parity/v1' === ($runtimeDependencyReport['schema'] ?? ''), 'runtime dependency parity report exposes schema');
 $assert($runtimeDependencyReport === $runtimeDependencyConversionReport, 'conversion report projects runtime dependency parity');
-$assert('runtime_dependency_target_missing' === ($canvasFinding['code'] ?? ''), 'runtime dependency parity reports missing canvas DOM target');
-$assert('index.html' === ($canvasFinding['source_path'] ?? ''), 'runtime dependency parity reports source path for missing canvas DOM target');
-$assert('canvas' === ($canvasFinding['target_id'] ?? ''), 'runtime dependency parity reports missing canvas target id');
-$assert('canvas' === ($canvasFinding['target_kind'] ?? ''), 'runtime dependency parity identifies canvas source target kind');
-$assert(true === ($canvasFinding['canvas_api'] ?? null), 'runtime dependency parity flags canvas 2d API usage');
-$assert('warning' === ($canvasFinding['severity'] ?? ''), 'first-party missing runtime dependency target is warning severity');
-$assert('runtime_canvas_target_preservation' === ($canvasFinding['repair_bucket'] ?? ''), 'runtime dependency parity reports repair bucket for missing canvas DOM target');
-$assert('runtime_canvas' === ($canvasFinding['suggested_primitive'] ?? ''), 'runtime dependency parity reports suggested primitive for missing canvas DOM target');
-$assert(isset($canvasFinding['actionability']) && '' !== $canvasFinding['actionability'], 'runtime dependency parity reports actionability for missing canvas DOM target');
-$assert(isset($canvasFinding['materialization_hint']) && '' !== $canvasFinding['materialization_hint'], 'runtime dependency parity reports materialization hint for missing canvas DOM target');
+$assert(null === $canvasFinding, 'runtime dependency parity does not report preserved canvas DOM target as missing');
+$assert(null !== $canvasDependency, 'runtime dependency parity records canvas id dependency');
+$assert('index.html' === ($canvasDependency['source_path'] ?? ''), 'runtime dependency parity records source path for canvas DOM target');
+$assert('canvas' === ($canvasDependency['target_id'] ?? ''), 'runtime dependency parity records canvas target id');
+$assert('canvas' === ($canvasDependency['target_kind'] ?? ''), 'runtime dependency parity identifies canvas source target kind');
+$assert(true === ($canvasDependency['canvas_api'] ?? null), 'runtime dependency parity flags canvas 2d API usage');
+$assert(true === ($canvasDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved canvas id target');
+$assert(null !== $stageDependency, 'runtime dependency parity records canvas class querySelector dependency');
+$assert(true === ($stageDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved canvas class target');
+$assert(str_contains($runtimeDependencyMarkup, '<canvas id="canvas" class="stage"></canvas>'), 'artifact compiler emits referenced canvas runtime target markup');
+$assert(! str_contains($runtimeDependencyMarkup, 'unused-canvas'), 'artifact compiler does not preserve unreferenced canvas markup');
 $assert(null !== $statusDependency, 'runtime dependency parity records preserved status container dependency');
 $assert('index.html' === ($statusDependency['source_path'] ?? ''), 'runtime dependency parity records source path for preserved DOM dependency');
 $assert(true === ($statusDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved div id target');
 $assert(! empty($statusDependency['events'] ?? array()), 'runtime dependency parity records simple addEventListener usage');
 $assert('info' === ($rumFinding['severity'] ?? ''), 'telemetry-like runtime dependency misses are info severity');
+
+$runtimeTargetContainerSite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><section class="reveal"><h2>Reveal</h2></section><header><nav class="primary-nav"><a href="/">Home</a></nav><div class="mobile-nav-overlay"><div class="mobile-nav"><nav class="drawer-nav"><a href="/">Home</a></nav></div></div></header><div class="faq-item"><h3>Question</h3><p>Answer</p></div><div class="filter-bar"><button class="filter-btn">All</button><div class="filter-chips"><span>Popular</span></div></div><section id="contact-form"><h2>Contact</h2></section><div id="form-success"></div><script src="js/app.js"></script></main>',
+            'js/app.js' => 'document.querySelectorAll(".reveal"); document.querySelector(".mobile-nav-overlay"); document.querySelector(".mobile-nav"); document.querySelector(".faq-item"); document.querySelector(".filter-btn").addEventListener("click", function () {}); document.querySelector(".filter-bar"); document.querySelector(".filter-chips"); document.getElementById("contact-form"); document.getElementById("form-success");',
+        ),
+    )
+)->toArray();
+$runtimeTargetContainerReport = $runtimeTargetContainerSite['source_reports']['runtime_dependency_parity'] ?? array();
+$runtimeTargetDependencies = array();
+foreach ( $runtimeTargetContainerReport['dependencies'] ?? array() as $dependency ) {
+    $runtimeTargetDependencies[$dependency['selector'] ?? ''] = $dependency;
+}
+$assert('pass' === ($runtimeTargetContainerReport['status'] ?? ''), 'runtime dependency parity passes generic preserved JS target containers');
+foreach ( array( '.reveal', '.mobile-nav-overlay', '.mobile-nav', '.faq-item', '.filter-btn', '.filter-bar', '.filter-chips', '#contact-form', '#form-success' ) as $selector ) {
+    $assert(true === ($runtimeTargetDependencies[$selector]['generated_present'] ?? null), 'runtime dependency parity records preserved target ' . $selector);
+}
+$assert(str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'mobile-nav-overlay'), 'artifact block markup preserves mobile nav overlay target class after navigation dedupe');
+$assert(! str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'drawer-nav'), 'artifact block markup still removes duplicate drawer navigation links after preserving target wrapper');
 
 $legacyFrontPageSite = $compiler->compile(
     array(
