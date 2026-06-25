@@ -1,0 +1,94 @@
+---
+title: Typography
+description: The Halo UI type scale, font stacks, and the rules that keep text legible across every product.
+group: Foundations
+order: 11
+status: stable
+tags: [typography, type-scale, fonts, spacing, accessibility]
+---
+
+import { Callout } from '@components/Callout'
+import { DoDont, Do, Dont } from '@components/DoDont'
+import { CodePreview } from '@components/CodePreview'
+
+Halo UI uses a **two-family** system. **Space Grotesk** carries display and
+headings; **Inter** handles body and UI text. A single monospace family,
+**JetBrains Mono**, is reserved for code and tabular numerals.
+
+## Font stacks
+
+```css
+--halo-font-display: 'Space Grotesk', system-ui, sans-serif;
+--halo-font-body:    'Inter', system-ui, -apple-system, sans-serif;
+--halo-font-mono:    'JetBrains Mono', ui-monospace, monospace;
+```
+
+<Callout type="info">
+  Both webfonts ship as variable fonts and are subset to Latin + Latin-Extended.
+  The combined download is **34 kB** woff2, loaded with `font-display: swap`.
+</Callout>
+
+## Type scale
+
+The scale is a **1.2 minor-third** ratio anchored at a 16px base. Each step is a
+named token; product code references the token, never a raw pixel value.
+
+| Token | Size / line-height | Weight | Usage |
+| --- | --- | --- | --- |
+| `display-lg` | 48 / 52 | 600 | Marketing hero |
+| `display-sm` | 36 / 42 | 600 | Page titles |
+| `heading-lg` | 28 / 36 | 600 | Section h2 |
+| `heading-sm` | 22 / 30 | 600 | Card / subsection h3 |
+| `title` | 18 / 26 | 600 | List + dialog titles |
+| `body` | 16 / 26 | 400 | Default paragraph |
+| `body-sm` | 14 / 22 | 400 | Secondary text, captions |
+| `code` | 14 / 22 | 500 | Inline + block code |
+| `overline` | 12 / 16 | 600 | Eyebrows, all-caps labels |
+
+## Live specimen
+
+This block renders each scale step at its actual token value so you can compare
+weights and rhythm side by side.
+
+<CodePreview lang="html" code={`<h1 class="halo-display-sm">Ship faster, together</h1>
+<h2 class="halo-heading-lg">A scale you can trust</h2>
+<p class="halo-body">Body copy sits at 16px with a 26px line-height.</p>
+<p class="halo-body-sm">Secondary text drops to 14px for density.</p>`}>
+  <div className="type-specimen">
+    <p className="halo-display-sm">Ship faster, together</p>
+    <p className="halo-heading-lg">A scale you can trust</p>
+    <p className="halo-body">Body copy sits at 16px with a 26px line-height, tuned for sustained reading.</p>
+    <p className="halo-body-sm">Secondary text drops to 14px for density without sacrificing legibility.</p>
+    <p className="halo-code">const ratio = 1.2 // minor third</p>
+  </div>
+</CodePreview>
+
+## Measure & rhythm
+
+Body text should run **60–75 characters** per line. The docs content column is
+capped at `--halo-measure: 68ch` for exactly this reason. Vertical rhythm is
+maintained by spacing tokens (multiples of 4px), not by ad-hoc margins.
+
+<DoDont>
+  <Do>
+    Let headings inherit `--halo-font-display` and body inherit
+    `--halo-font-body` automatically via the base reset.
+  </Do>
+  <Dont>
+    Set type smaller than `body-sm` (14px) for any reading content — it fails
+    our minimum legible-size guideline.
+  </Dont>
+</DoDont>
+
+<Callout type="warning" title="Respect user zoom">
+  Always size text in `rem`, never `px`, so it scales with the browser's font
+  setting. Halo's tokens emit `rem` values; if you override them, keep the unit.
+</Callout>
+
+## Accessibility notes
+
+- Line-height is never below 1.5 for body text (WCAG 1.4.12).
+- Letter-spacing on all-caps `overline` text is `0.06em` to preserve
+  readability.
+- We do not rely on weight alone to convey meaning — pair it with size or color
+  role.

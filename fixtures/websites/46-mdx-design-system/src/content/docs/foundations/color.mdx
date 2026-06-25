@@ -1,0 +1,103 @@
+---
+title: Color
+description: The Halo UI palette, semantic color roles, and the contrast rules every product must follow.
+group: Foundations
+order: 10
+status: stable
+tags: [color, palette, tokens, contrast, accessibility]
+---
+
+import { Swatch, SwatchGrid } from '@components/Swatch'
+import { Callout } from '@components/Callout'
+import { DoDont, Do, Dont } from '@components/DoDont'
+
+Color in Halo UI is expressed in two layers. The **base palette** is a fixed
+set of perceptually-even ramps. **Semantic roles** map those ramps to meaning —
+`surface`, `text`, `border`, `brand`, `danger` — so a product never references a
+raw hex value directly.
+
+## Brand ramp
+
+Indigo is the Lumen Labs brand color. The `600` step is the default interactive
+fill; `700` is its hover state; `100` is the soft background used by `soft`
+variants.
+
+<SwatchGrid>
+  <Swatch name="indigo/100" token="--halo-color-indigo-100" color="#e0e1fb" />
+  <Swatch name="indigo/300" token="--halo-color-indigo-300" color="#a5a8f4" />
+  <Swatch name="indigo/500" token="--halo-color-indigo-500" color="#6366f1" />
+  <Swatch name="indigo/600" token="--halo-color-indigo-600" color="#4f46e5" />
+  <Swatch name="indigo/700" token="--halo-color-indigo-700" color="#4338ca" />
+  <Swatch name="indigo/900" token="--halo-color-indigo-900" color="#272461" />
+</SwatchGrid>
+
+## Status ramps
+
+Status colors are never used decoratively. Reserve them for the meaning they
+encode: success, caution, and error.
+
+<SwatchGrid>
+  <Swatch name="emerald/500" token="--halo-color-emerald-500" color="#10b981" />
+  <Swatch name="emerald/700" token="--halo-color-emerald-700" color="#047857" />
+  <Swatch name="amber/500" token="--halo-color-amber-500" color="#f59e0b" />
+  <Swatch name="amber/700" token="--halo-color-amber-700" color="#b45309" />
+  <Swatch name="rose/500" token="--halo-color-rose-500" color="#f43f5e" />
+  <Swatch name="rose/700" token="--halo-color-rose-700" color="#be123c" />
+</SwatchGrid>
+
+## Neutrals
+
+The neutral ramp carries text, surfaces, and borders. It is very slightly
+cool-tinted (a touch of indigo) so it never reads as muddy beside the brand.
+
+<SwatchGrid>
+  <Swatch name="slate/0" token="--halo-color-slate-0" color="#ffffff" />
+  <Swatch name="slate/100" token="--halo-color-slate-100" color="#eef0f6" />
+  <Swatch name="slate/300" token="--halo-color-slate-300" color="#c3c8d9" />
+  <Swatch name="slate/500" token="--halo-color-slate-500" color="#7c849c" />
+  <Swatch name="slate/700" token="--halo-color-slate-700" color="#3d4256" />
+  <Swatch name="slate/900" token="--halo-color-slate-900" color="#0b0d17" />
+</SwatchGrid>
+
+## Semantic roles
+
+Components consume roles, not ramp steps. This indirection is what lets a single
+theme swap recolor the whole system.
+
+| Role | Light theme | Dark theme |
+| --- | --- | --- |
+| `--halo-surface` | `slate/0` | `slate/900` |
+| `--halo-surface-raised` | `slate/0` | `#14172a` |
+| `--halo-text` | `slate/900` | `slate/100` |
+| `--halo-text-muted` | `slate/500` | `slate/300` |
+| `--halo-border` | `slate/100` | `#262a40` |
+| `--halo-brand` | `indigo/600` | `indigo/500` |
+| `--halo-danger` | `rose/700` | `rose/500` |
+
+<Callout type="warning" title="Never hard-code hex">
+  If you find yourself writing `color: #4f46e5` in a product, that's a bug. Use
+  `var(--halo-brand)`. Hard-coded values break theming and silently fail the
+  high-contrast theme audit.
+</Callout>
+
+## Contrast requirements
+
+Every text/background pairing in a Halo UI product must meet **WCAG 2.2 AA**:
+4.5:1 for body text, 3:1 for large text (≥ 24px, or 19px bold) and for the
+focus ring against adjacent colors. The token build runs a contrast check on
+every semantic pairing and fails CI if a combination drops below threshold.
+
+<DoDont>
+  <Do>
+    Pair `--halo-text` on `--halo-surface` (16.1:1) for body copy.
+  </Do>
+  <Dont>
+    Put `slate/500` text on a `slate/100` background — that's only 3.0:1 and
+    fails AA for body text.
+  </Dont>
+</DoDont>
+
+<Callout type="info">
+  Want the full numeric matrix? Run `pnpm tokens:build` and open
+  `tokens/report/contrast.html` — it grades all 612 role pairings.
+</Callout>
