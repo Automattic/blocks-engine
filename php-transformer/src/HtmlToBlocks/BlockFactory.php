@@ -165,6 +165,22 @@ final class BlockFactory
         }
 
         if ( 'core/button' === $name ) {
+            if ( 'button' === ($attrs['tagName'] ?? '') ) {
+                $buttonAttrs = array_intersect_key($attrs, array_flip(array( 'type', 'role', 'aria-label', 'aria-controls', 'aria-expanded', 'aria-haspopup' )));
+                foreach ( $attrs as $attrName => $attrValue ) {
+                    if ( is_string($attrName) && str_starts_with(strtolower($attrName), 'data-') ) {
+                        $buttonAttrs[$attrName] = (string) $attrValue;
+                    }
+                }
+                $buttonAttrs = array_merge(array(
+                    'id'    => (string) ($attrs['anchor'] ?? ''),
+                    'class' => $this->mergeClassNames('wp-block-button__link wp-element-button', (string) ($attrs['className'] ?? '')),
+                    'style' => (string) ($attrs['style'] ?? ''),
+                ), $buttonAttrs);
+
+                return '<div class="wp-block-button"><button' . $this->htmlAttrs($buttonAttrs) . '>' . ($attrs['text'] ?? '') . '</button></div>';
+            }
+
             $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
             $wrapperClass = $this->mergeClassNames('wp-block-button', in_array('is-style-outline', preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true) ? 'is-style-outline' : '');
             $linkAttrs = array(
