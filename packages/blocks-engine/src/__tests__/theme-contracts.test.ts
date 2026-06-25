@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { WorkerPool } from '../pool/types.js';
 import {
   assemble,
+  buildFallbackDiagnostic,
+  buildTriageRemovalDiagnostic,
   foundation,
   formToBlocks,
   ingest,
@@ -14,6 +16,7 @@ import {
   type AssetFile,
   type AssetInventory,
   type AssetVerdicts,
+  type CoverageResult,
   type FoundationAggregates,
   type FoundationTokens,
   type FormBlocksResult,
@@ -328,6 +331,36 @@ function assertBalanced(markup: string): void {
   expect(stack).toEqual([]);
 }
 
+function diagnosticSection(partial: Partial<SectionSpec> = {}): SectionSpec {
+  return {
+    sectionIndex: 0,
+    interactionModel: 'static',
+    top: 0,
+    height: 100,
+    headings: [],
+    bodyText: [],
+    buttonLabels: [],
+    images: [],
+    icons: [],
+    backgroundBrightness: 1,
+    backgroundColor: '#ffffff',
+    gradient: null,
+    gradientSource: null,
+    motionProfile: { motionClass: 'none', signals: [], animatedElements: 0 },
+    dividerAbove: null,
+    dividerBelow: null,
+    layout: { containerWidth: 960, padding: '0', childLayout: 'stack', columnCount: 1, gap: '0' },
+    cells: [],
+    forms: [],
+    sectionHtml: '<section></section>',
+    ...partial,
+  };
+}
+
+function diagnosticCoverage(partial: Partial<CoverageResult> = {}): CoverageResult {
+  return { textCoverage: 1, missingImages: [], lost: false, ...partial };
+}
+
 describe('theme public contract', () => {
   it('exports runtime stage functions with fixed arity', () => {
     const runtimeStages = [
@@ -347,6 +380,183 @@ describe('theme public contract', () => {
     }
   });
 
+});
+
+describe('fallback diagnostics DLA parity', () => {
+  it('emits dropped_images reasonCode with media-first precedence when text coverage is also below floor', () => {
+    const section = diagnosticSection({
+      sectionIndex: 7,
+      interactionModel: 'media-text',
+      selector: '#hero',
+      sectionHtml: '<section class="hero-source"><h1>Launch faster</h1><p>Proof copy</p></section>',
+      styledHtml: '<section class="hero"><h1>Launch faster</h1><p>Proof copy</p></section>',
+    });
+
+    expect(
+      buildFallbackDiagnostic({
+        page: '/home',
+        slug: 'home',
+        section,
+        coverage: diagnosticCoverage({
+          textCoverage: 0.333,
+          missingImages: ['https://cdn.example.com/hero.jpg'],
+          lost: true,
+        }),
+        islandKind: 'styled',
+        islandMarkup: '<!-- wp:html --><div><p>Launch</p></div><!-- /wp:html -->',
+      }),
+    ).toEqual({
+      id: 'home-s7-dropped_images',
+      page: '/home',
+      sectionIndex: 7,
+      interactionModel: 'media-text',
+      selector: '#hero',
+      severity: 'warning',
+      reasonCode: 'dropped_images',
+      islandKind: 'styled',
+      droppedImages: ['https://cdn.example.com/hero.jpg'],
+      textCoverage: 0.33,
+      suggestedRepairClass: 'recover_dropped_media',
+      sourceHtmlPreview: '<section class="hero"><h1>Launch faster</h1><p>Proof copy</p></section>',
+      emittedBlockPreview: '<!-- wp:html --><div><p>Launch</p></div><!-- /wp:html -->',
+    });
+  });
+
+  it('emits text_coverage_below_floor reasonCode when text is below the DLA floor without dropped media', () => {
+    const section = diagnosticSection({
+      sectionIndex: 3,
+      interactionModel: 'cta',
+      selector: '.cta',
+      sectionHtml: '<section><h2>Book now</h2><p>Schedule a repair.</p></section>',
+    });
+
+    expect(
+      buildFallbackDiagnostic({
+        page: '/service',
+        slug: 'service',
+        section,
+        coverage: diagnosticCoverage({
+          textCoverage: 0.494,
+          lost: true,
+        }),
+        islandKind: 'verbatim',
+        islandMarkup: '<!-- wp:paragraph --><p>Book now</p><!-- /wp:paragraph -->',
+      }),
+    ).toEqual({
+      id: 'service-s3-text_coverage_below_floor',
+      page: '/service',
+      sectionIndex: 3,
+      interactionModel: 'cta',
+      selector: '.cta',
+      severity: 'warning',
+      reasonCode: 'text_coverage_below_floor',
+      islandKind: 'verbatim',
+      droppedImages: [],
+      textCoverage: 0.49,
+      suggestedRepairClass: 'restructure_section_blocks',
+      sourceHtmlPreview: '<section><h2>Book now</h2><p>Schedule a repair.</p></section>',
+      emittedBlockPreview: '<!-- wp:paragraph --><p>Book now</p><!-- /wp:paragraph -->',
+    });
+  });
+
+  it('passes through verbatim, styled, and responsive islandKind classifications', () => {
+    const islandKinds = ['verbatim', 'styled', 'responsive'] as const;
+
+    expect(
+      islandKinds.map((islandKind, index) =>
+        buildFallbackDiagnostic({
+          page: '/landing',
+          slug: 'landing',
+          section: diagnosticSection({
+            sectionIndex: index,
+            interactionModel: 'static',
+            selector: `.section-${index}`,
+            sectionHtml: `<section><p>Section ${index}</p></section>`,
+          }),
+          coverage: diagnosticCoverage({ textCoverage: 0.25, lost: true }),
+          islandKind,
+          islandMarkup: `<p>Island ${index}</p>`,
+        }),
+      ),
+    ).toEqual([
+      {
+        id: 'landing-s0-text_coverage_below_floor',
+        page: '/landing',
+        sectionIndex: 0,
+        interactionModel: 'static',
+        selector: '.section-0',
+        severity: 'warning',
+        reasonCode: 'text_coverage_below_floor',
+        islandKind: 'verbatim',
+        droppedImages: [],
+        textCoverage: 0.25,
+        suggestedRepairClass: 'restructure_section_blocks',
+        sourceHtmlPreview: '<section><p>Section 0</p></section>',
+        emittedBlockPreview: '<p>Island 0</p>',
+      },
+      {
+        id: 'landing-s1-text_coverage_below_floor',
+        page: '/landing',
+        sectionIndex: 1,
+        interactionModel: 'static',
+        selector: '.section-1',
+        severity: 'warning',
+        reasonCode: 'text_coverage_below_floor',
+        islandKind: 'styled',
+        droppedImages: [],
+        textCoverage: 0.25,
+        suggestedRepairClass: 'restructure_section_blocks',
+        sourceHtmlPreview: '<section><p>Section 1</p></section>',
+        emittedBlockPreview: '<p>Island 1</p>',
+      },
+      {
+        id: 'landing-s2-text_coverage_below_floor',
+        page: '/landing',
+        sectionIndex: 2,
+        interactionModel: 'static',
+        selector: '.section-2',
+        severity: 'warning',
+        reasonCode: 'text_coverage_below_floor',
+        islandKind: 'responsive',
+        droppedImages: [],
+        textCoverage: 0.25,
+        suggestedRepairClass: 'restructure_section_blocks',
+        sourceHtmlPreview: '<section><p>Section 2</p></section>',
+        emittedBlockPreview: '<p>Island 2</p>',
+      },
+    ]);
+  });
+
+  it('matches the DLA decorative_asset_triaged diagnostic record shape', () => {
+    expect(
+      buildTriageRemovalDiagnostic({
+        page: '/about',
+        slug: 'about',
+        sectionIndex: 2,
+        interactionModel: 'static',
+        removal: {
+          url: 'https://cdn.example.com/divider.png',
+          sectionSelector: 'section:nth-of-type(3)',
+          description: 'Thin gold divider line between testimonials.',
+        },
+        ordinal: 1,
+      }),
+    ).toEqual({
+      id: 'about-s2-decorative_asset_triaged-1',
+      page: '/about',
+      sectionIndex: 2,
+      interactionModel: 'static',
+      selector: 'section:nth-of-type(3)',
+      severity: 'warning',
+      reasonCode: 'decorative_asset_triaged',
+      islandKind: 'none',
+      droppedImages: ['https://cdn.example.com/divider.png'],
+      textCoverage: 1,
+      suggestedRepairClass: 'replace_with_structural_block',
+      sourceHtmlPreview: 'Thin gold divider line between testimonials.',
+      emittedBlockPreview: '',
+    });
+  });
 });
 
 describe('formToBlocks DLA parity', () => {
