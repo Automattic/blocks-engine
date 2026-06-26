@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\FigmaTransformer;
 
 use Automattic\BlocksEngine\FigmaTransformer\Contract\FigmaTransformResult;
+use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\LayoutMismatchReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader;
 use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
@@ -21,6 +22,7 @@ final class FigmaTransformer
         private readonly FigArchiveReader $archiveReader = new FigArchiveReader(),
         private readonly StaticHtmlEmitter $htmlEmitter = new StaticHtmlEmitter(),
         private readonly ParityReportBuilder $parityReportBuilder = new ParityReportBuilder(),
+        private readonly LayoutMismatchReportBuilder $layoutMismatchReportBuilder = new LayoutMismatchReportBuilder(),
         private readonly ScenegraphNormalizer $scenegraphNormalizer = new ScenegraphNormalizer(),
         private readonly ScenegraphFrameInspector $frameInspector = new ScenegraphFrameInspector(),
         private readonly ScenegraphPagePlanner $pagePlanner = new ScenegraphPagePlanner()
@@ -399,6 +401,7 @@ final class FigmaTransformer
         $startedAt = microtime(true);
         $normalized = $this->scenegraphNormalizer->normalize($scenegraph, $options);
         $artifact    = $this->htmlEmitter->emit($normalized, $options);
+        $artifact    = $this->withLayoutMismatchReport($artifact, $options);
         $diagnostics = array_merge($normalized['diagnostics'] ?? array(), $artifact['diagnostics']);
         $parity      = $this->parityReportBuilder->build($options['parity'] ?? array());
 
@@ -603,6 +606,93 @@ final class FigmaTransformer
     }
 
     /**
+     * @param array<string, mixed> $artifact
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function withLayoutMismatchReport(array $artifact, array $options): array
+    {
+        $evidence = $this->layoutMismatchEvidenceFromOptions($options);
+        if ( empty($evidence) ) {
+            return $artifact;
+        }
+
+        $sourceReport = is_array($artifact['source_report'] ?? null) ? $artifact['source_report'] : array();
+        $reportOptions = is_array($options['layout_mismatch_options'] ?? null) ? $options['layout_mismatch_options'] : array();
+        if ( isset($options['layout_mismatch_threshold']) ) {
+            $reportOptions['threshold'] = $options['layout_mismatch_threshold'];
+        }
+        if ( isset($options['layout_mismatch_size_threshold']) ) {
+            $reportOptions['size_threshold'] = $options['layout_mismatch_size_threshold'];
+        }
+
+        $layoutMismatch = $this->layoutMismatchReportBuilder->build($sourceReport, $evidence, $reportOptions);
+        $transformDiagnostics = is_array($sourceReport['transform_diagnostics'] ?? null) ? $sourceReport['transform_diagnostics'] : array();
+        $layout = is_array($transformDiagnostics['layout'] ?? null) ? $transformDiagnostics['layout'] : array();
+        $layout['layout_mismatch'] = $layoutMismatch;
+        $layout['layout_mismatch_count'] = (int) ($layoutMismatch['summary']['diagnostic_count'] ?? 0);
+        $transformDiagnostics['layout'] = $layout;
+        $transformDiagnostics['artifact_quality'] = $this->withLayoutMismatchArtifactQuality(
+            is_array($transformDiagnostics['artifact_quality'] ?? null) ? $transformDiagnostics['artifact_quality'] : array(),
+            $layoutMismatch
+        );
+        $sourceReport['transform_diagnostics'] = $transformDiagnostics;
+        $artifact['source_report'] = $sourceReport;
+
+        return $artifact;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function layoutMismatchEvidenceFromOptions(array $options): array
+    {
+        foreach ( array('layout_mismatch', 'layout_mismatch_evidence', 'generated_dom_boxes', 'dom_boxes') as $key ) {
+            if ( is_array($options[$key] ?? null) ) {
+                return $options[$key];
+            }
+        }
+
+        if ( is_array($options['metadata']['generated_dom_boxes'] ?? null) ) {
+            return $options['metadata']['generated_dom_boxes'];
+        }
+        if ( is_array($options['metadata']['dom_boxes'] ?? null) ) {
+            return $options['metadata']['dom_boxes'];
+        }
+
+        return array();
+    }
+
+    /**
+     * @param array<string, mixed> $artifactQuality
+     * @param array<string, mixed> $layoutMismatch
+     * @return array<string, mixed>
+     */
+    private function withLayoutMismatchArtifactQuality(array $artifactQuality, array $layoutMismatch): array
+    {
+        $count = (int) ($layoutMismatch['summary']['diagnostic_count'] ?? 0);
+        $artifactQuality['schema'] = $artifactQuality['schema'] ?? 'blocks-engine/figma-transformer/artifact-quality/v1';
+        $signals = is_array($artifactQuality['signals'] ?? null) ? $artifactQuality['signals'] : array();
+        if ( $count > 0 ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'layout_mismatch', 'count' => $count);
+        }
+        $artifactQuality['signals'] = $signals;
+        $summary = is_array($artifactQuality['summary'] ?? null) ? $artifactQuality['summary'] : array();
+        $summary['layout_mismatch_count'] = $count;
+        $summary['misplaced_element_count'] = (int) ($layoutMismatch['summary']['code_counts']['misplaced_element'] ?? 0);
+        $summary['element_size_mismatch_count'] = (int) ($layoutMismatch['summary']['code_counts']['element_size_mismatch'] ?? 0);
+        $summary['element_outside_parent_bounds_count'] = (int) ($layoutMismatch['summary']['code_counts']['element_outside_parent_bounds'] ?? 0);
+        $artifactQuality['summary'] = $summary;
+        if ( $count > 0 ) {
+            $artifactQuality['status'] = 'needs_review';
+            $artifactQuality['quality_status'] = 'warn';
+        }
+
+        return $artifactQuality;
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $pageReports
      * @param array<int, array<string, mixed>> $assetReport
      * @return array<string, mixed>
@@ -619,6 +709,8 @@ final class FigmaTransformer
             'large_absolute_offset_nodes' => array(),
             'decorative_underlays' => array('count' => 0, 'nodes' => array()),
             'image_heavy_landmark_candidates' => array(),
+            'layout_mismatch_count' => 0,
+            'layout_mismatches' => array(),
         );
         $fontFamilies = array();
         $missingCss = array();
@@ -692,6 +784,14 @@ final class FigmaTransformer
                     $layout['image_heavy_landmark_candidates'][] = array_merge($pageContext, $item);
                 }
             }
+            $pageLayoutMismatch = is_array($pageLayout['layout_mismatch'] ?? null) ? $pageLayout['layout_mismatch'] : array();
+            $pageLayoutMismatchDiagnostics = is_array($pageLayoutMismatch['diagnostics'] ?? null) ? $pageLayoutMismatch['diagnostics'] : array();
+            $layout['layout_mismatch_count'] += (int) ($pageLayoutMismatch['summary']['diagnostic_count'] ?? count($pageLayoutMismatchDiagnostics));
+            foreach ( $pageLayoutMismatchDiagnostics as $item ) {
+                if ( is_array($item) ) {
+                    $layout['layout_mismatches'][] = array_merge($pageContext, $item);
+                }
+            }
 
             $pageDiagnosticCodes = is_array($page['diagnostic_codes'] ?? null) ? $page['diagnostic_codes'] : (is_array($diagnostics['diagnostic_codes'] ?? null) ? $diagnostics['diagnostic_codes'] : array());
             foreach ( $pageDiagnosticCodes as $code => $count ) {
@@ -700,6 +800,7 @@ final class FigmaTransformer
         }
 
         $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
+        $layout['layout_mismatches'] = array_values($layout['layout_mismatches']);
         ksort($diagnosticCodes);
         $fonts = array(
             'families' => $fontFamilies,
@@ -764,6 +865,9 @@ final class FigmaTransformer
         if ( ! empty($layout['image_heavy_landmark_candidates']) ) {
             $signals[] = array('severity' => 'warning', 'code' => 'image_heavy_landmark_candidate', 'count' => count($layout['image_heavy_landmark_candidates']));
         }
+        if ( ! empty($layout['layout_mismatch_count']) ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'layout_mismatch', 'count' => (int) $layout['layout_mismatch_count']);
+        }
         $imageBlockCount = (int) ($images['image_block_count'] ?? 0);
         $totalNodeCount = max(0, (int) ($images['total_node_count'] ?? 0));
         $imageNodeDensity = $totalNodeCount > 0 ? $imageBlockCount / $totalNodeCount : 0.0;
@@ -814,6 +918,7 @@ final class FigmaTransformer
                 'fixed_root_width_count' => (int) ($layout['fixed_root_width_count'] ?? 0),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
+                'layout_mismatch_count' => (int) ($layout['layout_mismatch_count'] ?? 0),
             ),
         );
     }
