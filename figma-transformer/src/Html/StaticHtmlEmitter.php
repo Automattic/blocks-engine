@@ -3188,17 +3188,28 @@ final class StaticHtmlEmitter
             return null;
         }
 
-        $canonical = array();
+        $canonical = '';
+        $previousTokenType = '';
+        $previousCommand = '';
         foreach ( $tokens as $token ) {
             if ( 1 === strlen($token) && preg_match('/^[MmZzLlHhVvCcSsQqTtAa]$/', $token) ) {
-                $canonical[] = $token;
+                if ( $token !== $previousCommand || in_array($token, array('M', 'm', 'Z', 'z'), true) ) {
+                    $canonical .= $token;
+                    $previousTokenType = 'command';
+                }
+                $previousCommand = $token;
                 continue;
             }
 
-            $canonical[] = $this->number((float) $token);
+            $number = $this->number((float) $token);
+            if ( 'number' === $previousTokenType && ! str_starts_with($number, '-') ) {
+                $canonical .= ' ';
+            }
+            $canonical .= $number;
+            $previousTokenType = 'number';
         }
 
-        return implode(' ', $canonical);
+        return $canonical;
     }
 
     private function svgPathDataByteLimit(mixed $rawPath): int
