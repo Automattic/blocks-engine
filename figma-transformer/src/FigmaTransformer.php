@@ -609,7 +609,7 @@ final class FigmaTransformer
      */
     private function mergePageTransformDiagnostics(array $pageReports, array $assetReport): array
     {
-        $images = array('paint_refs' => 0, 'node_refs' => 0, 'resolved_assets' => 0, 'image_block_count' => 0, 'image_block_nodes' => array(), 'missing_assets' => array());
+        $images = array('paint_refs' => 0, 'node_refs' => 0, 'resolved_assets' => 0, 'image_block_count' => 0, 'total_node_count' => 0, 'image_block_nodes' => array(), 'missing_assets' => array());
         $vectors = array('nodes' => 0, 'rendered_paths' => 0, 'rendered_asset_fallbacks' => 0, 'placeholders' => 0, 'placeholder_nodes' => array());
         $layout = array(
             'large_negative_left_count' => 0,
@@ -637,7 +637,7 @@ final class FigmaTransformer
             $pages[] = array_merge($pageContext, array('transform_diagnostics' => $diagnostics));
 
             $pageImages = is_array($diagnostics['images'] ?? null) ? $diagnostics['images'] : array();
-            foreach ( array('paint_refs', 'node_refs', 'resolved_assets', 'image_block_count') as $key ) {
+            foreach ( array('paint_refs', 'node_refs', 'resolved_assets', 'image_block_count', 'total_node_count') as $key ) {
                 $images[$key] += (int) ($pageImages[$key] ?? 0);
             }
             foreach ( is_array($pageImages['image_block_nodes'] ?? null) ? $pageImages['image_block_nodes'] : array() as $item ) {
@@ -764,8 +764,18 @@ final class FigmaTransformer
         if ( ! empty($layout['image_heavy_landmark_candidates']) ) {
             $signals[] = array('severity' => 'warning', 'code' => 'image_heavy_landmark_candidate', 'count' => count($layout['image_heavy_landmark_candidates']));
         }
-        if ( (int) ($images['image_block_count'] ?? 0) >= 12 ) {
-            $signals[] = array('severity' => 'warning', 'code' => 'excessive_image_blocks', 'count' => (int) $images['image_block_count']);
+        $imageBlockCount = (int) ($images['image_block_count'] ?? 0);
+        $totalNodeCount = max(0, (int) ($images['total_node_count'] ?? 0));
+        $imageNodeDensity = $totalNodeCount > 0 ? $imageBlockCount / $totalNodeCount : 0.0;
+        if ( $imageBlockCount >= 12 && ($imageNodeDensity >= 0.35 || ! empty($layout['image_heavy_landmark_candidates'])) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'excessive_image_blocks',
+                'count' => $imageBlockCount,
+                'threshold' => 12,
+                'image_node_density' => round($imageNodeDensity, 3),
+                'sample_nodes' => array_slice(is_array($images['image_block_nodes'] ?? null) ? $images['image_block_nodes'] : array(), 0, 10),
+            );
         }
         if ( (int) ($vectors['rendered_asset_fallbacks'] ?? 0) >= 8 ) {
             $signals[] = array('severity' => 'warning', 'code' => 'excessive_vector_image_fallbacks', 'count' => (int) $vectors['rendered_asset_fallbacks']);
@@ -794,7 +804,9 @@ final class FigmaTransformer
                 'vector_placeholders' => (int) ($vectors['placeholders'] ?? 0),
                 'missing_font_css' => count($fonts['missing_css'] ?? array()),
                 'emitted_asset_files' => (int) ($assets['emitted_files'] ?? 0),
-                'image_block_count' => (int) ($images['image_block_count'] ?? 0),
+                'image_block_count' => $imageBlockCount,
+                'image_node_density' => round($imageNodeDensity, 3),
+                'total_node_count' => $totalNodeCount,
                 'vector_image_fallbacks' => (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
                 'generated_svg_count' => (int) ($generatedSvgAssets['count'] ?? 0),
                 'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
