@@ -152,6 +152,13 @@ if ( is_string($outputDir) && '' !== $outputDir ) {
     $outputDir = rtrim($outputDir, DIRECTORY_SEPARATOR);
 }
 
+if ( isset($options['parity']['dom_boxes_path']) && is_scalar($options['parity']['dom_boxes_path']) ) {
+    $domBoxes = blocks_engine_figma_transformer_cli_read_json_file((string) $options['parity']['dom_boxes_path']);
+    if ( is_array($domBoxes) ) {
+        $options['generated_dom_boxes'] = $domBoxes;
+    }
+}
+
 $transformer = blocks_engine_figma_transformer_cli_transformer(is_string($zstdCommand) && '' !== $zstdCommand ? $zstdCommand : null);
 if ( true === ($options['inspect_frames'] ?? false) ) {
     if ( str_ends_with(strtolower($path), '.json') ) {
@@ -336,6 +343,19 @@ function blocks_engine_figma_transformer_cli_safe_output_path(string $path): boo
     }
 
     return true;
+}
+
+/**
+ * @return array<string, mixed>|null
+ */
+function blocks_engine_figma_transformer_cli_read_json_file(string $path): ?array
+{
+    if ( '' === $path || ! is_readable($path) ) {
+        return null;
+    }
+
+    $decoded = json_decode((string) file_get_contents($path), true);
+    return is_array($decoded) ? $decoded : null;
 }
 
 /**

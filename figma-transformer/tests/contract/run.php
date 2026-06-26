@@ -153,6 +153,16 @@ $artifactQualitySignalCodes = static function (array $result): array {
         is_array($signals) ? $signals : array()
     ));
 };
+$artifactQualitySignal = static function (array $result, string $code): ?array {
+    $signals = $result['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['signals'] ?? array();
+    foreach ( is_array($signals) ? $signals : array() as $signal ) {
+        if ( is_array($signal) && $code === ($signal['code'] ?? null) ) {
+            return $signal;
+        }
+    }
+
+    return null;
+};
 
 $assert('blocks-engine/figma-transformer/result/v1' === ($result['schema'] ?? null), 'result-schema');
 $assert('success' === ($result['status'] ?? null), 'scenegraph-transform-success');
@@ -262,6 +272,11 @@ $assert(in_array('large_absolute_offsets', $qualitySignalCodes, true), 'quality-
 $assert(in_array('image_heavy_landmark_candidate', $qualitySignalCodes, true), 'quality-diagnostics-image-heavy-landmark');
 $assert(in_array('excessive_image_blocks', $qualitySignalCodes, true), 'quality-diagnostics-excessive-image-blocks');
 $assert(in_array('excessive_vector_image_fallbacks', $qualitySignalCodes, true), 'quality-diagnostics-excessive-vector-fallbacks');
+$fixedRootWidthSignal = $artifactQualitySignal($qualityDiagnosticsResult, 'fixed_root_width');
+$largeOffsetSignal = $artifactQualitySignal($qualityDiagnosticsResult, 'large_absolute_offsets');
+$assert('quality:root' === ($fixedRootWidthSignal['sample_nodes'][0]['node_id'] ?? null), 'quality-diagnostics-fixed-root-width-sample-node');
+$assert('quality:offcanvas' === ($largeOffsetSignal['sample_nodes'][0]['node_id'] ?? null), 'quality-diagnostics-large-absolute-offset-sample-node');
+$assert('quality:root' === ($largeOffsetSignal['sample_nodes'][0]['parent_id'] ?? null), 'quality-diagnostics-large-absolute-offset-sample-parent');
 $assert('needs_review' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['status'] ?? null), 'quality-diagnostics-status-needs-review');
 $assert('warn' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['quality_status'] ?? null), 'quality-diagnostics-quality-status-warn');
 $qualitySignals = $qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['signals'] ?? array();
@@ -676,6 +691,34 @@ $assert(str_contains($starVectorHtml, 'data-figma-node-id="vector:primitive-star
 $assert(str_contains($starVectorHtml, 'data-figma-node-id="vector:primitive-polygon"') && str_contains($starVectorHtml, 'data-figma-vector="true"'), 'primitive-polygon-vector-renders');
 $assert(! str_contains($starVectorHtml, 'data-figma-unsupported-vector="true"'), 'star-vector-path-not-placeholder');
 
+$geometrylessVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Geometryless Vector Fixture',
+    'nodes' => array(
+        array(
+            'id'         => 'vector:geometryless-parent',
+            'type'       => 'FRAME',
+            'name'       => 'Geometryless vector parent',
+            'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.2, 'g' => 0.4, 'b' => 0.6))),
+            'children'   => array(
+                array(
+                    'id'     => 'vector:geometryless',
+                    'type'   => 'VECTOR',
+                    'name'   => 'Geometryless vector bounds',
+                    'width'  => 16,
+                    'height' => 8,
+                ),
+            ),
+        ),
+    ),
+));
+$geometrylessVectorHtml = $fileContent($geometrylessVectorResult, 'index.html');
+$geometrylessVectorDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $geometrylessVectorResult['diagnostics'] ?? array()
+);
+$assert(str_contains($geometrylessVectorHtml, 'data-figma-node-id="vector:geometryless"') && str_contains($geometrylessVectorHtml, '<rect x="0" y="0" width="16" height="8" fill="#336699"/>'), 'geometryless-vector-renders-inherited-color-bounds');
+$assert(! in_array('unsupported_vector_node_placeholder', $geometrylessVectorDiagnosticCodes, true), 'geometryless-vector-no-placeholder-diagnostic');
+
 $simpleRectNetworkPrefix = hex2bin('0400000004000000000000000000000000000000000000000000000000008043');
 $simpleRectNetworkBlob = str_pad(false === $simpleRectNetworkPrefix ? '' : $simpleRectNetworkPrefix, 172, "\0");
 $vectorDataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -863,6 +906,37 @@ $assert(in_array('misplaced_element', $footerLayoutMismatchCodes, true), 'layout
 $assert(in_array('element_outside_parent_bounds', $footerLayoutMismatchCodes, true), 'layout-mismatch-outside-parent');
 $assert(880.0 === ($footerLayoutMismatch['diagnostics'][0]['delta']['y'] ?? null), 'layout-mismatch-delta-y');
 
+$homeboyDomLayoutMismatch = $layoutMismatchBuilder->build(
+    array(
+        'visual_node_map' => array(
+            array('id' => 'card', 'name' => 'Card', 'type' => 'FRAME', 'rect' => array('x' => 320, 'y' => 120, 'width' => 300, 'height' => 180)),
+        ),
+    ),
+    array(
+        'schema' => 'homeboy/static-artifact-dom-boxes/v1',
+        'entrypoints' => array(
+            array(
+                'page_path' => '/index.html',
+                'elements' => array(
+                    array('node_id' => 'card', 'selector' => '[data-figma-node-id="card"]', 'boundingClientRect' => array('x' => 8, 'y' => 120, 'width' => 1424, 'height' => 180)),
+                ),
+            ),
+        ),
+    ),
+    array('threshold' => 24)
+);
+$homeboyDomLayoutMismatchCodes = array_map(static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), $homeboyDomLayoutMismatch['diagnostics'] ?? array());
+$homeboyDomMisplaced = null;
+foreach ( $homeboyDomLayoutMismatch['diagnostics'] ?? array() as $diagnostic ) {
+    if ( is_array($diagnostic) && 'misplaced_element' === ($diagnostic['code'] ?? null) ) {
+        $homeboyDomMisplaced = $diagnostic;
+        break;
+    }
+}
+$assert('fail' === ($homeboyDomLayoutMismatch['status'] ?? null), 'layout-mismatch-homeboy-dom-status');
+$assert(in_array('element_size_mismatch', $homeboyDomLayoutMismatchCodes, true), 'layout-mismatch-homeboy-dom-size-code');
+$assert(-312.0 === ($homeboyDomMisplaced['delta']['x'] ?? null), 'layout-mismatch-homeboy-dom-x-delta');
+
 $layoutMismatchTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name' => 'Layout Mismatch Fixture',
     'nodes' => array(
@@ -891,7 +965,18 @@ $layoutMismatchTransformResult = blocks_engine_figma_transformer_transform_scene
 $layoutMismatchTransformDiagnostics = $layoutMismatchTransformResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
 $layoutMismatchArtifactQualityCodes = array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), $layoutMismatchTransformDiagnostics['artifact_quality']['signals'] ?? array());
 $assert(0 < ($layoutMismatchTransformDiagnostics['layout']['layout_mismatch_count'] ?? 0), 'layout-mismatch-transform-count');
+$assert('fail' === ($layoutMismatchTransformDiagnostics['layout']['layout_mismatch_status'] ?? null), 'layout-mismatch-transform-status');
 $assert(in_array('layout_mismatch', $layoutMismatchArtifactQualityCodes, true), 'layout-mismatch-artifact-quality-signal');
+
+$layoutNotEvaluatedResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name' => 'Layout Not Evaluated Fixture',
+    'nodes' => array(
+        array('id' => 'layout:not-evaluated', 'type' => 'FRAME', 'name' => 'Simple Page', 'width' => 720, 'height' => 320),
+    ),
+));
+$layoutNotEvaluatedQuality = $layoutNotEvaluatedResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['summary'] ?? array();
+$assert(0 === ($layoutNotEvaluatedQuality['layout_mismatch_count'] ?? null), 'layout-not-evaluated-count-zero');
+$assert('not_evaluated' === ($layoutNotEvaluatedQuality['layout_mismatch_status'] ?? null), 'layout-not-evaluated-status');
 
 $unusedAssetResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'   => 'Unused Asset Fixture',

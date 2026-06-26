@@ -140,6 +140,12 @@ final class LayoutMismatchReportBuilder
             }
         }
 
+        foreach ( is_array($evidence['entrypoints'] ?? null) ? $evidence['entrypoints'] : array() as $entrypoint ) {
+            if ( is_array($entrypoint) && is_array($entrypoint['elements'] ?? null) ) {
+                $nodes = array_merge($nodes, $entrypoint['elements']);
+            }
+        }
+
         if ( empty($nodes) && is_array($evidence['generated']['boxes'] ?? null) ) {
             $nodes = $evidence['generated']['boxes'];
         }
@@ -196,7 +202,7 @@ final class LayoutMismatchReportBuilder
      */
     private function boxFromNode(array $node): ?array
     {
-        foreach ( array('rect', 'box', 'bounding_client_rect', 'bounds') as $key ) {
+        foreach ( array('rect', 'box', 'bounding_client_rect', 'boundingClientRect', 'bounds') as $key ) {
             if ( is_array($node[$key] ?? null) ) {
                 $box = $this->boxFromValue($node[$key]);
                 if ( null !== $box ) {
