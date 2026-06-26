@@ -25,6 +25,12 @@ export { detectLayoutOffsetWrapper } from './layout-offset-wrapper.js';
 export { buildAdminBarAccommodationCss } from './admin-bar-accommodation.js';
 export { planTemplates } from './template-plan.js';
 export {
+  extractSourceLandmarksFromHtml,
+  landmarkRoleForHtmlRoot,
+  selectorForHtmlRoot,
+} from './region-census.js';
+export { reconcileRegions } from './region-audit.js';
+export {
   normalizeCopy,
   sanitizePatternHeaderField,
   sanitizeSvgAsset,
@@ -107,6 +113,7 @@ export type * from './font-faces.js';
 export type { FormBlocksResult } from './form-blocks.js';
 export type { FontFamilyToken } from './page-reconstruct-helpers.js';
 export type { ConvertedSectionInput, SectionRenderOptions } from './native-reconstruct-types.js';
+export type * from './region-audit.js';
 export type { InternalLinkMap } from './url-rewrite.js';
 export type * from './section-spec.js';
 export type * from './source-assets.js';

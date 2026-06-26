@@ -1,4 +1,5 @@
 import type { WorkerPool } from '../pool/types.js';
+import type { RegionSelectionReport } from './region-audit.js';
 import type { SectionSpec } from './section-spec.js';
 import type { FormRemainder, SectionRenderOptions } from './native-reconstruct-types.js';
 import type { SourceCssCarryOptions } from './source-css-carry.js';
@@ -93,10 +94,15 @@ export interface SiteToThemeOptions extends SourceCssCarryOptions {
   themeMeta?: Partial<ThemeMeta>;
 }
 
+export interface ThemeDiagnostics {
+  regionAudit: RegionSelectionReport[];
+}
+
 export interface ThemeBuildResult {
   outDir: string;
   model: ThemeModel;
   written: string[];
   tallies: Record<string, number>;
   warnings: string[];
+  diagnostics: ThemeDiagnostics;
 }

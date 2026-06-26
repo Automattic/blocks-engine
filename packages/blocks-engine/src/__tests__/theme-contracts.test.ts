@@ -9,14 +9,18 @@ import {
   applyHoistSwaps,
   buildFallbackDiagnostic,
   buildTriageRemovalDiagnostic,
+  extractSourceLandmarksFromHtml,
   foundation,
   formToBlocks,
   hoistVariations,
   HOIST_MIN_INSTANCES,
   ingest,
+  landmarkRoleForHtmlRoot,
   planTemplates,
   reconstruct,
+  reconcileRegions,
   sectionExtract,
+  selectorForHtmlRoot,
   siteToTheme,
   SKIPPED_FIELD_KINDS,
   writeTheme,
@@ -30,6 +34,8 @@ import {
   type HoistedVariation,
   type HoistPage,
   type HoistResult,
+  type PlacedRegion,
+  type RegionSelectionReport,
   type SectionBlocks,
   type SectionSpec,
   type SectionSpecButton,
@@ -48,8 +54,10 @@ import {
   type StageCtx,
   type TemplatePlan,
   type ThemeBuildResult,
+  type ThemeDiagnostics,
   type ThemeMeta,
   type ThemeModel,
+  type SourceLandmark,
 } from '../theme/index.js';
 
 type Satisfies<T, U extends T> = U;
@@ -77,6 +85,15 @@ type ThemeStageSignatures = {
   }) => ThemeModel;
   hoistVariations: (pagesIn: HoistPage[], opts?: { minInstances?: number }) => HoistResult;
   applyHoistSwaps: (markup: string, variations: HoistedVariation[]) => string;
+  reconcileRegions: (
+    census: SourceLandmark[],
+    placed: PlacedRegion[],
+    page?: string,
+    entryUrl?: string
+  ) => RegionSelectionReport;
+  extractSourceLandmarksFromHtml: (html: string) => SourceLandmark[];
+  selectorForHtmlRoot: (html: string) => string | undefined;
+  landmarkRoleForHtmlRoot: (html: string) => SourceLandmark['role'] | undefined;
 };
 
 const themeStageSignatures: ThemeStageSignatures = {
@@ -90,6 +107,10 @@ const themeStageSignatures: ThemeStageSignatures = {
   assemble,
   hoistVariations,
   applyHoistSwaps,
+  reconcileRegions,
+  extractSourceLandmarksFromHtml,
+  selectorForHtmlRoot,
+  landmarkRoleForHtmlRoot,
 };
 
 void themeStageSignatures;
@@ -325,6 +346,7 @@ type CompileOnlyThemeContractAssignments = {
       written: string[];
       tallies: Record<string, number>;
       warnings: string[];
+      diagnostics: ThemeDiagnostics;
     }
   >;
 };
@@ -349,6 +371,15 @@ function assertBalanced(markup: string): void {
   }
   expect(stack).toEqual([]);
 }
+
+describe('region audit diagnostic surface contract', () => {
+  it('exports browser-free region audit helpers for diagnostic consumers', () => {
+    expect(typeof reconcileRegions).toBe('function');
+    expect(typeof extractSourceLandmarksFromHtml).toBe('function');
+    expect(typeof selectorForHtmlRoot).toBe('function');
+    expect(typeof landmarkRoleForHtmlRoot).toBe('function');
+  });
+});
 
 function diagnosticSection(partial: Partial<SectionSpec> = {}): SectionSpec {
   return {

@@ -117,6 +117,9 @@ export async function siteToTheme(
         warnings: warnings.length,
       },
       warnings,
+      diagnostics: {
+        regionAudit: [],
+      },
     };
   } finally {
     if (ownsPool) {
