@@ -1314,12 +1314,62 @@ final class StaticHtmlEmitter
         }
 
         $padding = is_array($layout['padding'] ?? null) ? $layout['padding'] : array();
-        $childX = $x + ( isset($padding['left']) && is_numeric($padding['left']) ? (float) $padding['left'] : 0.0 );
-        $childY = $y + ( isset($padding['top']) && is_numeric($padding['top']) ? (float) $padding['top'] : 0.0 );
+        $paddingLeft = isset($padding['left']) && is_numeric($padding['left']) ? (float) $padding['left'] : 0.0;
+        $paddingRight = isset($padding['right']) && is_numeric($padding['right']) ? (float) $padding['right'] : 0.0;
+        $paddingTop = isset($padding['top']) && is_numeric($padding['top']) ? (float) $padding['top'] : 0.0;
+        $paddingBottom = isset($padding['bottom']) && is_numeric($padding['bottom']) ? (float) $padding['bottom'] : 0.0;
+        $childX = $x + $paddingLeft;
+        $childY = $y + $paddingTop;
         $gap = isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ? (float) $layout['item_spacing'] : 0.0;
-        $cursorX = $childX;
-        $cursorY = $childY;
         $isRow = 'row' === ($layout['flex_direction'] ?? null);
+        $isFlex = 'flex' === ($layout['display'] ?? null);
+        $contentWidth = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width'] - $paddingLeft - $paddingRight) : null;
+        $contentHeight = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height'] - $paddingTop - $paddingBottom) : null;
+        $mainAxis = $isRow ? 'width' : 'height';
+        $crossAxis = $isRow ? 'height' : 'width';
+        $contentMainSize = $isRow ? $contentWidth : $contentHeight;
+        $contentCrossSize = $isRow ? $contentHeight : $contentWidth;
+        $flowChildren = array();
+
+        foreach ( $children as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $childLayout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( $this->isFreeformContainer($node) || 'absolute' === ($childLayout['positioning'] ?? null) || $this->isDecorativeFlexUnderlay($child, $node) ) {
+                continue;
+            }
+
+            $flowChildren[] = $child;
+        }
+
+        $cursorMain = 0.0;
+        $visualGap = $gap;
+        if ( $isFlex && null !== $contentMainSize && ! empty($flowChildren) ) {
+            $totalMainSize = 0.0;
+            foreach ( $flowChildren as $child ) {
+                $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
+                $totalMainSize += isset($childBox[$mainAxis]) && is_numeric($childBox[$mainAxis]) ? (float) $childBox[$mainAxis] : 0.0;
+            }
+
+            $totalMainSize += $gap * max(0, count($flowChildren) - 1);
+            $freeMainSpace = max(0.0, $contentMainSize - $totalMainSize);
+            $justifyContent = (string) ($layout['justify_content'] ?? 'flex-start');
+            if ( 'flex-end' === $justifyContent ) {
+                $cursorMain = $freeMainSpace;
+            } elseif ( 'center' === $justifyContent ) {
+                $cursorMain = $freeMainSpace / 2.0;
+            } elseif ( 'space-between' === $justifyContent && count($flowChildren) > 1 ) {
+                $visualGap += $freeMainSpace / (count($flowChildren) - 1);
+            } elseif ( 'space-around' === $justifyContent ) {
+                $visualGap += $freeMainSpace / count($flowChildren);
+                $cursorMain = $visualGap / 2.0;
+            } elseif ( 'space-evenly' === $justifyContent ) {
+                $visualGap += $freeMainSpace / (count($flowChildren) + 1);
+                $cursorMain = $visualGap;
+            }
+        }
 
         foreach ( $children as $child ) {
             if ( ! is_array($child) ) {
@@ -1333,13 +1383,44 @@ final class StaticHtmlEmitter
                 continue;
             }
 
-            $this->appendVisualNodeMap($child, $map, $cursorX, $cursorY, $node);
+            $childMainSize = isset($childBox[$mainAxis]) && is_numeric($childBox[$mainAxis]) ? (float) $childBox[$mainAxis] : 0.0;
+            $childCrossSize = isset($childBox[$crossAxis]) && is_numeric($childBox[$crossAxis]) ? (float) $childBox[$crossAxis] : 0.0;
+            $crossOffset = $this->visualFlexCrossAxisOffset($layout, $childLayout, $contentCrossSize, $childCrossSize);
             if ( $isRow ) {
-                $cursorX += ( isset($childBox['width']) && is_numeric($childBox['width']) ? (float) $childBox['width'] : 0.0 ) + $gap;
+                $this->appendVisualNodeMap($child, $map, $childX + $cursorMain, $childY + $crossOffset, $node);
             } else {
-                $cursorY += ( isset($childBox['height']) && is_numeric($childBox['height']) ? (float) $childBox['height'] : 0.0 ) + $gap;
+                $this->appendVisualNodeMap($child, $map, $childX + $crossOffset, $childY + $cursorMain, $node);
             }
+            $cursorMain += $childMainSize + $visualGap;
         }
+    }
+
+    /**
+     * @param array<string, mixed> $layout
+     * @param array<string, mixed> $childLayout
+     */
+    private function visualFlexCrossAxisOffset(array $layout, array $childLayout, ?float $contentCrossSize, float $childCrossSize): float
+    {
+        if ( null === $contentCrossSize || 'flex' !== ($layout['display'] ?? null) ) {
+            return 0.0;
+        }
+
+        $alignment = (string) ($layout['align_items'] ?? 'flex-start');
+        if ( isset($childLayout['align']) && is_scalar($childLayout['align']) ) {
+            $alignment = match ( strtoupper((string) $childLayout['align']) ) {
+                'CENTER' => 'center',
+                'MAX' => 'flex-end',
+                'STRETCH' => 'stretch',
+                default => $alignment,
+            };
+        }
+
+        $freeCrossSpace = max(0.0, $contentCrossSize - $childCrossSize);
+        return match ( $alignment ) {
+            'center' => $freeCrossSpace / 2.0,
+            'flex-end' => $freeCrossSpace,
+            default => 0.0,
+        };
     }
 
     /**
@@ -1419,7 +1500,7 @@ final class StaticHtmlEmitter
             $styles[] = 'opacity:' . $this->number((float) $box['opacity']);
         }
 
-        $transform = $this->transformStyle($box);
+        $transform = $this->isNearZeroHeightContainer($node, $type) ? null : $this->transformStyle($box);
         if ( null !== $transform ) {
             $styles[] = 'transform:' . $transform;
             if ( $this->hasExplicitTransformMatrix($box) ) {
@@ -1557,6 +1638,19 @@ final class StaticHtmlEmitter
         }
 
         return (float) $childBox['width'] > (float) $box['width'] || (float) $childBox['height'] > (float) $box['height'];
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isNearZeroHeightContainer(array $node, string $type): bool
+    {
+        if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE'), true) || empty($this->nodeList($node)) ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        return isset($box['height']) && is_numeric($box['height']) && 0.5 >= abs((float) $box['height']);
     }
 
     /**

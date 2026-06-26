@@ -714,6 +714,7 @@ final class FigmaTransformer
             'layout_mismatch_count' => 0,
             'layout_mismatch_status' => 'not_evaluated',
             'layout_mismatches' => array(),
+            'layout_mismatch_clusters' => array(),
         );
         $fontFamilies = array();
         $missingCss = array();
@@ -796,6 +797,20 @@ final class FigmaTransformer
             foreach ( $pageLayoutMismatchDiagnostics as $item ) {
                 if ( is_array($item) ) {
                     $layout['layout_mismatches'][] = array_merge($pageContext, $item);
+                }
+            }
+            $pageLayoutMismatchClusters = is_array($pageLayoutMismatch['summary']['clusters'] ?? null) ? $pageLayoutMismatch['summary']['clusters'] : array();
+            foreach ( $pageLayoutMismatchClusters as $clusterType => $clusters ) {
+                if ( ! is_array($clusters) ) {
+                    continue;
+                }
+                if ( ! isset($layout['layout_mismatch_clusters'][$clusterType]) ) {
+                    $layout['layout_mismatch_clusters'][$clusterType] = array();
+                }
+                foreach ( $clusters as $cluster ) {
+                    if ( is_array($cluster) ) {
+                        $layout['layout_mismatch_clusters'][$clusterType][] = array_merge($pageContext, $cluster);
+                    }
                 }
             }
 
