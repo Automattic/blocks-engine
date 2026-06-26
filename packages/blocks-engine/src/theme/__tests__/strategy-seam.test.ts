@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
 import type { WorkerPool } from '../../pool/types.js';
-import { reconstruct, reconstructNativeAggregate } from '../reconstruct.js';
+import {
+  classifySemanticStrategy,
+  reconstruct,
+  reconstructNativeAggregate,
+  type SectionStrategy,
+} from '../index.js';
 import type { SectionSpec } from '../section-spec.js';
 import type { StageCtx } from '../types.js';
+
+type SourceIdentitySection = SectionSpec & {
+  sourceId?: string;
+  sourceClasses?: string[];
+};
 
 function sectionSpec(overrides: Partial<SectionSpec> = {}): SectionSpec {
   return {
@@ -138,6 +148,12 @@ function frozenAggregate() {
 }
 
 describe('reconstruct strategy seam default path', () => {
+  it('exports the classify semantic default strategy from the theme barrel', () => {
+    expect(classifySemanticStrategy.name).toBe('classify-semantic');
+    expect(typeof classifySemanticStrategy.render).toBe('function');
+    expect(classifySemanticStrategy.drainDedup).toBeUndefined();
+  });
+
   it('keeps the pre-seam direct aggregate byte-identical without dedup output', () => {
     const aggregate = reconstructNativeAggregate(sections, options);
     console.info(`Strategy seam default byte-identity cases=${sections.length}`);
@@ -209,5 +225,48 @@ describe('reconstruct strategy seam default path', () => {
       0,
     );
     expect(routed.map((section) => section.blocks)).toEqual(aggregate.sectionMarkup);
+  });
+
+  it('passes recovered source identity into custom strategies and drains dedup output', () => {
+    const seen: Array<{ sourceId?: string; sourceClasses?: string[] }> = [];
+    let drainedState: unknown;
+    const strategy: SectionStrategy = {
+      name: 'probe-source-identity',
+      render(section, _options, _ctx, state) {
+        const source = section as SourceIdentitySection;
+        seen.push({ sourceId: source.sourceId, sourceClasses: source.sourceClasses });
+        state.instanceStyles = { observed: seen.length };
+        return null;
+      },
+      drainDedup(state) {
+        drainedState = state.instanceStyles;
+        return { cssRules: ['.probe-source-identity{}'] };
+      },
+    };
+
+    const aggregate = reconstructNativeAggregate(
+      [
+        sectionSpec({
+          sectionIndex: 10,
+          headings: ['Identity'],
+          sectionHtml: '<article id="source-card" class="alpha beta"><h2>Identity</h2></article>',
+        }),
+        sectionSpec({
+          sectionIndex: 11,
+          headings: ['Styled identity'],
+          sectionHtml: '<section><h2>Styled identity</h2></section>',
+          styledHtml: '<section id="styled-card" class="gamma delta"><h2>Styled identity</h2></section>',
+        }),
+      ],
+      { strategy },
+    );
+
+    expect(seen).toEqual([
+      { sourceId: 'source-card', sourceClasses: ['alpha', 'beta'] },
+      { sourceId: 'styled-card', sourceClasses: ['gamma', 'delta'] },
+    ]);
+    expect(drainedState).toEqual({ observed: 2 });
+    expect(aggregate.sectionMarkup).toEqual([]);
+    expect(aggregate.dedup).toEqual({ cssRules: ['.probe-source-identity{}'] });
   });
 });

@@ -36,7 +36,7 @@ export {
   sanitizeSvgAsset,
   stripChrome,
 } from './page-reconstruct-helpers.js';
-export { reconstruct, reconstructNativeAggregate } from './reconstruct.js';
+export { classifySemanticStrategy, reconstruct, reconstructNativeAggregate } from './reconstruct.js';
 export {
   buildCoverageIsland,
   buildHtmlFallbackBlock,
@@ -117,6 +117,9 @@ export type {
   NativeReconstructAggregate,
   NativeSectionDecision,
   SectionRenderOptions,
+  SectionStrategy,
+  StrategyDedupOutput,
+  StrategyState,
 } from './native-reconstruct-types.js';
 export type * from './region-audit.js';
 export type { InternalLinkMap } from './url-rewrite.js';

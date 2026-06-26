@@ -16,6 +16,8 @@ import type {
   NativeRenderOut,
   NativeSectionDecision,
   SectionRenderOptions,
+  SectionStrategy,
+  StrategyState,
 } from './native-reconstruct-types.js';
 import { normalizeCopy, stripChrome } from './page-reconstruct-helpers.js';
 import {
@@ -37,6 +39,11 @@ const SECTION_CLOSE = '</section>\n<!-- /wp:group -->';
 
 type RewriteCtx = StageCtx & SectionRenderOptions & {
   linkMap?: InternalLinkMap;
+};
+
+type SourceIdentitySection = SectionSpec & {
+  sourceId?: string;
+  sourceClasses?: string[];
 };
 
 function fallbackOptions(options: SectionRenderOptions | RewriteCtx): HtmlFallbackOpts {
@@ -91,16 +98,37 @@ function normalizeSections(sections: SectionSpec[], options: SectionRenderOption
   const famTokens = options.fontFamilies ?? [];
   const resolveFamilies = (names?: string[]): string[] | undefined =>
     names ? names.map((name) => nearestFamily(name, famTokens) ?? '') : undefined;
+  const sourceIdentity = (section: SectionSpec): Partial<SourceIdentitySection> => {
+    const current = section as SourceIdentitySection;
+    const patch: Partial<SourceIdentitySection> = {};
+    const readRoot = (sourceHtml?: string): { id?: string; classes: string[] } => {
+      if (!sourceHtml) return { classes: [] };
+      const root = cheerio.load(sourceHtml, null, false).root().children().first();
+      return {
+        id: root.attr('id')?.trim() || undefined,
+        classes: (root.attr('class') ?? '').split(/\s+/).filter(Boolean),
+      };
+    };
+    const sectionRoot = readRoot(section.sectionHtml);
+    const styledRoot = readRoot(section.styledHtml);
+    const id = sectionRoot.id ?? styledRoot.id;
+    const classes = sectionRoot.classes.length > 0 ? sectionRoot.classes : styledRoot.classes;
+    if (!('sourceId' in current) && id) patch.sourceId = id;
+    if (!('sourceClasses' in current) && classes.length > 0) patch.sourceClasses = classes;
+    return patch;
+  };
 
   return stripChrome(sections).map((section) => {
     const headFamSlugs = resolveFamilies(section.headingFamilies);
     const bodyFamSlugs = resolveFamilies(section.bodyFamilies);
+    const identity = sourceIdentity(section);
     let out = section;
-    if (headFamSlugs || bodyFamSlugs) {
+    if (headFamSlugs || bodyFamSlugs || Object.keys(identity).length > 0) {
       out = {
         ...out,
         ...(headFamSlugs ? { headingFamilies: headFamSlugs } : {}),
         ...(bodyFamSlugs ? { bodyFamilies: bodyFamSlugs } : {}),
+        ...identity,
       };
     }
 
@@ -383,6 +411,14 @@ function nativeDecision(section: SectionSpec, options: SectionRenderOptions, ctx
   };
 }
 
+export const classifySemanticStrategy: SectionStrategy = {
+  name: 'classify-semantic',
+  render(section, options, ctx) {
+    const converted = options.convertedSections?.get(section.sectionIndex);
+    return convertedDecision(section, converted, options) ?? nativeDecision(section, options, ctx);
+  },
+};
+
 function optionsFromCtx(ctx: StageCtx): SectionRenderOptions {
   const rewriteCtx = ctx as RewriteCtx;
   return {
@@ -406,6 +442,8 @@ export function reconstructNativeAggregate(
     fontFamilies: options.fontFamilies ?? [],
   };
 
+  const strategy = options.strategy ?? classifySemanticStrategy;
+  const state: StrategyState = {};
   const decisions: NativeSectionDecision[] = [];
   const sectionMarkup: string[] = [];
   const expectedText: string[] = [];
@@ -416,8 +454,7 @@ export function reconstructNativeAggregate(
   const iconAssets: NativeReconstructAggregate['iconAssets'] = [];
 
   for (const section of normalizeSections(specs, options)) {
-    const converted = options.convertedSections?.get(section.sectionIndex);
-    const decision = convertedDecision(section, converted, options) ?? nativeDecision(section, options, ctx);
+    const decision = strategy.render(section, options, ctx, state);
     if (!decision) continue;
 
     decisions.push(decision);
@@ -430,7 +467,7 @@ export function reconstructNativeAggregate(
     iconAssets.push(...decision.iconAssets);
   }
 
-  return {
+  const aggregate: NativeReconstructAggregate = {
     sections: decisions,
     sectionMarkup,
     expectedText: dedupe(expectedText),
@@ -441,6 +478,9 @@ export function reconstructNativeAggregate(
     iconAssets,
     heroIsCover: sectionMarkup.length > 0 && /^\s*<!-- wp:cover\b/.test(sectionMarkup[0]),
   };
+  const dedup = strategy.drainDedup?.(state);
+  if (dedup) aggregate.dedup = dedup;
+  return aggregate;
 }
 
 export async function reconstruct(
