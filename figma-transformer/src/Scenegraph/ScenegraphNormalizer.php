@@ -64,7 +64,7 @@ final class ScenegraphNormalizer
         $textInventory   = $this->buildTextInventory($nodeMap);
         $assetReferences = $this->buildAssetReferences($nodeMap);
         $sourceName      = $this->readSourceName($source, $renderNodes);
-        $diagnostics     = $this->compactGlyphCommandBlobDiagnostics($diagnostics);
+        $diagnostics     = $this->compactUnsupportedVectorNetworkBlobDiagnostics($this->compactGlyphCommandBlobDiagnostics($diagnostics));
 
         return array(
             'schema'              => 'blocks-engine/figma-transformer/scenegraph/v1',
@@ -207,6 +207,82 @@ final class ScenegraphNormalizer
                 'sample_glyphs'       => $sampleGlyphs,
             ),
         );
+
+        return $compacted;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<int, array<string, mixed>>
+     */
+    private function compactUnsupportedVectorNetworkBlobDiagnostics(array $diagnostics): array
+    {
+        $compacted = array();
+        $groups = array();
+
+        foreach ( $diagnostics as $diagnostic ) {
+            if ( ! is_array($diagnostic) || 'unsupported_vector_network_blob' !== ($diagnostic['code'] ?? null) ) {
+                $compacted[] = $diagnostic;
+                continue;
+            }
+
+            $context = is_array($diagnostic['context'] ?? null) ? $diagnostic['context'] : array();
+            $signatureHex = isset($context['signature_hex']) && is_scalar($context['signature_hex']) ? (string) $context['signature_hex'] : '';
+            $byteLength = isset($context['byte_length']) && is_numeric($context['byte_length']) ? (int) $context['byte_length'] : null;
+            $networkCounts = is_array($context['network_counts'] ?? null) ? array_values($context['network_counts']) : null;
+            $key = json_encode(array($signatureHex, $byteLength, $networkCounts), JSON_UNESCAPED_SLASHES);
+            if ( ! is_string($key) ) {
+                $key = $signatureHex . ':' . (string) $byteLength;
+            }
+
+            if ( ! isset($groups[$key]) ) {
+                $groups[$key] = array(
+                    'severity' => $diagnostic['severity'] ?? 'warning',
+                    'message'  => $diagnostic['message'] ?? 'Unsupported Figma vector network blob was omitted from SVG output.',
+                    'source'   => $diagnostic['source'] ?? 'ScenegraphNormalizer',
+                    'context'  => array(
+                        'occurrence_count' => 0,
+                        'affected_node_count' => 0,
+                        'sample_node_ids'  => array(),
+                        'sample_blob_refs' => array(),
+                    ),
+                    'node_ids' => array(),
+                    'blob_refs' => array(),
+                    'blob_ref_seen' => array(),
+                );
+
+                foreach ( array('geometry', 'blob_ref', 'byte_length', 'signature_hex', 'network_counts') as $contextKey ) {
+                    if ( array_key_exists($contextKey, $context) ) {
+                        $groups[$key]['context'][$contextKey] = $context[$contextKey];
+                    }
+                }
+            }
+
+            $groups[$key]['context']['occurrence_count']++;
+            $nodeId = isset($context['node_id']) && is_scalar($context['node_id']) ? (string) $context['node_id'] : '';
+            if ( '' !== $nodeId ) {
+                $groups[$key]['node_ids'][$nodeId] = true;
+            }
+            $blobRef = isset($context['blob_ref']) && is_scalar($context['blob_ref']) ? (string) $context['blob_ref'] : '';
+            if ( '' !== $blobRef && ! isset($groups[$key]['blob_ref_seen'][$blobRef]) ) {
+                $groups[$key]['blob_refs'][] = $blobRef;
+                $groups[$key]['blob_ref_seen'][$blobRef] = true;
+            }
+        }
+
+        foreach ( $groups as $group ) {
+            $context = $group['context'];
+            $context['affected_node_count'] = count($group['node_ids']);
+            $context['sample_node_ids'] = array_slice(array_keys($group['node_ids']), 0, 10);
+            $context['sample_blob_refs'] = array_slice($group['blob_refs'], 0, 10);
+            $compacted[] = array(
+                'severity' => $group['severity'],
+                'code'     => 'unsupported_vector_network_blob',
+                'message'  => $group['message'],
+                'source'   => $group['source'],
+                'context'  => $context,
+            );
+        }
 
         return $compacted;
     }

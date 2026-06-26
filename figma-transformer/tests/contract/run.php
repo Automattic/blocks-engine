@@ -725,6 +725,15 @@ $assert(str_contains($vectorDataHtml, 'd="M0 0L10 0 10 10Z"'), 'vector-data-rend
 $assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-painted-fallback"') && str_contains($vectorDataHtml, '<rect x="0" y="0" width="12" height="6" fill="#0000ff"/>'), 'vector-data-painted-network-fallback-rect');
 $assert(in_array('unsupported_vector_network_blob', $vectorDataDiagnosticCodes, true), 'vector-data-malformed-network-diagnostic');
 $assert(1 === ($vectorNetworkDiagnostic['context']['byte_length'] ?? null) && 'ff' === ($vectorNetworkDiagnostic['context']['signature_hex'] ?? null), 'vector-network-diagnostic-context');
+$vectorNetworkDiagnostics = array_values(array_filter(
+    $vectorDataResult['diagnostics'] ?? array(),
+    static fn (array $diagnostic): bool => 'unsupported_vector_network_blob' === ($diagnostic['code'] ?? null)
+));
+$assert(1 === count($vectorNetworkDiagnostics), 'vector-network-repeated-diagnostics-compacted');
+$assert(2 === ($vectorNetworkDiagnostic['context']['occurrence_count'] ?? null), 'vector-network-diagnostic-occurrence-count');
+$assert(2 === ($vectorNetworkDiagnostic['context']['affected_node_count'] ?? null), 'vector-network-diagnostic-affected-node-count');
+$assert(array('vector:data-malformed', 'vector:data-painted-fallback') === ($vectorNetworkDiagnostic['context']['sample_node_ids'] ?? null), 'vector-network-diagnostic-sample-nodes');
+$assert(array('1') === ($vectorNetworkDiagnostic['context']['sample_blob_refs'] ?? null), 'vector-network-diagnostic-sample-blob-refs');
 
 $agenticChevronLeftPrefix = hex2bin('0600000006000000010000000000000000000041000080410000000000000000');
 $agenticChevronRightPrefix = hex2bin('06000000060000000100000000000000f4fdb43f0000804100000000be9f1641');
