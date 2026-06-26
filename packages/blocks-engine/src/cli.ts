@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { Readable } from 'node:stream';
@@ -24,6 +24,7 @@ export interface RunCliOptions {
   stderr?: WritableLike;
   convertHtml?: ConvertHtml;
   siteToThemeImpl?: SiteToThemeImpl;
+  pathExists?: (path: string) => boolean;
 }
 
 async function readStdin(stdin: Readable): Promise<string> {
@@ -42,6 +43,7 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
   const stderr = options.stderr ?? process.stderr;
   const convertHtml = options.convertHtml ?? convert;
   const siteToThemeImpl = options.siteToThemeImpl ?? siteToTheme;
+  const pathExists = options.pathExists ?? existsSync;
 
   try {
     const command = argv[0];
@@ -55,7 +57,7 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
     }
 
     const themeArgs = command === 'theme' ? argv.slice(1) : argv;
-    return await runTheme(themeArgs, { stdout, stderr, siteToThemeImpl });
+    return await runTheme(themeArgs, { stdout, stderr, siteToThemeImpl, pathExists });
   } catch (error) {
     if (error instanceof BlocksEngineError) {
       stderr.write(`${error.message}\n${error.hint}\n`);
@@ -90,9 +92,23 @@ async function runConvert(
 
 async function runTheme(
   argv: string[],
-  options: { stdout: WritableLike; stderr: WritableLike; siteToThemeImpl: SiteToThemeImpl }
+  options: {
+    stdout: WritableLike;
+    stderr: WritableLike;
+    siteToThemeImpl: SiteToThemeImpl;
+    pathExists: (path: string) => boolean;
+  }
 ): Promise<number> {
-  const { srcDir, themeOptions } = parseThemeArgs(argv);
+  const { srcDir, themeOptions, outDirExplicit } = parseThemeArgs(argv);
+
+  // The default output dir is created in the current directory; refuse to touch
+  // an existing one so a stray _block-theme/ is never silently overwritten.
+  if (!outDirExplicit && themeOptions.outDir !== undefined && options.pathExists(themeOptions.outDir)) {
+    throw new Error(
+      `Default output directory ${themeOptions.outDir} already exists. Pass --out <dir> to choose where to write the theme.`
+    );
+  }
+
   const result = await options.siteToThemeImpl(srcDir, themeOptions);
 
   options.stdout.write(`wrote theme to ${result.outDir} (${result.written.length} files)\n`);
@@ -103,7 +119,11 @@ async function runTheme(
   return 0;
 }
 
-function parseThemeArgs(argv: string[]): { srcDir: string; themeOptions: SiteToThemeOptions } {
+function parseThemeArgs(argv: string[]): {
+  srcDir: string;
+  themeOptions: SiteToThemeOptions;
+  outDirExplicit: boolean;
+} {
   const srcDir = argv[0];
   if (srcDir === undefined) {
     throw new Error('Missing <srcDir> for theme command.');
@@ -136,8 +156,9 @@ function parseThemeArgs(argv: string[]): { srcDir: string; themeOptions: SiteToT
 
   return {
     srcDir,
+    outDirExplicit: flags.outDir !== undefined,
     themeOptions: {
-      ...(flags.outDir !== undefined ? { outDir: flags.outDir } : {}),
+      outDir: flags.outDir ?? resolve(process.cwd(), '_block-theme'),
       themeMeta,
     },
   };
@@ -169,7 +190,8 @@ Commands:
   convert  Convert one HTML file, or stdin, to block markup.
 
 Options:
-  --out <dir>    Write the generated theme to a directory.
+  --out <dir>    Write the generated theme to a directory
+                 (default: ./_block-theme; the command exits if it already exists).
   --slug <slug>  Set the generated theme slug.
   --name <name>  Set the generated theme name.
 `;

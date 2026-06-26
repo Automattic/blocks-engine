@@ -181,6 +181,74 @@ describe('CLI theme builds', () => {
     expect(stderr.text()).toBe('');
   });
 
+  it('defaults the output dir to ./_block-theme when --out is omitted', async () => {
+    const srcDir = '/tmp/source-site';
+    const expectedOut = join(process.cwd(), '_block-theme');
+    const stdout = writableBuffer();
+    const stderr = writableBuffer();
+    const calls: Array<{ srcDir: string; options: SiteToThemeOptions | undefined }> = [];
+
+    const exitCode = await runCli([srcDir], {
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      pathExists: () => false,
+      siteToThemeImpl: async (calledSrcDir, options) => {
+        calls.push({ srcDir: calledSrcDir, options });
+        return themeResult(expectedOut, ['theme.json']);
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([{ srcDir, options: { outDir: expectedOut, themeMeta: {} } }]);
+    expect(stdout.text()).toBe(`wrote theme to ${expectedOut} (1 files)\n`);
+  });
+
+  it('exits and asks for --out when the default ./_block-theme already exists', async () => {
+    const srcDir = '/tmp/source-site';
+    const expectedOut = join(process.cwd(), '_block-theme');
+    const stdout = writableBuffer();
+    const stderr = writableBuffer();
+    const calls: string[] = [];
+
+    const exitCode = await runCli([srcDir], {
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      pathExists: (path) => path === expectedOut,
+      siteToThemeImpl: async (calledSrcDir) => {
+        calls.push(calledSrcDir);
+        return themeResult(expectedOut);
+      },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(calls).toEqual([]);
+    expect(stdout.text()).toBe('');
+    expect(stderr.text()).toContain('already exists');
+    expect(stderr.text()).toContain('--out');
+  });
+
+  it('builds with an explicit --out even if that directory already exists', async () => {
+    const srcDir = '/tmp/source-site';
+    const outDir = '/tmp/existing-theme';
+    const stdout = writableBuffer();
+    const stderr = writableBuffer();
+    const calls: string[] = [];
+
+    const exitCode = await runCli([srcDir, '--out', outDir], {
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      pathExists: () => true,
+      siteToThemeImpl: async (calledSrcDir) => {
+        calls.push(calledSrcDir);
+        return themeResult(outDir, ['theme.json']);
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([srcDir]);
+    expect(stdout.text()).toBe(`wrote theme to ${outDir} (1 files)\n`);
+  });
+
   it('prints help with both CLI verbs', async () => {
     const stdout = writableBuffer();
     const stderr = writableBuffer();
