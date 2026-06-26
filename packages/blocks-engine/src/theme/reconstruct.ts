@@ -1,108 +1,446 @@
-import { convert } from '../convert.js';
-import { escapeHtmlAttr, escapeHtmlText } from '../escape.js';
+import * as cheerio from 'cheerio';
 import type { WorkerPool } from '../pool/types.js';
+import { buildFallbackDiagnostic } from './fallback-diagnostic.js';
+import { formToBlocks, SKIPPED_FIELD_KINDS } from './form-blocks.js';
 import { buildHtmlFallbackBlock, selectIslandSource, type HtmlFallbackOpts } from './html-fallback.js';
 import { hasUnmigratedRemoteAsset, scanForInjection } from './injection-scan.js';
-import { captureSectionContent, measureConvertedCoverage } from './section-coverage.js';
-import type { SectionSpec, SectionSpecButton, SectionSpecImage } from './section-spec.js';
+import { imageBlock, visibleText } from './native-block-builders.js';
+import { nearestFamily } from './native-fonts.js';
+import { centerOf } from './native-layout.js';
+import { isWpMediaUrl } from './native-media.js';
+import { renderSection } from './native-renderers-dispatch.js';
+import type {
+  ConvertedSectionInput,
+  NativeReconstructAggregate,
+  NativeRenderCtx,
+  NativeRenderOut,
+  NativeSectionDecision,
+  SectionRenderOptions,
+} from './native-reconstruct-types.js';
+import { normalizeCopy, stripChrome } from './page-reconstruct-helpers.js';
+import {
+  captureSectionContent,
+  foldText,
+  measureConvertedCoverage,
+  measureSectionCoverage,
+} from './section-coverage.js';
+import type { CapturedSectionContent, CoverageResult } from './section-coverage.js';
+import type { SectionSpec, SectionSpecCell, SectionSpecImage } from './section-spec.js';
 import type { SectionBlocks, SiteToThemeHooks, StageCtx } from './types.js';
 import { rewriteMediaUrls } from './url-rewrite.js';
 import type { InternalLinkMap } from './url-rewrite.js';
 
-const BLOCK_COMMENT_RE = /<!--\s+wp:/;
 const HTML_ISLAND_RE = /<!--\s+wp:(?:core\/)?html(?:\s|-->|{)/;
 const UNRESOLVED_PLACEHOLDER_RE = /\{\{[\w -]+\}\}/;
+const MIN_CELL_IMAGE_PX = 90;
+const SECTION_CLOSE = '</section>\n<!-- /wp:group -->';
 
-type RewriteCtx = StageCtx & {
-  mediaUrlMap?: Map<string, string>;
+type RewriteCtx = StageCtx & SectionRenderOptions & {
   linkMap?: InternalLinkMap;
 };
 
-function nonEmpty(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
-}
-
-function imageHtml(image: SectionSpecImage): string | null {
-  const src = nonEmpty(image.url) ?? nonEmpty(image.sourceUrl);
-  if (!src) return null;
-
-  const alt = escapeHtmlAttr(image.alt);
-  return `<figure><img src="${escapeHtmlAttr(src)}" alt="${alt}"></figure>`;
-}
-
-function buttonHtml(button: SectionSpecButton): string | null {
-  const label = nonEmpty(button.label);
-  if (!label) return null;
-
-  const href = nonEmpty(button.href) ?? '#';
-  return `<p><a href="${escapeHtmlAttr(href)}">${escapeHtmlText(label)}</a></p>`;
-}
-
-function semanticFallbackHtml(spec: SectionSpec): string {
-  const fragments: string[] = [];
-
-  for (const [index, heading] of spec.headings.entries()) {
-    const text = nonEmpty(heading);
-    if (!text) continue;
-
-    const level = index === 0 ? 2 : 3;
-    fragments.push(`<h${level}>${escapeHtmlText(text)}</h${level}>`);
-  }
-
-  for (const body of spec.bodyText) {
-    const text = nonEmpty(body);
-    if (text) fragments.push(`<p>${escapeHtmlText(text)}</p>`);
-  }
-
-  const structuredButtons =
-    spec.buttons?.map(buttonHtml).filter((html): html is string => html !== null) ?? [];
-  const labelButtons = spec.buttonLabels
-    .map((label) => nonEmpty(label))
-    .filter((label): label is string => label !== null)
-    .map((label) => `<p><a href="#">${escapeHtmlText(label)}</a></p>`);
-  const buttons = structuredButtons.length > 0 ? structuredButtons : labelButtons;
-  fragments.push(...buttons);
-
-  fragments.push(...spec.images.map(imageHtml).filter((html): html is string => html !== null));
-
-  return fragments.length > 0 ? `<section>${fragments.join('')}</section>` : '<section></section>';
-}
-
-function sectionInputHtml(spec: SectionSpec): string {
-  return spec.sectionHtml?.trim() ? spec.sectionHtml : semanticFallbackHtml(spec);
-}
-
-function skeletonCoverage(blocks: string): number {
-  if (HTML_ISLAND_RE.test(blocks)) return 0;
-  return BLOCK_COMMENT_RE.test(blocks) ? 1 : 0;
-}
-
-function fallbackOptions(ctx: StageCtx): HtmlFallbackOpts {
-  const rewriteCtx = ctx as RewriteCtx;
+function fallbackOptions(options: SectionRenderOptions | RewriteCtx): HtmlFallbackOpts {
+  const rewriteCtx = options as RewriteCtx;
   const opts: HtmlFallbackOpts = {};
   if (rewriteCtx.mediaUrlMap) opts.mediaUrlMap = rewriteCtx.mediaUrlMap;
   if (rewriteCtx.linkMap) opts.linkMap = rewriteCtx.linkMap;
   return opts;
 }
 
-function rewriteConvertedMedia(blocks: string, ctx: StageCtx): string {
-  const mediaUrlMap = (ctx as RewriteCtx).mediaUrlMap;
+function rewriteConvertedMedia(blocks: string, options: SectionRenderOptions): string {
+  const mediaUrlMap = options.mediaUrlMap;
   return mediaUrlMap && mediaUrlMap.size > 0 ? rewriteMediaUrls(blocks, mediaUrlMap) : blocks;
 }
 
-function convertedOutputLost(spec: SectionSpec, blocks: string): boolean {
-  return (
-    measureConvertedCoverage(captureSectionContent(spec), blocks).lost ||
+function convertedOutputLost(captured: CapturedSectionContent, blocks: string): CoverageResult | null {
+  if (
     scanForInjection(blocks).length > 0 ||
     hasUnmigratedRemoteAsset(blocks) ||
     UNRESOLVED_PLACEHOLDER_RE.test(blocks)
+  ) {
+    return null;
+  }
+  const coverage = measureConvertedCoverage(captured, blocks);
+  return coverage.lost ? null : coverage;
+}
+
+function publicCoverage(blocks: string, coverage: CoverageResult): number {
+  if (HTML_ISLAND_RE.test(blocks)) return 0;
+  return coverage.lost ? 0 : 1;
+}
+
+function dedupe(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function nativeCapturedContent(section: SectionSpec): CapturedSectionContent {
+  const captured = captureSectionContent(section);
+  if (captured.images.length > 0 || !(section.sectionHtml || section.styledHtml)) return captured;
+
+  const source = section.sectionHtml ?? section.styledHtml ?? '';
+  const $ = cheerio.load(source, null, false);
+  const sourceImages = $('img[src]')
+    .map((_, element) => $(element).attr('src')?.trim() ?? '')
+    .get()
+    .filter(Boolean);
+
+  return sourceImages.length ? { ...captured, images: dedupe(sourceImages) } : captured;
+}
+
+function normalizeSections(sections: SectionSpec[], options: SectionRenderOptions): SectionSpec[] {
+  const famTokens = options.fontFamilies ?? [];
+  const resolveFamilies = (names?: string[]): string[] | undefined =>
+    names ? names.map((name) => nearestFamily(name, famTokens) ?? '') : undefined;
+
+  return stripChrome(sections).map((section) => {
+    const headFamSlugs = resolveFamilies(section.headingFamilies);
+    const bodyFamSlugs = resolveFamilies(section.bodyFamilies);
+    let out = section;
+    if (headFamSlugs || bodyFamSlugs) {
+      out = {
+        ...out,
+        ...(headFamSlugs ? { headingFamilies: headFamSlugs } : {}),
+        ...(bodyFamSlugs ? { bodyFamilies: bodyFamSlugs } : {}),
+      };
+    }
+
+    const sourceHtml = section.sectionHtml ?? section.styledHtml;
+    if (!(sourceHtml && (out.bodyText ?? []).length && out.headings.length)) return out;
+
+    const sourceText = foldText(cheerio.load(sourceHtml, null, false).root().text());
+    const headingSet = new Set(out.headings.map((heading) => foldText(heading)));
+    const countOccurrences = (needle: string): number => {
+      if (!needle) return 0;
+      let count = 0;
+      for (
+        let index = sourceText.indexOf(needle);
+        index !== -1;
+        index = sourceText.indexOf(needle, index + needle.length)
+      ) {
+        count++;
+      }
+      return count;
+    };
+    const keep = (out.bodyText ?? []).map((body) => {
+      const normalized = foldText(body);
+      return !(headingSet.has(normalized) && countOccurrences(normalized) === 1);
+    });
+
+    if (!keep.includes(false)) return out;
+
+    const filterAligned = <T>(arr: T[]): T[] => arr.filter((_, index) => keep[index] !== false);
+    return {
+      ...out,
+      bodyText: (out.bodyText ?? []).filter((_, index) => keep[index]),
+      ...(out.bodyTextSizes ? { bodyTextSizes: filterAligned(out.bodyTextSizes) } : {}),
+      ...(out.bodyFamilies ? { bodyFamilies: filterAligned(out.bodyFamilies) } : {}),
+      ...(out.bodyLineHeights ? { bodyLineHeights: filterAligned(out.bodyLineHeights) } : {}),
+    };
+  });
+}
+
+function renderSectionForms(section: SectionSpec, expectedText: string[], flags: string[]): string {
+  if (!section.forms || section.forms.length === 0) return '';
+  const parts: string[] = [];
+  for (const form of section.forms) {
+    const formBlocks = formToBlocks(form);
+    parts.push(formBlocks.markup);
+    for (const field of form.fields) {
+      if (SKIPPED_FIELD_KINDS.has(field.kind)) continue;
+      expectedText.push(field.label, ...(field.options ?? []));
+    }
+    expectedText.push(form.submitLabel);
+    for (const skipped of formBlocks.skipped) {
+      flags.push(
+        `form-field-skipped#${section.sectionIndex}: ${skipped.kind} field "${skipped.label}" has no Jetpack form equivalent`,
+      );
+    }
+  }
+  return parts.join('\n');
+}
+
+function suppressFormEchoes(section: SectionSpec): SectionSpec {
+  if (!section.forms || section.forms.length === 0) return section;
+
+  const submitBudget = (): Map<string, number> => {
+    const budget = new Map<string, number>();
+    for (const form of section.forms ?? []) {
+      const key = normalizeCopy(form.submitLabel).toLowerCase();
+      budget.set(key, (budget.get(key) ?? 0) + 1);
+    }
+    return budget;
+  };
+  const dropOncePerSubmit = (budget: Map<string, number>) => (label: string) => {
+    const key = normalizeCopy(label).toLowerCase();
+    const left = budget.get(key) ?? 0;
+    if (left > 0) {
+      budget.set(key, left - 1);
+      return false;
+    }
+    return true;
+  };
+  const keepLabel = dropOncePerSubmit(submitBudget());
+  const keepButton = dropOncePerSubmit(submitBudget());
+  const keepCellButton = dropOncePerSubmit(submitBudget());
+
+  const fieldBudget = new Map<string, number>();
+  for (const form of section.forms ?? []) {
+    for (const field of form.fields) {
+      const key = normalizeCopy(field.label).toLowerCase();
+      fieldBudget.set(key, (fieldBudget.get(key) ?? 0) + 1);
+    }
+  }
+  const cellIsFieldEcho = (cell: SectionSpecCell): boolean => {
+    if (!cell.heading || cell.image || cell.icon || cell.button) return false;
+    if ((cell.body ?? []).some((body) => /[a-z0-9]/i.test(normalizeCopy(body)))) return false;
+    const key = normalizeCopy(cell.heading).toLowerCase();
+    const left = fieldBudget.get(key) ?? 0;
+    if (left <= 0) return false;
+    fieldBudget.set(key, left - 1);
+    return true;
+  };
+  const cellsSansFieldEchoes = section.cells?.filter((cell) => !cellIsFieldEcho(cell));
+
+  return (
+    {
+      ...section,
+      buttonLabels: (section.buttonLabels ?? []).filter(keepLabel),
+      ...(section.buttons ? { buttons: section.buttons.filter((button) => keepButton(button.label)) } : {}),
+      ...(cellsSansFieldEchoes
+        ? {
+            cells: cellsSansFieldEchoes.map((cell) => {
+              if (!(cell.button && !keepCellButton(cell.button))) return cell;
+              const headingEchoesButton =
+                cell.heading != null &&
+                normalizeCopy(cell.heading).toLowerCase() === normalizeCopy(cell.button).toLowerCase();
+              return { ...cell, button: null, ...(headingEchoesButton ? { heading: null } : {}) };
+            }),
+          }
+        : {}),
+    }
   );
 }
 
-function buildLossFallback(spec: SectionSpec, ctx: StageCtx): string {
-  const { source } = selectIslandSource(spec);
-  return buildHtmlFallbackBlock(source, fallbackOptions(ctx));
+function appendFormBlock(out: NativeRenderOut, formBlock: string): void {
+  if (!formBlock) return;
+  out.remainder = { forms: out.remainder?.forms ?? [] };
+  out.markup = out.markup.endsWith(SECTION_CLOSE)
+    ? out.markup.slice(0, -SECTION_CLOSE.length) + formBlock + '\n' + SECTION_CLOSE
+    : out.markup
+      ? out.markup + '\n\n' + formBlock
+      : formBlock;
+}
+
+function appendRecoverableImages(
+  section: SectionSpec,
+  out: NativeRenderOut,
+  captured: CapturedSectionContent,
+  coverage: CoverageResult,
+): CoverageResult {
+  if (!(coverage.lost && coverage.missingImages.length > 0)) return coverage;
+
+  const recoverable = coverage.missingImages
+    .map((url) => (section.images ?? []).find((image) => image.url === url))
+    .filter(
+      (image): image is SectionSpecImage =>
+        !!image &&
+        isWpMediaUrl(image.url) &&
+        Math.min(image.width || 0, image.height || 0) >= MIN_CELL_IMAGE_PX,
+    );
+  if (recoverable.length !== coverage.missingImages.length) return coverage;
+
+  const recovered = recoverable
+    .map((image) =>
+      imageBlock(image, out, `recovered#${section.sectionIndex}`, {
+        align: centerOf(section) ? 'center' : null,
+        rounded: true,
+      }),
+    )
+    .filter(Boolean);
+  const augmented = out.markup.endsWith(SECTION_CLOSE)
+    ? out.markup.slice(0, -SECTION_CLOSE.length) + recovered.join('\n') + '\n' + SECTION_CLOSE
+    : (out.markup ? out.markup + '\n\n' : '') + recovered.join('\n');
+  const reMeasured = measureSectionCoverage(captured, augmented);
+  if (reMeasured.lost) return coverage;
+
+  out.markup = augmented;
+  out.flags.push(
+    `media-recovered#${section.sectionIndex}: appended ${recovered.length} dropped image(s) as blocks (island averted)`,
+  );
+  return reMeasured;
+}
+
+function fallbackDecision(
+  section: SectionSpec,
+  coverage: CoverageResult,
+  options: SectionRenderOptions,
+): NativeSectionDecision | null {
+  if (!(coverage.lost && (section.styledHtml || section.sectionHtml))) return null;
+
+  const { source, tier } = selectIslandSource(section);
+  const island = buildHtmlFallbackBlock(source, fallbackOptions(options));
+  const page = options.sourceUrl ?? options.slug ?? '';
+  const slug = options.slug ?? options.sourceUrl ?? '';
+  return {
+    spec: section,
+    blocks: island,
+    coverage,
+    expectedText: [],
+    bodyText: [],
+    expectedAssets: [],
+    provenanceFlags: [
+      `html-fallback${tier === 'verbatim' ? '' : `-${tier}`}#${section.sectionIndex}: structured render dropped content ` +
+        `(${coverage.missingImages.length} images missing, text ${Math.round(coverage.textCoverage * 100)}%) — ` +
+        `emitted ${tier} core/html`,
+    ],
+    fallbackDiagnostics: [
+      buildFallbackDiagnostic({
+        page,
+        slug,
+        section,
+        coverage,
+        islandKind: tier,
+        islandMarkup: island,
+      }),
+    ],
+    iconAssets: [],
+    decision: 'fallback',
+  };
+}
+
+function convertedDecision(
+  section: SectionSpec,
+  converted: ConvertedSectionInput | undefined,
+  options: SectionRenderOptions,
+): NativeSectionDecision | null {
+  if (!(converted && converted.markup && converted.wpHtmlResidue === 0)) return null;
+
+  const markup = rewriteConvertedMedia(converted.markup, options);
+  const captured = captureSectionContent(section);
+  const coverage = convertedOutputLost(captured, markup);
+  if (!coverage) return null;
+
+  const expectedText: string[] = [];
+  const bodyText: string[] = [];
+  const expectedAssets = [...captured.images];
+  const provenanceFlags = [
+    `html-to-blocks#${section.sectionIndex}: converted native blocks ` +
+      `(0 wp:html, text ${Math.round(coverage.textCoverage * 100)}%)`,
+  ];
+  for (const match of markup.matchAll(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi)) {
+    expectedText.push(visibleText(match[1]));
+  }
+  for (const match of markup.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)) {
+    bodyText.push(visibleText(match[1]));
+  }
+
+  const formBlock = renderSectionForms(section, expectedText, provenanceFlags);
+  const blocks = formBlock ? `${markup}\n\n${formBlock}` : markup;
+  return {
+    spec: section,
+    blocks,
+    coverage,
+    expectedText,
+    bodyText,
+    expectedAssets,
+    provenanceFlags,
+    fallbackDiagnostics: [],
+    iconAssets: [],
+    remainder: formBlock && section.forms ? { forms: section.forms } : undefined,
+    decision: 'converted',
+  };
+}
+
+function nativeDecision(section: SectionSpec, options: SectionRenderOptions, ctx: NativeRenderCtx): NativeSectionDecision | null {
+  const renderSpec = suppressFormEchoes(section);
+  const out = renderSection(renderSpec, ctx);
+  const formBlock = renderSectionForms(section, out.expectedText, out.flags);
+  if (formBlock) {
+    appendFormBlock(out, formBlock);
+    if (section.forms) out.remainder = { forms: section.forms };
+  }
+
+  const captured = nativeCapturedContent(section);
+  let coverage = measureSectionCoverage(captured, out.markup);
+  coverage = appendRecoverableImages(section, out, captured, coverage);
+
+  const fallback = fallbackDecision(section, coverage, options);
+  if (fallback) return fallback;
+
+  if (!out.markup) return null;
+  return {
+    spec: section,
+    blocks: out.markup,
+    coverage,
+    expectedText: out.expectedText,
+    bodyText: out.bodyText,
+    expectedAssets: out.assets,
+    provenanceFlags: out.flags,
+    fallbackDiagnostics: [],
+    iconAssets: out.iconAssets,
+    remainder: out.remainder,
+    decision: 'native',
+  };
+}
+
+function optionsFromCtx(ctx: StageCtx): SectionRenderOptions {
+  const rewriteCtx = ctx as RewriteCtx;
+  return {
+    ...(rewriteCtx.mediaUrlMap ? { mediaUrlMap: rewriteCtx.mediaUrlMap } : {}),
+    ...(rewriteCtx.convertedSections ? { convertedSections: rewriteCtx.convertedSections } : {}),
+    ...(rewriteCtx.paletteTokens ? { paletteTokens: rewriteCtx.paletteTokens } : {}),
+    ...(rewriteCtx.fontFamilies ? { fontFamilies: rewriteCtx.fontFamilies } : {}),
+    ...(rewriteCtx.sourceUrl ? { sourceUrl: rewriteCtx.sourceUrl } : {}),
+    ...(rewriteCtx.slug ? { slug: rewriteCtx.slug } : {}),
+  };
+}
+
+export function reconstructNativeAggregate(
+  specs: SectionSpec[],
+  options: SectionRenderOptions = {},
+): NativeReconstructAggregate {
+  const ctx: NativeRenderCtx = {
+    mediaTextIndex: 0,
+    iconCounter: 0,
+    paletteTokens: options.paletteTokens ?? [],
+    fontFamilies: options.fontFamilies ?? [],
+  };
+
+  const decisions: NativeSectionDecision[] = [];
+  const sectionMarkup: string[] = [];
+  const expectedText: string[] = [];
+  const bodyText: string[] = [];
+  const expectedAssets: string[] = [];
+  const provenanceFlags: string[] = [];
+  const fallbackDiagnostics: NativeReconstructAggregate['fallbackDiagnostics'] = [];
+  const iconAssets: NativeReconstructAggregate['iconAssets'] = [];
+
+  for (const section of normalizeSections(specs, options)) {
+    const converted = options.convertedSections?.get(section.sectionIndex);
+    const decision = convertedDecision(section, converted, options) ?? nativeDecision(section, options, ctx);
+    if (!decision) continue;
+
+    decisions.push(decision);
+    sectionMarkup.push(decision.blocks);
+    expectedText.push(...decision.expectedText);
+    bodyText.push(...decision.bodyText);
+    expectedAssets.push(...decision.expectedAssets);
+    provenanceFlags.push(...decision.provenanceFlags);
+    fallbackDiagnostics.push(...decision.fallbackDiagnostics);
+    iconAssets.push(...decision.iconAssets);
+  }
+
+  return {
+    sections: decisions,
+    sectionMarkup,
+    expectedText: dedupe(expectedText),
+    bodyText: dedupe(bodyText),
+    expectedAssets: dedupe(expectedAssets),
+    provenanceFlags,
+    fallbackDiagnostics,
+    iconAssets,
+    heroIsCover: sectionMarkup.length > 0 && /^\s*<!-- wp:cover\b/.test(sectionMarkup[0]),
+  };
 }
 
 export async function reconstruct(
@@ -112,28 +450,19 @@ export async function reconstruct(
   hooks: SiteToThemeHooks,
   coverageFloor: number
 ): Promise<SectionBlocks[]> {
+  void pool;
+  const aggregate = reconstructNativeAggregate(specs, optionsFromCtx(ctx));
   const sections: SectionBlocks[] = [];
 
-  for (const spec of specs) {
-    let blocks = await convert(sectionInputHtml(spec), { url: '' }, { pool });
-    if (!HTML_ISLAND_RE.test(blocks)) {
-      blocks = rewriteConvertedMedia(blocks, ctx);
-      if (convertedOutputLost(spec, blocks)) {
-        blocks = buildLossFallback(spec, ctx);
-      }
-    }
-
+  for (const decision of aggregate.sections) {
     const section: SectionBlocks = {
-      spec,
-      blocks,
-      coverage: skeletonCoverage(blocks),
+      spec: decision.spec,
+      blocks: decision.blocks,
+      coverage: publicCoverage(decision.blocks, decision.coverage),
+      ...(decision.remainder ? { remainder: decision.remainder } : {}),
     };
-
-    sections.push(
-      section.coverage <= coverageFloor && hooks.onSection
-        ? await hooks.onSection(section, ctx)
-        : section,
-    );
+    const shouldFire = section.coverage <= coverageFloor || Boolean(section.remainder?.forms.length);
+    sections.push(shouldFire && hooks.onSection ? await hooks.onSection(section, ctx) : section);
   }
 
   return sections;
