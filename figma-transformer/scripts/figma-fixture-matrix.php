@@ -17,6 +17,7 @@ $dryRun = true === ($options['dry_run'] ?? false);
 $inspectOnly = true === ($options['inspect_only'] ?? false);
 $only = isset($options['only']) ? array_filter(array_map('trim', explode(',', (string) $options['only']))) : array();
 $adHocFixtures = matrix_list_option($options['fixture'] ?? array());
+$fontCssPassthrough = matrix_font_css_passthrough($options);
 
 $fixtures = matrix_discover_fixtures($fixtureDir);
 foreach ( $adHocFixtures as $fixturePath ) {
@@ -53,6 +54,7 @@ $summary = array(
     'inspect_limit' => $inspectLimit,
     'dry_run' => $dryRun,
     'inspect_only' => $inspectOnly,
+    'font_css' => $fontCssPassthrough['summary'],
     'fixtures' => array(),
 );
 
@@ -88,6 +90,10 @@ foreach ( $fixtures as $fixture ) {
     if ( $dryRun ) {
         $record['status'] = 'planned';
         $record['selection'] = isset($fixture['frame_ids']) ? 'manual_frame_ids' : 'auto_from_inspection';
+        $hasDryRunFrameIds = isset($fixture['frame_ids']) && is_array($fixture['frame_ids']);
+        $dryRunFrameIds = $hasDryRunFrameIds ? $fixture['frame_ids'] : array('<selected-frame-ids>');
+        $dryRunEntryFrameId = (string) ($fixture['entry_frame_id'] ?? ($hasDryRunFrameIds ? ($dryRunFrameIds[0] ?? '') : '<entry-frame-id>'));
+        $record['command'] = matrix_transform_command($figmaRoot, $fixturePath, $dryRunFrameIds, $dryRunEntryFrameId, $fixtureOutputDir, $resultPath, $zstdCommand, $maxNodes, $fontCssPassthrough['arguments']);
         $summary['fixtures'][] = $record;
         continue;
     }
@@ -121,7 +127,7 @@ foreach ( $fixtures as $fixture ) {
         continue;
     }
 
-    $command = matrix_transform_command($figmaRoot, $fixturePath, $frameIds, $record['entry_frame_id'], $fixtureOutputDir, $resultPath, $zstdCommand, $maxNodes);
+    $command = matrix_transform_command($figmaRoot, $fixturePath, $frameIds, $record['entry_frame_id'], $fixtureOutputDir, $resultPath, $zstdCommand, $maxNodes, $fontCssPassthrough['arguments']);
     $record['command'] = $command;
     passthru($command, $exitCode);
     $record['exit_code'] = $exitCode;
@@ -205,6 +211,41 @@ function matrix_list_option(mixed $value): array
 }
 
 /**
+ * @param array<string, mixed> $options
+ * @return array{arguments: array<int, string>, summary: array<string, mixed>}
+ */
+function matrix_font_css_passthrough(array $options): array
+{
+    $arguments = array();
+    $summary = array('source' => 'none');
+
+    if ( isset($options['font_css']) && is_scalar($options['font_css']) && '' !== (string) $options['font_css'] ) {
+        $fontCss = (string) $options['font_css'];
+        $arguments[] = '--font-css=' . escapeshellarg($fontCss);
+        $summary = array(
+            'source' => 'inline',
+            'length' => strlen($fontCss),
+        );
+    }
+
+    if ( isset($options['font_css_file']) && is_scalar($options['font_css_file']) && '' !== (string) $options['font_css_file'] ) {
+        $fontCssFile = (string) $options['font_css_file'];
+        $arguments[] = '--font-css-file=' . escapeshellarg($fontCssFile);
+        $summary = array(
+            'source' => 'file',
+            'path' => $fontCssFile,
+            'exists' => is_file($fontCssFile),
+            'readable' => is_readable($fontCssFile),
+        );
+    }
+
+    return array(
+        'arguments' => $arguments,
+        'summary' => $summary,
+    );
+}
+
+/**
  * @return array<int, array<string, mixed>>
  */
 function matrix_discover_fixtures(string $fixtureDir): array
@@ -284,8 +325,9 @@ function matrix_inspect_command(string $figmaRoot, string $fixturePath, string $
 
 /**
  * @param array<int, string> $frameIds
+ * @param array<int, string> $fontCssArguments
  */
-function matrix_transform_command(string $figmaRoot, string $fixturePath, array $frameIds, string $entryFrameId, string $fixtureOutputDir, string $resultPath, string $zstdCommand, int $maxNodes): string
+function matrix_transform_command(string $figmaRoot, string $fixturePath, array $frameIds, string $entryFrameId, string $fixtureOutputDir, string $resultPath, string $zstdCommand, int $maxNodes, array $fontCssArguments = array()): string
 {
     $parts = array(
         escapeshellarg(PHP_BINARY),
@@ -300,6 +342,8 @@ function matrix_transform_command(string $figmaRoot, string $fixturePath, array 
         '--max-nodes=' . $maxNodes,
         '--output-dir=' . escapeshellarg($fixtureOutputDir),
     );
+
+    array_push($parts, ...$fontCssArguments);
 
     return implode(' ', $parts) . ' > ' . escapeshellarg($resultPath);
 }
