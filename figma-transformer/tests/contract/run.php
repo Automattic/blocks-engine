@@ -2461,6 +2461,40 @@ $zeroOriginSelectedFrameCss = $fileContent($zeroOriginSelectedFrameResult, 'styl
 $assert(str_contains($zeroOriginSelectedFrameCss, '.figma-node-zero-hero-hero{width:1200px;height:600px;position:absolute;left:0px;top:0px'), 'zero-origin-selected-frame-normalizes-first-child');
 $assert(str_contains($zeroOriginSelectedFrameCss, '.figma-node-zero-cta-cta{width:240px;height:40px;position:absolute;left:200px;top:400px'), 'zero-origin-selected-frame-normalizes-text-child');
 
+$nonzeroRootCanvasOriginResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Nonzero Root Canvas Origin Fixture',
+    'nodes' => array(
+        array(
+            'id'                  => 'canvas-origin:frame',
+            'type'                => 'FRAME',
+            'name'                => 'Canvas origin selected frame',
+            'absoluteBoundingBox' => array('x' => 4000, 'y' => 0, 'width' => 1200, 'height' => 800),
+            'children'            => array(
+                array(
+                    'id'                  => 'canvas-origin:hero',
+                    'type'                => 'FRAME',
+                    'name'                => 'Hero',
+                    'absoluteBoundingBox' => array('x' => -1333, 'y' => 0, 'width' => 1200, 'height' => 600),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                ),
+                array(
+                    'id'                  => 'canvas-origin:cta',
+                    'type'                => 'TEXT',
+                    'name'                => 'CTA',
+                    'characters'          => 'Visible copy',
+                    'absoluteBoundingBox' => array('x' => -1133, 'y' => 400, 'width' => 240, 'height' => 40),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                ),
+            ),
+        ),
+    ),
+));
+$nonzeroRootCanvasOriginCss = $fileContent($nonzeroRootCanvasOriginResult, 'style.css');
+$assert(str_contains($nonzeroRootCanvasOriginCss, '.figma-node-canvas-origin-hero-hero{width:1200px;height:600px;position:absolute;left:0px;top:0px'), 'nonzero-root-canvas-origin-normalizes-first-child');
+$assert(str_contains($nonzeroRootCanvasOriginCss, '.figma-node-canvas-origin-cta-cta{width:240px;height:40px;position:absolute;left:200px;top:400px'), 'nonzero-root-canvas-origin-normalizes-text-child');
+$nonzeroRootCanvasOriginDiagnostics = $nonzeroRootCanvasOriginResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+$assert(0 === ($nonzeroRootCanvasOriginDiagnostics['layout']['large_negative_left_count'] ?? null), 'nonzero-root-canvas-origin-diagnostics-no-large-negative-left');
+
 $resolvedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Component Instance Fixture',
     'nodes' => array(
