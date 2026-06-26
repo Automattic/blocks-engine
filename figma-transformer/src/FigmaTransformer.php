@@ -717,6 +717,7 @@ final class FigmaTransformer
         return array(
             'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
             'scope' => 'multi_page',
+            'selection' => $this->multiPageSelectionDiagnostics($pageReports),
             'pages' => $pages,
             'images' => $images,
             'vectors' => $vectors,
@@ -778,11 +779,15 @@ final class FigmaTransformer
             );
         }
 
+        $failCodes = array('missing_render_assets', 'vector_placeholders');
+        $failCount = count(array_filter($signals, static fn (array $signal): bool => in_array((string) ($signal['code'] ?? ''), $failCodes, true)));
         $warningCount = count(array_filter($signals, static fn (array $signal): bool => 'warning' === ($signal['severity'] ?? null)));
+        $qualityStatus = $failCount > 0 ? 'fail' : (empty($signals) ? 'pass' : 'warn');
 
         return array(
             'schema' => 'blocks-engine/figma-transformer/artifact-quality/v1',
             'status' => $warningCount > 0 ? 'needs_review' : (empty($signals) ? 'clean' : 'info'),
+            'quality_status' => $qualityStatus,
             'signals' => $signals,
             'summary' => array(
                 'missing_asset_nodes' => count($images['missing_assets'] ?? array()),
@@ -798,6 +803,37 @@ final class FigmaTransformer
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
             ),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $pageReports
+     * @return array<string, mixed>
+     */
+    private function multiPageSelectionDiagnostics(array $pageReports): array
+    {
+        $frames = array();
+        foreach ( $pageReports as $page ) {
+            if ( ! is_array($page) ) {
+                continue;
+            }
+
+            $frames[] = array_filter(array(
+                'frame_id' => (string) ($page['frame_id'] ?? ''),
+                'name' => (string) ($page['name'] ?? ''),
+                'path' => (string) ($page['path'] ?? ''),
+                'entrypoint' => true === ($page['entrypoint'] ?? false),
+                'node_count' => (int) ($page['node_count'] ?? 0),
+                'text_node_count' => (int) ($page['text_node_count'] ?? 0),
+                'asset_reference_count' => (int) ($page['asset_reference_count'] ?? 0),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+        }
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/selection/v1',
+            'mode' => 'selected_frames',
+            'page_count' => count($frames),
+            'selected_frames' => $frames,
         );
     }
 
