@@ -1206,6 +1206,30 @@ describe('site-to-theme P0-3 orchestration', () => {
     });
   });
 
+  it('surfaces homepage region audit diagnostics without writing audit artifacts', async () => {
+    const { siteToTheme } = await import('../theme/index.js');
+
+    await withTempDir('blocks-engine-site-to-theme-region-audit-', async (siteDir) => {
+      copyFixtureSite(siteDir);
+      const outDir = join(siteDir, 'theme-out');
+
+      const result = await siteToTheme(siteDir, { outDir });
+
+      expect(result.diagnostics.regionAudit).toHaveLength(1);
+      const [audit] = result.diagnostics.regionAudit;
+      expect(audit.page).toBe('home');
+      expect(audit.entryUrl).toBe('index.html');
+      expect(audit.counts.sourceLandmarks).toEqual({ header: 1, main: 1, footer: 1 });
+      expect(audit.assignments.map((assignment) => assignment.kind)).toEqual([
+        'header_part',
+        'page_body_section',
+        'non_actionable',
+      ]);
+      expect(result.written).not.toContain('region-audit.json');
+      expect(existsSync(join(outDir, 'region-audit.json'))).toBe(false);
+    });
+  });
+
   it('treats absent hooks the same as empty and explicit identity hooks byte-for-byte', async () => {
     const { siteToTheme } = await import('../theme/index.js');
 

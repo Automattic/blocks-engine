@@ -8,6 +8,8 @@ import { foundation } from './foundation.js';
 import { ingest } from './ingest.js';
 import { detectLayoutOffsetWrapper } from './layout-offset-wrapper.js';
 import { reconstruct } from './reconstruct.js';
+import { extractSourceLandmarksFromHtml } from './region-census.js';
+import { reconcileRegions, type PlacedRegion, type RegionSelectionReport } from './region-audit.js';
 import { sectionExtract } from './section-extract.js';
 import { collectSourceAssets, type MediaAsset } from './source-assets.js';
 import { shouldCarrySourceCss } from './source-css-carry.js';
@@ -65,6 +67,7 @@ export async function siteToTheme(
       );
     }
 
+    const regionAudit = buildRegionAuditDiagnostics(site, pages, chromeRes.parts, chromeRes.slugsByPage, warnings);
     const styleBlocks =
       options?.variationHoist === false ? undefined : hoistPageStyleBlocks(site, pages, warnings);
     const assetStage = await runAssetsStage(ctx, { fetchImpl: options?.fetchImpl });
@@ -118,13 +121,44 @@ export async function siteToTheme(
       },
       warnings,
       diagnostics: {
-        regionAudit: [],
+        regionAudit,
       },
     };
   } finally {
     if (ownsPool) {
       await pool.stop();
     }
+  }
+}
+
+function buildRegionAuditDiagnostics(
+  site: { pages: Array<{ slug: string; relPath: string; html: string }> },
+  pages: Record<string, SectionBlocks[]>,
+  chromeParts: Record<string, string>,
+  chromeSlugsByPage: Record<string, { header: string; footer: string }>,
+  warnings: string[]
+): RegionSelectionReport[] {
+  const home = homePage(site);
+  if (!home) return [];
+
+  try {
+    const census = extractSourceLandmarksFromHtml(home.html);
+    const placed: PlacedRegion[] = (pages[home.slug] ?? [])
+      .map((section) => section.spec.selector)
+      .filter((selector): selector is string => Boolean(selector))
+      .map((selector) => ({ kind: 'page_body_section' as const, selector }));
+    const chromeSlugs = chromeSlugsByPage[home.slug];
+    if (chromeSlugs && chromeParts[`${chromeSlugs.header}.html`]) {
+      placed.push({ kind: 'header_part', role: 'header' });
+    }
+    if (chromeSlugs && chromeParts[`${chromeSlugs.footer}.html`]) {
+      placed.push({ kind: 'footer_part', role: 'footer' });
+    }
+
+    return [reconcileRegions(census, placed, home.slug, home.relPath)];
+  } catch (error) {
+    warnings.push(`region audit failed (continuing): ${error instanceof Error ? error.message : String(error)}`);
+    return [];
   }
 }
 
@@ -293,7 +327,7 @@ function normalizeThemeMeta(srcDir: string, meta: Partial<ThemeMeta> | undefined
   };
 }
 
-function homePage(site: { pages: Array<{ slug: string; html: string }> }): { html: string } | undefined {
+function homePage<T extends { slug: string }>(site: { pages: T[] }): T | undefined {
   return site.pages.find((page) => page.slug === 'home') ?? site.pages[0];
 }
 
