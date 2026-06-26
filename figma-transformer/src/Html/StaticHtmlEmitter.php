@@ -56,8 +56,8 @@ final class StaticHtmlEmitter
         $cssRules = array(
             'html{box-sizing:border-box}',
             '*,*::before,*::after{box-sizing:inherit}',
-            'body{margin:0;overflow-x:hidden}',
-            '.figma-root{position:relative;width:100%;max-width:100%;overflow-x:hidden}',
+            'body{margin:0}',
+            '.figma-root{position:relative;width:100%;max-width:100%}',
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
             'img{display:block;max-width:100%;height:auto}',
             '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
@@ -161,8 +161,8 @@ final class StaticHtmlEmitter
         $cssRules = array(
             'html{box-sizing:border-box}',
             '*,*::before,*::after{box-sizing:inherit}',
-            'body{margin:0;overflow-x:hidden}',
-            '.figma-root{position:relative;width:100%;max-width:100%;overflow-x:hidden}',
+            'body{margin:0}',
+            '.figma-root{position:relative;width:100%;max-width:100%}',
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
             'img{display:block;max-width:100%;height:auto}',
             '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
@@ -1566,10 +1566,36 @@ final class StaticHtmlEmitter
 
         $parentOrigin = (float) $parentBox[$dimension];
         if ( 0.0 === $parentOrigin ) {
-            return $origin < 0.0;
+            return $origin < 0.0 || $this->hasRootCanvasOriginMismatch($parentBox, $parentNode);
         }
 
-        return $origin < 0.0 && ($parentOrigin - $origin) >= 100.0;
+        return ($origin < 0.0 && ($parentOrigin - $origin) >= 100.0)
+            || $this->hasRootCanvasOriginMismatch($parentBox, $parentNode);
+    }
+
+    /**
+     * Some decoded roots are normalized to 0 while direct children remain in Figma canvas coordinates.
+     *
+     * @param array<string, mixed> $parentBox
+     * @param array<string, mixed> $parentNode
+     */
+    private function hasRootCanvasOriginMismatch(array $parentBox, array $parentNode): bool
+    {
+        foreach ( array('x', 'y') as $dimension ) {
+            $origin = $this->inferredContainingBlockOrigin($parentNode, $dimension);
+            if ( null === $origin || ! isset($parentBox[$dimension]) || ! is_numeric($parentBox[$dimension]) ) {
+                continue;
+            }
+
+            $parentOrigin = (float) $parentBox[$dimension];
+            $sizeKey = 'x' === $dimension ? 'width' : 'height';
+            $parentSize = isset($parentBox[$sizeKey]) && is_numeric($parentBox[$sizeKey]) ? (float) $parentBox[$sizeKey] : null;
+            if ( abs($origin - $parentOrigin) >= 1000.0 || (null !== $parentSize && $origin > $parentOrigin + $parentSize + 100.0) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
