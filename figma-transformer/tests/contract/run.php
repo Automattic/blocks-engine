@@ -209,7 +209,7 @@ $assert(is_file($cliOutputRoot . '/artifact/style.css'), 'cli-output-dir-writes-
 $assert('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"></svg>' === file_get_contents($cliOutputRoot . '/artifact/assets/cli-image.svg'), 'cli-output-dir-preserves-asset-content');
 $assert(str_contains((string) file_get_contents($cliOutputRoot . '/artifact/style.css'), 'background-image:url("assets/cli-image.svg")'), 'cli-output-dir-preserves-asset-reference');
 $assert(str_contains($html, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-0.5 -0.5 11 11"'), 'html-vector-blob-svg');
-$assert(str_contains($html, 'd="M 0 0 L 10 0 L 10 10 Z"'), 'html-vector-blob-path');
+$assert(str_contains($html, 'd="M0 0L10 0 10 10Z"'), 'html-vector-blob-path');
 $assert(str_contains($css, 'body{margin:0}'), 'css-static-page-body-shell');
 $assert(str_contains($css, '.figma-root{position:relative;width:100%;max-width:100%}'), 'css-static-page-root-shell');
 $assert(! str_contains($css, 'overflow-x:hidden'), 'css-preserves-horizontal-scroll');
@@ -556,8 +556,8 @@ $assert(str_contains($largeDecodedVectorHtml, 'data-figma-node-id="vector:large-
 $assert(str_contains($largeDecodedVectorHtml, 'data-figma-node-id="vector:large-raw"') && str_contains($largeDecodedVectorHtml, 'data-figma-unsupported-vector="true"'), 'large-raw-vector-path-remains-capped');
 $assert(in_array('unsupported_vector_node_placeholder', $largeDecodedVectorDiagnosticCodes, true), 'large-raw-vector-placeholder-diagnostic');
 
-$externalizedVectorPath = 'M 0.0000 0.0000' . str_repeat(' L 10.000001 10.000001', 9000) . ' Z';
-$externalizedEquivalentVectorPath = 'M0,0' . str_repeat('L10,10', 9000) . 'Z';
+$externalizedVectorPath = 'M 0.0000 0.0000' . str_repeat(' L 10.000001 10.000001', 12000) . ' Z';
+$externalizedEquivalentVectorPath = 'M0,0' . str_repeat('L10,10', 12000) . 'Z';
 $externalizedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Externalized Vector Fixture',
     'nodes' => array(
@@ -590,8 +590,9 @@ $assert(1 === count($externalizedVectorAssets), 'large-vector-externalized-dedup
 $assert(str_contains($externalizedVectorCss, '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}'), 'large-vector-asset-css');
 $externalizedVectorAssetContent = $fileContent($externalizedVectorResult, (string) ($externalizedVectorAssets[0]['path'] ?? ''));
 $assert(str_contains($externalizedVectorAssetContent, '<svg '), 'large-vector-externalized-svg-content');
-$assert(str_contains($externalizedVectorAssetContent, 'd="M 0 0 L 10 10'), 'large-vector-path-data-canonicalized');
+$assert(str_contains($externalizedVectorAssetContent, 'd="M0 0L10 10 10 10'), 'large-vector-path-data-canonicalized');
 $assert(! str_contains($externalizedVectorAssetContent, '10.000001'), 'large-vector-path-data-precision-reduced');
+$assert(! str_contains($externalizedVectorAssetContent, 'L10 10L10 10'), 'large-vector-path-data-repeated-commands-elided');
 $externalizedVectorDiagnostics = $externalizedVectorResult['source_reports']['figma']['html']['transform_diagnostics']['generated_svg_assets'] ?? array();
 $assert('blocks-engine/figma-transformer/generated-svg-assets/v1' === ($externalizedVectorDiagnostics['schema'] ?? null), 'generated-svg-assets-diagnostics-schema');
 $assert(1 === ($externalizedVectorDiagnostics['count'] ?? null), 'generated-svg-assets-diagnostics-count');
@@ -678,7 +679,7 @@ $vectorDataDiagnosticCodes = array_map(
     $vectorDataResult['diagnostics'] ?? array()
 );
 $assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data"') && str_contains($vectorDataHtml, 'data-figma-vector="true"'), 'vector-data-renders-svg');
-$assert(str_contains($vectorDataHtml, 'd="M 0 0 L 10 0 L 10 10 Z"'), 'vector-data-renders-command-blob-path');
+$assert(str_contains($vectorDataHtml, 'd="M0 0L10 0 10 10Z"'), 'vector-data-renders-command-blob-path');
 $assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-painted-fallback"') && str_contains($vectorDataHtml, '<rect x="0" y="0" width="12" height="6" fill="#0000ff"/>'), 'vector-data-painted-network-fallback-rect');
 $assert(in_array('unsupported_vector_network_blob', $vectorDataDiagnosticCodes, true), 'vector-data-malformed-network-diagnostic');
 $assert(1 === ($vectorNetworkDiagnostic['context']['byte_length'] ?? null) && 'ff' === ($vectorNetworkDiagnostic['context']['signature_hex'] ?? null), 'vector-network-diagnostic-context');
@@ -709,8 +710,8 @@ $agenticChevronDiagnosticCodes = array_map(
     static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
     $agenticChevronResult['diagnostics'] ?? array()
 );
-$assert(str_contains($agenticChevronHtml, 'data-figma-node-id="chevron:left"') && str_contains($agenticChevronHtml, 'M 8 16 L 0 8 L 8 0 L 9.414 1.414 L 2.828 8 L 9.414 14.586 L 8 16 Z'), 'agentic-chevron-left-renders');
-$assert(str_contains($agenticChevronHtml, 'data-figma-node-id="chevron:right"') && str_contains($agenticChevronHtml, 'M 1.414 16 L 9.414 8 L 1.414 0 L 0 1.414 L 6.586 8 L 0 14.586 L 1.414 16 Z'), 'agentic-chevron-right-renders');
+$assert(str_contains($agenticChevronHtml, 'data-figma-node-id="chevron:left"') && str_contains($agenticChevronHtml, 'M8 16L0 8 8 0 9.414 1.414 2.828 8 9.414 14.586 8 16Z'), 'agentic-chevron-left-renders');
+$assert(str_contains($agenticChevronHtml, 'data-figma-node-id="chevron:right"') && str_contains($agenticChevronHtml, 'M1.414 16L9.414 8 1.414 0 0 1.414 6.586 8 0 14.586 1.414 16Z'), 'agentic-chevron-right-renders');
 $assert(str_contains($agenticChevronHtml, 'data-figma-node-id="chevron:bad-length"') && str_contains($agenticChevronHtml, 'data-figma-unsupported-vector="true"'), 'agentic-chevron-bad-length-placeholder');
 $assert(str_contains($agenticChevronHtml, 'data-figma-node-id="chevron:bad-counts"') && str_contains($agenticChevronHtml, 'data-figma-unsupported-vector="true"'), 'agentic-chevron-bad-counts-placeholder');
 $assert(str_contains($agenticChevronHtml, 'data-figma-node-id="chevron:unknown-signature"') && str_contains($agenticChevronHtml, 'data-figma-unsupported-vector="true"'), 'agentic-chevron-unknown-signature-placeholder');
@@ -2241,7 +2242,7 @@ $assert('image-hash-1' === ($assetReferenceReport['asset_references'][0]['ref'] 
 $assert(str_contains($assetReferenceCss, 'background-image:url("assets/archive-image.png")'), 'normalized-image-reference-css');
 $assert(str_contains($assetReferenceCss, 'background-image:url("assets/slugged-image.png")'), 'normalized-image-reference-slug-css');
 $assert(str_contains($assetReferenceHtml, 'data-figma-vector="true"'), 'supported-vector-svg-html');
-$assert(str_contains($assetReferenceHtml, '<path d="M 1 1 L 23 1 L 12 23 Z" fill="#0000ff" fill-rule="evenodd"/>'), 'supported-vector-path-derived-svg');
+$assert(str_contains($assetReferenceHtml, '<path d="M1 1L23 1 12 23Z" fill="#0000ff" fill-rule="evenodd"/>'), 'supported-vector-path-derived-svg');
 $assert(str_contains($assetReferenceHtml, 'data-figma-unsupported-vector="true"'), 'unsupported-vector-placeholder-html');
 $assert(! str_contains($assetReferenceHtml, 'Unsupported Figma VECTOR'), 'unsupported-vector-placeholder-text-hidden');
 $assert(in_array('unsupported_vector_node_placeholder', $assetReferenceDiagnosticCodes, true), 'unsupported-vector-diagnostic');
@@ -3173,7 +3174,7 @@ $derivedSymbolInstanceCss = $fileContent($derivedSymbolInstanceResult, 'style.cs
 $assert(str_contains($derivedSymbolInstanceHtml, 'data-figma-node-id="derived:instance/40:2"'), 'derived-symbol-instance-label-namespaced');
 $assert(str_contains($derivedSymbolInstanceHtml, 'Override'), 'derived-symbol-instance-text-override');
 $assert(str_contains($derivedSymbolInstanceHtml, 'data-figma-node-id="derived:instance/40:3"'), 'derived-symbol-instance-icon-namespaced');
-$assert(str_contains($derivedSymbolInstanceHtml, 'd="M 0 0 L 10 0 L 10 10 Z"'), 'derived-symbol-instance-icon-geometry');
+$assert(str_contains($derivedSymbolInstanceHtml, 'd="M0 0L10 0 10 10Z"'), 'derived-symbol-instance-icon-geometry');
 $assert(! str_contains($derivedSymbolInstanceHtml, '<g transform="scale'), 'derived-symbol-instance-icon-avoids-stale-scale');
 $assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-2-derived-label{width:90px;height:24px;position:absolute;left:12px;top:6px'), 'derived-symbol-instance-label-size-position');
 $assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-3-derived-icon{width:10px;height:10px;position:absolute;left:110px;top:10px'), 'derived-symbol-instance-icon-size-position');
