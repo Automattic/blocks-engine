@@ -18,6 +18,7 @@ export async function writeTheme(model: ThemeModel, outDir: string): Promise<str
     ...recordFiles('templates', model.templates),
     ...recordFiles('parts', model.parts),
     ...recordFiles('patterns', model.patterns),
+    ...jsonRecordFiles('styles/blocks', model.styleBlocks ?? {}),
   ];
 
   for (const asset of model.assets) {
@@ -38,6 +39,18 @@ function recordFiles(baseDir: string, files: Record<string, string>): Array<[str
   return Object.entries(files)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, content]) => [recordRelativePath(baseDir, key), content]);
+}
+
+function jsonRecordFiles(
+  baseDir: string,
+  files: Record<string, Record<string, unknown>>
+): Array<[string, string]> {
+  return Object.entries(files)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, content]) => [
+      recordRelativePath(baseDir, key),
+      JSON.stringify(content, null, 2) + '\n',
+    ]);
 }
 
 function recordRelativePath(baseDir: string, key: string): string {

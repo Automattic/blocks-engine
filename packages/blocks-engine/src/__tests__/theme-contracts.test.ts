@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { WorkerPool } from '../pool/types.js';
 import {
   assemble,
+  applyHoistSwaps,
   buildFallbackDiagnostic,
   buildTriageRemovalDiagnostic,
   foundation,
   formToBlocks,
+  hoistVariations,
+  HOIST_MIN_INSTANCES,
   ingest,
   planTemplates,
   reconstruct,
@@ -20,6 +27,9 @@ import {
   type FoundationAggregates,
   type FoundationTokens,
   type FormBlocksResult,
+  type HoistedVariation,
+  type HoistPage,
+  type HoistResult,
   type SectionBlocks,
   type SectionSpec,
   type SectionSpecButton,
@@ -65,6 +75,8 @@ type ThemeStageSignatures = {
     pages: Record<string, SectionBlocks[]>;
     meta: ThemeMeta;
   }) => ThemeModel;
+  hoistVariations: (pagesIn: HoistPage[], opts?: { minInstances?: number }) => HoistResult;
+  applyHoistSwaps: (markup: string, variations: HoistedVariation[]) => string;
 };
 
 const themeStageSignatures: ThemeStageSignatures = {
@@ -76,6 +88,8 @@ const themeStageSignatures: ThemeStageSignatures = {
   planTemplates,
   reconstruct,
   assemble,
+  hoistVariations,
+  applyHoistSwaps,
 };
 
 void themeStageSignatures;
@@ -232,6 +246,7 @@ type CompileOnlyThemeContractAssignments = {
       templates: Record<string, string>;
       parts: Record<string, string>;
       patterns: Record<string, string>;
+      styleBlocks: Record<string, Record<string, unknown>>;
       assets: AssetFile[];
     }
   >;
@@ -294,6 +309,7 @@ type CompileOnlyThemeContractAssignments = {
       outDir: string;
       sections: Record<string, SectionSpec[]>;
       renderOptions: Record<string, SectionRenderOptions>;
+      variationHoist: false;
       foundationAggregates: FoundationAggregates;
       hooks: SiteToThemeHooks;
       fetchImpl: typeof fetch;
@@ -375,11 +391,76 @@ describe('theme public contract', () => {
       [planTemplates, 1],
       [reconstruct, 5],
       [assemble, 1],
+      [hoistVariations, 1],
+      [applyHoistSwaps, 2],
     ] as const;
 
     for (const [stage, expectedArity] of runtimeStages) {
       expect(stage).toBeTypeOf('function');
       expect(stage).toHaveLength(expectedArity);
+    }
+  });
+
+  it('freezes the variation hoist public constants', () => {
+    expect(HOIST_MIN_INSTANCES).toBe(3);
+  });
+
+  it('writeTheme emits additive block style variation files only when provided', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'blocks-engine-theme-contract-'));
+    try {
+      const written = await writeTheme(
+        {
+          styleCss: '',
+          themeJson: { version: 3 },
+          templates: {},
+          parts: {},
+          patterns: {},
+          styleBlocks: {
+            'lib-paragraph-color.json': {
+              version: 3,
+              title: 'Paragraph color',
+              blockTypes: ['core/paragraph'],
+              styles: { color: { text: '#111111' } },
+            },
+          },
+          assets: [],
+        },
+        dir
+      );
+
+      expect(written).toContain('styles/blocks/lib-paragraph-color.json');
+      expect(
+        JSON.parse(readFileSync(join(dir, 'styles', 'blocks', 'lib-paragraph-color.json'), 'utf8'))
+      ).toEqual({
+        version: 3,
+        title: 'Paragraph color',
+        blockTypes: ['core/paragraph'],
+        styles: { color: { text: '#111111' } },
+      });
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
+  it('writeTheme preserves existing output shape when styleBlocks is absent', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'blocks-engine-theme-contract-'));
+    try {
+      const written = await writeTheme(
+        {
+          styleCss: '',
+          themeJson: { version: 3 },
+          templates: {},
+          parts: {},
+          patterns: {},
+          assets: [],
+        },
+        dir
+      );
+
+      expect(written).toEqual(['style.css', 'theme.json']);
+      expect(existsSync(join(dir, 'styles'))).toBe(false);
+    } finally {
+      await rm(dir, { force: true, recursive: true });
     }
   });
 

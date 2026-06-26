@@ -68,6 +68,7 @@ export {
 export { sectionExtract } from './section-extract.js';
 export { siteToTheme } from './site-to-theme.js';
 export { lintThemeJson } from './theme-json-lint.js';
+export { applyHoistSwaps, hoistVariations, HOIST_MIN_INSTANCES } from './variation-hoist.js';
 export { writeTheme } from './write-theme.js';
 
 export type * from './assets-static.js';
@@ -111,4 +112,5 @@ export type * from './section-spec.js';
 export type * from './source-assets.js';
 export type { TemplatePlan } from './template-plan.js';
 export type * from './types.js';
+export type * from './variation-hoist.js';
 export type { ThemeJsonLintResult } from './theme-json-lint.js';

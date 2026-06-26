@@ -40,6 +40,7 @@ export interface ThemeModel {
   templates: Record<string, string>;
   parts: Record<string, string>;
   patterns: Record<string, string>;
+  styleBlocks?: Record<string, Record<string, unknown>>;
   assets: AssetFile[];
 }
 
@@ -84,6 +85,7 @@ export interface SiteToThemeOptions extends SourceCssCarryOptions {
   pool?: WorkerPool;
   sections?: Record<string, SectionSpec[]>;
   renderOptions?: Record<string, SectionRenderOptions>;
+  variationHoist?: false;
   foundationAggregates?: FoundationAggregates;
   hooks?: SiteToThemeHooks;
   fetchImpl?: typeof fetch;
