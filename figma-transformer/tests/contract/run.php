@@ -1432,6 +1432,12 @@ $pendingParity = $parityBuilder->build(array(
     'artifacts' => array(
         'report_path' => 'artifacts/parity-report.json',
     ),
+    'dom_boxes_path' => 'artifacts/dom-boxes.json',
+    'layout_report_path' => 'artifacts/layout-report.json',
+    'layout_mismatch_count' => 3,
+    'layout_top_nodes' => array(
+        array('id' => '1:2', 'name' => 'Hero title'),
+    ),
 ));
 $comparedParity = $parityBuilder->build(array(
     'status'    => 'compared',
@@ -1476,6 +1482,10 @@ $unknownParity = $parityBuilder->build(array(
 ));
 $assert('pending' === ($pendingParity['status'] ?? null), 'parity-pending-status');
 $assert('artifacts/parity-report.json' === ($pendingParity['artifacts']['report_path'] ?? null), 'parity-pending-artifact-path');
+$assert('artifacts/dom-boxes.json' === ($pendingParity['artifacts']['dom_boxes_path'] ?? null), 'parity-dom-boxes-artifact-path');
+$assert('artifacts/layout-report.json' === ($pendingParity['artifacts']['layout_report_path'] ?? null), 'parity-layout-report-artifact-path');
+$assert(3 === ($pendingParity['layout_diagnostics']['mismatch_count'] ?? null), 'parity-layout-mismatch-count');
+$assert('1:2' === ($pendingParity['layout_diagnostics']['top_nodes'][0]['id'] ?? null), 'parity-layout-top-node');
 $assert('compared' === ($comparedParity['status'] ?? null), 'parity-compared-status');
 $assert('artifacts/source.png' === ($comparedParity['source']['screenshot_path'] ?? null), 'parity-source-screenshot-path');
 $assert('artifacts/generated.png' === ($comparedParity['generated']['screenshot_path'] ?? null), 'parity-generated-screenshot-path');

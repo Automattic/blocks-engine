@@ -18,6 +18,7 @@ $inspectOnly = true === ($options['inspect_only'] ?? false);
 $only = isset($options['only']) ? array_filter(array_map('trim', explode(',', (string) $options['only']))) : array();
 $adHocFixtures = matrix_list_option($options['fixture'] ?? array());
 $fontCssPassthrough = matrix_font_css_passthrough($options);
+$evidenceOptions = matrix_evidence_options($options);
 
 $fixtures = matrix_discover_fixtures($fixtureDir);
 foreach ( $adHocFixtures as $fixturePath ) {
@@ -55,6 +56,7 @@ $summary = array(
     'dry_run' => $dryRun,
     'inspect_only' => $inspectOnly,
     'font_css' => $fontCssPassthrough['summary'],
+    'evidence' => $evidenceOptions['summary'],
     'fixtures' => array(),
 );
 
@@ -86,6 +88,7 @@ foreach ( $fixtures as $fixture ) {
     $record['inspect_path'] = $inspectPath;
     $record['result_path'] = $resultPath;
     $record['artifact_dir'] = $fixtureOutputDir;
+    $record['evidence'] = matrix_fixture_evidence($evidenceOptions, $fixture, array());
 
     if ( $dryRun ) {
         $record['status'] = 'planned';
@@ -93,7 +96,8 @@ foreach ( $fixtures as $fixture ) {
         $hasDryRunFrameIds = isset($fixture['frame_ids']) && is_array($fixture['frame_ids']);
         $dryRunFrameIds = $hasDryRunFrameIds ? $fixture['frame_ids'] : array('<selected-frame-ids>');
         $dryRunEntryFrameId = (string) ($fixture['entry_frame_id'] ?? ($hasDryRunFrameIds ? ($dryRunFrameIds[0] ?? '') : '<entry-frame-id>'));
-        $record['command'] = matrix_transform_command($figmaRoot, $fixturePath, $dryRunFrameIds, $dryRunEntryFrameId, $fixtureOutputDir, $resultPath, $zstdCommand, $maxNodes, $fontCssPassthrough['arguments']);
+        $record['evidence'] = matrix_fixture_evidence($evidenceOptions, $fixture, matrix_dry_run_pages($dryRunFrameIds));
+        $record['command'] = matrix_transform_command($figmaRoot, $fixturePath, $dryRunFrameIds, $dryRunEntryFrameId, $fixtureOutputDir, $resultPath, $zstdCommand, $maxNodes, $fontCssPassthrough['arguments'], $record['evidence']['transform_arguments'] ?? array());
         $summary['fixtures'][] = $record;
         continue;
     }
@@ -114,6 +118,7 @@ foreach ( $fixtures as $fixture ) {
     $record['selected_frame_ids'] = $frameIds;
     $record['selected_frames'] = matrix_selected_frame_records(is_array($inspection) ? $inspection : array(), $frameIds);
     $record['entry_frame_id'] = (string) ($fixture['entry_frame_id'] ?? ($frameIds[0] ?? ''));
+    $record['evidence'] = matrix_fixture_evidence($evidenceOptions, $fixture, $record['selected_frames']);
 
     if ( $inspectOnly ) {
         $record['status'] = 'inspected';
@@ -127,7 +132,7 @@ foreach ( $fixtures as $fixture ) {
         continue;
     }
 
-    $command = matrix_transform_command($figmaRoot, $fixturePath, $frameIds, $record['entry_frame_id'], $fixtureOutputDir, $resultPath, $zstdCommand, $maxNodes, $fontCssPassthrough['arguments']);
+    $command = matrix_transform_command($figmaRoot, $fixturePath, $frameIds, $record['entry_frame_id'], $fixtureOutputDir, $resultPath, $zstdCommand, $maxNodes, $fontCssPassthrough['arguments'], $record['evidence']['transform_arguments'] ?? array());
     $record['command'] = $command;
     passthru($command, $exitCode);
     $record['exit_code'] = $exitCode;
@@ -137,7 +142,10 @@ foreach ( $fixtures as $fixture ) {
     if ( 0 === $exitCode && is_file($resultPath) ) {
         $result = json_decode((string) file_get_contents($resultPath), true);
         if ( is_array($result) ) {
+            $result = matrix_attach_evidence_to_result($result, $record['evidence']);
+            file_put_contents($resultPath, json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
             $record['result_status'] = $result['status'] ?? null;
+            $record['parity'] = matrix_parity_summary(is_array($result['parity'] ?? null) ? $result['parity'] : array());
             $record['metrics'] = $result['metrics'] ?? array();
             $diagnostics = $result['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
             if ( is_array($diagnostics) ) {
@@ -246,6 +254,39 @@ function matrix_font_css_passthrough(array $options): array
 }
 
 /**
+ * @param array<string, mixed> $options
+ * @return array{templates: array<string, string>, summary: array<string, mixed>}
+ */
+function matrix_evidence_options(array $options): array
+{
+    $map = array(
+        'parity_report' => 'parity_report_path',
+        'parity_report_path' => 'parity_report_path',
+        'dom_boxes' => 'dom_boxes_path',
+        'dom_boxes_path' => 'dom_boxes_path',
+        'layout_report' => 'layout_report_path',
+        'layout_report_path' => 'layout_report_path',
+        'layout_mismatch_report' => 'layout_mismatch_report_path',
+        'layout_mismatch_report_path' => 'layout_mismatch_report_path',
+    );
+    $templates = array();
+    foreach ( $map as $optionKey => $templateKey ) {
+        if ( isset($options[$optionKey]) && is_scalar($options[$optionKey]) && '' !== (string) $options[$optionKey] ) {
+            $templates[$templateKey] = (string) $options[$optionKey];
+        }
+    }
+
+    return array(
+        'templates' => $templates,
+        'summary' => empty($templates) ? array('source' => 'none') : array(
+            'source' => 'runner_paths',
+            'templates' => $templates,
+            'template_tokens' => array('{fixture}', '{id}', '{frame_id}', '{page}', '{slug}'),
+        ),
+    );
+}
+
+/**
  * @return array<int, array<string, mixed>>
  */
 function matrix_discover_fixtures(string $fixtureDir): array
@@ -326,8 +367,9 @@ function matrix_inspect_command(string $figmaRoot, string $fixturePath, string $
 /**
  * @param array<int, string> $frameIds
  * @param array<int, string> $fontCssArguments
+ * @param array<int, string> $evidenceArguments
  */
-function matrix_transform_command(string $figmaRoot, string $fixturePath, array $frameIds, string $entryFrameId, string $fixtureOutputDir, string $resultPath, string $zstdCommand, int $maxNodes, array $fontCssArguments = array()): string
+function matrix_transform_command(string $figmaRoot, string $fixturePath, array $frameIds, string $entryFrameId, string $fixtureOutputDir, string $resultPath, string $zstdCommand, int $maxNodes, array $fontCssArguments = array(), array $evidenceArguments = array()): string
 {
     $parts = array(
         escapeshellarg(PHP_BINARY),
@@ -344,8 +386,122 @@ function matrix_transform_command(string $figmaRoot, string $fixturePath, array 
     );
 
     array_push($parts, ...$fontCssArguments);
+    array_push($parts, ...$evidenceArguments);
 
     return implode(' ', $parts) . ' > ' . escapeshellarg($resultPath);
+}
+
+/**
+ * @param array{templates: array<string, string>, summary: array<string, mixed>} $evidenceOptions
+ * @param array<string, mixed> $fixture
+ * @param array<int, array<string, mixed>> $pages
+ * @return array<string, mixed>
+ */
+function matrix_fixture_evidence(array $evidenceOptions, array $fixture, array $pages): array
+{
+    $templates = $evidenceOptions['templates'];
+    if ( empty($templates) ) {
+        return array('source' => 'none', 'transform_arguments' => array());
+    }
+
+    $fixturePaths = array();
+    foreach ( $templates as $key => $template ) {
+        $fixturePaths[$key] = matrix_resolve_evidence_template($template, $fixture, array());
+    }
+
+    $pageRecords = array();
+    foreach ( $pages as $page ) {
+        $pagePaths = array();
+        foreach ( $templates as $key => $template ) {
+            $pagePaths[$key] = matrix_resolve_evidence_template($template, $fixture, $page);
+        }
+        $pageRecords[] = array(
+            'frame_id' => (string) ($page['id'] ?? $page['frame_id'] ?? ''),
+            'name' => (string) ($page['name'] ?? ''),
+            'slug' => (string) ($page['slug'] ?? ''),
+            'paths' => matrix_evidence_path_records($pagePaths),
+        );
+    }
+
+    return array(
+        'source' => 'runner_paths',
+        'paths' => matrix_evidence_path_records($fixturePaths),
+        'pages' => $pageRecords,
+        'transform_arguments' => matrix_evidence_transform_arguments($fixturePaths),
+    );
+}
+
+/**
+ * @param array<int, string> $frameIds
+ * @return array<int, array<string, mixed>>
+ */
+function matrix_dry_run_pages(array $frameIds): array
+{
+    return array_map(static fn (string $frameId): array => array('id' => $frameId, 'name' => $frameId, 'slug' => matrix_slug($frameId)), $frameIds);
+}
+
+/**
+ * @param array<string, mixed> $fixture
+ * @param array<string, mixed> $page
+ */
+function matrix_resolve_evidence_template(string $template, array $fixture, array $page): string
+{
+    $frameId = (string) ($page['frame_id'] ?? $page['id'] ?? '');
+    $tokens = array(
+        '{fixture}' => (string) ($fixture['id'] ?? ''),
+        '{id}' => (string) ($fixture['id'] ?? ''),
+        '{frame_id}' => '' !== $frameId ? $frameId : (string) ($fixture['entry_frame_id'] ?? ''),
+        '{page}' => (string) ($page['name'] ?? ''),
+        '{slug}' => (string) ($page['slug'] ?? ('' !== $frameId ? matrix_slug($frameId) : (string) ($fixture['id'] ?? ''))),
+    );
+
+    return strtr($template, $tokens);
+}
+
+/**
+ * @param array<string, string> $paths
+ * @return array<string, array<string, mixed>>
+ */
+function matrix_evidence_path_records(array $paths): array
+{
+    $records = array();
+    foreach ( $paths as $key => $path ) {
+        $records[$key] = array(
+            'path' => $path,
+            'exists' => is_file($path),
+            'readable' => is_readable($path),
+        );
+    }
+
+    return $records;
+}
+
+/**
+ * @param array<string, string> $paths
+ * @return array<int, string>
+ */
+function matrix_evidence_transform_arguments(array $paths): array
+{
+    $map = array(
+        'parity_report_path' => '--parity-report-path=',
+        'dom_boxes_path' => '--parity-dom-boxes-path=',
+        'layout_report_path' => '--parity-layout-report-path=',
+        'layout_mismatch_report_path' => '--parity-layout-mismatch-report-path=',
+    );
+    $arguments = array();
+    foreach ( $map as $key => $argument ) {
+        if ( isset($paths[$key]) && '' !== $paths[$key] ) {
+            $arguments[] = $argument . escapeshellarg($paths[$key]);
+        }
+    }
+
+    return $arguments;
+}
+
+function matrix_slug(string $value): string
+{
+    $slug = strtolower((string) preg_replace('/[^a-zA-Z0-9]+/', '-', $value));
+    return trim($slug, '-') ?: 'page';
 }
 
 /**
@@ -359,6 +515,160 @@ function matrix_inspection_summary(array $inspection): array
         'node_count' => $inspection['node_count'] ?? null,
         'candidate_count' => $inspection['candidate_count'] ?? null,
         'returned_count' => $inspection['returned_count'] ?? null,
+    );
+}
+
+/**
+ * @param array<string, mixed> $result
+ * @param array<string, mixed> $evidence
+ * @return array<string, mixed>
+ */
+function matrix_attach_evidence_to_result(array $result, array $evidence): array
+{
+    if ( 'runner_paths' !== ($evidence['source'] ?? null) ) {
+        return $result;
+    }
+
+    $parity = is_array($result['parity'] ?? null) ? $result['parity'] : array();
+    $parity['artifacts'] = is_array($parity['artifacts'] ?? null) ? $parity['artifacts'] : array();
+    $parity['layout_diagnostics'] = is_array($parity['layout_diagnostics'] ?? null) ? $parity['layout_diagnostics'] : array();
+    $paths = is_array($evidence['paths'] ?? null) ? $evidence['paths'] : array();
+
+    foreach ( array(
+        'parity_report_path' => 'report_path',
+        'dom_boxes_path' => 'dom_boxes_path',
+        'layout_report_path' => 'layout_report_path',
+        'layout_mismatch_report_path' => 'layout_mismatch_report_path',
+    ) as $pathKey => $artifactKey ) {
+        $path = matrix_evidence_record_path($paths[$pathKey] ?? null);
+        if ( '' !== $path ) {
+            $parity['artifacts'][$artifactKey] = $path;
+        }
+    }
+
+    $parityReport = matrix_read_json_evidence($paths['parity_report_path'] ?? null);
+    if ( is_array($parityReport) ) {
+        $parity = matrix_merge_parity_report($parity, $parityReport);
+    } elseif ( 'not_run' === ($parity['status'] ?? 'not_run') && '' !== matrix_evidence_record_path($paths['parity_report_path'] ?? null) ) {
+        $parity['status'] = 'pending';
+        $parity['reason'] = 'parity_report_path_supplied';
+    }
+
+    $layoutReport = matrix_read_json_evidence($paths['layout_report_path'] ?? null);
+    if ( ! is_array($layoutReport) ) {
+        $layoutReport = matrix_read_json_evidence($paths['layout_mismatch_report_path'] ?? null);
+    }
+    if ( is_array($layoutReport) ) {
+        $parity['layout_diagnostics'] = array_merge($parity['layout_diagnostics'], matrix_layout_summary($layoutReport));
+    }
+
+    $result['parity'] = $parity;
+    return $result;
+}
+
+/**
+ * @param mixed $record
+ */
+function matrix_evidence_record_path(mixed $record): string
+{
+    if ( is_array($record) && isset($record['path']) && is_scalar($record['path']) ) {
+        return (string) $record['path'];
+    }
+
+    return '';
+}
+
+/**
+ * @param mixed $record
+ * @return array<string, mixed>|null
+ */
+function matrix_read_json_evidence(mixed $record): ?array
+{
+    $path = matrix_evidence_record_path($record);
+    if ( '' === $path || ! is_readable($path) ) {
+        return null;
+    }
+
+    $data = json_decode((string) file_get_contents($path), true);
+    return is_array($data) ? $data : null;
+}
+
+/**
+ * @param array<string, mixed> $parity
+ * @param array<string, mixed> $report
+ * @return array<string, mixed>
+ */
+function matrix_merge_parity_report(array $parity, array $report): array
+{
+    foreach ( array('status', 'reason', 'viewport') as $key ) {
+        if ( isset($report[$key]) ) {
+            $parity[$key] = $report[$key];
+        }
+    }
+
+    foreach ( array('source', 'generated', 'diff', 'diff_summary', 'metrics') as $key ) {
+        if ( isset($report[$key]) && is_array($report[$key]) ) {
+            $parity[$key] = array_merge(is_array($parity[$key] ?? null) ? $parity[$key] : array(), $report[$key]);
+        }
+    }
+
+    foreach ( array('pixel_mismatch_count', 'pixel_mismatch_ratio') as $key ) {
+        if ( isset($report[$key]) && is_numeric($report[$key]) ) {
+            $parity['metrics'][$key] = str_contains((string) $report[$key], '.') ? (float) $report[$key] : (int) $report[$key];
+            $parity['diff_summary'][$key] = $parity['metrics'][$key];
+        }
+    }
+
+    return $parity;
+}
+
+/**
+ * @param array<string, mixed> $report
+ * @return array<string, mixed>
+ */
+function matrix_layout_summary(array $report): array
+{
+    $mismatches = is_array($report['mismatches'] ?? null) ? array_values($report['mismatches']) : array();
+    $topNodes = $report['top_nodes'] ?? $report['top_mismatches'] ?? array_slice($mismatches, 0, 5);
+
+    return array(
+        'status' => $report['status'] ?? null,
+        'mismatch_count' => matrix_first_numeric($report, array('layout_mismatch_count', 'mismatch_count', 'count')) ?? count($mismatches),
+        'top_nodes' => is_array($topNodes) ? array_slice(array_values($topNodes), 0, 5) : array(),
+    );
+}
+
+/**
+ * @param array<string, mixed> $values
+ * @param array<int, string> $keys
+ */
+function matrix_first_numeric(array $values, array $keys): int|float|null
+{
+    foreach ( $keys as $key ) {
+        if ( isset($values[$key]) && is_numeric($values[$key]) ) {
+            return str_contains((string) $values[$key], '.') ? (float) $values[$key] : (int) $values[$key];
+        }
+    }
+
+    return null;
+}
+
+/**
+ * @param array<string, mixed> $parity
+ * @return array<string, mixed>
+ */
+function matrix_parity_summary(array $parity): array
+{
+    $metrics = is_array($parity['metrics'] ?? null) ? $parity['metrics'] : array();
+    $diffSummary = is_array($parity['diff_summary'] ?? null) ? $parity['diff_summary'] : array();
+    $layout = is_array($parity['layout_diagnostics'] ?? null) ? $parity['layout_diagnostics'] : array();
+
+    return array(
+        'status' => $parity['status'] ?? 'not_run',
+        'pixel_mismatch_count' => $metrics['pixel_mismatch_count'] ?? $diffSummary['pixel_mismatch_count'] ?? null,
+        'pixel_mismatch_ratio' => $metrics['pixel_mismatch_ratio'] ?? $diffSummary['pixel_mismatch_ratio'] ?? null,
+        'layout_mismatch_count' => $layout['mismatch_count'] ?? null,
+        'layout_top_nodes' => is_array($layout['top_nodes'] ?? null) ? array_slice($layout['top_nodes'], 0, 5) : array(),
     );
 }
 
