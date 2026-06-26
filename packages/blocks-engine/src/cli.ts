@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { Readable } from 'node:stream';
@@ -25,6 +25,7 @@ export interface RunCliOptions {
   convertHtml?: ConvertHtml;
   siteToThemeImpl?: SiteToThemeImpl;
   pathExists?: (path: string) => boolean;
+  isDirectory?: (path: string) => boolean;
 }
 
 async function readStdin(stdin: Readable): Promise<string> {
@@ -44,6 +45,15 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
   const convertHtml = options.convertHtml ?? convert;
   const siteToThemeImpl = options.siteToThemeImpl ?? siteToTheme;
   const pathExists = options.pathExists ?? existsSync;
+  const isDirectory =
+    options.isDirectory ??
+    ((path: string) => {
+      try {
+        return statSync(path).isDirectory();
+      } catch {
+        return false;
+      }
+    });
 
   try {
     const command = argv[0];
@@ -53,11 +63,11 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
     }
 
     if (command === 'convert') {
-      return await runConvert(argv.slice(1), { stdin, stdout, convertHtml });
+      return await runConvert(argv.slice(1), { stdin, stdout, convertHtml, pathExists });
     }
 
     const themeArgs = command === 'theme' ? argv.slice(1) : argv;
-    return await runTheme(themeArgs, { stdout, stderr, siteToThemeImpl, pathExists });
+    return await runTheme(themeArgs, { stdout, stderr, siteToThemeImpl, pathExists, isDirectory });
   } catch (error) {
     if (error instanceof BlocksEngineError) {
       stderr.write(`${error.message}\n${error.hint}\n`);
@@ -72,9 +82,18 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
 
 async function runConvert(
   argv: string[],
-  options: { stdin: Readable; stdout: WritableLike; convertHtml: ConvertHtml }
+  options: {
+    stdin: Readable;
+    stdout: WritableLike;
+    convertHtml: ConvertHtml;
+    pathExists: (path: string) => boolean;
+  }
 ): Promise<number> {
   const fileArg = argv[0];
+  if (fileArg !== undefined && !options.pathExists(resolve(fileArg))) {
+    throw new Error(`File ${fileArg} not found.`);
+  }
+
   const input =
     fileArg === undefined
       ? {
@@ -97,9 +116,20 @@ async function runTheme(
     stderr: WritableLike;
     siteToThemeImpl: SiteToThemeImpl;
     pathExists: (path: string) => boolean;
+    isDirectory: (path: string) => boolean;
   }
 ): Promise<number> {
   const { srcDir, themeOptions, outDirExplicit } = parseThemeArgs(argv);
+
+  if (!options.pathExists(srcDir)) {
+    throw new Error(`Source directory ${srcDir} not found.`);
+  }
+
+  if (!options.isDirectory(srcDir)) {
+    throw new Error(
+      `${srcDir} is a file, not a directory. To convert a single HTML file, run: blocks-engine convert ${srcDir}`
+    );
+  }
 
   // The default output dir is created in the current directory; refuse to touch
   // an existing one so a stray _block-theme/ is never silently overwritten.

@@ -66,6 +66,28 @@ describe('CLI one-shot conversion', () => {
     }
   });
 
+  it('prints a clear error when a convert file is missing', async () => {
+    const stdout = writableBuffer();
+    const stderr = writableBuffer();
+    const calls: string[] = [];
+    const filePath = '/tmp/blocks-engine-missing-file.html';
+
+    const exitCode = await runCli(['convert', filePath], {
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      pathExists: () => false,
+      convertHtml: async (html) => {
+        calls.push(html);
+        return '<!-- wp:paragraph --><p>unused</p><!-- /wp:paragraph -->';
+      },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(calls).toEqual([]);
+    expect(stdout.text()).toBe('');
+    expect(stderr.text()).toContain(`File ${filePath} not found.`);
+  });
+
   it('reads stdin when convert has no file arg', async () => {
     let seenUrl: string | undefined;
     const stdout = writableBuffer();
@@ -124,6 +146,8 @@ describe('CLI theme builds', () => {
       {
         stdout: stdout.stream,
         stderr: stderr.stream,
+        pathExists: () => true,
+        isDirectory: () => true,
         siteToThemeImpl: async (calledSrcDir, options) => {
           calls.push({ srcDir: calledSrcDir, options });
           return {
@@ -161,6 +185,8 @@ describe('CLI theme builds', () => {
     const exitCode = await runCli([srcDir, `--out=${outDir}`], {
       stdout: stdout.stream,
       stderr: stderr.stream,
+      pathExists: () => true,
+      isDirectory: () => true,
       siteToThemeImpl: async (calledSrcDir, options) => {
         calls.push({ srcDir: calledSrcDir, options });
         return themeResult(outDir, ['theme.json']);
@@ -191,7 +217,8 @@ describe('CLI theme builds', () => {
     const exitCode = await runCli([srcDir], {
       stdout: stdout.stream,
       stderr: stderr.stream,
-      pathExists: () => false,
+      pathExists: (path) => path === srcDir,
+      isDirectory: (path) => path === srcDir,
       siteToThemeImpl: async (calledSrcDir, options) => {
         calls.push({ srcDir: calledSrcDir, options });
         return themeResult(expectedOut, ['theme.json']);
@@ -213,7 +240,8 @@ describe('CLI theme builds', () => {
     const exitCode = await runCli([srcDir], {
       stdout: stdout.stream,
       stderr: stderr.stream,
-      pathExists: (path) => path === expectedOut,
+      pathExists: (path) => path === srcDir || path === expectedOut,
+      isDirectory: (path) => path === srcDir,
       siteToThemeImpl: async (calledSrcDir) => {
         calls.push(calledSrcDir);
         return themeResult(expectedOut);
@@ -238,6 +266,7 @@ describe('CLI theme builds', () => {
       stdout: stdout.stream,
       stderr: stderr.stream,
       pathExists: () => true,
+      isDirectory: () => true,
       siteToThemeImpl: async (calledSrcDir) => {
         calls.push(calledSrcDir);
         return themeResult(outDir, ['theme.json']);
@@ -298,5 +327,51 @@ describe('CLI theme builds', () => {
     expect(calls).toEqual([]);
     expect(stdout.text()).toBe('');
     expect(stderr.text()).toContain('Missing <srcDir>');
+  });
+
+  it('prints a clear error when the theme source directory is missing', async () => {
+    const srcDir = '/tmp/blocks-engine-missing-source';
+    const stdout = writableBuffer();
+    const stderr = writableBuffer();
+    const calls: string[] = [];
+
+    const exitCode = await runCli(['theme', srcDir], {
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      pathExists: () => false,
+      siteToThemeImpl: async (calledSrcDir) => {
+        calls.push(calledSrcDir);
+        return themeResult('/tmp/unused');
+      },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(calls).toEqual([]);
+    expect(stdout.text()).toBe('');
+    expect(stderr.text()).toContain(`Source directory ${srcDir} not found.`);
+  });
+
+  it('suggests convert when the theme source is a file', async () => {
+    const srcDir = '/tmp/blocks-engine-page.html';
+    const stdout = writableBuffer();
+    const stderr = writableBuffer();
+    const calls: string[] = [];
+
+    const exitCode = await runCli([srcDir], {
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      pathExists: () => true,
+      isDirectory: () => false,
+      siteToThemeImpl: async (calledSrcDir) => {
+        calls.push(calledSrcDir);
+        return themeResult('/tmp/unused');
+      },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(calls).toEqual([]);
+    expect(stdout.text()).toBe('');
+    expect(stderr.text()).toContain(`${srcDir} is a file, not a directory.`);
+    expect(stderr.text()).toContain(`blocks-engine convert ${srcDir}`);
   });
 });

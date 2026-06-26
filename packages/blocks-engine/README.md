@@ -31,13 +31,35 @@ Install the package:
 npm install @automattic/blocks-engine
 ```
 
-Run a one-shot file conversion without adding a dependency:
+Build a block theme from a source directory without adding a dependency:
 
 ```sh
-npx @automattic/blocks-engine page.html
+npx @automattic/blocks-engine theme ./my-site
 ```
 
-The CLI reads `page.html` and writes block markup to stdout. With no file argument, it reads HTML from stdin.
+The `theme` command writes the generated theme to `./_block-theme` by default and exits if that directory already exists. Use `--out`, `--slug`, and `--name` to set the output directory and theme metadata:
+
+```sh
+npx @automattic/blocks-engine theme ./my-site --out ./theme --slug my-site --name "My Site"
+```
+
+The bare source-directory shorthand is equivalent to `theme`:
+
+```sh
+npx @automattic/blocks-engine ./my-site
+```
+
+Convert a single HTML file to block markup with the `convert` subcommand:
+
+```sh
+npx @automattic/blocks-engine convert page.html
+```
+
+`convert` writes block markup to stdout. With no file argument, it reads HTML from stdin:
+
+```sh
+printf '<h2>Hi</h2>' | npx @automattic/blocks-engine convert
+```
 
 ## Start Here
 
