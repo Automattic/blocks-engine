@@ -1066,6 +1066,47 @@ $assert('dom_text' === ($derivedTextVisualNode['text']['glyph_rendering'] ?? nul
 $assert(false === ($derivedTextLayoutResult['source_reports']['figma']['html']['render_text_glyph_paths'] ?? null), 'derived-text-glyph-rendering-default-disabled');
 $assert(! str_contains($fileContent($derivedTextLayoutResult, 'index.html'), 'data-figma-text-glyphs="true"'), 'derived-text-default-avoids-glyph-svg');
 
+$unsupportedGlyphScenegraph = array(
+    'name'  => 'Unsupported Glyph Diagnostic Fixture',
+    'blobs' => array(array('bytes' => chr(9))),
+    'nodes' => array(
+        array(
+            'id'              => 'text:unsupported-glyph-a',
+            'type'            => 'TEXT',
+            'characters'      => 'Unsupported glyph A',
+            'derivedTextData' => array(
+                'glyphs' => array(
+                    array('firstCharacter' => 0, 'commandsBlob' => 0),
+                    array('firstCharacter' => 1, 'commandsBlob' => 0),
+                    array('firstCharacter' => 2, 'commandsBlob' => 0),
+                ),
+            ),
+        ),
+        array(
+            'id'              => 'text:unsupported-glyph-b',
+            'type'            => 'TEXT',
+            'characters'      => 'Unsupported glyph B',
+            'derivedTextData' => array(
+                'glyphs' => array(
+                    array('firstCharacter' => 0, 'commandsBlob' => 0),
+                    array('firstCharacter' => 1, 'commandsBlob' => 0),
+                ),
+            ),
+        ),
+    ),
+);
+$unsupportedGlyphResult = blocks_engine_figma_transformer_transform_scenegraph($unsupportedGlyphScenegraph);
+$unsupportedGlyphDiagnostics = array_values(array_filter(
+    $unsupportedGlyphResult['diagnostics'] ?? array(),
+    static fn (array $diagnostic): bool => 'unsupported_text_glyph_command_blob' === ($diagnostic['code'] ?? null)
+));
+$assert(1 === count($unsupportedGlyphDiagnostics), 'unsupported-glyph-diagnostics-bounded');
+$assert(5 === ($unsupportedGlyphDiagnostics[0]['context']['total_count'] ?? null), 'unsupported-glyph-diagnostics-total-count');
+$assert(2 === ($unsupportedGlyphDiagnostics[0]['context']['affected_node_count'] ?? null), 'unsupported-glyph-diagnostics-node-count');
+$assert(array('text:unsupported-glyph-a', 'text:unsupported-glyph-b') === ($unsupportedGlyphDiagnostics[0]['context']['sample_node_ids'] ?? null), 'unsupported-glyph-diagnostics-sample-node-ids');
+$assert(str_contains($fileContent($unsupportedGlyphResult, 'index.html'), 'Unsupported glyph A'), 'unsupported-glyph-diagnostics-preserve-text-a');
+$assert(str_contains($fileContent($unsupportedGlyphResult, 'index.html'), 'Unsupported glyph B'), 'unsupported-glyph-diagnostics-preserve-text-b');
+
 $derivedTextGlyphResult = blocks_engine_figma_transformer_transform_scenegraph($derivedTextLayoutScenegraph, array('render_text_glyph_paths' => true));
 $derivedTextGlyphHtml = $fileContent($derivedTextGlyphResult, 'index.html');
 $derivedTextGlyphCss = $fileContent($derivedTextGlyphResult, 'style.css');

@@ -64,6 +64,7 @@ final class ScenegraphNormalizer
         $textInventory   = $this->buildTextInventory($nodeMap);
         $assetReferences = $this->buildAssetReferences($nodeMap);
         $sourceName      = $this->readSourceName($source, $renderNodes);
+        $diagnostics     = $this->compactGlyphCommandBlobDiagnostics($diagnostics);
 
         return array(
             'schema'              => 'blocks-engine/figma-transformer/scenegraph/v1',
@@ -156,6 +157,58 @@ final class ScenegraphNormalizer
         );
 
         return $index;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<int, array<string, mixed>>
+     */
+    private function compactGlyphCommandBlobDiagnostics(array $diagnostics): array
+    {
+        $compacted = array();
+        $count = 0;
+        $nodeIds = array();
+        $sampleGlyphs = array();
+
+        foreach ( $diagnostics as $diagnostic ) {
+            if ( ! is_array($diagnostic) || 'unsupported_text_glyph_command_blob' !== ($diagnostic['code'] ?? null) ) {
+                $compacted[] = $diagnostic;
+                continue;
+            }
+
+            $count++;
+            $context = is_array($diagnostic['context'] ?? null) ? $diagnostic['context'] : array();
+            $nodeId = isset($context['node_id']) && is_scalar($context['node_id']) ? (string) $context['node_id'] : '';
+            if ( '' !== $nodeId ) {
+                $nodeIds[$nodeId] = true;
+            }
+            if ( count($sampleGlyphs) < 10 ) {
+                $sampleGlyphs[] = array(
+                    'node_id'     => $nodeId,
+                    'glyph_index' => isset($context['glyph_index']) && is_numeric($context['glyph_index']) ? (int) $context['glyph_index'] : null,
+                );
+            }
+        }
+
+        if ( 0 === $count ) {
+            return $compacted;
+        }
+
+        $sampleNodeIds = array_slice(array_keys($nodeIds), 0, 10);
+        $compacted[] = array(
+            'severity' => 'warning',
+            'code'     => 'unsupported_text_glyph_command_blob',
+            'message'  => 'Unsupported Figma text glyph command blobs were omitted from derived glyph metadata.',
+            'source'   => 'ScenegraphNormalizer',
+            'context'  => array(
+                'total_count'         => $count,
+                'affected_node_count' => count($nodeIds),
+                'sample_node_ids'     => $sampleNodeIds,
+                'sample_glyphs'       => $sampleGlyphs,
+            ),
+        );
+
+        return $compacted;
     }
 
     /**
