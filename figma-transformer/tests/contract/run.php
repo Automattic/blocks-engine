@@ -838,6 +838,61 @@ $assert(($result['files'] ?? array()) === ($sameResult['files'] ?? array()), 'de
 $assert('blocks-engine/figma-transformer/parity-report/v1' === ($result['parity']['schema'] ?? null), 'parity-schema');
 $assert('not_run' === ($result['parity']['status'] ?? null), 'parity-default-not-run');
 
+$layoutMismatchBuilder = new \Automattic\BlocksEngine\FigmaTransformer\Diagnostics\LayoutMismatchReportBuilder();
+$footerLayoutMismatch = $layoutMismatchBuilder->build(
+    array(
+        'visual_node_map' => array(
+            array('id' => 'footer', 'name' => 'Footer', 'type' => 'FRAME', 'rect' => array('x' => 0, 'y' => 880, 'width' => 1200, 'height' => 120)),
+            array('id' => 'footer:text', 'parent_id' => 'footer', 'name' => 'Footer legal text', 'type' => 'TEXT', 'rect' => array('x' => 40, 'y' => 920, 'width' => 220, 'height' => 24)),
+        ),
+    ),
+    array(
+        'schema' => 'homeboy/static-artifact-dom-boxes/v1',
+        'boxes' => array(
+            array('node_id' => 'footer', 'rect' => array('x' => 0, 'y' => 880, 'width' => 1200, 'height' => 120)),
+            array('node_id' => 'footer:text', 'selector' => '[data-figma-node-id="footer:text"]', 'rect' => array('x' => 40, 'y' => 1800, 'width' => 220, 'height' => 24)),
+        ),
+    ),
+    array('threshold' => 24)
+);
+$footerLayoutMismatchCodes = array_map(static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), $footerLayoutMismatch['diagnostics'] ?? array());
+$assert('blocks-engine/figma-transformer/layout-mismatch-report/v1' === ($footerLayoutMismatch['schema'] ?? null), 'layout-mismatch-schema');
+$assert('homeboy/static-artifact-dom-boxes/v1' === ($footerLayoutMismatch['input_schema'] ?? null), 'layout-mismatch-input-schema');
+$assert('fail' === ($footerLayoutMismatch['status'] ?? null), 'layout-mismatch-fail-status');
+$assert(in_array('misplaced_element', $footerLayoutMismatchCodes, true), 'layout-mismatch-misplaced-element');
+$assert(in_array('element_outside_parent_bounds', $footerLayoutMismatchCodes, true), 'layout-mismatch-outside-parent');
+$assert(880.0 === ($footerLayoutMismatch['diagnostics'][0]['delta']['y'] ?? null), 'layout-mismatch-delta-y');
+
+$layoutMismatchTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name' => 'Layout Mismatch Fixture',
+    'nodes' => array(
+        array(
+            'id' => 'frame:layout-mismatch',
+            'type' => 'FRAME',
+            'name' => 'Layout Mismatch Page',
+            'width' => 1200,
+            'height' => 1000,
+            'children' => array(
+                array('id' => 'footer', 'type' => 'FRAME', 'name' => 'Footer', 'width' => 1200, 'height' => 120, 'transform' => array('m02' => 0, 'm12' => 880)),
+                array('id' => 'footer:text', 'type' => 'TEXT', 'name' => 'Footer legal text', 'characters' => 'Privacy and terms', 'width' => 220, 'height' => 24, 'transform' => array('m02' => 40, 'm12' => 920)),
+            ),
+        ),
+    ),
+), array(
+    'generated_dom_boxes' => array(
+        'schema' => 'homeboy/static-artifact-dom-boxes/v1',
+        'boxes' => array(
+            array('node_id' => 'footer', 'rect' => array('x' => 0, 'y' => 880, 'width' => 1200, 'height' => 120)),
+            array('node_id' => 'footer:text', 'rect' => array('x' => 40, 'y' => 1800, 'width' => 220, 'height' => 24)),
+        ),
+    ),
+    'layout_mismatch_threshold' => 24,
+));
+$layoutMismatchTransformDiagnostics = $layoutMismatchTransformResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+$layoutMismatchArtifactQualityCodes = array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), $layoutMismatchTransformDiagnostics['artifact_quality']['signals'] ?? array());
+$assert(0 < ($layoutMismatchTransformDiagnostics['layout']['layout_mismatch_count'] ?? 0), 'layout-mismatch-transform-count');
+$assert(in_array('layout_mismatch', $layoutMismatchArtifactQualityCodes, true), 'layout-mismatch-artifact-quality-signal');
+
 $unusedAssetResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'   => 'Unused Asset Fixture',
     'assets' => array(
