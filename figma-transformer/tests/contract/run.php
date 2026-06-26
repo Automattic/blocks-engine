@@ -2908,6 +2908,44 @@ $assert(3 === substr_count($instanceVectorChildrenHtml, 'data-figma-vector="true
 $assert(str_contains($instanceVectorChildrenCss, '.figma-node-icon-one-icon-vector-vector{width:10px;height:10px'), 'instance-vector-css-one');
 $assert(str_contains($instanceVectorChildrenCss, '.figma-node-icon-two-icon-vector-vector{width:10px;height:10px'), 'instance-vector-css-two');
 
+$instanceSimpleNetworkVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Instance Simple Network Vector Fixture',
+    'blobs' => array(array('bytes' => $simpleRectNetworkBlob)),
+    'nodes' => array(
+        array(
+            'id'       => 'simple-network-icon:component',
+            'type'     => 'COMPONENT',
+            'name'     => 'Simple network icon component',
+            'key'      => 'simple-network-icon-key',
+            'children' => array(
+                array(
+                    'id'         => 'simple-network-icon:vector',
+                    'type'       => 'VECTOR',
+                    'name'       => 'Vector 10',
+                    'size'       => array('x' => 12, 'y' => 6),
+                    'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0.5, 'b' => 1))),
+                    'vectorData' => array('vectorNetworkBlob' => 0),
+                ),
+            ),
+        ),
+        array(
+            'id'          => 'simple-network-icon:instance',
+            'type'        => 'INSTANCE',
+            'name'        => 'Simple network icon instance',
+            'componentId' => 'simple-network-icon-key',
+        ),
+    ),
+));
+$instanceSimpleNetworkVectorHtml = $fileContent($instanceSimpleNetworkVectorResult, 'index.html');
+$instanceSimpleNetworkVectorDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $instanceSimpleNetworkVectorResult['diagnostics'] ?? array()
+);
+$assert(str_contains($instanceSimpleNetworkVectorHtml, 'data-figma-node-id="simple-network-icon:instance/simple-network-icon:vector"'), 'instance-simple-network-vector-child-id-namespaced');
+$assert(str_contains($instanceSimpleNetworkVectorHtml, 'd="M0 0L12 0 12 6 0 6Z"') && str_contains($instanceSimpleNetworkVectorHtml, 'fill="#0080ff"'), 'instance-simple-network-vector-renders-size-derived-path');
+$assert(! in_array('unsupported_vector_node_placeholder', $instanceSimpleNetworkVectorDiagnosticCodes, true), 'instance-simple-network-vector-no-placeholder-diagnostic');
+$assert(! in_array('unsupported_vector_network_blob', $instanceSimpleNetworkVectorDiagnosticCodes, true), 'instance-simple-network-vector-no-network-diagnostic');
+
 $nestedInstanceVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Nested Instance Vector Fixture',
     'blobs' => array(array('bytes' => $vectorCommandBlob)),
