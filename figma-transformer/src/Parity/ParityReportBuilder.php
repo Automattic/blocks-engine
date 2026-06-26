@@ -26,6 +26,7 @@ final class ParityReportBuilder
         }
 
         $artifacts = $this->arrayValue($evidence, 'artifacts');
+        $layoutDiagnostics = $this->arrayValue($evidence, 'layout_diagnostics');
         $source = $this->arrayValue($evidence, 'source');
         $generated = $this->arrayValue($evidence, 'generated');
         $diff = $this->nullableArrayValue($evidence, 'diff');
@@ -42,6 +43,11 @@ final class ParityReportBuilder
         $this->copyScalar($evidence, 'diff_image_path', $diff, 'image_path');
         $this->copyScalar($evidence, 'diff_image_url', $diff, 'image_url');
         $this->copyScalar($evidence, 'diff_image_artifact', $diff, 'image_artifact');
+        $this->copyScalar($evidence, 'report_path', $artifacts, 'report_path');
+        $this->copyScalar($evidence, 'report_artifact', $artifacts, 'report_artifact');
+        $this->copyScalar($evidence, 'dom_boxes_path', $artifacts, 'dom_boxes_path');
+        $this->copyScalar($evidence, 'layout_report_path', $artifacts, 'layout_report_path');
+        $this->copyScalar($evidence, 'layout_mismatch_report_path', $artifacts, 'layout_mismatch_report_path');
         $this->copyScalar($evidence, 'frame_id', $source, 'frame_id');
         $this->copyScalar($evidence, 'frame_id', $generated, 'frame_id');
         $this->copyNumeric($evidence, 'pixel_mismatch_count', $diffSummary, 'pixel_mismatch_count');
@@ -49,6 +55,11 @@ final class ParityReportBuilder
         $this->copyNumeric($evidence, 'pixel_mismatch_ratio', $diffSummary, 'pixel_mismatch_ratio');
         $this->copyNumeric($evidence, 'pixel_mismatch_ratio', $metrics, 'pixel_mismatch_ratio');
         $this->copyNumeric($evidence, 'threshold', $diffSummary, 'threshold');
+        $this->copyNumeric($evidence, 'layout_mismatch_count', $layoutDiagnostics, 'mismatch_count');
+
+        if ( isset($evidence['layout_top_nodes']) && is_array($evidence['layout_top_nodes']) ) {
+            $layoutDiagnostics['top_nodes'] = array_values($evidence['layout_top_nodes']);
+        }
 
         if ( array_key_exists('threshold', $diffSummary) && array_key_exists('pixel_mismatch_ratio', $diffSummary) ) {
             $diffSummary['passed'] = (float) $diffSummary['pixel_mismatch_ratio'] <= (float) $diffSummary['threshold'];
@@ -64,6 +75,7 @@ final class ParityReportBuilder
             'side_by_side' => $evidence['side_by_side'] ?? null,
             'diff'         => empty($diff) ? null : $diff,
             'diff_summary' => $diffSummary,
+            'layout_diagnostics' => $layoutDiagnostics,
             'metrics'      => $metrics,
             'viewport'     => $viewport,
         );
