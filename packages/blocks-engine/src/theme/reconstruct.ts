@@ -452,8 +452,10 @@ export async function reconstruct(
   renderOptions: SectionRenderOptions = {}
 ): Promise<SectionBlocks[]> {
   void pool;
-  void renderOptions;
-  const aggregate = reconstructNativeAggregate(specs, optionsFromCtx(ctx));
+  const aggregate = reconstructNativeAggregate(specs, {
+    ...optionsFromCtx(ctx),
+    ...renderOptions,
+  });
   const sections: SectionBlocks[] = [];
 
   for (const decision of aggregate.sections) {

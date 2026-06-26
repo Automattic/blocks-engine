@@ -54,7 +54,14 @@ export async function siteToTheme(
       const specs =
         options?.sections?.[page.slug] ??
         sectionExtract({ ...page, html: chromeRes.mainHtmlByPage[page.slug] ?? page.html });
-      pages[page.slug] = await reconstruct(specs, ctx, pool, hooks, coverageFloor);
+      pages[page.slug] = await reconstruct(
+        specs,
+        ctx,
+        pool,
+        hooks,
+        coverageFloor,
+        options?.renderOptions?.[page.slug]
+      );
     }
 
     const assetStage = await runAssetsStage(ctx, { fetchImpl: options?.fetchImpl });

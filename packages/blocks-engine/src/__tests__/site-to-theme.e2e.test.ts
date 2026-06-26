@@ -797,6 +797,68 @@ describe('site-to-theme P0-3 orchestration', () => {
     });
   });
 
+  it('FTP2g-pre-siteToTheme-renderOptions threads converted sections into reconstruct', async () => {
+    const { siteToTheme } = await import('../theme/index.js');
+    const { fetchImpl } = mockFontFetch();
+    const sectionsByPage = {
+      about: [semanticSpec(0)],
+      home: [semanticSpec(0)],
+    };
+    const convertedMarkup = [
+      '<!-- wp:group {"className":"ftp2g-pre-converted"} -->',
+      '<div class="wp-block-group ftp2g-pre-converted">',
+      '<!-- wp:heading -->',
+      '<h2>Semantic heading</h2>',
+      '<!-- /wp:heading -->',
+      '<!-- wp:paragraph -->',
+      '<p>Semantic body copy.</p>',
+      '<!-- /wp:paragraph -->',
+      '</div>',
+      '<!-- /wp:group -->',
+    ].join('\n');
+
+    await withTempDir('blocks-engine-site-to-theme-render-options-', async (rootDir) => {
+      const siteDir = join(rootDir, 'site');
+      mkdirSync(siteDir);
+      copyFixtureSite(siteDir);
+      const controlOut = join(rootDir, 'theme-control');
+      const injectedOut = join(rootDir, 'theme-injected');
+
+      await siteToTheme(siteDir, {
+        outDir: controlOut,
+        pool: p1Pool(),
+        sections: sectionsByPage,
+        fetchImpl,
+        themeMeta: themeMeta(),
+      });
+
+      await siteToTheme(siteDir, {
+        outDir: injectedOut,
+        pool: p1Pool(),
+        sections: sectionsByPage,
+        renderOptions: {
+          home: {
+            convertedSections: new Map([
+              [0, { markup: convertedMarkup, wpHtmlResidue: 0 }],
+            ]),
+          },
+        },
+        fetchImpl,
+        themeMeta: themeMeta(),
+      });
+
+      const controlTemplate = readFileSync(join(controlOut, 'templates', 'front-page.html'), 'utf8');
+      const injectedTemplate = readFileSync(join(injectedOut, 'templates', 'front-page.html'), 'utf8');
+
+      expect(controlTemplate).toContain('Semantic heading');
+      expect(controlTemplate).toContain('Semantic body copy.');
+      expect(controlTemplate).not.toContain('ftp2g-pre-converted');
+      expect(injectedTemplate).toContain('ftp2g-pre-converted');
+      expect(injectedTemplate).toContain('<p>Semantic body copy.</p>');
+      expect(injectedTemplate).not.toContain('lib-coverage-island');
+    });
+  });
+
   it('siteToTheme-e2e-chrome runs chrome extraction even when body sections are injected', async () => {
     const { siteToTheme } = await import('../theme/index.js');
 
