@@ -15,6 +15,9 @@ $maxPages = (int) ($options['max_pages'] ?? 3);
 $inspectLimit = (int) ($options['inspect_limit'] ?? 100);
 $dryRun = true === ($options['dry_run'] ?? false);
 $inspectOnly = true === ($options['inspect_only'] ?? false);
+$captureDomBoxes = true === ($options['capture_dom_boxes'] ?? false);
+$homeboyCommand = (string) ($options['homeboy_command'] ?? (getenv('HOMEBOY_COMMAND') ?: 'homeboy'));
+$domBoxProviderCommand = (string) ($options['dom_box_provider_command'] ?? (getenv('HOMEBOY_DOM_BOX_CAPTURE_COMMAND') ?: ''));
 $only = isset($options['only']) ? array_filter(array_map('trim', explode(',', (string) $options['only']))) : array();
 $adHocFixtures = matrix_list_option($options['fixture'] ?? array());
 $fontCssPassthrough = matrix_font_css_passthrough($options);
@@ -55,6 +58,9 @@ $summary = array(
     'inspect_limit' => $inspectLimit,
     'dry_run' => $dryRun,
     'inspect_only' => $inspectOnly,
+    'capture_dom_boxes' => $captureDomBoxes,
+    'homeboy_command' => $captureDomBoxes ? $homeboyCommand : null,
+    'dom_box_provider_command_configured' => $captureDomBoxes ? '' !== $domBoxProviderCommand : null,
     'font_css' => $fontCssPassthrough['summary'],
     'evidence' => $evidenceOptions['summary'],
     'fixtures' => array(),
@@ -97,6 +103,13 @@ foreach ( $fixtures as $fixture ) {
         $dryRunFrameIds = $hasDryRunFrameIds ? $fixture['frame_ids'] : array('<selected-frame-ids>');
         $dryRunEntryFrameId = (string) ($fixture['entry_frame_id'] ?? ($hasDryRunFrameIds ? ($dryRunFrameIds[0] ?? '') : '<entry-frame-id>'));
         $record['evidence'] = matrix_fixture_evidence($evidenceOptions, $fixture, matrix_dry_run_pages($dryRunFrameIds));
+        if ( $captureDomBoxes ) {
+            $record['dom_box_capture'] = array(
+                'status' => 'planned',
+                'command' => matrix_dom_box_capture_command($homeboyCommand, $domBoxProviderCommand, $fixtureOutputDir, array('<generated-html-entrypoints>'), $fixtureOutputDir . '/dom-boxes.json'),
+                'report_path' => $fixtureOutputDir . '/dom-boxes.json',
+            );
+        }
         $record['command'] = matrix_transform_command($figmaRoot, $fixturePath, $dryRunFrameIds, $dryRunEntryFrameId, $fixtureOutputDir, $resultPath, $zstdCommand, $maxNodes, $fontCssPassthrough['arguments'], $record['evidence']['transform_arguments'] ?? array());
         $summary['fixtures'][] = $record;
         continue;
@@ -132,14 +145,57 @@ foreach ( $fixtures as $fixture ) {
         continue;
     }
 
-    $command = matrix_transform_command($figmaRoot, $fixturePath, $frameIds, $record['entry_frame_id'], $fixtureOutputDir, $resultPath, $zstdCommand, $maxNodes, $fontCssPassthrough['arguments'], $record['evidence']['transform_arguments'] ?? array());
+    $command = matrix_transform_command($figmaRoot, $fixturePath, $frameIds, $record['entry_frame_id'], $fixtureOutputDir, $resultPath, $zstdCommand, $maxNodes, $fontCssPassthrough['arguments'], $captureDomBoxes ? array() : ($record['evidence']['transform_arguments'] ?? array()));
     $record['command'] = $command;
     passthru($command, $exitCode);
     $record['exit_code'] = $exitCode;
     $record['duration_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
     $record['status'] = 0 === $exitCode ? 'completed' : 'failed';
 
-    if ( 0 === $exitCode && is_file($resultPath) ) {
+    if ( 0 === $exitCode && $captureDomBoxes ) {
+        $domBoxesPath = $fixtureOutputDir . '/dom-boxes.json';
+        $entrypoints = matrix_html_entrypoints($fixtureOutputDir);
+        $captureCommand = matrix_dom_box_capture_command($homeboyCommand, $domBoxProviderCommand, $fixtureOutputDir, $entrypoints, $domBoxesPath);
+        $record['dom_box_capture'] = array(
+            'status' => empty($entrypoints) ? 'no_html_entrypoints' : 'running',
+            'command' => $captureCommand,
+            'report_path' => $domBoxesPath,
+            'entrypoints' => $entrypoints,
+        );
+        if ( ! empty($entrypoints) ) {
+            passthru($captureCommand, $captureExitCode);
+            $record['dom_box_capture']['exit_code'] = $captureExitCode;
+            $record['dom_box_capture']['exists'] = is_file($domBoxesPath);
+            $record['dom_box_capture']['status'] = 0 === $captureExitCode && is_file($domBoxesPath) ? 'completed' : 'failed';
+            if ( 'failed' === $record['dom_box_capture']['status'] ) {
+                $record['status'] = 'dom_box_capture_failed';
+            }
+            if ( 0 === $captureExitCode && is_file($domBoxesPath) ) {
+                $capturedEvidenceOptions = matrix_merge_evidence_templates($evidenceOptions, array(
+                    'dom_boxes_path' => $domBoxesPath,
+                ));
+                $capturedEvidence = matrix_fixture_evidence($capturedEvidenceOptions, $fixture, $record['selected_frames']);
+                $rerunResultPath = $outputDir . '/' . $fixture['id'] . '-result-with-dom-boxes.json';
+                $rerunCommand = matrix_transform_command($figmaRoot, $fixturePath, $frameIds, $record['entry_frame_id'], $fixtureOutputDir, $rerunResultPath, $zstdCommand, $maxNodes, $fontCssPassthrough['arguments'], $capturedEvidence['transform_arguments'] ?? array());
+                $record['dom_box_rerun_command'] = $rerunCommand;
+                passthru($rerunCommand, $rerunExitCode);
+                $record['dom_box_rerun_exit_code'] = $rerunExitCode;
+                if ( 0 === $rerunExitCode && is_file($rerunResultPath) ) {
+                    $resultPath = $rerunResultPath;
+                    $record['result_path'] = $resultPath;
+                    $record['exit_code'] = $rerunExitCode;
+                    $record['evidence'] = $capturedEvidence;
+                    $record['status'] = 'completed';
+                } else {
+                    $record['status'] = 'dom_box_rerun_failed';
+                }
+            }
+        }
+    }
+
+    $record['duration_ms'] = (int) round((microtime(true) - $startedAt) * 1000);
+
+    if ( 'completed' === $record['status'] && is_file($resultPath) ) {
         $result = json_decode((string) file_get_contents($resultPath), true);
         if ( is_array($result) ) {
             $result = matrix_attach_evidence_to_result($result, $record['evidence']);
@@ -156,6 +212,10 @@ foreach ( $fixtures as $fixture ) {
                 $record['quality_status'] = $diagnostics['artifact_quality']['quality_status'] ?? null;
                 $record['quality_summary'] = $diagnostics['artifact_quality']['summary'] ?? null;
                 $record['transform_selection'] = $diagnostics['selection'] ?? null;
+                if ( is_array($record['parity'] ?? null) && is_array($record['quality_summary']) ) {
+                    $record['parity']['layout_mismatch_count'] = $record['quality_summary']['layout_mismatch_count'] ?? $record['parity']['layout_mismatch_count'];
+                    $record['parity']['layout_mismatch_status'] = $record['quality_summary']['layout_mismatch_status'] ?? null;
+                }
             }
         }
     }
@@ -180,6 +240,11 @@ function matrix_options(array $argv): array
 
         if ( '--inspect-only' === $arg ) {
             $options['inspect_only'] = true;
+            continue;
+        }
+
+        if ( '--capture-dom-boxes' === $arg ) {
+            $options['capture_dom_boxes'] = true;
             continue;
         }
 
@@ -281,6 +346,25 @@ function matrix_evidence_options(array $options): array
         'summary' => empty($templates) ? array('source' => 'none') : array(
             'source' => 'runner_paths',
             'templates' => $templates,
+            'template_tokens' => array('{fixture}', '{id}', '{frame_id}', '{page}', '{slug}'),
+        ),
+    );
+}
+
+/**
+ * @param array{templates: array<string, string>, summary: array<string, mixed>} $evidenceOptions
+ * @param array<string, string> $templates
+ * @return array{templates: array<string, string>, summary: array<string, mixed>}
+ */
+function matrix_merge_evidence_templates(array $evidenceOptions, array $templates): array
+{
+    $merged = array_merge($evidenceOptions['templates'], $templates);
+
+    return array(
+        'templates' => $merged,
+        'summary' => empty($merged) ? array('source' => 'none') : array(
+            'source' => 'runner_paths',
+            'templates' => $merged,
             'template_tokens' => array('{fixture}', '{id}', '{frame_id}', '{page}', '{slug}'),
         ),
     );
@@ -496,6 +580,65 @@ function matrix_evidence_transform_arguments(array $paths): array
     }
 
     return $arguments;
+}
+
+/**
+ * @return array<int, string>
+ */
+function matrix_html_entrypoints(string $root): array
+{
+    if ( ! is_dir($root) ) {
+        return array();
+    }
+
+    $entrypoints = array();
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
+    foreach ( $iterator as $file ) {
+        if ( ! $file instanceof SplFileInfo || ! $file->isFile() || 'html' !== strtolower($file->getExtension()) ) {
+            continue;
+        }
+        $path = $file->getPathname();
+        $relative = ltrim(substr($path, strlen(rtrim($root, DIRECTORY_SEPARATOR)) + 1), DIRECTORY_SEPARATOR);
+        $entrypoints[] = str_replace(DIRECTORY_SEPARATOR, '/', $relative);
+    }
+
+    usort($entrypoints, static function (string $a, string $b): int {
+        if ( 'index.html' === $a ) {
+            return 'index.html' === $b ? 0 : -1;
+        }
+        if ( 'index.html' === $b ) {
+            return 1;
+        }
+        return strnatcasecmp($a, $b);
+    });
+
+    return $entrypoints;
+}
+
+/**
+ * @param array<int, string> $entrypoints
+ */
+function matrix_dom_box_capture_command(string $homeboyCommand, string $domBoxProviderCommand, string $root, array $entrypoints, string $reportPath): string
+{
+    $parts = array(
+        escapeshellarg($homeboyCommand),
+        'tunnel',
+        'artifact-origin',
+        'dom-boxes',
+        '--root=' . escapeshellarg($root),
+        '--report=' . escapeshellarg($reportPath),
+    );
+
+    foreach ( $entrypoints as $entrypoint ) {
+        $parts[] = '--entrypoint=' . escapeshellarg($entrypoint);
+    }
+
+    $command = implode(' ', $parts);
+    if ( '' === $domBoxProviderCommand ) {
+        return $command;
+    }
+
+    return 'HOMEBOY_DOM_BOX_CAPTURE_COMMAND=' . escapeshellarg($domBoxProviderCommand) . ' ' . $command;
 }
 
 function matrix_slug(string $value): string
