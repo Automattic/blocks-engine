@@ -321,7 +321,7 @@ final class StaticHtmlEmitter
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
         $children = $this->nodeList($node);
         $content = $text;
-        $vectorSvg = $this->supportedVectorSvg($node, $type);
+        $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
         $assetPath = $this->nodeAssetPath($node);
         $hasVectorAssetFallback = $this->isUnsupportedVectorType($type) && null !== $assetPath;
 
@@ -684,6 +684,8 @@ final class StaticHtmlEmitter
                 'nodes' => array(),
             ),
             'image_heavy_landmark_candidates' => array(),
+            'layout_mismatch_count' => 0,
+            'layout_mismatch_status' => 'not_evaluated',
         );
 
         foreach ( $nodes as $node ) {
@@ -773,6 +775,7 @@ final class StaticHtmlEmitter
                 'severity' => 'warning',
                 'code' => 'fixed_root_width',
                 'count' => (int) $layout['fixed_root_width_count'],
+                'sample_nodes' => array_slice(is_array($layout['fixed_root_width_nodes'] ?? null) ? $layout['fixed_root_width_nodes'] : array(), 0, 10),
             );
         }
         if ( ! empty($layout['large_absolute_offset_count']) ) {
@@ -780,6 +783,7 @@ final class StaticHtmlEmitter
                 'severity' => 'warning',
                 'code' => 'large_absolute_offsets',
                 'count' => (int) $layout['large_absolute_offset_count'],
+                'sample_nodes' => array_slice(is_array($layout['large_absolute_offset_nodes'] ?? null) ? $layout['large_absolute_offset_nodes'] : array(), 0, 10),
             );
         }
         if ( ! empty($layout['image_heavy_landmark_candidates']) ) {
@@ -843,6 +847,8 @@ final class StaticHtmlEmitter
                 'fixed_root_width_count' => (int) ($layout['fixed_root_width_count'] ?? 0),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
+                'layout_mismatch_count' => (int) ($layout['layout_mismatch_count'] ?? 0),
+                'layout_mismatch_status' => (string) ($layout['layout_mismatch_status'] ?? 'not_evaluated'),
             ),
         );
     }
@@ -1011,7 +1017,7 @@ final class StaticHtmlEmitter
         $type = strtoupper((string) ($node['type'] ?? ''));
         if ( $this->isUnsupportedVectorType($type) ) {
             ++$vectors['nodes'];
-            if ( null !== $this->supportedVectorSvg($node, $type) ) {
+            if ( null !== $this->supportedVectorSvg($node, $type, $parentNode) ) {
                 ++$vectors['rendered_paths'];
             } elseif ( null !== $this->nodeAssetPath($node) ) {
                 ++$vectors['rendered_asset_fallbacks'];
@@ -2894,7 +2900,7 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function supportedVectorSvg(array $node, string $type): ?string
+    private function supportedVectorSvg(array $node, string $type, ?array $parentNode = null): ?string
     {
         if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
             return null;
@@ -2909,7 +2915,7 @@ final class StaticHtmlEmitter
 
         $elements = $this->vectorPathElements($node);
         if ( empty($elements) ) {
-            $elements = $this->primitiveVectorElements($node, $type, $width, $height);
+            $elements = $this->primitiveVectorElements($node, $type, $width, $height, $parentNode);
         }
         if ( empty($elements) ) {
             return null;
@@ -3085,7 +3091,7 @@ final class StaticHtmlEmitter
     /**
      * @return array<int, string>
      */
-    private function primitiveVectorElements(array $node, string $type, float $width, float $height): array
+    private function primitiveVectorElements(array $node, string $type, float $width, float $height, ?array $parentNode = null): array
     {
         $paint = $this->svgPaintAttributes($node);
         if ( 'LINE' === $type ) {
@@ -3112,12 +3118,51 @@ final class StaticHtmlEmitter
                 return array();
             }
             if ( 'fill="none"' === $paint[0] && ! $this->hasSvgStroke($paint) ) {
-                return array();
+                if ( $this->hasExplicitVectorSource($node) ) {
+                    return array();
+                }
+                $paint = $this->inheritedVectorPaintAttributes($parentNode);
+                if ( empty($paint) ) {
+                    return array();
+                }
             }
 
             return array('<rect x="0" y="0" width="' . $this->number($width) . '" height="' . $this->number($height) . '" ' . implode(' ', $paint) . '/>');
         }
         return array();
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function inheritedVectorPaintAttributes(?array $parentNode): array
+    {
+        if ( null === $parentNode ) {
+            return array();
+        }
+
+        $fill = $this->backgroundColor($parentNode);
+        return null === $fill ? array() : array('fill="' . $this->sanitizeAttribute($fill) . '"');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasExplicitVectorSource(array $node): bool
+    {
+        foreach ( array('figma_vector_paths', 'vectorPaths', 'paths', 'fillGeometry', 'strokeGeometry') as $key ) {
+            if ( ! empty($node[$key]) ) {
+                return true;
+            }
+        }
+
+        foreach ( array('pathData', 'path', 'd') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== trim((string) $node[$key]) ) {
+                return true;
+            }
+        }
+
+        return isset($node['vectorData']) && is_array($node['vectorData']) && ! empty($node['vectorData']);
     }
 
     private function primitiveStarPath(float $width, float $height): string

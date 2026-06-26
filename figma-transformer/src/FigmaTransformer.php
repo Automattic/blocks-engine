@@ -631,6 +631,7 @@ final class FigmaTransformer
         $layout = is_array($transformDiagnostics['layout'] ?? null) ? $transformDiagnostics['layout'] : array();
         $layout['layout_mismatch'] = $layoutMismatch;
         $layout['layout_mismatch_count'] = (int) ($layoutMismatch['summary']['diagnostic_count'] ?? 0);
+        $layout['layout_mismatch_status'] = (string) ($layoutMismatch['status'] ?? 'not_run');
         $transformDiagnostics['layout'] = $layout;
         $transformDiagnostics['artifact_quality'] = $this->withLayoutMismatchArtifactQuality(
             is_array($transformDiagnostics['artifact_quality'] ?? null) ? $transformDiagnostics['artifact_quality'] : array(),
@@ -680,6 +681,7 @@ final class FigmaTransformer
         $artifactQuality['signals'] = $signals;
         $summary = is_array($artifactQuality['summary'] ?? null) ? $artifactQuality['summary'] : array();
         $summary['layout_mismatch_count'] = $count;
+        $summary['layout_mismatch_status'] = (string) ($layoutMismatch['status'] ?? 'not_run');
         $summary['misplaced_element_count'] = (int) ($layoutMismatch['summary']['code_counts']['misplaced_element'] ?? 0);
         $summary['element_size_mismatch_count'] = (int) ($layoutMismatch['summary']['code_counts']['element_size_mismatch'] ?? 0);
         $summary['element_outside_parent_bounds_count'] = (int) ($layoutMismatch['summary']['code_counts']['element_outside_parent_bounds'] ?? 0);
@@ -710,6 +712,7 @@ final class FigmaTransformer
             'decorative_underlays' => array('count' => 0, 'nodes' => array()),
             'image_heavy_landmark_candidates' => array(),
             'layout_mismatch_count' => 0,
+            'layout_mismatch_status' => 'not_evaluated',
             'layout_mismatches' => array(),
         );
         $fontFamilies = array();
@@ -787,6 +790,9 @@ final class FigmaTransformer
             $pageLayoutMismatch = is_array($pageLayout['layout_mismatch'] ?? null) ? $pageLayout['layout_mismatch'] : array();
             $pageLayoutMismatchDiagnostics = is_array($pageLayoutMismatch['diagnostics'] ?? null) ? $pageLayoutMismatch['diagnostics'] : array();
             $layout['layout_mismatch_count'] += (int) ($pageLayoutMismatch['summary']['diagnostic_count'] ?? count($pageLayoutMismatchDiagnostics));
+            if ( ! empty($pageLayoutMismatch) ) {
+                $layout['layout_mismatch_status'] = 'fail' === ($pageLayoutMismatch['status'] ?? null) ? 'fail' : ('not_evaluated' === $layout['layout_mismatch_status'] ? (string) ($pageLayoutMismatch['status'] ?? 'not_run') : $layout['layout_mismatch_status']);
+            }
             foreach ( $pageLayoutMismatchDiagnostics as $item ) {
                 if ( is_array($item) ) {
                     $layout['layout_mismatches'][] = array_merge($pageContext, $item);
@@ -857,10 +863,20 @@ final class FigmaTransformer
             $signals[] = array('severity' => 'warning', 'code' => 'off_canvas_left_css', 'count' => (int) $layout['large_negative_left_count']);
         }
         if ( ! empty($layout['fixed_root_width_count']) ) {
-            $signals[] = array('severity' => 'warning', 'code' => 'fixed_root_width', 'count' => (int) $layout['fixed_root_width_count']);
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'fixed_root_width',
+                'count' => (int) $layout['fixed_root_width_count'],
+                'sample_nodes' => array_slice(is_array($layout['fixed_root_width_nodes'] ?? null) ? $layout['fixed_root_width_nodes'] : array(), 0, 10),
+            );
         }
         if ( ! empty($layout['large_absolute_offset_count']) ) {
-            $signals[] = array('severity' => 'warning', 'code' => 'large_absolute_offsets', 'count' => (int) $layout['large_absolute_offset_count']);
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'large_absolute_offsets',
+                'count' => (int) $layout['large_absolute_offset_count'],
+                'sample_nodes' => array_slice(is_array($layout['large_absolute_offset_nodes'] ?? null) ? $layout['large_absolute_offset_nodes'] : array(), 0, 10),
+            );
         }
         if ( ! empty($layout['image_heavy_landmark_candidates']) ) {
             $signals[] = array('severity' => 'warning', 'code' => 'image_heavy_landmark_candidate', 'count' => count($layout['image_heavy_landmark_candidates']));
@@ -919,6 +935,7 @@ final class FigmaTransformer
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
                 'layout_mismatch_count' => (int) ($layout['layout_mismatch_count'] ?? 0),
+                'layout_mismatch_status' => (string) ($layout['layout_mismatch_status'] ?? 'not_evaluated'),
             ),
         );
     }
