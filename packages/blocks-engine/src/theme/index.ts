@@ -44,6 +44,7 @@ export {
   sanitize,
   selectIslandSource,
 } from './html-fallback.js';
+export { preserveDomStrategy } from './preserve-dom/strategy.js';
 export {
   collectHtmlImages,
   collectSourceAssets,
