@@ -1,6 +1,6 @@
 import type { WorkerPool } from '../pool/types.js';
 import type { SectionSpec } from './section-spec.js';
-import type { FormRemainder } from './native-reconstruct-types.js';
+import type { FormRemainder, SectionRenderOptions } from './native-reconstruct-types.js';
 import type { SourceCssCarryOptions } from './source-css-carry.js';
 
 export interface SiteModel {
@@ -83,6 +83,7 @@ export interface SiteToThemeOptions extends SourceCssCarryOptions {
   outDir?: string;
   pool?: WorkerPool;
   sections?: Record<string, SectionSpec[]>;
+  renderOptions?: Record<string, SectionRenderOptions>;
   foundationAggregates?: FoundationAggregates;
   hooks?: SiteToThemeHooks;
   fetchImpl?: typeof fetch;

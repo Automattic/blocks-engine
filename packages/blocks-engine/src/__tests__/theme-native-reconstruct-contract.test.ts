@@ -1,7 +1,13 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import type { WorkerPool } from '../pool/types.js';
-import { reconstruct, type SectionBlocks, type SiteToThemeHooks, type StageCtx } from '../theme/index.js';
+import {
+  reconstruct,
+  type SectionBlocks,
+  type SectionRenderOptions,
+  type SiteToThemeHooks,
+  type StageCtx,
+} from '../theme/index.js';
 import type { FallbackDiagnostic } from '../theme/fallback-diagnostic.js';
 import type {
   FormRemainder,
@@ -57,6 +63,7 @@ describe('native reconstruct frozen internal contract', () => {
         pool: WorkerPool,
         hooks: SiteToThemeHooks,
         coverageFloor: number,
+        renderOptions?: SectionRenderOptions,
       ) => Promise<SectionBlocks[]>
     >();
 

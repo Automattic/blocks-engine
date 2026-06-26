@@ -448,9 +448,11 @@ export async function reconstruct(
   ctx: StageCtx,
   pool: WorkerPool,
   hooks: SiteToThemeHooks,
-  coverageFloor: number
+  coverageFloor: number,
+  renderOptions: SectionRenderOptions = {}
 ): Promise<SectionBlocks[]> {
   void pool;
+  void renderOptions;
   const aggregate = reconstructNativeAggregate(specs, optionsFromCtx(ctx));
   const sections: SectionBlocks[] = [];
 

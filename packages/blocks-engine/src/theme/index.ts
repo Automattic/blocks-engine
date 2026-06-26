@@ -105,6 +105,7 @@ export type {
 export type * from './font-faces.js';
 export type { FormBlocksResult } from './form-blocks.js';
 export type { FontFamilyToken } from './page-reconstruct-helpers.js';
+export type { ConvertedSectionInput, SectionRenderOptions } from './native-reconstruct-types.js';
 export type { InternalLinkMap } from './url-rewrite.js';
 export type * from './section-spec.js';
 export type * from './source-assets.js';

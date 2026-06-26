@@ -30,6 +30,7 @@ import {
   type SectionSpecImage,
   type SectionSpecLayout,
   type SectionSpecMotion,
+  type SectionRenderOptions,
   type SiteModel,
   type SitePage,
   type SiteToThemeHooks,
@@ -55,7 +56,8 @@ type ThemeStageSignatures = {
     ctx: StageCtx,
     pool: WorkerPool,
     hooks: SiteToThemeHooks,
-    coverageFloor: number
+    coverageFloor: number,
+    renderOptions?: SectionRenderOptions
   ) => Promise<SectionBlocks[]>;
   assemble: (parts: {
     site: SiteModel;
@@ -291,6 +293,7 @@ type CompileOnlyThemeContractAssignments = {
     {
       outDir: string;
       sections: Record<string, SectionSpec[]>;
+      renderOptions: Record<string, SectionRenderOptions>;
       foundationAggregates: FoundationAggregates;
       hooks: SiteToThemeHooks;
       fetchImpl: typeof fetch;
