@@ -653,6 +653,15 @@ $vectorDataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
             'height'     => 10,
             'vectorData' => array('vectorNetworkBlob' => 1),
         ),
+        array(
+            'id'         => 'vector:data-painted-fallback',
+            'type'       => 'VECTOR',
+            'name'       => 'Painted Network Fallback',
+            'width'      => 12,
+            'height'     => 6,
+            'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 1))),
+            'vectorData' => array('vectorNetworkBlob' => 1),
+        ),
     ),
 ));
 $vectorDataHtml = $fileContent($vectorDataResult, 'index.html');
@@ -669,6 +678,7 @@ $vectorDataDiagnosticCodes = array_map(
 );
 $assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data"') && str_contains($vectorDataHtml, 'data-figma-vector="true"'), 'vector-data-renders-svg');
 $assert(str_contains($vectorDataHtml, 'd="M 0 0 L 10 0 L 10 10 Z"'), 'vector-data-renders-command-blob-path');
+$assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-painted-fallback"') && str_contains($vectorDataHtml, '<rect x="0" y="0" width="12" height="6" fill="#0000ff"/>'), 'vector-data-painted-network-fallback-rect');
 $assert(in_array('unsupported_vector_network_blob', $vectorDataDiagnosticCodes, true), 'vector-data-malformed-network-diagnostic');
 $assert(1 === ($vectorNetworkDiagnostic['context']['byte_length'] ?? null) && 'ff' === ($vectorNetworkDiagnostic['context']['signature_hex'] ?? null), 'vector-network-diagnostic-context');
 

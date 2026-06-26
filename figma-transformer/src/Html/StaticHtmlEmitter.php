@@ -3070,6 +3070,16 @@ final class StaticHtmlEmitter
             $path = $this->primitivePolygonPath($width, $height, $this->polygonPointCount($node));
             return array('<path d="' . $this->sanitizeAttribute($path) . '" ' . implode(' ', $paint) . '/>');
         }
+        if ( in_array($type, array('VECTOR', 'BOOLEAN_OPERATION'), true) ) {
+            if ( 'BOOLEAN_OPERATION' === $type && ! empty($this->nodeList($node)) ) {
+                return array();
+            }
+            if ( 'fill="none"' === $paint[0] && ! $this->hasSvgStroke($paint) ) {
+                return array();
+            }
+
+            return array('<rect x="0" y="0" width="' . $this->number($width) . '" height="' . $this->number($height) . '" ' . implode(' ', $paint) . '/>');
+        }
         return array();
     }
 
