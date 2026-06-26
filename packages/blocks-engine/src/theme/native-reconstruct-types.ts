@@ -38,6 +38,24 @@ export interface NativeSectionResult {
   remainder?: FormRemainder;
 }
 
+export type NativeSectionDecisionKind = 'converted' | 'native' | 'fallback';
+
+export interface NativeSectionDecision extends NativeSectionResult {
+  decision: NativeSectionDecisionKind;
+}
+
+export interface NativeReconstructAggregate {
+  sections: NativeSectionDecision[];
+  sectionMarkup: string[];
+  expectedText: string[];
+  bodyText: string[];
+  expectedAssets: string[];
+  provenanceFlags: string[];
+  fallbackDiagnostics: FallbackDiagnostic[];
+  iconAssets: Array<{ path: string; svg: string }>;
+  heroIsCover: boolean;
+}
+
 export interface ConvertedSectionInput {
   markup: string | null;
   wpHtmlResidue: number;
