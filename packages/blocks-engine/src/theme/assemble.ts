@@ -26,6 +26,7 @@ type ThemeAssemblyParts = ThemeAssemblySourceCssInput & {
   chromeParts?: Record<string, string>;
   chromeSlugsByPage?: Record<string, ChromeSlugs>;
   layoutOffsetWrapperClass?: string;
+  styleBlocks?: Record<string, Record<string, unknown>>;
 };
 
 type PaletteEntry = {
@@ -69,6 +70,7 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
     },
     parts: { ...(parts.chromeParts ?? {}) },
     patterns: {},
+    ...(parts.styleBlocks ? { styleBlocks: parts.styleBlocks } : {}),
     assets: collectAssets(parts),
   };
 }

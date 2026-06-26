@@ -11,6 +11,7 @@ import { reconstruct } from './reconstruct.js';
 import { sectionExtract } from './section-extract.js';
 import { collectSourceAssets, type MediaAsset } from './source-assets.js';
 import { shouldCarrySourceCss } from './source-css-carry.js';
+import { applyHoistSwaps, hoistVariations, type HoistedVariation } from './variation-hoist.js';
 import { writeTheme } from './write-theme.js';
 import type {
   AssetFile,
@@ -64,6 +65,8 @@ export async function siteToTheme(
       );
     }
 
+    const styleBlocks =
+      options?.variationHoist === false ? undefined : hoistPageStyleBlocks(site, pages, warnings);
     const assetStage = await runAssetsStage(ctx, { fetchImpl: options?.fetchImpl });
     const sourceAssets = collectSourceAssets(
       site.root,
@@ -94,6 +97,7 @@ export async function siteToTheme(
       chromeParts: chromeRes.parts,
       chromeSlugsByPage: chromeRes.slugsByPage,
       layoutOffsetWrapperClass,
+      styleBlocks,
       sourceCss: sourceCssCarry?.css,
     });
     const model = hooks.onRefine ? await hooks.onRefine(assembled, ctx) : assembled;
@@ -119,6 +123,65 @@ export async function siteToTheme(
       await pool.stop();
     }
   }
+}
+
+function hoistPageStyleBlocks(
+  site: { pages: Array<{ slug: string }> },
+  pages: Record<string, SectionBlocks[]>,
+  warnings: string[]
+): Record<string, Record<string, unknown>> | undefined {
+  const hoistPages = site.pages
+    .map((page) => ({
+      slug: page.slug,
+      markup: joinHoistSections(pages[page.slug] ?? []),
+    }))
+    .filter((page) => page.markup);
+
+  if (hoistPages.length === 0) return undefined;
+
+  try {
+    const hoisted = hoistVariations(hoistPages);
+    if (hoisted.variations.length === 0) return undefined;
+
+    for (const sections of Object.values(pages)) {
+      for (const section of sections) {
+        section.blocks = applyHoistSwaps(section.blocks, hoisted.variations);
+      }
+    }
+
+    return styleBlocksFromVariations(hoisted.variations);
+  } catch (error) {
+    warnings.push(
+      `variation hoist failed (continuing un-hoisted): ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return undefined;
+  }
+}
+
+function joinHoistSections(sections: SectionBlocks[]): string {
+  return sections
+    .map((section) => section.blocks.trim())
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function styleBlocksFromVariations(
+  variations: HoistedVariation[]
+): Record<string, Record<string, unknown>> {
+  return Object.fromEntries(
+    variations.map((variation) => [
+      `${variation.slug}.json`,
+      {
+        version: 3,
+        slug: variation.slug,
+        title: variation.title,
+        blockTypes: variation.blockTypes,
+        styles: variation.styles,
+      },
+    ])
+  );
 }
 
 function prepareSourceCssCarry(

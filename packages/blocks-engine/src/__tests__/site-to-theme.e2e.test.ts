@@ -859,6 +859,88 @@ describe('site-to-theme P0-3 orchestration', () => {
     });
   });
 
+  it('FTP2h-siteToTheme hoists recurring converted block styles by default with an opt-out', async () => {
+    const { siteToTheme } = await import('../theme/index.js');
+    const { fetchImpl } = mockFontFetch();
+    const sectionsByPage = {
+      about: [semanticSpec(0)],
+      home: [semanticSpec(0), semanticSpec(1)],
+    };
+    const styledConvertedMarkup = [
+      '<!-- wp:group -->',
+      '<div class="wp-block-group">',
+      '<!-- wp:heading -->',
+      '<h2>Semantic heading</h2>',
+      '<!-- /wp:heading -->',
+      '<!-- wp:paragraph {"style":{"typography":{"fontSize":"18px"},"spacing":{"margin":{"top":"1rem"}}}} -->',
+      '<p>Semantic body copy.</p>',
+      '<!-- /wp:paragraph -->',
+      '</div>',
+      '<!-- /wp:group -->',
+    ].join('\n');
+
+    await withTempDir('blocks-engine-site-to-theme-hoist-', async (rootDir) => {
+      const siteDir = join(rootDir, 'site');
+      mkdirSync(siteDir);
+      copyFixtureSite(siteDir);
+      const hoistedOut = join(rootDir, 'theme-hoisted');
+      const optOutOut = join(rootDir, 'theme-opt-out');
+      const renderOptions = {
+        about: {
+          convertedSections: new Map([[0, { markup: styledConvertedMarkup, wpHtmlResidue: 0 }]]),
+        },
+        home: {
+          convertedSections: new Map([
+            [0, { markup: styledConvertedMarkup, wpHtmlResidue: 0 }],
+            [1, { markup: styledConvertedMarkup, wpHtmlResidue: 0 }],
+          ]),
+        },
+      };
+
+      const hoisted = await siteToTheme(siteDir, {
+        outDir: hoistedOut,
+        pool: p1Pool(),
+        sections: sectionsByPage,
+        renderOptions,
+        fetchImpl,
+        themeMeta: themeMeta(),
+      });
+      const optOut = await siteToTheme(siteDir, {
+        outDir: optOutOut,
+        pool: p1Pool(),
+        sections: sectionsByPage,
+        renderOptions,
+        variationHoist: false,
+        fetchImpl,
+        themeMeta: themeMeta(),
+      });
+
+      const variationPath = join(hoistedOut, 'styles', 'blocks', 'lib-paragraph-spacing-typography.json');
+      const hoistedTemplate = readFileSync(join(hoistedOut, 'templates', 'front-page.html'), 'utf8');
+      const optOutTemplate = readFileSync(join(optOutOut, 'templates', 'front-page.html'), 'utf8');
+
+      expect(hoisted.written).toContain('styles/blocks/lib-paragraph-spacing-typography.json');
+      expect(hoisted.model.styleBlocks?.['lib-paragraph-spacing-typography.json']).toEqual({
+        version: 3,
+        slug: 'lib-paragraph-spacing-typography',
+        title: 'Paragraph spacing typography',
+        blockTypes: ['core/paragraph'],
+        styles: { typography: { fontSize: '18px' }, spacing: { margin: { top: '1rem' } } },
+      });
+      expect(JSON.parse(readFileSync(variationPath, 'utf8'))).toEqual(
+        hoisted.model.styleBlocks?.['lib-paragraph-spacing-typography.json']
+      );
+      expect(hoistedTemplate).toContain('"className":"is-style-lib-paragraph-spacing-typography"');
+      expect(hoistedTemplate).not.toContain('"style":{"typography":{"fontSize":"18px"}');
+
+      expect(optOut.written).not.toContain('styles/blocks/lib-paragraph-spacing-typography.json');
+      expect(existsSync(join(optOutOut, 'styles'))).toBe(false);
+      expect(optOut.model.styleBlocks).toBeUndefined();
+      expect(optOutTemplate).toContain('"style":{"typography":{"fontSize":"18px"}');
+      expect(optOutTemplate).not.toContain('is-style-lib-paragraph-spacing-typography');
+    });
+  });
+
   it('siteToTheme-e2e-chrome runs chrome extraction even when body sections are injected', async () => {
     const { siteToTheme } = await import('../theme/index.js');
 
