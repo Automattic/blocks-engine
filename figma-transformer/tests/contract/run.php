@@ -210,8 +210,9 @@ $assert('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"></svg>' === f
 $assert(str_contains((string) file_get_contents($cliOutputRoot . '/artifact/style.css'), 'background-image:url("assets/cli-image.svg")'), 'cli-output-dir-preserves-asset-reference');
 $assert(str_contains($html, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-0.5 -0.5 11 11"'), 'html-vector-blob-svg');
 $assert(str_contains($html, 'd="M 0 0 L 10 0 L 10 10 Z"'), 'html-vector-blob-path');
-$assert(str_contains($css, 'body{margin:0;overflow-x:hidden}'), 'css-static-page-body-shell');
-$assert(str_contains($css, '.figma-root{position:relative;width:100%;max-width:100%;overflow-x:hidden}'), 'css-static-page-root-shell');
+$assert(str_contains($css, 'body{margin:0}'), 'css-static-page-body-shell');
+$assert(str_contains($css, '.figma-root{position:relative;width:100%;max-width:100%}'), 'css-static-page-root-shell');
+$assert(! str_contains($css, 'overflow-x:hidden'), 'css-preserves-horizontal-scroll');
 $assert(! str_contains($css, 'order:'), 'css-avoids-source-order');
 $assert(! str_contains($css, 'font-family:Inter') && ! str_contains($css, 'body{margin:0;background') && ! str_contains($css, 'body{margin:0;color'), 'css-avoids-hardcoded-theme-style');
 
@@ -2564,6 +2565,40 @@ $assert(str_contains($nonzeroRootCanvasOriginCss, '.figma-node-canvas-origin-her
 $assert(str_contains($nonzeroRootCanvasOriginCss, '.figma-node-canvas-origin-cta-cta{width:240px;height:40px;position:absolute;left:200px;top:400px'), 'nonzero-root-canvas-origin-normalizes-text-child');
 $nonzeroRootCanvasOriginDiagnostics = $nonzeroRootCanvasOriginResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
 $assert(0 === ($nonzeroRootCanvasOriginDiagnostics['layout']['large_negative_left_count'] ?? null), 'nonzero-root-canvas-origin-diagnostics-no-large-negative-left');
+
+$positiveRootCanvasOriginResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Positive Root Canvas Origin Fixture',
+    'nodes' => array(
+        array(
+            'id'                  => 'positive-origin:frame',
+            'type'                => 'FRAME',
+            'name'                => 'Positive canvas origin selected frame',
+            'absoluteBoundingBox' => array('x' => 0, 'y' => 0, 'width' => 1200, 'height' => 800),
+            'children'            => array(
+                array(
+                    'id'                  => 'positive-origin:hero',
+                    'type'                => 'FRAME',
+                    'name'                => 'Hero',
+                    'absoluteBoundingBox' => array('x' => 3497, 'y' => 212, 'width' => 1200, 'height' => 600),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                ),
+                array(
+                    'id'                  => 'positive-origin:cta',
+                    'type'                => 'TEXT',
+                    'name'                => 'CTA',
+                    'characters'          => 'Visible copy',
+                    'absoluteBoundingBox' => array('x' => 3697, 'y' => 612, 'width' => 240, 'height' => 40),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                ),
+            ),
+        ),
+    ),
+));
+$positiveRootCanvasOriginCss = $fileContent($positiveRootCanvasOriginResult, 'style.css');
+$assert(str_contains($positiveRootCanvasOriginCss, '.figma-node-positive-origin-hero-hero{width:1200px;height:600px;position:absolute;left:0px;top:0px'), 'positive-root-canvas-origin-normalizes-first-child');
+$assert(str_contains($positiveRootCanvasOriginCss, '.figma-node-positive-origin-cta-cta{width:240px;height:40px;position:absolute;left:200px;top:400px'), 'positive-root-canvas-origin-normalizes-text-child');
+$positiveRootCanvasOriginDiagnostics = $positiveRootCanvasOriginResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+$assert(0 === ($positiveRootCanvasOriginDiagnostics['layout']['large_absolute_offset_count'] ?? null), 'positive-root-canvas-origin-diagnostics-no-large-offset');
 
 $resolvedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Component Instance Fixture',
