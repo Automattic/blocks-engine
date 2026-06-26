@@ -44,6 +44,25 @@ export interface NativeSectionDecision extends NativeSectionResult {
   decision: NativeSectionDecisionKind;
 }
 
+export interface StrategyState {
+  instanceStyles?: unknown;
+}
+
+export interface StrategyDedupOutput {
+  cssRules?: string[];
+}
+
+export interface SectionStrategy {
+  name: string;
+  render(
+    section: SectionSpec,
+    options: SectionRenderOptions,
+    ctx: NativeRenderCtx,
+    state: StrategyState
+  ): NativeSectionDecision | null;
+  drainDedup?(state: StrategyState): StrategyDedupOutput;
+}
+
 export interface NativeReconstructAggregate {
   sections: NativeSectionDecision[];
   sectionMarkup: string[];
@@ -54,6 +73,7 @@ export interface NativeReconstructAggregate {
   fallbackDiagnostics: FallbackDiagnostic[];
   iconAssets: Array<{ path: string; svg: string }>;
   heroIsCover: boolean;
+  dedup?: StrategyDedupOutput;
 }
 
 export interface ConvertedSectionInput {
@@ -68,4 +88,5 @@ export interface SectionRenderOptions {
   fontFamilies?: FontFamilyToken[];
   sourceUrl?: string;
   slug?: string;
+  strategy?: SectionStrategy;
 }

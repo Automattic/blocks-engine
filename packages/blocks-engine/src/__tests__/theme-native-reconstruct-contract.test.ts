@@ -14,6 +14,7 @@ import type {
   NativeReconstructAggregate,
   NativeSectionDecision,
   NativeSectionDecisionKind,
+  StrategyDedupOutput,
 } from '../theme/native-reconstruct-types.js';
 import type { CoverageResult } from '../theme/section-coverage.js';
 import type { SectionSpec } from '../theme/section-spec.js';
@@ -51,6 +52,7 @@ describe('native reconstruct frozen internal contract', () => {
       fallbackDiagnostics: FallbackDiagnostic[];
       iconAssets: Array<{ path: string; svg: string }>;
       heroIsCover: boolean;
+      dedup?: StrategyDedupOutput;
     }>();
   });
 
