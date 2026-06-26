@@ -104,9 +104,160 @@ final class LayoutMismatchReportBuilder
                 'unmatched_source_node_count' => $unmatchedSource,
                 'diagnostic_count' => count($diagnostics),
                 'code_counts' => $codeCounts,
+                'clusters' => $this->diagnosticClusters($diagnostics),
             ),
             'diagnostics' => $diagnostics,
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, array<int, array<string, mixed>>>
+     */
+    private function diagnosticClusters(array $diagnostics): array
+    {
+        return array(
+            'parent_delta' => $this->parentDeltaClusters($diagnostics),
+            'repeated_position_delta' => $this->repeatedPositionDeltaClusters($diagnostics),
+            'node_pattern' => $this->nodePatternClusters($diagnostics),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<int, array<string, mixed>>
+     */
+    private function parentDeltaClusters(array $diagnostics): array
+    {
+        $groups = array();
+        foreach ( $diagnostics as $diagnostic ) {
+            $node = is_array($diagnostic['node'] ?? null) ? $diagnostic['node'] : array();
+            $parentId = isset($node['parent_id']) && is_scalar($node['parent_id']) && '' !== (string) $node['parent_id'] ? (string) $node['parent_id'] : '(root)';
+            $this->addClusterDiagnostic($groups, $parentId, $diagnostic, array('parent_id' => $parentId));
+        }
+
+        return $this->clusterValues($groups);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<int, array<string, mixed>>
+     */
+    private function repeatedPositionDeltaClusters(array $diagnostics): array
+    {
+        $groups = array();
+        foreach ( $diagnostics as $diagnostic ) {
+            $delta = is_array($diagnostic['delta'] ?? null) ? $diagnostic['delta'] : array();
+            if ( ! is_numeric($delta['x'] ?? null) || ! is_numeric($delta['y'] ?? null) ) {
+                continue;
+            }
+
+            $x = (int) round((float) $delta['x']);
+            $y = (int) round((float) $delta['y']);
+            $key = 'x:' . $x . '|y:' . $y;
+            $this->addClusterDiagnostic($groups, $key, $diagnostic, array('delta' => array('x' => $x, 'y' => $y)));
+        }
+
+        return array_values(array_filter(
+            $this->clusterValues($groups),
+            static fn (array $cluster): bool => 1 < (int) ($cluster['count'] ?? 0)
+        ));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<int, array<string, mixed>>
+     */
+    private function nodePatternClusters(array $diagnostics): array
+    {
+        $groups = array();
+        foreach ( $diagnostics as $diagnostic ) {
+            $node = is_array($diagnostic['node'] ?? null) ? $diagnostic['node'] : array();
+            $type = isset($node['type']) && is_scalar($node['type']) && '' !== (string) $node['type'] ? (string) $node['type'] : '(unknown)';
+            $namePattern = $this->namePattern(isset($node['name']) && is_scalar($node['name']) ? (string) $node['name'] : '');
+            $key = $type . '|' . $namePattern;
+            $this->addClusterDiagnostic($groups, $key, $diagnostic, array('type' => $type, 'name_pattern' => $namePattern));
+        }
+
+        return $this->clusterValues($groups);
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $groups
+     * @param array<string, mixed> $diagnostic
+     * @param array<string, mixed> $fields
+     */
+    private function addClusterDiagnostic(array &$groups, string $key, array $diagnostic, array $fields): void
+    {
+        if ( ! isset($groups[$key]) ) {
+            $groups[$key] = array_merge($fields, array(
+                'count' => 0,
+                'max_delta' => 0.0,
+                'average_delta' => array('x' => 0.0, 'y' => 0.0),
+                'code_counts' => array(),
+                'sample_nodes' => array(),
+                '_delta_x_total' => 0.0,
+                '_delta_y_total' => 0.0,
+            ));
+        }
+
+        $delta = is_array($diagnostic['delta'] ?? null) ? $diagnostic['delta'] : array();
+        $deltaX = is_numeric($delta['x'] ?? null) ? (float) $delta['x'] : 0.0;
+        $deltaY = is_numeric($delta['y'] ?? null) ? (float) $delta['y'] : 0.0;
+        $groups[$key]['count']++;
+        $groups[$key]['_delta_x_total'] += $deltaX;
+        $groups[$key]['_delta_y_total'] += $deltaY;
+        $groups[$key]['max_delta'] = max((float) $groups[$key]['max_delta'], is_numeric($diagnostic['max_delta'] ?? null) ? (float) $diagnostic['max_delta'] : 0.0);
+
+        $code = isset($diagnostic['code']) && is_scalar($diagnostic['code']) ? (string) $diagnostic['code'] : '';
+        if ( '' !== $code ) {
+            $groups[$key]['code_counts'][$code] = ($groups[$key]['code_counts'][$code] ?? 0) + 1;
+        }
+
+        $node = is_array($diagnostic['node'] ?? null) ? $diagnostic['node'] : array();
+        if ( count($groups[$key]['sample_nodes']) < 3 ) {
+            $groups[$key]['sample_nodes'][] = array_filter(array(
+                'id' => isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : null,
+                'name' => isset($node['name']) && is_scalar($node['name']) ? (string) $node['name'] : null,
+                'type' => isset($node['type']) && is_scalar($node['type']) ? (string) $node['type'] : null,
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+        }
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $groups
+     * @return array<int, array<string, mixed>>
+     */
+    private function clusterValues(array $groups): array
+    {
+        $clusters = array_values(array_map(
+            static function (array $cluster): array {
+                $count = max(1, (int) $cluster['count']);
+                $cluster['average_delta'] = array(
+                    'x' => round((float) $cluster['_delta_x_total'] / $count, 2),
+                    'y' => round((float) $cluster['_delta_y_total'] / $count, 2),
+                );
+                ksort($cluster['code_counts']);
+                unset($cluster['_delta_x_total'], $cluster['_delta_y_total']);
+                return $cluster;
+            },
+            $groups
+        ));
+
+        usort(
+            $clusters,
+            static fn (array $left, array $right): int => ((int) ($right['count'] ?? 0) <=> (int) ($left['count'] ?? 0)) ?: ((float) ($right['max_delta'] ?? 0.0) <=> (float) ($left['max_delta'] ?? 0.0))
+        );
+
+        return array_slice($clusters, 0, 10);
+    }
+
+    private function namePattern(string $name): string
+    {
+        $pattern = strtolower(trim(preg_replace('/\s+/', ' ', preg_replace('/\d+/', '#', $name) ?? '') ?? ''));
+        $pattern = trim(preg_replace('/[^a-z#]+/', ' ', $pattern) ?? '');
+
+        return '' === $pattern ? '(unnamed)' : $pattern;
     }
 
     /**
