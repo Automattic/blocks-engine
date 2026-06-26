@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-linked-resource-card-grid",
+  "description": "Preserves card-level hrefs when anchors wrap resource-card content in a grid.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-linked-resource-card-grid.json",
+    "notes": "Product-neutral coverage for resource/card grids where the whole card is an anchor."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"resource-grid\"><a class=\"resource-card\" href=\"/resources/block-patterns\"><div class=\"resource-card__media\"><img src=\"/assets/patterns.jpg\" alt=\"Pattern examples\"></div><div class=\"resource-card__content\"><p class=\"resource-card__eyebrow\">Guide</p><h3>Block Pattern Basics</h3><p>Learn how reusable layouts are assembled.</p></div></a><a class=\"resource-card\" href=\"/resources/site-launch\" target=\"_blank\" rel=\"noopener\"><div class=\"resource-card__content\"><p class=\"resource-card__eyebrow\">Checklist</p><h3>Launch Review</h3><p>Confirm content, navigation, and assets.</p></div></a></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "resource-grid", "layout": { "type": "grid" } } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "resource-card", "href": "/resources/block-patterns" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "resource-card__media" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "resource-card__content" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "resource-card", "href": "/resources/site-launch", "target": "_blank", "rel": "noopener" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"href\":\"/resources/block-patterns\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"href\":\"/resources/site-launch\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<p><a class=\"resource-card\"" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

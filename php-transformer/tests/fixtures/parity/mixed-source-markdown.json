@@ -22,7 +22,8 @@
     { "path": "converted", "assert": "contains", "value": "href=\"notes.markdown\"" },
     { "path": "blocks", "assert": "count", "count": 3 },
     { "path": "blocks.0.blockName", "assert": "equals", "value": "core/heading" },
-    { "path": "blocks.2.attrs.content", "assert": "contains", "value": "notes.markdown" },
+    { "path": "blocks.2.innerHTML", "assert": "contains", "value": "href=\"notes.markdown\"" },
+    { "path": "blocks.2.attrs.content", "assert": "equals", "value": null },
     { "path": "supported_formats", "assert": "equals", "value": ["blocks", "html", "markdown"] }
   ]
 }

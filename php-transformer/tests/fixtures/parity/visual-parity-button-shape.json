@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "visual-parity-button-shape",
+  "description": "Extracts normalized button and CTA visual probes from raw static HTML, including color, border, radius, and padding signals.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/visual-parity-button-shape.json",
+    "notes": "Generic visual parity probe fixture; not coupled to SSI."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Probe output is a new upstream diagnostic surface."
+  },
+  "operation": "visual_parity_probe.extract",
+  "input": {
+    "content": "<style>.btn-primary{display:inline-flex;background-color:#0a5;color:#fff;border:2px solid #072;border-radius:999px;padding:12px 24px;font-weight:700}.secondary-action{background-color:transparent;color:#0a5;border:1px solid currentColor;border-radius:8px;padding:10px 18px}</style><main><a class=\"btn-primary\" href=\"/start\">Get started</a><button class=\"secondary-action\" style=\"border-radius:10px; padding:9px 16px\">Learn more</button></main>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/visual-parity-probes/v1" },
+    { "path": "summary.total", "assert": "equals", "value": 2 },
+    { "path": "summary.by_kind.cta", "assert": "equals", "value": 2 },
+    { "path": "probes.0.kind", "assert": "equals", "value": "cta" },
+    { "path": "probes.0.href", "assert": "equals", "value": "/start" },
+    { "path": "probes.0.style.background-color", "assert": "equals", "value": "#0a5" },
+    { "path": "probes.0.style.border-radius", "assert": "equals", "value": "999px" },
+    { "path": "probes.0.style.padding", "assert": "equals", "value": "12px 24px" },
+    { "path": "probes.1.style.border-radius", "assert": "equals", "value": "10px" },
+    { "path": "probes.1.geometry.padding", "assert": "equals", "value": "9px 16px" }
+  ]
+}

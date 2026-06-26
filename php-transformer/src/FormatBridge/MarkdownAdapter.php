@@ -209,6 +209,7 @@ final class MarkdownAdapter implements FormatAdapterInterface
             'core/list-item',
             'core/navigation',
             'core/navigation-link',
+            'core/navigation-submenu',
             'core/paragraph',
             'core/preformatted',
             'core/pullquote',

@@ -28,6 +28,9 @@ final class ConversionReportProjection
             'fallback_diagnostics'  => self::fallbackDiagnostics($fallbacks),
             'asset_refs'            => self::assetReferences($blocks, $sourceReports),
             'navigation_candidates' => self::navigationCandidates($blocks, $sourceReports),
+            'semantic_parity'       => self::semanticParity($sourceReports),
+            'runtime_dependency_parity' => self::runtimeDependencyParity($sourceReports),
+            'interaction_candidates' => self::interactionCandidates($sourceReports),
             'presentation_gaps'     => self::presentationGaps($sourceReports),
             'metrics'               => $metrics,
         );
@@ -118,21 +121,29 @@ final class ConversionReportProjection
                     'type'            => $fallback['type'] ?? '',
                     'reason'          => $fallback['reason'] ?? '',
                     'diagnostic_code' => $fallback['diagnostic_code'] ?? '',
+                    'severity'        => $fallback['severity'] ?? '',
+                    'runtime_requirement' => $fallback['runtime_requirement'] ?? '',
+                    'recoverability'  => $fallback['recoverability'] ?? '',
+                    'actionability'   => $fallback['actionability'] ?? '',
+                    'suggested_primitive' => $fallback['suggested_primitive'] ?? '',
+                    'materialization_hint' => $fallback['materialization_hint'] ?? '',
                     'source_format'   => $fallback['source_format'] ?? '',
                     'source'          => $fallback['source'] ?? '',
                     'scope'           => $fallback['scope'] ?? '',
-                    'source_path'     => $fallback['source_path'] ?? '',
-                    'tag'             => $fallback['tag'] ?? '',
-                    'selector'        => $fallback['selector'] ?? '',
-                    'child_count'     => $fallback['child_count'] ?? null,
-                    'control_count'   => $fallback['control_count'] ?? null,
-                    'form'            => $fallback['form'] ?? array(),
-                    'control'         => $fallback['control'] ?? array(),
-                    'controls'        => $fallback['controls'] ?? array(),
-                    'context'         => $fallback['context'] ?? array(),
-                    'events'          => $fallback['events'] ?? array(),
-                    'html_bytes'      => $fallback['html_bytes'] ?? (isset($fallback['html']) && is_string($fallback['html']) ? strlen($fallback['html']) : null),
-                    'html_truncated'  => $fallback['html_truncated'] ?? null,
+                    'source_path'            => $fallback['source_path'] ?? '',
+                    'tag'                    => $fallback['tag'] ?? '',
+                    'selector'               => $fallback['selector'] ?? '',
+                    'child_count'            => $fallback['child_count'] ?? null,
+                    'control_count'          => $fallback['control_count'] ?? null,
+                    'form'                   => $fallback['form'] ?? array(),
+                    'control'                => $fallback['control'] ?? array(),
+                    'controls'               => $fallback['controls'] ?? array(),
+                    'context'                => $fallback['context'] ?? array(),
+                    'events'                 => $fallback['events'] ?? array(),
+                    'script_dependency_hint' => $fallback['script_dependency_hint'] ?? '',
+                    'readable_blocks'        => $fallback['readable_blocks'] ?? array(),
+                    'html_bytes'             => $fallback['html_bytes'] ?? (isset($fallback['html']) && is_string($fallback['html']) ? strlen($fallback['html']) : null),
+                    'html_truncated'         => $fallback['html_truncated'] ?? null,
                 ),
                 static fn (mixed $value): bool => null !== $value && '' !== $value
             );
@@ -248,6 +259,40 @@ final class ConversionReportProjection
         }
 
         return $gaps;
+    }
+
+    /**
+     * @param array<string, mixed> $sourceReports
+     * @return array<int, array<string, mixed>>
+     */
+    private static function interactionCandidates(array $sourceReports): array
+    {
+        $candidates = $sourceReports['interaction_candidates'] ?? array();
+        if ( ! is_array($candidates) ) {
+            return array();
+        }
+
+        return self::dedupeRows(array_values(array_filter($candidates, static fn (mixed $candidate): bool => is_array($candidate))));
+    }
+
+    /**
+     * @param array<string, mixed> $sourceReports
+     * @return array<string, mixed>
+     */
+    private static function semanticParity(array $sourceReports): array
+    {
+        $report = $sourceReports['semantic_parity'] ?? array();
+        return is_array($report) ? $report : array();
+    }
+
+    /**
+     * @param array<string, mixed> $sourceReports
+     * @return array<string, mixed>
+     */
+    private static function runtimeDependencyParity(array $sourceReports): array
+    {
+        $report = $sourceReports['runtime_dependency_parity'] ?? array();
+        return is_array($report) ? $report : array();
     }
 
     /**

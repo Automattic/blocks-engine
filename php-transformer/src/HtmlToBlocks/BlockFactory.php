@@ -29,11 +29,24 @@ final class BlockFactory
 
         return array(
             'blockName'    => $name,
-            'attrs'        => $attrs,
+            'attrs'        => $this->commentAttrs($name, $attrs),
             'innerBlocks'  => $innerBlocks,
             'innerHTML'    => $innerHtml,
             'innerContent' => $innerContent,
         );
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function commentAttrs(string $name, array $attrs): array
+    {
+        if ( 'core/paragraph' === $name && preg_match('/^\s*<a\b/i', (string) ($attrs['content'] ?? '')) ) {
+            unset($attrs['content']);
+        }
+
+        return $attrs;
     }
 
     /**
@@ -143,6 +156,10 @@ final class BlockFactory
             return $this->mediaHtml('audio', $attrs);
         }
 
+        if ( 'core/search' === $name ) {
+            return $this->searchHtml($attrs);
+        }
+
         if ( 'core/html' === $name ) {
             return (string) ($attrs['content'] ?? '');
         }
@@ -152,8 +169,29 @@ final class BlockFactory
         }
 
         if ( 'core/button' === $name ) {
+            if ( 'button' === ($attrs['tagName'] ?? '') ) {
+                $buttonAttrs = array_intersect_key($attrs, array_flip(array( 'type', 'role', 'aria-label', 'aria-controls', 'aria-expanded', 'aria-haspopup' )));
+                foreach ( $attrs as $attrName => $attrValue ) {
+                    if ( is_string($attrName) && str_starts_with(strtolower($attrName), 'data-') ) {
+                        $buttonAttrs[$attrName] = (string) $attrValue;
+                    }
+                }
+                $buttonAttrs = array_merge(array(
+                    'id'    => (string) ($attrs['anchor'] ?? ''),
+                    'class' => $this->mergeClassNames('wp-block-button__link wp-element-button', (string) ($attrs['className'] ?? '')),
+                    'style' => (string) ($attrs['style'] ?? ''),
+                ), $buttonAttrs);
+
+                return '<div class="wp-block-button"><button' . $this->htmlAttrs($buttonAttrs) . '>' . ($attrs['text'] ?? '') . '</button></div>';
+            }
+
             $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-            return '<div class="wp-block-button"><a class="wp-block-button__link wp-element-button"' . $href . '>' . ($attrs['text'] ?? '') . '</a></div>';
+            $wrapperClass = $this->mergeClassNames('wp-block-button', in_array('is-style-outline', preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true) ? 'is-style-outline' : '');
+            $linkAttrs = array(
+                'class' => $this->mergeClassNames('wp-block-button__link wp-element-button', (string) ($attrs['className'] ?? '')),
+                'style' => (string) ($attrs['style'] ?? ''),
+            );
+            return '<div class="' . htmlspecialchars($wrapperClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"><a' . $this->htmlAttrs($linkAttrs) . $href . '>' . ($attrs['text'] ?? '') . '</a></div>';
         }
 
         if ( 'core/navigation' === $name ) {
@@ -162,7 +200,15 @@ final class BlockFactory
 
         if ( 'core/navigation-link' === $name ) {
             $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-            return '<li' . $this->blockSupportAttrs($attrs, 'wp-block-navigation-item wp-block-navigation-link') . '><a class="wp-block-navigation-item__content"' . $href . '><span class="wp-block-navigation-item__label">' . ($attrs['label'] ?? '') . '</span></a></li>';
+            return '<li' . $this->blockSupportAttrs($attrs, 'wp-block-navigation-item wp-block-navigation-link') . '><a' . $this->navigationAnchorAttrs($attrs, $href) . '><span class="wp-block-navigation-item__label">' . ($attrs['label'] ?? '') . '</span></a></li>';
+        }
+
+        if ( 'core/navigation-submenu' === $name ) {
+            $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
+            return array(
+                'opening' => '<li' . $this->blockSupportAttrs($attrs, 'wp-block-navigation-item has-child wp-block-navigation-submenu') . '><a' . $this->navigationAnchorAttrs($attrs, $href) . '><span class="wp-block-navigation-item__label">' . ($attrs['label'] ?? '') . '</span></a><ul' . $this->navigationSubmenuAttrs($attrs) . '>',
+                'closing' => '</ul></li>',
+            );
         }
 
         if ( 'core/shortcode' === $name ) {
@@ -226,6 +272,18 @@ final class BlockFactory
         );
 
         $img = '<img' . $this->htmlAttrs($imageAttrs, array( 'alt' )) . '/>';
+        if ( ! empty($attrs['href']) ) {
+            $linkAttrs = array(
+                'href'        => (string) $attrs['href'],
+                'target'      => (string) ($attrs['linkTarget'] ?? ''),
+                'rel'         => (string) ($attrs['rel'] ?? ''),
+                'class'       => (string) ($attrs['linkClass'] ?? ''),
+                'aria-label'  => (string) ($attrs['linkAriaLabel'] ?? ''),
+                'aria-hidden' => (string) ($attrs['linkAriaHidden'] ?? ''),
+                'tabindex'    => (string) ($attrs['linkTabIndex'] ?? ''),
+            );
+            $img = '<a' . $this->htmlAttrs($linkAttrs) . '>' . $img . '</a>';
+        }
         $caption = ! empty($attrs['caption']) ? '<figcaption class="wp-element-caption">' . $attrs['caption'] . '</figcaption>' : '';
         return '<figure' . $this->blockSupportAttrs($figureAttrs, 'wp-block-image') . '>' . $img . $caption . '</figure>';
     }
@@ -288,6 +346,30 @@ final class BlockFactory
         return '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-' . $tagName) . '><' . $tagName . $this->htmlAttrs($mediaAttrs) . '></' . $tagName . '>' . $caption . '</figure>';
     }
 
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function searchHtml(array $attrs): string
+    {
+        $inputId = (string) ($attrs['inputAnchor'] ?? '');
+        $label = (string) ($attrs['label'] ?? 'Search');
+        $labelAttrs = array(
+            'class' => 'wp-block-search__label',
+            'for'   => $inputId,
+        );
+        $inputAttrs = array(
+            'type'        => 'search',
+            'id'          => $inputId,
+            'class'       => $this->mergeClassNames('wp-block-search__input', (string) ($attrs['inputClassName'] ?? '')),
+            'name'        => 's',
+            'placeholder' => (string) ($attrs['placeholder'] ?? ''),
+        );
+        $buttonText = (string) ($attrs['buttonText'] ?? 'Search');
+        $button = '' !== trim($buttonText) ? '<button type="submit" class="wp-block-search__button wp-element-button">' . $buttonText . '</button>' : '';
+
+        return '<form role="search" method="get"' . $this->blockSupportAttrs($attrs, 'wp-block-search') . '><label' . $this->htmlAttrs($labelAttrs) . '>' . $label . '</label><div class="wp-block-search__inside-wrapper"><input' . $this->htmlAttrs($inputAttrs) . ' />' . $button . '</div></form>';
+    }
+
     private function mergeClassNames(string ...$classNames): string
     {
         $classes = array();
@@ -309,8 +391,31 @@ final class BlockFactory
     {
         $classes = $this->mergeClassNames($baseClass, (string) ($attrs['className'] ?? ''));
         return $this->htmlAttrs(array(
+            'id'    => (string) ($attrs['anchor'] ?? ''),
             'class' => $classes,
             'style' => (string) ($attrs['style'] ?? ''),
+        ));
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function navigationAnchorAttrs(array $attrs, string $href): string
+    {
+        return $this->htmlAttrs(array(
+            'class' => $this->mergeClassNames('wp-block-navigation-item__content', (string) ($attrs['anchorClassName'] ?? '')),
+            'style' => (string) ($attrs['anchorStyle'] ?? ''),
+        )) . $href;
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function navigationSubmenuAttrs(array $attrs): string
+    {
+        return $this->htmlAttrs(array(
+            'class' => $this->mergeClassNames('wp-block-navigation__submenu-container', (string) ($attrs['submenuClassName'] ?? '')),
+            'style' => (string) ($attrs['submenuStyle'] ?? ''),
         ));
     }
 

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+
 /**
  * Normalizes loose website artifact envelopes into compiler-ready file records.
  *
@@ -11,8 +13,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 final class ArtifactNormalizer
 {
     public const DEFAULT_MAX_FILES = 500;
-    public const DEFAULT_MAX_FILE_BYTES = 1048576;
-    public const DEFAULT_MAX_TOTAL_BYTES = 10485760;
+    public const DEFAULT_MAX_FILE_BYTES = 5242880;
+    public const DEFAULT_MAX_TOTAL_BYTES = 52428800;
 
     /**
      * @param array<string, mixed> $artifact
@@ -40,10 +42,10 @@ final class ArtifactNormalizer
             }
         }
 
-        $rawFiles = $this->rawFiles($artifact);
+        $rawFiles = $this->withInlineStyleFiles($this->rawFiles($artifact));
         $safeEntrypoints = array();
         foreach ( array_unique($entrypoints) as $entrypoint ) {
-            $path = $this->safeRelativePath($entrypoint);
+            $path = ArtifactPath::safeRelativePath($entrypoint);
             if ( '' === $path ) {
                 $diagnostics[] = $this->diagnostic('unsafe_entrypoint_path', 'warning', 'An artifact entrypoint was ignored because its path is empty, absolute, or escapes the artifact root.', array('path' => $entrypoint));
                 continue;
@@ -58,7 +60,7 @@ final class ArtifactNormalizer
                 break;
             }
 
-            $path = $this->safeRelativePath((string) ($file['path'] ?? ''));
+            $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
             if ( '' === $path ) {
                 ++$rejected;
                 $diagnostics[] = $this->diagnostic('unsafe_artifact_path', 'warning', 'An artifact file was ignored because its path is empty, absolute, or escapes the artifact root.', array('index' => $index));
@@ -202,6 +204,71 @@ final class ArtifactNormalizer
     }
 
     /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function withInlineStyleFiles(array $files): array
+    {
+        $expanded = array();
+        foreach ( $files as $file ) {
+            $expanded[] = $file;
+
+            $content = is_string($file['content'] ?? null) ? (string) $file['content'] : '';
+            if ( '' === trim($content) || ! $this->isHtmlLikeFile($file) || ! preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $content, $matches) ) {
+                continue;
+            }
+
+            $css = trim(implode("\n", array_filter(array_map(
+                static fn (string $style): string => trim($style),
+                $matches[1]
+            ), static fn (string $style): bool => '' !== $style)));
+            if ( '' === $css ) {
+                continue;
+            }
+
+            $expanded[] = array(
+                'path'      => $this->inlineStylePath((string) ($file['path'] ?? 'index.html')),
+                'content'   => $css,
+                'kind'      => 'css',
+                'mime_type' => 'text/css',
+                'role'      => 'stylesheet',
+                'intent'    => 'style',
+                'source'    => 'inline-style',
+            );
+        }
+
+        return $expanded;
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     */
+    private function isHtmlLikeFile(array $file): bool
+    {
+        $kind = strtolower((string) ($file['kind'] ?? $file['type'] ?? ''));
+        $mimeType = strtolower((string) ($file['mime_type'] ?? $file['mime'] ?? $file['media_type'] ?? ''));
+        $path = strtolower((string) ($file['path'] ?? ''));
+
+        return ( in_array($kind, array( '', 'html' ), true) || str_contains($kind, 'html') )
+            && ( '' === $mimeType || str_contains($mimeType, 'html') )
+            && ( '' === $path || preg_match('/\.html?$/', $path) || 'index.html' === $path );
+    }
+
+    private function inlineStylePath(string $htmlPath): string
+    {
+        $path = ArtifactPath::safeRelativePath($htmlPath);
+        if ( '' === $path ) {
+            return 'inline-styles.css';
+        }
+
+        $directory = trim((string) pathinfo($path, PATHINFO_DIRNAME), '.');
+        $filename = pathinfo($path, PATHINFO_FILENAME);
+        $stylePath = ('' === $filename ? 'inline' : $filename) . '.inline.css';
+
+        return '' === $directory ? $stylePath : $directory . '/' . $stylePath;
+    }
+
+    /**
      * @param array<string, mixed> $file
      * @return array{accepted: bool, content: string, content_base64: string, encoding: string, binary: bool, bytes: int, diagnostics: array<int, array<string, mixed>>}
      */
@@ -225,26 +292,6 @@ final class ArtifactNormalizer
 
         $content = $this->normalizeContent($file['content'] ?? $file['body'] ?? $file['text'] ?? '');
         return array('accepted' => true, 'content' => $content, 'content_base64' => '', 'encoding' => 'text', 'binary' => false, 'bytes' => strlen($content), 'diagnostics' => array());
-    }
-
-    private function safeRelativePath(string $path): string
-    {
-        $path = str_replace('\\', '/', trim($path));
-        if ( '' === $path || str_starts_with($path, '/') || preg_match('#^[A-Za-z]:/#', $path) ) {
-            return '';
-        }
-        $parts = array();
-        foreach ( explode('/', $path) as $part ) {
-            if ( '' === $part || '.' === $part ) {
-                continue;
-            }
-            if ( '..' === $part ) {
-                return '';
-            }
-            $parts[] = $part;
-        }
-
-        return implode('/', $parts);
     }
 
     private function kind(string $kind, string $path, string $content, string $mimeType): string

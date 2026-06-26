@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-anchor-inline-patterns",
+  "description": "Converts safe image-only and empty labeled anchors without unsupported-element fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-anchor-inline-patterns.json",
+    "notes": "Covers raw fixture corpus anchor fallbacks for linked thumbnails and empty logo/home anchors."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This fixture covers a PHP transformer fallback reduction beyond the legacy converter behavior."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<a href=\"single.html\" tabindex=\"-1\" aria-hidden=\"true\"><img src=\"assets/photos/thumb-stop-motion.png\" alt=\"\"></a><a class=\"bp-logo\" href=\"index.html\" aria-label=\"The Baseplate - home\"></a>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/image", "attrs": { "url": "assets/photos/thumb-stop-motion.png", "href": "single.html", "linkDestination": "custom", "linkAriaHidden": "true", "linkTabIndex": "-1" } },
+    { "path": "blocks.1", "name": "core/paragraph", "attrs": { "className": "bp-logo" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"single.html\" aria-hidden=\"true\" tabindex=\"-1\"><img src=\"assets/photos/thumb-stop-motion.png\" alt=\"\"/></a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"bp-logo\" href=\"index.html\" aria-label=\"The Baseplate - home\"></a>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\\u003ca class=\\u0022bp-logo" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

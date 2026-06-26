@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "visual-parity-linked-card-plain-link",
+  "description": "Separates linked card probes from ordinary plain links so regressions do not silently turn editorial links into buttons.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/visual-parity-linked-card-plain-link.json",
+    "notes": "Generic linked-card and plain-link regression fixture."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Probe output is a new upstream diagnostic surface."
+  },
+  "operation": "visual_parity_probe.extract",
+  "input": {
+    "content": "<main><a class=\"article-card featured\" href=\"/story\"><div class=\"thumb\"></div><h3>Story title</h3><p>Story excerpt.</p></a><p>Read the <a href=\"/docs\">documentation</a> before launch.</p><a class=\"wp-block-button__link wp-element-button\" href=\"/buy\">Buy now</a></main>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "summary.total", "assert": "equals", "value": 3 },
+    { "path": "summary.by_kind.linked_card", "assert": "equals", "value": 1 },
+    { "path": "summary.by_kind.plain_link", "assert": "equals", "value": 1 },
+    { "path": "summary.by_kind.cta", "assert": "equals", "value": 1 },
+    { "path": "probes.0.kind", "assert": "equals", "value": "linked_card" },
+    { "path": "probes.0.geometry.child_element_count", "assert": "equals", "value": 3 },
+    { "path": "probes.1.kind", "assert": "equals", "value": "plain_link" },
+    { "path": "probes.1.signals.0", "assert": "equals", "value": "plain-link-regression-watch" },
+    { "path": "probes.2.kind", "assert": "equals", "value": "cta" }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-single-child-flex-svg",
+  "description": "Converts a single visual SVG inside a flex centering wrapper without leaking failed column-probe fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-single-child-flex-svg.json",
+    "notes": "Covers generic flex wrappers that are visual alignment containers, not multi-column layouts."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This covers current PHP transformer wrapper classification behavior."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div style=\"display:flex;justify-content:center\"><svg viewBox=\"0 0 20 20\" aria-label=\"Measurement diagram\"><text x=\"10\" y=\"10\" text-anchor=\"middle\" font-family=\"monospace\" font-size=\"8\">GIRTH</text><line x1=\"2\" y1=\"15\" x2=\"18\" y2=\"15\" stroke=\"currentColor\" /></svg></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "layout": { "type": "flex" } } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "alt": "Measurement diagram" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "metrics.block_count", "assert": "equals", "value": 2 },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/inline-svg-" },
+    { "path": "assets.0.content", "assert": "contains", "value": "GIRTH" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.conversion_report.metrics.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

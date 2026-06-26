@@ -1,0 +1,38 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-runtime-form-readable-controls",
+  "description": "Keeps runtime-backed forms visible as readable blocks while preserving fallback metadata for submit behavior.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-runtime-form-readable-controls.json",
+    "notes": "Product-neutral coverage for newsletter/contact forms with client-side submit handlers."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section><h2>Newsletter</h2><form class=\"signup\" onsubmit=\"return subscribe(event)\"><input type=\"email\" required placeholder=\"you@example.com\" aria-label=\"Email address\"><button class=\"btn\">Subscribe</button></form></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Newsletter", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group" }
+  ],
+  "expected_fallbacks": [
+    { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback", "tag": "form", "control_count": 2 }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.attrs.content", "assert": "equals", "value": "Email address: you@example.com (required)" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1.innerBlocks.0.attrs.text", "assert": "equals", "value": "Subscribe" },
+    { "path": "fallbacks.0.events.0.type", "assert": "equals", "value": "submit" },
+    { "path": "source_reports.conversion_report.fallback_diagnostics.0.readable_blocks.0.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "source_reports.conversion_report.fallback_diagnostics.0.readable_blocks.0.innerBlocks.0.attrs.content", "assert": "equals", "value": "Email address: you@example.com (required)" },
+    { "path": "source_reports.conversion_report.fallback_diagnostics.0.readable_blocks.0.innerBlocks.1.innerBlocks.0.attrs.text", "assert": "equals", "value": "Subscribe" },
+    { "path": "source_reports.conversion_report.fallback_diagnostics.0.reason", "assert": "equals", "value": "form_requires_runtime" }
+  ]
+}

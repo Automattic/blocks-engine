@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-class-grid-card-layout",
+  "description": "Infers a WordPress grid layout for generic class-named card grids without requiring inline display styles.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-class-grid-card-layout.json",
+    "notes": "Product-neutral fixture for repeated card/catalog grids that rely on external CSS class names."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"catalog-grid reveal-stagger\"><article class=\"catalog-card\"><h3>Maple Board</h3><p>Everyday prep board.</p></article><article class=\"catalog-card\"><h3>Walnut Tray</h3><p>Serving tray with handles.</p></article><article class=\"catalog-card\"><h3>Spice Rail</h3><p>Wall-mounted kitchen rail.</p></article></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "catalog-grid reveal-stagger", "layout": { "type": "grid" } } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "catalog-card" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "catalog-card" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/group", "attrs": { "className": "catalog-card" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "source_reports.html.structure_signals.3.signals.grid_like", "assert": "equals", "value": true },
+    { "path": "source_reports.html.structure_signals.3.signals.repeated_card_children", "assert": "equals", "value": 3 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"catalog-grid reveal-stagger\",\"layout\":{\"type\":\"grid\"}} -->" }
+  ]
+}

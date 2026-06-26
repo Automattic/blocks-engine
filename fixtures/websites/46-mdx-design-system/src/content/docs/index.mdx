@@ -1,0 +1,106 @@
+---
+title: Halo UI
+description: The open-source design system and React component library that powers every Lumen Labs product.
+group: Overview
+order: 1
+status: stable
+tags: [overview, getting-started, installation]
+---
+
+import { Callout } from '@components/Callout'
+import { Tabs, Tab } from '@components/Tabs'
+import { CodePreview } from '@components/CodePreview'
+import { Button } from '@components/Button'
+
+export const meta = {
+  version: '2.4.0',
+  components: 38,
+  tokens: 412,
+  lastReleased: '2026-06-09',
+}
+
+Halo UI is the shared design language behind **Aperture** (our analytics suite),
+**Relay** (our messaging platform), and the Lumen Labs marketing site. It ships
+**{meta.components} accessible components**, **{meta.tokens} design tokens**, and a
+themeable runtime that weighs **11.4 kB** gzipped for the core layer.
+
+Everything you read in these docs is written in MDX — Markdown prose interleaved
+with the very components it documents. The `<Button>` below is the real
+`@halo-ui/react` export, rendered inline.
+
+<CodePreview code={`import { Button } from '@halo-ui/react'
+
+export function Save() {
+  return <Button tone="brand">Save changes</Button>
+}`}>
+  <Button tone="brand">Save changes</Button>
+</CodePreview>
+
+## Install
+
+Halo UI is distributed as a set of scoped packages on npm. Install the React
+bindings and the token layer together.
+
+<Tabs labels={['pnpm', 'npm', 'yarn']}>
+  <Tab>
+    ```bash
+    pnpm add @halo-ui/react @halo-ui/tokens
+    ```
+  </Tab>
+  <Tab>
+    ```bash
+    npm install @halo-ui/react @halo-ui/tokens
+    ```
+  </Tab>
+  <Tab>
+    ```bash
+    yarn add @halo-ui/react @halo-ui/tokens
+    ```
+  </Tab>
+</Tabs>
+
+Import the token stylesheet once at the root of your app. It defines every CSS
+custom property the components read from.
+
+```tsx title="src/main.tsx"
+import '@halo-ui/tokens/halo.css'
+import { ThemeProvider } from '@halo-ui/react'
+
+createRoot(document.getElementById('root')!).render(
+  <ThemeProvider defaultTheme="system">
+    <App />
+  </ThemeProvider>,
+)
+```
+
+<Callout type="success" title="Zero-config theming">
+  Components never hard-code color or spacing. Wrap your tree in
+  `ThemeProvider` and the entire system flips between light, dark, and the
+  high-contrast theme with a single attribute on `<html>`.
+</Callout>
+
+## How the system is layered
+
+Halo UI is intentionally split so teams can adopt only what they need.
+
+1. **Tokens** — `@halo-ui/tokens` is the source of truth. Raw values
+   (`indigo/600`, `space/4`) compile to CSS variables and a JS/TS object.
+2. **Primitives** — unstyled, fully accessible behavior (focus management,
+   keyboard nav, ARIA) shared across frameworks.
+3. **Components** — the styled React layer most product teams consume.
+4. **Patterns** — opinionated compositions (forms, empty states, page shells)
+   documented as recipes.
+
+<Callout type="info">
+  New to design systems? Start with [Foundations → Color](/foundations/color/)
+  and [Foundations → Typography](/foundations/typography/), then read a
+  component page like [Button](/components/button/) to see the conventions every
+  component follows.
+</Callout>
+
+## Versioning & support
+
+We follow semantic versioning. Token names are treated as public API — a rename
+is always a major release. The current line is **{meta.version}**, released
+**{meta.lastReleased}**. The previous major (`1.x`) receives security fixes
+through the end of 2026.

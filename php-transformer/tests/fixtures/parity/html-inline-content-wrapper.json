@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-content-wrapper",
+  "description": "Converts generic block wrappers containing only phrasing content into one paragraph while preserving inline markup and line breaks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-content-wrapper.json",
+    "notes": "Synthetic coverage for static HTML rows such as menu prices, hours, and address details."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section><div class=\"hours-row\"><span class=\"hours-day\">Tuesday</span><span class=\"hours-time\">5:00 pm</span></div><div class=\"address\"><strong>412 Coalyard Lane</strong> Pearl District<br>Portland, OR</div><div class=\"link-row\"><a href=\"/one\">One</a><a href=\"/two\">Two</a></div></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "hours-row", "content": "<span class=\"hours-day\">Tuesday</span><span class=\"hours-time\">5:00 pm</span>" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "address", "content": "<strong>412 Coalyard Lane</strong> Pearl District<br>Portland, OR" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/buttons" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<br>Portland, OR" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

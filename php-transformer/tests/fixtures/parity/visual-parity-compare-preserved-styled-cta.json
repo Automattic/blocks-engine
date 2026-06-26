@@ -1,0 +1,27 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "visual-parity-compare-preserved-styled-cta",
+  "description": "Compares source and transformed button probes without reporting style deltas when a styled CTA keeps its visual fields.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/visual-parity-compare-preserved-styled-cta.json",
+    "notes": "Positive comparison fixture for preserved custom CTA styling."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Probe comparison output is a diagnostic contract for visual parity review."
+  },
+  "operation": "visual_parity_probe.compare",
+  "input": {
+    "source_content": "<style>.source-cta{background-color:#063;color:#fff;border:2px solid #041;border-radius:999px;padding:14px 28px}</style><main><a class=\"source-cta\" href=\"/book\">Book now</a></main>",
+    "target_content": "<!-- wp:buttons --><div class=\"wp-block-buttons\"><!-- wp:button {\"style\":{}} --><div class=\"wp-block-button\"><a class=\"wp-block-button__link wp-element-button\" href=\"/book\" style=\"background-color:#063;color:#fff;border:2px solid #041;border-radius:999px;padding:14px 28px\">Book now</a></div><!-- /wp:button --></div><!-- /wp:buttons -->"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "summary.matched_total", "assert": "equals", "value": 1 },
+    { "path": "summary.unmatched_source_total", "assert": "equals", "value": 0 },
+    { "path": "summary.unmatched_target_total", "assert": "equals", "value": 0 },
+    { "path": "summary.style_delta_total", "assert": "equals", "value": 0 },
+    { "path": "summary.missing_style_risk_total", "assert": "equals", "value": 0 }
+  ]
+}

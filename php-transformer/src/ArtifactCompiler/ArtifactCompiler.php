@@ -3,11 +3,15 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
+use DOMDocument;
+use DOMElement;
 
 final class ArtifactCompiler
 {
@@ -30,16 +34,13 @@ final class ArtifactCompiler
 
         $entryPath = is_array($entry) ? (string) $entry['path'] : '';
         $html = is_array($entry) ? (string) $entry['content'] : '';
-        $assets = $this->assetManifest($normalized['files'], $entryPath);
         $referenceReports = $this->referenceReports($normalized['files']);
         $components = $this->detectComponents($normalized['files'], $entryPath, $documents['components']);
         $blockTypes = $this->detectBlockTypes($normalized['files'], $diagnostics);
         $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files']);
+        $assets = array_merge($this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references']), $entryBlocks['assets']);
         $diagnostics = array_merge($diagnostics, $entryBlocks['diagnostics']);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
-        if ( '' === $serializedBlocks && '' !== trim($html) ) {
-            $serializedBlocks = '<!-- wp:html -->' . "\n" . $html . "\n" . '<!-- /wp:html -->';
-        }
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
             $serializedBlocks = (string) $documents['documents'][0]['block_markup'];
         }
@@ -75,6 +76,7 @@ final class ArtifactCompiler
         );
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks);
         $sourceReports['materialization_plan'] = ( new MaterializationPlanBuilder() )->fromCompiledSite($sourceReports['compiled_site']);
+        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath);
         $provenance = array(
             array(
                 'source_format' => 'artifact',
@@ -124,9 +126,26 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>}
      */
     private function compileEntryBlocks(string $html, string $entryPath, array $files): array
+    {
+        $result = $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry');
+
+        return array(
+            'blocks'            => $result['blocks'],
+            'serialized_blocks' => $result['serialized_blocks'],
+            'diagnostics'       => $this->entryTransformDiagnostics($result['diagnostics']),
+            'fallbacks'         => $result['fallbacks'],
+            'assets'            => $result['assets'],
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>}
+     */
+    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope): array
     {
         if ( $this->containsBlockMarkup($html) ) {
             return array(
@@ -134,55 +153,44 @@ final class ArtifactCompiler
                 'serialized_blocks' => $html,
                 'diagnostics'       => array(),
                 'fallbacks'         => array(),
+                'assets'            => array(),
             );
         }
 
-        if ( '' === trim($html) || ! $this->entryHtmlReferencesImageAsset($html, $entryPath, $files) ) {
+        if ( '' === trim($html) ) {
             return array(
                 'blocks'            => array(),
                 'serialized_blocks' => '',
                 'diagnostics'       => array(),
                 'fallbacks'         => array(),
+                'assets'            => array(),
             );
         }
 
-        $result = ( new HtmlTransformer() )->transform($this->safeEntryImageHtml($html, $entryPath, $files), array(
-            'source'       => $entryPath,
-            'source_scope' => 'artifact-entry',
+        $result = ( new HtmlTransformer() )->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
+            'source'       => $sourcePath,
+            'source_scope' => $sourceScope,
+            'static_css'                => $this->linkedStylesheetCss($html, $sourcePath, $files),
+            'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
+            'runtime_dom_selectors'     => $this->runtimeDomSelectors($html, $sourcePath, $files),
+            'runtime_canvas_selectors' => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
         ))->toArray();
 
         return array(
             'blocks'            => is_array($result['blocks'] ?? null) ? $result['blocks'] : array(),
             'serialized_blocks' => (string) ($result['serialized_blocks'] ?? ''),
-            'diagnostics'       => $this->entryTransformDiagnostics(is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array()),
+            'diagnostics'       => is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array(),
             'fallbacks'         => is_array($result['fallbacks'] ?? null) ? $result['fallbacks'] : array(),
+            'assets'            => is_array($result['assets'] ?? null) ? $result['assets'] : array(),
         );
     }
 
     /**
      * @param array<int, array<string, mixed>> $files
      */
-    private function entryHtmlReferencesImageAsset(string $html, string $entryPath, array $files): bool
+    private function safeHtmlDocumentHtml(string $html, string $entryPath, array $files): string
     {
-        if ( ! preg_match_all('/<img\s+[^>]*src\s*=\s*(["\'])([^"\']+)\1/i', $html, $matches) ) {
-            return false;
-        }
-
-        foreach ( $matches[2] as $src ) {
-            $asset = $this->findAssetByHtmlReference((string) $src, $entryPath, $files);
-            if ( is_array($asset) && str_starts_with((string) ($asset['mime_type'] ?? ''), 'image/') && $this->isSafeImageAsset($asset) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     */
-    private function safeEntryImageHtml(string $html, string $entryPath, array $files): string
-    {
+        $html = $this->withoutMaterializedScriptTags($html, $entryPath, $files);
         $html = preg_replace_callback('/<img\s+[^>]*src\s*=\s*(["\'])([^"\']+)\1[^>]*>/i', function (array $matches) use ($entryPath, $files): string {
             $asset = $this->findAssetByHtmlReference((string) $matches[2], $entryPath, $files);
             if ( is_array($asset) && 'image/svg+xml' === ($asset['mime_type'] ?? '') && ! $this->isSafeImageAsset($asset) ) {
@@ -197,225 +205,206 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
+     */
+    private function withoutMaterializedScriptTags(string $html, string $entryPath, array $files): string
+    {
+        return preg_replace_callback('/<script\b([^>]*)>\s*<\/script>/i', function (array $matches) use ($entryPath, $files): string {
+            $src = $this->htmlAttribute((string) $matches[1], 'src');
+            if ( '' === $src ) {
+                return (string) $matches[0];
+            }
+
+            $asset = $this->findAssetByHtmlReference($src, $entryPath, $files);
+            if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) ) {
+                return (string) $matches[0];
+            }
+
+            return '';
+        }, $html) ?? $html;
+    }
+
+    /**
+     * @param array<string, mixed> $asset
+     */
+    private function isMaterializedScriptAsset(array $asset): bool
+    {
+        return in_array($asset['kind'] ?? '', array('js', 'mjs'), true)
+            || 'script' === ($asset['role'] ?? '')
+            || in_array($asset['mime_type'] ?? '', array('application/javascript', 'text/javascript', 'application/ecmascript', 'text/ecmascript'), true);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function linkedStylesheetCss(string $html, string $sourcePath, array $files): string
+    {
+        if ( ! preg_match_all('/<link\b[^>]*>/i', $html, $matches) ) {
+            return '';
+        }
+
+        $css = array();
+        foreach ( $matches[0] as $tag ) {
+            $rel = $this->htmlAttribute((string) $tag, 'rel');
+            $href = $this->htmlAttribute((string) $tag, 'href');
+            if ( '' === $href || ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $rel) ) {
+                continue;
+            }
+
+            $path = ArtifactPath::resolveRelativePath($href, $sourcePath);
+            if ( '' === $path ) {
+                continue;
+            }
+
+            foreach ( $files as $file ) {
+                if ( $path === (string) ($file['path'] ?? '') && 'css' === ($file['kind'] ?? '') && is_string($file['content'] ?? null) ) {
+                    $css[] = (string) $file['content'];
+                    break;
+                }
+            }
+        }
+
+        return trim(implode("\n", $css));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, string>
+     */
+    private function runtimeDomSelectors(string $html, string $sourcePath, array $files): array
+    {
+        $selectors = array();
+        foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
+            foreach ( $this->scriptDomSelectors($script) as $selector ) {
+                $selectors[$selector] = true;
+            }
+        }
+
+        return array_keys($selectors);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, string>
+     */
+    private function runtimeCanvasSelectors(string $html, string $sourcePath, array $files): array
+    {
+        $canvasSelectors = $this->canvasSelectors($html);
+        if ( array() === $canvasSelectors ) {
+            return array();
+        }
+
+        $selectors = array();
+        foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
+            foreach ( $this->scriptDomSelectors($script) as $selector ) {
+                if ( isset($canvasSelectors[$selector]) ) {
+                    $selectors[$selector] = true;
+                }
+            }
+        }
+
+        return array_keys($selectors);
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    private function canvasSelectors(string $html): array
+    {
+        $selectors = array();
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if ( ! $loaded ) {
+            return array();
+        }
+
+        foreach ( $document->getElementsByTagName('canvas') as $canvas ) {
+            if ( ! $canvas instanceof DOMElement ) {
+                continue;
+            }
+            $id = trim($canvas->hasAttribute('id') ? $canvas->getAttribute('id') : '');
+            if ( '' !== $id ) {
+                $selectors['#' . $id] = true;
+            }
+            foreach ( preg_split('/\s+/', trim($canvas->hasAttribute('class') ? $canvas->getAttribute('class') : '')) ?: array() as $class ) {
+                if ( '' !== $class ) {
+                    $selectors['.' . $class] = true;
+                }
+            }
+        }
+
+        return $selectors;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, string>
+     */
+    private function documentScriptContents(string $html, string $sourcePath, array $files): array
+    {
+        $scripts = array();
+        if ( ! preg_match_all('/<script\b([^>]*)>(.*?)<\/script>/is', $html, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        foreach ( $matches as $match ) {
+            $src = $this->htmlAttribute((string) $match[1], 'src');
+            if ( '' === $src ) {
+                $scripts[] = (string) $match[2];
+                continue;
+            }
+
+            $asset = $this->findAssetByHtmlReference($src, $sourcePath, $files);
+            if ( is_array($asset) && $this->isMaterializedScriptAsset($asset) && is_string($asset['content'] ?? null) ) {
+                $scripts[] = (string) $asset['content'];
+            }
+        }
+
+        return $scripts;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function scriptDomSelectors(string $script): array
+    {
+        $selectors = array();
+        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
+            foreach ( $matches[2] as $id ) {
+                $selectors['#' . (string) $id] = true;
+            }
+        }
+        if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
+            foreach ( $matches[2] as $selector ) {
+                $selectors[(string) $selector] = true;
+            }
+        }
+
+        return array_keys($selectors);
+    }
+
+    private function htmlAttribute(string $tag, string $name): string
+    {
+        if ( preg_match('/\s' . preg_quote($name, '/') . '\s*=\s*(["\'])(.*?)\1/is', $tag, $match) ) {
+            return html_entity_decode((string) $match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
      * @return array{internal_links: array<int, array<string, mixed>>, asset_references: array<int, array<string, mixed>>, image_references: array<int, array<string, mixed>>}
      */
     private function referenceReports(array $files): array
     {
-        $internalLinks = array();
-        $assetReferences = array();
-        $imageReferences = array();
-
-        foreach ( $files as $file ) {
-            if ( ! empty($file['binary']) ) {
-                continue;
-            }
-
-            if ( 'html' === ($file['kind'] ?? '') || 'blocks' === ($file['kind'] ?? '') ) {
-                foreach ( $this->htmlReferenceCandidates((string) ($file['content'] ?? ''), (string) ($file['path'] ?? '')) as $candidate ) {
-                    if ( '' === $candidate['url'] || ! $this->isArtifactLocalReference($candidate['url']) ) {
-                        continue;
-                    }
-
-                    $reference = $this->normalizeReferenceCandidate($candidate, $files);
-                    $target = $reference['target'] ?? null;
-                    if ( is_array($target) && $this->isLinkableDocument($target) && 'a' === $candidate['element'] ) {
-                        unset($reference['target']);
-                        $internalLinks[] = $reference;
-                        continue;
-                    }
-
-                    if ( is_array($target) && ! $this->isLinkableDocument($target) ) {
-                        unset($reference['target']);
-                        $assetReferences[] = $reference;
-                        if ( 'img' === $candidate['element'] && 'src' === $candidate['attribute'] ) {
-                            $imageReferences[] = $this->legacyImageReference($reference, count($imageReferences));
-                        }
-                    }
-                }
-            }
-
-            if ( 'css' === ($file['kind'] ?? '') ) {
-                foreach ( $this->cssUrlReferenceCandidates((string) ($file['content'] ?? ''), (string) ($file['path'] ?? '')) as $candidate ) {
-                    if ( '' === $candidate['url'] || ! $this->isArtifactLocalReference($candidate['url']) ) {
-                        continue;
-                    }
-
-                    $reference = $this->normalizeReferenceCandidate($candidate, $files);
-                    $target = $reference['target'] ?? null;
-                    if ( is_array($target) && ! $this->isLinkableDocument($target) ) {
-                        unset($reference['target']);
-                        $assetReferences[] = $reference;
-                    }
-                }
-            }
-        }
-
-        return array(
-            'internal_links'   => $internalLinks,
-            'asset_references' => $assetReferences,
-            'image_references' => $imageReferences,
+        return ( new ReferenceAnalyzer() )->referenceReports(
+            $files,
+            fn (array $file): bool => $this->isLinkableDocument($file),
+            fn (array $asset): bool => $this->isSafeImageAsset($asset)
         );
-    }
-
-    /**
-     * @return array<int, array{source_path: string, selector: string, element: string, attribute: string, value: string, url: string}>
-     */
-    private function htmlReferenceCandidates(string $html, string $sourcePath): array
-    {
-        if ( '' === trim($html) || ! preg_match_all('/<\s*(a|audio|img|script|link|source|video)\b([^>]*)>/i', $html, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        $candidates = array();
-        $counts = array();
-        foreach ( $matches as $match ) {
-            $element = strtolower((string) $match[1]);
-            $attributes = $this->htmlAttributes((string) $match[2]);
-            $counts[$element] = ($counts[$element] ?? 0) + 1;
-            $selector = $element . ':nth-of-type(' . $counts[$element] . ')';
-
-            foreach ( $this->referenceAttributesForElement($element, $attributes) as $attribute ) {
-                $value = (string) ($attributes[$attribute] ?? '');
-                foreach ( $this->urlsFromAttributeValue($attribute, $value) as $url ) {
-                    $candidates[] = array(
-                        'source_path' => $sourcePath,
-                        'selector'    => $selector,
-                        'element'     => $element,
-                        'attribute'   => $attribute,
-                        'value'       => $value,
-                        'url'         => $url,
-                    );
-                }
-            }
-        }
-
-        return $candidates;
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function htmlAttributes(string $attributeText): array
-    {
-        $attributes = array();
-        if ( ! preg_match_all('/([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*(?:(["\'])(.*?)\2|([^\s"\'>]+))/s', $attributeText, $matches, PREG_SET_ORDER) ) {
-            return $attributes;
-        }
-
-        foreach ( $matches as $match ) {
-            $attributes[strtolower((string) $match[1])] = html_entity_decode((string) ('' !== ($match[3] ?? '') ? $match[3] : ($match[4] ?? '')), ENT_QUOTES | ENT_HTML5);
-        }
-
-        return $attributes;
-    }
-
-    /**
-     * @param array<string, string> $attributes
-     * @return array<int, string>
-     */
-    private function referenceAttributesForElement(string $element, array $attributes): array
-    {
-        $attributesByElement = array(
-            'a'      => array('href'),
-            'audio'  => array('src'),
-            'img'    => array('src', 'srcset'),
-            'script' => array('src'),
-            'link'   => array('href'),
-            'source' => array('src', 'srcset'),
-            'video'  => array('src', 'poster'),
-        );
-
-        return array_values(array_filter(
-            $attributesByElement[$element] ?? array(),
-            static fn (string $attribute): bool => isset($attributes[$attribute])
-        ));
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function urlsFromAttributeValue(string $attribute, string $value): array
-    {
-        if ( 'srcset' !== $attribute ) {
-            return array(trim($value));
-        }
-
-        $urls = array();
-        foreach ( explode(',', $value) as $candidate ) {
-            $parts = preg_split('/\s+/', trim($candidate));
-            if ( is_array($parts) && '' !== ($parts[0] ?? '') ) {
-                $urls[] = $parts[0];
-            }
-        }
-
-        return $urls;
-    }
-
-    /**
-     * @return array<int, array{source_path: string, selector: string, element: string, attribute: string, value: string, url: string}>
-     */
-    private function cssUrlReferenceCandidates(string $css, string $sourcePath): array
-    {
-        if ( '' === trim($css) || ! preg_match_all('/url\(\s*(["\']?)([^"\')]+)\1\s*\)/i', $css, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        $candidates = array();
-        foreach ( $matches as $index => $match ) {
-            $url = html_entity_decode(trim((string) $match[2]), ENT_QUOTES | ENT_HTML5);
-            $candidates[] = array(
-                'source_path' => $sourcePath,
-                'selector'    => 'css:url(' . ($index + 1) . ')',
-                'element'     => 'style',
-                'attribute'   => 'url',
-                'value'       => $url,
-                'url'         => $url,
-            );
-        }
-
-        return $candidates;
-    }
-
-    /**
-     * @param array{source_path: string, selector: string, element: string, attribute: string, value: string, url: string} $candidate
-     * @param array<int, array<string, mixed>> $files
-     * @return array<string, mixed>
-     */
-    private function normalizeReferenceCandidate(array $candidate, array $files): array
-    {
-        $resolvedPath = $this->resolveHtmlReferencePath($candidate['url'], $candidate['source_path']);
-        $target = '' === $resolvedPath ? null : $this->findFileByPath($resolvedPath, $files);
-        $reference = array_filter(
-            array(
-                'source_path'   => $candidate['source_path'],
-                'selector'      => $candidate['selector'],
-                'element'       => $candidate['element'],
-                'attribute'     => $candidate['attribute'],
-                'value'         => $candidate['value'],
-                'url'           => $candidate['url'],
-                'resolved_path' => $resolvedPath,
-            ),
-            static fn (mixed $value): bool => '' !== $value
-        );
-
-        if ( is_array($target) ) {
-            $targetPath = (string) ($target['path'] ?? '');
-            if ( $this->isLinkableDocument($target) ) {
-                $reference['target_path'] = $targetPath;
-            } else {
-                $reference['asset_path'] = $targetPath;
-            }
-            $reference['kind'] = $target['kind'] ?? '';
-            $reference['role'] = $target['role'] ?? '';
-            $reference['mime_type'] = $target['mime_type'] ?? '';
-            $reference['bytes'] = $target['bytes'] ?? 0;
-            if ( str_starts_with((string) ($target['mime_type'] ?? ''), 'image/') ) {
-                $reference['safe'] = $this->isSafeImageAsset($target);
-            }
-            $reference['target'] = $target;
-        }
-
-        return $reference;
     }
 
     /**
@@ -427,59 +416,13 @@ final class ArtifactCompiler
     }
 
     /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<string, mixed>|null
-     */
-    private function findFileByPath(string $path, array $files): ?array
-    {
-        foreach ( $files as $file ) {
-            if ( $path === ($file['path'] ?? '') ) {
-                return $file;
-            }
-        }
-
-        return null;
-    }
-
-    private function isArtifactLocalReference(string $reference): bool
-    {
-        $reference = trim($reference);
-        if ( '' === $reference || str_starts_with($reference, '#') || str_starts_with($reference, '//') ) {
-            return false;
-        }
-
-        return ! preg_match('#^[a-z][a-z0-9+.-]*:#i', $reference);
-    }
-
-    /**
-     * @param array<string, mixed> $reference
-     * @return array<string, mixed>
-     */
-    private function legacyImageReference(array $reference, int $index): array
-    {
-        return array_filter(
-            array(
-                'source_path'   => $reference['source_path'] ?? '',
-                'selector'      => 'img:nth-of-type(' . ($index + 1) . ')',
-                'src'           => $reference['url'] ?? '',
-                'resolved_path' => $reference['resolved_path'] ?? '',
-                'asset_path'    => $reference['asset_path'] ?? '',
-                'mime_type'     => $reference['mime_type'] ?? '',
-                'bytes'         => $reference['bytes'] ?? 0,
-                'safe'          => $reference['safe'] ?? null,
-            ),
-            static fn (mixed $value): bool => null !== $value && '' !== $value
-        );
-    }
-
-    /**
      * @param array{files: array<int, array<string, mixed>>, bytes: int, hash_payload: string} $artifact
      * @param array<int, array<string, mixed>> $documents
      * @param array<int, array<string, mixed>> $assets
      * @param array<int, array<string, mixed>> $blockTypes
      * @return array<string, mixed>
      */
-    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array $assets, array $blockTypes, string $serializedBlocks): array
+    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks): array
     {
         $pages = array();
         foreach ( $artifact['files'] as $file ) {
@@ -490,7 +433,20 @@ final class ArtifactCompiler
             $path = (string) ($file['path'] ?? '');
             $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path);
             $slug = $this->slugFromPath($path);
-            $blockMarkup = $path === $entryPath ? $serializedBlocks : $this->htmlDocumentBlockMarkup((string) ($file['content'] ?? ''));
+            $content = (string) ($file['content'] ?? '');
+            $compiledBlocks = $path === $entryPath
+                ? array('serialized_blocks' => $serializedBlocks, 'assets' => array())
+                : $this->compileHtmlDocumentBlocks($content, $path, $artifact['files'], 'artifact-document');
+            foreach ( $compiledBlocks['assets'] ?? array() as $generatedAsset ) {
+                if ( is_array($generatedAsset) ) {
+                    $assets[] = $generatedAsset;
+                }
+            }
+            $blockMarkup = (string) ($compiledBlocks['serialized_blocks'] ?? '');
+            if ( '' === $blockMarkup && '' !== trim($content) ) {
+                $blockMarkup = $this->htmlDocumentBlockMarkup($content);
+            }
+            $bodyFormat = '' !== trim($blockMarkup) ? 'blocks' : 'html';
             $pages[] = array_filter(
                 array(
                     'source_path'    => $path,
@@ -499,9 +455,9 @@ final class ArtifactCompiler
                     'entrypoint'     => $path === $entryPath || ! empty($file['entrypoint']),
                     'slug'           => $slug,
                     'title'          => $title,
-                    'metadata'       => $this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, 'html'),
+                    'metadata'       => $this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat),
                     'html'           => $file['content'] ?? '',
-                    'body_format'    => 'html',
+                    'body_format'    => $bodyFormat,
                     'block_markup'   => $blockMarkup,
                     'bytes'          => $file['bytes'] ?? 0,
                     'mime_type'      => $file['mime_type'] ?? 'text/html',
@@ -577,7 +533,81 @@ final class ArtifactCompiler
             return $html;
         }
 
-        return '<!-- wp:html -->' . "\n" . $html . "\n" . '<!-- /wp:html -->';
+        $result = ( new HtmlTransformer() )->transform($html, array(
+            'source'       => 'html-document',
+            'source_scope' => 'artifact-document',
+        ))->toArray();
+
+        return isset($result['serialized_blocks']) && is_scalar($result['serialized_blocks']) ? trim((string) $result['serialized_blocks']) : '';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, array<string, mixed>>
+     */
+    private function assetMetadataForSource(string $sourcePath, array $files): array
+    {
+        $metadata = array();
+        foreach ( $files as $file ) {
+            if ( $this->isMaterializedHtmlDocument($file) ) {
+                continue;
+            }
+
+            $path = (string) ($file['path'] ?? '');
+            $mimeType = (string) ($file['mime_type'] ?? '');
+            if ( ! str_starts_with($mimeType, 'image/') ) {
+                continue;
+            }
+            if ( '' === $path ) {
+                continue;
+            }
+
+            $asset = array(
+                'url'       => $path,
+                'path'      => $path,
+                'mime_type' => $mimeType,
+            );
+
+            foreach ( $this->assetLookupKeysForSource($path, $sourcePath) as $key ) {
+                $metadata[$key] = $asset;
+            }
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function assetLookupKeysForSource(string $assetPath, string $sourcePath): array
+    {
+        $keys = array($assetPath, '/' . $assetPath);
+        $relativePath = $this->relativePathFromSource($assetPath, $sourcePath);
+        if ( '' !== $relativePath ) {
+            $keys[] = $relativePath;
+            if ( ! str_starts_with($relativePath, '../') ) {
+                $keys[] = './' . $relativePath;
+            }
+        }
+
+        return array_values(array_unique(array_filter($keys, static fn (string $key): bool => '' !== $key)));
+    }
+
+    private function relativePathFromSource(string $assetPath, string $sourcePath): string
+    {
+        $sourceDir = '' === $sourcePath || ! str_contains($sourcePath, '/') ? '' : dirname($sourcePath);
+        if ( '' === $sourceDir ) {
+            return $assetPath;
+        }
+
+        $sourceParts = explode('/', $sourceDir);
+        $assetParts = explode('/', $assetPath);
+        while ( array() !== $sourceParts && array() !== $assetParts && $sourceParts[0] === $assetParts[0] ) {
+            array_shift($sourceParts);
+            array_shift($assetParts);
+        }
+
+        return implode('/', array_merge(array_fill(0, count($sourceParts), '..'), $assetParts));
     }
 
     /**
@@ -704,7 +734,8 @@ final class ArtifactCompiler
     private function titleFromHtml(string $html, string $path): string
     {
         if ( preg_match('/<h1\b[^>]*>(.*?)<\/h1>/is', $html, $match) || preg_match('/<title\b[^>]*>(.*?)<\/title>/is', $html, $match) ) {
-            $title = trim(html_entity_decode(strip_tags($match[1]), ENT_QUOTES | ENT_HTML5));
+            $titleHtml = preg_replace('/<\s*(?:br|\/\s*(?:div|h[1-6]|p))\b[^>]*>/i', ' ', $match[1]) ?? $match[1];
+            $title = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($titleHtml), ENT_QUOTES | ENT_HTML5)) ?? '');
             if ( '' !== $title ) {
                 return $title;
             }
@@ -736,6 +767,7 @@ final class ArtifactCompiler
                     'content'          => $asset['content'] ?? null,
                     'content_base64'   => $asset['content_base64'] ?? null,
                     'hash'             => $asset['hash'] ?? $asset['provenance']['hash'] ?? '',
+                    'references'       => $asset['references'] ?? array(),
                 ),
                 static fn (mixed $value): bool => null !== $value && '' !== $value
             ),
@@ -952,11 +984,11 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array<int, array<string, mixed>>
      */
-    private function assetManifest(array $files, string $entryPath): array
+    private function assetManifest(array $files, string $entryPath, array $assetReferences = array()): array
     {
         $assets = array();
         foreach ( $files as $file ) {
-            if ( $entryPath === $file['path'] ) {
+            if ( $entryPath === $file['path'] || $this->isMaterializedHtmlDocument($file) ) {
                 continue;
             }
             $asset = array(
@@ -983,10 +1015,51 @@ final class ArtifactCompiler
             if ( ! empty($file['intent']) ) {
                 $asset['intent'] = $file['intent'];
             }
+            $references = $this->referencesForAsset((string) $file['path'], $assetReferences);
+            if ( array() !== $references ) {
+                $asset['references'] = $references;
+            }
             $assets[] = $asset;
         }
 
         return $assets;
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     */
+    private function isMaterializedHtmlDocument(array $file): bool
+    {
+        return 'html' === ($file['kind'] ?? '') && ($this->isLinkableDocument($file) || $this->isTemplatePartFile($file));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assetReferences
+     * @return array<int, array<string, mixed>>
+     */
+    private function referencesForAsset(string $path, array $assetReferences): array
+    {
+        $references = array();
+        foreach ( $assetReferences as $reference ) {
+            if ( $path !== ($reference['asset_path'] ?? '') ) {
+                continue;
+            }
+
+            $references[] = array_filter(
+                array(
+                    'source_path' => $reference['source_path'] ?? '',
+                    'selector'    => $reference['selector'] ?? '',
+                    'element'     => $reference['element'] ?? '',
+                    'attribute'   => $reference['attribute'] ?? '',
+                    'value'       => $reference['value'] ?? '',
+                    'url'         => $reference['url'] ?? '',
+                    'context'     => $reference['context'] ?? '',
+                ),
+                static fn (mixed $value): bool => '' !== $value
+            );
+        }
+
+        return $references;
     }
 
     /**
@@ -1066,29 +1139,7 @@ final class ArtifactCompiler
 
     private function resolveHtmlReferencePath(string $reference, string $entryPath): string
     {
-        $reference = strtok($reference, '?#') ?: '';
-        $reference = str_replace('\\', '/', trim($reference));
-        if ( '' === $reference || str_starts_with($reference, '/') || preg_match('#^[a-z][a-z0-9+.-]*:#i', $reference) ) {
-            return '';
-        }
-
-        $base = '' === $entryPath || ! str_contains($entryPath, '/') ? '' : dirname($entryPath) . '/';
-        $parts = array();
-        foreach ( explode('/', $base . $reference) as $part ) {
-            if ( '' === $part || '.' === $part ) {
-                continue;
-            }
-            if ( '..' === $part ) {
-                if ( array() === $parts ) {
-                    return '';
-                }
-                array_pop($parts);
-                continue;
-            }
-            $parts[] = $part;
-        }
-
-        return implode('/', $parts);
+        return ArtifactPath::resolveRelativePath($reference, $entryPath);
     }
 
     /**
@@ -1345,8 +1396,7 @@ final class ArtifactCompiler
             return '';
         }
 
-        $base = dirname($sourcePath);
-        $path = $this->normalizeRelativeImportPath(('.' === $base ? '' : $base . '/') . $importPath);
+        $path = ArtifactPath::resolveRelativePath($importPath, $sourcePath, true);
         if ( '' === $path ) {
             return '';
         }
@@ -1364,23 +1414,6 @@ final class ArtifactCompiler
         }
 
         return '';
-    }
-
-    private function normalizeRelativeImportPath(string $path): string
-    {
-        $segments = array();
-        foreach ( explode('/', str_replace('\\', '/', $path)) as $segment ) {
-            if ( '' === $segment || '.' === $segment ) {
-                continue;
-            }
-            if ( '..' === $segment ) {
-                array_pop($segments);
-                continue;
-            }
-            $segments[] = preg_replace('/[^A-Za-z0-9._-]/', '-', $segment);
-        }
-
-        return implode('/', array_filter($segments));
     }
 
     /**

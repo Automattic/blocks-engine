@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "artifact-generated-html-entry",
-  "description": "Compiles generated HTML artifact input into the shared transformer result shape.",
+  "description": "Compiles generated static HTML artifact input without images into native block markup through the HTML transformer.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/artifact-generated-html.json",
-    "notes": "Covers the artifact compiler contract smoke path."
+    "notes": "Covers the artifact compiler default HTML transform path when entry markup has no local image references."
   },
   "operation": "artifact_compiler.compile",
   "input": {
@@ -13,13 +13,20 @@
       "generated_html": "<main><article data-component=\"Hero\"><h1>Hello artifact</h1></article></main>"
     }
   },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Hello artifact", "level": 1 } }
+  ],
+  "expected_fallbacks": [],
   "expect": [
     { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.artifact.entry_path", "assert": "equals", "value": "index.html" },
     { "path": "components.0.name", "assert": "equals", "value": "hero" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading {\"content\":\"Hello artifact\",\"level\":1} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<h1>Hello artifact</h1>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html -->" },
     { "path": "source_reports.artifact.html.element_count", "assert": "equals", "value": 3 },
     { "path": "source_reports.conversion_report.metrics.fallback_count", "assert": "equals", "value": 0 },
     { "path": "provenance.0.source_format", "assert": "equals", "value": "artifact" }

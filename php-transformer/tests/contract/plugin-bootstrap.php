@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/php-transformer.php';
 
-assertSame('0.1.0', blocks_engine_php_transformer_version(), 'Plugin helper exposes version.');
+assertSame(trim((string) file_get_contents(dirname(__DIR__, 2) . '/VERSION')), blocks_engine_php_transformer_version(), 'Plugin helper exposes version.');
 assertSame(dirname(__DIR__, 2), blocks_engine_php_transformer_path(), 'Plugin helper exposes package path.');
 
 $htmlInput   = '<main><h1>Plugin bootstrap</h1><p>Ready.</p></main>';

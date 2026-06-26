@@ -1,0 +1,40 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-linked-css-layout-wrapper-style-signals",
+  "description": "Applies safe visual declarations from linked class CSS to generic grid and flex layout wrappers.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-linked-css-layout-wrapper-style-signals.json",
+    "notes": "Covers layout wrapper class CSS used by generated static HTML fixtures, such as grid columns and flexible card rows."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream CSS layout signal fixture has no downstream legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<!doctype html><html><head><title>Layout wrappers</title><link rel=\"stylesheet\" href=\"assets/site.css\"></head><body><main><section class=\"hero-grid\"><div><h1>Plan the work</h1><p>Keep the lead and aside aligned.</p></div><aside><p>Side note</p></aside></section><section class=\"shift-card\"><span>1</span><div><h2>First shift</h2><p>Flexible card row.</p></div></section><section class=\"services-cards\"><article><h2>One</h2><p>First service.</p></article><article><h2>Two</h2><p>Second service.</p></article><article><h2>Three</h2><p>Third service.</p></article></section></main></body></html>"
+        },
+        {
+          "path": "assets/site.css",
+          "kind": "css",
+          "content": ".hero-grid{display:grid;grid-template-columns:1fr 420px;gap:clamp(24px,4vw,64px);align-items:center}.shift-card{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:start}.services-cards{display:flex;gap:24px;align-items:stretch}"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "hero-grid" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "display:grid;grid-template-columns:1fr 420px;gap:clamp(24px,4vw,64px);align-items:center" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "shift-card" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:start" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"services-cards\",\"style\":\"display:flex;gap:24px;align-items:stretch\",\"layout\":{\"type\":\"flex\"}} -->" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

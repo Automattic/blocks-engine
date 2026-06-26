@@ -1,0 +1,44 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-linked-card-anchor-grid",
+  "description": "Converts linked card grids with complex anchor contents into grouped card blocks without misclassifying them as button rows.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-linked-card-anchor-grid.json",
+    "notes": "Generic coverage for editorial/product card grids where the whole card is an anchor."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><div class=\"article-grid\"><a href=\"/story-one\" class=\"article-card featured\"><div class=\"article-thumb\"><svg viewBox=\"0 0 10 10\" aria-hidden=\"true\"><path d=\"M0 0h10v10H0z\"></path></svg></div><div class=\"article-card-body\"><span class=\"kicker\">Politics</span><h3 class=\"article-headline\">City Hall Rewrites the Map</h3><p class=\"article-excerpt\">A reported story with several nested card regions.</p></div></a><a href=\"/story-two\" class=\"article-card\"><div class=\"article-card-body\"><span class=\"kicker\">Food</span><h3 class=\"article-headline\">A New Market Opens</h3><p class=\"article-excerpt\">The grid item is content, not a call-to-action button.</p></div></a></div><div class=\"link-row\"><a href=\"/start\">Start</a><a href=\"/more\">More</a></div></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "article-grid" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "article-card featured" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "article-thumb" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "article-card-body" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1", "name": "core/heading", "attrs": { "className": "article-headline", "content": "City Hall Rewrites the Map", "level": 3 } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "article-card" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/buttons", "attrs": { "className": "link-row" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/button", "attrs": { "text": "Start", "url": "/start" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/button", "attrs": { "text": "More", "url": "/more" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "core/buttons" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "article-card featured" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<p><a href=\"/story-one\" class=\"article-card featured\">" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

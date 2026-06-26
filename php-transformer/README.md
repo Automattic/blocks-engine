@@ -27,6 +27,7 @@ PHP Transformer does not own product workflows such as importer admin screens, u
 - `HtmlToBlocks` - low-level HTML to core block transforms.
 - `FormatBridge` - declared-format normalization and format-to-format conversion.
 - `ArtifactCompiler` - generated artifact bundle normalization and compilation.
+- `StaticSite` - product-neutral projections for static-site materialization planning.
 - `WordPress` - runtime adapters around WordPress functions.
 - `Contract` - shared result envelopes and diagnostics.
 
@@ -39,6 +40,7 @@ Consumers should treat these classes and interface as the public entrypoints for
 - `FormatBridge\FormatBridge` - normalizes and converts declared `html`, `markdown`, and serialized `blocks` content through `convertResult()`.
 - `FormatBridge\FormatAdapterInterface` - adapter contract for adding formats to `FormatBridge` when a consumer genuinely needs a package-level extension point.
 - `ArtifactCompiler\ArtifactCompiler` - normalizes generated website artifact bundles into the shared result envelope, including block markup, source reports, assets, components, documents, and block type artifacts.
+- `StaticSite\MaterializationView` - validates a `TransformerResult` object or canonical result array and returns a stable product-neutral array view for importer planning.
 - `WordPress\Runtime` - adapter for WordPress functions used by the transformer when running inside or outside WordPress.
 
 The remaining classes in `src/HtmlToBlocks`, `src/FormatBridge`, and `src/ArtifactCompiler` are implementation details. Concrete bundled adapters, registries, normalizers, and factories may change as the bridge expands.
@@ -49,6 +51,7 @@ The remaining classes in `src/HtmlToBlocks`, `src/FormatBridge`, and `src/Artifa
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationView;
 
 $htmlResult = (new HtmlTransformer())->transform('<h1>Hello</h1>', array(
     'source' => 'fixture:home-html',
@@ -65,6 +68,8 @@ $formatResult = (new FormatBridge())->convertResult('# Hello', 'markdown', 'bloc
 $artifactResult = (new ArtifactCompiler())->compile(array(
     'generated_html' => '<main><h1>Hello</h1></main>',
 ))->toArray();
+
+$materialization = (new MaterializationView())->fromResult($artifactResult);
 ```
 
 ### WordPress Plugin Usage
@@ -110,6 +115,10 @@ The result envelope includes generic `metrics` for wrapper reporting: `input_byt
 
 `source_reports.conversion_report` exposes a compact generic projection for wrappers that previously reconstructed report slices from lower-level result fields. It includes fallback diagnostics, sanitized fallback context, event attribute projections, source/selector summaries, asset references, navigation candidates, presentation and structure signals, and metrics. `source_reports.materialization_plan` exposes generic site-structure planning rows for routes, navigation links, and menus using source paths, target paths/slugs, titles/labels, parent/source relations, order, and kind. These reports remain product-neutral: callers still own route rewrites, media imports, theme assembly, navigation entity creation, visual repair policy, and acceptance gates.
 
+Visual parity tooling should use the product-neutral report/config contracts in `docs/contracts/visual-parity-report.md`. The report covers source and target render metadata, viewports, optional screenshot paths, DOM candidate matches, computed-style deltas, optional visual diff metrics, severity, selector evidence, and recommendations. Button, menu, card, and form fields are modeled as generic UI facts rather than product-specific entities.
+
+Consumers that need a single importer-facing projection should use `StaticSite\MaterializationView::fromResult()` instead of reprojecting `TransformerResult` manually. The view validates the canonical result envelope and exposes `result_schema`, `status`, `artifact_summary`, `materialization_plan`, `compiled_site`, `assets`, `documents`, `block_markup`, `blocks`, `block_types`, `components`, `diagnostics`, `provenance`, and `conversion_report`. It does not perform WordPress writes or encode product-specific import policy.
+
 `HtmlTransformer` preserves syntax-highlight spans inside `<pre><code>` when they use safe inline tags and bounded attributes, while plain code remains escaped as text. Figure-wrapped testimonials and quote shapes are normalized to core quote or pullquote blocks with attribution from `cite`, `footer`, or `figcaption` content.
 
 Use `FormatBridge::convertResult()` for format conversions and unsupported source or target format diagnostics:
@@ -126,7 +135,7 @@ if ('failed' === $result['status']) {
 
 ## Artifact Compiler Fallbacks
 
-The artifact compiler accepts loose generated-site bundles and normalizes them into an explicit result envelope. HTML entries are preserved as `core/html` serialized block markup, Markdown falls back to `core/html` when a Markdown adapter is not loaded, and MDX support is partial: source documents are preserved while imports and JSX component references are exposed as inspectable metadata and warnings.
+The artifact compiler accepts loose generated-site bundles and normalizes them into an explicit result envelope. Safe HTML entries are compiled through `HtmlTransformer` into native serialized block markup, Markdown falls back to `core/html` when a Markdown adapter is not loaded, and MDX support is partial: source documents are preserved while imports and JSX component references are exposed as inspectable metadata and warnings.
 
 Unsupported or unsafe artifact inputs are reported through diagnostics instead of hidden best-effort behavior. Empty, absolute, or root-escaping paths are rejected; oversized files are ignored according to the source report limits; and a bundle with neither an HTML entry nor source documents fails with `missing_entry_html`.
 

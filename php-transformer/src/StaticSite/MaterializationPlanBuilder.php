@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\StaticSite;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 
 final class MaterializationPlanBuilder
 {
@@ -288,6 +289,7 @@ final class MaterializationPlanBuilder
                 'content'          => $asset['content'] ?? null,
                 'content_base64'   => $asset['content_base64'] ?? null,
                 'hash'             => (string) ($asset['hash'] ?? $asset['provenance']['hash'] ?? ''),
+                'references'       => is_array($asset['references'] ?? null) ? $asset['references'] : array(),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value && 0 !== $value && false !== $value);
         }
         return $planned;
@@ -302,10 +304,17 @@ final class MaterializationPlanBuilder
      */
     private function theme(array $theme, array $templateParts, array $assets, array $visualRepair): array
     {
+        $fontMaterialization = is_array($theme['font_materialization'] ?? null) ? $theme['font_materialization'] : array();
+        if ( empty($fontMaterialization) && is_array($theme['font_usage'] ?? null) ) {
+            $fontMaterialization = ( new FontMaterializationPlanBuilder() )->googleFonts($theme['font_usage']);
+        }
+
         return array_filter(array(
             'stylesheets' => $theme['stylesheets'] ?? $this->assetPathsByRole($assets, 'stylesheet'),
             'scripts' => $theme['scripts'] ?? $this->assetPathsByRole($assets, 'script'),
             'fonts' => $theme['fonts'] ?? $this->assetPathsByRole($assets, 'font'),
+            'font_usage' => is_array($theme['font_usage'] ?? null) ? $theme['font_usage'] : array(),
+            'font_materialization' => $fontMaterialization,
             'images' => $theme['images'] ?? $this->assetPathsByRole($assets, 'image'),
             'template_parts' => array_values(array_map(static fn (array $part): string => (string) ($part['source_path'] ?? ''), $templateParts)),
             'visual_repair_css' => (string) ($visualRepair['css'] ?? ''),

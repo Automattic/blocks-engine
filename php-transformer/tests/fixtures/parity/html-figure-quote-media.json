@@ -13,22 +13,24 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<figure class=\"testimonial-card\"><blockquote><p>Build with care.</p></blockquote><figcaption><strong>Ada</strong>, Founder</figcaption></figure><figure class=\"wp-block-pullquote alignwide\"><blockquote><p>Pull this.</p></blockquote><figcaption>Editor</figcaption></figure><figure class=\"wp-block-image aligncenter size-large framed\" style=\"margin:0\"><img class=\"wp-image-42 rounded\" src=\"https://example.com/photo.jpg\" alt=\"Photo\" width=\"800\" height=\"600\"><figcaption>Image <em>caption</em></figcaption></figure>"
+    "content": "<figure class=\"testimonial-card\"><blockquote><p>Build with care.</p></blockquote><figcaption><strong>Ada</strong>, Founder</figcaption></figure><figure class=\"wp-block-pullquote alignwide\"><blockquote><p>Pull this.</p></blockquote><figcaption>Editor</figcaption></figure><figure class=\"wp-block-image aligncenter size-large framed\" style=\"margin:0\"><img class=\"wp-image-42 rounded\" src=\"https://example.com/photo.jpg\" alt=\"Photo\" width=\"800\" height=\"600\"><figcaption>Image <em>caption</em></figcaption></figure><figure class=\"alignwide\"><div class=\"media-ratio\"><img src=\"wrapped.jpg\" alt=\"Wrapped media\"></div><figcaption>Wrapped caption</figcaption></figure>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/quote", "attrs": { "className": "testimonial-card", "citation": "<strong>Ada</strong>, Founder" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Build with care." } },
     { "path": "blocks.1", "name": "core/pullquote", "attrs": { "className": "wp-block-pullquote alignwide", "citation": "Editor", "value": "<p>Pull this.</p>" } },
-    { "path": "blocks.2", "name": "core/image", "attrs": { "className": "aligncenter framed rounded is-resized", "style": "margin:0", "url": "https://example.com/photo.jpg", "alt": "Photo", "width": "800", "height": "600", "caption": "Image <em>caption</em>", "id": 42, "sizeSlug": "large" } }
+    { "path": "blocks.2", "name": "core/image", "attrs": { "className": "aligncenter framed rounded is-resized", "style": "margin:0", "url": "https://example.com/photo.jpg", "alt": "Photo", "width": "800", "height": "600", "caption": "Image <em>caption</em>", "id": 42, "sizeSlug": "large" } },
+    { "path": "blocks.3", "name": "core/image", "attrs": { "className": "alignwide", "url": "wrapped.jpg", "alt": "Wrapped media", "caption": "Wrapped caption" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "blocks", "assert": "count", "count": 3 },
+    { "path": "blocks", "assert": "count", "count": 4 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<blockquote class=\"wp-block-quote testimonial-card\">" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<cite><strong>Ada</strong>, Founder</cite></blockquote>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-pullquote alignwide\"><blockquote><p>Pull this.</p><cite>Editor</cite></blockquote></figure>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image aligncenter framed rounded is-resized size-large\" style=\"margin:0\"><img src=\"https://example.com/photo.jpg\" alt=\"Photo\" width=\"800\" height=\"600\" class=\"wp-image-42\"/><figcaption class=\"wp-element-caption\">Image <em>caption</em></figcaption></figure>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-image alignwide\"><img src=\"wrapped.jpg\" alt=\"Wrapped media\"/><figcaption class=\"wp-element-caption\">Wrapped caption</figcaption></figure>" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]

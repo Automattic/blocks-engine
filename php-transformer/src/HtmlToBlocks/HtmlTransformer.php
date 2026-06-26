@@ -6,6 +6,10 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
 use DOMElement;
@@ -13,7 +17,17 @@ use DOMNode;
 
 final class HtmlTransformer
 {
+    private const MAX_INTERACTION_CANDIDATES = 100;
+
     private readonly BlockFactory $blockFactory;
+
+    private readonly ButtonsPattern $buttonsPattern;
+
+    private readonly DetailsPattern $detailsPattern;
+
+    private readonly LogoPattern $logoPattern;
+
+    private readonly NavigationPattern $navigationPattern;
 
     /**
      * @var array<string, string>
@@ -36,15 +50,49 @@ final class HtmlTransformer
     private array $structureProvenance = array();
 
     /**
+     * @var array<int, array<string, mixed>>
+     */
+    private array $scriptMetadata = array();
+
+    /**
      * @var array<string, array<string, mixed>>
      */
     private array $assetMetadata = array();
+
+    /**
+     * @var array<string, array<string, mixed>>
+     */
+    private array $generatedAssets = array();
+
+    /**
+     * @var array<string, array<int, string>>
+     */
+    private array $staticClassPromotions = array();
+
+    /**
+     * @var array<int, array{selector: string, declarations: array<string, string>}>
+     */
+    private array $staticStyleRules = array();
+
+    /**
+     * @var array<string, bool>
+     */
+    private array $runtimeDomSelectors = array();
+
+    /**
+     * @var array<string, bool>
+     */
+    private array $runtimeCanvasSelectors = array();
 
     private int $nextSourceProvenanceId = 1;
 
     public function __construct(private readonly Runtime $runtime = new Runtime())
     {
-        $this->blockFactory = new BlockFactory();
+        $this->blockFactory      = new BlockFactory();
+        $this->buttonsPattern    = new ButtonsPattern();
+        $this->detailsPattern    = new DetailsPattern();
+        $this->logoPattern       = new LogoPattern();
+        $this->navigationPattern = new NavigationPattern();
     }
 
     /**
@@ -58,7 +106,13 @@ final class HtmlTransformer
         $this->presentationProvenance = array();
         $this->sourceProvenance = array();
         $this->structureProvenance = array();
+        $this->scriptMetadata = array();
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
+        $this->generatedAssets = array();
+        $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
+        $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
+        $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
+        $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
         $this->nextSourceProvenanceId = 1;
         $provenance               = array(
             array_merge(array(
@@ -68,7 +122,7 @@ final class HtmlTransformer
             ), $this->fallbackProvenance),
         );
 
-        $normalizedHtml = $this->normalizeHtml5VoidElements($html);
+        $normalizedHtml = $this->normalizeHtml5VoidElements($this->documentBodyHtml($html));
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
         $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $normalizedHtml . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
@@ -84,7 +138,7 @@ final class HtmlTransformer
                 ),
             );
             $fallbacks = array(
-                array_merge(array(
+                FallbackDiagnostic::build(array(
                     'type'            => 'html',
                     'reason'          => 'parse_failed',
                     'diagnostic_code' => 'html_parse_failed',
@@ -124,36 +178,86 @@ final class HtmlTransformer
         }
 
         $fallbacks   = array();
-        $blocks      = $this->convertChildren($body, $fallbacks, true);
+        $interactionCandidates = $this->interactionCandidates($body);
+        $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
+        $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
+        $semanticParityReport = $this->semanticParityReport($body, $blocks, $sourceProvenance);
         $diagnostics = array(
             array(
                 'code'    => 'html_to_blocks_core_slice',
-                'message' => 'Converted supported core text, layout, media, gallery, embed, file, table, button, shortcode, spacer, definition-list, details, navigation, and wrapper elements; unsupported elements are reported as fallbacks.',
+                'message' => 'Converted supported core text, layout, media, gallery, embed, file, table, button, shortcode, spacer, definition-list, details, navigation, safe inline SVG images, and wrapper elements; unsupported elements are reported as fallbacks.',
                 'source'  => self::class,
             ),
         );
 
+        foreach ( $this->scriptMetadata as $metadata ) {
+            $diagnostics[] = array(
+                'code'        => 'html_static_script_metadata',
+                'message'     => 'Static script data was preserved as bounded metadata and does not require client script execution.',
+                'source'      => self::class,
+                'reason'      => 'script_static_metadata',
+                'tag'         => 'script',
+                'selector'    => $metadata['selector'] ?? null,
+                'script_role' => $metadata['script_role'] ?? null,
+            );
+        }
+
         foreach ( $fallbacks as $fallback ) {
             if ( ! empty($fallback['diagnostic_code']) ) {
                 $diagnostics[] = array(
-                    'code'    => $fallback['diagnostic_code'],
-                    'message' => $fallback['message'] ?? 'HTML element preserved as fallback metadata.',
-                    'source'  => self::class,
-                    'reason'  => $fallback['reason'] ?? null,
-                    'tag'     => $fallback['tag'] ?? null,
-                    'selector' => $fallback['selector'] ?? null,
+                    'code'                => $fallback['diagnostic_code'],
+                    'message'             => $fallback['message'] ?? 'HTML element preserved as fallback metadata.',
+                    'source'              => self::class,
+                    'reason'              => $fallback['reason'] ?? null,
+                    'severity'            => $fallback['severity'] ?? null,
+                    'runtime_requirement' => $fallback['runtime_requirement'] ?? null,
+                    'tag'                 => $fallback['tag'] ?? null,
+                    'selector'            => $fallback['selector'] ?? null,
                 );
             }
         }
 
+        foreach ( $blockValidityReport['findings'] ?? array() as $finding ) {
+            if ( ! is_array($finding) ) {
+                continue;
+            }
+
+            $diagnostics[] = array(
+                'code'       => 'wp_block_validity_' . (string) ($finding['code'] ?? 'warning'),
+                'message'    => (string) ($finding['summary'] ?? 'Generated block serialization may trigger WordPress block invalidity warnings.'),
+                'source'     => Runtime::class,
+                'severity'   => $finding['severity'] ?? 'warning',
+                'block_name' => $finding['block_name'] ?? null,
+                'path'       => $finding['path'] ?? null,
+            );
+        }
+
+        foreach ( $semanticParityReport['findings'] ?? array() as $finding ) {
+            if ( ! is_array($finding) ) {
+                continue;
+            }
+
+            $diagnostics[] = array(
+                'code'     => 'html_semantic_parity_' . (string) ($finding['code'] ?? 'warning'),
+                'message'  => (string) ($finding['summary'] ?? 'Generated blocks differ from source semantic structure.'),
+                'source'   => self::class,
+                'severity' => $finding['severity'] ?? 'warning',
+                'selector' => $finding['selector'] ?? null,
+            );
+        }
+
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $sourceReports = array(
+            'interaction_candidates' => $interactionCandidates,
+            'wp_block_validity' => $blockValidityReport,
+            'semantic_parity' => $semanticParityReport,
             'html' => array(
                 'presentation_signals' => $this->presentationProvenance,
                 'source_provenance'    => $sourceProvenance,
                 'structure_signals'    => $this->structureProvenance,
+                'script_metadata'      => $this->scriptMetadata,
             ),
         );
         $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('html', $blocks, $fallbacks, $sourceReports, array(), $provenance, $metrics);
@@ -162,13 +266,14 @@ final class HtmlTransformer
             status: $this->statusForFallbacks($fallbacks, $context),
             blocks: $blocks,
             serializedBlocks: $serializedBlocks,
+            assets: array_values($this->generatedAssets),
             diagnostics: $diagnostics,
             fallbacks: $fallbacks,
             provenance: $provenance,
             sourceReports: $sourceReports,
             coverage: array(
                 array(
-                    'supported_blocks' => array( 'core/audio', 'core/button', 'core/buttons', 'core/code', 'core/column', 'core/columns', 'core/details', 'core/embed', 'core/file', 'core/gallery', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/separator', 'core/shortcode', 'core/spacer', 'core/table', 'core/video' ),
+                    'supported_blocks' => array( 'core/audio', 'core/button', 'core/buttons', 'core/code', 'core/column', 'core/columns', 'core/details', 'core/embed', 'core/file', 'core/gallery', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/separator', 'core/shortcode', 'core/spacer', 'core/navigation-submenu', 'core/table', 'core/video', 'core/search' ),
                     'block_count'      => count($blocks),
                     'fallback_count'   => count($fallbacks),
                     'source_provenance_count' => count($sourceProvenance),
@@ -214,9 +319,486 @@ final class HtmlTransformer
         return $count;
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<int, array<string, mixed>>
+     */
+    private function deduplicateNavigationBlocks(array $blocks): array
+    {
+        $seen = array();
+        return $this->deduplicateNavigationBlocksRecursive($blocks, $seen);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     * @return array<string, mixed>
+     */
+    private function semanticParityReport(DOMElement $body, array $blocks, array $sourceProvenance): array
+    {
+        $sourceLandmarks = $this->sourceLandmarkReport($body);
+        $blockLandmarks = $this->blockLandmarkReport($blocks, $sourceProvenance, $sourceLandmarks);
+        $sourceMenus = $this->sourceNavigationMenus($body);
+        $blockMenus = $this->blockNavigationMenus($blocks);
+        $findings = $this->semanticParityFindings($sourceLandmarks, $blockLandmarks, $sourceMenus, $blockMenus);
+
+        return array(
+            'schema' => 'blocks-engine/php-transformer/semantic-parity/v1',
+            'status' => array() === $findings ? 'pass' : 'warning',
+            'landmarks' => array(
+                'source' => $sourceLandmarks['counts'],
+                'blocks' => $blockLandmarks['counts'],
+            ),
+            'navigation_menus' => array(
+                'source' => $sourceMenus,
+                'blocks' => $blockMenus,
+            ),
+            'findings' => $findings,
+        );
+    }
+
+    /**
+     * @return array{counts: array<string, int>, selectors: array<string, array<int, string>>}
+     */
+    private function sourceLandmarkReport(DOMElement $body): array
+    {
+        $counts = array('header' => 0, 'nav' => 0, 'main' => 0, 'footer' => 0);
+        $selectors = array('header' => array(), 'nav' => array(), 'main' => array(), 'footer' => array());
+        $this->collectSourceLandmarks($body, $counts, $selectors);
+
+        return array('counts' => $counts, 'selectors' => $selectors);
+    }
+
+    /**
+     * @param array<string, int> $counts
+     * @param array<string, array<int, string>> $selectors
+     */
+    private function collectSourceLandmarks(DOMElement $element, array &$counts, array &$selectors): void
+    {
+        $landmark = $this->landmarkKindForElement($element);
+        if ( '' !== $landmark ) {
+            ++$counts[$landmark];
+            $selectors[$landmark][] = $this->elementSelector($element);
+        }
+
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $this->collectSourceLandmarks($child, $counts, $selectors);
+            }
+        }
+    }
+
+    private function landmarkKindForElement(DOMElement $element): string
+    {
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'header', 'nav', 'main', 'footer' ), true) ) {
+            return 'nav' === $tagName ? 'nav' : $tagName;
+        }
+
+        return match ( strtolower($this->attr($element, 'role')) ) {
+            'banner' => 'header',
+            'navigation' => 'nav',
+            'main' => 'main',
+            'contentinfo' => 'footer',
+            default => '',
+        };
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     * @param array{counts: array<string, int>, selectors: array<string, array<int, string>>} $sourceLandmarks
+     * @return array{counts: array<string, int>, selectors: array<string, array<int, string>>}
+     */
+    private function blockLandmarkReport(array $blocks, array $sourceProvenance, array $sourceLandmarks): array
+    {
+        $counts = array('header' => 0, 'nav' => 0, 'main' => 0, 'footer' => 0);
+        $selectors = array('header' => array(), 'nav' => array(), 'main' => array(), 'footer' => array());
+        $this->collectBlockNavigationLandmarks($blocks, $counts);
+
+        foreach ( array( 'header', 'main', 'footer' ) as $kind ) {
+            foreach ( $sourceLandmarks['selectors'][$kind] ?? array() as $sourceSelector ) {
+                if ( $this->sourceSelectorHasBlockRepresentation((string) $sourceSelector, $sourceProvenance) ) {
+                    $selectors[$kind][] = (string) $sourceSelector;
+                }
+            }
+            $counts[$kind] = count($selectors[$kind]);
+        }
+
+        return array('counts' => $counts, 'selectors' => $selectors);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     */
+    private function sourceSelectorHasBlockRepresentation(string $sourceSelector, array $sourceProvenance): bool
+    {
+        if ( '' === $sourceSelector ) {
+            return false;
+        }
+
+        foreach ( $sourceProvenance as $entry ) {
+            if ( ! is_array($entry) ) {
+                continue;
+            }
+
+            $blockSelector = (string) ($entry['selector'] ?? '');
+            if ( $sourceSelector === $blockSelector || str_starts_with($blockSelector, $sourceSelector . ' > ') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<string, int> $counts
+     */
+    private function collectBlockNavigationLandmarks(array $blocks, array &$counts): void
+    {
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
+                ++$counts['nav'];
+            }
+
+            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $this->collectBlockNavigationLandmarks($block['innerBlocks'], $counts);
+            }
+        }
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function sourceNavigationMenus(DOMElement $body): array
+    {
+        $menus = array();
+        $this->collectSourceNavigationMenus($body, $menus);
+        return $menus;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $menus
+     */
+    private function collectSourceNavigationMenus(DOMElement $element, array &$menus): void
+    {
+        if ( 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role')) ) {
+            $items = array();
+            foreach ( $element->getElementsByTagName('a') as $anchor ) {
+                if ( $anchor instanceof DOMElement ) {
+                    $label = $this->normalizedNavigationLabel($anchor->textContent ?? '');
+                    if ( '' !== $label ) {
+                        $items[] = array(
+                            'label' => $label,
+                            'url' => $this->safeNavigationUrl($this->attr($anchor, 'href')),
+                        );
+                    }
+                }
+            }
+
+            $menus[] = array(
+                'selector' => $this->elementSelector($element),
+                'item_count' => count($items),
+                'items' => $items,
+            );
+        }
+
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $this->collectSourceNavigationMenus($child, $menus);
+            }
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<int, array<string, mixed>>
+     */
+    private function blockNavigationMenus(array $blocks): array
+    {
+        $menus = array();
+        $this->collectBlockNavigationMenus($blocks, 'blocks', $menus);
+        return $menus;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, mixed>> $menus
+     */
+    private function collectBlockNavigationMenus(array $blocks, string $path, array &$menus): void
+    {
+        foreach ( $blocks as $index => $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            $blockPath = $path . '.' . $index;
+            if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
+                $items = array();
+                $this->collectBlockNavigationItems(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $items);
+                $menus[] = array(
+                    'block_path' => $blockPath,
+                    'represented_as_core_navigation' => true,
+                    'item_count' => count($items),
+                    'items' => $items,
+                );
+            }
+
+            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $this->collectBlockNavigationMenus($block['innerBlocks'], $blockPath . '.innerBlocks', $menus);
+            }
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, string>> $items
+     */
+    private function collectBlockNavigationItems(array $blocks, array &$items): void
+    {
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            if ( in_array($block['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
+                $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+                $items[] = array(
+                    'label' => $this->normalizedNavigationLabel((string) ($attrs['label'] ?? '')),
+                    'url' => (string) ($attrs['url'] ?? ''),
+                );
+            }
+
+            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $this->collectBlockNavigationItems($block['innerBlocks'], $items);
+            }
+        }
+    }
+
+    private function normalizedNavigationLabel(string $label): string
+    {
+        return trim(preg_replace('/\s+/', ' ', html_entity_decode($this->runtime->stripAllTags($label), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? $label);
+    }
+
+    /**
+     * @param array{counts: array<string, int>, selectors: array<string, array<int, string>>} $sourceLandmarks
+     * @param array{counts: array<string, int>, selectors: array<string, array<int, string>>} $blockLandmarks
+     * @param array<int, array<string, mixed>> $sourceMenus
+     * @param array<int, array<string, mixed>> $blockMenus
+     * @return array<int, array<string, mixed>>
+     */
+    private function semanticParityFindings(array $sourceLandmarks, array $blockLandmarks, array $sourceMenus, array $blockMenus): array
+    {
+        $findings = array();
+        foreach ( array( 'header', 'nav', 'main', 'footer' ) as $kind ) {
+            $sourceCount = (int) ($sourceLandmarks['counts'][$kind] ?? 0);
+            $blockCount = (int) ($blockLandmarks['counts'][$kind] ?? 0);
+            if ( $sourceCount > $blockCount ) {
+                $findings[] = array_filter(array(
+                    'code' => 'landmark_count_mismatch',
+                    'severity' => 'warning',
+                    'kind' => $kind,
+                    'source_count' => $sourceCount,
+                    'block_count' => $blockCount,
+                    'selector' => $sourceLandmarks['selectors'][$kind][0] ?? '',
+                    'summary' => 'Source ' . $kind . ' landmarks exceed generated core block representation.',
+                ), static fn (mixed $value): bool => '' !== $value);
+            }
+        }
+
+        foreach ( $sourceMenus as $index => $sourceMenu ) {
+            $blockMenu = $blockMenus[$index] ?? null;
+            if ( ! is_array($blockMenu) ) {
+                $findings[] = array(
+                    'code' => 'navigation_menu_missing',
+                    'severity' => 'warning',
+                    'selector' => $sourceMenu['selector'] ?? '',
+                    'source_item_count' => $sourceMenu['item_count'] ?? 0,
+                    'block_item_count' => 0,
+                    'summary' => 'Source navigation menu was not represented as a core/navigation block.',
+                );
+                continue;
+            }
+
+            if ( true !== ($blockMenu['represented_as_core_navigation'] ?? false) ) {
+                $findings[] = array(
+                    'code' => 'navigation_core_block_missing',
+                    'severity' => 'warning',
+                    'selector' => $sourceMenu['selector'] ?? '',
+                    'summary' => 'Generated navigation menu is not represented by core/navigation.',
+                );
+            }
+
+            $sourceItems = is_array($sourceMenu['items'] ?? null) ? array_values($sourceMenu['items']) : array();
+            $blockItems = is_array($blockMenu['items'] ?? null) ? array_values($blockMenu['items']) : array();
+            if ( count($sourceItems) !== count($blockItems) ) {
+                $findings[] = array(
+                    'code' => 'navigation_item_count_mismatch',
+                    'severity' => 'warning',
+                    'selector' => $sourceMenu['selector'] ?? '',
+                    'source_item_count' => count($sourceItems),
+                    'block_item_count' => count($blockItems),
+                    'summary' => 'Source navigation item count differs from generated core navigation items.',
+                );
+                continue;
+            }
+
+            foreach ( $sourceItems as $itemIndex => $sourceItem ) {
+                $blockItem = $blockItems[$itemIndex] ?? array();
+                if ( ($sourceItem['label'] ?? '') !== ($blockItem['label'] ?? '') || ($sourceItem['url'] ?? '') !== ($blockItem['url'] ?? '') ) {
+                    $findings[] = array(
+                        'code' => 'navigation_item_mismatch',
+                        'severity' => 'warning',
+                        'selector' => $sourceMenu['selector'] ?? '',
+                        'item_index' => $itemIndex,
+                        'source_item' => $sourceItem,
+                        'block_item' => $blockItem,
+                        'summary' => 'Source navigation item label or URL differs from generated core navigation item.',
+                    );
+                    break;
+                }
+            }
+        }
+
+        return $findings;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<string, bool> $seen
+     * @return array<int, array<string, mixed>>
+     */
+    private function deduplicateNavigationBlocksRecursive(array $blocks, array &$seen): array
+    {
+        $deduplicated = array();
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                $block['innerBlocks'] = $this->deduplicateNavigationBlocksRecursive($block['innerBlocks'], $seen);
+                $block = $this->reconcileInnerContentChildPlaceholders($block);
+            }
+
+            if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
+                $signature = $this->navigationBlockSignature($block);
+                if ( '' !== $signature && isset($seen[$signature]) ) {
+                    continue;
+                }
+                if ( '' !== $signature ) {
+                    $seen[$signature] = true;
+                }
+            }
+
+            $deduplicated[] = $block;
+        }
+
+        return $deduplicated;
+    }
+
+    /**
+     * @param array<string, mixed> $block
+     * @return array<string, mixed>
+     */
+    private function reconcileInnerContentChildPlaceholders(array $block): array
+    {
+        $innerBlocks = is_array($block['innerBlocks'] ?? null) ? array_values($block['innerBlocks']) : array();
+        $innerContent = is_array($block['innerContent'] ?? null) ? array_values($block['innerContent']) : null;
+        if ( null === $innerContent ) {
+            return $block;
+        }
+
+        $placeholderCount = 0;
+        $firstPlaceholderIndex = null;
+        $lastPlaceholderIndex = null;
+        foreach ( $innerContent as $index => $part ) {
+            if ( null !== $part ) {
+                continue;
+            }
+
+            ++$placeholderCount;
+            $firstPlaceholderIndex ??= $index;
+            $lastPlaceholderIndex = $index;
+        }
+
+        if ( count($innerBlocks) === $placeholderCount ) {
+            return $block;
+        }
+
+        if ( null === $firstPlaceholderIndex || null === $lastPlaceholderIndex ) {
+            return $block;
+        }
+
+        $opening = array_slice($innerContent, 0, $firstPlaceholderIndex);
+        $closing = array_slice($innerContent, $lastPlaceholderIndex + 1);
+        $block['innerBlocks'] = $innerBlocks;
+        $block['innerContent'] = array_merge($opening, array_fill(0, count($innerBlocks), null), $closing);
+        $block['innerHTML'] = implode('', array_map(static fn ($part): string => null === $part ? '' : (string) $part, array_merge($opening, $closing)));
+
+        return $block;
+    }
+
+    /**
+     * @param array<string, mixed> $block
+     */
+    private function navigationBlockSignature(array $block): string
+    {
+        $links = array();
+        $this->collectNavigationBlockLinks($block, $links);
+        return implode('|', $links);
+    }
+
+    /**
+     * @param array<string, mixed> $block
+     * @param array<int, string> $links
+     */
+    private function collectNavigationBlockLinks(array $block, array &$links): void
+    {
+        if ( in_array($block['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
+            $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+            $links[] = trim((string) ($attrs['label'] ?? '')) . '>' . trim((string) ($attrs['url'] ?? ''));
+        }
+
+        foreach ( is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array() as $innerBlock ) {
+            if ( is_array($innerBlock) ) {
+                $this->collectNavigationBlockLinks($innerBlock, $links);
+            }
+        }
+    }
+
     private function normalizeHtml5VoidElements(string $html): string
     {
         return preg_replace('/<source\b([^>]*?)(?<!\/)\s*>/i', '<source$1></source>', $html) ?? $html;
+    }
+
+    private function documentBodyHtml(string $html): string
+    {
+        if ( ! preg_match('/<(?:!doctype|html|head|body)\b/i', $html) ) {
+            return $html;
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        if ( ! $loaded ) {
+            return $html;
+        }
+
+        $body = $document->getElementsByTagName('body')->item(0);
+        if ( ! $body instanceof DOMElement ) {
+            return $html;
+        }
+
+        return $this->innerHtml($body);
     }
 
     /**
@@ -292,9 +874,39 @@ final class HtmlTransformer
             return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
         }
 
+        if ( 'address' === $tagName ) {
+            $content = $this->innerHtml($element);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        }
+
+        $placeholderMedia = $this->placeholderMediaBlockFromElement($element);
+        if ( null !== $placeholderMedia ) {
+            return $placeholderMedia;
+        }
+
         if ( $this->isInlineContentElement($tagName) ) {
+            $dynamicText = $this->dynamicTextContent($element);
+            if ( null !== $dynamicText ) {
+                return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->runtime->escapeHtml($dynamicText) )), array(), $element);
+            }
+
             $content = $this->outerHtml($element);
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                $children = $this->convertChildren($element, $fallbacks, true);
+                if ( 1 === count($children) ) {
+                    if ( array() !== $this->presentationAttributes($element) ) {
+                        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                    }
+                    return $children[0];
+                }
+                if ( array() !== $children ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                }
+
                 return null;
             }
 
@@ -302,6 +914,17 @@ final class HtmlTransformer
         }
 
         if ( 'ul' === $tagName || 'ol' === $tagName ) {
+            $navigation = $this->navigationPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement),
+                fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement)
+            );
+            if ( null !== $navigation ) {
+                return $navigation;
+            }
+
             $items = $this->listItems($element, $fallbacks);
 
             if ( array() === $items ) {
@@ -334,12 +957,24 @@ final class HtmlTransformer
                 )), static fn ($value): bool => '' !== $value), array(), $element);
             }
 
-            $innerBlocks = $this->convertChildrenWithoutTags($element, $fallbacks, array( 'cite', 'footer' ));
+            $innerBlocks = $this->phrasingQuoteChildren($element, $value);
+            if ( array() === $innerBlocks ) {
+                $innerBlocks = $this->convertChildrenWithoutTags($element, $fallbacks, array( 'cite', 'footer' ));
+            }
             if ( array() === $innerBlocks ) {
                 $innerBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $value ));
             }
 
             return $this->createBlock('core/quote', array_filter(array_merge($this->presentationAttributes($element), array( 'citation' => $citation )), static fn ($value): bool => '' !== $value), $innerBlocks, $element);
+        }
+
+        if ( 'address' === $tagName ) {
+            $content = $this->innerHtml($element);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
         }
 
         if ( 'figure' === $tagName ) {
@@ -353,12 +988,12 @@ final class HtmlTransformer
                 return $codeWindow;
             }
 
-            $image = $this->firstChildElement($element, 'img');
+            $image = $this->figureMediaElement($element, 'img');
             if ( $image instanceof DOMElement ) {
                 return $this->convertImageElement($image, $element);
             }
 
-            $picture = $this->firstChildElement($element, 'picture');
+            $picture = $this->figureMediaElement($element, 'picture');
             if ( $picture instanceof DOMElement ) {
                 return $this->convertPictureElement($picture, $element);
             }
@@ -378,24 +1013,41 @@ final class HtmlTransformer
             return $this->createBlock('core/preformatted', array_merge($this->presentationAttributes($element), array( 'content' => $this->innerHtmlPreservingWhitespace($element) )), array(), $element);
         }
 
+        if ( 'plaintext' === $tagName ) {
+            $content = $this->runtime->escapeHtml($element->textContent ?? '');
+            if ( '' === trim($content) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/preformatted', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        }
+
         if ( 'table' === $tagName ) {
             return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
+        }
+
+        $parameterTable = $this->parameterTableBlockFromElement($element);
+        if ( null !== $parameterTable ) {
+            return $parameterTable;
         }
 
         if ( 'hr' === $tagName ) {
             return $this->createBlock('core/separator', $this->presentationAttributes($element), array(), $element);
         }
 
-        if ( 'details' === $tagName ) {
-            $summary = $this->firstChildElement($element, 'summary');
-            $children = $this->convertChildrenWithoutTags($element, $fallbacks, array( 'summary' ));
-            if ( null === $summary && array() === $children ) {
-                return null;
-            }
+        if ( 'br' === $tagName ) {
+            return null;
+        }
 
-            return $this->createBlock('core/details', array_filter(array_merge($this->presentationAttributes($element), array(
-                'summary' => $summary instanceof DOMElement ? $this->innerHtml($summary) : '',
-            )), static fn ($value): bool => '' !== $value), $children, $element);
+        if ( 'details' === $tagName ) {
+            return $this->detailsPattern->match(
+                $element,
+                $fallbacks,
+                fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags),
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
         }
 
         if ( 'img' === $tagName ) {
@@ -414,33 +1066,112 @@ final class HtmlTransformer
             return $this->convertMediaElement($element);
         }
 
-        if ( 'a' === $tagName && '' !== trim($element->textContent ?? '') ) {
-            $fileBlock = $this->fileBlockFromAnchor($element);
-            if ( null !== $fileBlock ) {
-                return $fileBlock;
+        if ( 'a' === $tagName ) {
+            $linkedImage = $this->imageBlockFromAnchor($element);
+            if ( null !== $linkedImage ) {
+                return $linkedImage;
             }
 
-            return $this->createBlock('core/buttons', array(), array( $this->buttonBlockFromAnchor($element) ), $element);
+            if ( '' === trim($element->textContent ?? '') && '' !== $this->safeLinkUrl($this->attr($element, 'href')) && '' !== trim($this->attr($element, 'aria-label')) ) {
+                return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->outerHtml($element) )), array(), $element);
+            }
+
+            if ( '' === trim($element->textContent ?? '') ) {
+                return null;
+            }
+
+            $logo = $this->logoPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->outerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
+            if ( null !== $logo ) {
+                return $logo;
+            }
+
+            $button = $this->buttonsPattern->matchAnchor(
+                $element,
+                fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
+            if ( null !== $button ) {
+                return $button;
+            }
+
+            if ( $this->hasBlockContentChildren($element) ) {
+                $children = $this->convertChildren($element, $fallbacks, true);
+                if ( array() !== $children ) {
+                    return $this->createBlock('core/group', array_merge($this->presentationAttributes($element), $this->cardLinkAttributes($element)), $children, $element);
+                }
+            }
+
+            return $this->createBlock('core/paragraph', array( 'content' => $this->outerHtml($element) ), array(), $element);
         }
 
         if ( 'button' === $tagName ) {
-            return $this->createBlock('core/buttons', array(), array( $this->createBlock('core/button', array_merge($this->presentationAttributes($element), array( 'text' => $this->innerHtml($element) )), array(), $element) ), $element);
+            return $this->buttonsPattern->matchButton(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
         }
 
         if ( 'svg' === $tagName ) {
+            if ( $this->isSafeDecorativeSvgElement($element) ) {
+                if ( $this->isVisualLayerElement($element) ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
+                }
+                return null;
+            }
+
+            $svgBlock = $this->inlineSvgBlockFromElement($element);
+            if ( null !== $svgBlock ) {
+                return $svgBlock;
+            }
+
             $this->captureInlineSvgFallback($element, $fallbacks);
             return null;
         }
 
+        if ( 'canvas' === $tagName ) {
+            $this->captureCanvasFallback($element, $fallbacks);
+            if ( $this->isRuntimeCanvasTarget($element) ) {
+                $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+                return $this->createBlock('core/html', array( 'content' => $boundedHtml['html'] ), array(), $element);
+            }
+            return null;
+        }
+
         if ( 'script' === $tagName ) {
+            if ( $this->captureStaticScriptMetadata($element) ) {
+                return null;
+            }
+
             $this->captureScriptFallback($element, $fallbacks);
             return null;
         }
 
         if ( 'form' === $tagName ) {
+            $searchBlock = $this->searchBlockFromForm($element);
+            if ( null !== $searchBlock ) {
+                return $searchBlock;
+            }
+
+            $readableFormBlock = $this->readableFormBlockFromForm($element);
+            if ( null !== $readableFormBlock ) {
+                return $readableFormBlock;
+            }
+
             $controls = $this->formControls($element);
+            $readableFormBlock = $this->readableFormBlockFromForm($element, true);
             $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-            $fallbacks[] = array_merge(array(
+            $fallbacks[] = FallbackDiagnostic::build(array(
                 'type'            => 'html',
                 'reason'          => 'form_requires_runtime',
                 'diagnostic_code' => 'html_form_fallback',
@@ -452,6 +1183,7 @@ final class HtmlTransformer
                 'form'            => $this->formMetadata($element),
                 'context'         => $this->sourceContext($element),
                 'events'          => $this->eventMetadata($element),
+                'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
                 'controls'        => $controls,
                 'control_count'   => count($controls),
                 'text_length'     => strlen(trim($element->textContent ?? '')),
@@ -460,20 +1192,55 @@ final class HtmlTransformer
                 'html_bytes'      => $boundedHtml['bytes'],
                 'html_truncated'  => $boundedHtml['truncated'],
             ), $this->fallbackProvenance);
-            return null;
+
+            return $this->shouldMaterializeReadableRuntimeForm($element) ? $readableFormBlock : null;
         }
 
         if ( 'nav' === $tagName ) {
-            $navigationLinks = $this->navigationLinks($element);
-            if ( array() !== $navigationLinks ) {
-                return $this->createBlock('core/navigation', $this->presentationAttributes($element), $navigationLinks, $element);
+            $navigation = $this->navigationPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
+            if ( null !== $navigation ) {
+                return $navigation;
             }
         }
 
-        if ( in_array($tagName, array( 'article', 'body', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+        if ( in_array($tagName, array( 'article', 'aside', 'body', 'center', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+            $logo = $this->logoPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->outerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
+            if ( null !== $logo ) {
+                return $logo;
+            }
+
             $spacer = $this->spacerBlockFromElement($element);
             if ( null !== $spacer ) {
                 return $spacer;
+            }
+
+            $navigationSection = $this->navigationSectionBlockFromElement($element);
+            if ( null !== $navigationSection ) {
+                return $navigationSection;
+            }
+
+            if ( ! $this->shouldDeferNavigationPatternToChildren($element) ) {
+                $navigation = $this->navigationPattern->match(
+                    $element,
+                    fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                    fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement),
+                    fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement)
+                );
+                if ( null !== $navigation ) {
+                    return $navigation;
+                }
             }
 
             $columns = $this->columnsBlockFromElement($element, $fallbacks);
@@ -491,14 +1258,40 @@ final class HtmlTransformer
                 return $codeWindow;
             }
 
-            $buttonChildren = $this->buttonChildren($element);
-            if ( array() !== $buttonChildren ) {
-                return $this->createBlock('core/buttons', $this->presentationAttributes($element), $buttonChildren, $element);
+            $namePriceRow = $this->namePriceRowBlockFromElement($element, $fallbacks);
+            if ( null !== $namePriceRow ) {
+                return $namePriceRow;
+            }
+
+            $inlineContent = $this->paragraphBlockFromInlineContentWrapper($element);
+            if ( null !== $inlineContent ) {
+                return $inlineContent;
+            }
+
+            $standaloneSearch = $this->searchBlockFromStandaloneControl($element);
+            if ( null !== $standaloneSearch ) {
+                return $standaloneSearch;
+            }
+
+            $buttons = $this->buttonsPattern->matchContainer(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
+            if ( null !== $buttons ) {
+                return $buttons;
+            }
+
+            $textFlow = $this->textFlowBlockFromElement($element);
+            if ( null !== $textFlow ) {
+                return $textFlow;
             }
 
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( 1 === count($children) ) {
-                if ( $this->shouldPreserveWrapper($element) && 'core/group' !== ($children[0]['blockName'] ?? '') ) {
+                if ( $this->shouldPreserveWrapper($element) ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
                 }
                 return $children[0];
@@ -510,6 +1303,11 @@ final class HtmlTransformer
                 return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
             }
             return null;
+        }
+
+        $readableControlBlock = $this->readableFormControlBlockFromElement($element);
+        if ( null !== $readableControlBlock ) {
+            return $readableControlBlock;
         }
 
         if ( $captureUnsupported ) {
@@ -533,7 +1331,7 @@ final class HtmlTransformer
                 $fallback['control'] = $control;
             }
 
-            $fallbacks[] = array_merge($fallback, $this->fallbackProvenance);
+            $fallbacks[] = FallbackDiagnostic::build($fallback, $this->fallbackProvenance);
         }
 
         return null;
@@ -658,17 +1456,328 @@ final class HtmlTransformer
      */
     private function presentationAttributes(DOMElement $element): array
     {
+        $style = $this->mergedPresentationStyle($element);
+
         return array_filter(array(
-            'className' => $this->attr($element, 'class'),
-            'style'     => $this->attr($element, 'style'),
-            'layout'    => $this->layoutAttribute($element),
+            'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
+            'className' => $this->promotedClassName($this->attr($element, 'class')),
+            'style'     => $style,
+            'layout'    => $this->layoutAttribute($element, $style),
         ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+    }
+
+    private function safeAnchor(string $id): string
+    {
+        $id = trim($id);
+        if ( '' === $id || ! preg_match('/^[A-Za-z][A-Za-z0-9_-]*$/', $id) ) {
+            return '';
+        }
+
+        return $id;
+    }
+
+    private function mergedPresentationStyle(DOMElement $element): string
+    {
+        $inlineStyle = $this->attr($element, 'style');
+        if ( array() === $this->staticStyleRules || ! $this->isHighValueStyledElement($element) ) {
+            return $inlineStyle;
+        }
+
+        $declarations = array();
+        foreach ( $this->staticStyleRules as $rule ) {
+            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
+                $declarations = array_merge($declarations, $rule['declarations']);
+            }
+        }
+
+        if ( array() === $declarations ) {
+            return $inlineStyle;
+        }
+
+        $declarations = array_merge($declarations, $this->cssDeclarations($inlineStyle));
+        return $this->cssDeclarationString($declarations);
+    }
+
+    private function isHighValueStyledElement(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'button', 'nav', 'article' ), true) ) {
+            return true;
+        }
+
+        $tokens = strtolower(trim(implode(' ', array(
+            $this->attr($element, 'class'),
+            $this->attr($element, 'id'),
+            $this->attr($element, 'role'),
+        ))));
+
+        if ( preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action|nav|menu|cards?|tile|panel|pricing|price|product|grid|columns|layout|stack|cluster|row|wrap)(?:[^a-z0-9]|$)/', $tokens) ) {
+            return true;
+        }
+
+        if ( 'a' === $tagName ) {
+            for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+                $ancestorTokens = strtolower($this->attr($node, 'class') . ' ' . $this->attr($node, 'id'));
+                if ( preg_match('/(?:^|[^a-z0-9])(?:actions?|btns?|buttons?|cta|nav|menu|card|tile|panel|pricing|product)(?:[^a-z0-9]|$)/', $ancestorTokens) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<int, array{selector: string, declarations: array<string, string>}>
+     */
+    private function staticStyleRules(string $html, string $linkedCss): array
+    {
+        $css = trim($linkedCss);
+        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
+            $css .= ( '' === $css ? '' : "\n" ) . implode("\n", array_map('trim', $matches[1]));
+        }
+
+        if ( '' === trim($css) ) {
+            return array();
+        }
+
+        $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
+        $rules = array();
+        if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        foreach ( $matches as $match ) {
+            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $match[2]));
+            if ( array() === $declarations ) {
+                continue;
+            }
+            foreach ( explode(',', (string) $match[1]) as $selector ) {
+                $selector = trim($selector);
+                if ( '' !== $selector && $this->isSupportedCssSelector($selector) ) {
+                    $rules[] = array(
+                        'selector' => $selector,
+                        'declarations' => $declarations,
+                    );
+                }
+            }
+        }
+
+        return array_slice($rules, 0, 200);
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private function safeVisualDeclarations(array $declarations): array
+    {
+        $safe = array_flip(array(
+            'background',
+            'background-color',
+            'border',
+            'border-color',
+            'border-radius',
+            'border-style',
+            'border-width',
+            'box-shadow',
+            'color',
+            'align-items',
+            'column-gap',
+            'display',
+            'flex-direction',
+            'flex-wrap',
+            'font-size',
+            'font-weight',
+            'gap',
+            'grid-template-columns',
+            'grid-template-rows',
+            'justify-content',
+            'line-height',
+            'margin',
+            'margin-bottom',
+            'margin-left',
+            'margin-right',
+            'margin-top',
+            'padding',
+            'padding-bottom',
+            'padding-left',
+            'padding-right',
+            'padding-top',
+            'row-gap',
+            'text-align',
+            'text-decoration',
+            'text-transform',
+        ));
+
+        return array_intersect_key($declarations, $safe);
     }
 
     /**
      * @return array<string, string>
      */
-    private function layoutAttribute(DOMElement $element): array
+    private function cssDeclarations(string $style): array
+    {
+        $declarations = array();
+        foreach ( explode(';', $style) as $declaration ) {
+            if ( ! str_contains($declaration, ':') ) {
+                continue;
+            }
+            [$name, $value] = array_map('trim', explode(':', $declaration, 2));
+            $name = strtolower($name);
+            $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+            if ( '' !== $name && '' !== $value && ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $value) ) {
+                $declarations[$name] = $value;
+            }
+        }
+
+        return $declarations;
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     */
+    private function cssDeclarationString(array $declarations): string
+    {
+        $parts = array();
+        foreach ( $declarations as $name => $value ) {
+            $parts[] = $name . ':' . $value;
+        }
+
+        return implode(';', $parts);
+    }
+
+    private function isSupportedCssSelector(string $selector): bool
+    {
+        $selector = $this->normalizeCssSelector($selector);
+        if ( '' === $selector || preg_match('/[>+~\[\]=]/', $selector) ) {
+            return false;
+        }
+
+        foreach ( preg_split('/\s+/', $selector) ?: array() as $part ) {
+            if ( ! preg_match('/^(?:[a-z][a-z0-9_-]*)?(?:\.[A-Za-z0-9_-]+)+$|^\.[A-Za-z0-9_-]+$/i', $part) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function matchesCssSelector(DOMElement $element, string $selector): bool
+    {
+        $parts = preg_split('/\s+/', $this->normalizeCssSelector($selector)) ?: array();
+        if ( array() === $parts ) {
+            return false;
+        }
+
+        if ( ! $this->matchesCssSelectorPart($element, $parts[count($parts) - 1]) ) {
+            return false;
+        }
+
+        $current = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
+        for ( $index = count($parts) - 2; $index >= 0; --$index ) {
+            $matched = false;
+            for ( $node = $current; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+                if ( $this->matchesCssSelectorPart($node, $parts[$index]) ) {
+                    $matched = true;
+                    $current = $node->parentNode instanceof DOMElement ? $node->parentNode : null;
+                    break;
+                }
+            }
+            if ( ! $matched ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function normalizeCssSelector(string $selector): string
+    {
+        return trim(preg_replace('/:(?:hover|focus|active|visited|before|after|focus-visible)\b.*/', '', $selector) ?? $selector);
+    }
+
+    private function matchesCssSelectorPart(DOMElement $element, string $selector): bool
+    {
+        if ( ! preg_match('/^(?:(?<tag>[a-z][a-z0-9_-]*))?(?<classes>(?:\.[A-Za-z0-9_-]+)+)$/i', $selector, $match) ) {
+            return false;
+        }
+
+        if ( ! empty($match['tag']) && strtolower($match['tag']) !== strtolower($element->tagName) ) {
+            return false;
+        }
+
+        $classes = preg_split('/\./', ltrim((string) $match['classes'], '.')) ?: array();
+        $elementClasses = preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array();
+        foreach ( $classes as $class ) {
+            if ( ! in_array($class, $elementClasses, true) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    private function detectStaticClassPromotions(string $html): array
+    {
+        if ( ! str_contains($html, 'classList.add') || ! str_contains($html, 'querySelectorAll') ) {
+            return array();
+        }
+
+        if ( ! str_contains($html, 'IntersectionObserver') && ! str_contains($html, 'isIntersecting') ) {
+            return array();
+        }
+
+        preg_match_all('/querySelectorAll\s*\(\s*([\'"`])\.([A-Za-z0-9_-]+)\1\s*\)/', $html, $selectorMatches);
+        preg_match_all('/classList\.add\s*\(([^)]*)\)/', $html, $addMatches);
+
+        $triggerClasses = array_values(array_unique($selectorMatches[2] ?? array()));
+        $terminalClasses = array();
+        foreach ( $addMatches[1] ?? array() as $args ) {
+            preg_match_all('/[\'"`]([A-Za-z0-9_-]+)[\'"`]/', (string) $args, $classMatches);
+            foreach ( $classMatches[1] ?? array() as $className ) {
+                $terminalClasses[] = $className;
+            }
+        }
+
+        $terminalClasses = array_values(array_unique($terminalClasses));
+        if ( array() === $triggerClasses || array() === $terminalClasses ) {
+            return array();
+        }
+
+        $promotions = array();
+        foreach ( array_slice($triggerClasses, 0, 20) as $triggerClass ) {
+            $promotions[$triggerClass] = array_values(array_diff(array_slice($terminalClasses, 0, 20), array( $triggerClass )));
+        }
+
+        return array_filter($promotions, static fn (array $classes): bool => array() !== $classes);
+    }
+
+    private function promotedClassName(string $className): string
+    {
+        if ( '' === trim($className) || array() === $this->staticClassPromotions ) {
+            return $className;
+        }
+
+        $classes = preg_split('/\s+/', trim($className)) ?: array();
+        foreach ( $classes as $class ) {
+            foreach ( $this->staticClassPromotions[$class] ?? array() as $terminalClass ) {
+                if ( ! in_array($terminalClass, $classes, true) ) {
+                    $classes[] = $terminalClass;
+                }
+            }
+        }
+
+        return implode(' ', $classes);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function layoutAttribute(DOMElement $element, string $mergedStyle = ''): array
     {
         $declared = trim($this->attr($element, 'data-layout'));
         if ( '' === $declared ) {
@@ -683,7 +1792,7 @@ final class HtmlTransformer
             }
         }
 
-        $style = strtolower($this->attr($element, 'style'));
+        $style = strtolower('' !== trim($mergedStyle) ? $mergedStyle : $this->attr($element, 'style'));
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style) ) {
             return array( 'type' => 'flex' );
         }
@@ -691,7 +1800,17 @@ final class HtmlTransformer
             return array( 'type' => 'grid' );
         }
 
+        if ( $this->hasGridLikeClass($element) && 1 < $this->cardLikeChildCount($element) ) {
+            return array( 'type' => 'grid' );
+        }
+
         return array();
+    }
+
+    private function hasGridLikeClass(DOMElement $element): bool
+    {
+        $className = strtolower($this->attr($element, 'class'));
+        return (bool) preg_match('/(?:^|[\s_-])(?:cards|grid|tiles|collection|gallery)(?:$|[\s_-])/', $className);
     }
 
     /**
@@ -735,21 +1854,191 @@ final class HtmlTransformer
 
     private function shouldPreserveWrapper(DOMElement $element): bool
     {
-        return in_array(strtolower($element->tagName), array( 'article', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) && ( array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
+        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) && ( $this->isRuntimeDomTarget($element) || array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
+    }
+
+    private function shouldDeferNavigationPatternToChildren(DOMElement $element): bool
+    {
+        if ( 'nav' === strtolower($element->tagName) || ! $this->shouldPreserveWrapper($element) ) {
+            return false;
+        }
+
+        $hasNavigationDescendant = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( in_array(strtolower($child->tagName), array( 'a', 'ul', 'ol' ), true) ) {
+                return false;
+            }
+
+            $hasNavigationDescendant = $hasNavigationDescendant || 'nav' === strtolower($child->tagName) || 0 < $child->getElementsByTagName('a')->length;
+        }
+
+        return $hasNavigationDescendant;
     }
 
     private function shouldPreserveEmptyVisualElement(DOMElement $element): bool
     {
-        if ( '' !== trim($element->textContent ?? '') || 0 !== $this->childElementCount($element) ) {
+        if ( '' !== trim($element->textContent ?? '') ) {
             return false;
         }
 
-        return $this->shouldPreserveWrapper($element) || in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true) || 'true' === strtolower($this->attr($element, 'aria-hidden'));
+        if ( $this->shouldPreserveWrapper($element) ) {
+            return true;
+        }
+
+        if ( 0 !== $this->childElementCount($element) ) {
+            return false;
+        }
+
+        return in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true) || 'true' === strtolower($this->attr($element, 'aria-hidden'));
     }
 
     private function isInlineContentElement(string $tagName): bool
     {
-        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'i', 'mark', 'small', 'span', 'strong', 'sub', 'sup', 'time' ), true);
+        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'font', 'i', 'mark', 'rp', 'rt', 'ruby', 'small', 'span', 'strong', 'sub', 'sup', 'time' ), true);
+    }
+
+    private function hasBlockContentChildren(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            $tagName = $child instanceof DOMElement ? strtolower($child->tagName) : '';
+            if ( $child instanceof DOMElement && 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function textFlowBlockFromElement(DOMElement $element): ?array
+    {
+        if ( 'div' !== strtolower($element->tagName) || '' !== trim($this->attr($element, 'id')) || '' !== trim($this->attr($element, 'role')) ) {
+            return null;
+        }
+
+        $hasLineBreak = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( 'br' === $tagName ) {
+                $hasLineBreak = true;
+            }
+            if ( 'br' !== $tagName && ! $this->isInlineContentElement($tagName) && 'a' !== $tagName ) {
+                return null;
+            }
+        }
+
+        if ( ! $hasLineBreak ) {
+            return null;
+        }
+
+        $content = $this->innerHtml($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            return null;
+        }
+
+        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+    }
+
+    private function paragraphBlockFromInlineContentWrapper(DOMElement $element): ?array
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'article', 'div', 'footer', 'header', 'main', 'section' ), true) ) {
+            return null;
+        }
+
+        if ( ! $this->hasOnlyPhrasingChildren($element) ) {
+            return null;
+        }
+
+        $content = $this->innerHtml($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            return null;
+        }
+
+        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+    }
+
+    private function hasOnlyPhrasingChildren(DOMElement $element): bool
+    {
+        $nonAnchorText = false;
+
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    $nonAnchorText = true;
+                }
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( 'a' === $tagName ) {
+                continue;
+            }
+
+            if ( 'br' === $tagName || $this->isInlineContentElement($tagName) ) {
+                $nonAnchorText = true;
+                continue;
+            }
+
+            return false;
+        }
+
+        return $nonAnchorText;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function phrasingQuoteChildren(DOMElement $element, string $value): array
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( in_array($tagName, array( 'cite', 'footer' ), true) ) {
+                continue;
+            }
+            if ( 'br' === $tagName || $this->isInlineContentElement($tagName) ) {
+                continue;
+            }
+
+            return array();
+        }
+
+        return array( $this->createBlock('core/paragraph', array( 'content' => $value )) );
+    }
+
+    private function dynamicTextContent(DOMElement $element): ?string
+    {
+        $target = trim($this->attr($element, 'data-target'));
+        if ( '' === $target || ! is_numeric($target) ) {
+            return null;
+        }
+
+        $isFloat = 'true' === strtolower(trim($this->attr($element, 'data-float'))) || str_contains($target, '.');
+        $value = $isFloat
+            ? number_format((float) $target, 1, '.', ',')
+            : number_format((float) $target, 0, '.', ',');
+
+        return $this->attr($element, 'data-prefix') . $value . $this->attr($element, 'data-suffix');
     }
 
     private function hasClass(DOMElement $element, string $className): bool
@@ -901,13 +2190,23 @@ final class HtmlTransformer
         if ( preg_match('/(?:^|[\s_-])(?:cards|grid|tiles|columns|collection|gallery)(?:$|[\s_-])/', $className) || preg_match('/(?:^|;)\s*(?:display\s*:\s*grid|grid-template-columns\s*:)/', $style) ) {
             $signals['grid_like'] = true;
         }
-
-        $itemCount = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->isCardLikeElement($child) ) {
-                ++$itemCount;
-            }
+        if ( $this->isVisualLayerElement($element) ) {
+            $signals['visual_layer'] = true;
         }
+        if ( $this->hasCommerceToken($element, array( 'badge', 'featured', 'popular', 'recommended' )) ) {
+            $signals['featured_badge_like'] = true;
+        }
+        if ( $this->hasCommerceToken($element, array( 'price', 'pricing', 'amount', 'cost' )) || $this->looksLikePriceText($element->textContent ?? '') ) {
+            $signals['price_like'] = true;
+        }
+        if ( $this->hasCommerceToken($element, array( 'product', 'menu', 'dish', 'plan', 'tier', 'name', 'title' )) ) {
+            $signals['commerce_content_like'] = true;
+        }
+        if ( $this->looksLikeNamePriceRow($element) ) {
+            $signals['name_price_row'] = true;
+        }
+
+        $itemCount = $this->cardLikeChildCount($element);
         if ( 1 < $itemCount ) {
             $signals['repeated_card_children'] = $itemCount;
         }
@@ -915,10 +2214,66 @@ final class HtmlTransformer
         return $signals;
     }
 
+    private function cardLikeChildCount(DOMElement $element): int
+    {
+        $itemCount = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->isCardLikeElement($child) ) {
+                ++$itemCount;
+            }
+        }
+
+        return $itemCount;
+    }
+
     private function isCardLikeElement(DOMElement $element): bool
     {
         $className = strtolower($this->attr($element, 'class'));
         return 'article' === strtolower($element->tagName) || (bool) preg_match('/(?:^|[\s_-])(?:card|tile|panel|item)(?:$|[\s_-])/', $className);
+    }
+
+    private function isVisualLayerElement(DOMElement $element): bool
+    {
+        $context = strtolower(trim(implode(' ', array(
+            $this->attr($element, 'class'),
+            $this->attr($element, 'id'),
+            $this->attr($element, 'aria-label'),
+        ))));
+        $style = strtolower($this->attr($element, 'style'));
+
+        if ( preg_match('/(?:^|[\s_-])(?:hero|decor|decorative|layer|overlay|grain|noise|texture|glow|atmosphere|ambient|aura|orb|blob|backdrop|background|bg)(?:$|[\s_-])/', $context) ) {
+            return true;
+        }
+
+        return (bool) ( preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute)\b/', $style)
+            && preg_match('/(?:^|;)\s*(?:inset|top|right|bottom|left|z-index|pointer-events|mix-blend-mode|opacity|filter|background|background-image)\s*:/', $style) );
+    }
+
+    /**
+     * @param array<int, string> $tokens
+     */
+    private function hasCommerceToken(DOMElement $element, array $tokens): bool
+    {
+        foreach ( array( 'class', 'id', 'itemprop' ) as $attribute ) {
+            $value = strtolower($this->attr($element, $attribute));
+            foreach ( preg_split('/[^a-z0-9]+/', $value) ?: array() as $token ) {
+                if ( in_array($token, $tokens, true) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function looksLikePriceText(string $text): bool
+    {
+        return (bool) preg_match('/(?:\p{Sc}\s?\d|\d+(?:[.,]\d{2})?\s?(?:usd|eur|gbp|cad|aud)\b)/iu', trim($text));
+    }
+
+    private function looksLikeNamePriceRow(DOMElement $element): bool
+    {
+        return null !== $this->namePriceChildren($element);
     }
 
     private function safeSourceFragment(DOMElement $element): string
@@ -946,6 +2301,179 @@ final class HtmlTransformer
         return $count;
     }
 
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function interactionCandidates(DOMElement $root): array
+    {
+        $candidates = array();
+        $seen = array();
+        foreach ( $root->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement ) {
+                continue;
+            }
+
+            foreach ( $this->interactionCandidatesForElement($element) as $candidate ) {
+                $key = json_encode($candidate, JSON_UNESCAPED_SLASHES);
+                if ( ! is_string($key) || isset($seen[$key]) ) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $candidates[] = $candidate;
+                if ( count($candidates) >= self::MAX_INTERACTION_CANDIDATES ) {
+                    return $candidates;
+                }
+            }
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function interactionCandidatesForElement(DOMElement $element): array
+    {
+        $tagName = strtolower($element->tagName);
+        $role = strtolower($this->attr($element, 'role'));
+        $classes = strtolower($this->attr($element, 'class'));
+        $id = strtolower($this->attr($element, 'id'));
+        $data = $this->safeDataAttributes($element);
+        $dataText = strtolower(implode(' ', array_merge(array_keys($data), array_values($data))));
+        $nameText = trim($classes . ' ' . $id . ' ' . $dataText);
+        $events = $this->eventMetadata($element);
+        $actionDataAttributes = array_keys(array_filter($data, static fn (string $value, string $name): bool => preg_match('/^data-(?:action|on|event)$/i', $name) && '' !== trim($value), ARRAY_FILTER_USE_BOTH));
+        $hasAriaControl = '' !== trim($this->attr($element, 'aria-controls')) || '' !== trim($this->attr($element, 'aria-expanded'));
+        $candidates = array();
+
+        if ( 'details' === $tagName ) {
+            $candidates[] = $this->interactionCandidate($element, 'details', 'summary', $this->targetForElement($element), array('details_element'), 'high', 'native_toggle');
+        }
+
+        if ( 'form' === $tagName ) {
+            $metadata = $this->formMetadata($element);
+            $candidates[] = $this->interactionCandidate($element, 'form', 'submit', (string) ($metadata['action'] ?? ''), array_filter(array('form_element', (string) ($metadata['method'] ?? ''))), 'high', 'form_submission');
+        }
+
+        if ( in_array($tagName, array('button', 'a'), true) && ( array() !== $events || array() !== $actionDataAttributes || $hasAriaControl ) ) {
+            $candidates[] = $this->interactionCandidate($element, 'control', $this->controlTrigger($element, $events), $this->controlledTarget($element), $this->controlEvidence($element, $events, $actionDataAttributes), $hasAriaControl ? 'high' : 'medium', 'client_runtime');
+        }
+
+        if ( 'dialog' === $tagName || in_array($role, array('dialog', 'alertdialog'), true) || preg_match('/(?:^|[\s_-])(?:modal|dialog|popup|lightbox)(?:$|[\s_-])/', $nameText) ) {
+            $candidates[] = $this->interactionCandidate($element, 'modal', $this->modalTriggerHint($element), $this->targetForElement($element), array_filter(array('modal_like', 'dialog' === $tagName ? 'dialog_element' : '', '' !== $role ? 'role:' . $role : '')), 'medium', 'modal_runtime');
+        }
+
+        if ( in_array($role, array('tablist', 'tab', 'tabpanel'), true) ) {
+            $candidates[] = $this->interactionCandidate($element, 'tabs', 'tab' === $role ? 'tab_select' : $role, $this->controlledTarget($element), array_filter(array('role:' . $role, '' !== $this->attr($element, 'aria-controls') ? 'aria-controls' : '')), 'high', 'tab_state');
+        }
+
+        if ( ( in_array($tagName, array('button', 'a'), true) || '' !== $role ) && ( preg_match('/(?:^|[\s_-])accordion(?:$|[\s_-])/', $nameText) || ( $hasAriaControl && 'tab' !== $role && '' !== trim($this->attr($element, 'aria-expanded')) ) ) ) {
+            $candidates[] = $this->interactionCandidate($element, 'accordion', $this->controlTrigger($element, $events), $this->controlledTarget($element), array_filter(array('accordion_like', '' !== $this->attr($element, 'aria-expanded') ? 'aria-expanded' : '', '' !== $this->attr($element, 'aria-controls') ? 'aria-controls' : '')), 'medium', 'accordion_state');
+        }
+
+        if ( preg_match('/(?:^|[\s_-])(?:carousel|slider|slideshow|swiper)(?:$|[\s_-])/', $nameText) ) {
+            $candidates[] = $this->interactionCandidate($element, 'carousel', $this->carouselTriggerHint($element), $this->targetForElement($element), array('carousel_like'), 'medium', 'carousel_runtime');
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * @param array<int, string> $evidence
+     * @return array<string, mixed>
+     */
+    private function interactionCandidate(DOMElement $element, string $kind, string $trigger, string $target, array $evidence, string $confidence, string $runtimeRequirement): array
+    {
+        return array_filter(
+            array(
+                'selector'                => $this->elementSelector($element),
+                'kind'                    => $kind,
+                'trigger'                 => $trigger,
+                'target'                  => $target,
+                'evidence'                => array_values(array_unique(array_filter($evidence, static fn (string $value): bool => '' !== $value))),
+                'confidence'              => $confidence,
+                'runtime_requirement'     => $runtimeRequirement,
+                'materialization_hint'    => $this->materializationHintForInteractionKind($kind),
+            ),
+            static fn (mixed $value): bool => '' !== $value && array() !== $value
+        );
+    }
+
+    private function targetForElement(DOMElement $element): string
+    {
+        $id = trim($this->attr($element, 'id'));
+        return '' !== $id ? '#' . $id : $this->elementSelector($element);
+    }
+
+    private function controlledTarget(DOMElement $element): string
+    {
+        $target = trim($this->attr($element, 'aria-controls'));
+        return '' !== $target ? '#' . ltrim($target, '#') : $this->targetForElement($element);
+    }
+
+    /**
+     * @param array<int, array<string, string>> $events
+     */
+    private function controlTrigger(DOMElement $element, array $events): string
+    {
+        if ( array() !== $events ) {
+            return (string) ($events[0]['type'] ?? 'event');
+        }
+
+        $type = strtolower($this->attr($element, 'type'));
+        return 'submit' === $type ? 'submit' : 'click';
+    }
+
+    /**
+     * @param array<int, array<string, string>> $events
+     * @param array<int, string> $actionDataAttributes
+     * @return array<int, string>
+     */
+    private function controlEvidence(DOMElement $element, array $events, array $actionDataAttributes): array
+    {
+        $evidence = array();
+        foreach ( $events as $event ) {
+            $attribute = (string) ($event['attribute'] ?? '');
+            if ( '' !== $attribute ) {
+                $evidence[] = $attribute;
+            }
+        }
+        foreach ( $actionDataAttributes as $attribute ) {
+            $evidence[] = $attribute;
+        }
+        if ( '' !== trim($this->attr($element, 'aria-controls')) ) {
+            $evidence[] = 'aria-controls';
+        }
+        if ( '' !== trim($this->attr($element, 'aria-expanded')) ) {
+            $evidence[] = 'aria-expanded';
+        }
+
+        return $evidence;
+    }
+
+    private function modalTriggerHint(DOMElement $element): string
+    {
+        return '' !== trim($this->attr($element, 'open')) ? 'open' : 'show';
+    }
+
+    private function carouselTriggerHint(DOMElement $element): string
+    {
+        return preg_match('/(?:^|[\s_-])(?:next|prev|previous)(?:$|[\s_-])/', strtolower($this->attr($element, 'class'))) ? 'advance' : 'slide';
+    }
+
+    private function materializationHintForInteractionKind(string $kind): string
+    {
+        return match ( $kind ) {
+            'details' => 'preserve_native_details',
+            'form' => 'preserve_or_replace_form_runtime',
+            'tabs' => 'materialize_tab_panels_or_runtime',
+            'accordion' => 'materialize_expanded_state_or_runtime',
+            'carousel' => 'preserve_static_slides_or_runtime',
+            'modal' => 'preserve_dialog_markup_or_runtime',
+            default => 'preserve_static_markup_with_runtime_note',
+        };
+    }
+
     private function closestTagName(DOMElement $element): ?string
     {
         return $element->parentNode instanceof DOMElement ? strtolower($element->parentNode->tagName) : null;
@@ -959,6 +2487,55 @@ final class HtmlTransformer
             }
         }
         return null;
+    }
+
+    private function figureMediaElement(DOMElement $figure, string $tagName): ?DOMElement
+    {
+        $direct = $this->firstChildElement($figure, $tagName);
+        if ( $direct instanceof DOMElement ) {
+            return $direct;
+        }
+
+        $wrapper = null;
+        foreach ( $figure->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'figcaption' === strtolower($child->tagName) ) {
+                continue;
+            }
+
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement || null !== $wrapper ) {
+                return null;
+            }
+
+            $wrapper = $child;
+        }
+
+        if ( ! $wrapper instanceof DOMElement || ! in_array(strtolower($wrapper->tagName), array( 'div', 'span' ), true) || '' !== trim($wrapper->textContent ?? '') ) {
+            return null;
+        }
+
+        return $this->onlyChildElement($wrapper, $tagName);
+    }
+
+    private function onlyChildElement(DOMElement $element, string $tagName): ?DOMElement
+    {
+        $match = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement || strtolower($child->tagName) !== $tagName || null !== $match ) {
+                return null;
+            }
+
+            $match = $child;
+        }
+
+        return $match;
     }
 
     /**
@@ -1108,6 +2685,53 @@ final class HtmlTransformer
     }
 
     /**
+     * @return array<string, mixed>|null
+     */
+    private function parameterTableBlockFromElement(DOMElement $element): ?array
+    {
+        if ( ! $this->hasClass($element, 'param-table') ) {
+            return null;
+        }
+
+        $rows = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement || ! $this->hasClass($child, 'param-row') ) {
+                return null;
+            }
+
+            $name = $this->firstDirectChildWithClass($child, 'param-name');
+            $type = $this->firstDirectChildWithClass($child, 'param-type');
+            $desc = $this->firstDirectChildWithClass($child, 'param-desc');
+            if ( ! $name instanceof DOMElement || ! $type instanceof DOMElement || ! $desc instanceof DOMElement ) {
+                return null;
+            }
+
+            $rows[] = array( 'cells' => array(
+                array( 'content' => $this->innerHtml($name), 'tag' => 'td' ),
+                array( 'content' => $this->innerHtml($type), 'tag' => 'td' ),
+                array( 'content' => $this->innerHtml($desc), 'tag' => 'td' ),
+            ) );
+        }
+
+        if ( array() === $rows ) {
+            return null;
+        }
+
+        return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), array(
+            'head' => array( array( 'cells' => array(
+                array( 'content' => 'Parameter', 'tag' => 'th' ),
+                array( 'content' => 'Type', 'tag' => 'th' ),
+                array( 'content' => 'Description', 'tag' => 'th' ),
+            ) ) ),
+            'body' => $rows,
+        )), array(), $element);
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     private function definitionListItems(DOMElement $list): array
@@ -1186,6 +2810,89 @@ final class HtmlTransformer
     }
 
     /**
+     * @return array<string, mixed>|null
+     */
+    private function inlineSvgBlockFromElement(DOMElement $element): ?array
+    {
+        if ( ! $this->isSafeSvgContent($this->outerHtml($element)) ) {
+            return null;
+        }
+
+        $html = $this->safeFallbackHtml($element);
+        if ( ! $this->isSafeSvgContent($html) ) {
+            return null;
+        }
+
+        $attrs = array_filter(array_merge($this->presentationAttributes($element), array(
+            'url'    => $this->materializeInlineSvgAsset($html, $element),
+            'alt'    => $this->inlineSvgAltText($element),
+            'title'  => $this->inlineSvgTitleText($element),
+            'width'  => $this->attr($element, 'width'),
+            'height' => $this->attr($element, 'height'),
+        )), static fn ($value): bool => '' !== $value);
+
+        return $this->createBlock('core/image', $attrs, array(), $element);
+    }
+
+    private function materializeInlineSvgAsset(string $html, DOMElement $element): string
+    {
+        $hash = hash('sha256', $html);
+        $path = 'assets/inline-svg-' . substr($hash, 0, 16) . '.svg';
+
+        if ( ! isset($this->generatedAssets[$path]) ) {
+            $this->generatedAssets[$path] = array(
+                'source'           => 'html-inline-svg',
+                'path'             => $path,
+                'target_path'      => $path,
+                'kind'             => 'image',
+                'role'             => 'image',
+                'media_type'       => 'image/svg+xml',
+                'mime_type'        => 'image/svg+xml',
+                'bytes'            => strlen($html),
+                'binary'           => false,
+                'encoding'         => 'text',
+                'content_encoding' => 'text',
+                'content'          => $html,
+                'hash'             => $hash,
+                'references'       => array(
+                    array_filter(array(
+                        'selector'  => $this->elementSelector($element),
+                        'element'   => 'svg',
+                        'attribute' => 'generated-inline-svg',
+                    )),
+                ),
+            );
+        }
+
+        return $path;
+    }
+
+    private function inlineSvgAltText(DOMElement $element): string
+    {
+        if ( 'true' === strtolower($this->attr($element, 'aria-hidden')) || 'presentation' === strtolower($this->attr($element, 'role')) ) {
+            return '';
+        }
+
+        $ariaLabel = trim($this->attr($element, 'aria-label'));
+        if ( '' !== $ariaLabel ) {
+            return $ariaLabel;
+        }
+
+        return $this->inlineSvgTitleText($element);
+    }
+
+    private function inlineSvgTitleText(DOMElement $element): string
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'title' === strtolower($child->tagName) ) {
+                return trim($child->textContent ?? '');
+            }
+        }
+
+        return '';
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $fallbacks
      */
     private function captureInlineSvgFallback(DOMElement $element, array &$fallbacks): void
@@ -1194,7 +2901,7 @@ final class HtmlTransformer
         $safe = $this->isSafeSvgContent($rawHtml);
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
 
-        $fallbacks[] = array_merge(array(
+        $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'inline_svg',
             'reason'          => $safe ? 'inline_svg_fallback' : 'unsafe_inline_svg',
             'diagnostic_code' => $safe ? 'html_inline_svg_fallback' : 'html_unsafe_inline_svg',
@@ -1216,11 +2923,99 @@ final class HtmlTransformer
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      */
+    private function captureCanvasFallback(DOMElement $element, array &$fallbacks): void
+    {
+        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+        $id = trim($this->attr($element, 'id'));
+
+        $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
+            'type'            => 'html',
+            'reason'          => 'canvas_requires_runtime',
+            'diagnostic_code' => 'html_canvas_runtime_fallback',
+            'message'         => 'Canvas HTML requires a native canvas element and client script runtime; core blocks cannot preserve it without raw HTML.',
+            'source_format'   => 'html',
+            'tag'             => 'canvas',
+            'selector'        => $this->elementSelector($element),
+            'attributes'      => $this->safeCanvasAttributes($element),
+            'context'         => $this->sourceContext($element),
+            'events'                 => $this->eventMetadata($element),
+            'script_dependency_hint' => '' !== $id
+                ? 'Scripts may target #' . $id . ' and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.'
+                : 'Scripts may target this canvas by selector and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.',
+            'text_length'            => strlen(trim($element->textContent ?? '')),
+            'child_count'            => $this->childElementCount($element),
+            'html'                   => $boundedHtml['html'],
+            'html_bytes'             => $boundedHtml['bytes'],
+            'html_truncated'         => $boundedHtml['truncated'],
+        ), static fn (mixed $value): bool => '' !== $value && array() !== $value), $this->fallbackProvenance);
+    }
+
+    private function isRuntimeCanvasTarget(DOMElement $element): bool
+    {
+        $id = trim($this->attr($element, 'id'));
+        if ( '' !== $id && isset($this->runtimeCanvasSelectors['#' . $id]) ) {
+            return true;
+        }
+
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+            if ( '' !== $class && isset($this->runtimeCanvasSelectors['.' . $class]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, bool>
+     */
+    private function runtimeCanvasSelectorsFromOptions(array $options): array
+    {
+        return $this->runtimeSelectorsFromOptions($options, 'runtime_canvas_selectors');
+    }
+
+    private function isRuntimeDomTarget(DOMElement $element): bool
+    {
+        $id = trim($this->attr($element, 'id'));
+        if ( '' !== $id && isset($this->runtimeDomSelectors['#' . $id]) ) {
+            return true;
+        }
+
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+            if ( '' !== $class && isset($this->runtimeDomSelectors['.' . $class]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, bool>
+     */
+    private function runtimeSelectorsFromOptions(array $options, string $key): array
+    {
+        $selectors = array();
+        foreach ( $options[$key] ?? array() as $selector ) {
+            if ( is_string($selector) && preg_match('/^[#.][A-Za-z][A-Za-z0-9_-]*$/', $selector) ) {
+                $selectors[$selector] = true;
+            }
+        }
+
+        return $selectors;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
     private function captureScriptFallback(DOMElement $element, array &$fallbacks): void
     {
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
-        $fallbacks[] = array_merge(array(
+        $scriptRole = $this->scriptRole($element);
+        $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'html',
             'reason'          => 'script_requires_runtime',
             'diagnostic_code' => 'html_script_fallback',
@@ -1231,6 +3026,8 @@ final class HtmlTransformer
             'attributes'      => $this->safeScriptAttributes($element),
             'context'         => $this->sourceContext($element),
             'events'          => $this->eventMetadata($element),
+            'script_role'        => $scriptRole,
+            'script_source_kind' => '' !== trim($this->attr($element, 'src')) ? 'external' : 'inline',
             'text_length'     => strlen(trim($element->textContent ?? '')),
             'child_count'     => $this->childElementCount($element),
             'html'            => $boundedHtml['html'],
@@ -1242,6 +3039,54 @@ final class HtmlTransformer
         ), $this->fallbackProvenance);
     }
 
+    private function captureStaticScriptMetadata(DOMElement $element): bool
+    {
+        if ( '' !== trim($this->attr($element, 'src')) ) {
+            return false;
+        }
+
+        $scriptRole = $this->scriptRole($element);
+        if ( 'data' !== $scriptRole ) {
+            return false;
+        }
+
+        $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
+        $this->scriptMetadata[] = array(
+            'type'               => 'script_metadata',
+            'reason'             => 'script_static_metadata',
+            'source_format'      => 'html',
+            'tag'                => 'script',
+            'selector'           => $this->elementSelector($element),
+            'attributes'         => $this->safeScriptAttributes($element),
+            'context'            => $this->sourceContext($element),
+            'script_role'        => $scriptRole,
+            'script_source_kind' => 'inline',
+            'body'               => $boundedBody['text'],
+            'body_bytes'         => $boundedBody['bytes'],
+            'body_truncated'     => $boundedBody['truncated'],
+        );
+
+        return true;
+    }
+
+    private function scriptRole(DOMElement $element): string
+    {
+        $type = strtolower(trim($this->attr($element, 'type')));
+        if ( '' === $type || in_array($type, array( 'text/javascript', 'application/javascript', 'module' ), true) ) {
+            return 'runtime';
+        }
+
+        if ( str_starts_with($type, 'application/ld+json') || in_array($type, array( 'application/json', 'importmap', 'speculationrules' ), true) ) {
+            return 'data';
+        }
+
+        if ( str_starts_with($type, 'text/') && ! in_array($type, array( 'text/javascript', 'text/ecmascript' ), true) ) {
+            return 'data';
+        }
+
+        return 'runtime';
+    }
+
     /**
      * @return array<string, string>
      */
@@ -1251,6 +3096,22 @@ final class HtmlTransformer
         $allowed = array_flip(array( 'async', 'class', 'defer', 'id', 'src', 'type' ));
         foreach ( $this->htmlAttributes($element) as $name => $value ) {
             if ( isset($allowed[$name]) && ! preg_match('/javascript\s*:/i', $value) ) {
+                $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
+            }
+        }
+
+        return $safe;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function safeCanvasAttributes(DOMElement $element): array
+    {
+        $safe = array();
+        $allowed = array_flip(array( 'aria-label', 'class', 'height', 'id', 'role', 'style', 'title', 'width' ));
+        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+            if ( isset($allowed[$name]) ) {
                 $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
             }
         }
@@ -1316,17 +3177,86 @@ final class HtmlTransformer
         return $attributes;
     }
 
+    private function isSafeDecorativeSvgElement(DOMElement $element): bool
+    {
+        if ( ! $this->isSafeSvgContent($this->outerHtml($element)) || ! $this->isPassiveSvgMarkup($element) ) {
+            return false;
+        }
+
+        $role = strtolower(trim($this->attr($element, 'role')));
+        if ( 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) || in_array($role, array( 'presentation', 'none' ), true) ) {
+            return true;
+        }
+
+        return $this->hasIconLikeContext($element);
+    }
+
+    private function hasIconLikeContext(DOMElement $element): bool
+    {
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            $context = strtolower(trim(implode(' ', array(
+                $this->attr($current, 'class'),
+                $this->attr($current, 'id'),
+                $this->attr($current, 'aria-label'),
+                $this->attr($current, 'title'),
+            ))));
+
+            if ( preg_match('/(?:^|[\s_-])(?:icon|logo)(?:$|[\s_-])/', $context) ) {
+                return true;
+            }
+
+            if ( in_array(strtolower($current->tagName), array( 'body', 'main', 'article', 'section' ), true) ) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private function isPassiveSvgMarkup(DOMElement $element): bool
+    {
+        $allowedTags = array_flip(array( 'circle', 'clippath', 'defs', 'desc', 'ellipse', 'g', 'line', 'lineargradient', 'mask', 'path', 'polygon', 'polyline', 'radialgradient', 'rect', 'stop', 'svg', 'title' ));
+        $allowedAttributes = array_flip(array( 'aria-hidden', 'class', 'clip-path', 'clip-rule', 'cx', 'cy', 'd', 'fill', 'fill-opacity', 'fill-rule', 'gradienttransform', 'gradientunits', 'height', 'id', 'offset', 'opacity', 'points', 'preserveaspectratio', 'r', 'role', 'rx', 'ry', 'stop-color', 'stop-opacity', 'stroke', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-opacity', 'stroke-width', 'style', 'transform', 'viewbox', 'width', 'x', 'x1', 'x2', 'xmlns', 'y', 'y1', 'y2' ));
+
+        foreach ( $element->getElementsByTagName('*') as $child ) {
+            if ( ! $child instanceof DOMElement || ! $this->isPassiveSvgElement($child, $allowedTags, $allowedAttributes) ) {
+                return false;
+            }
+        }
+
+        return $this->isPassiveSvgElement($element, $allowedTags, $allowedAttributes);
+    }
+
+    /**
+     * @param array<string, int> $allowedTags
+     * @param array<string, int> $allowedAttributes
+     */
+    private function isPassiveSvgElement(DOMElement $element, array $allowedTags, array $allowedAttributes): bool
+    {
+        if ( ! isset($allowedTags[strtolower($element->tagName)]) ) {
+            return false;
+        }
+
+        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+            $name = strtolower($name);
+            if ( ! isset($allowedAttributes[$name]) || preg_match('/^on[a-z]+$|(?:^|:)href$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
+                return false;
+            }
+            if ( preg_match('/\burl\s*\((?!\s*["\']?#[-_a-z0-9]+["\']?\s*\))/i', $value) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /**
      * @return array<int, array<string, mixed>>
      */
     private function formControls(DOMElement $form): array
     {
         $controls = array();
-        foreach ( $form->getElementsByTagName('*') as $control ) {
-            if ( ! $control instanceof DOMElement || ! $this->isFormControlElement($control) ) {
-                continue;
-            }
-
+        foreach ( $this->formControlElements($form) as $control ) {
             $metadata = $this->formControlMetadata($control);
             if ( array() !== $metadata ) {
                 $controls[] = $metadata;
@@ -1349,6 +3279,422 @@ final class HtmlTransformer
             ),
             static fn (string $value): bool => '' !== $value
         );
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function searchBlockFromForm(DOMElement $form): ?array
+    {
+        $method = strtolower(trim($this->attr($form, 'method')));
+        if ( '' !== $method && 'get' !== $method ) {
+            return null;
+        }
+
+        if ( 0 < $form->getElementsByTagName('script')->length || array() !== $this->eventMetadata($form) ) {
+            return null;
+        }
+
+        $textInput = null;
+        $submitControl = null;
+        foreach ( $this->formControlElements($form) as $control ) {
+            if ( array() !== $this->eventMetadata($control) ) {
+                return null;
+            }
+
+            $tagName = strtolower($control->tagName);
+            $type = $this->formControlType($control);
+            if ( 'input' === $tagName && in_array($type, array( 'text', 'search' ), true) ) {
+                if ( null !== $textInput ) {
+                    return null;
+                }
+                $textInput = $control;
+                continue;
+            }
+
+            if ( ( 'button' === $tagName || 'input' === $tagName ) && 'submit' === $type ) {
+                if ( null !== $submitControl ) {
+                    return null;
+                }
+                $submitControl = $control;
+                continue;
+            }
+
+            return null;
+        }
+
+        if ( ! $textInput instanceof DOMElement || ! $this->hasSearchFormSignal($form, $textInput) ) {
+            return null;
+        }
+
+        $inputLabel = $this->formControlLabel($textInput);
+        $attrs = array_filter(array_merge(
+            $this->presentationAttributes($form),
+            $this->searchInputRuntimeAttributes($textInput),
+            array(
+                'label'       => '' !== $inputLabel ? $inputLabel : 'Search',
+                'placeholder' => $this->attr($textInput, 'placeholder'),
+                'buttonText'  => $submitControl instanceof DOMElement ? $this->submitButtonText($submitControl) : '',
+            )
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+
+        return $this->createBlock('core/search', $attrs, array(), $form);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function searchBlockFromStandaloneControl(DOMElement $element): ?array
+    {
+        if ( 0 < $element->getElementsByTagName('form')->length || 0 < $element->getElementsByTagName('script')->length || array() !== $this->eventMetadata($element) ) {
+            return null;
+        }
+
+        $inputs = array();
+        foreach ( $element->getElementsByTagName('input') as $input ) {
+            if ( $input instanceof DOMElement && $input->parentNode === $element && 'search' === $this->formControlType($input) ) {
+                $inputs[] = $input;
+            }
+        }
+        if ( 1 !== count($inputs) || array() !== $this->eventMetadata($inputs[0]) ) {
+            return null;
+        }
+
+        $controls = $this->formControlElements($element);
+        if ( 1 !== count($controls) ) {
+            return null;
+        }
+
+        $searchInput = $inputs[0];
+        if ( ! $this->hasStandaloneSearchSignal($element, $searchInput) ) {
+            return null;
+        }
+
+        $label = $this->formControlLabel($searchInput);
+        if ( '' === $label ) {
+            $label = $this->attr($searchInput, 'aria-label');
+        }
+        if ( '' === $label ) {
+            $label = $this->attr($searchInput, 'placeholder');
+        }
+        if ( '' === $label ) {
+            $label = 'Search';
+        }
+
+        $attrs = array_filter(array_merge(
+            $this->presentationAttributes($element),
+            $this->searchInputRuntimeAttributes($searchInput),
+            array(
+                'label'       => $label,
+                'placeholder' => $this->attr($searchInput, 'placeholder'),
+            )
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+
+        return $this->createBlock('core/search', $attrs, array(), $element);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function readableFormBlockFromForm(DOMElement $form, bool $allowFormEvents = false): ?array
+    {
+        if ( 0 < $form->getElementsByTagName('script')->length || ( ! $allowFormEvents && array() !== $this->eventMetadata($form) ) ) {
+            return null;
+        }
+
+        $contentBlocks = array();
+        $buttonBlocks = array();
+        foreach ( $this->formControlElements($form) as $control ) {
+            if ( array() !== $this->eventMetadata($control) || ! $this->isReadableFormControl($control) ) {
+                return null;
+            }
+
+            if ( $this->isRuntimeDomTarget($control) ) {
+                $contentBlocks[] = $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($control) ), array(), $control);
+                continue;
+            }
+
+            if ( 'submit' === $this->formControlType($control) ) {
+                $buttonBlocks[] = $this->createBlock('core/button', array_merge($this->presentationAttributes($control), array(
+                    'text' => $this->runtime->escapeHtml($this->readableSubmitText($control)),
+                )), array(), $control);
+                continue;
+            }
+
+            $summary = $this->readableFormControlText($control);
+            if ( '' !== $summary ) {
+                $contentBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $control);
+            }
+        }
+
+        if ( array() !== $buttonBlocks ) {
+            $contentBlocks[] = $this->createBlock('core/buttons', array(), $buttonBlocks, $form);
+        }
+
+        if ( array() === $contentBlocks ) {
+            return null;
+        }
+
+        return $this->createBlock('core/group', $this->presentationAttributes($form), $contentBlocks, $form);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function readableFormControlBlockFromElement(DOMElement $element): ?array
+    {
+        $tagName = strtolower($element->tagName);
+        if ( 'label' === $tagName ) {
+            $controls = $this->formControlElements($element);
+            if ( array() !== $controls ) {
+                $blocks = array();
+                foreach ( $controls as $control ) {
+                    if ( ! $this->isReadableFormControl($control) || array() !== $this->eventMetadata($control) ) {
+                        return null;
+                    }
+
+                    if ( $this->isRuntimeDomTarget($control) ) {
+                        $blocks[] = $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($control) ), array(), $control);
+                        continue;
+                    }
+
+                    $summary = $this->readableFormControlText($control);
+                    if ( '' !== $summary ) {
+                        $blocks[] = $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $control);
+                    }
+                }
+
+                if ( 1 === count($blocks) ) {
+                    return $blocks[0];
+                }
+
+                return array() !== $blocks ? $this->createBlock('core/group', $this->presentationAttributes($element), $blocks, $element) : null;
+            }
+
+            $label = $this->normalizedControlLabelText($element);
+            if ( '' === $label ) {
+                $label = trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
+            }
+
+            return '' !== $label ? $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $element) : null;
+        }
+
+        if ( ! $this->isFormControlElement($element) || ! $this->isReadableFormControl($element) || array() !== $this->eventMetadata($element) ) {
+            return null;
+        }
+
+        if ( 'input' === $tagName && 'search' === $this->formControlType($element) ) {
+            $label = $this->formControlLabel($element);
+            if ( '' === $label ) {
+                $label = $this->attr($element, 'aria-label');
+            }
+            if ( '' === $label ) {
+                $label = 'Search';
+            }
+
+            $attrs = array_filter(array_merge(
+                $this->presentationAttributes($element),
+                $this->searchInputRuntimeAttributes($element),
+                array(
+                    'label'       => $label,
+                    'placeholder' => $this->attr($element, 'placeholder'),
+                )
+            ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+
+            return $this->createBlock('core/search', $attrs, array(), $element);
+        }
+
+        $summary = $this->readableFormControlText($element);
+        if ( '' === $summary ) {
+            return null;
+        }
+
+        $attrs = $this->isRuntimeDomTarget($element) ? $this->presentationAttributes($element) : array();
+        return $this->createBlock('core/paragraph', array_merge($attrs, array( 'content' => $summary )), array(), $element);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function searchInputRuntimeAttributes(DOMElement $input): array
+    {
+        if ( ! $this->isRuntimeDomTarget($input) ) {
+            return array();
+        }
+
+        return array_filter(array(
+            'inputAnchor'    => $this->safeAnchor($this->attr($input, 'id')),
+            'inputClassName' => $this->promotedClassName($this->attr($input, 'class')),
+        ), static fn (string $value): bool => '' !== trim($value));
+    }
+
+    private function shouldMaterializeReadableRuntimeForm(DOMElement $form): bool
+    {
+        $metadata = $this->formMetadata($form);
+        return '' === ($metadata['action'] ?? '') && '' === ($metadata['method'] ?? '') && '' === ($metadata['enctype'] ?? '');
+    }
+
+    private function isReadableFormControl(DOMElement $control): bool
+    {
+        $tagName = strtolower($control->tagName);
+        if ( in_array($tagName, array( 'select', 'textarea' ), true) ) {
+            return true;
+        }
+
+        return 'button' === $tagName || ( 'input' === $tagName && in_array($this->formControlType($control), array( 'checkbox', 'email', 'number', 'radio', 'range', 'search', 'submit', 'tel', 'text', 'url' ), true) );
+    }
+
+    private function readableFormControlText(DOMElement $control): string
+    {
+        $label = $this->formControlLabel($control);
+        if ( '' === $label ) {
+            $label = $this->attr($control, 'aria-label');
+        }
+        if ( '' === $label ) {
+            $label = $this->attr($control, 'placeholder');
+        }
+        if ( '' === $label ) {
+            $label = $this->attr($control, 'name');
+        }
+
+        $type = $this->formControlType($control);
+        if ( '' === $label ) {
+            $label = 'select' === $type ? 'Select option' : ucfirst($type);
+        }
+
+        $details = array();
+        if ( 'select' === strtolower($control->tagName) ) {
+            $options = array();
+            $selected = array();
+            foreach ( $this->selectOptions($control) as $option ) {
+                $optionLabel = (string) ($option['label'] ?? '');
+                if ( '' === $optionLabel ) {
+                    continue;
+                }
+                $options[] = $optionLabel;
+                if ( true === ($option['selected'] ?? false) ) {
+                    $selected[] = $optionLabel;
+                }
+            }
+            if ( array() !== $options ) {
+                $details[] = implode(', ', $options);
+            }
+            if ( array() !== $selected ) {
+                $details[] = 'selected: ' . implode(', ', $selected);
+            }
+        } elseif ( 'range' === $type ) {
+            $value = trim($this->attr($control, 'value'));
+            if ( '' !== $value ) {
+                $details[] = $value;
+            }
+
+            $bounds = array();
+            foreach ( array( 'min', 'max', 'step' ) as $attribute ) {
+                $value = trim($this->attr($control, $attribute));
+                if ( '' !== $value ) {
+                    $bounds[] = $attribute . ' ' . $value;
+                }
+            }
+            if ( array() !== $bounds ) {
+                $details[] = implode(', ', $bounds);
+            }
+        } else {
+            foreach ( array( 'value', 'placeholder' ) as $attribute ) {
+                $value = trim($this->attr($control, $attribute));
+                if ( '' !== $value ) {
+                    $details[] = $value;
+                    break;
+                }
+            }
+        }
+
+        $text = $label;
+        if ( array() !== $details ) {
+            $text .= ': ' . implode(' (', $details) . ( count($details) > 1 ? ')' : '' );
+        }
+        if ( $control->hasAttribute('required') ) {
+            $text .= ' (required)';
+        }
+
+        return $this->runtime->escapeHtml($text);
+    }
+
+    private function readableSubmitText(DOMElement $control): string
+    {
+        $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
+        if ( '' !== $text ) {
+            return $text;
+        }
+
+        $value = trim($this->attr($control, 'value'));
+        return '' !== $value ? $value : 'Submit';
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function formControlElements(DOMElement $form): array
+    {
+        $controls = array();
+        foreach ( $form->getElementsByTagName('*') as $control ) {
+            if ( $control instanceof DOMElement && $this->isFormControlElement($control) ) {
+                $controls[] = $control;
+            }
+        }
+
+        return $controls;
+    }
+
+    private function hasSearchFormSignal(DOMElement $form, DOMElement $input): bool
+    {
+        if ( 'search' === $this->formControlType($input) || 'search' === strtolower(trim($this->attr($form, 'role'))) ) {
+            return true;
+        }
+
+        $queryName = strtolower(trim($this->attr($input, 'name')));
+        if ( in_array($queryName, array( 's', 'q', 'query', 'search' ), true) ) {
+            return true;
+        }
+
+        $haystack = strtolower(implode(' ', array(
+            $this->attr($form, 'action'),
+            $this->attr($form, 'aria-label'),
+            $this->attr($form, 'id'),
+            $this->attr($form, 'class'),
+        )));
+
+        return str_contains($haystack, 'search');
+    }
+
+    private function hasStandaloneSearchSignal(DOMElement $element, DOMElement $input): bool
+    {
+        if ( 'search' === $this->formControlType($input) || 'search' === strtolower(trim($this->attr($element, 'role'))) ) {
+            return true;
+        }
+
+        $haystack = strtolower(implode(' ', array(
+            $this->attr($element, 'aria-label'),
+            $this->attr($element, 'id'),
+            $this->attr($element, 'class'),
+            $this->attr($input, 'aria-label'),
+            $this->attr($input, 'id'),
+            $this->attr($input, 'class'),
+            $this->attr($input, 'name'),
+            $this->attr($input, 'placeholder'),
+        )));
+
+        return str_contains($haystack, 'search');
+    }
+
+    private function submitButtonText(DOMElement $control): string
+    {
+        $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
+        if ( '' !== $text ) {
+            return $text;
+        }
+
+        $value = trim($this->attr($control, 'value'));
+        return '' !== $value ? $value : 'Search';
     }
 
     /**
@@ -1558,31 +3904,133 @@ final class HtmlTransformer
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
+    private function namePriceRowBlockFromElement(DOMElement $element, array &$fallbacks): ?array
+    {
+        $children = $this->namePriceChildren($element);
+        if ( null === $children ) {
+            return null;
+        }
+
+        $rowFallbacks = array();
+        $columns = array();
+        foreach ( $children as $child ) {
+            $converted = array_filter(array( $this->convertElement($child, $rowFallbacks, true) ));
+            if ( array() === $converted ) {
+                return null;
+            }
+
+            $columns[] = $this->createBlock('core/column', $this->presentationAttributes($child), $converted, $child);
+        }
+        array_push($fallbacks, ...$rowFallbacks);
+
+        return $this->createBlock('core/columns', $this->presentationAttributes($element), $columns, $element);
+    }
+
+    /**
+     * @return array<int, DOMElement>|null
+     */
+    private function namePriceChildren(DOMElement $element): ?array
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'header', 'section' ), true) ) {
+            return null;
+        }
+
+        $children = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+            if ( ! $this->isInlineCommerceRowChild($child) ) {
+                return null;
+            }
+            $children[] = $child;
+        }
+
+        if ( 2 !== count($children) ) {
+            return null;
+        }
+
+        $first = $children[0];
+        $second = $children[1];
+        $firstIsPrice = $this->isPriceElement($first);
+        $secondIsPrice = $this->isPriceElement($second);
+        if ( $firstIsPrice === $secondIsPrice ) {
+            return null;
+        }
+
+        $other = $firstIsPrice ? $second : $first;
+        if ( ! $this->isNameElement($other) && ! $this->hasCommerceToken($element, array( 'menu', 'product', 'pricing', 'price', 'plan', 'tier', 'dish', 'item', 'row' )) ) {
+            return null;
+        }
+
+        return $children;
+    }
+
+    private function isInlineCommerceRowChild(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a', 'span', 'strong', 'em', 'small' ), true) ) {
+            return ! $this->hasBlockContentChildren($element);
+        }
+
+        return false;
+    }
+
+    private function isPriceElement(DOMElement $element): bool
+    {
+        return $this->hasCommerceToken($element, array( 'price', 'amount', 'cost' )) || $this->looksLikePriceText($element->textContent ?? '');
+    }
+
+    private function isNameElement(DOMElement $element): bool
+    {
+        return $this->hasCommerceToken($element, array( 'name', 'title', 'product', 'dish', 'item', 'plan', 'tier' )) || preg_match('/^h[1-6]$/', strtolower($element->tagName));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
     private function columnsBlockFromElement(DOMElement $element, array &$fallbacks): ?array
     {
         if ( ! $this->looksLikeColumnsContainer($element) ) {
             return null;
         }
 
-        $columns = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
+		$elementChildren = array();
+		foreach ( $element->childNodes as $child ) {
+			if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+				continue;
             }
 
             if ( ! $child instanceof DOMElement ) {
                 return null;
             }
+			$elementChildren[] = $child;
+		}
 
-            $children = $this->convertChildren($child, $fallbacks, true);
-            $columns[] = $this->createBlock('core/column', $this->presentationAttributes($child), $children, $child);
-        }
+		if ( count($elementChildren) < 2 ) {
+			return null;
+		}
 
-        if ( count($columns) < 2 ) {
-            return null;
-        }
+		$columns = array();
+		$columnFallbacks = array();
+		foreach ( $elementChildren as $child ) {
+			$children = $this->isColumnWrapperElement($child)
+				? $this->convertChildren($child, $columnFallbacks, true)
+				: array_filter(array( $this->convertElement($child, $columnFallbacks, true) ));
+			$columns[] = $this->createBlock('core/column', $this->presentationAttributes($child), $children, $child);
+		}
+		array_push($fallbacks, ...$columnFallbacks);
 
-        return $this->createBlock('core/columns', $this->presentationAttributes($element), $columns, $element);
+		return $this->createBlock('core/columns', $this->presentationAttributes($element), $columns, $element);
+	}
+
+    private function isColumnWrapperElement(DOMElement $element): bool
+    {
+        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true);
     }
 
     private function looksLikeColumnsContainer(DOMElement $element): bool
@@ -1594,8 +4042,130 @@ final class HtmlTransformer
         $className = strtolower($this->attr($element, 'class'));
         $style = strtolower($this->attr($element, 'style'));
 
+        if ( preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style) && $this->hasDirectChildElement($element, 'svg') ) {
+            return false;
+        }
+
         return (bool) preg_match('/(?:^|[\s_-])columns?(?:$|[\s_-])/', $className)
+            || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element) )
             || preg_match('/(?:^|;)\s*(?:display\s*:\s*(?:inline-)?flex|grid-template-columns\s*:)/', $style);
+    }
+
+    private function looksLikeDocumentationLayout(DOMElement $element): bool
+    {
+        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id')));
+        return (bool) preg_match('/(?:^|[\s_-])(?:docs?|documentation|article|content)(?:[\s_-]+(?:layout|shell|page|with[\s_-]+sidebar)|$)|(?:^|[\s_-])sidebar[\s_-]+layout(?:$|[\s_-])/', $name);
+    }
+
+    private function hasSidebarAndContentChildren(DOMElement $element): bool
+    {
+        $hasSidebar = false;
+        $hasContent = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $name = strtolower(trim($child->tagName . ' ' . $this->attr($child, 'class') . ' ' . $this->attr($child, 'id') . ' ' . $this->attr($child, 'role')));
+            $hasSidebar = $hasSidebar || (bool) preg_match('/(?:^|[\s_-])(?:aside|sidebar|toc|table[\s_-]+of[\s_-]+contents)(?:$|[\s_-])/', $name);
+            $hasContent = $hasContent || in_array(strtolower($child->tagName), array( 'article', 'main', 'section' ), true)
+                || (bool) preg_match('/(?:^|[\s_-])(?:main|content|article|docs?[\s_-]+content|documentation[\s_-]+content)(?:$|[\s_-])/', $name);
+        }
+
+        return $hasSidebar && $hasContent;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function navigationSectionBlockFromElement(DOMElement $element): ?array
+    {
+        if ( ! $this->hasNavigationContainerSignal($element) ) {
+            return null;
+        }
+
+        $heading = null;
+        $anchors = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( $child instanceof DOMElement && preg_match('/^h[1-6]$/i', $child->tagName) ) {
+                if ( $heading instanceof DOMElement ) {
+                    return null;
+                }
+                $heading = $child;
+                continue;
+            }
+
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') ) {
+                $anchors[] = $child;
+                continue;
+            }
+
+            return null;
+        }
+
+        if ( ! $heading instanceof DOMElement || array() === $anchors ) {
+            return null;
+        }
+
+        $sectionFallbacks = array();
+        $blocks = array( $this->convertElement($heading, $sectionFallbacks, true) );
+        $links = array();
+        foreach ( $anchors as $anchor ) {
+            $links[] = $this->createBlock('core/navigation-link', array_filter(array(
+                'label' => $this->innerHtml($anchor),
+                'url'   => $this->safeNavigationUrl($this->attr($anchor, 'href')),
+                'kind'  => 'custom',
+            ), static fn ($value): bool => '' !== $value), array(), $anchor);
+        }
+        $blocks[] = $this->createBlock('core/navigation', array(), $links, $element);
+
+        return $this->createBlock('core/group', $this->presentationAttributes($element), array_values(array_filter($blocks)), $element);
+    }
+
+    private function hasNavigationContainerSignal(DOMElement $element): bool
+    {
+        if ( 'navigation' === strtolower($this->attr($element, 'role')) ) {
+            return true;
+        }
+
+        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id')));
+        return (bool) preg_match('/(?:^|[\s_-])(?:nav|navbar|navigation|menu|links)(?:$|[\s_-])/', $name);
+    }
+
+    private function safeNavigationUrl(string $url): string
+    {
+        $url = trim($url);
+        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
+            return '';
+        }
+
+        return $url;
+    }
+
+    private function firstDirectChildWithClass(DOMElement $element, string $className): ?DOMElement
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->hasClass($child, $className) ) {
+                return $child;
+            }
+        }
+
+        return null;
+    }
+
+    private function hasDirectChildElement(DOMElement $element, string $tagName): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $tagName === strtolower($child->tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1635,6 +4205,76 @@ final class HtmlTransformer
         }
 
         return $height;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function placeholderMediaBlockFromElement(DOMElement $element): ?array
+    {
+        if ( ! $this->isPlaceholderMediaElement($element) ) {
+            return null;
+        }
+
+        $attrs = $this->presentationAttributes($element);
+        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-placeholder-media');
+
+        $style = trim((string) ($attrs['style'] ?? ''));
+        $ratio = $this->placeholderAspectRatio($element);
+        if ( '' !== $ratio && ! preg_match('/(?:^|;)\s*aspect-ratio\s*:/i', $style) ) {
+            $style = rtrim($style, ';') . ( '' !== $style ? ';' : '' ) . 'aspect-ratio:' . $ratio;
+        }
+        if ( '' !== $style ) {
+            $attrs['style'] = $style;
+        }
+
+        $label = $this->placeholderLabel($element);
+        $children = '' !== $label ? array( $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) )) ) : array();
+
+        return $this->createBlock('core/group', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $element);
+    }
+
+    private function isPlaceholderMediaElement(DOMElement $element): bool
+    {
+        $className = strtolower($this->attr($element, 'class'));
+        if ( ! preg_match('/(?:^|\s)(?:ph|placeholder|media-placeholder|image-placeholder|video-placeholder)(?:\s|$)/', $className) && ! preg_match('/(?:^|\s)ratio-[0-9]+(?:x|:|-)[0-9]+(?:\s|$)/', $className) ) {
+            return false;
+        }
+
+        return '' !== $this->placeholderAspectRatio($element)
+            || preg_match('/(?:^|;)\s*aspect-ratio\s*:/i', $this->attr($element, 'style'))
+            || preg_match('/(?:^|\s)(?:media|image|video|thumb|thumbnail|poster|avatar)(?:\s|$)/', $className);
+    }
+
+    private function placeholderAspectRatio(DOMElement $element): string
+    {
+        if ( preg_match('/(?:^|;)\s*aspect-ratio\s*:\s*([0-9.]+\s*\/\s*[0-9.]+|[0-9.]+)\s*(?:;|$)/i', $this->attr($element, 'style'), $styleMatch) ) {
+            return preg_replace('/\s+/', '', $styleMatch[1]) ?? '';
+        }
+
+        $className = strtolower($this->attr($element, 'class'));
+        if ( preg_match('/(?:^|\s)ratio-([0-9]+)(?:x|:|-)([0-9]+)(?:\s|$)/', $className, $classMatch) ) {
+            return $classMatch[1] . '/' . $classMatch[2];
+        }
+
+        return '';
+    }
+
+    private function placeholderLabel(DOMElement $element): string
+    {
+        foreach ( $element->getElementsByTagName('span') as $span ) {
+            if ( ! $span instanceof DOMElement ) {
+                continue;
+            }
+
+            $className = strtolower($this->attr($span, 'class'));
+            if ( preg_match('/(?:^|\s)(?:label|caption|placeholder-label)(?:\s|$)/', $className) ) {
+                return trim(preg_replace('/\s+/', ' ', $span->textContent ?? '') ?? '');
+            }
+        }
+
+        $directText = trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
+        return strlen($directText) <= 80 ? $directText : '';
     }
 
     private function convertMediaElement(DOMElement $element): ?array
@@ -1710,9 +4350,47 @@ final class HtmlTransformer
         return $this->convertImageElement($image, $figure ?? $picture, $picture);
     }
 
-    private function convertImageElement(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null): ?array
+    private function imageBlockFromAnchor(DOMElement $anchor): ?array
     {
-        $url = $this->safeImageUrl($this->attr($image, 'src'));
+        $href = $this->safeLinkUrl($this->attr($anchor, 'href'));
+        if ( '' === $href || ! $this->isImageOnlyAnchor($anchor) ) {
+            return null;
+        }
+
+        $picture = $this->firstChildElement($anchor, 'picture');
+        if ( $picture instanceof DOMElement ) {
+            $image = $this->firstChildElement($picture, 'img');
+            return $image instanceof DOMElement ? $this->convertImageElement($image, null, $picture, $anchor) : null;
+        }
+
+        $image = $this->firstChildElement($anchor, 'img');
+        return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $anchor) : null;
+    }
+
+    private function isImageOnlyAnchor(DOMElement $anchor): bool
+    {
+        $imageChildren = 0;
+        foreach ( $anchor->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( ! in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) ) {
+                    return false;
+                }
+                ++$imageChildren;
+                continue;
+            }
+
+            if ( '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+        }
+
+        return 1 === $imageChildren;
+    }
+
+    private function convertImageElement(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array
+    {
+        $originalUrl = $this->safeImageUrl($this->attr($image, 'src'));
+        $url = $this->resolvedAssetImageUrl($originalUrl);
         if ( '' === $url ) {
             return null;
         }
@@ -1732,14 +4410,14 @@ final class HtmlTransformer
             'url'    => $url,
             'alt'    => $this->attr($image, 'alt'),
             'title'  => $this->attr($image, 'title'),
-            'srcset' => '' !== $this->attr($image, 'srcset') ? $this->attr($image, 'srcset') : (string) ($sourceAttrs['srcset'] ?? ''),
+            'srcset' => $this->resolvedAssetImageSrcset('' !== $this->attr($image, 'srcset') ? $this->attr($image, 'srcset') : (string) ($sourceAttrs['srcset'] ?? '')),
             'sizes'  => '' !== $this->attr($image, 'sizes') ? $this->attr($image, 'sizes') : (string) ($sourceAttrs['sizes'] ?? ''),
             'width'  => $width,
             'height' => $height,
         )), static fn ($value): bool => '' !== $value);
 
         $attrs = array_filter(array_merge($attrs, $this->imageIdentityAttributes($image, $figure)), static fn ($value): bool => '' !== $value);
-        $attrs = array_filter(array_merge($attrs, $this->assetMetadataImageAttributes($url)), static fn ($value): bool => '' !== $value);
+        $attrs = array_filter(array_merge($attrs, $this->assetMetadataImageAttributes($originalUrl)), static fn ($value): bool => '' !== $value);
 
         if ( $figure instanceof DOMElement ) {
             $caption = $this->firstChildElement($figure, 'figcaption');
@@ -1748,7 +4426,58 @@ final class HtmlTransformer
             }
         }
 
+        if ( $link instanceof DOMElement ) {
+            $attrs = array_filter(array_merge($attrs, $this->imageLinkAttributes($link)), static fn ($value): bool => '' !== $value);
+        }
+
         return $this->createBlock('core/image', $attrs, array(), $figure ?? $image);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function imageLinkAttributes(DOMElement $link): array
+    {
+        $attrs = array(
+            'href'            => $this->safeLinkUrl($this->attr($link, 'href')),
+            'linkDestination' => 'custom',
+            'linkTarget'      => $this->attr($link, 'target'),
+            'rel'             => $this->attr($link, 'rel'),
+            'linkClass'       => $this->attr($link, 'class'),
+            'linkAriaLabel'   => $this->attr($link, 'aria-label'),
+            'linkAriaHidden'  => $this->attr($link, 'aria-hidden'),
+            'linkTabIndex'    => $this->attr($link, 'tabindex'),
+        );
+
+        return array_filter($attrs, static fn (string $value): bool => '' !== trim($value));
+    }
+
+    private function safeLinkUrl(string $url): string
+    {
+        $url = trim($url);
+        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
+            return '';
+        }
+
+        return $url;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function cardLinkAttributes(DOMElement $anchor): array
+    {
+        $href = $this->safeLinkUrl($this->attr($anchor, 'href'));
+        if ( '' === $href ) {
+            return array();
+        }
+
+        return array_filter(array(
+            'href'      => $href,
+            'target'    => $this->attr($anchor, 'target'),
+            'rel'       => $this->attr($anchor, 'rel'),
+            'ariaLabel' => $this->attr($anchor, 'aria-label'),
+        ), static fn (string $value): bool => '' !== trim($value));
     }
 
     /**
@@ -1850,7 +4579,7 @@ final class HtmlTransformer
         }
 
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($iframe));
-        $fallbacks[] = array_merge(array(
+        $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'html',
             'reason'          => 'iframe_embed_fallback',
             'diagnostic_code' => 'html_iframe_embed_fallback',
@@ -1937,6 +4666,51 @@ final class HtmlTransformer
         }
 
         return $attrs;
+    }
+
+    private function resolvedAssetImageUrl(string $url): string
+    {
+        if ( '' === $url ) {
+            return '';
+        }
+
+        $asset = $this->assetMetadataForUrl($url);
+        if ( ! is_array($asset) || ! isset($asset['url']) || ! is_string($asset['url']) ) {
+            return $url;
+        }
+
+        $resolvedUrl = $this->safeResolvedAssetImageUrl(trim($asset['url']));
+        return '' !== $resolvedUrl ? $resolvedUrl : $url;
+    }
+
+    private function resolvedAssetImageSrcset(string $srcset): string
+    {
+        if ( '' === trim($srcset) ) {
+            return '';
+        }
+
+        $candidates = array();
+        foreach ( explode(',', $srcset) as $candidate ) {
+            $candidate = trim($candidate);
+            if ( '' === $candidate ) {
+                continue;
+            }
+
+            $parts = preg_split('/\s+/', $candidate, 2);
+            if ( ! is_array($parts) || '' === ($parts[0] ?? '') ) {
+                continue;
+            }
+
+            $url = $this->safeImageUrl((string) $parts[0]);
+            if ( '' === $url ) {
+                continue;
+            }
+
+            $descriptor = trim((string) ($parts[1] ?? ''));
+            $candidates[] = trim($this->resolvedAssetImageUrl($url) . ('' !== $descriptor ? ' ' . $descriptor : ''));
+        }
+
+        return implode(', ', $candidates);
     }
 
     /**
@@ -2051,14 +4825,6 @@ final class HtmlTransformer
         }
 
         return implode(' ', $classes);
-    }
-
-    private function buttonBlockFromAnchor(DOMElement $anchor): array
-    {
-        return $this->createBlock('core/button', array_filter(array_merge($this->presentationAttributes($anchor), array(
-            'text' => $this->innerHtml($anchor),
-            'url'  => $this->attr($anchor, 'href'),
-        )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $anchor);
     }
 
     /**
@@ -2200,89 +4966,6 @@ final class HtmlTransformer
         }
 
         return $events;
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function navigationLinks(DOMElement $element): array
-    {
-        $links = array();
-        foreach ( $this->directNavigationAnchors($element) as $anchor ) {
-            $links[] = $this->createBlock('core/navigation-link', array_filter(array(
-                'label' => $this->innerHtml($anchor),
-                'url'   => $this->safeNavigationUrl($this->attr($anchor, 'href')),
-                'kind'  => 'custom',
-            ), static fn ($value): bool => '' !== $value), array(), $anchor);
-        }
-
-        return $links;
-    }
-
-    private function safeNavigationUrl(string $url): string
-    {
-        $url = trim($url);
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
-            return '';
-        }
-
-        return $url;
-    }
-
-    /**
-     * @return array<int, DOMElement>
-     */
-    private function directNavigationAnchors(DOMElement $element): array
-    {
-        $anchors = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-
-            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') ) {
-                $anchors[] = $child;
-                continue;
-            }
-
-            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
-                foreach ( $child->childNodes as $item ) {
-                    if ( XML_TEXT_NODE === $item->nodeType && '' === trim($item->textContent ?? '') ) {
-                        continue;
-                    }
-
-                    if ( ! $item instanceof DOMElement || 'li' !== strtolower($item->tagName) ) {
-                        return array();
-                    }
-
-                    $anchor = $this->firstChildElement($item, 'a');
-                    if ( ! $anchor instanceof DOMElement || '' === trim($anchor->textContent ?? '') || 1 !== $this->childElementCount($item) ) {
-                        return array();
-                    }
-
-                    $anchors[] = $anchor;
-                }
-                continue;
-            }
-
-            return array();
-        }
-
-        return $anchors;
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function buttonChildren(DOMElement $element): array
-    {
-        $buttons = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') ) {
-                $buttons[] = $this->buttonBlockFromAnchor($child);
-            }
-        }
-        return 1 < count($buttons) ? $buttons : array();
     }
 
 }

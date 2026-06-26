@@ -1,0 +1,62 @@
+{
+  "schema": "blocks-engine/php-transformer/wp-block-validity-fixture/v1",
+  "cases": [
+    {
+      "name": "valid-button",
+      "input": "<!-- wp:button {\"text\":\"Book now\",\"url\":\"/book\"} --><div class=\"wp-block-button\"><a class=\"wp-block-button__link wp-element-button\" href=\"/book\">Book now</a></div><!-- /wp:button -->",
+      "expected_status": "pass",
+      "expected_codes": []
+    },
+    {
+      "name": "invalid-button-markup-mismatch",
+      "input": "<!-- wp:button {\"text\":\"Book now\",\"url\":\"/book\"} --><div class=\"wp-block-button\"><a class=\"wp-block-button__link wp-element-button\" href=\"/contact\">Contact us</a></div><!-- /wp:button -->",
+      "expected_status": "warning",
+      "expected_codes": [
+        "button_text_markup_mismatch",
+        "button_url_markup_mismatch"
+      ]
+    },
+    {
+      "name": "invalid-button-block-level-link-markup",
+      "input": "<!-- wp:button {\"text\":\"Book now\",\"url\":\"/book\"} --><div class=\"wp-block-button\"><a class=\"wp-block-button__link wp-element-button\" href=\"/book\"><h3>Book now</h3></a></div><!-- /wp:button -->",
+      "expected_status": "warning",
+      "expected_codes": [
+        "button_block_level_link_markup"
+      ]
+    },
+    {
+      "name": "invalid-navigation-serialized-child-comments",
+      "blocks": [
+        {
+          "blockName": "core/navigation",
+          "attrs": {},
+          "innerBlocks": [
+            {
+              "blockName": "core/navigation-link",
+              "attrs": {
+                "label": "Home",
+                "url": "/"
+              },
+              "innerBlocks": [],
+              "innerHTML": "<li class=\"wp-block-navigation-item wp-block-navigation-link\"><a class=\"wp-block-navigation-item__content\" href=\"/\"><span class=\"wp-block-navigation-item__label\">Home</span></a></li>",
+              "innerContent": [
+                "<li class=\"wp-block-navigation-item wp-block-navigation-link\"><a class=\"wp-block-navigation-item__content\" href=\"/\"><span class=\"wp-block-navigation-item__label\">Home</span></a></li>"
+              ]
+            }
+          ],
+          "innerHTML": "<nav class=\"wp-block-navigation\"><ul class=\"wp-block-navigation__container\"><!-- wp:navigation-link {\"label\":\"Home\",\"url\":\"/\"} /--></ul></nav>",
+          "innerContent": [
+            "<nav class=\"wp-block-navigation\"><ul class=\"wp-block-navigation__container\"><!-- wp:navigation-link {\"label\":\"Home\",\"url\":\"/\"} /--></ul></nav>"
+          ]
+        }
+      ],
+      "expected_status": "warning",
+      "expected_codes": [
+        "inner_content_child_count_mismatch",
+        "missing_child_placeholders",
+        "serialized_block_comment_in_inner_content",
+        "serialized_block_comment_in_inner_html"
+      ]
+    }
+  ]
+}

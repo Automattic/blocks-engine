@@ -1,0 +1,41 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-linked-css-button-card-style-signals",
+  "description": "Applies safe visual declarations from linked class CSS to high-value button, navigation CTA, and product card controls.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-linked-css-button-card-style-signals.json",
+    "notes": "Covers minimal linked CSS rule extraction for class-defined control and card visual styling."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream CSS style signal fixture has no downstream legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<!doctype html><html><head><title>Styled CTAs</title><link rel=\"stylesheet\" href=\"assets/site.css\"></head><body><main><nav class=\"site-nav\"><a class=\"nav-cta\" href=\"/pricing\">Pricing</a></nav><a class=\"btn-primary\" href=\"/start\">Get started</a><article class=\"product-card\"><h2>Starter Kit</h2><a class=\"btn\" href=\"/buy\">Buy now</a></article></main></body></html>"
+        },
+        {
+          "path": "assets/site.css",
+          "kind": "css",
+          "content": ".btn-primary{background-color:#1257ff;color:#fff;padding:12px 20px;border-radius:999px}.nav-cta{background-color:#101827;color:white;padding:10px 16px;border-radius:8px}.product-card{border:1px solid #d8dee9;border-radius:16px;padding:24px}.product-card .btn{background:#0f766e;color:#ffffff;padding:11px 18px;border-radius:6px}"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "btn-primary" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "background-color:#1257ff;color:#fff;padding:12px 20px;border-radius:999px" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "nav-cta" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "background-color:#101827;color:white;padding:10px 16px;border-radius:8px" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "product-card" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "border:1px solid #d8dee9;border-radius:16px;padding:24px" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "background:#0f766e;color:#ffffff;padding:11px 18px;border-radius:6px" }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-mobile-drawer-nav-dedup",
+  "description": "Deduplicates mobile drawer navigation that repeats the primary navigation while preserving the drawer wrapper as a runtime target.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-mobile-drawer-nav-dedup.json",
+    "notes": "Generic fixture for mobile-nav overlay/panel wrappers that duplicate primary navigation links."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header class=\"site-header\"><nav class=\"primary-nav\"><a href=\"/\">Home</a><a href=\"/shop\">Shop</a><a href=\"/contact\">Contact</a></nav><div class=\"mobile-nav overlay\"><div class=\"mobile-nav-panel\"><nav class=\"drawer-nav\"><a href=\"/\">Home</a><a href=\"/shop\">Shop</a><a href=\"/contact\">Contact</a></nav></div></div></header>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/navigation", "attrs": { "className": "primary-nav" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Home", "url": "/", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Shop", "url": "/shop", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/navigation-link", "attrs": { "label": "Contact", "url": "/contact", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "mobile-nav overlay" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "mobile-nav-panel" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks", "assert": "count", "count": 0 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "drawer-nav" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "mobile-nav" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

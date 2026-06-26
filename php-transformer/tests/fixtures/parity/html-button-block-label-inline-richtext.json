@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-button-block-label-inline-richtext",
+  "description": "Converts button-like anchors with block-level visual label wrappers into valid inline core/button saved markup.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-button-block-label-inline-richtext.json",
+    "notes": "Covers SSI button labels that use heading wrappers and decorative hidden spans inside anchors."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This fixture covers WordPress block-validity normalization beyond the legacy converter behavior."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<a class=\"primary-button\" href=\"/book\"><h3>Reserve now</h3><span aria-hidden=\"true\"></span></a>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "primary-button", "text": "Reserve now", "url": "/book" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-button__link wp-element-button primary-button\" href=\"/book\">Reserve now</a>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<h3>Reserve now</h3>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "aria-hidden=\"true\"" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

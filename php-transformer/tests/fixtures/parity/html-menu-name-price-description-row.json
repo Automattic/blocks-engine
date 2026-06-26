@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-menu-name-price-description-row",
+  "description": "Preserves restaurant menu rows with item name, price, and description without flattening the name/price row.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-menu-name-price-description-row.json",
+    "notes": "Generic menu item coverage for name/price/description rows."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"menu-list\"><div class=\"menu-item\"><div class=\"menu-row\"><span class=\"item-name\">Roasted Carrots</span><span class=\"item-price\">$14</span></div><p class=\"item-description\">Harissa yogurt, herbs, toasted seeds.</p></div><div class=\"menu-item\"><div class=\"menu-row\"><span class=\"item-name\">Mushroom Tart</span><span class=\"item-price\">$18</span></div><p class=\"item-description\">Wild mushrooms, thyme, aged cheddar.</p></div></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "menu-list" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "menu-item" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/columns", "attrs": { "className": "menu-row" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "item-name" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/column", "attrs": { "className": "item-price" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "item-description", "content": "Harissa yogurt, herbs, toasted seeds." } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"menu-row\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "item-description" },
+    { "path": "source_reports.html.structure_signals.2.signals.name_price_row", "assert": "equals", "value": true }
+  ]
+}
