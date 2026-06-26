@@ -1873,7 +1873,7 @@ final class ScenegraphNormalizer
         }
 
         if ( empty($paths) && isset($node['vectorData']['vectorNetworkBlob']) ) {
-            $normalized = $this->normalizeVectorNetworkBlob($node['vectorData']['vectorNetworkBlob'], $blobs, $nodeId, $diagnostics);
+            $normalized = $this->normalizeVectorNetworkBlob($node['vectorData']['vectorNetworkBlob'], $node, $blobs, $nodeId, $diagnostics);
             if ( null !== $normalized ) {
                 $paths[] = $normalized;
             }
@@ -1924,7 +1924,7 @@ final class ScenegraphNormalizer
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<string, mixed>|null
      */
-    private function normalizeVectorNetworkBlob(mixed $blobReference, array $blobs, string $nodeId, array &$diagnostics): ?array
+    private function normalizeVectorNetworkBlob(mixed $blobReference, array $node, array $blobs, string $nodeId, array &$diagnostics): ?array
     {
         $bytes = $this->readCommandBlobBytes($blobReference, $blobs);
         if ( null === $bytes ) {
@@ -1940,6 +1940,11 @@ final class ScenegraphNormalizer
         $path = $this->decodeSimpleChevronVectorNetworkBlob($bytes);
         if ( null !== $path ) {
             return array('data' => $path, 'source' => 'vectorData.vectorNetworkBlob', 'windingRule' => 'NONZERO');
+        }
+
+        $path = $this->decodeSimpleRectVectorNetworkBlob($bytes, $node);
+        if ( null !== $path ) {
+            return array('data' => $path, 'source' => 'vectorData.vectorNetworkBlob.simpleRectFallback', 'windingRule' => 'NONZERO');
         }
 
         if ( ! $this->looksLikeVectorNetworkBlob($bytes) ) {
@@ -1975,6 +1980,38 @@ final class ScenegraphNormalizer
             '06000000060000000100000000000000f4fdb43f0000804100000000be9f1641' => 'M 1.414 16 L 9.414 8 L 1.414 0 L 0 1.414 L 6.586 8 L 0 14.586 L 1.414 16 Z',
             default => null,
         };
+    }
+
+    /**
+     * Small icon vectors can arrive as a 4-vertex, 4-segment network
+     * without decodable command geometry. Keep this guard exact until the broader
+     * vector-network format is understood.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function decodeSimpleRectVectorNetworkBlob(string $bytes, array $node): ?string
+    {
+        if ( 172 !== strlen($bytes) ) {
+            return null;
+        }
+
+        if ( array(4, 4, 0) !== $this->vectorNetworkCounts($bytes) ) {
+            return null;
+        }
+
+        $signature = bin2hex(substr($bytes, 0, 32));
+        if ( '0400000004000000000000000000000000000000000000000000000000008043' !== $signature ) {
+            return null;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : ( isset($node['width']) && is_numeric($node['width']) ? (float) $node['width'] : 0.0 );
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : ( isset($node['height']) && is_numeric($node['height']) ? (float) $node['height'] : 0.0 );
+        if ( $width <= 0.0 || $height <= 0.0 ) {
+            return null;
+        }
+
+        return 'M 0 0 L ' . $this->svgNumber($width) . ' 0 L ' . $this->svgNumber($width) . ' ' . $this->svgNumber($height) . ' L 0 ' . $this->svgNumber($height) . ' Z';
     }
 
     private function looksLikeVectorNetworkBlob(string $bytes): bool

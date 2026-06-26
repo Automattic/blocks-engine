@@ -676,9 +676,11 @@ $assert(str_contains($starVectorHtml, 'data-figma-node-id="vector:primitive-star
 $assert(str_contains($starVectorHtml, 'data-figma-node-id="vector:primitive-polygon"') && str_contains($starVectorHtml, 'data-figma-vector="true"'), 'primitive-polygon-vector-renders');
 $assert(! str_contains($starVectorHtml, 'data-figma-unsupported-vector="true"'), 'star-vector-path-not-placeholder');
 
+$simpleRectNetworkPrefix = hex2bin('0400000004000000000000000000000000000000000000000000000000008043');
+$simpleRectNetworkBlob = str_pad(false === $simpleRectNetworkPrefix ? '' : $simpleRectNetworkPrefix, 172, "\0");
 $vectorDataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Vector Data Fixture',
-    'blobs' => array(array('bytes' => $vectorCommandBlob), array('bytes' => "\xff")),
+    'blobs' => array(array('bytes' => $vectorCommandBlob), array('bytes' => "\xff"), array('bytes' => $simpleRectNetworkBlob)),
     'nodes' => array(
         array(
             'id'         => 'vector:data',
@@ -706,6 +708,15 @@ $vectorDataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
             'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 1))),
             'vectorData' => array('vectorNetworkBlob' => 1),
         ),
+        array(
+            'id'         => 'vector:data-simple-rect-network',
+            'type'       => 'VECTOR',
+            'name'       => 'Simple Rect Network',
+            'width'      => 12,
+            'height'     => 6,
+            'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0.5, 'b' => 1))),
+            'vectorData' => array('vectorNetworkBlob' => 2),
+        ),
     ),
 ));
 $vectorDataHtml = $fileContent($vectorDataResult, 'index.html');
@@ -723,6 +734,7 @@ $vectorDataDiagnosticCodes = array_map(
 $assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data"') && str_contains($vectorDataHtml, 'data-figma-vector="true"'), 'vector-data-renders-svg');
 $assert(str_contains($vectorDataHtml, 'd="M0 0L10 0 10 10Z"'), 'vector-data-renders-command-blob-path');
 $assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-painted-fallback"') && str_contains($vectorDataHtml, '<rect x="0" y="0" width="12" height="6" fill="#0000ff"/>'), 'vector-data-painted-network-fallback-rect');
+$assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-simple-rect-network"') && str_contains($vectorDataHtml, 'd="M0 0L12 0 12 6 0 6Z"') && str_contains($vectorDataHtml, 'fill="#0080ff"'), 'vector-data-simple-rect-network-renders-bounded-path');
 $assert(in_array('unsupported_vector_network_blob', $vectorDataDiagnosticCodes, true), 'vector-data-malformed-network-diagnostic');
 $assert(1 === ($vectorNetworkDiagnostic['context']['byte_length'] ?? null) && 'ff' === ($vectorNetworkDiagnostic['context']['signature_hex'] ?? null), 'vector-network-diagnostic-context');
 
