@@ -2080,14 +2080,41 @@ final class ScenegraphNormalizer
             return null;
         }
 
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : ( isset($node['width']) && is_numeric($node['width']) ? (float) $node['width'] : 0.0 );
-        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : ( isset($node['height']) && is_numeric($node['height']) ? (float) $node['height'] : 0.0 );
+        $width = $this->rawNodeDimension($node, 'width');
+        $height = $this->rawNodeDimension($node, 'height');
         if ( $width <= 0.0 || $height <= 0.0 ) {
             return null;
         }
 
         return 'M 0 0 L ' . $this->svgNumber($width) . ' 0 L ' . $this->svgNumber($width) . ' ' . $this->svgNumber($height) . ' L 0 ' . $this->svgNumber($height) . ' Z';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function rawNodeDimension(array $node, string $dimension): float
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        if ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
+            return (float) $box[$dimension];
+        }
+
+        if ( isset($node[$dimension]) && is_numeric($node[$dimension]) ) {
+            return (float) $node[$dimension];
+        }
+
+        $sizeKey = 'width' === $dimension ? 'x' : 'y';
+        if ( is_array($node['size'] ?? null) && isset($node['size'][$sizeKey]) && is_numeric($node['size'][$sizeKey]) ) {
+            return (float) $node['size'][$sizeKey];
+        }
+
+        foreach ( array('absoluteBoundingBox', 'absoluteRenderBounds') as $boundsKey ) {
+            if ( is_array($node[$boundsKey] ?? null) && isset($node[$boundsKey][$dimension]) && is_numeric($node[$boundsKey][$dimension]) ) {
+                return (float) $node[$boundsKey][$dimension];
+            }
+        }
+
+        return 0.0;
     }
 
     private function looksLikeVectorNetworkBlob(string $bytes): bool
