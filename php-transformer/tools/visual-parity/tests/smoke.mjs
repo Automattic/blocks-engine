@@ -1,4 +1,5 @@
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -6,6 +7,7 @@ import { spawn } from 'node:child_process';
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const outputDir = path.join(root, 'tmp');
 const output = path.join(outputDir, 'visual-parity-smoke.json');
+const domFixture = path.join(outputDir, 'dom-box.html');
 
 await mkdir(outputDir, { recursive: true });
 
@@ -27,7 +29,38 @@ assert(report.source.snapshots[0].probes[0].matches[0].display === 'inline-block
 assert(report.source.snapshots[0].probes[0].matches[0].padding.top === '10px', 'extracts computed padding');
 assert(report.comparison[0].probes[0].count_delta === 0, 'compares source and target counts');
 
+await writeFile(domFixture, '<!doctype html><html><body><main data-figma-node-id="12:34" data-figma-node-name="Hero">Hello world</main></body></html>');
+const server = createServer(async (request, response) => {
+  if (request.url === '/dom-box.html') {
+    response.writeHead(200, { 'content-type': 'text/html' });
+    response.end(await readFile(domFixture));
+    return;
+  }
+  response.writeHead(404, { 'content-type': 'application/json' });
+  response.end('{"error":"not_found"}');
+});
+await new Promise((resolve, reject) => {
+  server.on('error', reject);
+  server.listen(0, '127.0.0.1', resolve);
+});
+try {
+  const address = server.address();
+  const domReport = await runJson(process.execPath, [path.join(root, 'bin/dom-box-provider.mjs')], root, {
+    ...process.env,
+    HOMEBOY_DOM_BOX_BASE_URL: `http://127.0.0.1:${address.port}`,
+    HOMEBOY_DOM_BOX_PAGE_PATHS_JSON: JSON.stringify(['/dom-box.html']),
+    HOMEBOY_DOM_BOX_TEXT_SAMPLE_LIMIT: '20',
+  });
+  assert(domReport.entrypoints.length === 1, 'DOM provider captures one entrypoint');
+  assert(domReport.entrypoints[0].elements[0].node_id === '12:34', 'DOM provider captures node id');
+  assert(domReport.entrypoints[0].elements[0].node_name === 'Hero', 'DOM provider captures node name');
+  assert(domReport.entrypoints[0].elements[0].text_sample === 'Hello world', 'DOM provider captures text sample');
+} finally {
+  await new Promise((resolve) => server.close(resolve));
+}
+
 await rm(output, { force: true });
+await rm(domFixture, { force: true });
 console.log('Visual parity smoke test passed.');
 
 function run(command, args, cwd) {
@@ -40,6 +73,28 @@ function run(command, args, cwd) {
         return;
       }
       reject(new Error(`${command} exited with ${code}`));
+    });
+  });
+}
+
+function runJson(command, args, cwd, env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'inherit'] });
+    let stdout = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      if (code !== 0) {
+        reject(new Error(`${command} exited with ${code}`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch (error) {
+        reject(error);
+      }
     });
   });
 }

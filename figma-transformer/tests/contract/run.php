@@ -790,6 +790,34 @@ $assert(2 === ($vectorNetworkDiagnostic['context']['affected_node_count'] ?? nul
 $assert(array('vector:data-malformed', 'vector:data-painted-fallback') === ($vectorNetworkDiagnostic['context']['sample_node_ids'] ?? null), 'vector-network-diagnostic-sample-nodes');
 $assert(array('1') === ($vectorNetworkDiagnostic['context']['sample_blob_refs'] ?? null), 'vector-network-diagnostic-sample-blob-refs');
 
+$zeroHeightSeparatorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Zero Height Separator Fixture',
+    'blobs' => array(array('bytes' => "\xff")),
+    'nodes' => array(
+        array(
+            'id'           => 'vector:zero-height-separator',
+            'type'         => 'VECTOR',
+            'name'         => 'Wide Zero Height Separator',
+            'width'        => 1004,
+            'height'       => 0,
+            'strokeWeight' => 4,
+            'strokePaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.75, 'g' => 0.75, 'b' => 0.75))),
+            'vectorData'   => array('vectorNetworkBlob' => 0),
+        ),
+    ),
+));
+$zeroHeightSeparatorHtml = $fileContent($zeroHeightSeparatorResult, 'index.html');
+$zeroHeightSeparatorCss = $fileContent($zeroHeightSeparatorResult, 'style.css');
+$zeroHeightSeparatorDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $zeroHeightSeparatorResult['diagnostics'] ?? array()
+);
+$assert(str_contains($zeroHeightSeparatorHtml, 'data-figma-node-id="vector:zero-height-separator"') && str_contains($zeroHeightSeparatorHtml, 'data-figma-vector="true"'), 'zero-height-separator-renders-vector');
+$assert(str_contains($zeroHeightSeparatorHtml, '<line x1="0" y1="2" x2="1004" y2="2" stroke="#bfbfbf" stroke-width="4"/>'), 'zero-height-separator-renders-line');
+$assert(! str_contains($zeroHeightSeparatorHtml, 'data-figma-unsupported-vector="true"'), 'zero-height-separator-not-placeholder');
+$assert(str_contains($zeroHeightSeparatorCss, '.figma-node-vector-zero-height-separator-wide-zero-height-separator{width:1004px;height:4px'), 'zero-height-separator-css-bounded-height');
+$assert(in_array('unsupported_vector_network_blob', $zeroHeightSeparatorDiagnosticCodes, true), 'zero-height-separator-keeps-network-diagnostic');
+
 $agenticChevronLeftPrefix = hex2bin('0600000006000000010000000000000000000041000080410000000000000000');
 $agenticChevronRightPrefix = hex2bin('06000000060000000100000000000000f4fdb43f0000804100000000be9f1641');
 $agenticChevronWrongCountsPrefix = hex2bin('0600000005000000010000000000000000000041000080410000000000000000');
@@ -1113,6 +1141,7 @@ $assert('success' === ($multiPageResult['status'] ?? null), 'multi-page-transfor
 $assert(str_contains($multiPageIndex, 'Home Hero'), 'multi-page-index-renders-entry-frame');
 $assert(! str_contains($multiPageIndex, 'About Hero'), 'multi-page-index-omits-other-frame');
 $assert(str_contains($multiPageAbout, 'About Hero'), 'multi-page-about-renders-second-frame');
+$assert(str_contains($multiPageIndex, '<style data-figma-transformer-css="true">') && str_contains($multiPageIndex, '.figma-node-frame-home-home'), 'multi-page-index-inlines-page-css');
 $assert(str_contains($multiPageStyle, '.figma-node-frame-home-home'), 'multi-page-shared-css-home');
 $assert(str_contains($multiPageStyle, '.figma-node-frame-about-about'), 'multi-page-shared-css-about');
 $assert(2 === ($multiPageResult['metrics']['page_count'] ?? null), 'multi-page-page-count');

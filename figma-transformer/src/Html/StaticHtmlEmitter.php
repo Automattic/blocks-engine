@@ -96,6 +96,8 @@ final class StaticHtmlEmitter
             $files[] = $assetFile;
         }
 
+        $files = $this->withInlineCssFiles($files, $css);
+
         $visualNodeMap = $this->visualNodeMap($nodes);
         $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
         $transformDiagnostics = $this->transformDiagnostics($nodes, $assetFiles, $fontFamilies, $fontCss, $css, $diagnostics);
@@ -254,6 +256,8 @@ final class StaticHtmlEmitter
             $files[] = $assetFile;
         }
 
+        $files = $this->withInlineCssFiles($files, $css);
+
         $visualNodeMap = $this->visualNodeMap($renderedNodes);
         $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
         $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $assetFiles, $fontFamilies, $fontCss, $css, $diagnostics);
@@ -303,6 +307,42 @@ final class StaticHtmlEmitter
     private function htmlDocument(string $title, string $stylesheetHref, string $body): string
     {
         return "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>" . $title . "</title>\n<link rel=\"stylesheet\" href=\"" . $this->sanitizeAttribute($stylesheetHref) . "\">\n</head>\n<body>\n<main class=\"figma-root\" data-figma-root=\"true\">\n" . $body . "</main>\n</body>\n</html>\n";
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function withInlineCssFiles(array $files, string $css): array
+    {
+        if ( '' === $css ) {
+            return $files;
+        }
+
+        foreach ( $files as $index => $file ) {
+            if ( ! is_array($file) || 'text/html' !== ($file['mime_type'] ?? null) || ! isset($file['content']) || ! is_scalar($file['content']) ) {
+                continue;
+            }
+
+            $file['content'] = $this->withInlineCss((string) $file['content'], $css);
+            $files[$index] = $file;
+        }
+
+        return $files;
+    }
+
+    private function withInlineCss(string $html, string $css): string
+    {
+        if ( '' === $css || str_contains($html, '<style data-figma-transformer-css="true">') ) {
+            return $html;
+        }
+
+        $style = '<style data-figma-transformer-css="true">' . str_replace('</style', '<\/style', $css) . '</style>';
+        if ( str_contains($html, '</head>') ) {
+            return str_replace('</head>', $style . "\n</head>", $html);
+        }
+
+        return $style . "\n" . $html;
     }
 
     /**
@@ -1312,6 +1352,7 @@ final class StaticHtmlEmitter
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        $zeroHeightVectorFallbackHeight = $this->zeroHeightVectorFallbackHeight($node, $type);
         foreach ( array('width', 'height') as $dimension ) {
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
             $sizing = strtoupper((string) ($layout[$sizingKey] ?? ''));
@@ -1327,7 +1368,8 @@ final class StaticHtmlEmitter
                 }
 
                 $property = null === $parentNode && 'height' === $dimension && 'flex' === ($layout['display'] ?? null) ? 'min-height' : $dimension;
-                $styles[] = $property . ':' . $this->number((float) $box[$dimension]) . 'px';
+                $value = 'height' === $dimension && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : (float) $box[$dimension];
+                $styles[] = $property . ':' . $this->number($value) . 'px';
             }
         }
 
@@ -2909,19 +2951,24 @@ final class StaticHtmlEmitter
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $width = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width']) : 0.0;
         $height = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height']) : 0.0;
-        if ( $width <= 0 || $height <= 0 ) {
+        $zeroHeightVectorFallbackHeight = $this->zeroHeightVectorFallbackHeight($node, $type);
+        if ( $width <= 0 || ( $height <= 0 && null === $zeroHeightVectorFallbackHeight ) ) {
             return null;
         }
+        $renderHeight = $height <= 0 && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : $height;
 
         $elements = $this->vectorPathElements($node);
+        if ( empty($elements) && $height <= 0 && null !== $zeroHeightVectorFallbackHeight ) {
+            $elements = $this->zeroHeightVectorElements($node, $type, $width, $renderHeight);
+        }
         if ( empty($elements) ) {
-            $elements = $this->primitiveVectorElements($node, $type, $width, $height, $parentNode);
+            $elements = $this->primitiveVectorElements($node, $type, $width, $renderHeight, $parentNode);
         }
         if ( empty($elements) ) {
             return null;
         }
 
-        $viewBox = array('x' => 0.0, 'y' => 0.0, 'width' => $width, 'height' => $height);
+        $viewBox = array('x' => 0.0, 'y' => 0.0, 'width' => $width, 'height' => $renderHeight);
         $pathBounds = $this->vectorPathBounds($node);
         if ( null !== $pathBounds && ( $pathBounds['width'] > $width + 0.001 || $pathBounds['height'] > $height + 0.001 || $pathBounds['x'] < -0.001 || $pathBounds['y'] < -0.001 ) ) {
             $viewBox = $pathBounds;
@@ -3133,6 +3180,56 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function zeroHeightVectorElements(array $node, string $type, float $width, float $height): array
+    {
+        $paint = $this->svgPaintAttributes($node);
+        if ( $this->hasSvgStroke($paint) ) {
+            $paint = array_values(array_filter($paint, static fn (string $attribute): bool => ! str_starts_with($attribute, 'fill=')));
+            return array('<line x1="0" y1="' . $this->number($height / 2) . '" x2="' . $this->number($width) . '" y2="' . $this->number($height / 2) . '" ' . implode(' ', $paint) . '/>');
+        }
+
+        if ( 'LINE' === $type ) {
+            return array('<line x1="0" y1="' . $this->number($height / 2) . '" x2="' . $this->number($width) . '" y2="' . $this->number($height / 2) . '" fill="none" stroke="currentColor" stroke-width="' . $this->number($height) . '"/>');
+        }
+
+        if ( $this->hasSvgFill($paint) ) {
+            return array('<rect x="0" y="0" width="' . $this->number($width) . '" height="' . $this->number($height) . '" ' . implode(' ', $paint) . '/>');
+        }
+
+        return array();
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function zeroHeightVectorFallbackHeight(array $node, string $type): ?float
+    {
+        if ( ! in_array($type, array('LINE', 'VECTOR'), true) ) {
+            return null;
+        }
+        if ( 'VECTOR' === $type && ! $this->hasExplicitVectorSource($node) ) {
+            return null;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : 0.0;
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : 0.0;
+        if ( $width <= 0.0 || $height > 0.0 ) {
+            return null;
+        }
+
+        $paint = $this->svgPaintAttributes($node);
+        if ( 'LINE' === $type || $this->hasSvgStroke($paint) || $this->hasSvgFill($paint) ) {
+            return max(1.0, $this->strokeWeight($node));
+        }
+
+        return null;
+    }
+
+    /**
      * @return array<int, string>
      */
     private function inheritedVectorPaintAttributes(?array $parentNode): array
@@ -3304,6 +3401,20 @@ final class StaticHtmlEmitter
     {
         foreach ( $attributes as $attribute ) {
             if ( str_starts_with($attribute, 'stroke=') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, string> $attributes
+     */
+    private function hasSvgFill(array $attributes): bool
+    {
+        foreach ( $attributes as $attribute ) {
+            if ( str_starts_with($attribute, 'fill=') && 'fill="none"' !== $attribute ) {
                 return true;
             }
         }
