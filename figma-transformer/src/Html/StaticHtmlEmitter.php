@@ -662,6 +662,7 @@ final class StaticHtmlEmitter
             'node_refs'       => 0,
             'resolved_assets' => 0,
             'image_block_count' => 0,
+            'total_node_count' => 0,
             'image_block_nodes' => array(),
             'missing_assets'  => array(),
         );
@@ -788,11 +789,17 @@ final class StaticHtmlEmitter
                 'count' => count($layout['image_heavy_landmark_candidates']),
             );
         }
-        if ( (int) ($image['image_block_count'] ?? 0) >= 12 ) {
+        $imageBlockCount = (int) ($image['image_block_count'] ?? 0);
+        $totalNodeCount = max(0, (int) ($image['total_node_count'] ?? 0));
+        $imageNodeDensity = $totalNodeCount > 0 ? $imageBlockCount / $totalNodeCount : 0.0;
+        if ( $imageBlockCount >= 12 && ($imageNodeDensity >= 0.35 || ! empty($layout['image_heavy_landmark_candidates'])) ) {
             $signals[] = array(
                 'severity' => 'warning',
                 'code' => 'excessive_image_blocks',
-                'count' => (int) $image['image_block_count'],
+                'count' => $imageBlockCount,
+                'threshold' => 12,
+                'image_node_density' => round($imageNodeDensity, 3),
+                'sample_nodes' => array_slice(is_array($image['image_block_nodes'] ?? null) ? $image['image_block_nodes'] : array(), 0, 10),
             );
         }
         if ( (int) ($vectors['rendered_asset_fallbacks'] ?? 0) >= 8 ) {
@@ -826,7 +833,9 @@ final class StaticHtmlEmitter
                 'vector_placeholders' => (int) ($vectors['placeholders'] ?? 0),
                 'missing_font_css' => count($fonts['missing_css'] ?? array()),
                 'emitted_asset_files' => (int) ($assets['emitted_files'] ?? 0),
-                'image_block_count' => (int) ($image['image_block_count'] ?? 0),
+                'image_block_count' => $imageBlockCount,
+                'image_node_density' => round($imageNodeDensity, 3),
+                'total_node_count' => $totalNodeCount,
                 'vector_image_fallbacks' => (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
                 'generated_svg_count' => (int) ($generatedSvgAssets['count'] ?? 0),
                 'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
@@ -940,6 +949,8 @@ final class StaticHtmlEmitter
      */
     private function collectTransformDiagnostics(array $node, array &$image, array &$vectors, array &$layout, ?array $parentNode = null): void
     {
+        ++$image['total_node_count'];
+
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $nodeLayout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
 

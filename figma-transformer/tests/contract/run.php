@@ -263,8 +263,50 @@ $assert(in_array('excessive_image_blocks', $qualitySignalCodes, true), 'quality-
 $assert(in_array('excessive_vector_image_fallbacks', $qualitySignalCodes, true), 'quality-diagnostics-excessive-vector-fallbacks');
 $assert('needs_review' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['status'] ?? null), 'quality-diagnostics-status-needs-review');
 $assert('warn' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['quality_status'] ?? null), 'quality-diagnostics-quality-status-warn');
+$qualitySignals = $qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['signals'] ?? array();
+$excessiveImageSignal = null;
+foreach ( is_array($qualitySignals) ? $qualitySignals : array() as $signal ) {
+    if ( is_array($signal) && 'excessive_image_blocks' === ($signal['code'] ?? null) ) {
+        $excessiveImageSignal = $signal;
+        break;
+    }
+}
+$assert(12 === ($excessiveImageSignal['threshold'] ?? null), 'quality-diagnostics-excessive-image-threshold');
+$assert(($excessiveImageSignal['image_node_density'] ?? 0) > 0.35, 'quality-diagnostics-excessive-image-density');
+$assert(! empty($excessiveImageSignal['sample_nodes']) && count($excessiveImageSignal['sample_nodes']) <= 10, 'quality-diagnostics-excessive-image-samples');
+$assert(20 === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['summary']['image_block_count'] ?? null), 'quality-diagnostics-image-block-summary-count');
+$assert(22 === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['summary']['total_node_count'] ?? null), 'quality-diagnostics-total-node-summary-count');
 $assert('quality:root' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['selection']['selected_frames'][0]['frame_id'] ?? null), 'quality-diagnostics-selected-frame-id');
 $assert(22 === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['selection']['selected_frames'][0]['node_count'] ?? null), 'quality-diagnostics-selected-frame-node-count');
+
+$normalImageAssets = array();
+$normalImageChildren = array();
+for ( $i = 1; $i <= 12; $i++ ) {
+    $normalImageAssets['normal-image-' . $i] = array('mime_type' => 'image/png', 'content' => 'normal image ' . $i);
+    $normalImageChildren[] = array('id' => 'normal:image:' . $i, 'type' => 'RECTANGLE', 'name' => 'Gallery image ' . $i, 'width' => 120, 'height' => 90, 'asset_id' => 'normal-image-' . $i);
+}
+for ( $i = 1; $i <= 32; $i++ ) {
+    $normalImageChildren[] = array('id' => 'normal:text:' . $i, 'type' => 'TEXT', 'name' => 'Body copy ' . $i, 'characters' => 'Paragraph ' . $i, 'fontSize' => 16);
+}
+$normalImageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'   => 'Normal Image Count Fixture',
+    'assets' => $normalImageAssets,
+    'nodes'  => array(
+        array(
+            'id'       => 'normal:root',
+            'type'     => 'FRAME',
+            'name'     => 'Editorial gallery page',
+            'width'    => 960,
+            'height'   => 1600,
+            'layoutMode' => 'VERTICAL',
+            'children' => $normalImageChildren,
+        ),
+    ),
+));
+$normalImageQuality = $normalImageResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality'] ?? array();
+$assert(! in_array('excessive_image_blocks', $artifactQualitySignalCodes($normalImageResult), true), 'quality-diagnostics-normal-image-count-no-excessive-signal');
+$assert(12 === ($normalImageQuality['summary']['image_block_count'] ?? null), 'quality-diagnostics-normal-image-count-summary');
+$assert(($normalImageQuality['summary']['image_node_density'] ?? 1) < 0.35, 'quality-diagnostics-normal-image-density-summary');
 
 $cleanQualityResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Clean Quality Fixture',
