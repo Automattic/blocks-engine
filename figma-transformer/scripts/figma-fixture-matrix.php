@@ -139,6 +139,9 @@ foreach ( $fixtures as $fixture ) {
                 $record['vector_placeholders'] = $diagnostics['vectors']['placeholders'] ?? null;
                 $record['generated_svg_assets'] = $diagnostics['generated_svg_assets'] ?? null;
                 $record['artifact_quality'] = $diagnostics['artifact_quality'] ?? null;
+                $record['quality_status'] = $diagnostics['artifact_quality']['quality_status'] ?? null;
+                $record['quality_summary'] = $diagnostics['artifact_quality']['summary'] ?? null;
+                $record['transform_selection'] = $diagnostics['selection'] ?? null;
             }
         }
     }

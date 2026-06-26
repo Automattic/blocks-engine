@@ -262,6 +262,9 @@ $assert(in_array('image_heavy_landmark_candidate', $qualitySignalCodes, true), '
 $assert(in_array('excessive_image_blocks', $qualitySignalCodes, true), 'quality-diagnostics-excessive-image-blocks');
 $assert(in_array('excessive_vector_image_fallbacks', $qualitySignalCodes, true), 'quality-diagnostics-excessive-vector-fallbacks');
 $assert('needs_review' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['status'] ?? null), 'quality-diagnostics-status-needs-review');
+$assert('warn' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['quality_status'] ?? null), 'quality-diagnostics-quality-status-warn');
+$assert('quality:root' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['selection']['selected_frames'][0]['frame_id'] ?? null), 'quality-diagnostics-selected-frame-id');
+$assert(22 === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['selection']['selected_frames'][0]['node_count'] ?? null), 'quality-diagnostics-selected-frame-node-count');
 
 $cleanQualityResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Clean Quality Fixture',
@@ -282,6 +285,28 @@ $cleanQualityResult = blocks_engine_figma_transformer_transform_scenegraph(array
 ));
 $assert(array() === $artifactQualitySignalCodes($cleanQualityResult), 'quality-diagnostics-clean-page-no-signals');
 $assert('clean' === ($cleanQualityResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['status'] ?? null), 'quality-diagnostics-clean-page-status');
+$assert('pass' === ($cleanQualityResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['quality_status'] ?? null), 'quality-diagnostics-clean-page-quality-status-pass');
+
+$incompleteQualityResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Incomplete Quality Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'incomplete:root',
+            'type'     => 'FRAME',
+            'name'     => 'Incomplete page',
+            'width'    => 720,
+            'height'   => 320,
+            'children' => array(
+                array('id' => 'incomplete:image', 'type' => 'RECTANGLE', 'name' => 'Missing hero asset', 'width' => 320, 'height' => 180, 'asset_id' => 'missing-hero'),
+                array('id' => 'incomplete:vector', 'type' => 'VECTOR', 'name' => 'Unsupported logo mark'),
+            ),
+        ),
+    ),
+));
+$incompleteQuality = $incompleteQualityResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality'] ?? array();
+$assert('fail' === ($incompleteQuality['quality_status'] ?? null), 'quality-diagnostics-incomplete-quality-status-fail');
+$assert(1 === ($incompleteQuality['summary']['missing_asset_nodes'] ?? null), 'quality-diagnostics-incomplete-missing-asset-count');
+$assert(1 === ($incompleteQuality['summary']['vector_placeholders'] ?? null), 'quality-diagnostics-incomplete-vector-placeholder-count');
 
 $offsetPageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'     => 'Offset Board Fixture',
@@ -855,6 +880,10 @@ $assert(2 === ($multiPageTransformDiagnostics['images']['paint_refs'] ?? null), 
 $assert(2 === ($multiPageTransformDiagnostics['images']['resolved_assets'] ?? null), 'multi-page-transform-diagnostics-resolved-assets');
 $assert(2 === ($multiPageTransformDiagnostics['assets']['emitted_files'] ?? null), 'multi-page-transform-diagnostics-emitted-assets');
 $assert(0 === ($multiPageTransformDiagnostics['generated_svg_assets']['count'] ?? null), 'multi-page-transform-diagnostics-generated-svg-count');
+$assert('selected_frames' === ($multiPageTransformDiagnostics['selection']['mode'] ?? null), 'multi-page-transform-diagnostics-selection-mode');
+$assert('frame:home' === ($multiPageTransformDiagnostics['selection']['selected_frames'][0]['frame_id'] ?? null), 'multi-page-transform-diagnostics-entry-frame-selection');
+$assert('about.html' === ($multiPageTransformDiagnostics['selection']['selected_frames'][1]['path'] ?? null), 'multi-page-transform-diagnostics-about-selection-path');
+$assert('warn' === ($multiPageTransformDiagnostics['artifact_quality']['quality_status'] ?? null), 'multi-page-transform-diagnostics-quality-status-warn');
 
 $imageScaleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'   => 'Image Scale Fixture',

@@ -713,6 +713,7 @@ final class StaticHtmlEmitter
 
         return array(
             'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
+            'selection' => $this->selectionDiagnostics($nodes),
             'images' => $image,
             'vectors' => $vectors,
             'fonts' => $fonts,
@@ -809,11 +810,15 @@ final class StaticHtmlEmitter
             );
         }
 
+        $failCodes = array('missing_render_assets', 'vector_placeholders');
+        $failCount = count(array_filter($signals, static fn (array $signal): bool => in_array((string) ($signal['code'] ?? ''), $failCodes, true)));
         $warningCount = count(array_filter($signals, static fn (array $signal): bool => 'warning' === ($signal['severity'] ?? null)));
+        $qualityStatus = $failCount > 0 ? 'fail' : (empty($signals) ? 'pass' : 'warn');
 
         return array(
             'schema' => 'blocks-engine/figma-transformer/artifact-quality/v1',
             'status' => $warningCount > 0 ? 'needs_review' : (empty($signals) ? 'clean' : 'info'),
+            'quality_status' => $qualityStatus,
             'signals' => $signals,
             'summary' => array(
                 'missing_asset_nodes' => count($image['missing_assets'] ?? array()),
@@ -830,6 +835,64 @@ final class StaticHtmlEmitter
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
             ),
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodes
+     * @return array<string, mixed>
+     */
+    private function selectionDiagnostics(array $nodes): array
+    {
+        $frames = array();
+        foreach ( $nodes as $node ) {
+            if ( is_array($node) ) {
+                $frames[] = $this->selectedFrameDiagnostic($node, 'index.html', true);
+            }
+        }
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/selection/v1',
+            'mode' => count($frames) > 1 ? 'root_nodes' : 'single_root',
+            'page_count' => count($frames),
+            'selected_frames' => $frames,
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function selectedFrameDiagnostic(array $node, string $path, bool $entrypoint): array
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $assetReferences = $this->countAssetReferences($node);
+
+        return array_filter(array(
+            'frame_id' => isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '',
+            'name' => isset($node['name']) && is_scalar($node['name']) ? (string) $node['name'] : '',
+            'type' => strtoupper((string) ($node['type'] ?? '')),
+            'path' => $path,
+            'entrypoint' => $entrypoint,
+            'width' => $this->reportNumericValue($box['width'] ?? null),
+            'height' => $this->reportNumericValue($box['height'] ?? null),
+            'node_count' => $this->countNodes(array($node)),
+            'asset_reference_count' => $assetReferences,
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function countAssetReferences(array $node): int
+    {
+        $count = (! empty($this->explicitNodeAssetReferences($node)) || ! empty($this->nodeImagePaints($node))) ? 1 : 0;
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) ) {
+                $count += $this->countAssetReferences($child);
+            }
+        }
+
+        return $count;
     }
 
     /**
