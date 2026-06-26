@@ -36,7 +36,7 @@ export {
   sanitizeSvgAsset,
   stripChrome,
 } from './page-reconstruct-helpers.js';
-export { reconstruct } from './reconstruct.js';
+export { reconstruct, reconstructNativeAggregate } from './reconstruct.js';
 export {
   buildCoverageIsland,
   buildHtmlFallbackBlock,
@@ -112,7 +112,12 @@ export type {
 export type * from './font-faces.js';
 export type { FormBlocksResult } from './form-blocks.js';
 export type { FontFamilyToken } from './page-reconstruct-helpers.js';
-export type { ConvertedSectionInput, SectionRenderOptions } from './native-reconstruct-types.js';
+export type {
+  ConvertedSectionInput,
+  NativeReconstructAggregate,
+  NativeSectionDecision,
+  SectionRenderOptions,
+} from './native-reconstruct-types.js';
 export type * from './region-audit.js';
 export type { InternalLinkMap } from './url-rewrite.js';
 export type * from './section-spec.js';
