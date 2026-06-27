@@ -34,6 +34,8 @@ final class ConversionReportProjection
             'runtime_islands'      => self::runtimeIslands($sourceReports),
             'interaction_candidates' => self::interactionCandidates($sourceReports),
             'presentation_gaps'     => self::presentationGaps($sourceReports),
+            'native_target_blocks'  => self::stringList($sourceReports, 'native_target_blocks'),
+            'available_core_blocks' => self::stringList($sourceReports, 'available_core_blocks'),
             'metrics'               => $metrics,
         );
 
@@ -417,6 +419,19 @@ final class ConversionReportProjection
         }
 
         return '';
+    }
+
+    /**
+     * @param array<string, mixed> $sourceReports
+     * @return array<int, string>
+     */
+    private static function stringList(array $sourceReports, string $key): array
+    {
+        if ( ! is_array($sourceReports[$key] ?? null) ) {
+            return array();
+        }
+
+        return array_values(array_filter($sourceReports[$key], static fn (mixed $value): bool => is_string($value) && '' !== $value));
     }
 
     /**

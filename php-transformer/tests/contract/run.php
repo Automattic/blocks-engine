@@ -270,6 +270,18 @@ $assert(! array_key_exists('legacy_mapping', $result), 'canonical result omits c
 $assertInvalidCanonicalEnvelope(array_merge($result, array('legacy_mapping' => array())), 'legacy_mapping', 'canonical validation rejects legacy mapping aliases');
 $assertInvalidCanonicalEnvelope(array_merge($result, array('conversion_report' => $result['source_reports']['conversion_report'])), 'only under source_reports', 'canonical validation rejects top-level conversion report aliases');
 $assertInvalidCanonicalEnvelope(array_merge($result, array('materialization_plan' => array())), 'only under source_reports', 'canonical validation rejects top-level materialization plan aliases');
+$coverage = $result['coverage'][0] ?? array();
+$supportedBlocks = $coverage['supported_blocks'] ?? array();
+$nativeTargetBlocks = $coverage['native_target_blocks'] ?? array();
+$availableCoreBlocks = $coverage['available_core_blocks'] ?? array();
+$conversionReportNativeTargetBlocks = $result['source_reports']['conversion_report']['native_target_blocks'] ?? array();
+$assert(in_array('core/paragraph', $supportedBlocks, true), 'coverage preserves existing supported block metadata');
+$assert(in_array('core/accordion', $nativeTargetBlocks, true), 'coverage exposes core/accordion as an available native target');
+$assert(in_array('core/icon', $nativeTargetBlocks, true), 'coverage exposes core/icon as an available native target');
+$assert(in_array('core/math', $nativeTargetBlocks, true), 'coverage exposes core/math as an available native target');
+$assert($nativeTargetBlocks === $availableCoreBlocks, 'coverage aliases available core blocks to native target blocks');
+$assert($nativeTargetBlocks === $conversionReportNativeTargetBlocks, 'conversion report exposes native target block metadata');
+$assert(! in_array('core/accordion', $supportedBlocks, true), 'coverage does not claim unsupported native targets as converted support');
 $runtimeCanvasResult = ( new HtmlTransformer() )->transform('<main><canvas id="fixture-canvas">Fallback</canvas></main>', array('runtime_canvas_selectors' => array('#fixture-canvas')))->toArray();
 $assert('canvas' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['kind'] ?? ''), 'HTML transform reports runtime-targeted canvas fallback as a runtime island');
 $assert('canvas_requires_runtime' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['preservation_reason'] ?? ''), 'runtime island exposes canvas preservation reason');
