@@ -682,7 +682,7 @@ final class StaticHtmlEmitter
         $map = array();
         foreach ( $nodes as $node ) {
             if ( is_array($node) ) {
-                $this->appendVisualNodeMap($node, $map, 0.0, 0.0, null, null);
+                $this->appendVisualNodeMap($node, $map, 0.0, 0.0, null, null, $this->identityVisualTransformMatrix());
             }
         }
 
@@ -1273,7 +1273,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @param array<int, array<string, mixed>> $map
      */
-    private function appendVisualNodeMap(array $node, array &$map, float $x, float $y, ?array $parentNode, ?array $clipRect): void
+    private function appendVisualNodeMap(array $node, array &$map, float $x, float $y, ?array $parentNode, ?array $clipRect, array $parentTransform): void
     {
         if ( $this->isFullyTransparentVisualNode($node) ) {
             return;
@@ -1293,7 +1293,8 @@ final class StaticHtmlEmitter
 
         $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : null;
         $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
-        $nodeRect = null !== $width && null !== $height ? $this->transformedVisualRect(array('x' => $x, 'y' => $y, 'width' => $width, 'height' => $height), $node) : null;
+        $nodeTransform = null !== $width && null !== $height ? $this->visualTransformMatrix($parentTransform, $x, $y, $width, $height, $node) : null;
+        $nodeRect = null !== $width && null !== $height && null !== $nodeTransform ? $this->transformedVisualRect($width, $height, $nodeTransform) : null;
         $visibleRect = null;
         if ( null !== $nodeRect && null !== $clipRect && $this->isClippableDecorativeVisualNode($node) ) {
             $visibleRect = $this->rectIntersection($nodeRect, $clipRect);
@@ -1345,8 +1346,8 @@ final class StaticHtmlEmitter
         $paddingRight = isset($padding['right']) && is_numeric($padding['right']) ? (float) $padding['right'] : 0.0;
         $paddingTop = isset($padding['top']) && is_numeric($padding['top']) ? (float) $padding['top'] : 0.0;
         $paddingBottom = isset($padding['bottom']) && is_numeric($padding['bottom']) ? (float) $padding['bottom'] : 0.0;
-        $childX = $x + $paddingLeft;
-        $childY = $y + $paddingTop;
+        $childX = $paddingLeft;
+        $childY = $paddingTop;
         $gap = isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ? (float) $layout['item_spacing'] : 0.0;
         $isRow = 'row' === ($layout['flex_direction'] ?? null);
         $isFlex = 'flex' === ($layout['display'] ?? null);
@@ -1388,16 +1389,16 @@ final class StaticHtmlEmitter
 
             $childLayout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
             if ( $this->isFreeformContainer($node) || 'absolute' === ($childLayout['positioning'] ?? null) || $this->isDecorativeFlexUnderlay($child, $node) ) {
-                $this->appendVisualNodeMap($child, $map, $x, $y, $node, $childClipRect);
+                $this->appendVisualNodeMap($child, $map, 0.0, 0.0, $node, $childClipRect, $nodeTransform ?? $parentTransform);
                 continue;
             }
 
             $nodeId = (string) ($child['id'] ?? '');
             $position = '' !== $nodeId && isset($flowPositions[$nodeId]) ? $flowPositions[$nodeId] : array('main' => 0.0, 'cross' => 0.0);
             if ( $isRow ) {
-                $this->appendVisualNodeMap($child, $map, $childX + $position['main'], $childY + $position['cross'], $node, $childClipRect);
+                $this->appendVisualNodeMap($child, $map, $childX + $position['main'], $childY + $position['cross'], $node, $childClipRect, $nodeTransform ?? $parentTransform);
             } else {
-                $this->appendVisualNodeMap($child, $map, $childX + $position['cross'], $childY + $position['main'], $node, $childClipRect);
+                $this->appendVisualNodeMap($child, $map, $childX + $position['cross'], $childY + $position['main'], $node, $childClipRect, $nodeTransform ?? $parentTransform);
             }
         }
     }
@@ -1552,30 +1553,23 @@ final class StaticHtmlEmitter
     }
 
     /**
-     * @param array{x: float, y: float, width: float, height: float} $rect
      * @return array{x: float, y: float, width: float, height: float}
      */
-    private function transformedVisualRect(array $rect, array $node): array
+    private function transformedVisualRect(float $width, float $height, array $matrix): array
     {
-        $box = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array();
-        $matrix = $this->cssTransformMatrixValues(is_array($box['transform'] ?? null) ? $box['transform'] : null);
-        if ( null === $matrix ) {
-            return $rect;
-        }
-
         [$a, $b, $c, $d, $e, $f] = $matrix;
         $points = array(
             array(0.0, 0.0),
-            array($rect['width'], 0.0),
-            array(0.0, $rect['height']),
-            array($rect['width'], $rect['height']),
+            array($width, 0.0),
+            array(0.0, $height),
+            array($width, $height),
         );
         $xs = array();
         $ys = array();
         foreach ( $points as $point ) {
             [$localX, $localY] = $point;
-            $xs[] = $rect['x'] + ($a * $localX) + ($c * $localY) + $e;
-            $ys[] = $rect['y'] + ($b * $localX) + ($d * $localY) + $f;
+            $xs[] = ($a * $localX) + ($c * $localY) + $e;
+            $ys[] = ($b * $localX) + ($d * $localY) + $f;
         }
 
         $left = min($xs);
@@ -1584,6 +1578,77 @@ final class StaticHtmlEmitter
         $bottom = max($ys);
 
         return array('x' => $left, 'y' => $top, 'width' => $right - $left, 'height' => $bottom - $top);
+    }
+
+    /**
+     * @return array{0: float, 1: float, 2: float, 3: float, 4: float, 5: float}
+     */
+    private function visualTransformMatrix(array $parentTransform, float $x, float $y, float $width, float $height, array $node): array
+    {
+        return $this->multiplyVisualTransformMatrices(
+            $parentTransform,
+            $this->multiplyVisualTransformMatrices(
+                $this->translationVisualTransformMatrix($x, $y),
+                $this->nodeCssVisualTransformMatrix($node, $width, $height)
+            )
+        );
+    }
+
+    /**
+     * @return array{0: float, 1: float, 2: float, 3: float, 4: float, 5: float}
+     */
+    private function nodeCssVisualTransformMatrix(array $node, float $width, float $height): array
+    {
+        $box = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array();
+        $matrix = $this->cssTransformMatrixValues(is_array($box['transform'] ?? null) ? $box['transform'] : null);
+        if ( null !== $matrix ) {
+            return $matrix;
+        }
+
+        if ( isset($box['rotation']) && is_numeric($box['rotation']) ) {
+            $radians = deg2rad((float) $box['rotation']);
+            $rotation = array(cos($radians), sin($radians), -sin($radians), cos($radians), 0.0, 0.0);
+            $originX = $width / 2.0;
+            $originY = $height / 2.0;
+
+            return $this->multiplyVisualTransformMatrices(
+                $this->translationVisualTransformMatrix($originX, $originY),
+                $this->multiplyVisualTransformMatrices($rotation, $this->translationVisualTransformMatrix(-$originX, -$originY))
+            );
+        }
+
+        return $this->identityVisualTransformMatrix();
+    }
+
+    /**
+     * @return array{0: float, 1: float, 2: float, 3: float, 4: float, 5: float}
+     */
+    private function identityVisualTransformMatrix(): array
+    {
+        return array(1.0, 0.0, 0.0, 1.0, 0.0, 0.0);
+    }
+
+    /**
+     * @return array{0: float, 1: float, 2: float, 3: float, 4: float, 5: float}
+     */
+    private function translationVisualTransformMatrix(float $x, float $y): array
+    {
+        return array(1.0, 0.0, 0.0, 1.0, $x, $y);
+    }
+
+    /**
+     * @return array{0: float, 1: float, 2: float, 3: float, 4: float, 5: float}
+     */
+    private function multiplyVisualTransformMatrices(array $left, array $right): array
+    {
+        return array(
+            $left[0] * $right[0] + $left[2] * $right[1],
+            $left[1] * $right[0] + $left[3] * $right[1],
+            $left[0] * $right[2] + $left[2] * $right[3],
+            $left[1] * $right[2] + $left[3] * $right[3],
+            $left[0] * $right[4] + $left[2] * $right[5] + $left[4],
+            $left[1] * $right[4] + $left[3] * $right[5] + $left[5],
+        );
     }
 
     /**

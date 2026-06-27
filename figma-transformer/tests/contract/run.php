@@ -781,6 +781,51 @@ $assert(array('x' => -40.0, 'y' => 10.0, 'width' => 60.0, 'height' => 30.0) === 
 $assert(0 === ($flippedVectorDiagnostics['layout_mismatch_count'] ?? null), 'flipped-vector-layout-mismatch-count-zero');
 $assert('pass' === ($flippedVectorDiagnostics['layout_mismatch_status'] ?? null), 'flipped-vector-layout-mismatch-pass');
 
+$transformedParentVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Transformed Parent Vector Layout Guard Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'        => 'parent-transform:group',
+            'type'      => 'GROUP',
+            'name'      => 'Rotated vector group',
+            'width'     => 120,
+            'height'    => 80,
+            'transform' => array('m00' => 0, 'm01' => -1, 'm02' => 0, 'm10' => 1, 'm11' => 0, 'm12' => 0),
+            'children'  => array(
+                array(
+                    'id'           => 'parent-transform:vector',
+                    'type'         => 'VECTOR',
+                    'name'         => 'Absolute child vector',
+                    'x'            => 20,
+                    'y'            => 10,
+                    'width'        => 60,
+                    'height'       => 30,
+                    'layout'       => array('positioning' => 'absolute'),
+                    'fillGeometry' => array(array('commandsBlob' => 0)),
+                ),
+            ),
+        ),
+    ),
+), array(
+    'generated_dom_boxes' => array(
+        'schema' => 'homeboy/static-artifact-dom-boxes/v1',
+        'boxes'  => array(
+            array('node_id' => 'parent-transform:group', 'rect' => array('x' => -80, 'y' => 0, 'width' => 80, 'height' => 120)),
+            array('node_id' => 'parent-transform:vector', 'rect' => array('x' => -40, 'y' => 20, 'width' => 30, 'height' => 60)),
+        ),
+    ),
+    'layout_mismatch_threshold'      => 1,
+    'layout_mismatch_size_threshold' => 1,
+));
+$transformedParentVectorDiagnostics = $transformedParentVectorResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+$transformedParentVectorGroup = $findVisualNode($transformedParentVectorResult, 'parent-transform:group');
+$transformedParentVectorNode = $findVisualNode($transformedParentVectorResult, 'parent-transform:vector');
+$assert(array('x' => -80.0, 'y' => 0.0, 'width' => 80.0, 'height' => 120.0) === ($transformedParentVectorGroup['rect'] ?? null), 'transformed-parent-vector-group-visual-map-applies-matrix');
+$assert(array('x' => -40.0, 'y' => 20.0, 'width' => 30.0, 'height' => 60.0) === ($transformedParentVectorNode['rect'] ?? null), 'transformed-parent-vector-child-visual-map-composes-parent-matrix');
+$assert(0 === ($transformedParentVectorDiagnostics['layout_mismatch_count'] ?? null), 'transformed-parent-vector-layout-mismatch-count-zero');
+$assert('pass' === ($transformedParentVectorDiagnostics['layout_mismatch_status'] ?? null), 'transformed-parent-vector-layout-mismatch-pass');
+
 $transparentVisualMapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Transparent Visual Map Fixture',
     'nodes' => array(
