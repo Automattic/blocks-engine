@@ -1192,6 +1192,34 @@ $assert(array(array('family' => 'Open Sans', 'weights' => array(400, 700)), arra
 $assert('blocks-engine/php-transformer/font-materialization-plan/v1' === ($fontAwarePlan['theme']['font_materialization']['schema'] ?? null), 'materialization plan builds font materialization plan');
 $assert('@import url("https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;700&family=Poppins:wght@500&display=swap");' === ($fontAwarePlan['theme']['font_materialization']['css'] ?? null), 'materialization plan builds google font css from usage');
 
+// Web-font detection from linked Google Fonts stylesheets + font-family declarations.
+$webFontHtml = '<head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&amp;family=Inter:wght@400;500;600&amp;display=swap"></head>';
+$webFontCss = 'h1,h2,h3 { font-family: "Oswald", "Inter", system-ui, sans-serif; } body { font-family: "Inter", system-ui, sans-serif; }';
+$webFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources($webFontHtml, $webFontCss);
+$webFontFamilies = array_map(static fn (array $font): string => (string) $font['family'], $webFontPlan['fonts'] ?? array());
+$assert(array('Inter', 'Oswald') === $webFontFamilies, 'web-font detection captures both linked css2 families');
+$assert(array(400, 500, 600, 700) === ($webFontPlan['fonts'][1]['weights'] ?? null), 'web-font detection parses :wght@ axis weights');
+$assert('Oswald' === ($webFontPlan['roles']['heading'] ?? null), 'web-font detection maps heading typeface from font-family declaration');
+$assert('Inter' === ($webFontPlan['roles']['body'] ?? null), 'web-font detection maps body typeface from font-family declaration');
+$assert('@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Oswald:wght@400;500;600;700&display=swap");' === ($webFontPlan['css'] ?? null), 'web-font detection materializes deterministic google fonts css');
+
+// Legacy css (v1) link syntax with `|`-separated families and comma weight lists.
+$legacyFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:400,700|Lora">',
+    ''
+);
+$assert(array('Lora', 'Roboto') === array_map(static fn (array $font): string => (string) $font['family'], $legacyFontPlan['fonts'] ?? array()), 'web-font detection handles legacy css family pipes');
+$assert(array(400, 700) === ($legacyFontPlan['fonts'][1]['weights'] ?? null), 'web-font detection parses legacy comma weight lists');
+
+// Web-font sources flow through the full materialization plan theme contract.
+$webFontMaterializationPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(array(
+    'theme' => array(
+        'font_link_html' => $webFontHtml,
+        'static_css'     => $webFontCss,
+    ),
+));
+$assert('Oswald' === ($webFontMaterializationPlan['theme']['font_materialization']['roles']['heading'] ?? null), 'materialization plan materializes heading font from web-font sources');
+
 $fragment = $compiler->compileFragment('<main><h2>Fragment</h2><p>Copy</p></main>', 'fixture:fragment')->toArray();
 $assert('success' === $fragment['status'], 'fragment compiles successfully', (string) $fragment['status']);
 $assert('fixture:fragment' === ($fragment['provenance'][0]['source'] ?? ''), 'fragment compile exposes source provenance');

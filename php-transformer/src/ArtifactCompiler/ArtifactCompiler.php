@@ -275,6 +275,66 @@ final class ArtifactCompiler
     }
 
     /**
+     * Collect the `<link>` tags declared across the artifact's HTML sources so
+     * downstream font materialization can detect linked web-font stylesheets
+     * (e.g. Google Fonts) without re-parsing every document. Deduplicated to
+     * stay bounded for multi-page sites that repeat a shared `<head>`.
+     *
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function themeFontLinkHtml(array $files): string
+    {
+        $tags = array();
+        foreach ( $files as $file ) {
+            if ( 'html' !== ($file['kind'] ?? '') || ! is_string($file['content'] ?? null) ) {
+                continue;
+            }
+            if ( ! preg_match_all('/<link\b[^>]*>/i', (string) $file['content'], $matches) ) {
+                continue;
+            }
+            foreach ( $matches[0] as $tag ) {
+                $tags[trim((string) $tag)] = true;
+            }
+        }
+
+        return implode("\n", array_keys($tags));
+    }
+
+    /**
+     * Aggregate the artifact's authored CSS (linked stylesheet files plus inline
+     * `<style>` blocks) so downstream font materialization can read generic
+     * `font-family` declarations. Deduplicated and order-preserving.
+     *
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function themeStaticCss(array $files): string
+    {
+        $blocks = array();
+        foreach ( $files as $file ) {
+            $content = is_string($file['content'] ?? null) ? (string) $file['content'] : '';
+            if ( '' === trim($content) ) {
+                continue;
+            }
+
+            if ( 'css' === ($file['kind'] ?? '') ) {
+                $blocks[trim($content)] = true;
+                continue;
+            }
+
+            if ( 'html' === ($file['kind'] ?? '') && preg_match_all('/<style\b[^>]*>(.*?)<\/style>/is', $content, $matches) ) {
+                foreach ( $matches[1] as $style ) {
+                    $style = trim((string) $style);
+                    if ( '' !== $style ) {
+                        $blocks[$style] = true;
+                    }
+                }
+            }
+        }
+
+        return implode("\n", array_keys($blocks));
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $files
      * @return array<int, string>
      */
@@ -634,19 +694,24 @@ final class ArtifactCompiler
             'assets'      => $this->compiledSiteAssets($assets),
             'template_parts' => $this->compiledSiteTemplateParts($artifact['files']),
             'visual_repair' => $this->compiledSiteVisualRepair($assets),
-            'theme'       => array(
-                'stylesheets' => $this->assetPathsByIntentOrRole($assets, 'style', 'stylesheet'),
-                'scripts'     => $this->assetPathsByIntentOrRole($assets, 'behavior', 'script'),
-                'fonts'       => $this->assetPathsByRole($assets, 'font'),
-                'images'      => $this->assetPathsByRole($assets, 'image'),
-                'template_parts' => array_values(array_map(
-                    static fn (array $part): string => (string) ($part['source_path'] ?? ''),
-                    $this->compiledSiteTemplateParts($artifact['files'])
-                )),
-                'block_types' => array_values(array_map(
-                    static fn (array $blockType): string => (string) ($blockType['name'] ?? ''),
-                    $blockTypes
-                )),
+            'theme'       => array_filter(
+                array(
+                    'stylesheets' => $this->assetPathsByIntentOrRole($assets, 'style', 'stylesheet'),
+                    'scripts'     => $this->assetPathsByIntentOrRole($assets, 'behavior', 'script'),
+                    'fonts'       => $this->assetPathsByRole($assets, 'font'),
+                    'images'      => $this->assetPathsByRole($assets, 'image'),
+                    'font_link_html' => $this->themeFontLinkHtml($artifact['files']),
+                    'static_css'  => $this->themeStaticCss($artifact['files']),
+                    'template_parts' => array_values(array_map(
+                        static fn (array $part): string => (string) ($part['source_path'] ?? ''),
+                        $this->compiledSiteTemplateParts($artifact['files'])
+                    )),
+                    'block_types' => array_values(array_map(
+                        static fn (array $blockType): string => (string) ($blockType['name'] ?? ''),
+                        $blockTypes
+                    )),
+                ),
+                static fn (mixed $value): bool => '' !== $value && array() !== $value
             ),
             'totals'      => array(
                 'pages'       => count($pages),
