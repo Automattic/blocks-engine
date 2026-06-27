@@ -1,0 +1,50 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-linked-web-font-materialization",
+  "description": "Materializes typefaces declared via a linked Google Fonts stylesheet and CSS font-family declarations into the materialization plan, preserving heading and body roles.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-linked-web-font-materialization.json",
+    "notes": "Generic coverage for static sites that load web fonts via a font-provider <link> and apply them through font-family declarations in linked CSS."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Web-font materialization is an upstream transformer contract with no legacy package equivalent."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "content": "<!doctype html><html><head><title>Club Home</title><link href=\"https://fonts.googleapis.com/css2?family=Display+One:wght@400;500;700&family=Body+Two:wght@400;600&display=swap\" rel=\"stylesheet\"><link rel=\"stylesheet\" href=\"styles/site.css\"></head><body><main><h1>Welcome</h1><p>Body copy.</p></main></body></html>",
+          "kind": "html",
+          "role": "entry"
+        },
+        {
+          "path": "about.html",
+          "content": "<!doctype html><html><head><title>About</title><link href=\"https://fonts.googleapis.com/css2?family=Display+One:wght@400;500;700&family=Body+Two:wght@400;600&display=swap\" rel=\"stylesheet\"><link rel=\"stylesheet\" href=\"styles/site.css\"></head><body><main><h1>About</h1><p>More copy.</p></main></body></html>",
+          "kind": "html"
+        },
+        {
+          "path": "styles/site.css",
+          "content": "h1,h2,h3{font-family:\"Display One\",system-ui,sans-serif}body{font-family:\"Body Two\",system-ui,sans-serif}",
+          "kind": "css",
+          "mime_type": "text/css"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.schema", "assert": "equals", "value": "blocks-engine/php-transformer/font-materialization-plan/v1" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.provider", "assert": "equals", "value": "google_fonts" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.fonts", "assert": "count", "count": 2 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.fonts.1.family", "assert": "equals", "value": "Display One" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.fonts.1.weights", "assert": "count", "count": 3 },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.roles.heading", "assert": "equals", "value": "Display One" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.roles.body", "assert": "equals", "value": "Body Two" },
+    { "path": "source_reports.materialization_plan.theme.font_materialization.css", "assert": "contains", "value": "family=Display+One:wght@400;500;700" }
+  ]
+}
