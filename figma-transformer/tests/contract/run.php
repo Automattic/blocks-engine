@@ -3314,6 +3314,50 @@ $assert(30.0 === ($visualFlexSecond['rect']['y'] ?? null), 'visual-map-flex-cent
 $assert(100.0 === ($visualFlexCentered['rect']['x'] ?? null), 'visual-map-column-center-child-x');
 $assert(10.0 === ($visualFlexCentered['rect']['y'] ?? null), 'visual-map-column-padding-child-y');
 
+$visualFlexOverflowResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Visual Flex Overflow Alignment Fixture',
+    'nodes' => array(
+        array(
+            'id'                    => 'visual-overflow:flex-end',
+            'type'                  => 'FRAME',
+            'name'                  => 'Overflow flex end row',
+            'width'                 => 80,
+            'height'                => 40,
+            'layoutMode'            => 'HORIZONTAL',
+            'primaryAxisAlignItems' => 'MAX',
+            'counterAxisAlignItems' => 'MIN',
+            'itemSpacing'           => 8,
+            'children'              => array(
+                array('id' => 'visual-overflow:end-first', 'type' => 'RECTANGLE', 'name' => 'End first child', 'width' => 50, 'height' => 20),
+                array('id' => 'visual-overflow:end-second', 'type' => 'RECTANGLE', 'name' => 'End second child', 'width' => 50, 'height' => 20),
+            ),
+        ),
+        array(
+            'id'                    => 'visual-overflow:center',
+            'type'                  => 'FRAME',
+            'name'                  => 'Overflow centered row',
+            'width'                 => 80,
+            'height'                => 40,
+            'layoutMode'            => 'HORIZONTAL',
+            'primaryAxisAlignItems' => 'CENTER',
+            'counterAxisAlignItems' => 'MIN',
+            'itemSpacing'           => 8,
+            'children'              => array(
+                array('id' => 'visual-overflow:center-first', 'type' => 'RECTANGLE', 'name' => 'Center first child', 'width' => 50, 'height' => 20),
+                array('id' => 'visual-overflow:center-second', 'type' => 'RECTANGLE', 'name' => 'Center second child', 'width' => 50, 'height' => 20),
+            ),
+        ),
+    ),
+));
+$visualOverflowEndFirst = $findVisualNode($visualFlexOverflowResult, 'visual-overflow:end-first');
+$visualOverflowEndSecond = $findVisualNode($visualFlexOverflowResult, 'visual-overflow:end-second');
+$visualOverflowCenterFirst = $findVisualNode($visualFlexOverflowResult, 'visual-overflow:center-first');
+$visualOverflowCenterSecond = $findVisualNode($visualFlexOverflowResult, 'visual-overflow:center-second');
+$assert(-28.0 === ($visualOverflowEndFirst['rect']['x'] ?? null), 'visual-map-overflow-flex-end-first-x');
+$assert(30.0 === ($visualOverflowEndSecond['rect']['x'] ?? null), 'visual-map-overflow-flex-end-second-x');
+$assert(-14.0 === ($visualOverflowCenterFirst['rect']['x'] ?? null), 'visual-map-overflow-center-first-x');
+$assert(44.0 === ($visualOverflowCenterSecond['rect']['x'] ?? null), 'visual-map-overflow-center-second-x');
+
 $visualFlexWrapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Visual Flex Wrap Fixture',
     'nodes' => array(

@@ -1495,19 +1495,20 @@ final class StaticHtmlEmitter
             $cursorMain = 0.0;
             $visualGap = $gap;
             if ( $isFlex && null !== $contentMainSize ) {
-                $freeMainSpace = max(0.0, $contentMainSize - $lineMainSize);
+                $freeMainSpace = $contentMainSize - $lineMainSize;
+                $distributedMainSpace = max(0.0, $freeMainSpace);
                 $justifyContent = (string) ($layout['justify_content'] ?? 'flex-start');
                 if ( 'flex-end' === $justifyContent ) {
                     $cursorMain = $freeMainSpace;
                 } elseif ( 'center' === $justifyContent ) {
                     $cursorMain = $freeMainSpace / 2.0;
                 } elseif ( 'space-between' === $justifyContent && count($lineChildren) > 1 ) {
-                    $visualGap += $freeMainSpace / (count($lineChildren) - 1);
+                    $visualGap += $distributedMainSpace / (count($lineChildren) - 1);
                 } elseif ( 'space-around' === $justifyContent ) {
-                    $visualGap += $freeMainSpace / count($lineChildren);
+                    $visualGap += $distributedMainSpace / count($lineChildren);
                     $cursorMain = $visualGap / 2.0;
                 } elseif ( 'space-evenly' === $justifyContent ) {
-                    $visualGap += $freeMainSpace / (count($lineChildren) + 1);
+                    $visualGap += $distributedMainSpace / (count($lineChildren) + 1);
                     $cursorMain = $visualGap;
                 }
             }
