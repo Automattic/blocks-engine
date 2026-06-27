@@ -8,6 +8,7 @@ require_once __DIR__ . '/FixtureMatrixContract.php';
 require_once __DIR__ . '/LayoutMismatchContract.php';
 require_once __DIR__ . '/OriginInferenceContract.php';
 require_once __DIR__ . '/SyntheticFigKiwiFixtureBuilder.php';
+require_once __DIR__ . '/VisualNodeMapContract.php';
 
 use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCapability;
 use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCommandDecoder;
@@ -187,7 +188,7 @@ $assert(str_contains($html, '<h2 class="figma-node-1-2-hero-title"'), 'title-emi
 $assert(str_contains($html, '<div class="figma-node-1-3-cards-group"'), 'group-emits-div');
 $assert(! str_contains($html, '<FRAME') && ! str_contains($html, '<GROUP') && ! str_contains($html, '<TEXT') && ! str_contains($html, '<RECTANGLE'), 'html-avoids-custom-tags');
 $assert(! str_contains($html, 'cdn.example.com') && ! str_contains($css, 'cdn.example.com'), 'html-css-avoid-external-cdn');
-$assert(str_contains($css, '.figma-node-1-1-hero-section{width:1200px;min-height:600px;background:#ffffff;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding-top:40px;padding-right:32px;padding-bottom:40px;padding-left:32px;gap:24px}'), 'css-frame-layout-style');
+$assert(str_contains($css, '.figma-node-1-1-hero-section{width:1200px;height:600px;background:#ffffff;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding-top:40px;padding-right:32px;padding-bottom:40px;padding-left:32px;gap:24px}'), 'css-frame-layout-style');
 $assert(str_contains($css, '.figma-node-1-2-hero-title{font-size:48px;font-weight:700;color:#1a334d;flex-shrink:0}'), 'css-text-style');
 $assert(str_contains($css, '.figma-node-1-4-hero-image-rectangle{width:320px;height:180px;position:absolute;left:10px;top:20px;background:#ff0000;background-image:url("assets/hero-image.svg")'), 'css-rectangle-asset-style');
 $assert(str_contains($css, '.figma-node-1-5-nested-image-paint{') && str_contains($css, 'background-image:url("assets/fixture-photo.jpg")'), 'css-nested-image-hash-asset-style');
@@ -527,7 +528,7 @@ $decorativeUnderlayDiagnostics = $decorativeUnderlayResult['source_reports']['fi
 $decorativeUnderlayLayout = $decorativeUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
 $decorativeUnderlayArt = $findVisualNode($decorativeUnderlayResult, 'underlay:art');
 $decorativeUnderlayVector = $findVisualNode($decorativeUnderlayResult, 'underlay:vector');
-$assert(str_contains($decorativeUnderlayCss, '.figma-node-underlay-parent-flex-hero{width:1000px;min-height:600px;position:relative;display:flex;flex-direction:row}'), 'decorative-underlay-parent-relative');
+$assert(str_contains($decorativeUnderlayCss, '.figma-node-underlay-parent-flex-hero{width:1000px;height:600px;position:relative;display:flex;flex-direction:row}'), 'decorative-underlay-parent-relative');
 $assert(str_contains($decorativeUnderlayCss, '.figma-node-underlay-art-decorative-art{width:900px;height:700px;position:absolute;left:40px;top:-50px;z-index:0;pointer-events:none}'), 'decorative-underlay-absolute');
 $assert(str_contains($decorativeUnderlayCss, '.figma-node-underlay-copy-copy-stack{width:320px;height:120px;position:relative;z-index:1;flex-shrink:0}'), 'decorative-underlay-content-stacks-above');
 $assert(array('x' => 40.0, 'y' => -50.0, 'width' => 900.0, 'height' => 700.0) === ($decorativeUnderlayArt['rect'] ?? null), 'decorative-underlay-visual-map-includes-css-offset');
@@ -1276,8 +1277,8 @@ $nearZeroContainerResult = blocks_engine_figma_transformer_transform_scenegraph(
     ),
 ));
 $nearZeroContainerCss = $fileContent($nearZeroContainerResult, 'style.css');
-$assert(str_contains($nearZeroContainerCss, '.figma-node-near-zero-container-decorative-zero-height-wrapper{width:600px;min-height:0px;position:relative;display:flex;flex-direction:column}'), 'near-zero-container-keeps-zero-height-layout');
-$assert(! str_contains($nearZeroContainerCss, '.figma-node-near-zero-container-decorative-zero-height-wrapper{width:600px;min-height:0px;position:relative;transform:'), 'near-zero-container-suppresses-transform-bounds-inflation');
+$assert(str_contains($nearZeroContainerCss, '.figma-node-near-zero-container-decorative-zero-height-wrapper{width:600px;height:0px;position:relative;display:flex;flex-direction:column}'), 'near-zero-container-keeps-zero-height-layout');
+$assert(! str_contains($nearZeroContainerCss, '.figma-node-near-zero-container-decorative-zero-height-wrapper{width:600px;height:0px;position:relative;transform:'), 'near-zero-container-suppresses-transform-bounds-inflation');
 $assert(str_contains($nearZeroContainerCss, '.figma-node-near-zero-child-decorative-child{width:600px;height:320px;position:absolute;flex-shrink:0}'), 'near-zero-container-keeps-child-rendering');
 
 $agenticChevronLeftPrefix = hex2bin('0600000006000000010000000000000000000041000080410000000000000000');
@@ -2743,6 +2744,51 @@ $fixedFlexResult = blocks_engine_figma_transformer_transform_scenegraph(array(
 $fixedFlexCss = $fileContent($fixedFlexResult, 'style.css');
 $assert(str_contains($fixedFlexCss, '.figma-node-flex-child-a-fixed-child-a{width:70px;height:40px;flex-shrink:0}'), 'fixed-flex-child-does-not-shrink');
 
+$fixedRootFlexResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Fixed Root Flex Fixture',
+    'nodes' => array(
+        array(
+            'id'                   => 'fixed-root:flex',
+            'type'                 => 'FRAME',
+            'name'                 => 'Fixed root flex',
+            'width'                => 1280,
+            'height'               => 100,
+            'layoutMode'           => 'VERTICAL',
+            'layoutSizingVertical' => 'FIXED',
+            'children'             => array(
+                array('id' => 'fixed-root:copy', 'type' => 'TEXT', 'name' => 'Fixed root copy', 'text' => 'Root height stays fixed', 'width' => 200, 'height' => 20),
+            ),
+        ),
+    ),
+));
+$fixedRootFlexCss = $fileContent($fixedRootFlexResult, 'style.css');
+$assert(str_contains($fixedRootFlexCss, '.figma-node-fixed-root-flex-fixed-root-flex{width:1280px;height:100px;display:flex;flex-direction:column}'), 'fixed-root-flex-emits-fixed-height');
+$assert(! str_contains($fixedRootFlexCss, '.figma-node-fixed-root-flex-fixed-root-flex{width:1280px;min-height:100px'), 'fixed-root-flex-does-not-emit-min-height');
+
+$fixedPaddingClampResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Fixed Padding Clamp Fixture',
+    'nodes' => array(
+        array(
+            'id'                   => 'padding:frame',
+            'type'                 => 'FRAME',
+            'name'                 => 'Impossible fixed padding',
+            'width'                => 1280,
+            'height'               => 100,
+            'layoutMode'           => 'VERTICAL',
+            'layoutSizingVertical' => 'FIXED',
+            'paddingTop'           => 80,
+            'paddingBottom'        => 80,
+            'children'             => array(
+                array('id' => 'padding:copy', 'type' => 'TEXT', 'name' => 'Padded copy', 'text' => 'Padding is clamped', 'width' => 200, 'height' => 20),
+            ),
+        ),
+    ),
+));
+$fixedPaddingClampCss = $fileContent($fixedPaddingClampResult, 'style.css');
+$fixedPaddingClampCopy = $findVisualNode($fixedPaddingClampResult, 'padding:copy');
+$assert(str_contains($fixedPaddingClampCss, '.figma-node-padding-frame-impossible-fixed-padding{width:1280px;height:100px;display:flex;flex-direction:column;padding-top:50px;padding-bottom:50px}'), 'fixed-padding-clamped-css');
+$assert(50.0 === ($fixedPaddingClampCopy['rect']['y'] ?? null), 'fixed-padding-clamped-visual-map');
+
 $stylePaintResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Style Paint Fixture',
     'nodes' => array(
@@ -3278,7 +3324,7 @@ $layoutFidelityResult = blocks_engine_figma_transformer_transform_scenegraph(arr
 
 $layoutFidelityCss = $fileContent($layoutFidelityResult, 'style.css');
 
-$assert(str_contains($layoutFidelityCss, '.figma-node-5-1-layout-frame{width:500px;min-height:300px;overflow:hidden;position:relative;display:flex;flex-direction:row;justify-content:flex-start;align-items:stretch}'), 'layout-frame-clips-and-positions-absolute-children');
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-1-layout-frame{width:500px;height:300px;overflow:hidden;position:relative;display:flex;flex-direction:row;justify-content:flex-start;align-items:stretch}'), 'layout-frame-clips-and-positions-absolute-children');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-2-fixed-card{width:100px;height:80px;opacity:0.6;transform:rotate(15deg);flex-shrink:0}'), 'layout-fixed-sizing-and-rotation');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-3-hug-label{width:fit-content;height:fit-content;font-size:12px;flex-shrink:0}'), 'layout-hug-sizing');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-4-fill-panel{width:100%;height:100%;flex-grow:1;flex-shrink:1;align-self:stretch}'), 'layout-fill-sizing-without-source-order');
@@ -3314,142 +3360,7 @@ $hugOverflowResult = blocks_engine_figma_transformer_transform_scenegraph(array(
 $hugOverflowCss = $fileContent($hugOverflowResult, 'style.css');
 $assert(str_contains($hugOverflowCss, '.figma-node-hug-overflow-button-hug-overflow-button{width:max-content;height:40px;display:flex;flex-direction:row;justify-content:flex-end;align-items:center;padding-right:6px;padding-left:6px;gap:8px}'), 'layout-hug-flex-main-axis-expands-to-intrinsic-span');
 
-$visualFlexAlignmentResult = blocks_engine_figma_transformer_transform_scenegraph(array(
-    'name'  => 'Visual Flex Alignment Fixture',
-    'nodes' => array(
-        array(
-            'id'                    => 'visual-flex:row',
-            'type'                  => 'FRAME',
-            'name'                  => 'Visual flex row',
-            'width'                 => 500,
-            'height'                => 100,
-            'layoutMode'            => 'HORIZONTAL',
-            'primaryAxisAlignItems' => 'MAX',
-            'counterAxisAlignItems' => 'CENTER',
-            'itemSpacing'           => 20,
-            'children'              => array(
-                array('id' => 'visual-flex:first', 'type' => 'RECTANGLE', 'name' => 'First child', 'width' => 100, 'height' => 20),
-                array('id' => 'visual-flex:second', 'type' => 'RECTANGLE', 'name' => 'Second child', 'width' => 50, 'height' => 40),
-            ),
-        ),
-        array(
-            'id'                    => 'visual-flex:column',
-            'type'                  => 'FRAME',
-            'name'                  => 'Visual flex column',
-            'width'                 => 300,
-            'height'                => 200,
-            'layoutMode'            => 'VERTICAL',
-            'counterAxisAlignItems' => 'CENTER',
-            'paddingLeft'           => 20,
-            'paddingRight'          => 20,
-            'paddingTop'            => 10,
-            'children'              => array(
-                array('id' => 'visual-flex:centered', 'type' => 'RECTANGLE', 'name' => 'Centered child', 'width' => 100, 'height' => 30),
-            ),
-        ),
-    ),
-));
-$visualFlexFirst = $findVisualNode($visualFlexAlignmentResult, 'visual-flex:first');
-$visualFlexSecond = $findVisualNode($visualFlexAlignmentResult, 'visual-flex:second');
-$visualFlexCentered = $findVisualNode($visualFlexAlignmentResult, 'visual-flex:centered');
-$assert(330.0 === ($visualFlexFirst['rect']['x'] ?? null), 'visual-map-flex-end-first-x');
-$assert(40.0 === ($visualFlexFirst['rect']['y'] ?? null), 'visual-map-flex-center-first-y');
-$assert(450.0 === ($visualFlexSecond['rect']['x'] ?? null), 'visual-map-flex-end-second-x');
-$assert(30.0 === ($visualFlexSecond['rect']['y'] ?? null), 'visual-map-flex-center-second-y');
-$assert(100.0 === ($visualFlexCentered['rect']['x'] ?? null), 'visual-map-column-center-child-x');
-$assert(10.0 === ($visualFlexCentered['rect']['y'] ?? null), 'visual-map-column-padding-child-y');
-
-$visualFlexOverflowResult = blocks_engine_figma_transformer_transform_scenegraph(array(
-    'name'  => 'Visual Flex Overflow Alignment Fixture',
-    'nodes' => array(
-        array(
-            'id'                    => 'visual-overflow:flex-end',
-            'type'                  => 'FRAME',
-            'name'                  => 'Overflow flex end row',
-            'width'                 => 80,
-            'height'                => 40,
-            'layoutMode'            => 'HORIZONTAL',
-            'primaryAxisAlignItems' => 'MAX',
-            'counterAxisAlignItems' => 'MIN',
-            'itemSpacing'           => 8,
-            'children'              => array(
-                array('id' => 'visual-overflow:end-first', 'type' => 'RECTANGLE', 'name' => 'End first child', 'width' => 50, 'height' => 20),
-                array('id' => 'visual-overflow:end-second', 'type' => 'RECTANGLE', 'name' => 'End second child', 'width' => 50, 'height' => 20),
-            ),
-        ),
-        array(
-            'id'                    => 'visual-overflow:center',
-            'type'                  => 'FRAME',
-            'name'                  => 'Overflow centered row',
-            'width'                 => 80,
-            'height'                => 40,
-            'layoutMode'            => 'HORIZONTAL',
-            'primaryAxisAlignItems' => 'CENTER',
-            'counterAxisAlignItems' => 'MIN',
-            'itemSpacing'           => 8,
-            'children'              => array(
-                array('id' => 'visual-overflow:center-first', 'type' => 'RECTANGLE', 'name' => 'Center first child', 'width' => 50, 'height' => 20),
-                array('id' => 'visual-overflow:center-second', 'type' => 'RECTANGLE', 'name' => 'Center second child', 'width' => 50, 'height' => 20),
-            ),
-        ),
-    ),
-));
-$visualOverflowEndFirst = $findVisualNode($visualFlexOverflowResult, 'visual-overflow:end-first');
-$visualOverflowEndSecond = $findVisualNode($visualFlexOverflowResult, 'visual-overflow:end-second');
-$visualOverflowCenterFirst = $findVisualNode($visualFlexOverflowResult, 'visual-overflow:center-first');
-$visualOverflowCenterSecond = $findVisualNode($visualFlexOverflowResult, 'visual-overflow:center-second');
-$assert(-28.0 === ($visualOverflowEndFirst['rect']['x'] ?? null), 'visual-map-overflow-flex-end-first-x');
-$assert(30.0 === ($visualOverflowEndSecond['rect']['x'] ?? null), 'visual-map-overflow-flex-end-second-x');
-$assert(-14.0 === ($visualOverflowCenterFirst['rect']['x'] ?? null), 'visual-map-overflow-center-first-x');
-$assert(44.0 === ($visualOverflowCenterSecond['rect']['x'] ?? null), 'visual-map-overflow-center-second-x');
-
-$visualFlexWrapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
-    'name'  => 'Visual Flex Wrap Fixture',
-    'nodes' => array(
-        array(
-            'id'                    => 'visual-wrap:frame',
-            'type'                  => 'FRAME',
-            'name'                  => 'Wrapped card row',
-            'width'                 => 220,
-            'height'                => 200,
-            'layoutMode'            => 'HORIZONTAL',
-            'layoutWrap'            => 'WRAP',
-            'itemSpacing'           => 10,
-            'counterAxisAlignItems' => 'MIN',
-            'children'              => array(
-                array(
-                    'id'     => 'visual-wrap:first',
-                    'type'   => 'RECTANGLE',
-                    'name'   => 'First card',
-                    'width'  => 100,
-                    'height' => 40,
-                ),
-                array(
-                    'id'     => 'visual-wrap:second',
-                    'type'   => 'RECTANGLE',
-                    'name'   => 'Second card',
-                    'width'  => 100,
-                    'height' => 60,
-                ),
-                array(
-                    'id'     => 'visual-wrap:third',
-                    'type'   => 'RECTANGLE',
-                    'name'   => 'Third card',
-                    'width'  => 100,
-                    'height' => 30,
-                ),
-            ),
-        ),
-    ),
-));
-$visualFlexWrapCss = $fileContent($visualFlexWrapResult, 'style.css');
-$visualFlexWrapFirst = $findVisualNode($visualFlexWrapResult, 'visual-wrap:first');
-$visualFlexWrapSecond = $findVisualNode($visualFlexWrapResult, 'visual-wrap:second');
-$visualFlexWrapThird = $findVisualNode($visualFlexWrapResult, 'visual-wrap:third');
-$assert(str_contains($visualFlexWrapCss, 'flex-wrap:wrap;align-content:flex-start'), 'visual-map-flex-wrap-align-content-packed');
-$assert(array('x' => 0.0, 'y' => 0.0, 'width' => 100.0, 'height' => 40.0) === ($visualFlexWrapFirst['rect'] ?? null), 'visual-map-flex-wrap-first-line-first-card');
-$assert(array('x' => 110.0, 'y' => 0.0, 'width' => 100.0, 'height' => 60.0) === ($visualFlexWrapSecond['rect'] ?? null), 'visual-map-flex-wrap-first-line-second-card');
-$assert(array('x' => 0.0, 'y' => 70.0, 'width' => 100.0, 'height' => 30.0) === ($visualFlexWrapThird['rect'] ?? null), 'visual-map-flex-wrap-second-line-card');
+blocks_engine_figma_transformer_run_visual_node_map_contract($assert, $findVisualNode, $fileContent);
 
 $kiwiStackLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Kiwi Stack Layout Fixture',
@@ -3489,7 +3400,7 @@ $kiwiStackLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(ar
     ),
 ));
 $kiwiStackLayoutCss = $fileContent($kiwiStackLayoutResult, 'style.css');
-$assert(str_contains($kiwiStackLayoutCss, '.figma-node-stack-frame-kiwi-stack-frame{width:300px;min-height:200px;overflow:hidden;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;flex-wrap:wrap;align-content:flex-start;padding-top:8px;padding-right:20px;padding-bottom:30px;padding-left:8px;gap:24px}'), 'kiwi-stack-layout-emits-flex-padding-gap');
+$assert(str_contains($kiwiStackLayoutCss, '.figma-node-stack-frame-kiwi-stack-frame{width:300px;height:200px;overflow:hidden;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;flex-wrap:wrap;align-content:flex-start;padding-top:8px;padding-right:20px;padding-bottom:30px;padding-left:8px;gap:24px}'), 'kiwi-stack-layout-emits-flex-padding-gap');
 $assert(str_contains($kiwiStackLayoutCss, '.figma-node-stack-child-a-child-a{width:50px;height:40px;flex-shrink:0}'), 'kiwi-stack-child-not-absolute');
 
 $plainFrameLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
