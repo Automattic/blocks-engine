@@ -95,6 +95,11 @@ final class ConversionReportProjection
             self::appendSourcePath($sources, $entry);
         }
 
+        foreach ( self::runtimeIslandSummaryEntries($sourceReports) as $entry ) {
+            self::appendSelector($selectors, $entry, 'runtime_island');
+            self::appendSourcePath($sources, $entry);
+        }
+
         foreach ( self::referenceReports($sourceReports) as $entry ) {
             self::appendSelector($selectors, $entry, 'reference');
             self::appendSourcePath($sources, $entry);
@@ -125,10 +130,13 @@ final class ConversionReportProjection
                     'diagnostic_code' => $fallback['diagnostic_code'] ?? '',
                     'severity'        => $fallback['severity'] ?? '',
                     'conversion_classification' => $fallback['conversion_classification'] ?? '',
+                    'loss_class'      => $fallback['loss_class'] ?? '',
+                    'diagnostic_class' => $fallback['diagnostic_class'] ?? '',
                     'preservation_strategy' => $fallback['preservation_strategy'] ?? '',
                     'runtime_requirement' => $fallback['runtime_requirement'] ?? '',
                     'recoverability'  => $fallback['recoverability'] ?? '',
                     'actionability'   => $fallback['actionability'] ?? '',
+                    'suggested_repair_class' => $fallback['suggested_repair_class'] ?? '',
                     'suggested_primitive' => $fallback['suggested_primitive'] ?? '',
                     'materialization_hint' => $fallback['materialization_hint'] ?? '',
                     'source_format'   => $fallback['source_format'] ?? '',
@@ -166,7 +174,7 @@ final class ConversionReportProjection
         $byClassification = array();
         $byStrategy = array();
 
-        foreach ( array_merge(self::sourceProvenance($sourceReports), self::fallbackDiagnostics($fallbacks)) as $entry ) {
+        foreach ( array_merge(self::sourceProvenance($sourceReports), self::fallbackDiagnostics($fallbacks), self::runtimeIslandSummaryEntries($sourceReports)) as $entry ) {
             if ( ! is_array($entry) ) {
                 continue;
             }
@@ -329,6 +337,29 @@ final class ConversionReportProjection
         $htmlIslands = is_array($html['runtime_islands'] ?? null) ? $html['runtime_islands'] : array();
 
         return self::dedupeRows(array_values(array_filter(array_merge($islands, $htmlIslands), static fn (mixed $island): bool => is_array($island))));
+    }
+
+    /**
+     * @param array<string, mixed> $sourceReports
+     * @return array<int, array<string, mixed>>
+     */
+    private static function runtimeIslandSummaryEntries(array $sourceReports): array
+    {
+        $entries = array();
+        foreach ( self::runtimeIslands($sourceReports) as $island ) {
+            $entries[] = array_filter(
+                array(
+                    'selector'                  => $island['selector'] ?? '',
+                    'source_path'               => $island['source_path'] ?? '',
+                    'tag'                       => $island['tag'] ?? '',
+                    'conversion_classification' => 'runtime_island_preserved',
+                    'preservation_strategy'     => $island['preservation_strategy'] ?? 'scoped_runtime_metadata',
+                ),
+                static fn (mixed $value): bool => '' !== $value
+            );
+        }
+
+        return self::dedupeRows($entries);
     }
 
     /**

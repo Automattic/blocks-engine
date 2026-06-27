@@ -275,6 +275,7 @@ final class BlockFactory
         if ( ! empty($attrs['href']) ) {
             $linkAttrs = array(
                 'href'        => (string) $attrs['href'],
+                'id'          => (string) ($attrs['linkAnchor'] ?? ''),
                 'target'      => (string) ($attrs['linkTarget'] ?? ''),
                 'rel'         => (string) ($attrs['rel'] ?? ''),
                 'class'       => (string) ($attrs['linkClass'] ?? ''),

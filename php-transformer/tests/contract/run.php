@@ -279,7 +279,11 @@ $formFallback = ( new HtmlTransformer() )->transform(
     '<main><form action="/contact" method="post" data-action="contact-submit"><label for="email">Email</label><input id="email" name="email" type="email" required><select name="topic"><option value="support" selected>Support</option></select><button type="submit">Send</button></form></main>'
 )->toArray();
 $formDiagnostic = $formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
-$assert(array() === ($formFallback['blocks'] ?? array()), 'form fallback does not synthesize canonical blocks');
+$formFallbackBlocks = $formFallback['blocks'][0]['innerBlocks'] ?? array();
+$assert('core/group' === ($formFallback['blocks'][0]['blockName'] ?? ''), 'form fallback materializes readable control blocks');
+$assert('core/paragraph' === ($formFallbackBlocks[0]['blockName'] ?? ''), 'form fallback exposes readable input text');
+$assert('core/group' === ($formFallbackBlocks[1]['blockName'] ?? ''), 'form fallback exposes readable select options');
+$assert('core/buttons' === ($formFallbackBlocks[2]['blockName'] ?? ''), 'form fallback exposes readable submit button');
 $assertNormalizedFallbackDiagnostic($formDiagnostic, 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
 $assert('form' === ($formFallback['source_reports']['interaction_candidates'][0]['kind'] ?? ''), 'HTML source report exposes form interaction candidate');
 $assert('form' === ($formFallback['source_reports']['conversion_report']['interaction_candidates'][0]['kind'] ?? ''), 'conversion report projects interaction candidates');
@@ -310,13 +314,15 @@ $standaloneControlBlocks = $standaloneControls['blocks'][0]['innerBlocks'] ?? ar
 $assert(array() === ($standaloneControls['fallbacks'] ?? array()), 'standalone readable controls convert without unsupported-element fallback');
 $assert('core/paragraph' === ($standaloneControlBlocks[0]['blockName'] ?? ''), 'standalone non-runtime input converts to readable paragraph');
 $assert('core/list' === ($standaloneControlBlocks[1]['innerBlocks'][1]['blockName'] ?? ''), 'standalone non-runtime select options convert to readable list');
-$assert('core/html' === ($standaloneControlBlocks[2]['blockName'] ?? ''), 'runtime-targeted select preserves native DOM markup');
+$assert('core/list' === ($standaloneControlBlocks[2]['innerBlocks'][1]['blockName'] ?? ''), 'runtime-targeted select converts to readable list output');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'Featured (selected)'), 'readable select summary preserves selected option state');
-$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted select serialization preserves native element');
+$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'Runtime sort'), 'runtime-targeted select readable output preserves label text');
+$assert(! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted select native markup is preserved in runtime metadata instead of serialized blocks');
 $assert(1 === count($standaloneControls['source_reports']['runtime_islands'] ?? array()), 'runtime islands report only the explicitly runtime-targeted standalone control');
 $assert('control' === ($standaloneControls['source_reports']['runtime_islands'][0]['kind'] ?? ''), 'runtime-targeted standalone control reports as a control island');
 $assert('.js-sort-select' === ($standaloneControls['source_reports']['runtime_islands'][0]['selector'] ?? ''), 'runtime-targeted standalone control reports selector metadata');
 $assert('select' === ($standaloneControls['source_reports']['runtime_islands'][0]['control']['tag'] ?? ''), 'runtime-targeted standalone control reports control metadata');
+$assert(str_contains((string) ($standaloneControls['source_reports']['runtime_islands'][0]['source_snippet'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted standalone control preserves source snippet metadata');
 
 $artifactControlSelectors = ( new ArtifactCompiler() )->compile(
     array(
@@ -332,10 +338,12 @@ $assert(! str_contains($artifactControlMarkup, '<input id="newsletter-email"'), 
 $assert(! str_contains($artifactControlMarkup, '<select id="sort-select"'), 'artifact compiler converts generically queried static select to readable block output');
 $assert(str_contains($artifactControlMarkup, 'you@example.com'), 'artifact static input readable output preserves placeholder text');
 $assert(str_contains($artifactControlMarkup, 'Featured (selected)'), 'artifact static select readable output preserves selected option state');
-$assert(str_contains($artifactControlMarkup, '<input id="live-filter"'), 'artifact compiler preserves behavior-bearing control native DOM');
+$assert(! str_contains($artifactControlMarkup, '<input id="live-filter"'), 'artifact compiler preserves behavior-bearing control native DOM in runtime metadata instead of serialized blocks');
+$assert(str_contains($artifactControlMarkup, 'Filter'), 'artifact behavior-bearing control readable output preserves placeholder text');
 $artifactControlIslands = $artifactControlSelectors['source_reports']['runtime_islands'] ?? array();
 $assert(1 === count($artifactControlIslands), 'artifact compiler reports only behavior-bearing controls as runtime islands');
 $assert('#live-filter' === ($artifactControlIslands[0]['selector'] ?? ''), 'artifact runtime control island points at behavior-bearing control selector');
+$assert(str_contains((string) ($artifactControlIslands[0]['source_snippet'] ?? ''), '<input id="live-filter"'), 'artifact runtime control island preserves source snippet metadata');
 $artifactControlRuntimeReport = $artifactControlSelectors['source_reports']['runtime_dependency_parity'] ?? array();
 $assert('pass' === ($artifactControlRuntimeReport['status'] ?? ''), 'runtime parity does not flag readable static controls as missing runtime targets');
 
@@ -523,6 +531,25 @@ $assert(5 === ($complexHeaderBlockMenus[0]['item_count'] ?? null), 'complex head
 $assert('Cart' === ($complexHeaderBlockMenus[0]['items'][4]['label'] ?? ''), 'icon-only header navigation links use accessible labels');
 $assert(! str_contains((string) ($complexHeaderNavigation['serialized_blocks'] ?? ''), 'drawer-nav'), 'complex header navigation removes duplicate mobile drawer core/navigation children');
 
+$brandedHeaderNavigation = ( new HtmlTransformer() )->transform(
+    '<header><div class="container"><nav class="nav-inner" aria-label="Main navigation"><a href="/" class="nav-logo" aria-label="Acme home"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg><span>Acme</span></a><ul class="nav-links"><li><a href="/work">Work</a></li><li><a href="/pricing">Pricing</a></li><li><a href="/about">About</a></li></ul><div class="nav-actions"><a href="/start" class="button">Get Started</a><button class="nav-toggle" aria-label="Open menu" aria-expanded="false"><span></span><span></span></button></div></nav></div></header>'
+)->toArray();
+$brandedHeaderParity = $brandedHeaderNavigation['source_reports']['semantic_parity'] ?? array();
+$brandedHeaderBlockMenu = $brandedHeaderParity['navigation_menus']['blocks'][0] ?? array();
+$assert('pass' === ($brandedHeaderParity['status'] ?? ''), 'branded header nav with mobile toggle preserves semantic parity');
+$assert(3 === ($brandedHeaderBlockMenu['item_count'] ?? null), 'branded header nav counts signaled menu links while preserving surrounding chrome separately');
+$assert('Work' === ($brandedHeaderBlockMenu['items'][0]['label'] ?? ''), 'branded header nav preserves first menu link label');
+$assert(3 === ($brandedHeaderParity['navigation_menus']['source'][0]['item_count'] ?? null), 'branded header source parity counts the same signaled menu subset as generated navigation');
+
+$dropdownHeaderNavigation = ( new HtmlTransformer() )->transform(
+    '<header><nav class="main-nav" aria-label="Main navigation"><div class="nav-item"><a href="/shop" class="nav-link">Shop All</a></div><div class="nav-item"><a href="/outing" class="nav-link">By Outing <svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><div class="dropdown"><a href="/outing#day" class="dropdown__link">Day Hike</a><a href="/outing#camp" class="dropdown__link">Weekend Camp</a></div></div><div class="nav-item"><a href="/bundles" class="nav-link">Bundles</a></div></nav></header>'
+)->toArray();
+$dropdownHeaderParity = $dropdownHeaderNavigation['source_reports']['semantic_parity'] ?? array();
+$dropdownHeaderBlockMenu = $dropdownHeaderParity['navigation_menus']['blocks'][0] ?? array();
+$assert('pass' === ($dropdownHeaderParity['status'] ?? ''), 'dropdown header nav wrappers preserve semantic parity');
+$assert(5 === ($dropdownHeaderBlockMenu['item_count'] ?? null), 'dropdown header nav counts parent and submenu items consistently');
+$assert('Day Hike' === ($dropdownHeaderBlockMenu['items'][2]['label'] ?? ''), 'dropdown header nav preserves submenu item labels');
+
 $runtimeTargetNavigation = ( new HtmlTransformer() )->transform(
     '<nav aria-label="Docs"><ul><li><a class="nav-link" href="/guide">Guide</a></li></ul></nav>',
     array('runtime_dom_selectors' => array('.nav-link'))
@@ -548,11 +575,15 @@ $unmappedNavigation = ( new HtmlTransformer() )->transform(
 )->toArray();
 $unmappedSemanticParity = $unmappedNavigation['source_reports']['semantic_parity'] ?? array();
 $unmappedFinding = $unmappedSemanticParity['findings'][0] ?? array();
+$unmappedNavigationFinding = $unmappedSemanticParity['findings'][1] ?? array();
 $assert('warning' === ($unmappedSemanticParity['status'] ?? ''), 'semantic parity warns when source nav is not represented as core navigation');
 $assert('landmark_count_mismatch' === ($unmappedFinding['code'] ?? ''), 'semantic parity reports a precise missing nav landmark finding');
 $assert('nav' === ($unmappedFinding['kind'] ?? ''), 'semantic parity missing landmark finding names the nav kind');
 $assert(1 === ($unmappedFinding['source_count'] ?? null), 'semantic parity missing landmark finding exposes source count');
 $assert(0 === ($unmappedFinding['block_count'] ?? null), 'semantic parity missing landmark finding exposes generated block count');
+$assert('navigation_menu_missing' === ($unmappedNavigationFinding['code'] ?? ''), 'semantic parity reports missing navigation menu diagnostics');
+$assert(array('label' => 'Home', 'url' => '/') === (($unmappedNavigationFinding['source_items'] ?? array())[0] ?? array()), 'semantic parity missing navigation diagnostics expose source nav items');
+$assert(array() === ($unmappedNavigationFinding['block_items'] ?? null), 'semantic parity missing navigation diagnostics expose empty generated nav items');
 
 $quoteCitationFooter = ( new HtmlTransformer() )->transform(
     '<main><section><blockquote><p>Lovely dinner.</p><footer>Local Guide</footer></blockquote></section></main><footer>Restaurant footer</footer>'
@@ -608,6 +639,16 @@ foreach ( $normalizedDiagnostics as $diagnostic ) {
 }
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_unsafe_inline_svg'] ?? array(), 'html_unsafe_inline_svg', 'warning', 'sanitization_review', 'image_asset');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_script_fallback'] ?? array(), 'html_script_fallback', 'warning', 'client_script_execution', 'script_asset');
+$assert('runtime_island_preserved' === ($diagnosticsByCode['html_script_fallback']['conversion_classification'] ?? ''), 'script fallback is classified as runtime island preservation');
+$assert('runtime_island_preserved' === ($diagnosticsByCode['html_script_fallback']['loss_class'] ?? ''), 'script fallback exposes preserved runtime island loss class');
+$assert('runtime_island_preserved' === ($diagnosticsByCode['html_script_fallback']['diagnostic_class'] ?? ''), 'script fallback exposes preserved runtime island diagnostic class');
+$assert('preserve_runtime_island' === ($diagnosticsByCode['html_script_fallback']['suggested_repair_class'] ?? ''), 'script fallback routes to runtime island preservation rather than unsupported HTML replacement');
+$scriptRuntimeIslands = array_values(array_filter($normalizedFallbacks['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'script' === ($island['kind'] ?? '')));
+$assert(1 === count($scriptRuntimeIslands), 'runtime script fallback projects as a runtime island');
+$assert('script_requires_runtime' === ($scriptRuntimeIslands[0]['preservation_reason'] ?? ''), 'runtime script island exposes preservation reason');
+$preservedRuntimeDiagnostics = array_values(array_filter($normalizedFallbacks['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'preserved_runtime_island' === ($diagnostic['code'] ?? '')));
+$assert(1 <= count($preservedRuntimeDiagnostics), 'runtime script fallback emits preserved_runtime_island diagnostics');
+$assert('runtime_island_preserved' === ($preservedRuntimeDiagnostics[0]['diagnostic_class'] ?? ''), 'preserved_runtime_island diagnostic exposes runtime-island diagnostic class');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallback'] ?? array(), 'html_iframe_embed_fallback', 'warning', 'third_party_embed_runtime', 'embed');
 $assert(! isset($diagnosticsByCode['html_inline_svg_fallback']), 'safe inline SVGs convert to image blocks instead of fallback diagnostics');
 $assert(! isset($diagnosticsByCode['html_canvas_runtime_fallback']), 'non-runtime canvas does not emit runtime canvas fallback diagnostics');
@@ -618,6 +659,8 @@ $canvasFallback = ( new HtmlTransformer() )->transform(
 )->toArray();
 $canvasDiagnostic = $canvasFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
 $assertNormalizedFallbackDiagnostic($canvasDiagnostic, 'html_canvas_runtime_fallback', 'warning', 'canvas_element_and_client_script_execution', 'runtime_canvas', 'runtime_island_preserved');
+$assert('runtime_island_preserved' === ($canvasDiagnostic['diagnostic_class'] ?? ''), 'canvas runtime fallback exposes preserved runtime island diagnostic class');
+$assert('preserve_runtime_island' === ($canvasDiagnostic['suggested_repair_class'] ?? ''), 'canvas runtime fallback routes to runtime island preservation');
 $assert('canvas_requires_runtime' === ($canvasDiagnostic['reason'] ?? ''), 'canvas fallback exposes runtime-specific reason');
 $assert('bonsai' === ($canvasFallback['fallbacks'][0]['attributes']['id'] ?? ''), 'canvas fallback preserves id for runtime mapping');
 $assert(str_contains((string) ($canvasFallback['fallbacks'][0]['html'] ?? ''), '<canvas id="bonsai"'), 'canvas fallback preserves bounded safe canvas markup');
@@ -626,10 +669,10 @@ $assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<!-
 $assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<canvas id="bonsai"'), 'runtime canvas preserves native canvas markup for script execution');
 
 $runtimePreserved = ( new HtmlTransformer() )->transform(
-    '<main><canvas id="stage" aria-hidden="true"></canvas><input id="amount" value="10"></main>',
+    '<main><canvas id="stage" aria-hidden="true"></canvas><input id="amount" value="10"><div id="app-shell">Runtime shell</div></main>',
     array(
         'runtime_canvas_selectors' => array('#stage'),
-        'runtime_dom_selectors'    => array('#amount'),
+        'runtime_dom_selectors'    => array('#amount', '#app-shell'),
     )
 )->toArray();
 $runtimeSelectors = $runtimePreserved['source_reports']['conversion_report']['selector_summary']['selectors'] ?? array();
@@ -638,11 +681,16 @@ foreach ( $runtimeSelectors as $selector ) {
     if ( 'block' === ($selector['kind'] ?? '') && 'core/html' === ($selector['block_name'] ?? '') ) {
         $runtimeClassifications[$selector['tag'] ?? ''] = $selector['conversion_classification'] ?? '';
     }
+    if ( 'runtime_island' === ($selector['kind'] ?? '') ) {
+        $runtimeClassifications[$selector['tag'] ?? ''] = $selector['conversion_classification'] ?? '';
+    }
 }
 $assert('runtime_island_preserved' === ($runtimeClassifications['canvas'] ?? ''), 'runtime-preserved canvas core/html block is classified as runtime island preservation');
-$assert('runtime_island_preserved' === ($runtimeClassifications['input'] ?? ''), 'runtime-preserved control core/html block is classified as runtime island preservation');
+$assert('runtime_island_preserved' === ($runtimeClassifications['input'] ?? ''), 'runtime-preserved control metadata is classified as runtime island preservation');
+$runtimePreservedIslandKinds = array_map(static fn (array $island): string => (string) ($island['kind'] ?? ''), $runtimePreserved['source_reports']['runtime_islands'] ?? array());
+$assert(in_array('dom', $runtimePreservedIslandKinds, true), 'runtime-preserved DOM target projects as a runtime island');
 $runtimeSummary = $runtimePreserved['source_reports']['conversion_report']['conversion_classification_summary']['by_classification'] ?? array();
-$assert(2 <= ($runtimeSummary['runtime_island_preserved'] ?? 0), 'conversion report summarizes runtime island preservation counts');
+$assert(3 <= ($runtimeSummary['runtime_island_preserved'] ?? 0), 'conversion report summarizes runtime island preservation counts');
 
 $unsupportedLoss = ( new HtmlTransformer() )->transform('<main><applet code="clock.class"></applet></main>')->toArray();
 $unsupportedDiagnostic = $unsupportedLoss['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
@@ -731,6 +779,13 @@ $assert('https://example.test/wp-content/uploads/hero.jpg' === ($resolvedImageAt
 $assert('Hero alt' === ($resolvedImageAttrs['alt'] ?? ''), 'HTML image transform preserves original alt text while resolving asset metadata');
 $assert(str_contains((string) ($resolvedImage['serialized_blocks'] ?? ''), 'src="https://example.test/wp-content/uploads/hero.jpg"'), 'HTML image transform serializes resolved asset URL');
 $assert(str_contains((string) ($resolvedImage['serialized_blocks'] ?? ''), 'class="wp-image-42"'), 'HTML image transform serializes resolved image id class');
+
+$linkedRuntimeImage = ( new HtmlTransformer() )->transform(
+    '<main><a id="productHero" class="product-detail__main-image" href="/product"><img src="assets/product.jpg" alt="Product"></a></main>'
+)->toArray();
+$linkedRuntimeImageSerialized = (string) ($linkedRuntimeImage['serialized_blocks'] ?? '');
+$assert(str_contains($linkedRuntimeImageSerialized, 'id="productHero"'), 'linked image conversion preserves linked media anchor IDs for runtime selectors');
+$assert(str_contains($linkedRuntimeImageSerialized, 'class="product-detail__main-image"'), 'linked image conversion preserves linked media classes for runtime selectors');
 
 $bridgeImageBlocks = ( new FormatBridge() )->toBlocks('<main><img src="assets/hero.jpg" alt="Hero alt"></main>', 'html', $assetMetadataOptions);
 $bridgeImageAttrs = $bridgeImageBlocks[0]['attrs'] ?? array();
@@ -917,11 +972,20 @@ $assert(true === ($stageDependency['generated_present'] ?? null), 'runtime depen
 $assert(str_contains($runtimeDependencyMarkup, '<canvas id="canvas" class="stage"></canvas>'), 'artifact compiler emits referenced canvas runtime target markup');
 $assert(! str_contains($runtimeDependencyMarkup, 'unused-canvas'), 'artifact compiler does not preserve unreferenced canvas markup');
 $runtimeDependencyIslands = $runtimeDependencySite['source_reports']['runtime_islands'] ?? array();
-$assert(1 === count($runtimeDependencyIslands), 'artifact compiler reports only the preserved canvas as a runtime island');
-$assert('canvas' === ($runtimeDependencyIslands[0]['kind'] ?? ''), 'artifact runtime island identifies canvas kind');
-$assert('#canvas' === ($runtimeDependencyIslands[0]['selector'] ?? ''), 'artifact runtime island exposes canvas selector');
-$assert(str_contains((string) ($runtimeDependencyIslands[0]['source_snippet'] ?? ''), '<canvas id="canvas" class="stage"></canvas>'), 'artifact runtime island exposes canvas source snippet');
-$assert(! empty($runtimeDependencyIslands[0]['required_scripts'] ?? array()), 'artifact runtime island exposes required script metadata');
+$runtimeDependencyIslandsByKind = array();
+foreach ( $runtimeDependencyIslands as $island ) {
+    $runtimeDependencyIslandsByKind[$island['kind'] ?? ''][] = $island;
+}
+$assert(1 === count($runtimeDependencyIslandsByKind['canvas'] ?? array()), 'artifact compiler reports the preserved canvas as a runtime island');
+$assert(1 === count($runtimeDependencyIslandsByKind['dom'] ?? array()), 'artifact compiler reports the runtime DOM target as a runtime island');
+$runtimeDependencyCanvasIsland = $runtimeDependencyIslandsByKind['canvas'][0] ?? array();
+$runtimeDependencyDomIsland = $runtimeDependencyIslandsByKind['dom'][0] ?? array();
+$assert('canvas' === ($runtimeDependencyCanvasIsland['kind'] ?? ''), 'artifact runtime island identifies canvas kind');
+$assert('#canvas' === ($runtimeDependencyCanvasIsland['selector'] ?? ''), 'artifact runtime island exposes canvas selector');
+$assert(str_contains((string) ($runtimeDependencyCanvasIsland['source_snippet'] ?? ''), '<canvas id="canvas" class="stage"></canvas>'), 'artifact runtime island exposes canvas source snippet');
+$assert(! empty($runtimeDependencyCanvasIsland['required_scripts'] ?? array()), 'artifact runtime island exposes required script metadata');
+$assert('#status-container' === ($runtimeDependencyDomIsland['selector'] ?? ''), 'artifact DOM runtime island exposes selector');
+$assert('runtime_dom_target' === ($runtimeDependencyDomIsland['preservation_reason'] ?? ''), 'artifact DOM runtime island exposes preservation reason');
 $assert($runtimeDependencyIslands === ($runtimeDependencySite['source_reports']['conversion_report']['runtime_islands'] ?? array()), 'artifact conversion report projects runtime islands');
 $assert(null !== $statusDependency, 'runtime dependency parity records preserved status container dependency');
 $assert('index.html' === ($statusDependency['source_path'] ?? ''), 'runtime dependency parity records source path for preserved DOM dependency');

@@ -237,6 +237,25 @@ final class HtmlTransformer
             }
         }
 
+        foreach ( $this->runtimeIslands as $island ) {
+            $diagnostics[] = array_filter(array(
+                'code'                => 'preserved_runtime_island',
+                'message'             => 'Runtime-dependent source markup was preserved as a bounded runtime island.',
+                'source'              => self::class,
+                'severity'            => 'info',
+                'conversion_classification' => 'runtime_island_preserved',
+                'loss_class'          => 'runtime_island_preserved',
+                'diagnostic_class'    => 'runtime_island_preserved',
+                'suggested_repair_class' => 'preserve_runtime_island',
+                'preservation_strategy' => $island['preservation_strategy'] ?? 'bounded_raw_html_runtime_island',
+                'runtime_requirement' => $island['runtime_requirement'] ?? null,
+                'kind'                => $island['kind'] ?? null,
+                'reason'              => $island['preservation_reason'] ?? null,
+                'tag'                 => $island['tag'] ?? null,
+                'selector'            => $island['selector'] ?? null,
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+        }
+
         foreach ( $blockValidityReport['findings'] ?? array() as $finding ) {
             if ( ! is_array($finding) ) {
                 continue;
@@ -571,6 +590,10 @@ final class HtmlTransformer
      */
     private function sourceNavigationMenuItems(DOMElement $element): array
     {
+        if ( $this->hasSourceNavigationChrome($element) ) {
+            return $this->sourceNavigationMenuItemsFromSignaledContainers($element);
+        }
+
         $items = array();
         foreach ( $element->getElementsByTagName('a') as $anchor ) {
             if ( ! $anchor instanceof DOMElement || $this->isSourceNavigationChromeAnchor($anchor) ) {
@@ -587,6 +610,114 @@ final class HtmlTransformer
         }
 
         return $items;
+    }
+
+    /**
+     * @return array<int, array<string, string>>
+     */
+    private function sourceNavigationMenuItemsFromSignaledContainers(DOMElement $element): array
+    {
+        $items = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( in_array($tagName, array( 'ul', 'ol' ), true) && $this->hasSourceNavigationSignal($child) ) {
+                foreach ( $this->sourceNavigationMenuItems($child) as $item ) {
+                    $items[] = $item;
+                }
+                continue;
+            }
+
+            if ( in_array($tagName, array( 'div', 'span', 'section' ), true) ) {
+                foreach ( $this->sourceNavigationMenuItemsFromSignaledContainers($child) as $item ) {
+                    $items[] = $item;
+                }
+            }
+        }
+
+        return $items;
+    }
+
+    private function hasSourceNavigationChrome(DOMElement $element): bool
+    {
+        $hasToggle = false;
+        foreach ( $element->getElementsByTagName('button') as $button ) {
+            if ( $button instanceof DOMElement && $this->isSourceMenuToggleControl($button) ) {
+                $hasToggle = true;
+                break;
+            }
+        }
+
+        if ( ! $hasToggle ) {
+            return false;
+        }
+
+        $hasSignaledList = false;
+        foreach ( $element->getElementsByTagName('ul') as $list ) {
+            if ( $list instanceof DOMElement && $this->hasSourceNavigationSignal($list) ) {
+                $hasSignaledList = true;
+                break;
+            }
+        }
+
+        if ( ! $hasSignaledList ) {
+            return false;
+        }
+
+        foreach ( $element->getElementsByTagName('a') as $anchor ) {
+            if ( $anchor instanceof DOMElement && ! $this->hasAncestorTagWithin($anchor, array( 'ul', 'ol' ), $element) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isSourceMenuToggleControl(DOMElement $element): bool
+    {
+        if ( 'button' !== strtolower($element->tagName) ) {
+            return false;
+        }
+
+        if ( $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded') ) {
+            return true;
+        }
+
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:hamburger|menu|toggle)(?:[^a-z0-9]|$)/', strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-label')));
+    }
+
+    private function hasSourceNavigationSignal(DOMElement $element): bool
+    {
+        if ( 'navigation' === strtolower($this->attr($element, 'role')) ) {
+            return true;
+        }
+
+        foreach ( array( 'class', 'id' ) as $attribute ) {
+            foreach ( preg_split('/[^a-z0-9]+/', strtolower($this->attr($element, $attribute))) ?: array() as $token ) {
+                if ( in_array($token, array( 'nav', 'navbar', 'navigation', 'menu', 'links' ), true) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, string> $tagNames
+     */
+    private function hasAncestorTagWithin(DOMElement $element, array $tagNames, DOMElement $boundary): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode ) {
+            if ( in_array(strtolower($node->tagName), $tagNames, true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -749,15 +880,23 @@ final class HtmlTransformer
             }
         }
 
+        $matchedBlockMenuIndexes = array();
         foreach ( $sourceMenus as $index => $sourceMenu ) {
-            $blockMenu = $blockMenus[$index] ?? null;
+            $blockMenuIndex = $this->matchingBlockNavigationMenuIndex($sourceMenu, $blockMenus, $matchedBlockMenuIndexes, $index);
+            $blockMenu = null === $blockMenuIndex ? null : ( $blockMenus[$blockMenuIndex] ?? null );
+            if ( null !== $blockMenuIndex ) {
+                $matchedBlockMenuIndexes[$blockMenuIndex] = true;
+            }
             if ( ! is_array($blockMenu) ) {
+                $sourceItems = is_array($sourceMenu['items'] ?? null) ? array_values($sourceMenu['items']) : array();
                 $findings[] = array(
                     'code' => 'navigation_menu_missing',
                     'severity' => 'warning',
                     'selector' => $sourceMenu['selector'] ?? '',
                     'source_item_count' => $sourceMenu['item_count'] ?? 0,
                     'block_item_count' => 0,
+                    'source_items' => $sourceItems,
+                    'block_items' => array(),
                     'summary' => 'Source navigation menu was not represented as a core/navigation block.',
                 );
                 continue;
@@ -781,6 +920,8 @@ final class HtmlTransformer
                     'selector' => $sourceMenu['selector'] ?? '',
                     'source_item_count' => count($sourceItems),
                     'block_item_count' => count($blockItems),
+                    'source_items' => $sourceItems,
+                    'block_items' => $blockItems,
                     'summary' => 'Source navigation item count differs from generated core navigation items.',
                 );
                 continue;
@@ -804,6 +945,54 @@ final class HtmlTransformer
         }
 
         return $findings;
+    }
+
+    /**
+     * @param array<string, mixed> $sourceMenu
+     * @param array<int, array<string, mixed>> $blockMenus
+     * @param array<int, bool> $matchedBlockMenuIndexes
+     */
+    private function matchingBlockNavigationMenuIndex(array $sourceMenu, array $blockMenus, array $matchedBlockMenuIndexes, int $fallbackIndex): ?int
+    {
+        $sourceItems = is_array($sourceMenu['items'] ?? null) ? array_values($sourceMenu['items']) : array();
+        $sourceSignature = $this->navigationItemsSignature($sourceItems);
+        if ( '' !== $sourceSignature ) {
+            foreach ( $blockMenus as $index => $blockMenu ) {
+                if ( isset($matchedBlockMenuIndexes[$index]) ) {
+                    continue;
+                }
+
+                $blockItems = is_array($blockMenu['items'] ?? null) ? array_values($blockMenu['items']) : array();
+                if ( $sourceSignature === $this->navigationItemsSignature($blockItems) ) {
+                    return $index;
+                }
+            }
+        }
+
+        if ( isset($blockMenus[$fallbackIndex]) && ! isset($matchedBlockMenuIndexes[$fallbackIndex]) ) {
+            return $fallbackIndex;
+        }
+
+        foreach ( $blockMenus as $index => $_blockMenu ) {
+            if ( ! isset($matchedBlockMenuIndexes[$index]) ) {
+                return $index;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     */
+    private function navigationItemsSignature(array $items): string
+    {
+        $parts = array();
+        foreach ( $items as $item ) {
+            $parts[] = trim((string) ($item['label'] ?? '')) . '>' . trim((string) ($item['url'] ?? ''));
+        }
+
+        return implode('|', $parts);
     }
 
     /**
@@ -1347,7 +1536,7 @@ final class HtmlTransformer
             }
 
             $readableFormBlock = $this->readableFormBlockFromForm($element);
-            if ( null !== $readableFormBlock ) {
+            if ( null !== $readableFormBlock && ! $this->formRequiresRuntimePreservation($element) ) {
                 return $readableFormBlock;
             }
 
@@ -1383,7 +1572,7 @@ final class HtmlTransformer
                 'html_truncated'  => $boundedHtml['truncated'],
             ), $this->fallbackProvenance);
 
-            return $this->shouldMaterializeReadableRuntimeForm($element) ? $readableFormBlock : null;
+            return $readableFormBlock;
         }
 
         if ( 'nav' === $tagName ) {
@@ -1546,6 +1735,13 @@ final class HtmlTransformer
             $provenanceId = $this->nextSourceProvenanceId++;
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
             $this->recordStructureProvenance($name, $attrs, $sourceElement);
+            $sourceTagName = strtolower($sourceElement->tagName);
+            if ( $this->isRuntimeDomTarget($sourceElement) && ! $this->isFormControlElement($sourceElement) && ! in_array($sourceTagName, array( 'canvas', 'form', 'script' ), true) ) {
+                $this->recordRuntimeIsland($sourceElement, 'dom', 'runtime_dom_target', 'client_script_execution', array(
+                    'events'          => $this->eventMetadata($sourceElement),
+                    'required_scripts' => $this->requiredScriptsForElement($sourceElement),
+                ));
+            }
             $this->sourceProvenance[$provenanceId] = $this->sourceProvenanceEntry($name, $sourceElement);
         }
 
@@ -3397,6 +3593,11 @@ final class HtmlTransformer
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
         $scriptRole = $this->scriptRole($element);
+        $this->recordRuntimeIsland($element, 'script', 'script_requires_runtime', 'client_script_execution', array(
+            'attributes'         => $this->safeScriptAttributes($element),
+            'script_role'        => $scriptRole,
+            'script_source_kind' => '' !== trim($this->attr($element, 'src')) ? 'external' : 'inline',
+        ));
         $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'html',
             'reason'          => 'script_requires_runtime',
@@ -3804,8 +4005,6 @@ final class HtmlTransformer
                     'events'           => $this->eventMetadata($control),
                     'required_scripts' => $this->requiredScriptsForElement($control),
                 ));
-                $contentBlocks[] = $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($control) ), array(), $control);
-                continue;
             }
 
             $readableControlBlock = $this->readableFormControlBlockFromElement($control);
@@ -3892,7 +4091,6 @@ final class HtmlTransformer
                 'events'           => $this->eventMetadata($element),
                 'required_scripts' => $this->requiredScriptsForElement($element),
             ));
-            return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($element) ), array(), $element);
         }
 
         if ( 'select' === $tagName ) {
@@ -3956,10 +4154,11 @@ final class HtmlTransformer
         ), static fn (string $value): bool => '' !== trim($value));
     }
 
-    private function shouldMaterializeReadableRuntimeForm(DOMElement $form): bool
+    private function formRequiresRuntimePreservation(DOMElement $form): bool
     {
-        $metadata = $this->formMetadata($form);
-        return '' === ($metadata['action'] ?? '') && '' === ($metadata['method'] ?? '') && '' === ($metadata['enctype'] ?? '');
+        return 0 < $form->getElementsByTagName('script')->length
+            || array() !== $this->eventMetadata($form)
+            || array() !== $this->formMetadata($form);
     }
 
     private function isReadableFormControl(DOMElement $control): bool
@@ -4989,6 +5188,7 @@ final class HtmlTransformer
         $attrs = array(
             'href'            => $this->safeLinkUrl($this->attr($link, 'href')),
             'linkDestination' => 'custom',
+            'linkAnchor'      => $this->safeAnchor($this->attr($link, 'id')),
             'linkTarget'      => $this->attr($link, 'target'),
             'rel'             => $this->attr($link, 'rel'),
             'linkClass'       => $this->attr($link, 'class'),

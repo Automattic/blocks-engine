@@ -12,12 +12,13 @@ final class RuntimeDependencyParityReport
 
     /**
      * @param array<int, array<string, mixed>> $files
+     * @param array<int, array<string, mixed>> $runtimeIslands
      * @return array<string, mixed>
      */
-    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = ''): array
+    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = '', array $runtimeIslands = array()): array
     {
         $sourceTargets = $this->sourceTargets($sourceHtml, $sourcePath);
-        $generatedTargets = $this->htmlTargets($generatedHtml);
+        $generatedTargets = $this->withRuntimeIslandTargets($this->htmlTargets($generatedHtml), $runtimeIslands);
         $dependencies = array();
         $findings = array();
 
@@ -159,6 +160,31 @@ final class RuntimeDependencyParityReport
                         $targets['classes'][$class] = true;
                     }
                 }
+            }
+        }
+
+        return $targets;
+    }
+
+    /**
+     * @param array{ids: array<string, bool>, classes: array<string, bool>} $targets
+     * @param array<int, array<string, mixed>> $runtimeIslands
+     * @return array{ids: array<string, bool>, classes: array<string, bool>}
+     */
+    private function withRuntimeIslandTargets(array $targets, array $runtimeIslands): array
+    {
+        foreach ( $runtimeIslands as $island ) {
+            if ( ! is_array($island) ) {
+                continue;
+            }
+
+            $selector = is_string($island['selector'] ?? null) ? trim($island['selector']) : '';
+            if ( str_starts_with($selector, '#') ) {
+                $targets['ids'][substr($selector, 1)] = true;
+                continue;
+            }
+            if ( str_starts_with($selector, '.') ) {
+                $targets['classes'][substr($selector, 1)] = true;
             }
         }
 

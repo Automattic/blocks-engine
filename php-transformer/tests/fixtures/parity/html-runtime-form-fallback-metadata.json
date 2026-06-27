@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-runtime-form-fallback-metadata",
-  "description": "Converts simple contact and newsletter forms into readable grouped blocks without pretending submission behavior works.",
+  "description": "Converts simple contact and newsletter forms into readable grouped blocks while preserving submission behavior metadata.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-runtime-form-fallback-metadata.json",
-    "notes": "Simple non-search forms become readable labels and inert button blocks when no script or event handler requires runtime preservation."
+    "notes": "Simple non-search forms become readable labels and inert button blocks while action-backed submit behavior stays in fallback metadata."
   },
   "legacy_comparison": {
     "skip": true,
@@ -20,15 +20,22 @@
     { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "newsletter" } }
   ],
-  "expected_fallbacks": [],
+  "expected_fallbacks": [
+    { "type": "html", "reason": "form_requires_runtime", "tag": "form", "diagnostic_code": "html_form_fallback", "control_count": 4 },
+    { "type": "html", "reason": "form_requires_runtime", "tag": "form", "diagnostic_code": "html_form_fallback", "control_count": 2 }
+  ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
-    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "fallbacks", "assert": "count", "count": 2 },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
+    { "path": "fallbacks.0.control_count", "assert": "equals", "value": 4 },
+    { "path": "fallbacks.1.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
+    { "path": "fallbacks.1.control_count", "assert": "equals", "value": 2 },
     { "path": "serialized_blocks", "assert": "contains", "value": "Name (required)" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Email: you@example.com" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Subscribe" },
     { "path": "coverage.0.block_count", "assert": "equals", "value": 1 },
-    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 2 }
   ]
 }

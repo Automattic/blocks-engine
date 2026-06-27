@@ -76,7 +76,7 @@ final class ArtifactCompiler
         );
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks);
         $sourceReports['materialization_plan'] = ( new MaterializationPlanBuilder() )->fromCompiledSite($sourceReports['compiled_site']);
-        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath);
+        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands']);
         if ( array() !== $entryBlocks['runtime_islands'] ) {
             $sourceReports['runtime_islands'] = $entryBlocks['runtime_islands'];
         }
@@ -1934,12 +1934,19 @@ final class ArtifactCompiler
      */
     private function statusFromDiagnostics(array $diagnostics): string
     {
+        $warningDiagnostics = array();
         foreach ( $diagnostics as $diagnostic ) {
             if ( 'error' === ($diagnostic['severity'] ?? '') ) {
                 return 'failed';
             }
+
+            if ( 'preserved_runtime_island' === ($diagnostic['code'] ?? '') ) {
+                continue;
+            }
+
+            $warningDiagnostics[] = $diagnostic;
         }
-        return array() === $diagnostics ? 'success' : 'success_with_warnings';
+        return array() === $warningDiagnostics ? 'success' : 'success_with_warnings';
     }
 
     /**
