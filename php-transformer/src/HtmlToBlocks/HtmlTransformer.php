@@ -2174,7 +2174,7 @@ final class HtmlTransformer
     private function promotedClassName(string $className): string
     {
         if ( '' === trim($className) || array() === $this->staticClassPromotions ) {
-            return $className;
+            return $this->presentationClassName($className);
         }
 
         $classes = preg_split('/\s+/', trim($className)) ?: array();
@@ -2186,7 +2186,15 @@ final class HtmlTransformer
             }
         }
 
-        return implode(' ', $classes);
+        return $this->presentationClassName(implode(' ', $classes));
+    }
+
+    private function presentationClassName(string $className): string
+    {
+        $classes = preg_split('/\s+/', trim($className)) ?: array();
+        $classes = array_filter($classes, static fn (string $class): bool => '' !== $class && ! str_starts_with($class, 'js-'));
+
+        return implode(' ', array_values(array_unique($classes)));
     }
 
     /**

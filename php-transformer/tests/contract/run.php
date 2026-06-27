@@ -318,7 +318,7 @@ $assert('core/list' === ($standaloneControlBlocks[2]['innerBlocks'][1]['blockNam
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'Featured (selected)'), 'readable select summary preserves selected option state');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'Runtime sort'), 'runtime-targeted select readable output preserves label text');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'id="donation"'), 'readable input output preserves source id as a block anchor');
-$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'js-sort-select'), 'readable select output preserves source class for runtime target parity');
+$assert(! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'js-sort-select'), 'readable select output omits behavior-hook classes from generated blocks');
 $assert(! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted select native markup is preserved in runtime metadata instead of serialized blocks');
 $assert(1 === count($standaloneControls['source_reports']['runtime_islands'] ?? array()), 'runtime islands report only the explicitly runtime-targeted standalone control');
 $assert('control' === ($standaloneControls['source_reports']['runtime_islands'][0]['kind'] ?? ''), 'runtime-targeted standalone control reports as a control island');
