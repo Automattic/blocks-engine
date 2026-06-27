@@ -1469,18 +1469,21 @@ final class HtmlTransformer
     }
 
     /**
-     * A JS-only hamburger menu-toggle that is redundant chrome once a nearby
-     * navigation menu converts to core/navigation.
+     * A JS-only hamburger menu-toggle that is redundant chrome whenever it is
+     * associated with a source navigation menu — whether or not that menu
+     * converts to core/navigation.
      *
      * The toggle is detected GENERICALLY by structural/semantic signals — never
      * by a specific class string — so any framework's hamburger is recognized:
      * a <button> (or <a role="button">) carrying aria-controls and/or
      * aria-expanded whose visible content is empty/decorative bars (only empty
-     * spans or an icon, no text label). It is suppressed only when it is the
-     * opener for, or sits beside, a navigation menu that becomes
-     * core/navigation — which already ships its own working responsive overlay
-     * hamburger. Real labeled buttons, and toggles with no associated nav, still
-     * convert normally.
+     * spans or an icon, no text label). It is suppressed when it opens, lives
+     * inside, or sits beside a source navigation menu. A converted menu already
+     * ships its own responsive overlay hamburger; a menu that does NOT convert
+     * still must not gain an always-visible dead hamburger the source hid behind
+     * responsive CSS/JS the importer cannot carry (the "added UI" defect). Real
+     * labeled buttons, and toggle-shaped controls with no associated navigation,
+     * still convert to core/button normally.
      */
     private function isRedundantMenuToggleControl(DOMElement $element): bool
     {
@@ -1488,7 +1491,7 @@ final class HtmlTransformer
             return false;
         }
 
-        return $this->hasNearbyConvertibleNavigation($element);
+        return $this->hasAssociatedNavigationMenu($element);
     }
 
     private function isHamburgerMenuToggleControl(DOMElement $element): bool
@@ -1521,10 +1524,14 @@ final class HtmlTransformer
     }
 
     /**
-     * Whether a navigation menu that converts to core/navigation is the toggle's
-     * aria-controls target or sits within the toggle's enclosing landmark.
+     * Whether the toggle is associated with a source navigation menu: it opens
+     * one via aria-controls, lives inside a navigation landmark, or sits beside a
+     * navigation menu within its enclosing landmark. Association does NOT require
+     * the menu to convert to core/navigation — a navbar whose links fail to
+     * convert must still drop its dead hamburger rather than emit it as an
+     * always-visible core/button.
      */
-    private function hasNearbyConvertibleNavigation(DOMElement $toggle): bool
+    private function hasAssociatedNavigationMenu(DOMElement $toggle): bool
     {
         $controlledIds = preg_split('/\s+/', trim($this->attr($toggle, 'aria-controls'))) ?: array();
         foreach ( $controlledIds as $controlledId ) {
@@ -1533,23 +1540,43 @@ final class HtmlTransformer
             }
 
             $target = $this->elementWithId($toggle, $controlledId);
-            if ( $target instanceof DOMElement && ! $target->isSameNode($toggle) && $this->convertsToCoreNavigation($target) ) {
+            if ( $target instanceof DOMElement && ! $target->isSameNode($toggle) && $this->isAssociatedNavigationTarget($target) ) {
                 return true;
             }
         }
 
         $scope = $this->menuToggleScope($toggle);
+        if ( $this->isNavigationLandmark($scope) ) {
+            return true;
+        }
+
         foreach ( $scope->getElementsByTagName('*') as $candidate ) {
             if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($toggle) ) {
                 continue;
             }
 
-            if ( $this->isNavigationMenuCandidate($candidate) && $this->convertsToCoreNavigation($candidate) ) {
+            if ( $this->isAssociatedNavigationTarget($candidate) ) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * Whether an element is a navigation menu the toggle can be bound to: a
+     * structural/semantic navigation menu candidate (nav landmark or signaled
+     * list), or any container that converts to core/navigation (e.g. a signaled
+     * direct-anchor menu div).
+     */
+    private function isAssociatedNavigationTarget(DOMElement $element): bool
+    {
+        return $this->isNavigationMenuCandidate($element) || $this->convertsToCoreNavigation($element);
+    }
+
+    private function isNavigationLandmark(DOMElement $element): bool
+    {
+        return 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role'));
     }
 
     /**
