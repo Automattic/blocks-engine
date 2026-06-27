@@ -235,6 +235,34 @@ $assert(! str_contains($css, 'overflow-x:hidden'), 'css-preserves-horizontal-scr
 $assert(! str_contains($css, 'order:'), 'css-avoids-source-order');
 $assert(! str_contains($css, 'font-family:Inter') && ! str_contains($css, 'body{margin:0;background') && ! str_contains($css, 'body{margin:0;color'), 'css-avoids-hardcoded-theme-style');
 
+$absoluteTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name' => 'Absolute Transform Fixture',
+    'nodes' => array(
+        array(
+            'id' => 'absolute:root',
+            'type' => 'FRAME',
+            'name' => 'Root',
+            'absoluteBoundingBox' => array('x' => 0, 'y' => 0, 'width' => 300, 'height' => 200),
+            'children' => array(
+                array(
+                    'id' => 'absolute:child',
+                    'type' => 'RECTANGLE',
+                    'name' => 'Rotated child',
+                    'absoluteBoundingBox' => array('x' => 40, 'y' => 50, 'width' => 80, 'height' => 60),
+                    'layoutPositioning' => 'ABSOLUTE',
+                    'relativeTransform' => array(
+                        array(0, -1, 40),
+                        array(1, 0, 50),
+                    ),
+                    'fill' => array('r' => 1, 'g' => 0, 'b' => 0),
+                ),
+            ),
+        ),
+    ),
+));
+$absoluteTransformCss = $fileContent($absoluteTransformResult, 'style.css');
+$assert(str_contains($absoluteTransformCss, '.figma-node-absolute-child-rotated-child{width:80px;height:60px;position:absolute;left:40px;top:50px;background:#ff0000}'), 'absolute-visual-bounds-skip-css-transform');
+
 $qualityAssets = array();
 for ( $i = 1; $i <= 20; $i++ ) {
     $qualityAssets['quality-image-' . $i] = array('mime_type' => 'image/png', 'content' => 'image ' . $i);
