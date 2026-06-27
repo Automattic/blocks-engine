@@ -318,6 +318,27 @@ $assert('control' === ($standaloneControls['source_reports']['runtime_islands'][
 $assert('.js-sort-select' === ($standaloneControls['source_reports']['runtime_islands'][0]['selector'] ?? ''), 'runtime-targeted standalone control reports selector metadata');
 $assert('select' === ($standaloneControls['source_reports']['runtime_islands'][0]['control']['tag'] ?? ''), 'runtime-targeted standalone control reports control metadata');
 
+$artifactControlSelectors = ( new ArtifactCompiler() )->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><input id="newsletter-email" class="email-field" type="email" placeholder="you@example.com"><select id="sort-select" class="sort-select"><option selected>Featured</option><option>Newest</option></select><input id="live-filter" class="live-filter" type="text" placeholder="Filter"><script src="js/app.js"></script></main>',
+            'js/app.js' => 'document.getElementById("newsletter-email"); document.querySelector(".sort-select"); const liveFilter = document.getElementById("live-filter"); liveFilter.addEventListener("input", function () { window.__changed = true; });',
+        ),
+    )
+)->toArray();
+$artifactControlMarkup = (string) ($artifactControlSelectors['serialized_blocks'] ?? '');
+$assert(! str_contains($artifactControlMarkup, '<input id="newsletter-email"'), 'artifact compiler converts generically queried static input to readable block output');
+$assert(! str_contains($artifactControlMarkup, '<select id="sort-select"'), 'artifact compiler converts generically queried static select to readable block output');
+$assert(str_contains($artifactControlMarkup, 'you@example.com'), 'artifact static input readable output preserves placeholder text');
+$assert(str_contains($artifactControlMarkup, 'Featured (selected)'), 'artifact static select readable output preserves selected option state');
+$assert(str_contains($artifactControlMarkup, '<input id="live-filter"'), 'artifact compiler preserves behavior-bearing control native DOM');
+$artifactControlIslands = $artifactControlSelectors['source_reports']['runtime_islands'] ?? array();
+$assert(1 === count($artifactControlIslands), 'artifact compiler reports only behavior-bearing controls as runtime islands');
+$assert('#live-filter' === ($artifactControlIslands[0]['selector'] ?? ''), 'artifact runtime control island points at behavior-bearing control selector');
+$artifactControlRuntimeReport = $artifactControlSelectors['source_reports']['runtime_dependency_parity'] ?? array();
+$assert('pass' === ($artifactControlRuntimeReport['status'] ?? ''), 'runtime parity does not flag readable static controls as missing runtime targets');
+
 $buttonResult = ( new HtmlTransformer() )->transform(
     '<main><a class="primary-button" href="#"><h3>Reserve now</h3><span aria-hidden="true"></span></a><button><strong>Call us</strong></button></main>'
 )->toArray();
@@ -929,7 +950,7 @@ foreach ( $runtimeTargetContainerReport['dependencies'] ?? array() as $dependenc
     $runtimeTargetDependencies[$dependency['selector'] ?? ''] = $dependency;
 }
 $assert('pass' === ($runtimeTargetContainerReport['status'] ?? ''), 'runtime dependency parity passes generic preserved JS target containers');
-foreach ( array( '.reveal', '.nav-toggle', '.menu-shell', '.primary-nav', '.mobile-nav-overlay', '.mobile-nav', '.faq-item', '.filter-btn', '.button-shell', '.filter-bar', '.filter-chips', '#note-search', '.search-input', '.js-sort-select', '.js-filter-check', '#contact-form', '#form-success' ) as $selector ) {
+foreach ( array( '.reveal', '.nav-toggle', '.menu-shell', '.primary-nav', '.mobile-nav-overlay', '.mobile-nav', '.faq-item', '.filter-btn', '.button-shell', '.filter-bar', '.filter-chips', '#contact-form', '#form-success' ) as $selector ) {
     $assert(true === ($runtimeTargetDependencies[$selector]['generated_present'] ?? null), 'runtime dependency parity records preserved target ' . $selector);
 }
 $assert(str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'nav-toggle'), 'artifact block markup preserves runtime-targeted menu toggle class');

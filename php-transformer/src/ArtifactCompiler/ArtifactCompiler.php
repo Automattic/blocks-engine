@@ -281,8 +281,13 @@ final class ArtifactCompiler
     private function runtimeDomSelectors(string $html, string $sourcePath, array $files): array
     {
         $selectors = array();
+        $controlSelectors = $this->formControlSelectors($html);
         foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
+            $runtimeControlSelectors = $this->scriptControlRuntimeSelectors($script);
             foreach ( $this->scriptDomSelectors($script) as $selector ) {
+                if ( isset($controlSelectors[$selector]) && ! isset($runtimeControlSelectors[$selector]) ) {
+                    continue;
+                }
                 $selectors[$selector] = true;
             }
         }
@@ -386,6 +391,40 @@ final class ArtifactCompiler
     }
 
     /**
+     * @return array<string, bool>
+     */
+    private function formControlSelectors(string $html): array
+    {
+        $selectors = array();
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if ( ! $loaded ) {
+            return array();
+        }
+
+        foreach ( $document->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement || ! in_array(strtolower($element->tagName), array('button', 'input', 'select', 'textarea'), true) ) {
+                continue;
+            }
+
+            $id = trim($element->hasAttribute('id') ? $element->getAttribute('id') : '');
+            if ( '' !== $id ) {
+                $selectors['#' . $id] = true;
+            }
+            foreach ( preg_split('/\s+/', trim($element->hasAttribute('class') ? $element->getAttribute('class') : '')) ?: array() as $class ) {
+                if ( '' !== $class ) {
+                    $selectors['.' . $class] = true;
+                }
+            }
+        }
+
+        return $selectors;
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $files
      * @return array<int, string>
      */
@@ -440,6 +479,42 @@ final class ArtifactCompiler
         }
 
         return array_keys($selectors);
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    private function scriptControlRuntimeSelectors(string $script): array
+    {
+        $selectors = array();
+        $runtimeUsePattern = '\.\s*(?:addEventListener|value|checked|selectedIndex|selectedOptions|options|files|validity|setCustomValidity|focus|select|click|dispatchEvent)\b';
+
+        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*(?:\.\s*[^;\n]*)?' . $runtimeUsePattern . '/', $script, $matches) ) {
+            foreach ( $matches[2] as $id ) {
+                $selectors['#' . (string) $id] = true;
+            }
+        }
+        if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*(?:\.\s*[^;\n]*)?' . $runtimeUsePattern . '/', $script, $matches) ) {
+            foreach ( $matches[2] as $selector ) {
+                $selectors[(string) $selector] = true;
+            }
+        }
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+            foreach ( $assignments as $assignment ) {
+                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $runtimeUsePattern . '/', $script) ) {
+                    $selectors['#' . (string) $assignment[3]] = true;
+                }
+            }
+        }
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+            foreach ( $assignments as $assignment ) {
+                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $runtimeUsePattern . '/', $script) ) {
+                    $selectors[(string) $assignment[3]] = true;
+                }
+            }
+        }
+
+        return $selectors;
     }
 
     private function htmlAttribute(string $tag, string $name): string
