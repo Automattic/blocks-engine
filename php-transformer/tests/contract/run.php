@@ -279,7 +279,11 @@ $formFallback = ( new HtmlTransformer() )->transform(
     '<main><form action="/contact" method="post" data-action="contact-submit"><label for="email">Email</label><input id="email" name="email" type="email" required><select name="topic"><option value="support" selected>Support</option></select><button type="submit">Send</button></form></main>'
 )->toArray();
 $formDiagnostic = $formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
-$assert(array() === ($formFallback['blocks'] ?? array()), 'form fallback does not synthesize canonical blocks');
+$formFallbackBlocks = $formFallback['blocks'][0]['innerBlocks'] ?? array();
+$assert('core/group' === ($formFallback['blocks'][0]['blockName'] ?? ''), 'form fallback materializes readable control blocks');
+$assert('core/paragraph' === ($formFallbackBlocks[0]['blockName'] ?? ''), 'form fallback exposes readable input text');
+$assert('core/group' === ($formFallbackBlocks[1]['blockName'] ?? ''), 'form fallback exposes readable select options');
+$assert('core/buttons' === ($formFallbackBlocks[2]['blockName'] ?? ''), 'form fallback exposes readable submit button');
 $assertNormalizedFallbackDiagnostic($formDiagnostic, 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
 $assert('form' === ($formFallback['source_reports']['interaction_candidates'][0]['kind'] ?? ''), 'HTML source report exposes form interaction candidate');
 $assert('form' === ($formFallback['source_reports']['conversion_report']['interaction_candidates'][0]['kind'] ?? ''), 'conversion report projects interaction candidates');

@@ -1347,7 +1347,7 @@ final class HtmlTransformer
             }
 
             $readableFormBlock = $this->readableFormBlockFromForm($element);
-            if ( null !== $readableFormBlock ) {
+            if ( null !== $readableFormBlock && ! $this->formRequiresRuntimePreservation($element) ) {
                 return $readableFormBlock;
             }
 
@@ -1383,7 +1383,7 @@ final class HtmlTransformer
                 'html_truncated'  => $boundedHtml['truncated'],
             ), $this->fallbackProvenance);
 
-            return $this->shouldMaterializeReadableRuntimeForm($element) ? $readableFormBlock : null;
+            return $readableFormBlock;
         }
 
         if ( 'nav' === $tagName ) {
@@ -3953,10 +3953,11 @@ final class HtmlTransformer
         ), static fn (string $value): bool => '' !== trim($value));
     }
 
-    private function shouldMaterializeReadableRuntimeForm(DOMElement $form): bool
+    private function formRequiresRuntimePreservation(DOMElement $form): bool
     {
-        $metadata = $this->formMetadata($form);
-        return '' === ($metadata['action'] ?? '') && '' === ($metadata['method'] ?? '') && '' === ($metadata['enctype'] ?? '');
+        return 0 < $form->getElementsByTagName('script')->length
+            || array() !== $this->eventMetadata($form)
+            || array() !== $this->formMetadata($form);
     }
 
     private function isReadableFormControl(DOMElement $control): bool
