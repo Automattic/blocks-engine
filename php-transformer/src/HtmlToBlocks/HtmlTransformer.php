@@ -1426,6 +1426,9 @@ final class HtmlTransformer
         if ( 'p' === $tagName ) {
             $content = $this->innerHtml($element);
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                if ( $this->isRuntimeDomTarget($element) ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
+                }
                 $textBlocks = $this->convertText(trim($element->textContent ?? ''));
                 return $textBlocks[0] ?? null;
             }

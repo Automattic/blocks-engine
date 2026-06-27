@@ -342,6 +342,7 @@ final class ArtifactCompiler
     {
         $selectors = array();
         $controlSelectors = $this->formControlSelectors($html);
+        $statusFeedbackSelectors = $this->formStatusFeedbackSelectors($html);
         foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
             $runtimeControlSelectors = $this->scriptControlRuntimeSelectors($script);
             foreach ( $this->scriptDomSelectors($script) as $selector ) {
@@ -352,7 +353,66 @@ final class ArtifactCompiler
             }
         }
 
+        foreach ( $this->allScriptContents($files) as $script ) {
+            foreach ( $this->scriptDomSelectors($script) as $selector ) {
+                if ( isset($statusFeedbackSelectors[$selector]) ) {
+                    $selectors[$selector] = true;
+                }
+            }
+        }
+
         return array_keys($selectors);
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    private function formStatusFeedbackSelectors(string $html): array
+    {
+        $selectors = array();
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if ( ! $loaded ) {
+            return array();
+        }
+
+        foreach ( $document->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement || ! $this->isFormStatusFeedbackElement($element) ) {
+                continue;
+            }
+
+            $id = trim($element->hasAttribute('id') ? $element->getAttribute('id') : '');
+            if ( '' !== $id ) {
+                $selectors['#' . $id] = true;
+            }
+            foreach ( preg_split('/\s+/', trim($element->hasAttribute('class') ? $element->getAttribute('class') : '')) ?: array() as $class ) {
+                if ( '' !== $class && ! $this->isBehaviorHookClassName($class) ) {
+                    $selectors['.' . $class] = true;
+                }
+            }
+        }
+
+        return $selectors;
+    }
+
+    private function isFormStatusFeedbackElement(DOMElement $element): bool
+    {
+        if ( in_array(strtolower($element->tagName), array('button', 'input', 'select', 'textarea', 'form', 'script', 'style'), true) ) {
+            return false;
+        }
+
+        $tokens = strtolower(trim(implode(' ', array(
+            $element->hasAttribute('id') ? $element->getAttribute('id') : '',
+            $element->hasAttribute('class') ? $element->getAttribute('class') : '',
+            $element->hasAttribute('role') ? $element->getAttribute('role') : '',
+            $element->hasAttribute('aria-live') ? 'aria-live' : '',
+        ))));
+
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:form|contact|newsletter|signup|subscribe|submission|submit|message|status|feedback|alert|notice|response|success|error|warning|confirmation|thanks?)(?:[^a-z0-9]|$)/', $tokens)
+            && (bool) preg_match('/(?:^|[^a-z0-9])(?:success|error|message|status|feedback|alert|notice|response|warning|confirmation|thanks?|aria-live)(?:[^a-z0-9]|$)/', $tokens);
     }
 
     /**
@@ -482,6 +542,27 @@ final class ArtifactCompiler
         }
 
         return $selectors;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, string>
+     */
+    private function allScriptContents(array $files): array
+    {
+        $scripts = array();
+        foreach ( $files as $file ) {
+            if ( $this->isMaterializedScriptAsset($file) && is_string($file['content'] ?? null) ) {
+                $scripts[] = (string) $file['content'];
+            }
+        }
+
+        return $scripts;
+    }
+
+    private function isBehaviorHookClassName(string $className): bool
+    {
+        return 1 === preg_match('/^js(?:$|[-_:]|[A-Z])/', $className);
     }
 
     /**
