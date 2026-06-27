@@ -47,6 +47,10 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $matrixSelectionLockSummary = $matrixDryRun(array(
         '--selection-lock=' . $matrixSelectionLockPath,
     ));
+    $matrixEvidenceSummary = $matrixDryRun(array(
+        '--frame-ids=render:home',
+        '--render-evidence=' . $matrixFixtureDir . '/{fixture}/render-evidence.json',
+    ));
     $missingHomeboyOutput = array();
     $missingHomeboyCommand = escapeshellarg(PHP_BINARY)
         . ' ' . escapeshellarg(__DIR__ . '/../../scripts/figma-fixture-matrix.php')
@@ -94,6 +98,10 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $matrixSelectionLockCommand = (string) ($matrixSelectionLockSummary['fixtures'][0]['command'] ?? '');
     $assert(str_contains($matrixSelectionLockCommand, "--frame-ids='locked:home,locked:about'"), 'fixture-matrix-selection-lock-frame-ids');
     $assert(str_contains($matrixSelectionLockCommand, "--entry-frame-id='locked:home'"), 'fixture-matrix-selection-lock-entry-frame');
+    $assert(is_array($matrixEvidenceSummary), 'fixture-matrix-render-evidence-json-summary');
+    $assert($matrixFixtureDir . '/{fixture}/render-evidence.json' === ($matrixEvidenceSummary['evidence']['templates']['render_evidence_path'] ?? null), 'fixture-matrix-render-evidence-template-summary');
+    $matrixEvidenceCommand = (string) ($matrixEvidenceSummary['fixtures'][0]['command'] ?? '');
+    $assert(str_contains($matrixEvidenceCommand, '--parity-render-evidence-path=' . escapeshellarg($matrixFixtureDir . '/alias/render-evidence.json')), 'fixture-matrix-render-evidence-transform-argument');
     $assert(0 !== $missingHomeboyExitCode, 'fixture-matrix-capture-preflight-missing-homeboy-fails');
     $missingHomeboyMessage = implode("\n", $missingHomeboyOutput);
     $assert(str_contains($missingHomeboyMessage, 'DOM box capture requires a runnable Homeboy command'), 'fixture-matrix-capture-preflight-missing-homeboy-message');

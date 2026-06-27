@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\FigmaTransformer;
 
 use Automattic\BlocksEngine\FigmaTransformer\Contract\FigmaTransformResult;
 use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\LayoutMismatchReportBuilder;
+use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\RenderStyleMismatchReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader;
 use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
@@ -23,6 +24,7 @@ final class FigmaTransformer
         private readonly StaticHtmlEmitter $htmlEmitter = new StaticHtmlEmitter(),
         private readonly ParityReportBuilder $parityReportBuilder = new ParityReportBuilder(),
         private readonly LayoutMismatchReportBuilder $layoutMismatchReportBuilder = new LayoutMismatchReportBuilder(),
+        private readonly RenderStyleMismatchReportBuilder $renderStyleMismatchReportBuilder = new RenderStyleMismatchReportBuilder(),
         private readonly ScenegraphNormalizer $scenegraphNormalizer = new ScenegraphNormalizer(),
         private readonly ScenegraphFrameInspector $frameInspector = new ScenegraphFrameInspector(),
         private readonly ScenegraphPagePlanner $pagePlanner = new ScenegraphPagePlanner()
@@ -402,6 +404,7 @@ final class FigmaTransformer
         $normalized = $this->scenegraphNormalizer->normalize($scenegraph, $options);
         $artifact    = $this->htmlEmitter->emit($normalized, $options);
         $artifact    = $this->withLayoutMismatchReport($artifact, $options);
+        $artifact    = $this->withRenderStyleMismatchReport($artifact, $options);
         $diagnostics = array_merge($normalized['diagnostics'] ?? array(), $artifact['diagnostics']);
         $parity      = $this->parityReportBuilder->build($options['parity'] ?? array());
 
@@ -471,8 +474,13 @@ final class FigmaTransformer
                 continue;
             }
 
+            $path = isset($page['path']) && is_scalar($page['path']) && '' !== (string) $page['path'] ? (string) $page['path'] : ((true === ($page['entrypoint'] ?? false)) ? 'index.html' : (string) ($page['slug'] ?? $frameId) . '.html');
             $pageOptions = $options;
             $pageOptions['frame_id'] = $frameId;
+            $pageOptions['layout_mismatch_options'] = is_array($pageOptions['layout_mismatch_options'] ?? null) ? $pageOptions['layout_mismatch_options'] : array();
+            $pageOptions['layout_mismatch_options']['page_path'] = $path;
+            $pageOptions['render_style_mismatch_options'] = is_array($pageOptions['render_style_mismatch_options'] ?? null) ? $pageOptions['render_style_mismatch_options'] : array();
+            $pageOptions['render_style_mismatch_options']['page_path'] = $path;
             unset($pageOptions['multi_page'], $pageOptions['include_all_pages'], $pageOptions['frame_ids'], $pageOptions['entry_frame_id'], $pageOptions['max_pages'], $pageOptions['frame_slug_map']);
             $pageResult = $this->transformScenegraph($scenegraph, $pageOptions)->toArray();
             $pageDiagnostics = is_array($pageResult['diagnostics'] ?? null) ? $pageResult['diagnostics'] : array();
@@ -494,7 +502,6 @@ final class FigmaTransformer
                 $cssChunks[] = $css;
             }
 
-            $path = isset($page['path']) && is_scalar($page['path']) && '' !== (string) $page['path'] ? (string) $page['path'] : ((true === ($page['entrypoint'] ?? false)) ? 'index.html' : (string) ($page['slug'] ?? $frameId) . '.html');
             if ( '' !== $html ) {
                 $files[] = array(
                     'path'      => $path,
@@ -644,6 +651,37 @@ final class FigmaTransformer
     }
 
     /**
+     * @param array<string, mixed> $artifact
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function withRenderStyleMismatchReport(array $artifact, array $options): array
+    {
+        $evidence = $this->renderStyleMismatchEvidenceFromOptions($options);
+        if ( empty($evidence) ) {
+            return $artifact;
+        }
+
+        $sourceReport = is_array($artifact['source_report'] ?? null) ? $artifact['source_report'] : array();
+        $reportOptions = is_array($options['render_style_mismatch_options'] ?? null) ? $options['render_style_mismatch_options'] : array();
+        $renderStyleMismatch = $this->renderStyleMismatchReportBuilder->build($sourceReport, $evidence, $reportOptions);
+        $transformDiagnostics = is_array($sourceReport['transform_diagnostics'] ?? null) ? $sourceReport['transform_diagnostics'] : array();
+        $layout = is_array($transformDiagnostics['layout'] ?? null) ? $transformDiagnostics['layout'] : array();
+        $layout['render_style'] = $renderStyleMismatch;
+        $layout['render_style_mismatch_count'] = (int) ($renderStyleMismatch['summary']['diagnostic_count'] ?? 0);
+        $layout['render_style_mismatch_status'] = (string) ($renderStyleMismatch['status'] ?? 'not_run');
+        $transformDiagnostics['layout'] = $layout;
+        $transformDiagnostics['artifact_quality'] = $this->withRenderStyleMismatchArtifactQuality(
+            is_array($transformDiagnostics['artifact_quality'] ?? null) ? $transformDiagnostics['artifact_quality'] : array(),
+            $renderStyleMismatch
+        );
+        $sourceReport['transform_diagnostics'] = $transformDiagnostics;
+        $artifact['source_report'] = $sourceReport;
+
+        return $artifact;
+    }
+
+    /**
      * @param array<string, mixed> $options
      * @return array<string, mixed>
      */
@@ -660,6 +698,28 @@ final class FigmaTransformer
         }
         if ( is_array($options['metadata']['dom_boxes'] ?? null) ) {
             return $options['metadata']['dom_boxes'];
+        }
+
+        return array();
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function renderStyleMismatchEvidenceFromOptions(array $options): array
+    {
+        foreach ( array('render_style_mismatch', 'render_style_mismatch_evidence', 'generated_render_evidence', 'render_evidence') as $key ) {
+            if ( is_array($options[$key] ?? null) ) {
+                return $options[$key];
+            }
+        }
+
+        if ( is_array($options['metadata']['generated_render_evidence'] ?? null) ) {
+            return $options['metadata']['generated_render_evidence'];
+        }
+        if ( is_array($options['metadata']['render_evidence'] ?? null) ) {
+            return $options['metadata']['render_evidence'];
         }
 
         return array();
@@ -695,6 +755,36 @@ final class FigmaTransformer
     }
 
     /**
+     * @param array<string, mixed> $artifactQuality
+     * @param array<string, mixed> $renderStyleMismatch
+     * @return array<string, mixed>
+     */
+    private function withRenderStyleMismatchArtifactQuality(array $artifactQuality, array $renderStyleMismatch): array
+    {
+        $count = (int) ($renderStyleMismatch['summary']['diagnostic_count'] ?? 0);
+        $artifactQuality['schema'] = $artifactQuality['schema'] ?? 'blocks-engine/figma-transformer/artifact-quality/v1';
+        $signals = is_array($artifactQuality['signals'] ?? null) ? $artifactQuality['signals'] : array();
+        if ( $count > 0 ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'render_style_mismatch', 'count' => $count);
+        }
+        $artifactQuality['signals'] = $signals;
+        $summary = is_array($artifactQuality['summary'] ?? null) ? $artifactQuality['summary'] : array();
+        $renderSummary = is_array($renderStyleMismatch['summary'] ?? null) ? $renderStyleMismatch['summary'] : array();
+        foreach ( array('font_mismatch_count', 'color_mismatch_count', 'background_mismatch_count', 'border_mismatch_count', 'opacity_mismatch_count', 'asset_mismatch_count', 'text_metric_mismatch_count', 'matched_node_count', 'unmatched_source_node_count', 'match_ratio') as $key ) {
+            $summary['render_style_' . $key] = $renderSummary[$key] ?? (str_ends_with($key, '_count') ? 0 : 0.0);
+        }
+        $summary['render_style_mismatch_count'] = $count;
+        $summary['render_style_mismatch_status'] = (string) ($renderStyleMismatch['status'] ?? 'not_run');
+        $artifactQuality['summary'] = $summary;
+        if ( $count > 0 ) {
+            $artifactQuality['status'] = 'needs_review';
+            $artifactQuality['quality_status'] = 'warn';
+        }
+
+        return $artifactQuality;
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $pageReports
      * @param array<int, array<string, mixed>> $assetReport
      * @return array<string, mixed>
@@ -715,8 +805,34 @@ final class FigmaTransformer
             'layout_mismatch_status' => 'not_evaluated',
             'layout_mismatches' => array(),
             'layout_mismatch_clusters' => array(),
+            'render_style_mismatch_count' => 0,
+            'render_style_mismatch_status' => 'not_evaluated',
+            'render_style' => array(
+                'schema' => RenderStyleMismatchReportBuilder::SCHEMA,
+                'status' => 'not_evaluated',
+                'summary' => array(
+                    'source_node_count' => 0,
+                    'render_node_count' => 0,
+                    'matched_node_count' => 0,
+                    'unmatched_source_node_count' => 0,
+                    'match_ratio' => 0.0,
+                    'diagnostic_count' => 0,
+                    'reported_diagnostic_count' => 0,
+                    'truncated' => false,
+                    'font_mismatch_count' => 0,
+                    'color_mismatch_count' => 0,
+                    'background_mismatch_count' => 0,
+                    'border_mismatch_count' => 0,
+                    'opacity_mismatch_count' => 0,
+                    'asset_mismatch_count' => 0,
+                    'text_metric_mismatch_count' => 0,
+                    'category_counts' => array(),
+                ),
+                'diagnostics' => array(),
+            ),
         );
         $fontFamilies = array();
+        $fontUsage = array();
         $missingCss = array();
         $fontCssSupplied = false;
         $fontMaterialized = false;
@@ -759,6 +875,7 @@ final class FigmaTransformer
 
             $pageFonts = is_array($diagnostics['fonts'] ?? null) ? $diagnostics['fonts'] : array();
             $fontFamilies = $this->mergeFontFamilies($fontFamilies, is_array($pageFonts['families'] ?? null) ? $pageFonts['families'] : array());
+            $fontUsage = $this->mergeFontUsage($fontUsage, is_array($pageFonts['usage'] ?? null) ? $pageFonts['usage'] : array());
             $missingCss = $this->mergeFontFamilies($missingCss, is_array($pageFonts['missing_css'] ?? null) ? $pageFonts['missing_css'] : array());
             $fontCssSupplied = $fontCssSupplied || true === ($pageFonts['css_supplied'] ?? false);
             $fontMaterialized = $fontMaterialized || true === ($pageFonts['materialized'] ?? false);
@@ -814,6 +931,38 @@ final class FigmaTransformer
                 }
             }
 
+            $pageRenderStyle = is_array($pageLayout['render_style'] ?? null) ? $pageLayout['render_style'] : array();
+            if ( ! empty($pageRenderStyle) ) {
+                $pageRenderStyleSummary = is_array($pageRenderStyle['summary'] ?? null) ? $pageRenderStyle['summary'] : array();
+                $renderStyleSummary = is_array($layout['render_style']['summary'] ?? null) ? $layout['render_style']['summary'] : array();
+                foreach ( array('source_node_count', 'render_node_count', 'matched_node_count', 'unmatched_source_node_count', 'diagnostic_count', 'reported_diagnostic_count', 'font_mismatch_count', 'color_mismatch_count', 'background_mismatch_count', 'border_mismatch_count', 'opacity_mismatch_count', 'asset_mismatch_count', 'text_metric_mismatch_count') as $key ) {
+                    $renderStyleSummary[$key] = (int) ($renderStyleSummary[$key] ?? 0) + (int) ($pageRenderStyleSummary[$key] ?? 0);
+                }
+                $renderStyleSummary['truncated'] = ! empty($renderStyleSummary['truncated']) || ! empty($pageRenderStyleSummary['truncated']);
+                $renderStyleSummary['match_ratio'] = (int) ($renderStyleSummary['source_node_count'] ?? 0) > 0 ? round((int) ($renderStyleSummary['matched_node_count'] ?? 0) / (int) $renderStyleSummary['source_node_count'], 4) : 0.0;
+                $categoryCounts = is_array($renderStyleSummary['category_counts'] ?? null) ? $renderStyleSummary['category_counts'] : array();
+                foreach ( is_array($pageRenderStyleSummary['category_counts'] ?? null) ? $pageRenderStyleSummary['category_counts'] : array() as $category => $count ) {
+                    $categoryCounts[(string) $category] = (int) ($categoryCounts[(string) $category] ?? 0) + (int) $count;
+                }
+                ksort($categoryCounts);
+                $renderStyleSummary['category_counts'] = $categoryCounts;
+                $layout['render_style']['summary'] = $renderStyleSummary;
+                $layout['render_style_mismatch_count'] = (int) ($renderStyleSummary['diagnostic_count'] ?? 0);
+                $pageRenderStyleStatus = (string) ($pageRenderStyle['status'] ?? 'not_run');
+                if ( 'fail' === $pageRenderStyleStatus ) {
+                    $layout['render_style']['status'] = 'fail';
+                    $layout['render_style_mismatch_status'] = 'fail';
+                } elseif ( 'not_evaluated' === $layout['render_style_mismatch_status'] ) {
+                    $layout['render_style']['status'] = $pageRenderStyleStatus;
+                    $layout['render_style_mismatch_status'] = $pageRenderStyleStatus;
+                }
+                foreach ( is_array($pageRenderStyle['diagnostics'] ?? null) ? $pageRenderStyle['diagnostics'] : array() as $item ) {
+                    if ( is_array($item) ) {
+                        $layout['render_style']['diagnostics'][] = array_merge($pageContext, $item);
+                    }
+                }
+            }
+
             $pageDiagnosticCodes = is_array($page['diagnostic_codes'] ?? null) ? $page['diagnostic_codes'] : (is_array($diagnostics['diagnostic_codes'] ?? null) ? $diagnostics['diagnostic_codes'] : array());
             foreach ( $pageDiagnosticCodes as $code => $count ) {
                 $diagnosticCodes[(string) $code] = ($diagnosticCodes[(string) $code] ?? 0) + (int) $count;
@@ -822,9 +971,15 @@ final class FigmaTransformer
 
         $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
         $layout['layout_mismatches'] = array_values($layout['layout_mismatches']);
+        $layout['render_style']['diagnostics'] = array_values($layout['render_style']['diagnostics']);
+        if ( 'not_evaluated' === $layout['render_style_mismatch_status'] ) {
+            $layout['render_style']['status'] = 'not_run';
+            $layout['render_style_mismatch_status'] = 'not_run';
+        }
         ksort($diagnosticCodes);
         $fonts = array(
             'families' => $fontFamilies,
+            'usage' => $fontUsage,
             'count' => count($fontFamilies),
             'css_supplied' => $fontCssSupplied,
             'materialized' => $fontMaterialized,
@@ -872,7 +1027,12 @@ final class FigmaTransformer
             $signals[] = array('severity' => 'warning', 'code' => 'vector_placeholders', 'count' => (int) $vectors['placeholders']);
         }
         if ( ! empty($fonts['missing_css']) ) {
-            $signals[] = array('severity' => 'info', 'code' => 'font_css_missing', 'count' => count($fonts['missing_css']));
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'font_css_missing',
+                'count' => count($fonts['missing_css']),
+                'font_usage' => $this->fontUsageForFamilies(is_array($fonts['usage'] ?? null) ? $fonts['usage'] : array(), $fonts['missing_css']),
+            );
         }
         if ( ! empty($layout['large_negative_left_count']) ) {
             $signals[] = array('severity' => 'warning', 'code' => 'off_canvas_left_css', 'count' => (int) $layout['large_negative_left_count']);
@@ -898,6 +1058,9 @@ final class FigmaTransformer
         }
         if ( ! empty($layout['layout_mismatch_count']) ) {
             $signals[] = array('severity' => 'warning', 'code' => 'layout_mismatch', 'count' => (int) $layout['layout_mismatch_count']);
+        }
+        if ( ! empty($layout['render_style_mismatch_count']) ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'render_style_mismatch', 'count' => (int) $layout['render_style_mismatch_count']);
         }
         $imageBlockCount = (int) ($images['image_block_count'] ?? 0);
         $totalNodeCount = max(0, (int) ($images['total_node_count'] ?? 0));
@@ -946,6 +1109,8 @@ final class FigmaTransformer
                 'generated_svg_count' => (int) ($generatedSvgAssets['count'] ?? 0),
                 'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
                 'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
+                'render_style_mismatch_count' => (int) ($layout['render_style_mismatch_count'] ?? 0),
+                'render_style_mismatch_status' => (string) ($layout['render_style_mismatch_status'] ?? 'not_run'),
                 'fixed_root_width_count' => (int) ($layout['fixed_root_width_count'] ?? 0),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
@@ -1117,7 +1282,7 @@ final class FigmaTransformer
 
     /**
      * @param array<int, mixed> ...$usageSets
-     * @return array<int, array{family: string, weights: array<int, int>}>
+     * @return array<int, array<string, mixed>>
      */
     private function mergeFontUsage(array ...$usageSets): array
     {
@@ -1133,14 +1298,24 @@ final class FigmaTransformer
                     continue;
                 }
 
-                if ( ! isset($usage[$family]) ) {
-                    $usage[$family] = array();
-                }
+                $usage[$family] ??= array('weights' => array(), 'weight_counts' => array(), 'text_node_count' => 0, 'visible_text_area_px' => 0, 'sample_nodes' => array());
 
                 $weights = is_array($item['weights'] ?? null) ? $item['weights'] : array($item['weight'] ?? 400);
                 foreach ( $weights as $weight ) {
                     if ( is_numeric($weight) ) {
-                        $usage[$family][(int) $weight] = true;
+                        $usage[$family]['weights'][(int) $weight] = true;
+                    }
+                }
+                foreach ( is_array($item['weight_counts'] ?? null) ? $item['weight_counts'] : array() as $weight => $count ) {
+                    if ( is_numeric($weight) ) {
+                        $usage[$family]['weight_counts'][(string) (int) $weight] = ($usage[$family]['weight_counts'][(string) (int) $weight] ?? 0) + (int) $count;
+                    }
+                }
+                $usage[$family]['text_node_count'] += (int) ($item['text_node_count'] ?? 0);
+                $usage[$family]['visible_text_area_px'] += (int) ($item['visible_text_area_px'] ?? 0);
+                foreach ( is_array($item['sample_nodes'] ?? null) ? $item['sample_nodes'] : array() as $sampleNode ) {
+                    if ( is_array($sampleNode) && count($usage[$family]['sample_nodes']) < 10 ) {
+                        $usage[$family]['sample_nodes'][] = $sampleNode;
                     }
                 }
             }
@@ -1148,13 +1323,35 @@ final class FigmaTransformer
 
         ksort($usage, SORT_NATURAL | SORT_FLAG_CASE);
         $merged = array();
-        foreach ( $usage as $family => $weights ) {
-            $weightValues = array_keys($weights);
+        foreach ( $usage as $family => $data ) {
+            $weightValues = array_keys($data['weights']);
             sort($weightValues, SORT_NUMERIC);
-            $merged[] = array('family' => $family, 'weights' => $weightValues);
+            ksort($data['weight_counts']);
+            $merged[] = array(
+                'family' => $family,
+                'weights' => $weightValues,
+                'weight_counts' => $data['weight_counts'],
+                'text_node_count' => (int) $data['text_node_count'],
+                'visible_text_area_px' => (int) $data['visible_text_area_px'],
+                'sample_nodes' => $data['sample_nodes'],
+            );
         }
 
         return $merged;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fontUsage
+     * @param array<int, string> $families
+     * @return array<int, array<string, mixed>>
+     */
+    private function fontUsageForFamilies(array $fontUsage, array $families): array
+    {
+        $wanted = array_fill_keys(array_map('strtolower', $families), true);
+        return array_values(array_filter(
+            $fontUsage,
+            static fn (array $usage): bool => isset($wanted[strtolower((string) ($usage['family'] ?? ''))])
+        ));
     }
 
     /**

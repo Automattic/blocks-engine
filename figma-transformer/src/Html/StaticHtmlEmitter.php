@@ -100,7 +100,8 @@ final class StaticHtmlEmitter
 
         $visualNodeMap = $this->visualNodeMap($nodes);
         $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
-        $transformDiagnostics = $this->transformDiagnostics($nodes, $assetFiles, $fontFamilies, $fontCss, $css, $diagnostics);
+        $fontUsage = $this->fontUsage($nodeStyleDiagnostics);
+        $transformDiagnostics = $this->transformDiagnostics($nodes, $assetFiles, $fontFamilies, $fontUsage, $fontCss, $css, $diagnostics);
         if ( '' === $fontCss ) {
             foreach ( $fontFamilies as $fontFamily ) {
                 if ( $this->isWebSafeFontFamily($fontFamily) ) {
@@ -130,7 +131,7 @@ final class StaticHtmlEmitter
                 'visual_node_count'            => count($visualNodeMap),
                 'visual_node_map'              => $visualNodeMap,
                 'font_families'                => $fontFamilies,
-                'font_usage'                   => $this->fontUsage($nodeStyleDiagnostics),
+                'font_usage'                   => $fontUsage,
                 'font_css_supplied'            => '' !== $fontCss,
                 'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
                 'transform_diagnostics'        => $transformDiagnostics,
@@ -260,7 +261,8 @@ final class StaticHtmlEmitter
 
         $visualNodeMap = $this->visualNodeMap($renderedNodes);
         $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
-        $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $assetFiles, $fontFamilies, $fontCss, $css, $diagnostics);
+        $fontUsage = $this->fontUsage($nodeStyleDiagnostics);
+        $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $assetFiles, $fontFamilies, $fontUsage, $fontCss, $css, $diagnostics);
         if ( '' === $fontCss ) {
             foreach ( $fontFamilies as $fontFamily ) {
                 if ( $this->isWebSafeFontFamily($fontFamily) ) {
@@ -291,7 +293,7 @@ final class StaticHtmlEmitter
                 'visual_node_count'            => count($visualNodeMap),
                 'visual_node_map'              => $visualNodeMap,
                 'font_families'                => $fontFamilies,
-                'font_usage'                   => $this->fontUsage($nodeStyleDiagnostics),
+                'font_usage'                   => $fontUsage,
                 'font_css_supplied'            => '' !== $fontCss,
                 'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
                 'transform_diagnostics'        => $transformDiagnostics,
@@ -637,11 +639,11 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<int, array<string, mixed>> $nodeStyleDiagnostics
-     * @return array<int, array{family:string,weights:array<int,int>}>
+     * @return array<int, array<string, mixed>>
      */
     private function fontUsage(array $nodeStyleDiagnostics): array
     {
-        $weightsByFamily = array();
+        $usageByFamily = array();
         foreach ( $nodeStyleDiagnostics as $diagnostic ) {
             $expected = is_array($diagnostic['expected'] ?? null) ? $diagnostic['expected'] : array();
             if ( ! isset($expected['font_family']) || ! is_scalar($expected['font_family']) ) {
@@ -653,19 +655,59 @@ final class StaticHtmlEmitter
                 continue;
             }
 
+            $node = is_array($diagnostic['node'] ?? null) ? $diagnostic['node'] : array();
             $weight = isset($expected['font_weight']) && is_numeric($expected['font_weight']) ? (int) $expected['font_weight'] : 400;
-            $weightsByFamily[$family][] = $weight;
+            $usageByFamily[$family] ??= array('weights' => array(), 'weight_counts' => array(), 'text_node_count' => 0, 'visible_text_area_px' => 0.0, 'sample_nodes' => array());
+            $usageByFamily[$family]['weights'][] = $weight;
+            $usageByFamily[$family]['weight_counts'][(string) $weight] = ($usageByFamily[$family]['weight_counts'][(string) $weight] ?? 0) + 1;
+            $usageByFamily[$family]['text_node_count']++;
+            $usageByFamily[$family]['visible_text_area_px'] += $this->diagnosticTextArea($expected);
+            if ( count($usageByFamily[$family]['sample_nodes']) < 10 ) {
+                $usageByFamily[$family]['sample_nodes'][] = array(
+                    'node_id' => (string) ($node['id'] ?? ''),
+                    'name' => (string) ($node['name'] ?? ''),
+                    'weight' => $weight,
+                );
+            }
         }
 
-        ksort($weightsByFamily);
+        ksort($usageByFamily);
         $usage = array();
-        foreach ( $weightsByFamily as $family => $weights ) {
-            $weights = array_values(array_unique($weights));
+        foreach ( $usageByFamily as $family => $data ) {
+            $weights = array_values(array_unique($data['weights']));
             sort($weights);
-            $usage[] = array('family' => $family, 'weights' => $weights);
+            ksort($data['weight_counts']);
+            $usage[] = array(
+                'family' => $family,
+                'weights' => $weights,
+                'weight_counts' => $data['weight_counts'],
+                'text_node_count' => (int) $data['text_node_count'],
+                'visible_text_area_px' => (int) round((float) $data['visible_text_area_px']),
+                'sample_nodes' => $data['sample_nodes'],
+            );
         }
 
         return $usage;
+    }
+
+    /**
+     * @param array<string, string|null> $expected
+     */
+    private function diagnosticTextArea(array $expected): float
+    {
+        $width = $this->cssPxValue($expected['width'] ?? null);
+        $height = $this->cssPxValue($expected['height'] ?? null);
+        return max(0.0, $width) * max(0.0, $height);
+    }
+
+    private function cssPxValue(mixed $value): float
+    {
+        if ( ! is_scalar($value) ) {
+            return 0.0;
+        }
+
+        $value = trim((string) $value);
+        return preg_match('/^-?\d+(?:\.\d+)?px$/', $value) ? (float) substr($value, 0, -2) : 0.0;
     }
 
     private function isWebSafeFontFamily(string $family): bool
@@ -691,7 +733,7 @@ final class StaticHtmlEmitter
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<string, mixed>
      */
-    private function transformDiagnostics(array $nodes, array $assetFiles, array $fontFamilies, string $fontCss, string $css, array $diagnostics): array
+    private function transformDiagnostics(array $nodes, array $assetFiles, array $fontFamilies, array $fontUsage, string $fontCss, string $css, array $diagnostics): array
     {
         $image = array(
             'paint_refs'      => 0,
@@ -745,6 +787,7 @@ final class StaticHtmlEmitter
         );
         $fonts = array(
             'families'      => $fontFamilies,
+            'usage'         => $fontUsage,
             'count'         => count($fontFamilies),
             'css_supplied'  => '' !== $fontCss,
             'materialized'  => '' !== $fontCss,
@@ -794,9 +837,10 @@ final class StaticHtmlEmitter
         }
         if ( ! empty($fonts['missing_css']) ) {
             $signals[] = array(
-                'severity' => 'info',
+                'severity' => 'warning',
                 'code' => 'font_css_missing',
                 'count' => count($fonts['missing_css']),
+                'font_usage' => $this->fontUsageForFamilies(is_array($fonts['usage'] ?? null) ? $fonts['usage'] : array(), $fonts['missing_css']),
             );
         }
         if ( ! empty($layout['large_negative_left_count']) ) {
@@ -887,6 +931,20 @@ final class StaticHtmlEmitter
                 'layout_mismatch_status' => (string) ($layout['layout_mismatch_status'] ?? 'not_evaluated'),
             ),
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fontUsage
+     * @param array<int, string> $families
+     * @return array<int, array<string, mixed>>
+     */
+    private function fontUsageForFamilies(array $fontUsage, array $families): array
+    {
+        $wanted = array_fill_keys(array_map('strtolower', $families), true);
+        return array_values(array_filter(
+            $fontUsage,
+            static fn (array $usage): bool => isset($wanted[strtolower((string) ($usage['family'] ?? ''))])
+        ));
     }
 
     /**

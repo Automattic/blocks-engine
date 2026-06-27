@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../scripts/figma-fixture-selection.php';
 require_once __DIR__ . '/FixtureMatrixContract.php';
 require_once __DIR__ . '/LayoutMismatchContract.php';
 require_once __DIR__ . '/OriginInferenceContract.php';
+require_once __DIR__ . '/RenderStyleMismatchContract.php';
 require_once __DIR__ . '/SyntheticFigKiwiFixtureBuilder.php';
 require_once __DIR__ . '/VisualNodeMapContract.php';
 
@@ -1552,6 +1553,7 @@ $assert(in_array('zero-size-source-box', $genericCauses, true), 'layout-mismatch
 $assert(in_array('generated-vs-source-clipping', $genericCauses, true), 'layout-mismatch-generated-vs-source-clipping-suspected-cause');
 $assert(in_array('vector-shell-wrapper-offset', $genericCauses, true), 'layout-mismatch-vector-shell-wrapper-offset-suspected-cause');
 blocks_engine_figma_transformer_run_layout_mismatch_contract($assert);
+blocks_engine_figma_transformer_run_render_style_mismatch_contract($assert);
 
 $layoutMismatchTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name' => 'Layout Mismatch Fixture',
@@ -1749,6 +1751,23 @@ $multiPageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'frame_ids' => array('frame:home', 'frame:about'),
     'entry_frame_id' => 'frame:home',
     'font_css' => '@font-face{font-family:"Example Sans";src:url("assets/example-sans.woff2") format("woff2")}',
+    'generated_render_evidence' => array(
+        'schema' => 'homeboy/static-artifact-render-evidence/v1',
+        'entrypoints' => array(
+            array(
+                'page_path' => 'index.html',
+                'elements' => array(
+                    array('node_id' => 'text:home', 'computed_style' => array('font-family' => 'Example Sans', 'font-size' => '20px', 'font-weight' => '400')),
+                ),
+            ),
+            array(
+                'page_path' => 'about.html',
+                'elements' => array(
+                    array('node_id' => 'text:about', 'computed_style' => array('font-family' => 'Arial, sans-serif', 'font-size' => '20px', 'font-weight' => '700')),
+                ),
+            ),
+        ),
+    ),
 ));
 $multiPageIndex = $fileContent($multiPageResult, 'index.html');
 $multiPageAbout = $fileContent($multiPageResult, 'about.html');
@@ -1766,8 +1785,11 @@ $assert(2 === ($multiPageResult['source_reports']['compiled_site']['totals']['pa
 $assert('about.html' === ($multiPageResult['source_reports']['compiled_site']['pages'][1]['path'] ?? null), 'multi-page-compiled-site-page-path');
 $assert(3 === ($multiPageResult['source_reports']['compiled_site']['totals']['asset_count'] ?? null), 'multi-page-compiled-site-asset-count');
 $assert(array('Example Sans') === ($multiPageResult['source_reports']['figma']['html']['font_families'] ?? null), 'multi-page-font-families-aggregated');
-$assert(array(array('family' => 'Example Sans', 'weights' => array(400, 700))) === ($multiPageResult['source_reports']['figma']['html']['font_usage'] ?? null), 'multi-page-font-usage-aggregated');
-$assert(array(array('family' => 'Example Sans', 'weights' => array(400, 700))) === ($multiPageResult['source_reports']['compiled_site']['theme']['font_usage'] ?? null), 'multi-page-compiled-site-font-usage');
+$multiPageFontUsage = $multiPageResult['source_reports']['figma']['html']['font_usage'] ?? array();
+$multiPageCompiledFontUsage = $multiPageResult['source_reports']['compiled_site']['theme']['font_usage'] ?? array();
+$assert('Example Sans' === ($multiPageFontUsage[0]['family'] ?? null) && array(400, 700) === ($multiPageFontUsage[0]['weights'] ?? null), 'multi-page-font-usage-aggregated');
+$assert(2 === ($multiPageFontUsage[0]['text_node_count'] ?? null), 'multi-page-font-usage-node-count-aggregated');
+$assert('Example Sans' === ($multiPageCompiledFontUsage[0]['family'] ?? null) && array(400, 700) === ($multiPageCompiledFontUsage[0]['weights'] ?? null), 'multi-page-compiled-site-font-usage');
 $assert(in_array('assets/home-image.png', $multiPageAssetPaths, true), 'multi-page-home-asset');
 $assert(in_array('assets/about-image.png', $multiPageAssetPaths, true), 'multi-page-about-asset');
 $assert(! in_array('assets/unused-image.png', $multiPageAssetPaths, true), 'multi-page-unused-asset-filtered');
@@ -1788,6 +1810,10 @@ $assert(0 === ($multiPageTransformDiagnostics['generated_svg_assets']['duplicate
 $assert('selected_frames' === ($multiPageTransformDiagnostics['selection']['mode'] ?? null), 'multi-page-transform-diagnostics-selection-mode');
 $assert('frame:home' === ($multiPageTransformDiagnostics['selection']['selected_frames'][0]['frame_id'] ?? null), 'multi-page-transform-diagnostics-entry-frame-selection');
 $assert('about.html' === ($multiPageTransformDiagnostics['selection']['selected_frames'][1]['path'] ?? null), 'multi-page-transform-diagnostics-about-selection-path');
+$assert(1 === ($multiPageTransformDiagnostics['layout']['render_style_mismatch_count'] ?? null), 'multi-page-render-style-mismatch-aggregated');
+$assert('fail' === ($multiPageTransformDiagnostics['layout']['render_style_mismatch_status'] ?? null), 'multi-page-render-style-status-aggregated');
+$assert(1 === ($multiPageTransformDiagnostics['layout']['render_style']['summary']['font_mismatch_count'] ?? null), 'multi-page-render-style-font-count-aggregated');
+$assert(in_array('render_style_mismatch', array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), $multiPageTransformDiagnostics['artifact_quality']['signals'] ?? array()), true), 'multi-page-render-style-artifact-quality-signal');
 $assert('warn' === ($multiPageTransformDiagnostics['artifact_quality']['quality_status'] ?? null), 'multi-page-transform-diagnostics-quality-status-warn');
 
 $imageScaleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -2225,10 +2251,16 @@ $pendingParity = $parityBuilder->build(array(
     ),
     'dom_boxes_path' => 'artifacts/dom-boxes.json',
     'layout_report_path' => 'artifacts/layout-report.json',
+    'render_evidence_path' => 'artifacts/render-evidence.json',
     'layout_mismatch_count' => 3,
     'layout_top_nodes' => array(
         array('id' => '1:2', 'name' => 'Hero title'),
     ),
+));
+$layoutOnlyParity = $parityBuilder->build(array(
+    'status' => 'pass',
+    'dom_boxes_path' => 'artifacts/dom-boxes.json',
+    'layout_mismatch_count' => 0,
 ));
 $comparedParity = $parityBuilder->build(array(
     'status'    => 'compared',
@@ -2275,8 +2307,17 @@ $assert('pending' === ($pendingParity['status'] ?? null), 'parity-pending-status
 $assert('artifacts/parity-report.json' === ($pendingParity['artifacts']['report_path'] ?? null), 'parity-pending-artifact-path');
 $assert('artifacts/dom-boxes.json' === ($pendingParity['artifacts']['dom_boxes_path'] ?? null), 'parity-dom-boxes-artifact-path');
 $assert('artifacts/layout-report.json' === ($pendingParity['artifacts']['layout_report_path'] ?? null), 'parity-layout-report-artifact-path');
+$assert('artifacts/render-evidence.json' === ($pendingParity['artifacts']['render_evidence_path'] ?? null), 'parity-render-evidence-artifact-path');
 $assert(3 === ($pendingParity['layout_diagnostics']['mismatch_count'] ?? null), 'parity-layout-mismatch-count');
 $assert('1:2' === ($pendingParity['layout_diagnostics']['top_nodes'][0]['id'] ?? null), 'parity-layout-top-node');
+$assert('fail' === ($pendingParity['layout_evidence']['status'] ?? null), 'parity-layout-evidence-status-fail');
+$assert('pending' === ($pendingParity['render_style_evidence']['status'] ?? null), 'parity-render-style-evidence-pending');
+$assert('not_run' === ($pendingParity['visual_pixel_status'] ?? null), 'parity-pending-visual-pixel-not-run');
+$assert('pass' === ($layoutOnlyParity['layout_evidence']['status'] ?? null), 'parity-layout-only-layout-evidence-pass');
+$assert(0 === ($layoutOnlyParity['layout_evidence']['mismatch_count'] ?? null), 'parity-layout-only-layout-count-zero');
+$assert(! array_key_exists('pixel_mismatch_count', $layoutOnlyParity['metrics'] ?? array()), 'parity-layout-only-no-pixel-count');
+$assert('not_run' === ($layoutOnlyParity['visual_pixel_status'] ?? null), 'parity-layout-only-visual-pixel-not-run');
+$assert('not_run' === ($layoutOnlyParity['render_style_evidence']['status'] ?? null), 'parity-layout-only-render-style-not-run');
 $assert('compared' === ($comparedParity['status'] ?? null), 'parity-compared-status');
 $assert('artifacts/source.png' === ($comparedParity['source']['screenshot_path'] ?? null), 'parity-source-screenshot-path');
 $assert('artifacts/generated.png' === ($comparedParity['generated']['screenshot_path'] ?? null), 'parity-generated-screenshot-path');
@@ -3035,14 +3076,27 @@ $assert(! in_array('unsupported_figma_effect_type', $metadataDiagnosticCodes, tr
 $assert(in_array('font_css_missing_for_source_font', $metadataDiagnosticCodes, true), 'missing-font-css-diagnostic');
 $assert(str_starts_with($metadataWithFontCss, '@font-face{font-family:"Example Sans";src:url("assets/example-sans.woff2") format("woff2")}'), 'font-css-prepended-when-supplied');
 $assert(array('Example Sans') === ($metadataWithFontCssResult['source_reports']['figma']['html']['font_families'] ?? null), 'font-family-inventory-reports-source-fonts');
-$assert(array(array('family' => 'DM Sans', 'weights' => array(700)), array('family' => 'Example Sans', 'weights' => array(400, 600))) === ($metadataResult['source_reports']['figma']['html']['font_usage'] ?? null), 'font-usage-reports-source-family-weights');
-$assert(array(array('family' => 'DM Sans', 'weights' => array(700)), array('family' => 'Example Sans', 'weights' => array(400, 600))) === ($metadataResult['source_reports']['compiled_site']['theme']['font_usage'] ?? null), 'compiled-site-theme-promotes-figma-font-usage');
+$metadataFontUsage = $metadataResult['source_reports']['figma']['html']['font_usage'] ?? array();
+$compiledSiteFontUsage = $metadataResult['source_reports']['compiled_site']['theme']['font_usage'] ?? array();
+$assert(array('DM Sans', 'Example Sans') === array_column(is_array($metadataFontUsage) ? $metadataFontUsage : array(), 'family'), 'font-usage-reports-source-families');
+$assert(array(700) === ($metadataFontUsage[0]['weights'] ?? null), 'font-usage-reports-source-dm-sans-weights');
+$assert(array(400, 600) === ($metadataFontUsage[1]['weights'] ?? null), 'font-usage-reports-source-example-sans-weights');
+$assert(1 === ($metadataFontUsage[0]['text_node_count'] ?? null), 'font-usage-reports-source-dm-sans-node-count');
+$assert(3 === ($metadataFontUsage[1]['text_node_count'] ?? null), 'font-usage-reports-source-example-sans-node-count');
+$assert(2 === ($metadataFontUsage[1]['weight_counts']['600'] ?? null), 'font-usage-reports-source-example-sans-weight-count');
+$assert(array_column(is_array($metadataFontUsage) ? $metadataFontUsage : array(), 'family') === array_column(is_array($compiledSiteFontUsage) ? $compiledSiteFontUsage : array(), 'family'), 'compiled-site-theme-promotes-figma-font-usage-families');
 $assert(true === ($metadataWithFontCssResult['source_reports']['figma']['html']['font_css_supplied'] ?? null), 'font-css-supplied-report');
 $metadataTransformDiagnostics = $metadataResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
 $metadataWithFontCssTransformDiagnostics = $metadataWithFontCssResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
 $assert(array('DM Sans', 'Example Sans') === ($metadataTransformDiagnostics['fonts']['families'] ?? null), 'transform-diagnostics-font-families');
 $assert(false === ($metadataTransformDiagnostics['fonts']['materialized'] ?? null), 'transform-diagnostics-font-not-materialized-without-css');
 $assert(array('DM Sans', 'Example Sans') === ($metadataTransformDiagnostics['fonts']['missing_css'] ?? null), 'transform-diagnostics-font-missing-css');
+$missingFontCssSignal = $artifactQualitySignal($metadataResult, 'font_css_missing');
+$assert('warning' === ($missingFontCssSignal['severity'] ?? null), 'font-css-missing-quality-warning');
+$assert('needs_review' === ($metadataTransformDiagnostics['artifact_quality']['status'] ?? null), 'font-css-missing-quality-needs-review');
+$assert('warn' === ($metadataTransformDiagnostics['artifact_quality']['quality_status'] ?? null), 'font-css-missing-quality-status-warn');
+$assert(2 === ($missingFontCssSignal['count'] ?? null), 'font-css-missing-quality-count');
+$assert(! in_array('font_css_missing', $artifactQualitySignalCodes($metadataWithFontCssResult), true), 'font-css-supplied-suppresses-quality-warning');
 $assert(true === ($metadataWithFontCssTransformDiagnostics['fonts']['materialized'] ?? null), 'transform-diagnostics-font-materialized-with-css');
 $styleDiagnostics = $metadataResult['source_reports']['figma']['html']['node_style_diagnostics'] ?? array();
 $mixedTextStyleDiagnostic = null;

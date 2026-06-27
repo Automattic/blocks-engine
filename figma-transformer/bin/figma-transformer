@@ -12,7 +12,7 @@ if ( is_readable($autoload) ) {
 
 $path = $argv[1] ?? '';
 if ( '' === $path || '--help' === $path || '-h' === $path ) {
-    fwrite(STDERR, "Usage: figma-transformer <path-to-fig-or-scenegraph-json> [--inspect-frames[=<limit>]] [--multi-page] [--frame-ids=<id,id>] [--entry-frame-id=<id>] [--max-pages=<count>] [--output-dir=<dir>] [--omit-asset-content] [--max-nodes=<count>] [--max-kiwi-message-decode-bytes=<bytes>] [--zstd-command=<path>] [--frame-id=<id>] [--font-css=<css>] [--font-css-file=<path>] [--render-text-glyph-paths] [--parity-status=<status>] [--parity-report-path=<path>] [--parity-source-screenshot-url=<url>] [--parity-source-screenshot-path=<path>] [--parity-generated-screenshot-artifact=<artifact>] [--parity-diff-image-artifact=<artifact>] [--parity-pixel-mismatch-count=<count>] [--parity-pixel-mismatch-ratio=<ratio>] [--parity-threshold=<ratio>] [--parity-viewport=<width>x<height>] [--parity-dom-boxes-path=<path>] [--parity-layout-report-path=<path>] [--parity-layout-mismatch-count=<count>]\n");
+    fwrite(STDERR, "Usage: figma-transformer <path-to-fig-or-scenegraph-json> [--inspect-frames[=<limit>]] [--multi-page] [--frame-ids=<id,id>] [--entry-frame-id=<id>] [--max-pages=<count>] [--output-dir=<dir>] [--omit-asset-content] [--max-nodes=<count>] [--max-kiwi-message-decode-bytes=<bytes>] [--zstd-command=<path>] [--frame-id=<id>] [--font-css=<css>] [--font-css-file=<path>] [--render-text-glyph-paths] [--parity-status=<status>] [--parity-report-path=<path>] [--parity-source-screenshot-url=<url>] [--parity-source-screenshot-path=<path>] [--parity-generated-screenshot-artifact=<artifact>] [--parity-diff-image-artifact=<artifact>] [--parity-pixel-mismatch-count=<count>] [--parity-pixel-mismatch-ratio=<ratio>] [--parity-threshold=<ratio>] [--parity-viewport=<width>x<height>] [--parity-dom-boxes-path=<path>] [--parity-layout-report-path=<path>] [--parity-render-evidence-path=<path>] [--parity-layout-mismatch-count=<count>]\n");
     exit(1);
 }
 
@@ -140,6 +140,7 @@ foreach ( array_slice($argv, 2) as $argument ) {
         'parity-dom-boxes-path' => 'dom_boxes_path',
         'parity-layout-report-path' => 'layout_report_path',
         'parity-layout-mismatch-report-path' => 'layout_mismatch_report_path',
+        'parity-render-evidence-path' => 'render_evidence_path',
         'parity-layout-mismatch-count' => 'layout_mismatch_count',
     );
 
@@ -156,6 +157,13 @@ if ( isset($options['parity']['dom_boxes_path']) && is_scalar($options['parity']
     $domBoxes = blocks_engine_figma_transformer_cli_read_json_file((string) $options['parity']['dom_boxes_path']);
     if ( is_array($domBoxes) ) {
         $options['generated_dom_boxes'] = $domBoxes;
+    }
+}
+
+if ( isset($options['parity']['render_evidence_path']) && is_scalar($options['parity']['render_evidence_path']) ) {
+    $renderEvidence = blocks_engine_figma_transformer_cli_read_json_file((string) $options['parity']['render_evidence_path']);
+    if ( is_array($renderEvidence) ) {
+        $options['generated_render_evidence'] = $renderEvidence;
     }
 }
 
