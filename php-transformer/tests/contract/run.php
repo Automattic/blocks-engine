@@ -274,6 +274,9 @@ $runtimeCanvasResult = ( new HtmlTransformer() )->transform('<main><canvas id="f
 $assert('canvas' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['kind'] ?? ''), 'HTML transform reports runtime-targeted canvas fallback as a runtime island');
 $assert('canvas_requires_runtime' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['preservation_reason'] ?? ''), 'runtime island exposes canvas preservation reason');
 $assert(str_contains((string) ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['source_snippet'] ?? ''), '<canvas id="fixture-canvas">Fallback</canvas>'), 'runtime island exposes bounded source snippet');
+$assert('runtime_canvas' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['pattern_family'] ?? ''), 'runtime island exposes generic pattern family metadata');
+$assert('1,0,0' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['source_selector_specificity']['score'] ?? ''), 'runtime island exposes source selector specificity');
+$assert('preserve_runtime_island' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['suggested_generic_repair_class'] ?? ''), 'runtime island exposes generic repair class metadata');
 $assert($runtimeCanvasResult['source_reports']['runtime_islands'] === ($runtimeCanvasResult['source_reports']['conversion_report']['runtime_islands'] ?? array()), 'conversion report projects runtime islands');
 
 $invalidStatus = $result;
@@ -322,6 +325,8 @@ $assert('form' === ($formFallback['source_reports']['conversion_report']['intera
 $assert('/contact' === ($formFallback['source_reports']['interaction_candidates'][0]['target'] ?? ''), 'form interaction candidate exposes action target');
 $assert('form' === ($formRuntimeIsland['kind'] ?? ''), 'readable runtime form reports as a runtime island');
 $assert('form_requires_runtime' === ($formRuntimeIsland['preservation_reason'] ?? ''), 'form runtime island exposes preservation reason');
+$assert('interactive_form' === ($formRuntimeIsland['pattern_family'] ?? ''), 'form runtime island exposes generic pattern family');
+$assert('preserve_runtime_island' === ($formRuntimeIsland['suggested_generic_repair_class'] ?? ''), 'form runtime island exposes generic repair class metadata');
 $assert('/contact' === ($formRuntimeIsland['form']['action'] ?? ''), 'form runtime island exposes form action metadata');
 $assert('post' === ($formRuntimeIsland['form']['method'] ?? ''), 'form runtime island exposes normalized form method metadata');
 $assert(3 === ($formRuntimeIsland['control_count'] ?? null), 'form runtime island exposes form control count');
@@ -335,6 +340,10 @@ $assert('core/group' === ($formRuntimeIsland['readable_blocks'][0]['blockName'] 
 $scriptOnlyFormFallback = ( new HtmlTransformer() )->transform('<main><form action="/contact" method="post"><script>window.submitContact()</script></form></main>')->toArray();
 $scriptOnlyFormDiagnostic = $scriptOnlyFormFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
 $assertNormalizedFallbackDiagnostic($scriptOnlyFormDiagnostic, 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
+$assert('interactive_form' === ($scriptOnlyFormDiagnostic['pattern_family'] ?? ''), 'conversion report exposes form fallback pattern family');
+$assert('inside_main' === ($scriptOnlyFormDiagnostic['parent_reason'] ?? ''), 'conversion report exposes fallback parent reason');
+$assert('0,2,2' === ($scriptOnlyFormDiagnostic['source_selector_specificity']['score'] ?? ''), 'conversion report exposes fallback selector specificity');
+$assert('preserve_runtime_island' === ($scriptOnlyFormDiagnostic['suggested_generic_repair_class'] ?? ''), 'conversion report exposes form fallback generic repair class');
 $assert(array() === ($scriptOnlyFormFallback['blocks'] ?? array()), 'runtime form without readable controls still falls back only as metadata');
 
 $rangeControlResult = ( new HtmlTransformer() )->transform(
@@ -720,6 +729,8 @@ $assert('runtime_island_preserved' === ($diagnosticsByCode['html_script_fallback
 $assert('runtime_island_preserved' === ($diagnosticsByCode['html_script_fallback']['loss_class'] ?? ''), 'script fallback exposes preserved runtime island loss class');
 $assert('runtime_island_preserved' === ($diagnosticsByCode['html_script_fallback']['diagnostic_class'] ?? ''), 'script fallback exposes preserved runtime island diagnostic class');
 $assert('preserve_runtime_island' === ($diagnosticsByCode['html_script_fallback']['suggested_repair_class'] ?? ''), 'script fallback routes to runtime island preservation rather than unsupported HTML replacement');
+$assert('runtime_script' === ($diagnosticsByCode['html_script_fallback']['pattern_family'] ?? ''), 'script fallback exposes generic pattern family');
+$assert('preserve_runtime_island' === ($diagnosticsByCode['html_script_fallback']['suggested_generic_repair_class'] ?? ''), 'script fallback exposes generic repair class');
 $scriptRuntimeIslands = array_values(array_filter($normalizedFallbacks['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'script' === ($island['kind'] ?? '')));
 $assert(1 === count($scriptRuntimeIslands), 'runtime script fallback projects as a runtime island');
 $assert('script_requires_runtime' === ($scriptRuntimeIslands[0]['preservation_reason'] ?? ''), 'runtime script island exposes preservation reason');
@@ -765,6 +776,8 @@ $canvasDiagnostic = $canvasFallback['source_reports']['conversion_report']['fall
 $assertNormalizedFallbackDiagnostic($canvasDiagnostic, 'html_canvas_runtime_fallback', 'warning', 'canvas_element_and_client_script_execution', 'runtime_canvas', 'runtime_island_preserved');
 $assert('runtime_island_preserved' === ($canvasDiagnostic['diagnostic_class'] ?? ''), 'canvas runtime fallback exposes preserved runtime island diagnostic class');
 $assert('preserve_runtime_island' === ($canvasDiagnostic['suggested_repair_class'] ?? ''), 'canvas runtime fallback routes to runtime island preservation');
+$assert('runtime_canvas' === ($canvasDiagnostic['pattern_family'] ?? ''), 'canvas runtime fallback exposes generic pattern family');
+$assert('preserve_runtime_island' === ($canvasDiagnostic['suggested_generic_repair_class'] ?? ''), 'canvas runtime fallback exposes generic repair class');
 $assert('canvas_requires_runtime' === ($canvasDiagnostic['reason'] ?? ''), 'canvas fallback exposes runtime-specific reason');
 $assert('bonsai' === ($canvasFallback['fallbacks'][0]['attributes']['id'] ?? ''), 'canvas fallback preserves id for runtime mapping');
 $assert(str_contains((string) ($canvasFallback['fallbacks'][0]['html'] ?? ''), '<canvas id="bonsai"'), 'canvas fallback preserves bounded safe canvas markup');
@@ -805,6 +818,9 @@ $unsupportedLoss = ( new HtmlTransformer() )->transform('<main><applet code="clo
 $unsupportedDiagnostic = $unsupportedLoss['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
 $assert('html_unsupported_element' === ($unsupportedDiagnostic['diagnostic_code'] ?? ''), 'unsupported element emits fallback diagnostic');
 $assert('unsupported_loss' === ($unsupportedDiagnostic['conversion_classification'] ?? ''), 'true unsupported fallback is classified as unsupported loss');
+$assert('unsupported_applet' === ($unsupportedDiagnostic['pattern_family'] ?? ''), 'unsupported fallback exposes tag-specific pattern family');
+$assert('add_generic_pattern_recognizer' === ($unsupportedDiagnostic['suggested_generic_repair_class'] ?? ''), 'unsupported fallback exposes generic recognizer repair class');
+$assert('inside_main' === ($unsupportedDiagnostic['parent_reason'] ?? ''), 'unsupported fallback exposes parent context reason');
 
 $decorativeCanvas = ( new HtmlTransformer() )->transform(
     '<main><section class="hero"><canvas id="stars" aria-hidden="true"></canvas><h1>Stars</h1></section></main>',

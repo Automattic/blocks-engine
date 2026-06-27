@@ -230,9 +230,16 @@ final class HtmlTransformer
                     'severity'            => $fallback['severity'] ?? null,
                     'conversion_classification' => $fallback['conversion_classification'] ?? null,
                     'preservation_strategy' => $fallback['preservation_strategy'] ?? null,
-                    'runtime_requirement' => $fallback['runtime_requirement'] ?? null,
-                    'tag'                 => $fallback['tag'] ?? null,
-                    'selector'            => $fallback['selector'] ?? null,
+                    'runtime_requirement'             => $fallback['runtime_requirement'] ?? null,
+                    'tag'                             => $fallback['tag'] ?? null,
+                    'selector'                        => $fallback['selector'] ?? null,
+                    'pattern_family'                  => $fallback['pattern_family'] ?? null,
+                    'pattern_family_detail'           => $fallback['pattern_family_detail'] ?? null,
+                    'source_selector'                 => $fallback['source_selector'] ?? null,
+                    'source_selector_specificity'     => $fallback['source_selector_specificity'] ?? null,
+                    'parent_reason'                   => $fallback['parent_reason'] ?? null,
+                    'ancestor_reason'                 => $fallback['ancestor_reason'] ?? null,
+                    'suggested_generic_repair_class' => $fallback['suggested_generic_repair_class'] ?? null,
                 );
             }
         }
@@ -253,6 +260,13 @@ final class HtmlTransformer
                 'reason'              => $island['preservation_reason'] ?? null,
                 'tag'                 => $island['tag'] ?? null,
                 'selector'            => $island['selector'] ?? null,
+                'pattern_family'                  => $island['pattern_family'] ?? null,
+                'pattern_family_detail'           => $island['pattern_family_detail'] ?? null,
+                'source_selector'                 => $island['source_selector'] ?? null,
+                'source_selector_specificity'     => $island['source_selector_specificity'] ?? null,
+                'parent_reason'                   => $island['parent_reason'] ?? null,
+                'ancestor_reason'                 => $island['ancestor_reason'] ?? null,
+                'suggested_generic_repair_class' => $island['suggested_generic_repair_class'] ?? null,
             ), static fn (mixed $value): bool => null !== $value && '' !== $value);
         }
 
@@ -3646,10 +3660,11 @@ final class HtmlTransformer
     private function recordRuntimeIsland(DOMElement $element, string $kind, string $reason, string $runtimeRequirement, array $metadata = array()): void
     {
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-        $island = array_filter(array_merge(array(
+        $island = FallbackDiagnostic::withGenericFindingMetadata(array_filter(array_merge(array(
             'kind'                => $kind,
             'selector'            => $this->runtimeIslandSelector($element),
             'tag'                 => strtolower($element->tagName),
+            'diagnostic_code'     => 'preserved_runtime_island',
             'preservation_reason' => $reason,
             'runtime_requirement' => $runtimeRequirement,
             'source_snippet'      => $boundedHtml['html'],
@@ -3659,7 +3674,7 @@ final class HtmlTransformer
             'context'             => $this->sourceContext($element),
             'required_assets'     => array(),
             'required_scripts'    => array(),
-        ), $metadata), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+        ), $metadata), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value));
 
         $key = json_encode(array(
             'kind'     => $island['kind'] ?? '',
