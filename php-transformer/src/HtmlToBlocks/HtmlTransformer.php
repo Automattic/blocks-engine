@@ -384,7 +384,8 @@ final class HtmlTransformer
     {
         $counts = array('header' => 0, 'nav' => 0, 'main' => 0, 'footer' => 0);
         $selectors = array('header' => array(), 'nav' => array(), 'main' => array(), 'footer' => array());
-        $this->collectSourceLandmarks($body, $counts, $selectors);
+        $seenNavigation = array();
+        $this->collectSourceLandmarks($body, $counts, $selectors, $seenNavigation);
 
         return array('counts' => $counts, 'selectors' => $selectors);
     }
@@ -392,18 +393,30 @@ final class HtmlTransformer
     /**
      * @param array<string, int> $counts
      * @param array<string, array<int, string>> $selectors
+     * @param array<string, bool> $seenNavigation
      */
-    private function collectSourceLandmarks(DOMElement $element, array &$counts, array &$selectors): void
+    private function collectSourceLandmarks(DOMElement $element, array &$counts, array &$selectors, array &$seenNavigation): void
     {
         $landmark = $this->landmarkKindForElement($element);
         if ( '' !== $landmark ) {
+            if ( 'nav' === $landmark ) {
+                $signature = $this->sourceNavigationMenuSignature($this->sourceNavigationMenuItems($element));
+                if ( '' !== $signature && isset($seenNavigation[$signature]) && $this->isMobileDuplicateSourceNavigation($element) ) {
+                    return;
+                }
+
+                if ( '' !== $signature ) {
+                    $seenNavigation[$signature] = true;
+                }
+            }
+
             ++$counts[$landmark];
             $selectors[$landmark][] = $this->elementSelector($element);
         }
 
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement ) {
-                $this->collectSourceLandmarks($child, $counts, $selectors);
+                $this->collectSourceLandmarks($child, $counts, $selectors, $seenNavigation);
             }
         }
     }
@@ -516,27 +529,27 @@ final class HtmlTransformer
     private function sourceNavigationMenus(DOMElement $body): array
     {
         $menus = array();
-        $this->collectSourceNavigationMenus($body, $menus);
+        $seen = array();
+        $this->collectSourceNavigationMenus($body, $menus, $seen);
         return $menus;
     }
 
     /**
      * @param array<int, array<string, mixed>> $menus
+     * @param array<string, bool> $seen
      */
-    private function collectSourceNavigationMenus(DOMElement $element, array &$menus): void
+    private function collectSourceNavigationMenus(DOMElement $element, array &$menus, array &$seen): void
     {
         if ( 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role')) ) {
-            $items = array();
-            foreach ( $element->getElementsByTagName('a') as $anchor ) {
-                if ( $anchor instanceof DOMElement ) {
-                    $label = $this->sourceNavigationAnchorLabel($anchor);
-                    if ( '' !== $label ) {
-                        $items[] = array(
-                            'label' => $label,
-                            'url' => $this->safeNavigationUrl($this->attr($anchor, 'href')),
-                        );
-                    }
-                }
+            $items = $this->sourceNavigationMenuItems($element);
+
+            $signature = $this->sourceNavigationMenuSignature($items);
+            if ( '' !== $signature && isset($seen[$signature]) && $this->isMobileDuplicateSourceNavigation($element) ) {
+                return;
+            }
+
+            if ( '' !== $signature ) {
+                $seen[$signature] = true;
             }
 
             $menus[] = array(
@@ -548,9 +561,74 @@ final class HtmlTransformer
 
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement ) {
-                $this->collectSourceNavigationMenus($child, $menus);
+                $this->collectSourceNavigationMenus($child, $menus, $seen);
             }
         }
+    }
+
+    /**
+     * @return array<int, array<string, string>>
+     */
+    private function sourceNavigationMenuItems(DOMElement $element): array
+    {
+        $items = array();
+        foreach ( $element->getElementsByTagName('a') as $anchor ) {
+            if ( ! $anchor instanceof DOMElement || $this->isSourceNavigationChromeAnchor($anchor) ) {
+                continue;
+            }
+
+            $label = $this->sourceNavigationAnchorLabel($anchor);
+            if ( '' !== $label ) {
+                $items[] = array(
+                    'label' => $label,
+                    'url' => $this->safeNavigationUrl($this->attr($anchor, 'href')),
+                );
+            }
+        }
+
+        return $items;
+    }
+
+    /**
+     * @param array<int, array<string, string>> $items
+     */
+    private function sourceNavigationMenuSignature(array $items): string
+    {
+        $links = array();
+        foreach ( $items as $item ) {
+            $links[] = trim((string) ($item['label'] ?? '')) . '>' . trim((string) ($item['url'] ?? ''));
+        }
+
+        return implode('|', $links);
+    }
+
+    private function isMobileDuplicateSourceNavigation(DOMElement $element): bool
+    {
+        $tokens = array(
+            $this->attr($element, 'class'),
+            $this->attr($element, 'id'),
+        );
+
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement && 'body' !== strtolower($parent->tagName); $parent = $parent->parentNode ) {
+            $tokens[] = $this->attr($parent, 'class');
+            $tokens[] = $this->attr($parent, 'id');
+        }
+
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|hamburger|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', strtolower(implode(' ', $tokens)));
+    }
+
+    private function isSourceNavigationChromeAnchor(DOMElement $anchor): bool
+    {
+        if ( in_array(strtolower($this->attr($anchor, 'role')), array( 'separator', 'presentation', 'none' ), true) ) {
+            return true;
+        }
+
+        if ( '' === trim($anchor->textContent ?? '') && '' === trim($this->attr($anchor, 'aria-label') . $this->attr($anchor, 'title')) ) {
+            return true;
+        }
+
+        $tokens = strtolower($this->attr($anchor, 'class') . ' ' . $this->attr($anchor, 'id'));
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:separator|divider)(?:[^a-z0-9]|$)/', $tokens);
     }
 
     /**
@@ -842,7 +920,7 @@ final class HtmlTransformer
     {
         if ( in_array($block['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
             $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-            $links[] = trim((string) ($attrs['label'] ?? '')) . '>' . trim((string) ($attrs['url'] ?? ''));
+            $links[] = $this->normalizedNavigationLabel((string) ($attrs['label'] ?? '')) . '>' . trim((string) ($attrs['url'] ?? ''));
         }
 
         foreach ( is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array() as $innerBlock ) {

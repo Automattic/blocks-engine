@@ -488,6 +488,19 @@ $assert('GitHub' === ($footerNavigationMenus[2]['items'][1]['label'] ?? ''), 'ic
 $assert(str_contains($footerNavigationSerialized, 'footer-link'), 'footer navigation preserves link classes for styling and script targets');
 $assert(str_contains($footerNavigationSerialized, 'social-link'), 'social navigation preserves social link classes for styling and script targets');
 
+$complexHeaderNavigation = ( new HtmlTransformer() )->transform(
+    '<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-expanded="false" aria-controls="menu">Menu</button><nav class="primary-nav" aria-label="Primary"><div id="menu" class="nav-list"><a href="/">Home</a><a class="nav-divider" role="separator" href="#">/</a><span class="separator">|</span><button class="dropdown-toggle" aria-expanded="false">More</button><a href="/shop"><span>Shop</span><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><ul><li><a href="/services">Services</a><ul><li><a href="/consulting">Consulting</a></li></ul></li></ul><a class="icon-button" href="/cart" aria-label="Cart"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a></div></nav><div class="mobile-nav overlay"><div class="drawer-panel"><nav class="drawer-nav" aria-label="Mobile"><a href="/">Home</a><a href="/shop">Shop</a><ul><li><a href="/services">Services</a><ul><li><a href="/consulting">Consulting</a></li></ul></li></ul><a class="icon-button" href="/cart" aria-label="Cart"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a></nav></div></div></div></header>'
+)->toArray();
+$complexHeaderParity = $complexHeaderNavigation['source_reports']['semantic_parity'] ?? array();
+$complexHeaderBlockMenus = $complexHeaderParity['navigation_menus']['blocks'] ?? array();
+$complexHeaderSourceMenus = $complexHeaderParity['navigation_menus']['source'] ?? array();
+$assert('pass' === ($complexHeaderParity['status'] ?? ''), 'complex header navigation chrome preserves semantic parity');
+$assert(1 === count($complexHeaderSourceMenus), 'source semantic parity dedupes duplicated mobile drawer navigation');
+$assert(1 === count($complexHeaderBlockMenus), 'generated navigation dedupes duplicated mobile drawer navigation');
+$assert(5 === ($complexHeaderBlockMenus[0]['item_count'] ?? null), 'complex header navigation skips chrome and preserves real item count');
+$assert('Cart' === ($complexHeaderBlockMenus[0]['items'][4]['label'] ?? ''), 'icon-only header navigation links use accessible labels');
+$assert(! str_contains((string) ($complexHeaderNavigation['serialized_blocks'] ?? ''), 'drawer-nav'), 'complex header navigation removes duplicate mobile drawer core/navigation children');
+
 $runtimeTargetNavigation = ( new HtmlTransformer() )->transform(
     '<nav aria-label="Docs"><ul><li><a class="nav-link" href="/guide">Guide</a></li></ul></nav>',
     array('runtime_dom_selectors' => array('.nav-link'))
