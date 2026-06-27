@@ -181,10 +181,21 @@ final class RuntimeDependencyParityReport
             $selector = is_string($island['selector'] ?? null) ? trim($island['selector']) : '';
             if ( str_starts_with($selector, '#') ) {
                 $targets['ids'][substr($selector, 1)] = true;
-                continue;
             }
             if ( str_starts_with($selector, '.') ) {
                 $targets['classes'][substr($selector, 1)] = true;
+            }
+
+            $attributes = is_array($island['attributes'] ?? null) ? $island['attributes'] : array();
+            $id = is_string($attributes['id'] ?? null) ? trim($attributes['id']) : '';
+            if ( '' !== $id ) {
+                $targets['ids'][$id] = true;
+            }
+            $classList = is_string($attributes['class'] ?? null) ? trim($attributes['class']) : '';
+            foreach ( preg_split('/\s+/', $classList) ?: array() as $class ) {
+                if ( '' !== $class ) {
+                    $targets['classes'][$class] = true;
+                }
             }
         }
 
