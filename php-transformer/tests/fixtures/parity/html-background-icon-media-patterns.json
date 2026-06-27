@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-background-icon-media-patterns",
+  "description": "Converts generic background-image heroes and icon-like SVG card media into core media blocks without fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-background-icon-media-patterns.json",
+    "notes": "Product-neutral coverage from SSI fixture matrix media/icon/background parity gaps."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"hero media-hero\" aria-label=\"Mountain clinic exterior\" style=\"background-image:url('/assets/clinic-hero.jpg');background-size:cover\"><div class=\"hero-copy\"><h1>Care that meets you</h1><p>Evidence-based care in a calm space.</p></div></section><div class=\"feature-card\"><div class=\"feature-icon\" aria-hidden=\"true\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\"><path d=\"M4 12h16\"/><path d=\"M12 4v16\"/></svg></div><h3>Fast booking</h3><p>Choose the right visit online.</p></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "hero media-hero", "style": "background-image:url('/assets/clinic-hero.jpg');background-size:cover" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "url": "/assets/clinic-hero.jpg", "alt": "Mountain clinic exterior", "className": "blocks-engine-background-image" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Care that meets you", "level": 1 } },
+    { "path": "blocks.1", "name": "core/group", "attrs": { "className": "feature-card" } },
+    { "path": "blocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "feature-icon" } },
+    { "path": "blocks.1.innerBlocks.0.innerBlocks.0", "name": "core/image" },
+    { "path": "blocks.1.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Fast booking", "level": 3 } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "assets/inline-svg-" },
+    { "path": "source_reports.conversion_report.metrics.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

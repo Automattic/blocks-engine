@@ -1,0 +1,40 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-generic-section-layout-hierarchy",
+  "description": "Recognizes generic hero split layouts, inner containers, repeated feature grids, and card-like children from neutral structural class tokens.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-generic-section-layout-hierarchy.json",
+    "notes": "Derived from SSI fixture matrix patterns such as hero-inner/hero-grid, wrap/container, grid-3/grid-4, feature/service/provider cards, and stat/trust-badge rows."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><section class=\"hero\"><div class=\"wrap hero-inner\"><div class=\"hero-text\"><p class=\"eyebrow\">Open source</p><h1>Launch faster</h1><p>Reusable sections with clean hierarchy.</p><div class=\"hero-actions\"><a class=\"btn btn-primary\" href=\"/start\">Start</a><a class=\"btn btn-ghost\" href=\"/demo\">Demo</a></div></div><div class=\"hero-panel\"><div class=\"stat\"><strong>43%</strong><p>faster publishing</p></div></div></div></section><section class=\"section\"><div class=\"wrap\"><div class=\"section-head\"><p class=\"kicker\">Why it works</p><h2>Feature sections stay grouped</h2></div><div class=\"features\"><div class=\"feature\"><h3>Blocks</h3><p>Composable editing.</p></div><div class=\"feature\"><h3>Ownership</h3><p>Your content stays yours.</p></div><div class=\"feature\"><h3>Ecosystem</h3><p>Thousands of extensions.</p></div></div></div></section></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "hero" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/columns", "attrs": { "className": "wrap hero-inner" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "hero-text" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/column", "attrs": { "className": "hero-panel" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "section" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "wrap" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "features", "layout": { "type": "grid" } } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "feature" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.1.innerBlocks.1", "name": "core/group", "attrs": { "className": "feature" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.1.innerBlocks.2", "name": "core/group", "attrs": { "className": "feature" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"wrap hero-inner\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"features\",\"layout\":{\"type\":\"grid\"}} -->" },
+    { "path": "source_reports.html.structure_signals.1.signals.section_container_like", "assert": "equals", "value": true },
+    { "path": "source_reports.html.structure_signals.9.signals.repeated_card_children", "assert": "equals", "value": 3 }
+  ]
+}

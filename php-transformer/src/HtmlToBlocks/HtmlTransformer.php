@@ -1124,6 +1124,9 @@ final class HtmlTransformer
 
         if ( 'svg' === $tagName ) {
             if ( $this->isSafeDecorativeSvgElement($element) ) {
+                if ( $this->hasIconLikeContext($element) ) {
+                    return $this->inlineSvgBlockFromElement($element);
+                }
                 if ( $this->isVisualLayerElement($element) ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
                 }
@@ -1290,6 +1293,10 @@ final class HtmlTransformer
             }
 
             $children = $this->convertChildren($element, $fallbacks, true);
+            $backgroundImage = $this->backgroundImageBlockFromElement($element);
+            if ( null !== $backgroundImage && ! $this->hasDirectMediaChild($element) ) {
+                array_unshift($children, $backgroundImage);
+            }
             if ( 1 === count($children) ) {
                 if ( $this->shouldPreserveWrapper($element) ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
@@ -1810,7 +1817,7 @@ final class HtmlTransformer
     private function hasGridLikeClass(DOMElement $element): bool
     {
         $className = strtolower($this->attr($element, 'class'));
-        return (bool) preg_match('/(?:^|[\s_-])(?:cards|grid|tiles|collection|gallery)(?:$|[\s_-])/', $className);
+        return (bool) preg_match('/(?:^|[\s_-])(?:cards|features|services|providers|testimonials|resources|posts|projects|stats|badges|grid|grid-[0-9]+|tiles|collection|gallery)(?:$|[\s_-])/', $className);
     }
 
     /**
@@ -2184,11 +2191,14 @@ final class HtmlTransformer
         $style = strtolower(trim($this->attr($element, 'style') . ';' . (string) ($attrs['style'] ?? '')));
         $signals = array();
 
-        if ( preg_match('/(?:^|[\s_-])(?:card|tile|panel|item)(?:$|[\s_-])/', $className) || 'article' === strtolower($element->tagName) ) {
+        if ( preg_match('/(?:^|[\s_-])(?:card|feature|service|provider|resource|post|project|stat|badge|tile|panel|item)(?:$|[\s_-])/', $className) || 'article' === strtolower($element->tagName) ) {
             $signals['card_like'] = true;
         }
-        if ( preg_match('/(?:^|[\s_-])(?:cards|grid|tiles|columns|collection|gallery)(?:$|[\s_-])/', $className) || preg_match('/(?:^|;)\s*(?:display\s*:\s*grid|grid-template-columns\s*:)/', $style) ) {
+        if ( preg_match('/(?:^|[\s_-])(?:cards|features|services|providers|testimonials|resources|posts|projects|stats|badges|grid|grid-[0-9]+|tiles|columns|collection|gallery)(?:$|[\s_-])/', $className) || preg_match('/(?:^|;)\s*(?:display\s*:\s*grid|grid-template-columns\s*:)/', $style) ) {
             $signals['grid_like'] = true;
+        }
+        if ( preg_match('/(?:^|[\s_-])(?:hero|masthead|intro|banner|container|wrap|wrapper|inner|shell)(?:$|[\s_-])/', $className) ) {
+            $signals['section_container_like'] = true;
         }
         if ( $this->isVisualLayerElement($element) ) {
             $signals['visual_layer'] = true;
@@ -2229,7 +2239,7 @@ final class HtmlTransformer
     private function isCardLikeElement(DOMElement $element): bool
     {
         $className = strtolower($this->attr($element, 'class'));
-        return 'article' === strtolower($element->tagName) || (bool) preg_match('/(?:^|[\s_-])(?:card|tile|panel|item)(?:$|[\s_-])/', $className);
+        return 'article' === strtolower($element->tagName) || (bool) preg_match('/(?:^|[\s_-])(?:card|feature|service|provider|resource|post|project|stat|badge|tile|panel|item)(?:$|[\s_-])/', $className);
     }
 
     private function isVisualLayerElement(DOMElement $element): bool
@@ -3901,6 +3911,60 @@ final class HtmlTransformer
     }
 
     /**
+     * @return array<string, mixed>|null
+     */
+    private function backgroundImageBlockFromElement(DOMElement $element): ?array
+    {
+        $url = $this->backgroundImageUrlFromStyle($this->attr($element, 'style'));
+        if ( '' === $url ) {
+            return null;
+        }
+
+        return $this->createBlock('core/image', array_filter(array(
+            'url'       => $url,
+            'alt'       => $this->backgroundImageAlt($element),
+            'className' => 'blocks-engine-background-image',
+        ), static fn (string $value): bool => '' !== $value), array(), $element);
+    }
+
+    private function backgroundImageUrlFromStyle(string $style): string
+    {
+        if ( ! preg_match('/(?:^|;)\s*background(?:-image)?\s*:\s*[^;]*url\(\s*(["\']?)([^"\')]+)\1\s*\)/i', $style, $matches) ) {
+            return '';
+        }
+
+        $url = trim(html_entity_decode((string) $matches[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
+            return '';
+        }
+
+        return $url;
+    }
+
+    private function backgroundImageAlt(DOMElement $element): string
+    {
+        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
+            $value = trim($this->attr($element, $attribute));
+            if ( '' !== $value ) {
+                return $value;
+            }
+        }
+
+        return '';
+    }
+
+    private function hasDirectMediaChild(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'img', 'picture', 'svg', 'video', 'audio' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
@@ -4047,8 +4111,28 @@ final class HtmlTransformer
         }
 
         return (bool) preg_match('/(?:^|[\s_-])columns?(?:$|[\s_-])/', $className)
+            || ( $this->looksLikeSplitLayout($element) && 1 < $this->directElementChildCount($element) )
             || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element) )
             || preg_match('/(?:^|;)\s*(?:display\s*:\s*(?:inline-)?flex|grid-template-columns\s*:)/', $style);
+    }
+
+    private function looksLikeSplitLayout(DOMElement $element): bool
+    {
+        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id')));
+
+        return (bool) preg_match('/(?:^|[\s_-])(?:split|two[\s_-]?col|media[\s_-]?text|text[\s_-]?media|feature[\s_-]?row|hero[\s_-]?(?:inner|grid|content|layout)|content[\s_-]?grid)(?:$|[\s_-])/', $name);
+    }
+
+    private function directElementChildCount(DOMElement $element): int
+    {
+        $count = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                ++$count;
+            }
+        }
+
+        return $count;
     }
 
     private function looksLikeDocumentationLayout(DOMElement $element): bool
