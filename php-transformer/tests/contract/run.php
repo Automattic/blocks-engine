@@ -1767,6 +1767,69 @@ $unnamedBlock = $compiler->compile(
 $assert('generated/fallback' === ($unnamedBlock['block_types'][0]['name'] ?? ''), 'unnamed block.json receives stable generated name');
 $assert(in_array('block_json_missing_name', array_column($unnamedBlock['diagnostics'], 'code'), true), 'unnamed block.json emits a diagnostic');
 
+// Companion-plugin payload producer (issue #491 slice 2): generated blocks are
+// packaged into a payload whose shape matches the SSI #492 scaffold() consumer.
+$companion = $compiler->compile(
+    array(
+        'site'  => array( 'name' => 'Acme Co', 'slug' => 'acme' ),
+        'files' => array(
+            'index.html'             => '<main><section class="hero"><h1>Hi</h1></section></main>',
+            'blocks/hero/block.json' => json_encode(
+                array(
+                    'apiVersion'   => 3,
+                    'name'         => 'acme/hero',
+                    'title'        => 'Hero',
+                    'category'     => 'design',
+                    'render'       => 'file:./render.php',
+                    'viewScript'   => 'file:./view.js',
+                    'style'        => 'file:./style.css',
+                    'editorScript' => 'file:./index.js',
+                ),
+                JSON_UNESCAPED_SLASHES
+            ),
+            'blocks/hero/render.php' => '<?php echo "<div>hero</div>";',
+            'blocks/hero/view.js'    => 'console.log("hero island");',
+            'blocks/hero/style.css'  => '.wp-block-acme-hero{padding:2rem}',
+            'blocks/hero/index.js'   => 'import metadata from "./block.json";',
+        ),
+    )
+)->toArray();
+$companionPayload = $companion['source_reports']['companion_plugin_payload'] ?? null;
+$assert(is_array($companionPayload), 'companion_plugin_payload is emitted when a generated block is present');
+$assert('static-site-importer/companion-plugin/v1' === ($companionPayload['schema'] ?? ''), 'companion payload stamps the shared consumer schema');
+$assert('acme' === ($companionPayload['site_slug'] ?? ''), 'companion payload derives site_slug from the artifact');
+$assert('Acme Co' === ($companionPayload['site_name'] ?? ''), 'companion payload derives site_name from the artifact');
+$assert(array() === ($companionPayload['preserved_js'] ?? null), 'companion payload exposes an empty preserved_js slot');
+$assert(1 === count($companionPayload['blocks'] ?? array()), 'companion payload carries one block');
+$companionBlock = $companionPayload['blocks'][0] ?? array();
+$assert('hero' === ($companionBlock['name'] ?? ''), 'companion block name is the local slug for SSI namespacing');
+$assert('acme/hero' === ($companionBlock['block_json']['name'] ?? ''), 'companion block carries the decoded block.json');
+$assert(str_contains((string) ($companionBlock['render'] ?? ''), '<div>hero</div>'), 'companion block carries render content');
+$assert(str_contains((string) ($companionBlock['view_js'] ?? ''), 'hero island'), 'companion block carries view JS content');
+$assert(str_contains((string) ($companionBlock['assets']['style.css'] ?? ''), 'padding'), 'companion block carries non-render/view assets');
+$assert(isset($companionBlock['assets']['index.js']), 'companion block carries editor script asset');
+$assert(! isset($companionBlock['assets']['render.php']), 'render is not duplicated into the assets map');
+$assert(! isset($companionBlock['assets']['view.js']), 'view JS is not duplicated into the assets map');
+$assert(! isset($companionBlock['assets']['block.json']), 'block.json is not duplicated into the assets map');
+
+$companionNoSite = $compiler->compile(
+    array(
+        'files' => array(
+            'index.html'             => '<main></main>',
+            'blocks/card/block.json' => json_encode(array( 'apiVersion' => 3, 'name' => 'x/card', 'render' => 'file:./render.php' )),
+            'blocks/card/render.php' => '<?php echo "card";',
+        ),
+    )
+)->toArray();
+$companionNoSitePayload = $companionNoSite['source_reports']['companion_plugin_payload'] ?? null;
+$assert(is_array($companionNoSitePayload), 'companion payload is emitted even without site identity');
+$assert(! isset($companionNoSitePayload['site_slug']), 'companion payload omits site_slug when the artifact carries none (SSI fills it)');
+
+$companionAbsent = $compiler->compile(
+    array( 'files' => array( 'index.html' => '<main><h1>Plain</h1><p>No blocks</p></main>' ) )
+)->toArray();
+$assert(! array_key_exists('companion_plugin_payload', $companionAbsent['source_reports']), 'companion_plugin_payload is absent when no generated blocks exist');
+
 $normalized = $compiler->compile(
     array(
         'entry'   => 'public/index.html',
