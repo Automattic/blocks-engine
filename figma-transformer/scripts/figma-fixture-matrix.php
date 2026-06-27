@@ -8,6 +8,11 @@ $figmaRoot = $root . '/figma-transformer';
 require_once __DIR__ . '/figma-fixture-selection.php';
 
 $options = matrix_options($argv);
+if ( true === ($options['help'] ?? false) ) {
+    matrix_print_help();
+    exit(0);
+}
+
 $fixtureDir = $options['fixture_dir'] ?? ($figmaRoot . '/fixtures');
 $defaultOutputRoot = getenv('HOMEBOY_ARTIFACT_ROOT') ?: sys_get_temp_dir();
 $outputDir = $options['output_dir'] ?? ($defaultOutputRoot . '/figma-transformer-fixture-matrix-' . gmdate('Ymd-His'));
@@ -22,12 +27,19 @@ $homeboyCommand = (string) ($options['homeboy_command'] ?? (getenv('HOMEBOY_COMM
 $domBoxProviderCommand = (string) ($options['dom_box_provider_command'] ?? (getenv('HOMEBOY_DOM_BOX_CAPTURE_COMMAND') ?: ''));
 $only = isset($options['only']) ? array_filter(array_map('trim', explode(',', (string) $options['only']))) : array();
 $adHocFixtures = matrix_list_option($options['fixture'] ?? array());
+$fixtureDiscoveryEnabled = empty($adHocFixtures) || true === ($options['include_fixture_dir'] ?? false);
 $fontCssPassthrough = matrix_font_css_passthrough($options);
 $evidenceOptions = matrix_evidence_options($options);
 $selectionLock = matrix_selection_lock_options($options);
 
-$fixtures = matrix_discover_fixtures($fixtureDir);
+$fixtures = $fixtureDiscoveryEnabled ? matrix_discover_fixtures($fixtureDir) : array();
 foreach ( $adHocFixtures as $fixturePath ) {
+    if ( ! is_file($fixturePath) || ! is_readable($fixturePath) ) {
+        fwrite(STDERR, "Explicit fixture is not readable: {$fixturePath}\n");
+        fwrite(STDERR, "Use --fixture=/absolute/path/to/file.fig, or omit --fixture to discover fixtures from --fixture-dir.\n");
+        exit(1);
+    }
+
     $fixtures[] = matrix_fixture_from_path($fixturePath, true);
 }
 
@@ -62,6 +74,7 @@ if ( ! empty($only) ) {
 
 if ( empty($fixtures) ) {
     fwrite(STDERR, "No fixtures selected.\n");
+    fwrite(STDERR, "Use --fixture=/absolute/path/to/file.fig for explicit fixture paths, or --fixture-dir=/path/to/fixtures for discovery. Run with --help for examples.\n");
     exit(1);
 }
 
@@ -271,6 +284,16 @@ function matrix_options(array $argv): array
             continue;
         }
 
+        if ( '--help' === $arg || '-h' === $arg ) {
+            $options['help'] = true;
+            continue;
+        }
+
+        if ( '--include-fixture-dir' === $arg ) {
+            $options['include_fixture_dir'] = true;
+            continue;
+        }
+
         if ( ! str_starts_with($arg, '--') || ! str_contains($arg, '=') ) {
             continue;
         }
@@ -291,6 +314,54 @@ function matrix_options(array $argv): array
     }
 
     return $options;
+}
+
+function matrix_print_help(): void
+{
+    echo <<<'HELP'
+Usage:
+  php scripts/figma-fixture-matrix.php [options]
+
+Fixture selection:
+  --fixture=/path/to/file.fig       Run one explicit fixture path. Repeat for multiple fixtures.
+                                    When provided, fixture-dir discovery is disabled by default.
+  --fixture-dir=/path/to/fixtures   Discover *.fig fixtures from this directory. Defaults to ./fixtures.
+  --include-fixture-dir             Combine --fixture paths with --fixture-dir discovery.
+  --only=id[,id]                    Filter selected fixtures by fixture id.
+  --selection-lock=/path/to.json    Reuse locked frame ids from a prior matrix summary.
+  --frame-ids=id[,id]               Force frame ids for every selected fixture.
+  --entry-frame-id=id               Force the entry frame id when using --frame-ids.
+
+Run modes:
+  --dry-run                         Print planned commands without running transforms.
+  --inspect-only                    Inspect fixtures without running transforms.
+  --capture-dom-boxes               Capture DOM boxes after transform and rerun with evidence.
+
+Output and tooling:
+  --output-dir=/path                Matrix artifact directory. Defaults under HOMEBOY_ARTIFACT_ROOT or temp.
+  --zstd-command=/path/to/zstd      zstd binary or command.
+  --max-nodes=5000                  Transform node budget per fixture.
+  --max-pages=3                     Auto-selected frame/page limit.
+  --inspect-limit=100               Inspect frame listing limit.
+  --homeboy-command=/path           Homeboy command for DOM box capture.
+  --homeboy-bin=/path               Alias for --homeboy-command.
+  --dom-box-provider-command=cmd    Provider command passed to HOMEBOY_DOM_BOX_CAPTURE_COMMAND.
+  --dom-box-command=cmd             Alias for --dom-box-provider-command.
+  --font-css=css                    Inline CSS passed through to transformer.
+  --font-css-file=/path             CSS file passed through to transformer.
+  --parity-report=/path             Evidence path template. Supports {fixture}, {id}, {frame_id}, {page}, {slug}.
+  --dom-boxes=/path                 Evidence path template for DOM boxes.
+  --layout-report=/path             Evidence path template for layout report.
+  --layout-mismatch-report=/path    Evidence path template for layout mismatch report.
+  --help, -h                        Show this help text.
+
+Examples:
+  php scripts/figma-fixture-matrix.php --help
+  php scripts/figma-fixture-matrix.php --dry-run --fixture=/tmp/patched-fixtures/home.fig
+  php scripts/figma-fixture-matrix.php --dry-run --fixture-dir=/tmp/fixture-corpus
+  php scripts/figma-fixture-matrix.php --dry-run --fixture=/tmp/home.fig --include-fixture-dir
+
+HELP;
 }
 
 /**
