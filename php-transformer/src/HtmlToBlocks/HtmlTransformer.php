@@ -571,6 +571,10 @@ final class HtmlTransformer
      */
     private function sourceNavigationMenuItems(DOMElement $element): array
     {
+        if ( $this->hasSourceNavigationChrome($element) ) {
+            return $this->sourceNavigationMenuItemsFromSignaledContainers($element);
+        }
+
         $items = array();
         foreach ( $element->getElementsByTagName('a') as $anchor ) {
             if ( ! $anchor instanceof DOMElement || $this->isSourceNavigationChromeAnchor($anchor) ) {
@@ -587,6 +591,114 @@ final class HtmlTransformer
         }
 
         return $items;
+    }
+
+    /**
+     * @return array<int, array<string, string>>
+     */
+    private function sourceNavigationMenuItemsFromSignaledContainers(DOMElement $element): array
+    {
+        $items = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( in_array($tagName, array( 'ul', 'ol' ), true) && $this->hasSourceNavigationSignal($child) ) {
+                foreach ( $this->sourceNavigationMenuItems($child) as $item ) {
+                    $items[] = $item;
+                }
+                continue;
+            }
+
+            if ( in_array($tagName, array( 'div', 'span', 'section' ), true) ) {
+                foreach ( $this->sourceNavigationMenuItemsFromSignaledContainers($child) as $item ) {
+                    $items[] = $item;
+                }
+            }
+        }
+
+        return $items;
+    }
+
+    private function hasSourceNavigationChrome(DOMElement $element): bool
+    {
+        $hasToggle = false;
+        foreach ( $element->getElementsByTagName('button') as $button ) {
+            if ( $button instanceof DOMElement && $this->isSourceMenuToggleControl($button) ) {
+                $hasToggle = true;
+                break;
+            }
+        }
+
+        if ( ! $hasToggle ) {
+            return false;
+        }
+
+        $hasSignaledList = false;
+        foreach ( $element->getElementsByTagName('ul') as $list ) {
+            if ( $list instanceof DOMElement && $this->hasSourceNavigationSignal($list) ) {
+                $hasSignaledList = true;
+                break;
+            }
+        }
+
+        if ( ! $hasSignaledList ) {
+            return false;
+        }
+
+        foreach ( $element->getElementsByTagName('a') as $anchor ) {
+            if ( $anchor instanceof DOMElement && ! $this->hasAncestorTagWithin($anchor, array( 'ul', 'ol' ), $element) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isSourceMenuToggleControl(DOMElement $element): bool
+    {
+        if ( 'button' !== strtolower($element->tagName) ) {
+            return false;
+        }
+
+        if ( $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded') ) {
+            return true;
+        }
+
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:hamburger|menu|toggle)(?:[^a-z0-9]|$)/', strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-label')));
+    }
+
+    private function hasSourceNavigationSignal(DOMElement $element): bool
+    {
+        if ( 'navigation' === strtolower($this->attr($element, 'role')) ) {
+            return true;
+        }
+
+        foreach ( array( 'class', 'id' ) as $attribute ) {
+            foreach ( preg_split('/[^a-z0-9]+/', strtolower($this->attr($element, $attribute))) ?: array() as $token ) {
+                if ( in_array($token, array( 'nav', 'navbar', 'navigation', 'menu', 'links' ), true) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, string> $tagNames
+     */
+    private function hasAncestorTagWithin(DOMElement $element, array $tagNames, DOMElement $boundary): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode ) {
+            if ( in_array(strtolower($node->tagName), $tagNames, true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -749,8 +861,13 @@ final class HtmlTransformer
             }
         }
 
+        $matchedBlockMenuIndexes = array();
         foreach ( $sourceMenus as $index => $sourceMenu ) {
-            $blockMenu = $blockMenus[$index] ?? null;
+            $blockMenuIndex = $this->matchingBlockNavigationMenuIndex($sourceMenu, $blockMenus, $matchedBlockMenuIndexes, $index);
+            $blockMenu = null === $blockMenuIndex ? null : ( $blockMenus[$blockMenuIndex] ?? null );
+            if ( null !== $blockMenuIndex ) {
+                $matchedBlockMenuIndexes[$blockMenuIndex] = true;
+            }
             if ( ! is_array($blockMenu) ) {
                 $findings[] = array(
                     'code' => 'navigation_menu_missing',
@@ -804,6 +921,54 @@ final class HtmlTransformer
         }
 
         return $findings;
+    }
+
+    /**
+     * @param array<string, mixed> $sourceMenu
+     * @param array<int, array<string, mixed>> $blockMenus
+     * @param array<int, bool> $matchedBlockMenuIndexes
+     */
+    private function matchingBlockNavigationMenuIndex(array $sourceMenu, array $blockMenus, array $matchedBlockMenuIndexes, int $fallbackIndex): ?int
+    {
+        $sourceItems = is_array($sourceMenu['items'] ?? null) ? array_values($sourceMenu['items']) : array();
+        $sourceSignature = $this->navigationItemsSignature($sourceItems);
+        if ( '' !== $sourceSignature ) {
+            foreach ( $blockMenus as $index => $blockMenu ) {
+                if ( isset($matchedBlockMenuIndexes[$index]) ) {
+                    continue;
+                }
+
+                $blockItems = is_array($blockMenu['items'] ?? null) ? array_values($blockMenu['items']) : array();
+                if ( $sourceSignature === $this->navigationItemsSignature($blockItems) ) {
+                    return $index;
+                }
+            }
+        }
+
+        if ( isset($blockMenus[$fallbackIndex]) && ! isset($matchedBlockMenuIndexes[$fallbackIndex]) ) {
+            return $fallbackIndex;
+        }
+
+        foreach ( $blockMenus as $index => $_blockMenu ) {
+            if ( ! isset($matchedBlockMenuIndexes[$index]) ) {
+                return $index;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     */
+    private function navigationItemsSignature(array $items): string
+    {
+        $parts = array();
+        foreach ( $items as $item ) {
+            $parts[] = trim((string) ($item['label'] ?? '')) . '>' . trim((string) ($item['url'] ?? ''));
+        }
+
+        return implode('|', $parts);
     }
 
     /**

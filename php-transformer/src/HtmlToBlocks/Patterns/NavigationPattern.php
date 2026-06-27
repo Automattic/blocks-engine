@@ -49,15 +49,20 @@ final class NavigationPattern implements PatternRecognizerInterface
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function navigationBlocks(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null): array
+    private function navigationBlocks(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, bool $allowsDescriptiveChrome = false): array
     {
         $blocks = array();
-        $allowsDirectItems = 'nav' === strtolower($element->tagName) || $this->hasNavigationSignal($element) || $this->hasSubmenuSignal($element) || in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true);
+        $allowsDescriptiveChrome = $allowsDescriptiveChrome || $this->hasSubmenuSignal($element);
+        $allowsDirectItems = $allowsDescriptiveChrome || 'nav' === strtolower($element->tagName) || $this->hasNavigationSignal($element) || $this->hasSubmenuSignal($element) || in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true);
         if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
             return $this->navigationBlocksFromList($element, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget);
         }
 
         foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+
             if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
                 continue;
             }
@@ -102,11 +107,15 @@ final class NavigationPattern implements PatternRecognizerInterface
                 }
 
                 if ( $this->isNavigationWrapperElement($child) ) {
-                    $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget);
+                    $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, $allowsDescriptiveChrome);
                     if ( array() !== $wrappedBlocks ) {
                         $blocks = array_merge($blocks, $wrappedBlocks);
                         continue;
                     }
+                }
+
+                if ( $allowsDescriptiveChrome && ! $this->containsNavigationAnchor($child, $innerHtml) ) {
+                    continue;
                 }
             }
 
@@ -123,6 +132,10 @@ final class NavigationPattern implements PatternRecognizerInterface
     {
         $blocks = array();
         foreach ( $list->childNodes as $item ) {
+            if ( XML_COMMENT_NODE === $item->nodeType ) {
+                continue;
+            }
+
             if ( XML_TEXT_NODE === $item->nodeType && '' === trim($item->textContent ?? '') ) {
                 continue;
             }
@@ -155,7 +168,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $submenuBlocks = array();
         foreach ( $this->submenuContainers($element, $anchor) as $submenuContainer ) {
-            foreach ( $this->navigationBlocks($submenuContainer, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget) as $submenuBlock ) {
+            foreach ( $this->navigationBlocks($submenuContainer, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget, true) as $submenuBlock ) {
                 $submenuBlocks[] = $submenuBlock;
             }
         }
@@ -298,10 +311,14 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function hasSubmenuSignal(DOMElement $element): bool
     {
+        if ( 'menu' === strtolower($this->attr($element, 'role')) ) {
+            return true;
+        }
+
         foreach ( array( 'class', 'id', 'role' ) as $attribute ) {
             $value = $element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '';
             foreach ( preg_split('/[^a-z0-9]+/', strtolower($value)) ?: array() as $token ) {
-                if ( in_array($token, array( 'dropdown', 'submenu', 'subnav', 'flyout' ), true) ) {
+                if ( in_array($token, array( 'dropdown', 'mega', 'megamenu', 'submenu', 'subnav', 'flyout' ), true) ) {
                     return true;
                 }
             }
@@ -365,6 +382,14 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             $tagName = strtolower($child->tagName);
+            if ( $this->isSectionLabelElement($child) || $this->isDescriptiveNavigationChromeElement($child) ) {
+                continue;
+            }
+
+            if ( 'a' !== $tagName && 0 === $child->getElementsByTagName('a')->length ) {
+                continue;
+            }
+
             if ( in_array($tagName, array( 'a', 'ul', 'ol' ), true) || $this->hasNavigationSignal($child) || $this->isNavigationChromeElement($child) ) {
                 $hasNavigationChild = true;
                 continue;
@@ -378,6 +403,26 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $hasNavigationChild;
+    }
+
+    private function containsNavigationAnchor(DOMElement $element, callable $innerHtml): bool
+    {
+        if ( 'a' === strtolower($element->tagName) && '' !== $this->anchorLabel($element, $innerHtml) ) {
+            return true;
+        }
+
+        foreach ( $element->getElementsByTagName('a') as $anchor ) {
+            if ( $anchor instanceof DOMElement && '' !== $this->anchorLabel($anchor, $innerHtml) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isDescriptiveNavigationChromeElement(DOMElement $element): bool
+    {
+        return in_array(strtolower($element->tagName), array( 'p', 'small' ), true);
     }
 
     private function isSectionLabelElement(DOMElement $element): bool
