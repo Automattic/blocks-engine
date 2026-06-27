@@ -305,8 +305,15 @@ final class MaterializationPlanBuilder
     private function theme(array $theme, array $templateParts, array $assets, array $visualRepair): array
     {
         $fontMaterialization = is_array($theme['font_materialization'] ?? null) ? $theme['font_materialization'] : array();
-        if ( empty($fontMaterialization) && is_array($theme['font_usage'] ?? null) ) {
+        if ( empty($fontMaterialization) && is_array($theme['font_usage'] ?? null) && array() !== $theme['font_usage'] ) {
             $fontMaterialization = ( new FontMaterializationPlanBuilder() )->googleFonts($theme['font_usage']);
+        }
+        if ( empty($fontMaterialization) ) {
+            $fontHtml = (string) ($theme['font_link_html'] ?? '');
+            $fontCss = (string) ($theme['static_css'] ?? '');
+            if ( '' !== $fontHtml || '' !== $fontCss ) {
+                $fontMaterialization = ( new FontMaterializationPlanBuilder() )->fromWebFontSources($fontHtml, $fontCss);
+            }
         }
 
         return array_filter(array(
