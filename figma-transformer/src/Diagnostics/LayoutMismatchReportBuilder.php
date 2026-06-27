@@ -84,9 +84,10 @@ final class LayoutMismatchReportBuilder
             static fn (array $left, array $right): int => (($right['max_delta'] ?? 0) <=> ($left['max_delta'] ?? 0)) ?: strcmp((string) ($left['node']['id'] ?? ''), (string) ($right['node']['id'] ?? ''))
         );
 
-        $diagnostics = array_slice($diagnostics, 0, $limit);
+        $totalDiagnostics = $diagnostics;
+        $diagnostics = array_slice($totalDiagnostics, 0, $limit);
         $codeCounts = array();
-        foreach ( $diagnostics as $diagnostic ) {
+        foreach ( $totalDiagnostics as $diagnostic ) {
             $code = (string) ($diagnostic['code'] ?? '');
             if ( '' !== $code ) {
                 $codeCounts[$code] = ($codeCounts[$code] ?? 0) + 1;
@@ -105,10 +106,12 @@ final class LayoutMismatchReportBuilder
                 'generated_node_count' => count($generatedNodes),
                 'matched_node_count' => $matched,
                 'unmatched_source_node_count' => $unmatchedSource,
-                'diagnostic_count' => count($diagnostics),
+                'diagnostic_count' => count($totalDiagnostics),
+                'reported_diagnostic_count' => count($diagnostics),
+                'truncated' => count($diagnostics) < count($totalDiagnostics),
                 'code_counts' => $codeCounts,
-                'clusters' => $this->diagnosticClusters($diagnostics),
-                'suspected_causes' => $this->suspectedCauseSummary($diagnostics),
+                'clusters' => $this->diagnosticClusters($totalDiagnostics),
+                'suspected_causes' => $this->suspectedCauseSummary($totalDiagnostics),
             ),
             'diagnostics' => $diagnostics,
         );
