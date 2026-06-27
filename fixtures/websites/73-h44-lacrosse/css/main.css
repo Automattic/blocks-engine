@@ -1,37 +1,32 @@
 /* ─────────────────────────────────────────────────────────
    H44 Lacrosse — shared stylesheet
-   Laid-back coastal identity for a Jacksonville beach-town
-   club: deep ocean blue, warm sand, off-white paper, and a
-   coral hibiscus pop. Photos are self-contained gradient +
+   Laid-back, clean identity for a Jacksonville club in a
+   strict three-color palette: deep blue, warm tan, and
+   off-white/white paper. Blue is the primary accent; tan is
+   the warm secondary. Photos are self-contained gradient +
    SVG placeholders, and the hibiscus motif is an inline
    (data-URI) SVG, so the fixture has no external network
    dependencies beyond the Google Fonts link.
    ───────────────────────────────────────────────────────── */
 
 :root {
-  --blue:        #13314f;  /* primary dark / dark sections */
-  --blue-2:      #1f4b73;  /* mid blue */
-  --ocean:       #2f7a96;  /* ocean accent */
-  --ocean-light: #7fb8cf;  /* shallow water */
-  --sand:        #d9c4a3;  /* sand tan */
-  --sand-soft:   #e8dcc6;  /* pale sand */
+  --blue:        #13314f;  /* primary dark / dark sections / primary accent */
+  --blue-2:      #1f4b73;  /* mid blue — depth / hovers */
+  --sand:        #d9c4a3;  /* tan — warm secondary accent */
+  --sand-soft:   #e8dcc6;  /* pale tan */
   --paper:       #faf7f1;  /* off-white background / paper */
   --white:       #ffffff;
-  --coral:       #d8674e;  /* hibiscus coral — the pop */
-  --coral-2:     #c0543c;  /* darker coral — hovers */
-  --coral-light: #ec9d88;  /* coral on dark backgrounds */
-  --gold:        #f2b134;  /* hibiscus stamen */
   --ink:         #1f2a33;  /* body text */
   --muted:       #6b7680;  /* secondary text */
-  --line:        #ece3d4;  /* soft sandy hairline */
+  --line:        #ece3d4;  /* soft hairline */
   --radius:      18px;
   --radius-sm:   12px;
   --shadow:      0 14px 34px rgba(19, 49, 79, 0.10);
   --shadow-sm:   0 6px 18px rgba(19, 49, 79, 0.08);
   --container:   1160px;
 
-  /* Reusable coral hibiscus — 5 petals + golden stamen, inline SVG. */
-  --hibiscus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='%23d8674e'%3E%3Cellipse cx='12' cy='5.6' rx='2.7' ry='4.6'/%3E%3Cellipse cx='12' cy='5.6' rx='2.7' ry='4.6' transform='rotate(72 12 12)'/%3E%3Cellipse cx='12' cy='5.6' rx='2.7' ry='4.6' transform='rotate(144 12 12)'/%3E%3Cellipse cx='12' cy='5.6' rx='2.7' ry='4.6' transform='rotate(216 12 12)'/%3E%3Cellipse cx='12' cy='5.6' rx='2.7' ry='4.6' transform='rotate(288 12 12)'/%3E%3C/g%3E%3Ccircle cx='12' cy='12' r='2.3' fill='%23f2b134'/%3E%3C/svg%3E");
+  /* Reusable hibiscus motif — 5 tan petals + white stamen, inline SVG. */
+  --hibiscus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg fill='%23d9c4a3'%3E%3Cellipse cx='12' cy='5.6' rx='2.7' ry='4.6'/%3E%3Cellipse cx='12' cy='5.6' rx='2.7' ry='4.6' transform='rotate(72 12 12)'/%3E%3Cellipse cx='12' cy='5.6' rx='2.7' ry='4.6' transform='rotate(144 12 12)'/%3E%3Cellipse cx='12' cy='5.6' rx='2.7' ry='4.6' transform='rotate(216 12 12)'/%3E%3Cellipse cx='12' cy='5.6' rx='2.7' ry='4.6' transform='rotate(288 12 12)'/%3E%3C/g%3E%3Ccircle cx='12' cy='12' r='2.3' fill='%23ffffff'/%3E%3C/svg%3E");
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -55,8 +50,8 @@ h1, h2, h3 {
   margin: 0 0 0.5em;
 }
 
-a { color: var(--coral); text-decoration: none; }
-a:hover { color: var(--coral-2); }
+a { color: var(--blue); text-decoration: none; }
+a:hover { color: var(--blue-2); }
 
 img { max-width: 100%; display: block; }
 
@@ -72,7 +67,7 @@ img { max-width: 100%; display: block; }
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--coral);
+  color: var(--blue);
   font-family: "Poppins", sans-serif;
   font-weight: 600;
   letter-spacing: 0.5px;
@@ -92,7 +87,7 @@ img { max-width: 100%; display: block; }
   top: 0;
   z-index: 50;
   background: var(--blue);
-  border-bottom: 3px solid var(--coral);
+  border-bottom: 3px solid var(--sand);
 }
 
 .header-inner {
@@ -141,10 +136,10 @@ img { max-width: 100%; display: block; }
   border-radius: 10px;
   transition: background 0.15s, color 0.15s;
 }
-.nav-links a:hover { background: var(--blue-2); color: var(--white); }
+.nav-links a:hover { background: rgba(255, 255, 255, 0.10); color: var(--white); }
 .nav-links a[aria-current="page"] {
   color: var(--white);
-  background: var(--coral);
+  background: var(--blue-2);
 }
 
 .nav-toggle {
@@ -174,7 +169,7 @@ img { max-width: 100%; display: block; }
   padding: 14px 22px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
-.mobile-nav a[aria-current="page"] { color: var(--coral-light); }
+.mobile-nav a[aria-current="page"] { color: var(--sand); }
 
 /* ── Buttons ────────────────────────────────────────────── */
 .btn {
@@ -191,13 +186,14 @@ img { max-width: 100%; display: block; }
 }
 .btn:active { transform: translateY(1px); }
 .btn-primary {
-  background: var(--coral);
+  background: var(--blue);
   color: var(--white);
-  box-shadow: 0 8px 20px rgba(216, 103, 78, 0.28);
+  border-color: var(--sand);
+  box-shadow: 0 8px 20px rgba(19, 49, 79, 0.28);
 }
-.btn-primary:hover { background: var(--coral-2); color: var(--white); }
-.btn-ghost { background: transparent; color: var(--white); border-color: rgba(255,255,255,0.5); }
-.btn-ghost:hover { background: rgba(255,255,255,0.14); color: var(--white); }
+.btn-primary:hover { background: var(--blue-2); color: var(--white); border-color: var(--sand-soft); }
+.btn-ghost { background: transparent; color: var(--sand); border-color: var(--sand); }
+.btn-ghost:hover { background: rgba(217, 196, 163, 0.16); color: var(--sand); }
 
 /* ── Photo placeholders (self-contained "pictures") ─────── */
 .photo {
@@ -205,16 +201,16 @@ img { max-width: 100%; display: block; }
   border-radius: var(--radius);
   overflow: hidden;
   aspect-ratio: 4 / 3;
-  background: linear-gradient(135deg, var(--blue) 0%, var(--ocean) 100%);
+  background: linear-gradient(135deg, var(--blue) 0%, var(--sand) 100%);
   box-shadow: var(--shadow);
 }
 .photo::before {
-  /* coastal sun + gentle ripple motif, drawn with CSS only */
+  /* soft sun + gentle ripple motif, drawn with CSS only */
   content: "";
   position: absolute;
   inset: 0;
   background-image:
-    radial-gradient(circle at 78% 24%, rgba(242, 177, 52, 0.85) 0 10px, transparent 11px),
+    radial-gradient(circle at 78% 24%, rgba(255, 255, 255, 0.85) 0 10px, transparent 11px),
     repeating-linear-gradient(115deg, rgba(255,255,255,0.06) 0 16px, transparent 16px 32px);
   opacity: 0.85;
 }
@@ -242,7 +238,7 @@ img { max-width: 100%; display: block; }
   top: 14px;
   left: 14px;
   z-index: 2;
-  background: var(--coral);
+  background: var(--blue);
   color: var(--white);
   font-family: "Poppins", sans-serif;
   letter-spacing: 0.3px;
@@ -252,13 +248,13 @@ img { max-width: 100%; display: block; }
   border-radius: 999px;
 }
 
-/* gradient variants so the gallery reads like distinct photos */
-.photo.v1 { background: linear-gradient(135deg, #13314f, #2f7a96); }
-.photo.v2 { background: linear-gradient(135deg, #1f4b73, #7fb8cf); }
-.photo.v3 { background: linear-gradient(135deg, #13314f, #d8674e); }
-.photo.v4 { background: linear-gradient(135deg, #1d6b7a, #d9c4a3); }
-.photo.v5 { background: linear-gradient(135deg, #1f4b73, #ec9d88); }
-.photo.v6 { background: linear-gradient(135deg, #13314f, #4f93b0); }
+/* gradient variants so the gallery reads like distinct photos — blue ↔ tan ↔ white */
+.photo.v1 { background: linear-gradient(135deg, #13314f, #1f4b73); }
+.photo.v2 { background: linear-gradient(135deg, #1f4b73, #d9c4a3); }
+.photo.v3 { background: linear-gradient(135deg, #13314f, #d9c4a3); }
+.photo.v4 { background: linear-gradient(135deg, #13314f, #e8dcc6); }
+.photo.v5 { background: linear-gradient(135deg, #1f4b73, #e8dcc6); }
+.photo.v6 { background: linear-gradient(135deg, #13314f, #faf7f1); }
 
 /* ── Split feature (founder / about) ────────────────────── */
 .split {
@@ -280,7 +276,7 @@ img { max-width: 100%; display: block; }
 .hero {
   position: relative;
   color: var(--white);
-  background: linear-gradient(135deg, var(--blue) 0%, var(--blue-2) 55%, var(--ocean) 100%);
+  background: linear-gradient(135deg, var(--blue) 0%, var(--blue-2) 100%);
   overflow: hidden;
 }
 .hero::after {
@@ -308,7 +304,7 @@ img { max-width: 100%; display: block; }
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--coral-light);
+  color: var(--sand);
   font-family: "Poppins", sans-serif;
   font-weight: 600;
   letter-spacing: 0.6px;
@@ -342,9 +338,9 @@ img { max-width: 100%; display: block; }
 
 .page-banner {
   position: relative;
-  background: linear-gradient(135deg, var(--blue) 0%, var(--blue-2) 70%, var(--ocean) 100%);
+  background: linear-gradient(135deg, var(--blue) 0%, var(--blue-2) 100%);
   color: var(--white);
-  border-bottom: 3px solid var(--coral);
+  border-bottom: 3px solid var(--sand);
   text-align: center;
   padding: 58px 22px;
   overflow: hidden;
@@ -386,7 +382,7 @@ img { max-width: 100%; display: block; }
 .card-body { padding: 20px 22px 24px; }
 .card-body h3 { color: var(--blue); font-size: 1.3rem; }
 .card-body .meta {
-  color: var(--coral);
+  color: var(--blue);
   font-family: "Poppins", sans-serif;
   font-weight: 600;
   letter-spacing: 0.5px;
@@ -417,7 +413,7 @@ img { max-width: 100%; display: block; }
   align-items: center;
   background: var(--white);
   border: 1px solid var(--line);
-  border-left: 5px solid var(--coral);
+  border-left: 5px solid var(--sand);
   border-radius: var(--radius);
   padding: 18px 22px;
   box-shadow: var(--shadow-sm);
@@ -444,7 +440,7 @@ img { max-width: 100%; display: block; }
 }
 .event-pill.home { background: #dcebf2; color: var(--blue-2); }
 .event-pill.away { background: var(--sand-soft); color: #8a6f44; }
-.event-pill.tourney { background: #fbe1d9; color: var(--coral-2); }
+.event-pill.tourney { background: var(--blue); color: var(--white); }
 
 /* ── Prose (about story) ────────────────────────────────── */
 .prose { max-width: 720px; margin: 0 auto; }
@@ -452,7 +448,7 @@ img { max-width: 100%; display: block; }
 .prose p { color: var(--ink); font-size: 1.08rem; margin: 0 0 1.1em; }
 .prose .lead { font-size: 1.22rem; color: var(--muted); }
 .pull-quote {
-  border-left: 5px solid var(--coral);
+  border-left: 5px solid var(--sand);
   background: var(--white);
   border-radius: 0 var(--radius) var(--radius) 0;
   padding: 22px 26px;
@@ -490,7 +486,7 @@ img { max-width: 100%; display: block; }
   font-family: "Poppins", sans-serif;
   font-size: 2.2rem;
   line-height: 1;
-  color: var(--coral-light);
+  color: var(--sand);
 }
 .stat-row .stat span {
   display: block;
@@ -522,7 +518,7 @@ img { max-width: 100%; display: block; }
   height: 40px;
   display: grid;
   place-items: center;
-  background: var(--coral);
+  background: var(--blue);
   color: var(--white);
   border-radius: 12px;
   font-family: "Poppins", sans-serif;
@@ -534,7 +530,7 @@ img { max-width: 100%; display: block; }
   letter-spacing: 0.5px;
   font-size: 0.74rem;
   font-weight: 600;
-  color: var(--coral);
+  color: var(--blue);
 }
 .info-list .info-value { color: var(--ink); font-size: 1.04rem; }
 
@@ -572,8 +568,8 @@ img { max-width: 100%; display: block; }
 .form select:focus,
 .form textarea:focus {
   outline: none;
-  border-color: var(--coral);
-  box-shadow: 0 0 0 3px rgba(216, 103, 78, 0.15);
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(19, 49, 79, 0.15);
 }
 .form textarea { resize: vertical; min-height: 120px; }
 .form .btn { width: 100%; border: 0; }
@@ -590,7 +586,7 @@ img { max-width: 100%; display: block; }
 /* ── Strip / CTA ────────────────────────────────────────── */
 .cta {
   position: relative;
-  background: linear-gradient(135deg, var(--blue), var(--ocean));
+  background: linear-gradient(135deg, var(--blue), var(--blue-2));
   color: var(--white);
   text-align: center;
   padding: 66px 22px;
@@ -643,7 +639,7 @@ img { max-width: 100%; display: block; }
 .footer-inner .brand-tag { color: var(--sand); }
 .footer-links { display: flex; gap: 28px; flex-wrap: wrap; }
 .footer-links a { color: rgba(255,255,255,0.72); font-size: 0.95rem; }
-.footer-links a:hover { color: var(--coral-light); }
+.footer-links a:hover { color: var(--sand); }
 .footer-bottom {
   position: relative;
   z-index: 1;
