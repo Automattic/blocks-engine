@@ -636,6 +636,29 @@ $assert(true === ($chromeFooterBlockMenu['represented_as_core_navigation'] ?? nu
 $assert(4 === ($chromeFooterBlockMenu['item_count'] ?? null), 'footer chrome nested-div nav preserves all direct-anchor menu items');
 $assert('Contact' === ($chromeFooterBlockMenu['items'][3]['label'] ?? ''), 'footer chrome nested-div nav preserves last menu item label');
 
+// Regression: a JS-only hamburger menu-toggle that opens a nav which converts to
+// core/navigation is redundant chrome (core/navigation ships its own responsive
+// overlay) and must be dropped instead of emitted as a dead core/button. The
+// toggle is detected by generic structural signals (aria-controls/aria-expanded
+// plus empty decorative bars), never by a fixture-specific class string.
+$redundantToggleHeader = ( new HtmlTransformer() )->transform(
+    '<header><div class="header-inner"><a class="brand" href="/">Logo</a><nav class="nav-links"><a href="/">Home</a><a href="/about">About</a><a href="/contact">Contact</a></nav><button class="nav-toggle" aria-label="Open navigation menu" aria-controls="mobile-nav" aria-expanded="false"><span></span><span></span><span></span></button></div></header><nav class="mobile-nav" id="mobile-nav"><a href="/">Home</a><a href="/about">About</a><a href="/contact">Contact</a></nav>'
+)->toArray();
+$redundantToggleSerialized = (string) ($redundantToggleHeader['serialized_blocks'] ?? '');
+$assert(str_contains($redundantToggleSerialized, '<!-- wp:navigation'), 'redundant menu-toggle header still converts the nav to core/navigation');
+$assert(! str_contains($redundantToggleSerialized, '<!-- wp:button'), 'redundant JS hamburger menu-toggle is dropped instead of emitted as a dead core/button');
+$assert(! str_contains($redundantToggleSerialized, 'nav-toggle'), 'redundant menu-toggle chrome class is not emitted into block output');
+
+// Negative: a real labeled button, and a toggle-looking control with no associated
+// navigation, must still convert to core/button — only redundant chrome is dropped.
+$labeledButtons = ( new HtmlTransformer() )->transform(
+    '<div class="cta"><button type="submit">Sign Up</button></div><header><button aria-controls="missing" aria-expanded="false"><span></span></button></header>'
+)->toArray();
+$labeledButtonsSerialized = (string) ($labeledButtons['serialized_blocks'] ?? '');
+$assert(str_contains($labeledButtonsSerialized, '<!-- wp:button'), 'labeled/standalone buttons still convert to core/button');
+$assert(str_contains($labeledButtonsSerialized, 'Sign Up'), 'labeled button text is preserved as core/button');
+$assert(str_contains($labeledButtonsSerialized, 'aria-controls="missing"'), 'a toggle-looking control with no associated nav still converts to core/button');
+
 $runtimeTargetNavigation = ( new HtmlTransformer() )->transform(
     '<nav aria-label="Docs"><ul><li><a class="nav-link" href="/guide">Guide</a></li></ul></nav>',
     array('runtime_dom_selectors' => array('.nav-link'))

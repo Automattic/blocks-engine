@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-nav-list-signal-classification",
-  "description": "Classifies list-shaped navigation menus with generic nav/link class signals without collapsing surrounding header chrome.",
+  "description": "Classifies list-shaped navigation menus with generic nav/link class signals, dropping the redundant JS hamburger menu-toggle that opens the same menu (now a core/navigation with its own responsive overlay) without collapsing surrounding header chrome.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-nav-list-signal-classification.json",
-    "notes": "Generic fixture for imported static-site headers where a mixed nav wrapper contains logo chrome and a ul.nav-links menu."
+    "notes": "Generic fixture for imported static-site headers where a mixed nav wrapper contains logo chrome, a redundant menu-toggle, and a ul.nav-links menu."
   },
   "legacy_comparison": {
     "skip": true,
@@ -19,29 +19,27 @@
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "nav-inner" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "nav-logo" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/button", "attrs": { "className": "nav-toggle", "tagName": "button", "aria-label": "Toggle navigation", "aria-expanded": "false", "aria-controls": "nav-links" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/navigation", "attrs": { "className": "nav-links" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Curriculum", "url": "/curriculum", "kind": "custom" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Pricing", "url": "/pricing", "kind": "custom" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks.2", "name": "core/navigation-link", "attrs": { "label": "Enroll Now", "url": "/enroll", "kind": "custom" } }
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "nav-links" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Curriculum", "url": "/curriculum", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Pricing", "url": "/pricing", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.2", "name": "core/navigation-link", "attrs": { "label": "Enroll Now", "url": "/enroll", "kind": "custom" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 3 },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.2.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 3 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "nav-toggle" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "aria-controls=\"nav-links\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<span></span><span></span><span></span>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "nav-toggle" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:button" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:list {\"className\":\"nav-links\"}" },
-    { "path": "source_reports.html.source_provenance.6.block_name", "assert": "equals", "value": "core/navigation-link" },
-    { "path": "source_reports.html.source_provenance.6.selector", "assert": "equals", "value": "header:nth-of-type(1) > nav:nth-of-type(1) > ul:nth-of-type(1) > li:nth-of-type(1) > a:nth-of-type(1)" },
+    { "path": "source_reports.html.source_provenance.3.block_name", "assert": "equals", "value": "core/navigation" },
+    { "path": "source_reports.html.source_provenance.4.block_name", "assert": "equals", "value": "core/navigation-link" },
+    { "path": "source_reports.html.source_provenance.4.selector", "assert": "equals", "value": "header:nth-of-type(1) > nav:nth-of-type(1) > ul:nth-of-type(1) > li:nth-of-type(1) > a:nth-of-type(1)" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }
