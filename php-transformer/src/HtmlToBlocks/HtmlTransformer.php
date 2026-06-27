@@ -199,7 +199,7 @@ final class HtmlTransformer
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
-        $semanticParityReport = $this->semanticParityReport($body, $blocks, $sourceProvenance);
+        $semanticParityReport = $this->semanticParityReport($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
         $diagnostics = array(
             array(
                 'code'    => 'html_to_blocks_core_slice',
@@ -373,13 +373,22 @@ final class HtmlTransformer
      * @param array<int, array<string, mixed>> $sourceProvenance
      * @return array<string, mixed>
      */
-    private function semanticParityReport(DOMElement $body, array $blocks, array $sourceProvenance): array
+    private function semanticParityReport(DOMElement $body, array $blocks, array $sourceProvenance, string $html = '', string $staticCss = ''): array
     {
         $sourceLandmarks = $this->sourceLandmarkReport($body);
         $blockLandmarks = $this->blockLandmarkReport($blocks, $sourceProvenance, $sourceLandmarks);
         $sourceMenus = $this->sourceNavigationMenus($body);
         $blockMenus = $this->blockNavigationMenus($blocks);
         $findings = $this->semanticParityFindings($sourceLandmarks, $blockLandmarks, $sourceMenus, $blockMenus);
+        $findings = array_merge(
+            $findings,
+            ( new TypographyParityAnalyzer() )->findings($html, $staticCss, $this->inlineHeadingFontDeclarations($body))
+        );
+
+        $findings = array_map(
+            fn (array $finding): array => $this->enrichSemanticParityFinding($finding, $body, $sourceProvenance),
+            $findings
+        );
 
         return array(
             'schema' => 'blocks-engine/php-transformer/semantic-parity/v1',
@@ -945,6 +954,178 @@ final class HtmlTransformer
         }
 
         return $findings;
+    }
+
+    /**
+     * Make a semantic-parity finding fix-ready by attaching additive context:
+     * a stable `reason_code`, the bounded `source_snippet` for its selector, and
+     * the `observed_block` output produced for that region (or an explicit
+     * "none"). Strictly additive — never alters parity pass/fail counts.
+     *
+     * @param array<string, mixed> $finding
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     * @return array<string, mixed>
+     */
+    private function enrichSemanticParityFinding(array $finding, DOMElement $body, array $sourceProvenance): array
+    {
+        if ( ! isset($finding['reason_code']) && isset($finding['code']) ) {
+            $finding['reason_code'] = (string) $finding['code'];
+        }
+
+        if ( ! isset($finding['source_snippet']) ) {
+            $finding['source_snippet'] = $this->semanticParitySourceSnippet((string) ($finding['selector'] ?? ''), $body);
+        }
+
+        if ( ! isset($finding['observed_block']) ) {
+            $finding['observed_block'] = $this->observedBlockForFinding($finding, $sourceProvenance);
+        }
+
+        return $finding;
+    }
+
+    /**
+     * Bounded source HTML for a finding selector, reusing the same bounded-HTML
+     * helper used for runtime-island findings. Returns "none" when the selector
+     * cannot be resolved back to a source element.
+     */
+    private function semanticParitySourceSnippet(string $selector, DOMElement $body): string
+    {
+        $element = $this->resolveSelectorElement($body, $selector);
+        if ( ! $element instanceof DOMElement ) {
+            return 'none';
+        }
+
+        $bounded = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+
+        return '' === $bounded['html'] ? 'none' : $bounded['html'];
+    }
+
+    /**
+     * Resolve a `tag:nth-of-type(n) > …` selector produced by elementSelector()
+     * back to the source element, so findings can carry the offending markup.
+     */
+    private function resolveSelectorElement(DOMElement $body, string $selector): ?DOMElement
+    {
+        $selector = trim($selector);
+        if ( '' === $selector ) {
+            return null;
+        }
+
+        $current = $body;
+        foreach ( explode(' > ', $selector) as $part ) {
+            if ( ! preg_match('/^([a-z0-9]+):nth-of-type\((\d+)\)$/i', trim($part), $match) ) {
+                return null;
+            }
+
+            $tag = strtolower($match[1]);
+            $target = (int) $match[2];
+            $index = 0;
+            $found = null;
+            foreach ( $current->childNodes as $child ) {
+                if ( $child instanceof DOMElement && strtolower($child->tagName) === $tag ) {
+                    ++$index;
+                    if ( $index === $target ) {
+                        $found = $child;
+                        break;
+                    }
+                }
+            }
+
+            if ( ! $found instanceof DOMElement ) {
+                return null;
+            }
+
+            $current = $found;
+        }
+
+        return $current === $body ? null : $current;
+    }
+
+    /**
+     * Observed block output produced for a finding's region. Prefers block data
+     * already carried by the finding, then provenance lookup by selector, and
+     * falls back to an explicit "none" when nothing was generated.
+     *
+     * @param array<string, mixed> $finding
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     * @return array<string, mixed>|string
+     */
+    private function observedBlockForFinding(array $finding, array $sourceProvenance): array|string
+    {
+        if ( isset($finding['block_items']) && is_array($finding['block_items']) && array() !== $finding['block_items'] ) {
+            return array( 'block_items' => $finding['block_items'] );
+        }
+
+        if ( isset($finding['block_item']) && is_array($finding['block_item']) && array() !== $finding['block_item'] ) {
+            return array( 'block_item' => $finding['block_item'] );
+        }
+
+        $blockNames = $this->blockNamesForSelector((string) ($finding['selector'] ?? ''), $sourceProvenance);
+
+        return array() === $blockNames ? 'none' : array( 'block_names' => $blockNames );
+    }
+
+    /**
+     * Block names whose source provenance selector matches or descends from the
+     * given selector.
+     *
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     * @return array<int, string>
+     */
+    private function blockNamesForSelector(string $selector, array $sourceProvenance): array
+    {
+        if ( '' === $selector ) {
+            return array();
+        }
+
+        $names = array();
+        foreach ( $sourceProvenance as $entry ) {
+            if ( ! is_array($entry) ) {
+                continue;
+            }
+
+            $blockSelector = (string) ($entry['selector'] ?? '');
+            if ( $selector === $blockSelector || str_starts_with($blockSelector, $selector . ' > ') ) {
+                $name = (string) ($entry['block_name'] ?? '');
+                if ( '' !== $name ) {
+                    $names[$name] = true;
+                }
+            }
+        }
+
+        return array_keys($names);
+    }
+
+    /**
+     * Heading-element inline `style="font-family:…"` declarations resolved from
+     * the source DOM, for the typography parity diagnostic.
+     *
+     * @return array<int, array{family: string, selector: string, source_snippet: string}>
+     */
+    private function inlineHeadingFontDeclarations(DOMElement $body): array
+    {
+        $declarations = array();
+        foreach ( array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ) as $tag ) {
+            foreach ( $body->getElementsByTagName($tag) as $heading ) {
+                if ( ! $heading instanceof DOMElement ) {
+                    continue;
+                }
+
+                $style = $this->attr($heading, 'style');
+                if ( '' === $style || ! preg_match('/font-family\s*:\s*([^;{}]+)/i', $style, $match) ) {
+                    continue;
+                }
+
+                $bounded = $this->boundedFallbackHtml($this->safeFallbackHtml($heading));
+                $declarations[] = array(
+                    'family'         => trim((string) $match[1]),
+                    'selector'       => $this->elementSelector($heading),
+                    'source_snippet' => $bounded['html'],
+                );
+            }
+        }
+
+        return $declarations;
     }
 
     /**

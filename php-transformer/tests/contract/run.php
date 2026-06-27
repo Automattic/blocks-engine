@@ -1258,6 +1258,64 @@ $webFontMaterializationPlan = ( new MaterializationPlanBuilder() )->fromCompiled
 ));
 $assert('Oswald' === ($webFontMaterializationPlan['theme']['font_materialization']['roles']['heading'] ?? null), 'materialization plan materializes heading font from web-font sources');
 
+// Typography/web-font parity diagnostic (semantic-parity finding family).
+$semanticFindings = static function (array $result): array {
+    return $result['source_reports']['semantic_parity']['findings'] ?? array();
+};
+$findingsByCode = static function (array $findings, string $code): array {
+    return array_values(array_filter($findings, static fn (array $finding): bool => ($finding['code'] ?? '') === $code));
+};
+
+// Positive: a heading web-font declared only in an inline <style> block (no link, no static css)
+// is genuinely dropped and must surface a typography parity finding.
+$droppedHeadingFontResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><head><style>h1,h2{font-family:"Display Custom",sans-serif}</style></head><body><main><h1>Heading</h1><p>Copy</p></main></body></html>',
+    array()
+)->toArray();
+$droppedHeadingFindings = $findingsByCode($semanticFindings($droppedHeadingFontResult), 'typography_font_family_dropped');
+$assert(array() !== $droppedHeadingFindings, 'dropped heading web-font emits typography_font_family_dropped finding');
+$assert('Display Custom' === ($droppedHeadingFindings[0]['font_family'] ?? null), 'typography finding records the dropped font family generically');
+$assert(str_contains((string) ($droppedHeadingFindings[0]['source_snippet'] ?? ''), 'Display Custom'), 'typography finding carries bounded source snippet');
+$assert('none' === ($droppedHeadingFindings[0]['observed_block'] ?? null), 'dropped typography finding records explicit none observed_block');
+$assert('typography_font_family_dropped' === ($droppedHeadingFindings[0]['reason_code'] ?? null), 'typography finding carries stable reason_code');
+
+// Positive: a web-font family linked from a non-materializing provider surfaces web_font_not_materialized.
+$nonMaterializedLinkResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><head><link rel="stylesheet" href="https://use.typekit.net/css?family=Brand+Face:wght@400;700"></head><body><main><h1>Heading</h1></main></body></html>',
+    array()
+)->toArray();
+$nonMaterializedFindings = $findingsByCode($semanticFindings($nonMaterializedLinkResult), 'web_font_not_materialized');
+$assert(array() !== $nonMaterializedFindings, 'non-materializing linked web-font emits web_font_not_materialized finding');
+$assert('Brand Face' === ($nonMaterializedFindings[0]['font_family'] ?? null), 'web_font_not_materialized finding records the linked family generically');
+$assert(str_contains((string) ($nonMaterializedFindings[0]['source_snippet'] ?? ''), '<link'), 'web_font_not_materialized finding carries the source link snippet');
+
+// Negative: a font that materializes (Google Fonts link + matching css) must NOT produce any typography finding.
+$materializedFontResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Display+Custom:wght@400;700&display=swap"></head><body><main><h1>Heading</h1></main></body></html>',
+    array('static_css' => 'h1,h2,h3{font-family:"Display Custom",sans-serif}')
+)->toArray();
+$materializedTypographyFindings = array_filter(
+    $semanticFindings($materializedFontResult),
+    static fn (array $finding): bool => in_array($finding['code'] ?? '', array('typography_font_family_dropped', 'web_font_not_materialized'), true)
+);
+$assert(array() === $materializedTypographyFindings, 'materialized web-font produces no typography parity finding');
+
+// Enrichment: every semantic-parity finding (landmark/navigation) carries source_snippet, observed_block, and reason_code.
+$underSpecifiedResult = ( new HtmlTransformer() )->transform(
+    '<body><header><nav><span>Menu</span></nav></header><main><p>Copy</p></main></body>',
+    array()
+)->toArray();
+$semanticParityFindings = $semanticFindings($underSpecifiedResult);
+$assert(array() !== $semanticParityFindings, 'navigation/landmark drop produces semantic-parity findings');
+foreach ( $semanticParityFindings as $finding ) {
+    $assert(isset($finding['reason_code']) && '' !== (string) $finding['reason_code'], 'semantic-parity finding carries reason_code');
+    $assert(isset($finding['source_snippet']) && '' !== (string) $finding['source_snippet'], 'semantic-parity finding carries source_snippet');
+    $assert(isset($finding['observed_block']), 'semantic-parity finding carries observed_block');
+}
+$navMissingFindings = $findingsByCode($semanticParityFindings, 'navigation_menu_missing');
+$assert(array() !== $navMissingFindings, 'navigation_menu_missing finding is emitted for unrepresented nav');
+$assert(str_contains((string) ($navMissingFindings[0]['source_snippet'] ?? ''), '<nav'), 'navigation_menu_missing finding source_snippet contains the source nav markup');
+
 $fragment = $compiler->compileFragment('<main><h2>Fragment</h2><p>Copy</p></main>', 'fixture:fragment')->toArray();
 $assert('success' === $fragment['status'], 'fragment compiles successfully', (string) $fragment['status']);
 $assert('fixture:fragment' === ($fragment['provenance'][0]['source'] ?? ''), 'fragment compile exposes source provenance');
