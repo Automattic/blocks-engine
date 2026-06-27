@@ -317,6 +317,8 @@ $assert('core/list' === ($standaloneControlBlocks[1]['innerBlocks'][1]['blockNam
 $assert('core/list' === ($standaloneControlBlocks[2]['innerBlocks'][1]['blockName'] ?? ''), 'runtime-targeted select converts to readable list output');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'Featured (selected)'), 'readable select summary preserves selected option state');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'Runtime sort'), 'runtime-targeted select readable output preserves label text');
+$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'id="donation"'), 'readable input output preserves source id as a block anchor');
+$assert(! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'js-sort-select'), 'readable select output omits behavior-hook classes from generated blocks');
 $assert(! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted select native markup is preserved in runtime metadata instead of serialized blocks');
 $assert(1 === count($standaloneControls['source_reports']['runtime_islands'] ?? array()), 'runtime islands report only the explicitly runtime-targeted standalone control');
 $assert('control' === ($standaloneControls['source_reports']['runtime_islands'][0]['kind'] ?? ''), 'runtime-targeted standalone control reports as a control island');
@@ -340,6 +342,9 @@ $assert(str_contains($artifactControlMarkup, 'you@example.com'), 'artifact stati
 $assert(str_contains($artifactControlMarkup, 'Featured (selected)'), 'artifact static select readable output preserves selected option state');
 $assert(! str_contains($artifactControlMarkup, '<input id="live-filter"'), 'artifact compiler preserves behavior-bearing control native DOM in runtime metadata instead of serialized blocks');
 $assert(str_contains($artifactControlMarkup, 'Filter'), 'artifact behavior-bearing control readable output preserves placeholder text');
+$assert(str_contains($artifactControlMarkup, 'id="newsletter-email"'), 'artifact readable static input preserves source id as a block anchor');
+$assert(str_contains($artifactControlMarkup, 'sort-select'), 'artifact readable static select preserves source class on generated markup');
+$assert(str_contains($artifactControlMarkup, 'id="live-filter"'), 'artifact readable runtime control preserves source id on generated markup');
 $artifactControlIslands = $artifactControlSelectors['source_reports']['runtime_islands'] ?? array();
 $assert(1 === count($artifactControlIslands), 'artifact compiler reports only behavior-bearing controls as runtime islands');
 $assert('#live-filter' === ($artifactControlIslands[0]['selector'] ?? ''), 'artifact runtime control island points at behavior-bearing control selector');
