@@ -5275,7 +5275,7 @@ final class HtmlTransformer
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
         $path = (string) parse_url($url, PHP_URL_PATH);
 
-        if ( str_ends_with($host, 'youtube.com') && preg_match('~^/embed/([^/?#]+)~', $path, $matches) ) {
+        if ( ( str_ends_with($host, 'youtube.com') || str_ends_with($host, 'youtube-nocookie.com') ) && preg_match('~^/embed/([^/?#]+)~', $path, $matches) ) {
             return 'https://www.youtube.com/watch?v=' . $matches[1];
         }
 
@@ -5293,7 +5293,7 @@ final class HtmlTransformer
     private function embedProviderSlug(string $url): string
     {
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-        if ( str_ends_with($host, 'youtube.com') || 'youtu.be' === $host ) {
+        if ( str_ends_with($host, 'youtube.com') || str_ends_with($host, 'youtube-nocookie.com') || 'youtu.be' === $host ) {
             return 'youtube';
         }
         if ( str_ends_with($host, 'vimeo.com') ) {
@@ -5326,15 +5326,20 @@ final class HtmlTransformer
     private function convertIframeElement(DOMElement $iframe, array &$fallbacks): ?array
     {
         $url = $this->safeEmbedUrl($this->attr($iframe, 'src'));
-        if ( '' !== $url ) {
+        $providerNameSlug = '' === $url ? '' : $this->embedProviderSlug($url);
+        if ( '' !== $providerNameSlug ) {
             return $this->createBlock('core/embed', array_filter(array_merge($this->presentationAttributes($iframe), array(
                 'url'              => $this->canonicalEmbedUrl($url),
                 'type'             => 'video',
-                'providerNameSlug' => $this->embedProviderSlug($url),
+                'providerNameSlug' => $providerNameSlug,
             )), static fn ($value): bool => '' !== $value), array(), $iframe);
         }
 
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($iframe));
+        $this->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
+            'preservation_strategy' => 'sanitized_embed_markup',
+            'attributes'            => $this->safeEmbedAttributes($iframe),
+        ));
         $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'html',
             'reason'          => 'iframe_embed_fallback',
