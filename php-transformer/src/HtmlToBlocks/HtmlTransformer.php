@@ -12,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
 use DOMElement;
@@ -62,6 +63,8 @@ final class HtmlTransformer
     private readonly DetailsPattern $detailsPattern;
 
     private readonly LogoPattern $logoPattern;
+
+    private readonly SpacerPattern $spacerPattern;
 
     private readonly PatternRecognizerRegistry $patternRecognizers;
 
@@ -138,6 +141,7 @@ final class HtmlTransformer
         $this->buttonsPattern    = new ButtonsPattern();
         $this->detailsPattern    = new DetailsPattern();
         $this->logoPattern       = new LogoPattern();
+        $this->spacerPattern     = new SpacerPattern();
         $this->patternRecognizers = new PatternRecognizerRegistry(array(
             new NavigationPattern(),
         ));
@@ -2008,7 +2012,7 @@ final class HtmlTransformer
                 return $logo;
             }
 
-            $spacer = $this->spacerBlockFromElement($element);
+            $spacer = $this->spacerPattern->match($element, $this->patternContext());
             if ( null !== $spacer ) {
                 return $spacer;
             }
@@ -5758,42 +5762,6 @@ final class HtmlTransformer
     /**
      * @return array<string, mixed>|null
      */
-    private function spacerBlockFromElement(DOMElement $element): ?array
-    {
-        if ( '' !== trim($element->textContent ?? '') || 0 !== $this->childElementCount($element) ) {
-            return null;
-        }
-
-        $height = $this->spacerHeightFromStyle($this->attr($element, 'style'));
-        if ( '' === $height ) {
-            return null;
-        }
-
-        if ( ! $this->hasClass($element, 'wp-block-spacer') && ! $this->hasClass($element, 'spacer') ) {
-            return null;
-        }
-
-        $attrs = $this->presentationAttributes($element);
-        $attrs['height'] = $height;
-        unset($attrs['style']);
-
-        return $this->createBlock('core/spacer', $attrs, array(), $element);
-    }
-
-    private function spacerHeightFromStyle(string $style): string
-    {
-        if ( ! preg_match('/(?:^|;)\s*height\s*:\s*([^;]+)/i', $style, $matches) ) {
-            return '';
-        }
-
-        $height = trim($matches[1]);
-        if ( '' === $height || preg_match('/[{}]/', $height) || strlen($height) > 80 ) {
-            return '';
-        }
-
-        return $height;
-    }
-
     /**
      * @return array<string, mixed>|null
      */
