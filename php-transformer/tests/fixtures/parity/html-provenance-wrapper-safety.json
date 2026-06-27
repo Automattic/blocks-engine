@@ -24,12 +24,13 @@
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Only child", "level": 2 } }
   ],
   "expected_fallbacks": [
-    { "type": "inline_svg", "reason": "unsafe_inline_svg", "tag": "svg", "diagnostic_code": "html_unsafe_inline_svg", "selector": "svg:nth-of-type(1)", "source": "fixture:html-provenance-wrapper-safety", "scope": "parity" }
+    { "type": "inline_svg", "reason": "unsafe_inline_svg", "tag": "svg", "diagnostic_code": "html_unsafe_inline_svg", "selector": "svg:nth-of-type(1)", "source": "fixture:html-provenance-wrapper-safety", "scope": "parity" },
+    { "type": "html", "reason": "interactive_control_behavior_lost", "diagnostic_code": "interactive_control_behavior_lost", "severity": "warning", "conversion_classification": "behavior_loss", "tag": "section", "selector": "section:nth-of-type(1)" }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
-    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 2 },
     { "path": "fallbacks.0.html", "assert": "contains", "value": "<svg class=\"badge\">" },
     { "path": "fallbacks.0.html", "assert": "not_contains", "value": "<script>" },
     { "path": "fallbacks.0.html", "assert": "not_contains", "value": "alert(1)" },
@@ -55,14 +56,14 @@
     { "path": "source_reports.conversion_report.source_format", "assert": "equals", "value": "html" },
     { "path": "source_reports.conversion_report.source", "assert": "equals", "value": "fixture:html-provenance-wrapper-safety" },
     { "path": "source_reports.conversion_report.source_summary.block_count", "assert": "equals", "value": 2 },
-    { "path": "source_reports.conversion_report.source_summary.fallback_count", "assert": "equals", "value": 1 },
-    { "path": "source_reports.conversion_report.selector_summary.selectors", "assert": "count", "count": 3 },
+    { "path": "source_reports.conversion_report.source_summary.fallback_count", "assert": "equals", "value": 2 },
+    { "path": "source_reports.conversion_report.selector_summary.selectors", "assert": "count", "count": 4 },
     { "path": "source_reports.conversion_report.fallback_diagnostics.0.diagnostic_code", "assert": "equals", "value": "html_unsafe_inline_svg" },
     { "path": "source_reports.conversion_report.fallback_diagnostics.0.selector", "assert": "equals", "value": "svg:nth-of-type(1)" },
     { "path": "source_reports.conversion_report.presentation_gaps.0.type", "assert": "equals", "value": "source_presentation_signal" },
     { "path": "source_reports.conversion_report.presentation_gaps.0.signals.layout.type", "assert": "equals", "value": "constrained" },
     { "path": "diagnostics.1.selector", "assert": "equals", "value": "svg:nth-of-type(1)" },
-    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 2 },
     { "path": "coverage.0.source_provenance_count", "assert": "equals", "value": 2 }
   ]
 }

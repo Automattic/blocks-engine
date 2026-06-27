@@ -945,6 +945,54 @@ $emptyRuntimeControl = ( new HtmlTransformer() )->transform(
 $assert(str_contains((string) ($emptyRuntimeControl['serialized_blocks'] ?? ''), 'nav-toggle'), 'empty runtime control button class is preserved for scripts');
 $assert(str_contains((string) ($emptyRuntimeControl['serialized_blocks'] ?? ''), 'aria-expanded="false"'), 'empty runtime control button ARIA state is preserved');
 
+// Behavior-loss diagnostic: an interactive control converted to a static block
+// without its behavior must surface a generic, severity-warning finding so the
+// loss is no longer silent. Detection is structural (handler attributes, ARIA
+// control state, declarative JS hooks, button role on a non-button), never a
+// fixture-specific class string.
+$behaviorLossCollect = static function (array $result): array {
+    $codes = array();
+    foreach ( $result['fallbacks'] ?? array() as $fallback ) {
+        if ( 'interactive_control_behavior_lost' === ($fallback['diagnostic_code'] ?? '') ) {
+            $codes[] = $fallback;
+        }
+    }
+    return $codes;
+};
+
+$handlerControl = ( new HtmlTransformer() )->transform('<main><button onclick="doThing()">Act</button></main>')->toArray();
+$handlerFindings = $behaviorLossCollect($handlerControl);
+$assert(1 === count($handlerFindings), 'a button with an onclick handler that becomes a static block emits one behavior-loss finding');
+$assert(in_array('onclick', $handlerFindings[0]['interaction_signals'] ?? array(), true), 'behavior-loss finding records the structural interaction signal');
+$assert('warning' === ($handlerFindings[0]['severity'] ?? ''), 'behavior-loss finding is a warning');
+$assert('behavior_loss' === ($handlerFindings[0]['conversion_classification'] ?? ''), 'behavior-loss finding is classified as behavior loss');
+$assert('restore_interactive_behavior' === ($handlerFindings[0]['suggested_repair_class'] ?? ''), 'behavior-loss finding routes to the feature-parity repair bucket');
+$assert('interactive_control' === ($handlerFindings[0]['pattern_family'] ?? ''), 'behavior-loss finding exposes the generic interactive control pattern family');
+$handlerLossDiagnostic = array_values(array_filter($handlerControl['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'interactive_control_behavior_lost' === ($diagnostic['code'] ?? '')));
+$assert(1 === count($handlerLossDiagnostic), 'behavior-loss finding is projected into the diagnostics stream');
+
+$ariaToggleNoNav = ( new HtmlTransformer() )->transform('<main><header><button aria-controls="missing" aria-expanded="false"><span></span></button></header></main>')->toArray();
+$assert(1 === count($behaviorLossCollect($ariaToggleNoNav)), 'an aria-controls toggle with no associated navigation that becomes a dead core/button emits a behavior-loss finding');
+
+$roleButtonControl = ( new HtmlTransformer() )->transform('<main><div role="button" data-action="open">Open</div></main>')->toArray();
+$assert(1 === count($behaviorLossCollect($roleButtonControl)), 'a non-button element with role=button plus a declarative handler emits a behavior-loss finding');
+
+// Negatives: ordinary content must stay silent.
+$plainButton = ( new HtmlTransformer() )->transform('<main><button type="submit">Sign Up</button></main>')->toArray();
+$assert(array() === $behaviorLossCollect($plainButton), 'a plain button with no interaction signals does not emit a behavior-loss finding');
+
+$plainLink = ( new HtmlTransformer() )->transform('<main><a href="/about">About</a></main>')->toArray();
+$assert(array() === $behaviorLossCollect($plainLink), 'a plain link does not emit a behavior-loss finding');
+
+$roleButtonLink = ( new HtmlTransformer() )->transform('<main><a role="button" href="/buy">Buy</a></main>')->toArray();
+$assert(array() === $behaviorLossCollect($roleButtonLink), 'a real link styled with role=button preserves navigation and does not emit a behavior-loss finding');
+
+$valueDataAttribute = ( new HtmlTransformer() )->transform('<main><span data-target="47200">0</span></main>')->toArray();
+$assert(array() === $behaviorLossCollect($valueDataAttribute), 'a data-* attribute that carries a value rather than binding behavior does not emit a behavior-loss finding');
+
+$foldedNavToggle = ( new HtmlTransformer() )->transform('<header><div class="header-inner"><a class="brand" href="/">Logo</a><nav class="nav-links"><a href="/">Home</a><a href="/about">About</a></nav><button class="nav-toggle" aria-label="Open navigation menu" aria-controls="mobile-nav" aria-expanded="false"><span></span><span></span><span></span></button></div></header><nav class="mobile-nav" id="mobile-nav"><a href="/">Home</a><a href="/about">About</a></nav>')->toArray();
+$assert(array() === $behaviorLossCollect($foldedNavToggle), 'a hamburger toggle folded into core/navigation does not emit a behavior-loss finding');
+
 $assetMetadataOptions = array(
     'context' => array(
         'asset_metadata' => array(

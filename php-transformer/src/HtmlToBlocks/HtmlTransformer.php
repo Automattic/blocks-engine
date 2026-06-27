@@ -196,6 +196,7 @@ final class HtmlTransformer
         $fallbacks   = array();
         $interactionCandidates = $this->interactionCandidates($body);
         $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
+        $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
@@ -3276,6 +3277,188 @@ final class HtmlTransformer
         }
 
         return $candidates;
+    }
+
+    /**
+     * Emit a generic behavior-loss diagnostic for interactive controls that
+     * convert to static, non-interactive blocks without their behavior being
+     * preserved or rebuilt.
+     *
+     * Detection is structural/semantic — handler attributes (on*), declarative
+     * JS hooks (data-action/toggle/target/...), ARIA control state
+     * (aria-controls/aria-expanded/aria-haspopup), or a button role on a
+     * non-button, non-link element — never a fixture-specific class string.
+     *
+     * Controls whose behavior survives conversion are intentionally excluded so
+     * ordinary content stays silent: forms (covered by html_form_fallback),
+     * script DOM targets (covered by the runtime dependency parity report),
+     * elements preserved as runtime islands, hamburger toggles folded into
+     * core/navigation, controls consumed by a menu that becomes core/navigation,
+     * and plain links/buttons with no interaction signals.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function appendInteractiveControlBehaviorLossFallbacks(DOMElement $body, array &$fallbacks): void
+    {
+        $emitted = 0;
+        $seen = array();
+        foreach ( $body->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( $emitted >= self::MAX_INTERACTION_CANDIDATES ) {
+                return;
+            }
+
+            $signals = $this->interactionSignalEvidence($element);
+            if ( array() === $signals || ! $this->isInteractiveControlBehaviorLoss($element) ) {
+                continue;
+            }
+
+            $key = strtolower($element->tagName) . '|' . $this->elementSelector($element);
+            if ( isset($seen[$key]) ) {
+                continue;
+            }
+            $seen[$key] = true;
+
+            $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+            $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
+                'type'                => 'html',
+                'reason'              => 'interactive_control_behavior_lost',
+                'diagnostic_code'     => 'interactive_control_behavior_lost',
+                'message'             => 'An interactive control was converted to a static block, so its source behavior is no longer wired to any runtime.',
+                'source_format'       => 'html',
+                'tag'                 => strtolower($element->tagName),
+                'selector'            => $this->elementSelector($element),
+                'attributes'          => $this->htmlAttributes($element),
+                'context'             => $this->sourceContext($element),
+                'events'              => $this->eventMetadata($element),
+                'interaction_signals' => $signals,
+                'controlled_target'   => $this->controlledTarget($element),
+                'html'                => $boundedHtml['html'],
+                'html_bytes'          => $boundedHtml['bytes'],
+                'html_truncated'      => $boundedHtml['truncated'],
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->fallbackProvenance);
+            ++$emitted;
+        }
+    }
+
+    /**
+     * Whether an element carries structural interaction signals AND converts to
+     * a static block with its behavior dropped (not preserved or rebuilt).
+     */
+    private function isInteractiveControlBehaviorLoss(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+
+        // Elements with a dedicated preservation or diagnostic path. SVG (and
+        // its subtree) is sanitized/diagnosed by the inline-SVG fallback paths,
+        // which already account for any scriptable content.
+        if ( in_array($tagName, array( 'form', 'input', 'select', 'textarea', 'details', 'summary', 'script', 'svg' ), true) ) {
+            return false;
+        }
+
+        if ( $this->hasAncestorTag($element, array( 'svg' )) ) {
+            return false;
+        }
+
+        if ( array() === $this->interactionSignalEvidence($element) ) {
+            return false;
+        }
+
+        // Behavior is preserved or rebuilt elsewhere — not lost.
+        if ( $this->isRedundantMenuToggleControl($element) ) {
+            return false;
+        }
+
+        if ( $this->isFoldedIntoCoreNavigation($element) ) {
+            return false;
+        }
+
+        if ( $this->isRuntimeDomTarget($element) ) {
+            return false;
+        }
+
+        if ( $this->isPreservedRuntimeIslandElement($element) ) {
+            return false;
+        }
+
+        if ( $this->hasAncestorTag($element, array( 'form' )) ) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Structural/semantic interaction signals on an element, as generic evidence
+     * tokens. Never matches class-name strings.
+     *
+     * @return array<int, string>
+     */
+    private function interactionSignalEvidence(DOMElement $element): array
+    {
+        $tagName = strtolower($element->tagName);
+        $evidence = array();
+
+        foreach ( $this->eventMetadata($element) as $event ) {
+            $attribute = (string) ($event['attribute'] ?? '');
+            if ( '' !== $attribute ) {
+                $evidence[] = $attribute;
+            }
+        }
+
+        foreach ( array( 'aria-controls', 'aria-expanded', 'aria-haspopup' ) as $ariaAttribute ) {
+            if ( '' !== trim($this->attr($element, $ariaAttribute)) ) {
+                $evidence[] = $ariaAttribute;
+            }
+        }
+
+        // Only data-* attributes that unambiguously BIND behavior count as a
+        // signal — never data-* that merely carries a value (e.g. data-target as
+        // a counter goal). data-action/on/event also surface via eventMetadata.
+        foreach ( array_keys($this->safeDataAttributes($element)) as $dataName ) {
+            if ( preg_match('/^data-(?:action|on|event|toggle)$/i', (string) $dataName) ) {
+                $evidence[] = strtolower((string) $dataName);
+            }
+        }
+
+        if ( 'button' === strtolower($this->attr($element, 'role')) && 'button' !== $tagName ) {
+            $href = 'a' === $tagName ? $this->safeLinkUrl($this->attr($element, 'href')) : '';
+            if ( '' === $href ) {
+                $evidence[] = 'role=button';
+            }
+        }
+
+        return array_values(array_unique($evidence));
+    }
+
+    /**
+     * Whether the element (or an ancestor) is a navigation menu that converts to
+     * core/navigation, which rebuilds its toggle/submenu behavior natively.
+     */
+    private function isFoldedIntoCoreNavigation(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $this->isNavigationMenuCandidate($node) && $this->convertsToCoreNavigation($node) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isPreservedRuntimeIslandElement(DOMElement $element): bool
+    {
+        $selector = $this->runtimeIslandSelector($element);
+        foreach ( $this->runtimeIslands as $island ) {
+            if ( is_array($island) && ($island['selector'] ?? null) === $selector ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

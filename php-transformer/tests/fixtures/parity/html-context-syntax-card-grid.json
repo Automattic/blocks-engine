@@ -24,13 +24,14 @@
     { "path": "blocks.1", "name": "core/quote", "attrs": { "className": "testimonial", "citation": "<cite>Casey</cite> Engineer" } }
   ],
   "expected_fallbacks": [
-    { "type": "unsupported_element", "reason": "unsupported_element", "diagnostic_code": "html_unsupported_element", "tag": "x-widget" }
+    { "type": "unsupported_element", "reason": "unsupported_element", "diagnostic_code": "html_unsupported_element", "tag": "x-widget" },
+    { "type": "html", "reason": "interactive_control_behavior_lost", "diagnostic_code": "interactive_control_behavior_lost", "severity": "warning", "conversion_classification": "behavior_loss", "suggested_repair_class": "restore_interactive_behavior", "pattern_family": "interactive_control", "tag": "x-widget" }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 2 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 4 },
-    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 2 },
     { "path": "fallbacks.0.context.parent_tag", "assert": "equals", "value": "section" },
     { "path": "fallbacks.0.context.nearest_heading", "assert": "equals", "value": "Features" },
     { "path": "fallbacks.0.context.data_attributes.data-action", "assert": "equals", "value": "open" },
