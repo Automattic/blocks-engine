@@ -5,19 +5,20 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use DOMElement;
 
-final class NavigationPattern
+final class NavigationPattern implements PatternRecognizerInterface
 {
     private const BLOCK_LEVEL_LABEL_TAGS = 'address|article|aside|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|main|nav|ol|p|pre|section|table|ul';
 
     /**
-     * @param callable(DOMElement): array<string, mixed> $presentationAttributes
-     * @param callable(DOMElement): string $innerHtml
-     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
-     * @param callable(DOMElement): bool|null $isRuntimeDomTarget
      * @return array<string, mixed>|null
      */
-    public function match(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null): ?array
+    public function match(DOMElement $element, PatternContext $context): ?array
     {
+        $presentationAttributes = $context->presentationAttributesCallback();
+        $innerHtml = $context->innerHtmlCallback();
+        $createBlock = $context->createBlockCallback();
+        $isRuntimeDomTarget = $context->isRuntimeDomTargetCallback();
+
         if ( 'nav' !== strtolower($element->tagName) && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element) ) {
             return null;
         }
