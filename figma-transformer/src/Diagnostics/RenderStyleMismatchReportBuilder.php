@@ -66,33 +66,46 @@ final class RenderStyleMismatchReportBuilder
 
         $totalDiagnostics = $diagnostics;
         $diagnostics = array_slice($totalDiagnostics, 0, $limit);
-        $categoryCounts = $this->categoryCounts($totalDiagnostics);
-        $sourceCount = count($sourceNodes);
 
         return array(
             'schema' => self::SCHEMA,
             'input_schema' => isset($evidence['schema']) && is_scalar($evidence['schema']) ? (string) $evidence['schema'] : self::RENDER_EVIDENCE_SCHEMA,
             'status' => empty($renderNodes) ? 'not_run' : (empty($totalDiagnostics) ? 'pass' : 'fail'),
-            'summary' => array(
-                'source_node_count' => $sourceCount,
-                'render_node_count' => count($renderNodes),
-                'matched_node_count' => $matched,
-                'unmatched_source_node_count' => $unmatchedSource,
-                'match_ratio' => $sourceCount > 0 ? round($matched / $sourceCount, 4) : 0.0,
-                'page_path' => $pagePath,
-                'diagnostic_count' => count($totalDiagnostics),
-                'reported_diagnostic_count' => count($diagnostics),
-                'truncated' => count($diagnostics) < count($totalDiagnostics),
-                'font_mismatch_count' => (int) ($categoryCounts['font'] ?? 0),
-                'color_mismatch_count' => (int) ($categoryCounts['color'] ?? 0),
-                'background_mismatch_count' => (int) ($categoryCounts['background'] ?? 0),
-                'border_mismatch_count' => (int) ($categoryCounts['border'] ?? 0),
-                'opacity_mismatch_count' => (int) ($categoryCounts['opacity'] ?? 0),
-                'asset_mismatch_count' => (int) ($categoryCounts['asset'] ?? 0),
-                'text_metric_mismatch_count' => (int) ($categoryCounts['text_metric'] ?? 0),
-                'category_counts' => $categoryCounts,
-            ),
+            'summary' => $this->summary($sourceNodes, $renderNodes, $matched, $unmatchedSource, $totalDiagnostics, $diagnostics, $pagePath),
             'diagnostics' => $diagnostics,
+        );
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $sourceNodes
+     * @param array<string, array<string, mixed>> $renderNodes
+     * @param array<int, array<string, mixed>> $totalDiagnostics
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, mixed>
+     */
+    private function summary(array $sourceNodes, array $renderNodes, int $matched, int $unmatchedSource, array $totalDiagnostics, array $diagnostics, ?string $pagePath): array
+    {
+        $categoryCounts = $this->categoryCounts($totalDiagnostics);
+        $sourceCount = count($sourceNodes);
+
+        return array(
+            'source_node_count' => $sourceCount,
+            'render_node_count' => count($renderNodes),
+            'matched_node_count' => $matched,
+            'unmatched_source_node_count' => $unmatchedSource,
+            'match_ratio' => $sourceCount > 0 ? round($matched / $sourceCount, 4) : 0.0,
+            'page_path' => $pagePath,
+            'diagnostic_count' => count($totalDiagnostics),
+            'reported_diagnostic_count' => count($diagnostics),
+            'truncated' => count($diagnostics) < count($totalDiagnostics),
+            'font_mismatch_count' => (int) ($categoryCounts['font'] ?? 0),
+            'color_mismatch_count' => (int) ($categoryCounts['color'] ?? 0),
+            'background_mismatch_count' => (int) ($categoryCounts['background'] ?? 0),
+            'border_mismatch_count' => (int) ($categoryCounts['border'] ?? 0),
+            'opacity_mismatch_count' => (int) ($categoryCounts['opacity'] ?? 0),
+            'asset_mismatch_count' => (int) ($categoryCounts['asset'] ?? 0),
+            'text_metric_mismatch_count' => (int) ($categoryCounts['text_metric'] ?? 0),
+            'category_counts' => $categoryCounts,
         );
     }
 
