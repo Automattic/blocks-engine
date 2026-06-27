@@ -4105,7 +4105,7 @@ final class HtmlTransformer
             return null;
         }
 
-        return $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $element);
+        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $summary )), array(), $element);
     }
 
     /**
@@ -4133,7 +4133,7 @@ final class HtmlTransformer
             return null;
         }
 
-        return $this->createBlock('core/group', array(), array(
+        return $this->createBlock('core/group', $this->presentationAttributes($select), array(
             $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $select),
             $this->createBlock('core/list', array(), $optionBlocks, $select),
         ), $select);
