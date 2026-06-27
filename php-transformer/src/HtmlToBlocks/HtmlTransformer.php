@@ -2165,6 +2165,10 @@ final class HtmlTransformer
             return $readableControlBlock;
         }
 
+        if ( $this->preserveStandaloneFormControlAsRuntimeIsland($element) ) {
+            return null;
+        }
+
         if ( $captureUnsupported ) {
             $fallback = array(
                 'type'            => 'unsupported_element',
@@ -5198,6 +5202,36 @@ final class HtmlTransformer
         }
 
         return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $summary )), array(), $element);
+    }
+
+    /**
+     * Preserve a standalone form control that has no faithful native block or
+     * readable static approximation as a bounded runtime island instead of an
+     * unsupported-element loss.
+     *
+     * Reached only after the readable-control and search paths decline, so the
+     * control is one whose behavior depends on a client runtime: file/hidden/
+     * color/date-style inputs core blocks cannot represent, or any control
+     * carrying inline event handlers. The source markup is carried in the
+     * island snippet so the behavior can be re-attached, and no misleading
+     * static text is emitted for controls (often hidden) that have no visual
+     * representation. This yields a `preserved_runtime_island` outcome rather
+     * than an `unsupported_element_loss`.
+     */
+    private function preserveStandaloneFormControlAsRuntimeIsland(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( ! in_array($tagName, array( 'input', 'select', 'textarea' ), true) ) {
+            return false;
+        }
+
+        $this->recordRuntimeIsland($element, 'control', 'form_control_requires_runtime', 'client_form_control_runtime', array(
+            'control'          => $this->formControlMetadata($element),
+            'events'           => $this->eventMetadata($element),
+            'required_scripts' => $this->requiredScriptsForElement($element),
+        ));
+
+        return true;
     }
 
     /**
