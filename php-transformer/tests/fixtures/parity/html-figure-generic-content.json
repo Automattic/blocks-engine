@@ -1,0 +1,43 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-figure-generic-content",
+  "description": "Converts figures that wrap non-media content (table, multiple elements, or text) into faithful core/group blocks with the figcaption consumed as a trailing caption paragraph, with zero fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-figure-generic-content.json",
+    "notes": "Product-neutral coverage for generic non-media figure deterministic conversion, reducing unsupported_figure fallbacks."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<figure class=\"data-figure\"><table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Ada</td></tr></tbody></table><figcaption>Team <em>roster</em></figcaption></figure><figure><p>First line.</p><p>Second line.</p><figcaption>Combined notes</figcaption></figure><figure>Plain figure text<figcaption>Short caption</figcaption></figure>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "data-figure" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/table" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Team <em>roster</em>" } },
+    { "path": "blocks.1", "name": "core/group" },
+    { "path": "blocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "First line." } },
+    { "path": "blocks.1.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Second line." } },
+    { "path": "blocks.1.innerBlocks.2", "name": "core/paragraph", "attrs": { "content": "Combined notes" } },
+    { "path": "blocks.2", "name": "core/group" },
+    { "path": "blocks.2.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Plain figure text" } },
+    { "path": "blocks.2.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Short caption" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 3 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"data-figure\"} --><div class=\"wp-block-group data-figure\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-table\"><table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Ada</td></tr></tbody></table></figure>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"content\":\"Team <em>roster</em>\"} --><p>Team <em>roster</em></p><!-- /wp:paragraph --></div><!-- /wp:group -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group --><div class=\"wp-block-group\"><!-- wp:paragraph {\"content\":\"First line.\"} --><p>First line.</p><!-- /wp:paragraph -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"content\":\"Plain figure text\"} --><p>Plain figure text</p><!-- /wp:paragraph --><!-- wp:paragraph {\"content\":\"Short caption\"} -->" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

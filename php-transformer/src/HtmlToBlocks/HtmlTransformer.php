@@ -1806,6 +1806,61 @@ final class HtmlTransformer
             if ( $blockquote instanceof DOMElement ) {
                 return $this->convertFigureBlockquote($element, $blockquote, $fallbacks);
             }
+
+            return $this->convertFigureGeneric($element, $fallbacks);
+        }
+
+        if ( 'figcaption' === $tagName ) {
+            $content = $this->innerHtml($element);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        }
+
+        if ( 'noscript' === $tagName ) {
+            $children = $this->convertChildren($element, $fallbacks, true);
+            if ( array() === $children ) {
+                $content = $this->innerHtml($element);
+                if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                    return null;
+                }
+
+                return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+            }
+
+            if ( 1 === count($children) && array() === $this->presentationAttributes($element) ) {
+                return $children[0];
+            }
+
+            return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+        }
+
+        if ( 'marquee' === $tagName || 'blink' === $tagName ) {
+            if ( $this->hasBlockContentChildren($element) ) {
+                $children = $this->convertChildren($element, $fallbacks, true);
+                if ( array() === $children ) {
+                    return null;
+                }
+
+                if ( 1 === count($children) && array() === $this->presentationAttributes($element) ) {
+                    return $children[0];
+                }
+
+                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+            }
+
+            $content = $this->innerHtml($element);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        }
+
+        if ( 'label' === $tagName ) {
+            return $this->readableFormControlBlockFromElement($element);
         }
 
         if ( 'pre' === $tagName ) {
@@ -3743,6 +3798,41 @@ final class HtmlTransformer
         }
 
         return '';
+    }
+
+    /**
+     * Convert a figure that wraps non-media content (table, code, multiple
+     * elements, or text) into the closest faithful native block(s).
+     *
+     * The figcaption is consumed as a trailing caption paragraph so it is never
+     * emitted as a separate orphan fallback. A figure with a single child and no
+     * caption unwraps to that child; otherwise the children plus caption are
+     * preserved inside a core/group that carries the figure's presentation.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function convertFigureGeneric(DOMElement $figure, array &$fallbacks): ?array
+    {
+        $children = $this->convertChildrenWithoutTags($figure, $fallbacks, array( 'figcaption' ));
+
+        $caption = $this->firstChildElement($figure, 'figcaption');
+        if ( $caption instanceof DOMElement ) {
+            $captionHtml = $this->innerHtml($caption);
+            if ( '' !== trim($this->runtime->stripAllTags($captionHtml)) ) {
+                $children[] = $this->createBlock('core/paragraph', array( 'content' => $captionHtml ), array(), $caption);
+            }
+        }
+
+        if ( array() === $children ) {
+            return null;
+        }
+
+        if ( 1 === count($children) && array() === $this->presentationAttributes($figure) ) {
+            return $children[0];
+        }
+
+        return $this->createBlock('core/group', $this->presentationAttributes($figure), $children, $figure);
     }
 
     /**
