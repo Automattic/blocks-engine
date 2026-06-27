@@ -57,6 +57,16 @@ final class HtmlTransformer
     private array $scriptMetadata = array();
 
     /**
+     * @var array<int, array<string, mixed>>
+     */
+    private array $runtimeIslands = array();
+
+    /**
+     * @var array<int, array<string, mixed>>
+     */
+    private array $runtimeScriptMetadata = array();
+
+    /**
      * @var array<string, array<string, mixed>>
      */
     private array $assetMetadata = array();
@@ -111,6 +121,8 @@ final class HtmlTransformer
         $this->sourceProvenance = array();
         $this->structureProvenance = array();
         $this->scriptMetadata = array();
+        $this->runtimeIslands = array();
+        $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->generatedAssets = array();
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
@@ -256,6 +268,7 @@ final class HtmlTransformer
 
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $sourceReports = array(
+            'runtime_islands' => $this->runtimeIslands,
             'interaction_candidates' => $interactionCandidates,
             'wp_block_validity' => $blockValidityReport,
             'semantic_parity' => $semanticParityReport,
@@ -264,6 +277,7 @@ final class HtmlTransformer
                 'source_provenance'    => $sourceProvenance,
                 'structure_signals'    => $this->structureProvenance,
                 'script_metadata'      => $this->scriptMetadata,
+                'runtime_islands'      => $this->runtimeIslands,
             ),
         );
         $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('html', $blocks, $fallbacks, $sourceReports, array(), $provenance, $metrics);
@@ -1265,6 +1279,13 @@ final class HtmlTransformer
             $controls = $this->formControls($element);
             $readableFormBlock = $this->readableFormBlockFromForm($element, true);
             $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+            $this->recordRuntimeIsland($element, 'form', 'form_requires_runtime', 'server_or_client_form_handler', array(
+                'form'            => $this->formMetadata($element),
+                'controls'        => $controls,
+                'control_count'   => count($controls),
+                'events'          => $this->eventMetadata($element),
+                'required_scripts' => $this->requiredScriptsForElement($element),
+            ));
             $fallbacks[] = FallbackDiagnostic::build(array(
                 'type'            => 'html',
                 'reason'          => 'form_requires_runtime',
@@ -3075,6 +3096,14 @@ final class HtmlTransformer
     {
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $id = trim($this->attr($element, 'id'));
+        if ( $this->isRuntimeCanvasTarget($element) ) {
+            $this->recordRuntimeIsland($element, 'canvas', 'canvas_requires_runtime', 'canvas_element_and_client_script_execution', array(
+                'script_dependency_hint' => '' !== $id
+                    ? 'Scripts may target #' . $id . ' and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.'
+                    : 'Scripts may target this canvas by selector and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.',
+                'required_scripts' => $this->requiredScriptsForElement($element),
+            ));
+        }
 
         $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
             'type'            => 'html',
@@ -3147,6 +3176,134 @@ final class HtmlTransformer
         }
 
         return false;
+    }
+
+    /**
+     * @param array<string, mixed> $metadata
+     */
+    private function recordRuntimeIsland(DOMElement $element, string $kind, string $reason, string $runtimeRequirement, array $metadata = array()): void
+    {
+        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+        $island = array_filter(array_merge(array(
+            'kind'                => $kind,
+            'selector'            => $this->runtimeIslandSelector($element),
+            'tag'                 => strtolower($element->tagName),
+            'preservation_reason' => $reason,
+            'runtime_requirement' => $runtimeRequirement,
+            'source_snippet'      => $boundedHtml['html'],
+            'source_bytes'        => $boundedHtml['bytes'],
+            'source_truncated'    => $boundedHtml['truncated'],
+            'attributes'          => $this->htmlAttributes($element),
+            'context'             => $this->sourceContext($element),
+            'required_assets'     => array(),
+            'required_scripts'    => array(),
+        ), $metadata), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+
+        $key = json_encode(array(
+            'kind'     => $island['kind'] ?? '',
+            'selector' => $island['selector'] ?? '',
+            'snippet'  => $island['source_snippet'] ?? '',
+        ), JSON_UNESCAPED_SLASHES);
+        foreach ( $this->runtimeIslands as $existing ) {
+            $existingKey = json_encode(array(
+                'kind'     => $existing['kind'] ?? '',
+                'selector' => $existing['selector'] ?? '',
+                'snippet'  => $existing['source_snippet'] ?? '',
+            ), JSON_UNESCAPED_SLASHES);
+            if ( $key === $existingKey ) {
+                return;
+            }
+        }
+
+        $this->runtimeIslands[] = $island;
+    }
+
+    private function runtimeIslandSelector(DOMElement $element): string
+    {
+        $id = trim($this->attr($element, 'id'));
+        if ( '' !== $id ) {
+            return '#' . $id;
+        }
+
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+            if ( '' !== $class ) {
+                return '.' . $class;
+            }
+        }
+
+        return $this->elementSelector($element);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function requiredScriptsForElement(DOMElement $element): array
+    {
+        $scripts = $this->runtimeScriptMetadata;
+
+        $owner = $element->ownerDocument;
+        if ( ! $owner instanceof DOMDocument ) {
+            return $scripts;
+        }
+
+        foreach ( $owner->getElementsByTagName('script') as $script ) {
+            if ( ! $script instanceof DOMElement || 'runtime' !== $this->scriptRole($script) ) {
+                continue;
+            }
+
+            $scripts[] = array_filter(array(
+                'selector'           => $this->elementSelector($script),
+                'attributes'         => $this->safeScriptAttributes($script),
+                'script_role'        => 'runtime',
+                'script_source_kind' => '' !== trim($this->attr($script, 'src')) ? 'external' : 'inline',
+            ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
+        }
+
+        return $this->dedupeArrayRows($scripts);
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<int, array<string, mixed>>
+     */
+    private function runtimeScriptMetadataFromOptions(array $options): array
+    {
+        $metadata = array();
+        foreach ( $options['runtime_script_metadata'] ?? array() as $script ) {
+            if ( ! is_array($script) ) {
+                continue;
+            }
+
+            $metadata[] = array_filter(array(
+                'path'               => is_string($script['path'] ?? null) ? $script['path'] : '',
+                'selector'           => is_string($script['selector'] ?? null) ? $script['selector'] : '',
+                'attributes'         => is_array($script['attributes'] ?? null) ? $script['attributes'] : array(),
+                'script_role'        => 'runtime',
+                'script_source_kind' => is_string($script['script_source_kind'] ?? null) ? $script['script_source_kind'] : 'external',
+            ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
+        }
+
+        return $this->dedupeArrayRows($metadata);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function dedupeArrayRows(array $rows): array
+    {
+        $seen = array();
+        $deduped = array();
+        foreach ( $rows as $row ) {
+            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
+            if ( ! is_string($key) || isset($seen[$key]) ) {
+                continue;
+            }
+            $seen[$key] = true;
+            $deduped[] = $row;
+        }
+
+        return $deduped;
     }
 
     /**
@@ -3575,6 +3732,11 @@ final class HtmlTransformer
             }
 
             if ( $this->isRuntimeDomTarget($control) ) {
+                $this->recordRuntimeIsland($control, 'control', 'runtime_dom_target', 'client_script_execution', array(
+                    'control'          => $this->formControlMetadata($control),
+                    'events'           => $this->eventMetadata($control),
+                    'required_scripts' => $this->requiredScriptsForElement($control),
+                ));
                 $contentBlocks[] = $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($control) ), array(), $control);
                 continue;
             }
@@ -3658,6 +3820,11 @@ final class HtmlTransformer
         }
 
         if ( $this->isRuntimeDomTarget($element) ) {
+            $this->recordRuntimeIsland($element, 'control', 'runtime_dom_target', 'client_script_execution', array(
+                'control'          => $this->formControlMetadata($element),
+                'events'           => $this->eventMetadata($element),
+                'required_scripts' => $this->requiredScriptsForElement($element),
+            ));
             return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($element) ), array(), $element);
         }
 

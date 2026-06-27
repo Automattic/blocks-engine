@@ -77,6 +77,9 @@ final class ArtifactCompiler
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks);
         $sourceReports['materialization_plan'] = ( new MaterializationPlanBuilder() )->fromCompiledSite($sourceReports['compiled_site']);
         $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath);
+        if ( array() !== $entryBlocks['runtime_islands'] ) {
+            $sourceReports['runtime_islands'] = $entryBlocks['runtime_islands'];
+        }
         $provenance = array(
             array(
                 'source_format' => 'artifact',
@@ -126,7 +129,7 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>}
      */
     private function compileEntryBlocks(string $html, string $entryPath, array $files): array
     {
@@ -138,12 +141,13 @@ final class ArtifactCompiler
             'diagnostics'       => $this->entryTransformDiagnostics($result['diagnostics']),
             'fallbacks'         => $result['fallbacks'],
             'assets'            => $result['assets'],
+            'runtime_islands'   => $result['runtime_islands'],
         );
     }
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>}
      */
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope): array
     {
@@ -154,6 +158,7 @@ final class ArtifactCompiler
                 'diagnostics'       => array(),
                 'fallbacks'         => array(),
                 'assets'            => array(),
+                'runtime_islands'   => array(),
             );
         }
 
@@ -164,6 +169,7 @@ final class ArtifactCompiler
                 'diagnostics'       => array(),
                 'fallbacks'         => array(),
                 'assets'            => array(),
+                'runtime_islands'   => array(),
             );
         }
 
@@ -172,6 +178,7 @@ final class ArtifactCompiler
             'source_scope' => $sourceScope,
             'static_css'                => $this->linkedStylesheetCss($html, $sourcePath, $files),
             'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
+            'runtime_script_metadata'   => $this->runtimeScriptMetadataForSource($html, $sourcePath, $files),
             'runtime_dom_selectors'     => $this->runtimeDomSelectors($html, $sourcePath, $files),
             'runtime_canvas_selectors' => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
         ))->toArray();
@@ -182,6 +189,7 @@ final class ArtifactCompiler
             'diagnostics'       => is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array(),
             'fallbacks'         => is_array($result['fallbacks'] ?? null) ? $result['fallbacks'] : array(),
             'assets'            => is_array($result['assets'] ?? null) ? $result['assets'] : array(),
+            'runtime_islands'   => is_array($result['source_reports']['runtime_islands'] ?? null) ? $result['source_reports']['runtime_islands'] : array(),
         );
     }
 
@@ -623,6 +631,65 @@ final class ArtifactCompiler
         }
 
         return $metadata;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function runtimeScriptMetadataForSource(string $html, string $sourcePath, array $files): array
+    {
+        if ( ! preg_match_all('/<script\b[^>]*>/i', $html, $matches) ) {
+            return array();
+        }
+
+        $metadata = array();
+        foreach ( $matches[0] as $tag ) {
+            $src = $this->htmlAttribute((string) $tag, 'src');
+            if ( '' === $src ) {
+                continue;
+            }
+
+            $asset = $this->findAssetByHtmlReference($src, $sourcePath, $files);
+            if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) ) {
+                continue;
+            }
+
+            $metadata[] = array_filter(array(
+                'path'               => (string) ($asset['path'] ?? ''),
+                'selector'           => 'script[src="' . $src . '"]',
+                'attributes'         => array_filter(array(
+                    'src'   => $src,
+                    'type'  => $this->htmlAttribute((string) $tag, 'type'),
+                    'async' => $this->htmlAttribute((string) $tag, 'async'),
+                    'defer' => $this->htmlAttribute((string) $tag, 'defer'),
+                ), static fn (string $value): bool => '' !== $value),
+                'script_role'        => 'runtime',
+                'script_source_kind' => 'external',
+            ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
+        }
+
+        return $this->dedupeRows($metadata);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function dedupeRows(array $rows): array
+    {
+        $seen = array();
+        $deduped = array();
+        foreach ( $rows as $row ) {
+            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
+            if ( ! is_string($key) || isset($seen[$key]) ) {
+                continue;
+            }
+            $seen[$key] = true;
+            $deduped[] = $row;
+        }
+
+        return $deduped;
     }
 
     /**
