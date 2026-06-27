@@ -158,6 +158,19 @@ final class FallbackDiagnostic
                 'suggested_primitive'   => 'core/html',
                 'materialization_hint'  => 'preserve_sanitized_markup_until_a_specific_block_mapping_exists',
             ),
+            'interactive_control_behavior_lost' => array(
+                'severity'              => 'warning',
+                'conversion_classification' => 'behavior_loss',
+                'loss_class'            => 'interactive_behavior_loss',
+                'diagnostic_class'      => 'interactive_behavior_loss',
+                'preservation_strategy' => 'none_behavior_dropped',
+                'runtime_requirement'   => 'client_event_handler',
+                'recoverability'        => 'recoverable_with_interactive_block_or_script_runtime',
+                'actionability'         => 'rebuild_control_behavior_as_interactive_block_or_enqueue_handler_script',
+                'suggested_repair_class' => 'restore_interactive_behavior',
+                'suggested_primitive'   => 'interactive_control',
+                'materialization_hint'  => 'rebuild_as_interactive_block_or_preserve_handler_via_script_runtime',
+            ),
             default => array(
                 'severity'              => 'warning',
                 'conversion_classification' => 'unsupported_loss',
@@ -186,6 +199,7 @@ final class FallbackDiagnostic
         return match ( $code ) {
             'html_form_fallback' => 'interactive_form',
             'html_script_fallback' => 'runtime_script',
+            'interactive_control_behavior_lost' => 'interactive_control',
             'html_iframe_embed_fallback' => 'external_embed',
             'html_canvas_runtime_fallback' => 'runtime_canvas',
             'html_template_metadata' => 'inert_template_metadata',
