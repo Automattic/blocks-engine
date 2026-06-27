@@ -57,7 +57,7 @@ final class StaticHtmlEmitter
             'html{box-sizing:border-box}',
             '*,*::before,*::after{box-sizing:inherit}',
             'body{margin:0}',
-            '.figma-root{position:relative;width:100%;max-width:100%}',
+            '.figma-root{position:relative;min-width:100%;width:max-content}',
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
             'img{display:block;max-width:100%;height:auto}',
             '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
@@ -164,7 +164,7 @@ final class StaticHtmlEmitter
             'html{box-sizing:border-box}',
             '*,*::before,*::after{box-sizing:inherit}',
             'body{margin:0}',
-            '.figma-root{position:relative;width:100%;max-width:100%}',
+            '.figma-root{position:relative;min-width:100%;width:max-content}',
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
             'img{display:block;max-width:100%;height:auto}',
             '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
@@ -368,6 +368,9 @@ final class StaticHtmlEmitter
         if ( ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) ) {
             foreach ( $children as $child ) {
                 if ( is_array($child) ) {
+                    if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
+                        continue;
+                    }
                     $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node);
                 }
             }
@@ -679,7 +682,7 @@ final class StaticHtmlEmitter
         $map = array();
         foreach ( $nodes as $node ) {
             if ( is_array($node) ) {
-                $this->appendVisualNodeMap($node, $map, 0.0, 0.0, null);
+                $this->appendVisualNodeMap($node, $map, 0.0, 0.0, null, null);
             }
         }
 
@@ -1073,6 +1076,9 @@ final class StaticHtmlEmitter
 
         foreach ( $this->nodeList($node) as $child ) {
             if ( is_array($child) ) {
+                if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
+                    continue;
+                }
                 $this->collectTransformDiagnostics($child, $image, $vectors, $layout, $node);
             }
         }
@@ -1267,8 +1273,12 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @param array<int, array<string, mixed>> $map
      */
-    private function appendVisualNodeMap(array $node, array &$map, float $x, float $y, ?array $parentNode): void
+    private function appendVisualNodeMap(array $node, array &$map, float $x, float $y, ?array $parentNode, ?array $clipRect): void
     {
+        if ( $this->isFullyTransparentVisualNode($node) ) {
+            return;
+        }
+
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
         $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
@@ -1283,6 +1293,15 @@ final class StaticHtmlEmitter
 
         $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : null;
         $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
+        $nodeRect = null !== $width && null !== $height ? array('x' => $x, 'y' => $y, 'width' => $width, 'height' => $height) : null;
+        $mapRect = $nodeRect;
+        if ( null !== $nodeRect && null !== $clipRect && $this->isClippableDecorativeVisualNode($node) ) {
+            $mapRect = $this->rectIntersection($nodeRect, $clipRect);
+            if ( null === $mapRect ) {
+                return;
+            }
+        }
+
         if ( null !== $width && null !== $height ) {
             $imagePaint = $this->firstImagePaint($node);
             $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
@@ -1291,12 +1310,7 @@ final class StaticHtmlEmitter
                 'parent_id' => null !== $parentNode ? (string) ($parentNode['id'] ?? '') : '',
                 'name' => (string) ($node['name'] ?? ''),
                 'type' => strtoupper((string) ($node['type'] ?? '')),
-                'rect' => array(
-                    'x' => $x,
-                    'y' => $y,
-                    'width' => $width,
-                    'height' => $height,
-                ),
+                'rect' => $mapRect,
                 'layout' => array(
                     'display' => $layout['display'] ?? null,
                     'flex_direction' => $layout['flex_direction'] ?? null,
@@ -1311,6 +1325,14 @@ final class StaticHtmlEmitter
         $children = $this->nodeList($node);
         if ( empty($children) ) {
             return;
+        }
+
+        $childClipRect = $clipRect;
+        if ( null !== $nodeRect && true === ($layout['clips_content'] ?? false) ) {
+            $childClipRect = null === $childClipRect ? $nodeRect : $this->rectIntersection($childClipRect, $nodeRect);
+            if ( null === $childClipRect ) {
+                return;
+            }
         }
 
         $padding = is_array($layout['padding'] ?? null) ? $layout['padding'] : array();
@@ -1336,6 +1358,10 @@ final class StaticHtmlEmitter
                 continue;
             }
 
+            if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
+                continue;
+            }
+
             $childLayout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
             if ( $this->isFreeformContainer($node) || 'absolute' === ($childLayout['positioning'] ?? null) || $this->isDecorativeFlexUnderlay($child, $node) ) {
                 continue;
@@ -1344,55 +1370,180 @@ final class StaticHtmlEmitter
             $flowChildren[] = $child;
         }
 
-        $cursorMain = 0.0;
-        $visualGap = $gap;
-        if ( $isFlex && null !== $contentMainSize && ! empty($flowChildren) ) {
-            $totalMainSize = 0.0;
-            foreach ( $flowChildren as $child ) {
-                $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
-                $totalMainSize += isset($childBox[$mainAxis]) && is_numeric($childBox[$mainAxis]) ? (float) $childBox[$mainAxis] : 0.0;
-            }
-
-            $totalMainSize += $gap * max(0, count($flowChildren) - 1);
-            $freeMainSpace = max(0.0, $contentMainSize - $totalMainSize);
-            $justifyContent = (string) ($layout['justify_content'] ?? 'flex-start');
-            if ( 'flex-end' === $justifyContent ) {
-                $cursorMain = $freeMainSpace;
-            } elseif ( 'center' === $justifyContent ) {
-                $cursorMain = $freeMainSpace / 2.0;
-            } elseif ( 'space-between' === $justifyContent && count($flowChildren) > 1 ) {
-                $visualGap += $freeMainSpace / (count($flowChildren) - 1);
-            } elseif ( 'space-around' === $justifyContent ) {
-                $visualGap += $freeMainSpace / count($flowChildren);
-                $cursorMain = $visualGap / 2.0;
-            } elseif ( 'space-evenly' === $justifyContent ) {
-                $visualGap += $freeMainSpace / (count($flowChildren) + 1);
-                $cursorMain = $visualGap;
-            }
-        }
+        $flowPositions = $this->visualFlexChildPositions($flowChildren, $layout, $isFlex, $isRow, $mainAxis, $crossAxis, $contentMainSize, $contentCrossSize, $gap);
 
         foreach ( $children as $child ) {
             if ( ! is_array($child) ) {
                 continue;
             }
 
-            $childLayout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
-            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
-            if ( $this->isFreeformContainer($node) || 'absolute' === ($childLayout['positioning'] ?? null) || $this->isDecorativeFlexUnderlay($child, $node) ) {
-                $this->appendVisualNodeMap($child, $map, $x, $y, $node);
+            if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
                 continue;
             }
 
+            $childLayout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( $this->isFreeformContainer($node) || 'absolute' === ($childLayout['positioning'] ?? null) || $this->isDecorativeFlexUnderlay($child, $node) ) {
+                $this->appendVisualNodeMap($child, $map, $x, $y, $node, $childClipRect);
+                continue;
+            }
+
+            $nodeId = (string) ($child['id'] ?? '');
+            $position = '' !== $nodeId && isset($flowPositions[$nodeId]) ? $flowPositions[$nodeId] : array('main' => 0.0, 'cross' => 0.0);
+            if ( $isRow ) {
+                $this->appendVisualNodeMap($child, $map, $childX + $position['main'], $childY + $position['cross'], $node, $childClipRect);
+            } else {
+                $this->appendVisualNodeMap($child, $map, $childX + $position['cross'], $childY + $position['main'], $node, $childClipRect);
+            }
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     * @param array<string, mixed> $layout
+     * @return array<string, array{main: float, cross: float}>
+     */
+    private function visualFlexChildPositions(array $children, array $layout, bool $isFlex, bool $isRow, string $mainAxis, string $crossAxis, ?float $contentMainSize, ?float $contentCrossSize, float $gap): array
+    {
+        $positions = array();
+        if ( empty($children) ) {
+            return $positions;
+        }
+
+        $wrap = $isFlex && null !== $contentMainSize && 'wrap' === ($layout['flex_wrap'] ?? null);
+        $lines = array();
+        $currentLine = array('children' => array(), 'main_size' => 0.0, 'cross_size' => 0.0);
+        foreach ( $children as $child ) {
+            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
             $childMainSize = isset($childBox[$mainAxis]) && is_numeric($childBox[$mainAxis]) ? (float) $childBox[$mainAxis] : 0.0;
             $childCrossSize = isset($childBox[$crossAxis]) && is_numeric($childBox[$crossAxis]) ? (float) $childBox[$crossAxis] : 0.0;
-            $crossOffset = $this->visualFlexCrossAxisOffset($layout, $childLayout, $contentCrossSize, $childCrossSize);
-            if ( $isRow ) {
-                $this->appendVisualNodeMap($child, $map, $childX + $cursorMain, $childY + $crossOffset, $node);
-            } else {
-                $this->appendVisualNodeMap($child, $map, $childX + $crossOffset, $childY + $cursorMain, $node);
+            $lineChildCount = count($currentLine['children']);
+            $candidateMainSize = (float) $currentLine['main_size'] + ($lineChildCount > 0 ? $gap : 0.0) + $childMainSize;
+            if ( $wrap && $lineChildCount > 0 && $candidateMainSize > $contentMainSize + 0.001 ) {
+                $lines[] = $currentLine;
+                $currentLine = array('children' => array(), 'main_size' => 0.0, 'cross_size' => 0.0);
+                $lineChildCount = 0;
+                $candidateMainSize = $childMainSize;
             }
-            $cursorMain += $childMainSize + $visualGap;
+
+            $currentLine['children'][] = array('node' => $child, 'main_size' => $childMainSize, 'cross_size' => $childCrossSize);
+            $currentLine['main_size'] = $candidateMainSize;
+            $currentLine['cross_size'] = max((float) $currentLine['cross_size'], $childCrossSize);
         }
+        if ( ! empty($currentLine['children']) ) {
+            $lines[] = $currentLine;
+        }
+
+        $lineCrossOffset = 0.0;
+        foreach ( $lines as $line ) {
+            $lineChildren = is_array($line['children'] ?? null) ? $line['children'] : array();
+            $lineMainSize = (float) ($line['main_size'] ?? 0.0);
+            $lineCrossSize = (float) ($line['cross_size'] ?? 0.0);
+            $cursorMain = 0.0;
+            $visualGap = $gap;
+            if ( $isFlex && null !== $contentMainSize ) {
+                $freeMainSpace = max(0.0, $contentMainSize - $lineMainSize);
+                $justifyContent = (string) ($layout['justify_content'] ?? 'flex-start');
+                if ( 'flex-end' === $justifyContent ) {
+                    $cursorMain = $freeMainSpace;
+                } elseif ( 'center' === $justifyContent ) {
+                    $cursorMain = $freeMainSpace / 2.0;
+                } elseif ( 'space-between' === $justifyContent && count($lineChildren) > 1 ) {
+                    $visualGap += $freeMainSpace / (count($lineChildren) - 1);
+                } elseif ( 'space-around' === $justifyContent ) {
+                    $visualGap += $freeMainSpace / count($lineChildren);
+                    $cursorMain = $visualGap / 2.0;
+                } elseif ( 'space-evenly' === $justifyContent ) {
+                    $visualGap += $freeMainSpace / (count($lineChildren) + 1);
+                    $cursorMain = $visualGap;
+                }
+            }
+
+            foreach ( $lineChildren as $lineChild ) {
+                $child = is_array($lineChild['node'] ?? null) ? $lineChild['node'] : array();
+                $childLayout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+                $childMainSize = (float) ($lineChild['main_size'] ?? 0.0);
+                $childCrossSize = (float) ($lineChild['cross_size'] ?? 0.0);
+                $nodeId = (string) ($child['id'] ?? '');
+                if ( '' !== $nodeId ) {
+                    $positions[$nodeId] = array(
+                        'main' => $cursorMain,
+                        'cross' => $lineCrossOffset + $this->visualFlexCrossAxisOffset($layout, $childLayout, $wrap ? $lineCrossSize : $contentCrossSize, $childCrossSize),
+                    );
+                }
+
+                $cursorMain += $childMainSize + $visualGap;
+            }
+
+            $lineCrossOffset += $lineCrossSize + ($wrap ? $gap : 0.0);
+        }
+
+        return $positions;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isClippableDecorativeVisualNode(array $node): bool
+    {
+        return ! $this->treeHasText($node) && ! $this->treeHasImageReference($node) && $this->treeIsVectorShapeOnly($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isFullyClippedDecorativeChild(array $node, array $parentNode): bool
+    {
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        if ( true !== ($parentLayout['clips_content'] ?? false) || ! $this->isClippableDecorativeVisualNode($node) ) {
+            return false;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        if ( ! isset($parentBox['width'], $parentBox['height'], $box['width'], $box['height']) || ! is_numeric($parentBox['width']) || ! is_numeric($parentBox['height']) || ! is_numeric($box['width']) || ! is_numeric($box['height']) ) {
+            return false;
+        }
+
+        $left = $this->positionOffset($box, $parentBox, 'x', $parentNode);
+        $top = $this->positionOffset($box, $parentBox, 'y', $parentNode);
+        if ( null === $left || null === $top ) {
+            return false;
+        }
+
+        $parentRect = array('x' => 0.0, 'y' => 0.0, 'width' => (float) $parentBox['width'], 'height' => (float) $parentBox['height']);
+        $childRect = array('x' => $left, 'y' => $top, 'width' => (float) $box['width'], 'height' => (float) $box['height']);
+
+        return null === $this->rectIntersection($parentRect, $childRect);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isFullyTransparentVisualNode(array $node): bool
+    {
+        $box = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array();
+        $opacity = $box['opacity'] ?? $node['opacity'] ?? null;
+
+        return is_numeric($opacity) && 0.001 >= (float) $opacity;
+    }
+
+    /**
+     * @param array{x: float, y: float, width: float, height: float} $rect
+     * @param array{x: float, y: float, width: float, height: float} $clipRect
+     * @return array{x: float, y: float, width: float, height: float}|null
+     */
+    private function rectIntersection(array $rect, array $clipRect): ?array
+    {
+        $left = max($rect['x'], $clipRect['x']);
+        $top = max($rect['y'], $clipRect['y']);
+        $right = min($rect['x'] + $rect['width'], $clipRect['x'] + $clipRect['width']);
+        $bottom = min($rect['y'] + $rect['height'], $clipRect['y'] + $clipRect['height']);
+        if ( $right <= $left || $bottom <= $top ) {
+            return null;
+        }
+
+        return array('x' => $left, 'y' => $top, 'width' => $right - $left, 'height' => $bottom - $top);
     }
 
     /**
@@ -1438,16 +1589,14 @@ final class StaticHtmlEmitter
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
             $sizing = strtoupper((string) ($layout[$sizingKey] ?? ''));
             if ( 'HUG' === $sizing ) {
-                $styles[] = $dimension . ':fit-content';
+                if ( 'flex' === ($layout['display'] ?? null) && isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
+                    $styles[] = $dimension . ':' . $this->number((float) $box[$dimension]) . 'px';
+                } else {
+                    $styles[] = $dimension . ':fit-content';
+                }
             } elseif ( 'FILL' === $sizing ) {
                 $styles[] = $dimension . ':100%';
             } elseif ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
-                if ( true === ($node['_selected_frame_root'] ?? false) && null === $parentNode && 'width' === $dimension ) {
-                    $styles[] = 'width:100%';
-                    $styles[] = 'max-width:' . $this->number((float) $box[$dimension]) . 'px';
-                    continue;
-                }
-
                 $property = null === $parentNode && 'height' === $dimension && 'flex' === ($layout['display'] ?? null) ? 'min-height' : $dimension;
                 $value = 'height' === $dimension && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : (float) $box[$dimension];
                 $styles[] = $property . ':' . $this->number($value) . 'px';
@@ -1545,6 +1694,9 @@ final class StaticHtmlEmitter
                 $styles[] = $property . ':' . (string) $layout[$source];
             }
         }
+        if ( 'wrap' === ($layout['flex_wrap'] ?? null) ) {
+            $styles[] = 'align-content:flex-start';
+        }
 
         if ( isset($layout['padding']) && is_array($layout['padding']) ) {
             foreach ( array('top', 'right', 'bottom', 'left') as $edge ) {
@@ -1627,6 +1779,10 @@ final class StaticHtmlEmitter
             return true;
         }
 
+        if ( empty($node['layout']['display'] ?? null) && $this->hasPositionedSourceChild($node, $children) ) {
+            return true;
+        }
+
         if ( 1 !== count($children) || ! is_array($children[0]) ) {
             return false;
         }
@@ -1638,6 +1794,34 @@ final class StaticHtmlEmitter
         }
 
         return (float) $childBox['width'] > (float) $box['width'] || (float) $childBox['height'] > (float) $box['height'];
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, mixed> $children
+     */
+    private function hasPositionedSourceChild(array $node, array $children): bool
+    {
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'SECTION'), true) ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        foreach ( $children as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
+            $left = $this->positionOffset($childBox, $box, 'x', $node);
+            $top = $this->positionOffset($childBox, $box, 'y', $node);
+            if ( (null !== $left && abs($left) > 0.5) || (null !== $top && abs($top) > 0.5) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1685,7 +1869,7 @@ final class StaticHtmlEmitter
             return (float) $box[$dimension];
         }
 
-        if ( null !== $parentNode && (! isset($parentBox[$dimension]) || $this->shouldInferRootCanvasOrigin($parentBox, $parentNode, $dimension)) ) {
+        if ( null !== $parentNode && (! isset($parentBox[$dimension]) ? $this->shouldInferMissingParentOrigin($parentBox, $parentNode, $dimension) : $this->shouldInferRootCanvasOrigin($parentBox, $parentNode, $dimension)) ) {
             $origin = $this->inferredContainingBlockOrigin($parentNode, $dimension);
             if ( null !== $origin ) {
                 return (float) $box[$dimension] - $origin;
@@ -1724,6 +1908,32 @@ final class StaticHtmlEmitter
 
         return ($origin < 0.0 && ($parentOrigin - $origin) >= 100.0)
             || $this->hasRootCanvasOriginMismatch($parentBox, $parentNode);
+    }
+
+    /**
+     * @param array<string, mixed> $parentBox
+     * @param array<string, mixed> $parentNode
+     */
+    private function shouldInferMissingParentOrigin(array $parentBox, array $parentNode, string $dimension): bool
+    {
+        $origin = $this->inferredContainingBlockOrigin($parentNode, $dimension);
+        if ( null === $origin ) {
+            return false;
+        }
+
+        foreach ( array('x' => 'width', 'y' => 'height') as $originDimension => $sizeKey ) {
+            $origin = $this->inferredContainingBlockOrigin($parentNode, $originDimension);
+            if ( null === $origin ) {
+                continue;
+            }
+
+            $parentSize = isset($parentBox[$sizeKey]) && is_numeric($parentBox[$sizeKey]) ? (float) $parentBox[$sizeKey] : null;
+            if ( abs($origin) >= 1000.0 || (null !== $parentSize && $origin > $parentSize + 100.0) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -3066,7 +3276,7 @@ final class StaticHtmlEmitter
         $pathBounds = $this->vectorPathBounds($node);
         if ( null !== $pathBounds && ( $pathBounds['width'] > $width + 0.001 || $pathBounds['height'] > $height + 0.001 || $pathBounds['x'] < -0.001 || $pathBounds['y'] < -0.001 ) ) {
             $viewBox = $pathBounds;
-        } elseif ( null !== $pathBounds && $this->vectorPathTouchesViewBoxEdge($pathBounds, $viewBox) ) {
+        } elseif ( null !== $pathBounds && $this->vectorMayClipStrokeAtViewBoxEdge($node) && $this->vectorPathTouchesViewBoxEdge($pathBounds, $viewBox) ) {
             $padding = 0.5;
             $viewBox = array(
                 'x' => $viewBox['x'] - $padding,
@@ -3135,6 +3345,14 @@ final class StaticHtmlEmitter
             || abs($pathBounds['y'] - $viewBox['y']) <= $epsilon
             || abs(($pathBounds['x'] + $pathBounds['width']) - ($viewBox['x'] + $viewBox['width'])) <= $epsilon
             || abs(($pathBounds['y'] + $pathBounds['height']) - ($viewBox['y'] + $viewBox['height'])) <= $epsilon;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function vectorMayClipStrokeAtViewBoxEdge(array $node): bool
+    {
+        return $this->hasSvgStroke($this->svgPaintAttributes($node));
     }
 
     /**

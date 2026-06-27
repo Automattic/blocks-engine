@@ -227,10 +227,10 @@ $assert(is_file($cliOutputRoot . '/artifact/index.html'), 'cli-output-dir-writes
 $assert(is_file($cliOutputRoot . '/artifact/style.css'), 'cli-output-dir-writes-style');
 $assert('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"></svg>' === file_get_contents($cliOutputRoot . '/artifact/assets/cli-image.svg'), 'cli-output-dir-preserves-asset-content');
 $assert(str_contains((string) file_get_contents($cliOutputRoot . '/artifact/style.css'), 'background-image:url("assets/cli-image.svg")'), 'cli-output-dir-preserves-asset-reference');
-$assert(str_contains($html, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-0.5 -0.5 11 11"'), 'html-vector-blob-svg');
+$assert(str_contains($html, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"'), 'html-vector-blob-svg');
 $assert(str_contains($html, 'd="M0 0L10 0 10 10Z"'), 'html-vector-blob-path');
 $assert(str_contains($css, 'body{margin:0}'), 'css-static-page-body-shell');
-$assert(str_contains($css, '.figma-root{position:relative;width:100%;max-width:100%}'), 'css-static-page-root-shell');
+$assert(str_contains($css, '.figma-root{position:relative;min-width:100%;width:max-content}'), 'css-static-page-root-shell');
 $assert(! str_contains($css, 'overflow-x:hidden'), 'css-preserves-horizontal-scroll');
 $assert(! str_contains($css, 'order:'), 'css-avoids-source-order');
 $assert(! str_contains($css, 'font-family:Inter') && ! str_contains($css, 'body{margin:0;background') && ! str_contains($css, 'body{margin:0;color'), 'css-avoids-hardcoded-theme-style');
@@ -434,7 +434,8 @@ $offsetPageCss = $fileContent($offsetPageResult, 'style.css');
 $assert('success' === ($offsetPageResult['status'] ?? null), 'offset-page-transform-success');
 $assert(str_contains($offsetPageHtml, 'Selected page content'), 'offset-page-selected-content-rendered');
 $assert(! str_contains($offsetPageHtml, 'Off Canvas One') && ! str_contains($offsetPageHtml, 'Off Canvas Two'), 'offset-page-off-canvas-siblings-omitted');
-$assert(str_contains($offsetPageCss, '.figma-node-frame-selected-selected-website-page{width:100%;max-width:1440px;height:900px;position:relative}'), 'offset-page-root-responsive-width');
+$assert(str_contains($offsetPageCss, '.figma-root{position:relative;min-width:100%;width:max-content}'), 'offset-page-root-expands-to-frame-width');
+$assert(str_contains($offsetPageCss, '.figma-node-frame-selected-selected-website-page{width:1440px;height:900px;position:relative}'), 'offset-page-root-keeps-frame-width');
 $assert(str_contains($offsetPageCss, '.figma-node-frame-selected-card-hero-card{width:320px;height:160px;position:absolute;left:40px;top:40px}'), 'offset-page-child-rebased-position');
 $assert(! str_contains($offsetPageCss, 'left:3497px') && ! str_contains($offsetPageCss, 'left:3537px') && ! str_contains($offsetPageCss, 'left:4680px'), 'offset-page-avoids-board-left-values');
 
@@ -572,6 +573,167 @@ $imageUnderlayGuardCss = $fileContent($imageUnderlayGuardResult, 'style.css');
 $imageUnderlayGuardUnderlays = $imageUnderlayGuardResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
 $assert(str_contains($imageUnderlayGuardCss, '.figma-node-imageguard-photo-large-photo{width:900px;height:520px;background-image:url("assets/guard-image.svg");background-size:cover;background-position:center;flex-shrink:0}'), 'image-backed-child-remains-flex-child');
 $assert(0 === ($imageUnderlayGuardUnderlays['count'] ?? null), 'image-backed-child-not-decorative-underlay-diagnostic');
+
+$clippedDecorativeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Clipped Decorative Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'           => 'clip:parent',
+            'type'         => 'FRAME',
+            'name'         => 'Clipped Parent',
+            'width'        => 200,
+            'height'       => 100,
+            'clipsContent' => true,
+            'children'     => array(
+                array(
+                    'id'       => 'clip:hidden-group',
+                    'type'     => 'GROUP',
+                    'name'     => 'Off canvas decorative group',
+                    'x'        => -260,
+                    'y'        => 10,
+                    'width'    => 120,
+                    'height'   => 60,
+                    'children' => array(
+                        array(
+                            'id'           => 'clip:hidden-vector',
+                            'type'         => 'VECTOR',
+                            'name'         => 'Hidden vector flourish',
+                            'x'            => 0,
+                            'y'            => 0,
+                            'width'        => 120,
+                            'height'       => 60,
+                            'fillGeometry' => array(array('commandsBlob' => 0)),
+                        ),
+                    ),
+                ),
+                array(
+                    'id'           => 'clip:partial-vector',
+                    'type'         => 'VECTOR',
+                    'name'         => 'Partly clipped vector flourish',
+                    'x'            => -20,
+                    'y'            => 20,
+                    'width'        => 60,
+                    'height'       => 30,
+                    'fillGeometry' => array(array('commandsBlob' => 0)),
+                ),
+                array(
+                    'id'     => 'clip:copy',
+                    'type'   => 'TEXT',
+                    'name'   => 'Visible copy',
+                    'text'   => 'Real content remains mapped',
+                    'x'      => -10,
+                    'y'      => 70,
+                    'width'  => 140,
+                    'height' => 20,
+                ),
+            ),
+        ),
+    ),
+));
+$clippedDecorativeCss = $fileContent($clippedDecorativeResult, 'style.css');
+$clippedDecorativeHtml = $fileContent($clippedDecorativeResult, 'index.html');
+$clippedDecorativeDiagnostics = $clippedDecorativeResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+$clippedHiddenGroup = $findVisualNode($clippedDecorativeResult, 'clip:hidden-group');
+$clippedHiddenVector = $findVisualNode($clippedDecorativeResult, 'clip:hidden-vector');
+$clippedPartialVector = $findVisualNode($clippedDecorativeResult, 'clip:partial-vector');
+$clippedVisibleCopy = $findVisualNode($clippedDecorativeResult, 'clip:copy');
+$assert(str_contains($clippedDecorativeCss, '.figma-node-clip-parent-clipped-parent{width:200px;height:100px;overflow:hidden;position:relative}'), 'clipped-decorative-parent-overflow-hidden');
+$assert(! str_contains($clippedDecorativeHtml, 'Off canvas decorative group') && ! str_contains($clippedDecorativeCss, 'figma-node-clip-hidden-group'), 'fully-clipped-decorative-node-not-emitted');
+$assert(null === $clippedHiddenGroup && null === $clippedHiddenVector, 'fully-clipped-decorative-nodes-omitted-from-visual-map');
+$assert(array('x' => 0.0, 'y' => 20.0, 'width' => 40.0, 'height' => 30.0) === ($clippedPartialVector['rect'] ?? null), 'partly-clipped-decorative-node-visual-map-intersection');
+$assert(array('x' => -10.0, 'y' => 70.0, 'width' => 140.0, 'height' => 20.0) === ($clippedVisibleCopy['rect'] ?? null), 'clipped-content-node-keeps-source-rect');
+$assert(0 === ($clippedDecorativeDiagnostics['large_absolute_offset_count'] ?? null), 'fully-clipped-decorative-node-not-counted-as-large-offset');
+
+$gamesControlLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Games Control Layout Guard Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'           => 'games:control',
+            'type'         => 'FRAME',
+            'name'         => 'Games control',
+            'width'        => 120,
+            'height'       => 40,
+            'clipsContent' => true,
+            'children'     => array(
+                array(
+                    'id'           => 'games:icon',
+                    'type'         => 'VECTOR',
+                    'name'         => 'Games icon',
+                    'x'            => -8,
+                    'y'            => 8,
+                    'width'        => 24,
+                    'height'       => 24,
+                    'fillGeometry' => array(array('commandsBlob' => 0)),
+                ),
+                array(
+                    'id'     => 'games:label',
+                    'type'   => 'TEXT',
+                    'name'   => 'Games label',
+                    'text'   => 'Games',
+                    'x'      => 24,
+                    'y'      => 10,
+                    'width'  => 60,
+                    'height' => 20,
+                ),
+            ),
+        ),
+    ),
+), array(
+    'generated_dom_boxes' => array(
+        'schema' => 'homeboy/static-artifact-dom-boxes/v1',
+        'boxes'  => array(
+            array('node_id' => 'games:control', 'rect' => array('x' => 0, 'y' => 0, 'width' => 120, 'height' => 40)),
+            array('node_id' => 'games:icon', 'rect' => array('x' => 0, 'y' => 8, 'width' => 16, 'height' => 24)),
+            array('node_id' => 'games:label', 'rect' => array('x' => 24, 'y' => 10, 'width' => 60, 'height' => 20)),
+        ),
+    ),
+    'layout_mismatch_threshold'      => 1,
+    'layout_mismatch_size_threshold' => 1,
+));
+$gamesControlDiagnostics = $gamesControlLayoutResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+$gamesControlIcon = $findVisualNode($gamesControlLayoutResult, 'games:icon');
+$assert(array('x' => 0.0, 'y' => 8.0, 'width' => 16.0, 'height' => 24.0) === ($gamesControlIcon['rect'] ?? null), 'games-control-clipped-icon-visual-map-intersection');
+$assert(0 === ($gamesControlDiagnostics['layout_mismatch_count'] ?? null), 'games-control-layout-mismatch-count-zero');
+$assert('pass' === ($gamesControlDiagnostics['layout_mismatch_status'] ?? null), 'games-control-layout-mismatch-pass');
+
+$transparentVisualMapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Transparent Visual Map Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'transparent:parent',
+            'type'     => 'FRAME',
+            'name'     => 'Invisible transformed shell',
+            'width'    => 200,
+            'height'   => 0,
+            'opacity'  => 0,
+            'rotation' => -30,
+            'children' => array(
+                array(
+                    'id'     => 'transparent:child',
+                    'type'   => 'RECTANGLE',
+                    'name'   => 'Inherited invisible child',
+                    'width'  => 200,
+                    'height' => 80,
+                    'fill'   => array('r' => 1, 'g' => 1, 'b' => 1),
+                ),
+            ),
+        ),
+        array(
+            'id'     => 'transparent:sibling',
+            'type'   => 'RECTANGLE',
+            'name'   => 'Visible sibling',
+            'y'      => 100,
+            'width'  => 40,
+            'height' => 20,
+        ),
+    ),
+));
+$assert(null === $findVisualNode($transparentVisualMapResult, 'transparent:parent'), 'transparent-parent-omitted-from-visual-map');
+$assert(null === $findVisualNode($transparentVisualMapResult, 'transparent:child'), 'transparent-child-omitted-from-visual-map');
+$assert(null !== $findVisualNode($transparentVisualMapResult, 'transparent:sibling'), 'transparent-sibling-remains-in-visual-map');
+
 $oversizedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Oversized Vector Bounds Fixture',
     'blobs' => array(array('bytes' => $vectorCommandBlob)),
@@ -590,6 +752,24 @@ $oversizedVectorHtml = $fileContent($oversizedVectorResult, 'index.html');
 $oversizedVectorCss = $fileContent($oversizedVectorResult, 'style.css');
 $assert(str_contains($oversizedVectorHtml, 'viewBox="0 0 10 10"'), 'oversized-vector-viewbox-uses-path-bounds');
 $assert(str_contains($oversizedVectorCss, '.figma-node-vector-oversized-bounds-oversized-bounds{width:5px;height:5px'), 'oversized-vector-css-keeps-node-size');
+
+$edgeAlignedFilledVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Edge Aligned Filled Vector Fixture',
+    'nodes' => array(
+        array(
+            'id'                 => 'vector:edge-aligned-fill',
+            'type'               => 'VECTOR',
+            'name'               => 'Edge Aligned Fill',
+            'width'              => 10,
+            'height'             => 10,
+            'fillPaints'         => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0))),
+            'figma_vector_paths' => array(array('data' => 'M0 0L10 0L10 10L0 10Z')),
+        ),
+    ),
+));
+$edgeAlignedFilledVectorHtml = $fileContent($edgeAlignedFilledVectorResult, 'index.html');
+$assert(str_contains($edgeAlignedFilledVectorHtml, 'viewBox="0 0 10 10"'), 'edge-aligned-filled-vector-viewbox-keeps-intrinsic-bounds');
+$assert(! str_contains($edgeAlignedFilledVectorHtml, 'viewBox="-0.5 -0.5 11 11"'), 'edge-aligned-filled-vector-no-stroke-padding');
 
 $largeDecodedPath = 'M 0 0' . str_repeat(' L 10 10', 3000) . ' Z';
 $largeDecodedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -1005,6 +1185,52 @@ $assert('fail' === ($homeboyDomLayoutMismatch['status'] ?? null), 'layout-mismat
 $assert(in_array('element_size_mismatch', $homeboyDomLayoutMismatchCodes, true), 'layout-mismatch-homeboy-dom-size-code');
 $assert(-312.0 === ($homeboyDomMisplaced['delta']['x'] ?? null), 'layout-mismatch-homeboy-dom-x-delta');
 
+$sourceAuthoredOverflowLayoutMismatch = $layoutMismatchBuilder->build(
+    array(
+        'visual_node_map' => array(
+            array('id' => 'overflow:parent', 'name' => 'Overflow Parent', 'type' => 'FRAME', 'rect' => array('x' => 0, 'y' => 0, 'width' => 300, 'height' => 120)),
+            array('id' => 'overflow:text', 'parent_id' => 'overflow:parent', 'name' => 'Long text', 'type' => 'TEXT', 'rect' => array('x' => 0, 'y' => 0, 'width' => 300, 'height' => 180)),
+        ),
+    ),
+    array(
+        'boxes' => array(
+            array('node_id' => 'overflow:parent', 'rect' => array('x' => 0, 'y' => 0, 'width' => 300, 'height' => 120)),
+            array('node_id' => 'overflow:text', 'rect' => array('x' => 0, 'y' => 0, 'width' => 300, 'height' => 180)),
+        ),
+    ),
+    array('threshold' => 24)
+);
+$assert('pass' === ($sourceAuthoredOverflowLayoutMismatch['status'] ?? null), 'layout-mismatch-source-authored-overflow-pass');
+
+$worsenedOverflowLayoutMismatch = $layoutMismatchBuilder->build(
+    array(
+        'visual_node_map' => array(
+            array('id' => 'overflow:worse:parent', 'name' => 'Overflow Parent', 'type' => 'FRAME', 'rect' => array('x' => 0, 'y' => 0, 'width' => 300, 'height' => 120)),
+            array('id' => 'overflow:worse:text', 'parent_id' => 'overflow:worse:parent', 'name' => 'Long text', 'type' => 'TEXT', 'rect' => array('x' => 0, 'y' => 0, 'width' => 300, 'height' => 180)),
+        ),
+    ),
+    array(
+        'boxes' => array(
+            array('node_id' => 'overflow:worse:parent', 'rect' => array('x' => 0, 'y' => 0, 'width' => 300, 'height' => 120)),
+            array('node_id' => 'overflow:worse:text', 'rect' => array('x' => 0, 'y' => 0, 'width' => 300, 'height' => 220)),
+        ),
+    ),
+    array('threshold' => 24)
+);
+$worsenedOverflowCodes = array_map(static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), $worsenedOverflowLayoutMismatch['diagnostics'] ?? array());
+$worsenedOutsideParent = null;
+foreach ( $worsenedOverflowLayoutMismatch['diagnostics'] ?? array() as $diagnostic ) {
+    if ( is_array($diagnostic) && 'element_outside_parent_bounds' === ($diagnostic['code'] ?? null) ) {
+        $worsenedOutsideParent = $diagnostic;
+        break;
+    }
+}
+$assert('fail' === ($worsenedOverflowLayoutMismatch['status'] ?? null), 'layout-mismatch-worsened-overflow-fail');
+$assert(in_array('element_outside_parent_bounds', $worsenedOverflowCodes, true), 'layout-mismatch-worsened-overflow-code');
+$assert(60.0 === ($worsenedOutsideParent['parent']['source_overflow']['bottom'] ?? null), 'layout-mismatch-worsened-source-overflow');
+$worsenedOverflowCauses = array_map(static fn (array $cause): string => (string) ($cause['cause'] ?? ''), $worsenedOverflowLayoutMismatch['summary']['suspected_causes'] ?? array());
+$assert(in_array('source-overflow', $worsenedOverflowCauses, true), 'layout-mismatch-source-overflow-suspected-cause');
+
 $clusteredLayoutMismatch = $layoutMismatchBuilder->build(
     array(
         'visual_node_map' => array(
@@ -1028,6 +1254,60 @@ $assert('cluster:root' === ($clusterSummary['parent_delta'][0]['parent_id'] ?? n
 $assert(2 === ($clusterSummary['repeated_position_delta'][0]['count'] ?? null), 'layout-mismatch-repeated-delta-cluster-count');
 $assert(array('x' => 32, 'y' => 48) === ($clusterSummary['repeated_position_delta'][0]['delta'] ?? null), 'layout-mismatch-repeated-delta-cluster-values');
 $assert('item #' === ($clusterSummary['node_pattern'][0]['name_pattern'] ?? null), 'layout-mismatch-node-pattern-normalized-name');
+$clusteredCauses = array_map(static fn (array $cause): string => (string) ($cause['cause'] ?? ''), $clusteredLayoutMismatch['summary']['suspected_causes'] ?? array());
+$assert(in_array('absolute-offset', $clusteredCauses, true), 'layout-mismatch-absolute-offset-suspected-cause');
+
+$typedLayoutMismatch = $layoutMismatchBuilder->build(
+    array(
+        'visual_node_map' => array(
+            array('id' => 'typed:root', 'name' => 'Full bleed root', 'type' => 'FRAME', 'rect' => array('x' => 0, 'y' => 0, 'width' => 640, 'height' => 400)),
+            array('id' => 'typed:text', 'parent_id' => 'typed:root', 'name' => 'Title', 'type' => 'TEXT', 'rect' => array('x' => 20, 'y' => 20, 'width' => 200, 'height' => 24)),
+            array('id' => 'typed:icon', 'parent_id' => 'typed:root', 'name' => 'Chevron icon', 'type' => 'VECTOR', 'rect' => array('x' => 20, 'y' => 70, 'width' => 16, 'height' => 16)),
+        ),
+    ),
+    array(
+        'boxes' => array(
+            array('node_id' => 'typed:root', 'rect' => array('x' => 0, 'y' => 0, 'width' => 800, 'height' => 500)),
+            array('node_id' => 'typed:text', 'rect' => array('x' => 20, 'y' => 20, 'width' => 200, 'height' => 70)),
+            array('node_id' => 'typed:icon', 'rect' => array('x' => 20, 'y' => 70, 'width' => 48, 'height' => 48)),
+        ),
+    ),
+    array('threshold' => 24)
+);
+$typedCauses = array_map(static fn (array $cause): string => (string) ($cause['cause'] ?? ''), $typedLayoutMismatch['summary']['suspected_causes'] ?? array());
+$assert(in_array('root-fill', $typedCauses, true), 'layout-mismatch-root-fill-suspected-cause');
+$assert(in_array('text-height', $typedCauses, true), 'layout-mismatch-text-height-suspected-cause');
+$assert(in_array('icon/vector-bounds', $typedCauses, true), 'layout-mismatch-vector-bounds-suspected-cause');
+
+$genericCauseLayoutMismatch = $layoutMismatchBuilder->build(
+    array(
+        'visual_node_map' => array(
+            array('id' => 'generic:parent', 'name' => 'Shifted parent', 'type' => 'FRAME', 'rect' => array('x' => 0, 'y' => 0, 'width' => 120, 'height' => 80)),
+            array('id' => 'generic:child', 'parent_id' => 'generic:parent', 'name' => 'Shifted child', 'type' => 'RECTANGLE', 'rect' => array('x' => 10, 'y' => 10, 'width' => 30, 'height' => 20)),
+            array('id' => 'generic:zero', 'name' => 'Zero width shell', 'type' => 'FRAME', 'rect' => array('x' => 0, 'y' => 100, 'width' => 0, 'height' => 80)),
+            array('id' => 'generic:clip-parent', 'name' => 'Clip parent', 'type' => 'FRAME', 'rect' => array('x' => 0, 'y' => 220, 'width' => 100, 'height' => 80)),
+            array('id' => 'generic:clip-child', 'parent_id' => 'generic:clip-parent', 'name' => 'Generated clipped child', 'type' => 'RECTANGLE', 'rect' => array('x' => 10, 'y' => 230, 'width' => 20, 'height' => 20)),
+            array('id' => 'generic:vector', 'name' => 'Decorative vector', 'type' => 'VECTOR', 'rect' => array('x' => 0, 'y' => 340, 'width' => 24, 'height' => 24)),
+        ),
+    ),
+    array(
+        'boxes' => array(
+            array('node_id' => 'generic:parent', 'rect' => array('x' => 40, 'y' => 60, 'width' => 120, 'height' => 80)),
+            array('node_id' => 'generic:child', 'rect' => array('x' => 50, 'y' => 70, 'width' => 30, 'height' => 20)),
+            array('node_id' => 'generic:zero', 'rect' => array('x' => 0, 'y' => 100, 'width' => 40, 'height' => 80)),
+            array('node_id' => 'generic:clip-parent', 'rect' => array('x' => 0, 'y' => 220, 'width' => 100, 'height' => 80)),
+            array('node_id' => 'generic:clip-child', 'rect' => array('x' => 150, 'y' => 230, 'width' => 20, 'height' => 20)),
+            array('node_id' => 'generic:vector', 'rect' => array('x' => 48, 'y' => 340, 'width' => 24, 'height' => 24)),
+        ),
+    ),
+    array('threshold' => 24)
+);
+$genericCauses = array_map(static fn (array $cause): string => (string) ($cause['cause'] ?? ''), $genericCauseLayoutMismatch['summary']['suspected_causes'] ?? array());
+$assert(in_array('same-size-position-shift', $genericCauses, true), 'layout-mismatch-same-size-position-shift-suspected-cause');
+$assert(in_array('parent-visual-map-mismatch', $genericCauses, true), 'layout-mismatch-parent-visual-map-suspected-cause');
+$assert(in_array('zero-size-source-box', $genericCauses, true), 'layout-mismatch-zero-size-source-box-suspected-cause');
+$assert(in_array('generated-vs-source-clipping', $genericCauses, true), 'layout-mismatch-generated-vs-source-clipping-suspected-cause');
+$assert(in_array('vector-shell-wrapper-offset', $genericCauses, true), 'layout-mismatch-vector-shell-wrapper-offset-suspected-cause');
 
 $layoutMismatchTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name' => 'Layout Mismatch Fixture',
@@ -2131,7 +2411,7 @@ $objectTransformResult = blocks_engine_figma_transformer_transform_scenegraph(ar
     ),
 ));
 $objectTransformCss = $fileContent($objectTransformResult, 'style.css');
-$assert(str_contains($objectTransformCss, 'transform:matrix(-1,0,0,1,0,0)'), 'decoded-object-transform-emits-css-matrix');
+$assert(str_contains($objectTransformCss, 'transform:matrix(-1,0,0,1,0,0)'), 'decoded-object-transform-suppresses-position-translation');
 
 $localTransformPositionResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Local Transform Position Fixture',
@@ -2679,6 +2959,23 @@ $layoutFidelityResult = blocks_engine_figma_transformer_transform_scenegraph(arr
                     'layoutAlign'            => 'STRETCH',
                 ),
                 array(
+                    'id'                     => '5:7',
+                    'type'                   => 'FRAME',
+                    'name'                   => 'Hug flex button',
+                    'width'                  => 160,
+                    'height'                 => 40,
+                    'layoutMode'             => 'HORIZONTAL',
+                    'primaryAxisAlignItems'  => 'MAX',
+                    'counterAxisAlignItems'  => 'CENTER',
+                    'layoutSizingHorizontal' => 'HUG',
+                    'layoutSizingVertical'   => 'HUG',
+                    'itemSpacing'            => 8,
+                    'children'               => array(
+                        array('id' => '5:8', 'type' => 'RECTANGLE', 'name' => 'Button icon', 'width' => 16, 'height' => 16),
+                        array('id' => '5:9', 'type' => 'TEXT', 'name' => 'Button label', 'characters' => 'Buy now', 'fontSize' => 14),
+                    ),
+                ),
+                array(
                     'id'                  => '5:5',
                     'type'                => 'RECTANGLE',
                     'name'                => 'Absolute badge',
@@ -2709,6 +3006,7 @@ $assert(str_contains($layoutFidelityCss, '.figma-node-5-1-layout-frame{width:500
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-2-fixed-card{width:100px;height:80px;opacity:0.6;transform:rotate(15deg);flex-shrink:0}'), 'layout-fixed-sizing-and-rotation');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-3-hug-label{width:fit-content;height:fit-content;font-size:12px;flex-shrink:0}'), 'layout-hug-sizing');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-4-fill-panel{width:100%;height:100%;flex-grow:1;flex-shrink:1;align-self:stretch}'), 'layout-fill-sizing-without-source-order');
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-7-hug-flex-button{width:160px;height:40px;display:flex;flex-direction:row;justify-content:flex-end;align-items:center;gap:8px;flex-shrink:0}'), 'layout-hug-flex-container-preserves-measured-box');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-5-absolute-badge{width:50px;height:20px;position:absolute;left:20px;right:430px;top:20px;bottom:260px;background:#000000;flex-shrink:0}'), 'layout-absolute-constraints-without-source-z-index');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-6-matrix-transform{width:30px;height:30px;transform:matrix(0,1,-1,0,40,60);transform-origin:0 0;flex-shrink:0}'), 'layout-relative-transform-matrix');
 $assert(! str_contains($layoutFidelityCss, 'font-family:Inter') && ! str_contains($layoutFidelityCss, 'body{margin:0;background') && ! str_contains($layoutFidelityCss, 'body{margin:0;color'), 'layout-css-avoids-theme-defaults');
@@ -2758,6 +3056,54 @@ $assert(30.0 === ($visualFlexSecond['rect']['y'] ?? null), 'visual-map-flex-cent
 $assert(100.0 === ($visualFlexCentered['rect']['x'] ?? null), 'visual-map-column-center-child-x');
 $assert(10.0 === ($visualFlexCentered['rect']['y'] ?? null), 'visual-map-column-padding-child-y');
 
+$visualFlexWrapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Visual Flex Wrap Fixture',
+    'nodes' => array(
+        array(
+            'id'                    => 'visual-wrap:frame',
+            'type'                  => 'FRAME',
+            'name'                  => 'Wrapped card row',
+            'width'                 => 220,
+            'height'                => 200,
+            'layoutMode'            => 'HORIZONTAL',
+            'layoutWrap'            => 'WRAP',
+            'itemSpacing'           => 10,
+            'counterAxisAlignItems' => 'MIN',
+            'children'              => array(
+                array(
+                    'id'     => 'visual-wrap:first',
+                    'type'   => 'RECTANGLE',
+                    'name'   => 'First card',
+                    'width'  => 100,
+                    'height' => 40,
+                ),
+                array(
+                    'id'     => 'visual-wrap:second',
+                    'type'   => 'RECTANGLE',
+                    'name'   => 'Second card',
+                    'width'  => 100,
+                    'height' => 60,
+                ),
+                array(
+                    'id'     => 'visual-wrap:third',
+                    'type'   => 'RECTANGLE',
+                    'name'   => 'Third card',
+                    'width'  => 100,
+                    'height' => 30,
+                ),
+            ),
+        ),
+    ),
+));
+$visualFlexWrapCss = $fileContent($visualFlexWrapResult, 'style.css');
+$visualFlexWrapFirst = $findVisualNode($visualFlexWrapResult, 'visual-wrap:first');
+$visualFlexWrapSecond = $findVisualNode($visualFlexWrapResult, 'visual-wrap:second');
+$visualFlexWrapThird = $findVisualNode($visualFlexWrapResult, 'visual-wrap:third');
+$assert(str_contains($visualFlexWrapCss, 'flex-wrap:wrap;align-content:flex-start'), 'visual-map-flex-wrap-align-content-packed');
+$assert(array('x' => 0.0, 'y' => 0.0, 'width' => 100.0, 'height' => 40.0) === ($visualFlexWrapFirst['rect'] ?? null), 'visual-map-flex-wrap-first-line-first-card');
+$assert(array('x' => 110.0, 'y' => 0.0, 'width' => 100.0, 'height' => 60.0) === ($visualFlexWrapSecond['rect'] ?? null), 'visual-map-flex-wrap-first-line-second-card');
+$assert(array('x' => 0.0, 'y' => 70.0, 'width' => 100.0, 'height' => 30.0) === ($visualFlexWrapThird['rect'] ?? null), 'visual-map-flex-wrap-second-line-card');
+
 $kiwiStackLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Kiwi Stack Layout Fixture',
     'nodes' => array(
@@ -2796,7 +3142,7 @@ $kiwiStackLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(ar
     ),
 ));
 $kiwiStackLayoutCss = $fileContent($kiwiStackLayoutResult, 'style.css');
-$assert(str_contains($kiwiStackLayoutCss, '.figma-node-stack-frame-kiwi-stack-frame{width:300px;min-height:200px;overflow:hidden;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;flex-wrap:wrap;padding-top:8px;padding-right:20px;padding-bottom:30px;padding-left:8px;gap:24px}'), 'kiwi-stack-layout-emits-flex-padding-gap');
+$assert(str_contains($kiwiStackLayoutCss, '.figma-node-stack-frame-kiwi-stack-frame{width:300px;min-height:200px;overflow:hidden;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;flex-wrap:wrap;align-content:flex-start;padding-top:8px;padding-right:20px;padding-bottom:30px;padding-left:8px;gap:24px}'), 'kiwi-stack-layout-emits-flex-padding-gap');
 $assert(str_contains($kiwiStackLayoutCss, '.figma-node-stack-child-a-child-a{width:50px;height:40px;flex-shrink:0}'), 'kiwi-stack-child-not-absolute');
 
 $plainFrameLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -2829,6 +3175,87 @@ $plainFrameLayoutCss = $fileContent($plainFrameLayoutResult, 'style.css');
 $assert(str_contains($plainFrameLayoutCss, '.figma-node-plain-frame-plain-layout-frame{width:400px;height:300px;position:relative}'), 'plain-frame-becomes-freeform-positioned-canvas');
 $assert(str_contains($plainFrameLayoutCss, '.figma-node-plain-first-first-positioned-layer{width:90px;height:40px;position:absolute;left:20px;top:20px'), 'plain-frame-first-child-positioned-relative-to-parent');
 $assert(str_contains($plainFrameLayoutCss, '.figma-node-plain-second-second-positioned-text{width:120px;height:32px;position:absolute;left:200px;top:150px'), 'plain-frame-text-child-positioned-relative-to-parent');
+
+$singleChildOffsetResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Single Child Offset Fixture',
+    'nodes' => array(
+        array(
+            'id'                  => 'single-offset:frame',
+            'type'                => 'FRAME',
+            'name'                => 'Single offset frame',
+            'absoluteBoundingBox' => array('x' => 100, 'y' => 50, 'width' => 400, 'height' => 300),
+            'children'            => array(
+                array(
+                    'id'                  => 'single-offset:child',
+                    'type'                => 'RECTANGLE',
+                    'name'                => 'Offset child',
+                    'absoluteBoundingBox' => array('x' => 160, 'y' => 125, 'width' => 90, 'height' => 40),
+                ),
+            ),
+        ),
+    ),
+));
+$singleChildOffsetCss = $fileContent($singleChildOffsetResult, 'style.css');
+$singleChildOffsetVisualNode = $findVisualNode($singleChildOffsetResult, 'single-offset:child');
+$assert(str_contains($singleChildOffsetCss, '.figma-node-single-offset-frame-single-offset-frame{width:400px;height:300px;position:relative}'), 'single-child-offset-frame-becomes-freeform');
+$assert(str_contains($singleChildOffsetCss, '.figma-node-single-offset-child-offset-child{width:90px;height:40px;position:absolute;left:60px;top:75px'), 'single-child-offset-child-positioned-relative-to-parent');
+$assert(array('x' => 60.0, 'y' => 75.0, 'width' => 90.0, 'height' => 40.0) === ($singleChildOffsetVisualNode['rect'] ?? null), 'single-child-offset-visual-node-keeps-source-offset');
+
+$nestedMissingOriginResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Nested Missing Origin Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'missing-origin:button-shell',
+            'type'     => 'GROUP',
+            'name'     => 'Button shell',
+            'width'    => 220,
+            'height'   => 64,
+            'children' => array(
+                array(
+                    'id'     => 'missing-origin:label',
+                    'type'   => 'TEXT',
+                    'name'   => 'Button label',
+                    'text'   => 'Read more',
+                    'x'      => 34,
+                    'y'      => 21,
+                    'width'  => 96,
+                    'height' => 22,
+                ),
+                array(
+                    'id'                 => 'missing-origin:icon',
+                    'type'               => 'VECTOR',
+                    'name'               => 'Button icon',
+                    'x'                  => 34,
+                    'y'                  => 8,
+                    'width'              => 16,
+                    'height'             => 16,
+                    'figma_vector_paths' => array(array('data' => 'M0 0L16 8L0 16Z')),
+                ),
+                array(
+                    'id'           => 'missing-origin:rounded',
+                    'type'         => 'RECTANGLE',
+                    'name'         => 'Decorative rounded plate',
+                    'x'            => 0,
+                    'y'            => -80,
+                    'width'        => 220,
+                    'height'       => 64,
+                    'cornerRadius' => 18,
+                ),
+            ),
+        ),
+    ),
+));
+$nestedMissingOriginCss = $fileContent($nestedMissingOriginResult, 'style.css');
+$nestedMissingOriginLabel = $findVisualNode($nestedMissingOriginResult, 'missing-origin:label');
+$nestedMissingOriginIcon = $findVisualNode($nestedMissingOriginResult, 'missing-origin:icon');
+$nestedMissingOriginRounded = $findVisualNode($nestedMissingOriginResult, 'missing-origin:rounded');
+$assert(str_contains($nestedMissingOriginCss, '.figma-node-missing-origin-button-shell-button-shell{width:220px;height:64px;position:relative}'), 'nested-missing-origin-parent-becomes-freeform');
+$assert(str_contains($nestedMissingOriginCss, '.figma-node-missing-origin-label-button-label{width:96px;height:22px;position:absolute;left:34px;top:21px'), 'nested-missing-origin-text-keeps-authored-x');
+$assert(str_contains($nestedMissingOriginCss, '.figma-node-missing-origin-icon-button-icon{width:16px;height:16px;position:absolute;left:34px;top:8px'), 'nested-missing-origin-icon-keeps-authored-x');
+$assert(str_contains($nestedMissingOriginCss, '.figma-node-missing-origin-rounded-decorative-rounded-plate{width:220px;height:64px;position:absolute;left:0px;top:-80px'), 'nested-missing-origin-rounded-keeps-negative-y');
+$assert(array('x' => 34.0, 'y' => 21.0, 'width' => 96.0, 'height' => 22.0) === ($nestedMissingOriginLabel['rect'] ?? null), 'nested-missing-origin-text-visual-map-keeps-authored-x');
+$assert(array('x' => 34.0, 'y' => 8.0, 'width' => 16.0, 'height' => 16.0) === ($nestedMissingOriginIcon['rect'] ?? null), 'nested-missing-origin-icon-visual-map-keeps-authored-x');
+$assert(array('x' => 0.0, 'y' => -80.0, 'width' => 220.0, 'height' => 64.0) === ($nestedMissingOriginRounded['rect'] ?? null), 'nested-missing-origin-rounded-visual-map-keeps-negative-y');
 
 $selectedFrameOriginResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Selected Frame Origin Fixture',
