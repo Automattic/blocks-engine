@@ -710,6 +710,66 @@ $assert(str_contains($labeledButtonsSerialized, '<!-- wp:button'), 'labeled/stan
 $assert(str_contains($labeledButtonsSerialized, 'Sign Up'), 'labeled button text is preserved as core/button');
 $assert(str_contains($labeledButtonsSerialized, 'aria-controls="missing"'), 'a toggle-looking control with no associated nav still converts to core/button');
 
+// Recursively counts blocks by name across the block tree (the serialized string
+// renders nested navigation/buttons without block-comment delimiters, so structural
+// counts are the reliable signal).
+$countBlockName = static function (array $blocks, string $name) use (&$countBlockName): int {
+    $count = 0;
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        if ( $name === ( $block['blockName'] ?? '' ) ) {
+            $count++;
+        }
+        if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+            $count += $countBlockName($block['innerBlocks'], $name);
+        }
+    }
+    return $count;
+};
+
+// Regression (#232): the common "navbar" header — a brand/logo anchor + a list of
+// nav links + a hamburger toggle inside ONE <nav> — must convert the link list to
+// core/navigation, lift the brand out separately (not as a menu item), and drop the
+// dead hamburger. Generic structural markup only (no fixture-specific class names).
+$navbarHeader = ( new HtmlTransformer() )->transform(
+    '<nav class="masthead" role="navigation" aria-label="Main navigation"><a href="/" class="brand">Studio <em>Vale</em></a><ul class="primary-menu"><li><a href="/">Home</a></li><li><a href="/music">Music</a></li><li><a href="/tour">Tour</a></li></ul><button class="burger" aria-label="Toggle menu" aria-expanded="false"><span></span><span></span><span></span></button></nav>'
+)->toArray();
+$navbarBlocks = $navbarHeader['blocks'] ?? array();
+$navbarSerialized = (string) ($navbarHeader['serialized_blocks'] ?? '');
+$navbarParity = $navbarHeader['source_reports']['semantic_parity'] ?? array();
+$navbarBlockMenu = $navbarParity['navigation_menus']['blocks'][0] ?? array();
+$assert('pass' === ($navbarParity['status'] ?? ''), 'navbar (brand + ul links + toggle) preserves semantic parity');
+$assert(true === ($navbarBlockMenu['represented_as_core_navigation'] ?? null), 'navbar link list is represented as core/navigation');
+$assert(1 === $countBlockName($navbarBlocks, 'core/navigation'), 'navbar emits exactly one core/navigation block for the link list');
+$assert(3 === ($navbarBlockMenu['item_count'] ?? null), 'navbar core/navigation carries the link list while the brand is lifted out separately');
+$assert(str_contains($navbarSerialized, 'Studio'), 'navbar brand/logo is preserved (lifted out of the menu) rather than dropped');
+$assert(0 === $countBlockName($navbarBlocks, 'core/button'), 'navbar hamburger toggle is dropped instead of emitted as a dead core/button');
+$assert(! str_contains($navbarSerialized, 'burger'), 'navbar hamburger toggle chrome class is not emitted into block output');
+
+// Regression (#232): broaden #221 — a hamburger toggle associated with a nav that
+// does NOT convert to core/navigation (e.g. its list has a non-link item) must STILL
+// be dropped, never emitted as an always-visible dead core/button the source hid
+// behind responsive CSS/JS the importer cannot carry ("added UI" defect).
+$nonConvertingNavbar = ( new HtmlTransformer() )->transform(
+    '<header><a class="brand" href="/">Studio</a><nav class="primary" aria-label="Primary"><ul class="primary-menu"><li>Plain announcement copy</li><li><a href="/music">Music</a></li></ul></nav><button class="burger" aria-label="Toggle menu" aria-controls="primary-menu" aria-expanded="false"><span></span><span></span></button></header>'
+)->toArray();
+$nonConvertingBlocks = $nonConvertingNavbar['blocks'] ?? array();
+$nonConvertingSerialized = (string) ($nonConvertingNavbar['serialized_blocks'] ?? '');
+$assert(0 === $countBlockName($nonConvertingBlocks, 'core/button'), 'hamburger toggle for a non-converting nav is dropped rather than emitted as a dead core/button');
+$assert(! str_contains($nonConvertingSerialized, 'burger'), 'non-converting navbar hamburger toggle chrome class is not emitted into block output');
+$assert(str_contains($nonConvertingSerialized, 'Studio'), 'non-converting navbar preserves the brand/logo content');
+
+// Negative (#232): a labelless toggle-shaped control with no associated navigation in
+// scope must NOT be over-suppressed by the broadened rule — it still converts to
+// core/button (only navigation-associated dead hamburgers are dropped).
+$standaloneToggle = ( new HtmlTransformer() )->transform(
+    '<section class="widget"><button aria-controls="panel" aria-expanded="false"><span></span><span></span></button></section>'
+)->toArray();
+$standaloneToggleBlocks = $standaloneToggle['blocks'] ?? array();
+$assert(1 === $countBlockName($standaloneToggleBlocks, 'core/button'), 'a toggle-shaped control with no navigation in scope still converts to core/button');
+
 $runtimeTargetNavigation = ( new HtmlTransformer() )->transform(
     '<nav aria-label="Docs"><ul><li><a class="nav-link" href="/guide">Guide</a></li></ul></nav>',
     array('runtime_dom_selectors' => array('.nav-link'))
