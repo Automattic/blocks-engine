@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\FigmaTransformer;
 
 use Automattic\BlocksEngine\FigmaTransformer\Contract\FigmaTransformResult;
 use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\LayoutMismatchReportBuilder;
+use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\RenderStyleMismatchReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader;
 use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
@@ -23,6 +24,7 @@ final class FigmaTransformer
         private readonly StaticHtmlEmitter $htmlEmitter = new StaticHtmlEmitter(),
         private readonly ParityReportBuilder $parityReportBuilder = new ParityReportBuilder(),
         private readonly LayoutMismatchReportBuilder $layoutMismatchReportBuilder = new LayoutMismatchReportBuilder(),
+        private readonly RenderStyleMismatchReportBuilder $renderStyleMismatchReportBuilder = new RenderStyleMismatchReportBuilder(),
         private readonly ScenegraphNormalizer $scenegraphNormalizer = new ScenegraphNormalizer(),
         private readonly ScenegraphFrameInspector $frameInspector = new ScenegraphFrameInspector(),
         private readonly ScenegraphPagePlanner $pagePlanner = new ScenegraphPagePlanner()
@@ -402,6 +404,7 @@ final class FigmaTransformer
         $normalized = $this->scenegraphNormalizer->normalize($scenegraph, $options);
         $artifact    = $this->htmlEmitter->emit($normalized, $options);
         $artifact    = $this->withLayoutMismatchReport($artifact, $options);
+        $artifact    = $this->withRenderStyleMismatchReport($artifact, $options);
         $diagnostics = array_merge($normalized['diagnostics'] ?? array(), $artifact['diagnostics']);
         $parity      = $this->parityReportBuilder->build($options['parity'] ?? array());
 
@@ -644,6 +647,37 @@ final class FigmaTransformer
     }
 
     /**
+     * @param array<string, mixed> $artifact
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function withRenderStyleMismatchReport(array $artifact, array $options): array
+    {
+        $evidence = $this->renderStyleMismatchEvidenceFromOptions($options);
+        if ( empty($evidence) ) {
+            return $artifact;
+        }
+
+        $sourceReport = is_array($artifact['source_report'] ?? null) ? $artifact['source_report'] : array();
+        $reportOptions = is_array($options['render_style_mismatch_options'] ?? null) ? $options['render_style_mismatch_options'] : array();
+        $renderStyleMismatch = $this->renderStyleMismatchReportBuilder->build($sourceReport, $evidence, $reportOptions);
+        $transformDiagnostics = is_array($sourceReport['transform_diagnostics'] ?? null) ? $sourceReport['transform_diagnostics'] : array();
+        $layout = is_array($transformDiagnostics['layout'] ?? null) ? $transformDiagnostics['layout'] : array();
+        $layout['render_style'] = $renderStyleMismatch;
+        $layout['render_style_mismatch_count'] = (int) ($renderStyleMismatch['summary']['diagnostic_count'] ?? 0);
+        $layout['render_style_mismatch_status'] = (string) ($renderStyleMismatch['status'] ?? 'not_run');
+        $transformDiagnostics['layout'] = $layout;
+        $transformDiagnostics['artifact_quality'] = $this->withRenderStyleMismatchArtifactQuality(
+            is_array($transformDiagnostics['artifact_quality'] ?? null) ? $transformDiagnostics['artifact_quality'] : array(),
+            $renderStyleMismatch
+        );
+        $sourceReport['transform_diagnostics'] = $transformDiagnostics;
+        $artifact['source_report'] = $sourceReport;
+
+        return $artifact;
+    }
+
+    /**
      * @param array<string, mixed> $options
      * @return array<string, mixed>
      */
@@ -660,6 +694,28 @@ final class FigmaTransformer
         }
         if ( is_array($options['metadata']['dom_boxes'] ?? null) ) {
             return $options['metadata']['dom_boxes'];
+        }
+
+        return array();
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function renderStyleMismatchEvidenceFromOptions(array $options): array
+    {
+        foreach ( array('render_style_mismatch', 'render_style_mismatch_evidence', 'generated_render_evidence', 'render_evidence') as $key ) {
+            if ( is_array($options[$key] ?? null) ) {
+                return $options[$key];
+            }
+        }
+
+        if ( is_array($options['metadata']['generated_render_evidence'] ?? null) ) {
+            return $options['metadata']['generated_render_evidence'];
+        }
+        if ( is_array($options['metadata']['render_evidence'] ?? null) ) {
+            return $options['metadata']['render_evidence'];
         }
 
         return array();
@@ -685,6 +741,36 @@ final class FigmaTransformer
         $summary['misplaced_element_count'] = (int) ($layoutMismatch['summary']['code_counts']['misplaced_element'] ?? 0);
         $summary['element_size_mismatch_count'] = (int) ($layoutMismatch['summary']['code_counts']['element_size_mismatch'] ?? 0);
         $summary['element_outside_parent_bounds_count'] = (int) ($layoutMismatch['summary']['code_counts']['element_outside_parent_bounds'] ?? 0);
+        $artifactQuality['summary'] = $summary;
+        if ( $count > 0 ) {
+            $artifactQuality['status'] = 'needs_review';
+            $artifactQuality['quality_status'] = 'warn';
+        }
+
+        return $artifactQuality;
+    }
+
+    /**
+     * @param array<string, mixed> $artifactQuality
+     * @param array<string, mixed> $renderStyleMismatch
+     * @return array<string, mixed>
+     */
+    private function withRenderStyleMismatchArtifactQuality(array $artifactQuality, array $renderStyleMismatch): array
+    {
+        $count = (int) ($renderStyleMismatch['summary']['diagnostic_count'] ?? 0);
+        $artifactQuality['schema'] = $artifactQuality['schema'] ?? 'blocks-engine/figma-transformer/artifact-quality/v1';
+        $signals = is_array($artifactQuality['signals'] ?? null) ? $artifactQuality['signals'] : array();
+        if ( $count > 0 ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'render_style_mismatch', 'count' => $count);
+        }
+        $artifactQuality['signals'] = $signals;
+        $summary = is_array($artifactQuality['summary'] ?? null) ? $artifactQuality['summary'] : array();
+        $renderSummary = is_array($renderStyleMismatch['summary'] ?? null) ? $renderStyleMismatch['summary'] : array();
+        foreach ( array('font_mismatch_count', 'color_mismatch_count', 'background_mismatch_count', 'border_mismatch_count', 'opacity_mismatch_count', 'asset_mismatch_count', 'text_metric_mismatch_count', 'matched_node_count', 'unmatched_source_node_count', 'match_ratio') as $key ) {
+            $summary['render_style_' . $key] = $renderSummary[$key] ?? (str_ends_with($key, '_count') ? 0 : 0.0);
+        }
+        $summary['render_style_mismatch_count'] = $count;
+        $summary['render_style_mismatch_status'] = (string) ($renderStyleMismatch['status'] ?? 'not_run');
         $artifactQuality['summary'] = $summary;
         if ( $count > 0 ) {
             $artifactQuality['status'] = 'needs_review';
