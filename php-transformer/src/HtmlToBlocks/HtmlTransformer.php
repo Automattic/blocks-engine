@@ -237,6 +237,25 @@ final class HtmlTransformer
             }
         }
 
+        foreach ( $this->runtimeIslands as $island ) {
+            $diagnostics[] = array_filter(array(
+                'code'                => 'preserved_runtime_island',
+                'message'             => 'Runtime-dependent source markup was preserved as a bounded runtime island.',
+                'source'              => self::class,
+                'severity'            => 'info',
+                'conversion_classification' => 'runtime_island_preserved',
+                'loss_class'          => 'runtime_island_preserved',
+                'diagnostic_class'    => 'runtime_island_preserved',
+                'suggested_repair_class' => 'preserve_runtime_island',
+                'preservation_strategy' => $island['preservation_strategy'] ?? 'bounded_raw_html_runtime_island',
+                'runtime_requirement' => $island['runtime_requirement'] ?? null,
+                'kind'                => $island['kind'] ?? null,
+                'reason'              => $island['preservation_reason'] ?? null,
+                'tag'                 => $island['tag'] ?? null,
+                'selector'            => $island['selector'] ?? null,
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+        }
+
         foreach ( $blockValidityReport['findings'] ?? array() as $finding ) {
             if ( ! is_array($finding) ) {
                 continue;
@@ -1716,6 +1735,13 @@ final class HtmlTransformer
             $provenanceId = $this->nextSourceProvenanceId++;
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
             $this->recordStructureProvenance($name, $attrs, $sourceElement);
+            $sourceTagName = strtolower($sourceElement->tagName);
+            if ( $this->isRuntimeDomTarget($sourceElement) && ! $this->isFormControlElement($sourceElement) && ! in_array($sourceTagName, array( 'canvas', 'form', 'script' ), true) ) {
+                $this->recordRuntimeIsland($sourceElement, 'dom', 'runtime_dom_target', 'client_script_execution', array(
+                    'events'          => $this->eventMetadata($sourceElement),
+                    'required_scripts' => $this->requiredScriptsForElement($sourceElement),
+                ));
+            }
             $this->sourceProvenance[$provenanceId] = $this->sourceProvenanceEntry($name, $sourceElement);
         }
 
@@ -3567,6 +3593,11 @@ final class HtmlTransformer
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
         $scriptRole = $this->scriptRole($element);
+        $this->recordRuntimeIsland($element, 'script', 'script_requires_runtime', 'client_script_execution', array(
+            'attributes'         => $this->safeScriptAttributes($element),
+            'script_role'        => $scriptRole,
+            'script_source_kind' => '' !== trim($this->attr($element, 'src')) ? 'external' : 'inline',
+        ));
         $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'html',
             'reason'          => 'script_requires_runtime',

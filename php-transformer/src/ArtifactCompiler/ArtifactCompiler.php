@@ -1934,12 +1934,19 @@ final class ArtifactCompiler
      */
     private function statusFromDiagnostics(array $diagnostics): string
     {
+        $warningDiagnostics = array();
         foreach ( $diagnostics as $diagnostic ) {
             if ( 'error' === ($diagnostic['severity'] ?? '') ) {
                 return 'failed';
             }
+
+            if ( 'preserved_runtime_island' === ($diagnostic['code'] ?? '') ) {
+                continue;
+            }
+
+            $warningDiagnostics[] = $diagnostic;
         }
-        return array() === $diagnostics ? 'success' : 'success_with_warnings';
+        return array() === $warningDiagnostics ? 'success' : 'success_with_warnings';
     }
 
     /**
