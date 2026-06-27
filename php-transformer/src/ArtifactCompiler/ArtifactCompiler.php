@@ -381,6 +381,16 @@ final class ArtifactCompiler
                 $selectors[(string) $selector] = true;
             }
         }
+        if ( preg_match_all('/\b(?!document\b)[A-Za-z_$][A-Za-z0-9_$]*\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
+            foreach ( $matches[2] as $selector ) {
+                $selectors[(string) $selector] = true;
+            }
+        }
+        if ( preg_match_all('/\.\s*closest\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
+            foreach ( $matches[2] as $selector ) {
+                $selectors[(string) $selector] = true;
+            }
+        }
 
         return array_keys($selectors);
     }
