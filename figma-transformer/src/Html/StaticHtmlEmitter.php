@@ -1649,7 +1649,7 @@ final class StaticHtmlEmitter
             $styles[] = 'opacity:' . $this->number((float) $box['opacity']);
         }
 
-        $transform = $this->isNearZeroHeightContainer($node, $type) ? null : $this->transformStyle($box);
+        $transform = $this->isNearZeroHeightContainer($node, $type) || $this->hasAbsoluteVisualBounds($node) ? null : $this->transformStyle($box);
         if ( null !== $transform ) {
             $styles[] = 'transform:' . $transform;
             if ( $this->hasExplicitTransformMatrix($box) ) {
@@ -2157,6 +2157,15 @@ final class StaticHtmlEmitter
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasAbsoluteVisualBounds(array $node): bool
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        return 'absolute' === ($box['coordinate_space'] ?? null);
     }
 
     /**
