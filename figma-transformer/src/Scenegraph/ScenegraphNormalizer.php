@@ -2023,6 +2023,11 @@ final class ScenegraphNormalizer
             return array('data' => $path, 'source' => 'vectorData.vectorNetworkBlob.simpleRectFallback', 'windingRule' => 'NONZERO');
         }
 
+        $path = $this->decodeClosedRectVectorNetworkBlob($bytes);
+        if ( null !== $path ) {
+            return array('data' => $path, 'source' => 'vectorData.vectorNetworkBlob.closedRectFallback', 'windingRule' => 'NONZERO');
+        }
+
         if ( ! $this->looksLikeVectorNetworkBlob($bytes) ) {
             $path = $this->decodeVectorCommandBlob($bytes);
             if ( null !== $path ) {
@@ -2087,6 +2092,60 @@ final class ScenegraphNormalizer
         }
 
         return 'M 0 0 L ' . $this->svgNumber($width) . ' 0 L ' . $this->svgNumber($width) . ' ' . $this->svgNumber($height) . ' L 0 ' . $this->svgNumber($height) . ' Z';
+    }
+
+    private function decodeClosedRectVectorNetworkBlob(string $bytes): ?string
+    {
+        if ( 200 !== strlen($bytes) ) {
+            return null;
+        }
+
+        if ( array(4, 4, 1) !== $this->vectorNetworkCounts($bytes) ) {
+            return null;
+        }
+
+        $points = $this->closedRectVectorNetworkPoints($bytes);
+        if ( null === $points ) {
+            return null;
+        }
+
+        $xs = array_values(array_unique(array_map(static fn (array $point): string => sprintf('%.6F', $point[0]), $points)));
+        $ys = array_values(array_unique(array_map(static fn (array $point): string => sprintf('%.6F', $point[1]), $points)));
+        if ( 2 !== count($xs) || 2 !== count($ys) ) {
+            return null;
+        }
+
+        $minX = min(array_map('floatval', $xs));
+        $maxX = max(array_map('floatval', $xs));
+        $minY = min(array_map('floatval', $ys));
+        $maxY = max(array_map('floatval', $ys));
+        if ( $maxX <= $minX || $maxY <= $minY ) {
+            return null;
+        }
+
+        return 'M ' . $this->svgNumber($minX) . ' ' . $this->svgNumber($minY)
+            . ' L ' . $this->svgNumber($maxX) . ' ' . $this->svgNumber($minY)
+            . ' L ' . $this->svgNumber($maxX) . ' ' . $this->svgNumber($maxY)
+            . ' L ' . $this->svgNumber($minX) . ' ' . $this->svgNumber($maxY)
+            . ' Z';
+    }
+
+    /**
+     * @return array<int, array{0: float, 1: float}>|null
+     */
+    private function closedRectVectorNetworkPoints(string $bytes): ?array
+    {
+        $points = array();
+        for ( $index = 0; $index < 4; $index++ ) {
+            $offset = 12 + ( $index * 20 );
+            $point = $this->readFloatPair($bytes, $offset + 4);
+            if ( null === $point || ! is_finite($point[0]) || ! is_finite($point[1]) ) {
+                return null;
+            }
+            $points[] = $point;
+        }
+
+        return $points;
     }
 
     /**

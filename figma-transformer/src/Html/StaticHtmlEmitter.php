@@ -1293,11 +1293,11 @@ final class StaticHtmlEmitter
 
         $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : null;
         $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
-        $nodeRect = null !== $width && null !== $height ? array('x' => $x, 'y' => $y, 'width' => $width, 'height' => $height) : null;
-        $mapRect = $nodeRect;
+        $nodeRect = null !== $width && null !== $height ? $this->transformedVisualRect(array('x' => $x, 'y' => $y, 'width' => $width, 'height' => $height), $node) : null;
+        $visibleRect = null;
         if ( null !== $nodeRect && null !== $clipRect && $this->isClippableDecorativeVisualNode($node) ) {
-            $mapRect = $this->rectIntersection($nodeRect, $clipRect);
-            if ( null === $mapRect ) {
+            $visibleRect = $this->rectIntersection($nodeRect, $clipRect);
+            if ( null === $visibleRect ) {
                 return;
             }
         }
@@ -1305,12 +1305,12 @@ final class StaticHtmlEmitter
         if ( null !== $width && null !== $height ) {
             $imagePaint = $this->firstImagePaint($node);
             $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
-            $map[] = array(
+            $entry = array(
                 'id' => (string) ($node['id'] ?? ''),
                 'parent_id' => null !== $parentNode ? (string) ($parentNode['id'] ?? '') : '',
                 'name' => (string) ($node['name'] ?? ''),
                 'type' => strtoupper((string) ($node['type'] ?? '')),
-                'rect' => $mapRect,
+                'rect' => $nodeRect,
                 'layout' => array(
                     'display' => $layout['display'] ?? null,
                     'flex_direction' => $layout['flex_direction'] ?? null,
@@ -1320,6 +1320,11 @@ final class StaticHtmlEmitter
                 'image' => null === $imagePaint ? null : $this->visualImageMetadata($imagePaint),
                 'text' => empty($text) ? null : $this->visualTextMetadata($text),
             );
+            if ( null !== $visibleRect && $visibleRect !== $nodeRect ) {
+                $entry['visible_rect'] = $visibleRect;
+                $entry['clip'] = array('source' => 'parent_clips_content');
+            }
+            $map[] = $entry;
         }
 
         $children = $this->nodeList($node);
@@ -1547,6 +1552,41 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array{x: float, y: float, width: float, height: float} $rect
+     * @return array{x: float, y: float, width: float, height: float}
+     */
+    private function transformedVisualRect(array $rect, array $node): array
+    {
+        $box = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array();
+        $matrix = $this->cssTransformMatrixValues(is_array($box['transform'] ?? null) ? $box['transform'] : null);
+        if ( null === $matrix ) {
+            return $rect;
+        }
+
+        [$a, $b, $c, $d, $e, $f] = $matrix;
+        $points = array(
+            array(0.0, 0.0),
+            array($rect['width'], 0.0),
+            array(0.0, $rect['height']),
+            array($rect['width'], $rect['height']),
+        );
+        $xs = array();
+        $ys = array();
+        foreach ( $points as $point ) {
+            [$localX, $localY] = $point;
+            $xs[] = $rect['x'] + ($a * $localX) + ($c * $localY) + $e;
+            $ys[] = $rect['y'] + ($b * $localX) + ($d * $localY) + $f;
+        }
+
+        $left = min($xs);
+        $top = min($ys);
+        $right = max($xs);
+        $bottom = max($ys);
+
+        return array('x' => $left, 'y' => $top, 'width' => $right - $left, 'height' => $bottom - $top);
+    }
+
+    /**
      * @param array<string, mixed> $layout
      * @param array<string, mixed> $childLayout
      */
@@ -1649,7 +1689,7 @@ final class StaticHtmlEmitter
             $styles[] = 'opacity:' . $this->number((float) $box['opacity']);
         }
 
-        $transform = $this->isNearZeroHeightContainer($node, $type) ? null : $this->transformStyle($box);
+        $transform = $this->isNearZeroHeightContainer($node, $type) || $this->hasAbsoluteVisualBounds($node) ? null : $this->transformStyle($box);
         if ( null !== $transform ) {
             $styles[] = 'transform:' . $transform;
             if ( $this->hasExplicitTransformMatrix($box) ) {
@@ -2160,6 +2200,15 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array<string, mixed> $node
+     */
+    private function hasAbsoluteVisualBounds(array $node): bool
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        return 'absolute' === ($box['coordinate_space'] ?? null);
+    }
+
+    /**
      * @param array<string, mixed> $box
      */
     private function hasExplicitTransformMatrix(array $box): bool
@@ -2172,6 +2221,24 @@ final class StaticHtmlEmitter
      */
     private function cssMatrix(array $transform): ?string
     {
+        $values = $this->cssTransformMatrixValues($transform);
+        if ( null === $values ) {
+            return null;
+        }
+
+        return 'matrix(' . implode(',', array_map(fn (mixed $value): string => $this->number((float) $value), $values)) . ')';
+    }
+
+    /**
+     * @param array<int|string, mixed>|null $transform
+     * @return array{0: float, 1: float, 2: float, 3: float, 4: float, 5: float}|null
+     */
+    private function cssTransformMatrixValues(?array $transform): ?array
+    {
+        if ( null === $transform ) {
+            return null;
+        }
+
         if ( isset($transform['m00'], $transform['m01'], $transform['m02'], $transform['m10'], $transform['m11'], $transform['m12']) ) {
             if ( 0.00001 > abs((float) $transform['m00'] - 1.0) && 0.00001 > abs((float) $transform['m01']) && 0.00001 > abs((float) $transform['m10']) && 0.00001 > abs((float) $transform['m11'] - 1.0) ) {
                 return null;
@@ -2189,7 +2256,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        return 'matrix(' . implode(',', array_map(fn (mixed $value): string => $this->number((float) $value), $values)) . ')';
+        return array_map(static fn (mixed $value): float => (float) $value, $values);
     }
 
     /**
