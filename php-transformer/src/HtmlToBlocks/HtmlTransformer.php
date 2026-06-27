@@ -4080,10 +4080,6 @@ final class HtmlTransformer
      */
     private function navigationSectionBlockFromElement(DOMElement $element): ?array
     {
-        if ( ! $this->hasNavigationContainerSignal($element) ) {
-            return null;
-        }
-
         $heading = null;
         $anchors = array();
         foreach ( $element->childNodes as $child ) {
@@ -4091,7 +4087,7 @@ final class HtmlTransformer
                 continue;
             }
 
-            if ( $child instanceof DOMElement && preg_match('/^h[1-6]$/i', $child->tagName) ) {
+            if ( $child instanceof DOMElement && $this->isNavigationSectionHeading($child) ) {
                 if ( $heading instanceof DOMElement ) {
                     return null;
                 }
@@ -4111,6 +4107,10 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( ! $this->hasNavigationContainerSignal($element) && ! $this->hasSoftNavigationSectionHeadingSignal($heading) ) {
+            return null;
+        }
+
         $sectionFallbacks = array();
         $blocks = array( $this->convertElement($heading, $sectionFallbacks, true) );
         $links = array();
@@ -4124,6 +4124,25 @@ final class HtmlTransformer
         $blocks[] = $this->createBlock('core/navigation', array(), $links, $element);
 
         return $this->createBlock('core/group', $this->presentationAttributes($element), array_values(array_filter($blocks)), $element);
+    }
+
+    private function isNavigationSectionHeading(DOMElement $element): bool
+    {
+        if ( preg_match('/^h[1-6]$/i', $element->tagName) ) {
+            return true;
+        }
+
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'p', 'span' ), true) || '' === trim($element->textContent ?? '') ) {
+            return false;
+        }
+
+        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id') . ' ' . $this->attr($element, 'role') . ' ' . $this->attr($element, 'aria-label')));
+        return (bool) preg_match('/(?:^|[\s_-])(?:heading|label|title)(?:$|[\s_-])/', $name);
+    }
+
+    private function hasSoftNavigationSectionHeadingSignal(DOMElement $element): bool
+    {
+        return ! preg_match('/^h[1-6]$/i', $element->tagName) && $this->isNavigationSectionHeading($element);
     }
 
     private function hasNavigationContainerSignal(DOMElement $element): bool
