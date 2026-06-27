@@ -33,7 +33,29 @@ assert(report.source.snapshots[0].probes[0].matches[0].display === 'inline-block
 assert(report.source.snapshots[0].probes[0].matches[0].padding.top === '10px', 'extracts computed padding');
 assert(report.comparison[0].probes[0].count_delta === 0, 'compares source and target counts');
 
-await writeFile(domFixture, '<!doctype html><html><body><main data-figma-node-id="12:34" data-figma-node-name="Hero">Hello world</main></body></html>');
+await writeFile(domFixture, `<!doctype html><html><head><style>
+  .hero {
+    color: rgb(12, 34, 56);
+    background-color: rgb(240, 241, 242);
+    background-image: linear-gradient(rgb(255, 0, 0), rgb(0, 0, 255));
+    border: 2px solid rgb(1, 2, 3);
+    border-radius: 8px 9px 10px 11px;
+    box-shadow: rgb(0, 0, 0) 1px 2px 3px;
+    font-family: Arial, sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 24px;
+    letter-spacing: 1px;
+    opacity: 0.75;
+    overflow: hidden;
+    position: relative;
+    text-align: center;
+    transform: translateX(4px);
+    white-space: normal;
+    width: 120px;
+    height: 24px;
+  }
+</style></head><body><main class="hero" data-figma-node-id="12:34" data-figma-node-name="Hero">Hello world <img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3C/svg%3E"></main></body></html>`);
 const server = createServer(async (request, response) => {
   if (request.url === '/dom-box.html') {
     response.writeHead(200, { 'content-type': 'text/html' });
@@ -59,6 +81,20 @@ try {
   assert(domReport.entrypoints[0].elements[0].node_id === '12:34', 'DOM provider captures node id');
   assert(domReport.entrypoints[0].elements[0].node_name === 'Hero', 'DOM provider captures node name');
   assert(domReport.entrypoints[0].elements[0].text_sample === 'Hello world', 'DOM provider captures text sample');
+  assert(domReport.entrypoints[0].elements[0].page_path === '/dom-box.html', 'DOM provider adds page path to elements');
+  assert(domReport.entrypoints[0].elements[0].computed_style['font-size'] === '20px', 'DOM provider captures computed font size');
+  assert(domReport.entrypoints[0].elements[0].computed_style['font-weight'] === '700', 'DOM provider captures computed font weight');
+  assert(domReport.entrypoints[0].elements[0].computed_style.color === 'rgb(12, 34, 56)', 'DOM provider captures computed color');
+  assert(domReport.entrypoints[0].elements[0].computed_style['background-image'].includes('linear-gradient'), 'DOM provider captures background image');
+  assert(domReport.entrypoints[0].elements[0].computed_style.transform !== 'none', 'DOM provider captures transform');
+  assert(domReport.entrypoints[0].elements[0].text_metrics.text_length === 11, 'DOM provider captures full normalized text length');
+  assert(domReport.entrypoints[0].elements[0].text_metrics.client_width > 0, 'DOM provider captures client dimensions');
+  assert(domReport.entrypoints[0].elements[0].text_metrics.line_count_estimate >= 1, 'DOM provider estimates line count');
+  assert(domReport.entrypoints[0].elements[0].asset_state.background_image_present === true, 'DOM provider flags background images');
+  assert(domReport.entrypoints[0].elements[0].asset_state.descendants[0].tag === 'img', 'DOM provider captures image descendants');
+  assert(domReport.entrypoints[0].elements[0].asset_state.descendants[0].complete === true, 'DOM provider captures image complete state');
+  assert(domReport.entrypoints[0].elements[0].visibility.visible === true, 'DOM provider captures visible state');
+  assert(domReport.entrypoints[0].elements[0].visibility.clipped === true, 'DOM provider captures clipped-ish overflow state');
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }
