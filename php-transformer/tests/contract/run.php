@@ -1161,6 +1161,29 @@ $assert(str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] 
 $assert(str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'mobile-nav-overlay'), 'artifact block markup preserves mobile nav overlay target class after navigation dedupe');
 $assert(! str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'drawer-nav'), 'artifact block markup still removes duplicate drawer navigation links after preserving target wrapper');
 
+$externalFormStatusTargetSite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><form class="contact-form"><label>Email<input type="email" name="email"></label><button type="submit">Send</button></form><div class="form-success js-form-success" role="status" aria-live="polite"></div><p class="form-error"></p></main>',
+            'website/nav.js' => 'document.querySelector(".form-success"); document.querySelector(".form-error");',
+        ),
+    )
+)->toArray();
+$externalFormStatusMarkup = (string) ($externalFormStatusTargetSite['serialized_blocks'] ?? '');
+$externalFormStatusReport = $externalFormStatusTargetSite['source_reports']['runtime_dependency_parity'] ?? array();
+$externalFormStatusDependencies = array();
+foreach ( $externalFormStatusReport['dependencies'] ?? array() as $dependency ) {
+    $externalFormStatusDependencies[$dependency['selector'] ?? ''] = $dependency;
+}
+$assert('pass' === ($externalFormStatusReport['status'] ?? ''), 'runtime dependency parity passes external-script form feedback targets');
+$assert(true === ($externalFormStatusDependencies['.form-success']['generated_present'] ?? null), 'external script .form-success target remains present in generated block markup');
+$assert(true === ($externalFormStatusDependencies['.form-error']['generated_present'] ?? null), 'external script .form-error target remains present in generated block markup');
+$assert(str_contains($externalFormStatusMarkup, 'form-success'), 'generated block markup preserves form success feedback class');
+$assert(str_contains($externalFormStatusMarkup, 'form-error'), 'generated block markup preserves form error feedback class');
+$assert(! str_contains($externalFormStatusMarkup, 'js-form-success'), 'generated block markup still omits behavior-hook feedback classes');
+$assert(! str_contains($externalFormStatusMarkup, '<div class="form-success js-form-success"'), 'form feedback target is not preserved as raw HTML fallback markup');
+
 $legacyFrontPageSite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
