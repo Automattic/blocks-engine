@@ -1796,6 +1796,23 @@ $multiPageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'frame_ids' => array('frame:home', 'frame:about'),
     'entry_frame_id' => 'frame:home',
     'font_css' => '@font-face{font-family:"Example Sans";src:url("assets/example-sans.woff2") format("woff2")}',
+    'generated_render_evidence' => array(
+        'schema' => 'homeboy/static-artifact-render-evidence/v1',
+        'entrypoints' => array(
+            array(
+                'page_path' => 'index.html',
+                'elements' => array(
+                    array('node_id' => 'text:home', 'computed_style' => array('font-family' => 'Example Sans', 'font-size' => '20px', 'font-weight' => '400')),
+                ),
+            ),
+            array(
+                'page_path' => 'about.html',
+                'elements' => array(
+                    array('node_id' => 'text:about', 'computed_style' => array('font-family' => 'Arial, sans-serif', 'font-size' => '20px', 'font-weight' => '700')),
+                ),
+            ),
+        ),
+    ),
 ));
 $multiPageIndex = $fileContent($multiPageResult, 'index.html');
 $multiPageAbout = $fileContent($multiPageResult, 'about.html');
@@ -1838,6 +1855,10 @@ $assert(0 === ($multiPageTransformDiagnostics['generated_svg_assets']['duplicate
 $assert('selected_frames' === ($multiPageTransformDiagnostics['selection']['mode'] ?? null), 'multi-page-transform-diagnostics-selection-mode');
 $assert('frame:home' === ($multiPageTransformDiagnostics['selection']['selected_frames'][0]['frame_id'] ?? null), 'multi-page-transform-diagnostics-entry-frame-selection');
 $assert('about.html' === ($multiPageTransformDiagnostics['selection']['selected_frames'][1]['path'] ?? null), 'multi-page-transform-diagnostics-about-selection-path');
+$assert(1 === ($multiPageTransformDiagnostics['layout']['render_style_mismatch_count'] ?? null), 'multi-page-render-style-mismatch-aggregated');
+$assert('fail' === ($multiPageTransformDiagnostics['layout']['render_style_mismatch_status'] ?? null), 'multi-page-render-style-status-aggregated');
+$assert(1 === ($multiPageTransformDiagnostics['layout']['render_style']['summary']['font_mismatch_count'] ?? null), 'multi-page-render-style-font-count-aggregated');
+$assert(in_array('render_style_mismatch', array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), $multiPageTransformDiagnostics['artifact_quality']['signals'] ?? array()), true), 'multi-page-render-style-artifact-quality-signal');
 $assert('warn' === ($multiPageTransformDiagnostics['artifact_quality']['quality_status'] ?? null), 'multi-page-transform-diagnostics-quality-status-warn');
 
 $imageScaleResult = blocks_engine_figma_transformer_transform_scenegraph(array(

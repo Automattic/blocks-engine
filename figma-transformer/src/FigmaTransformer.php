@@ -474,8 +474,13 @@ final class FigmaTransformer
                 continue;
             }
 
+            $path = isset($page['path']) && is_scalar($page['path']) && '' !== (string) $page['path'] ? (string) $page['path'] : ((true === ($page['entrypoint'] ?? false)) ? 'index.html' : (string) ($page['slug'] ?? $frameId) . '.html');
             $pageOptions = $options;
             $pageOptions['frame_id'] = $frameId;
+            $pageOptions['layout_mismatch_options'] = is_array($pageOptions['layout_mismatch_options'] ?? null) ? $pageOptions['layout_mismatch_options'] : array();
+            $pageOptions['layout_mismatch_options']['page_path'] = $path;
+            $pageOptions['render_style_mismatch_options'] = is_array($pageOptions['render_style_mismatch_options'] ?? null) ? $pageOptions['render_style_mismatch_options'] : array();
+            $pageOptions['render_style_mismatch_options']['page_path'] = $path;
             unset($pageOptions['multi_page'], $pageOptions['include_all_pages'], $pageOptions['frame_ids'], $pageOptions['entry_frame_id'], $pageOptions['max_pages'], $pageOptions['frame_slug_map']);
             $pageResult = $this->transformScenegraph($scenegraph, $pageOptions)->toArray();
             $pageDiagnostics = is_array($pageResult['diagnostics'] ?? null) ? $pageResult['diagnostics'] : array();
@@ -497,7 +502,6 @@ final class FigmaTransformer
                 $cssChunks[] = $css;
             }
 
-            $path = isset($page['path']) && is_scalar($page['path']) && '' !== (string) $page['path'] ? (string) $page['path'] : ((true === ($page['entrypoint'] ?? false)) ? 'index.html' : (string) ($page['slug'] ?? $frameId) . '.html');
             if ( '' !== $html ) {
                 $files[] = array(
                     'path'      => $path,
@@ -801,6 +805,31 @@ final class FigmaTransformer
             'layout_mismatch_status' => 'not_evaluated',
             'layout_mismatches' => array(),
             'layout_mismatch_clusters' => array(),
+            'render_style_mismatch_count' => 0,
+            'render_style_mismatch_status' => 'not_evaluated',
+            'render_style' => array(
+                'schema' => RenderStyleMismatchReportBuilder::SCHEMA,
+                'status' => 'not_evaluated',
+                'summary' => array(
+                    'source_node_count' => 0,
+                    'render_node_count' => 0,
+                    'matched_node_count' => 0,
+                    'unmatched_source_node_count' => 0,
+                    'match_ratio' => 0.0,
+                    'diagnostic_count' => 0,
+                    'reported_diagnostic_count' => 0,
+                    'truncated' => false,
+                    'font_mismatch_count' => 0,
+                    'color_mismatch_count' => 0,
+                    'background_mismatch_count' => 0,
+                    'border_mismatch_count' => 0,
+                    'opacity_mismatch_count' => 0,
+                    'asset_mismatch_count' => 0,
+                    'text_metric_mismatch_count' => 0,
+                    'category_counts' => array(),
+                ),
+                'diagnostics' => array(),
+            ),
         );
         $fontFamilies = array();
         $fontUsage = array();
@@ -902,6 +931,38 @@ final class FigmaTransformer
                 }
             }
 
+            $pageRenderStyle = is_array($pageLayout['render_style'] ?? null) ? $pageLayout['render_style'] : array();
+            if ( ! empty($pageRenderStyle) ) {
+                $pageRenderStyleSummary = is_array($pageRenderStyle['summary'] ?? null) ? $pageRenderStyle['summary'] : array();
+                $renderStyleSummary = is_array($layout['render_style']['summary'] ?? null) ? $layout['render_style']['summary'] : array();
+                foreach ( array('source_node_count', 'render_node_count', 'matched_node_count', 'unmatched_source_node_count', 'diagnostic_count', 'reported_diagnostic_count', 'font_mismatch_count', 'color_mismatch_count', 'background_mismatch_count', 'border_mismatch_count', 'opacity_mismatch_count', 'asset_mismatch_count', 'text_metric_mismatch_count') as $key ) {
+                    $renderStyleSummary[$key] = (int) ($renderStyleSummary[$key] ?? 0) + (int) ($pageRenderStyleSummary[$key] ?? 0);
+                }
+                $renderStyleSummary['truncated'] = ! empty($renderStyleSummary['truncated']) || ! empty($pageRenderStyleSummary['truncated']);
+                $renderStyleSummary['match_ratio'] = (int) ($renderStyleSummary['source_node_count'] ?? 0) > 0 ? round((int) ($renderStyleSummary['matched_node_count'] ?? 0) / (int) $renderStyleSummary['source_node_count'], 4) : 0.0;
+                $categoryCounts = is_array($renderStyleSummary['category_counts'] ?? null) ? $renderStyleSummary['category_counts'] : array();
+                foreach ( is_array($pageRenderStyleSummary['category_counts'] ?? null) ? $pageRenderStyleSummary['category_counts'] : array() as $category => $count ) {
+                    $categoryCounts[(string) $category] = (int) ($categoryCounts[(string) $category] ?? 0) + (int) $count;
+                }
+                ksort($categoryCounts);
+                $renderStyleSummary['category_counts'] = $categoryCounts;
+                $layout['render_style']['summary'] = $renderStyleSummary;
+                $layout['render_style_mismatch_count'] = (int) ($renderStyleSummary['diagnostic_count'] ?? 0);
+                $pageRenderStyleStatus = (string) ($pageRenderStyle['status'] ?? 'not_run');
+                if ( 'fail' === $pageRenderStyleStatus ) {
+                    $layout['render_style']['status'] = 'fail';
+                    $layout['render_style_mismatch_status'] = 'fail';
+                } elseif ( 'not_evaluated' === $layout['render_style_mismatch_status'] ) {
+                    $layout['render_style']['status'] = $pageRenderStyleStatus;
+                    $layout['render_style_mismatch_status'] = $pageRenderStyleStatus;
+                }
+                foreach ( is_array($pageRenderStyle['diagnostics'] ?? null) ? $pageRenderStyle['diagnostics'] : array() as $item ) {
+                    if ( is_array($item) ) {
+                        $layout['render_style']['diagnostics'][] = array_merge($pageContext, $item);
+                    }
+                }
+            }
+
             $pageDiagnosticCodes = is_array($page['diagnostic_codes'] ?? null) ? $page['diagnostic_codes'] : (is_array($diagnostics['diagnostic_codes'] ?? null) ? $diagnostics['diagnostic_codes'] : array());
             foreach ( $pageDiagnosticCodes as $code => $count ) {
                 $diagnosticCodes[(string) $code] = ($diagnosticCodes[(string) $code] ?? 0) + (int) $count;
@@ -910,6 +971,11 @@ final class FigmaTransformer
 
         $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
         $layout['layout_mismatches'] = array_values($layout['layout_mismatches']);
+        $layout['render_style']['diagnostics'] = array_values($layout['render_style']['diagnostics']);
+        if ( 'not_evaluated' === $layout['render_style_mismatch_status'] ) {
+            $layout['render_style']['status'] = 'not_run';
+            $layout['render_style_mismatch_status'] = 'not_run';
+        }
         ksort($diagnosticCodes);
         $fonts = array(
             'families' => $fontFamilies,
@@ -993,6 +1059,9 @@ final class FigmaTransformer
         if ( ! empty($layout['layout_mismatch_count']) ) {
             $signals[] = array('severity' => 'warning', 'code' => 'layout_mismatch', 'count' => (int) $layout['layout_mismatch_count']);
         }
+        if ( ! empty($layout['render_style_mismatch_count']) ) {
+            $signals[] = array('severity' => 'warning', 'code' => 'render_style_mismatch', 'count' => (int) $layout['render_style_mismatch_count']);
+        }
         $imageBlockCount = (int) ($images['image_block_count'] ?? 0);
         $totalNodeCount = max(0, (int) ($images['total_node_count'] ?? 0));
         $imageNodeDensity = $totalNodeCount > 0 ? $imageBlockCount / $totalNodeCount : 0.0;
@@ -1040,6 +1109,8 @@ final class FigmaTransformer
                 'generated_svg_count' => (int) ($generatedSvgAssets['count'] ?? 0),
                 'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
                 'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
+                'render_style_mismatch_count' => (int) ($layout['render_style_mismatch_count'] ?? 0),
+                'render_style_mismatch_status' => (string) ($layout['render_style_mismatch_status'] ?? 'not_run'),
                 'fixed_root_width_count' => (int) ($layout['fixed_root_width_count'] ?? 0),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),

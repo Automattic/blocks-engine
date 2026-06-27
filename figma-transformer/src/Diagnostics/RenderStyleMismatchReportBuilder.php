@@ -22,7 +22,8 @@ final class RenderStyleMismatchReportBuilder
     {
         $limit = max(1, (int) $this->numericOption($options, 'limit', 100.0));
         $sourceNodes = $this->sourceNodesById($htmlSourceReport);
-        $renderNodes = $this->renderNodesById($evidence);
+        $pagePath = isset($options['page_path']) && is_scalar($options['page_path']) ? (string) $options['page_path'] : null;
+        $renderNodes = $this->renderNodesById($evidence, $pagePath);
         $diagnostics = array();
         $matched = 0;
         $unmatchedSource = 0;
@@ -78,6 +79,7 @@ final class RenderStyleMismatchReportBuilder
                 'matched_node_count' => $matched,
                 'unmatched_source_node_count' => $unmatchedSource,
                 'match_ratio' => $sourceCount > 0 ? round($matched / $sourceCount, 4) : 0.0,
+                'page_path' => $pagePath,
                 'diagnostic_count' => count($totalDiagnostics),
                 'reported_diagnostic_count' => count($diagnostics),
                 'truncated' => count($diagnostics) < count($totalDiagnostics),
@@ -136,23 +138,27 @@ final class RenderStyleMismatchReportBuilder
      * @param array<string, mixed> $evidence
      * @return array<string, array<string, mixed>>
      */
-    private function renderNodesById(array $evidence): array
+    private function renderNodesById(array $evidence, ?string $pagePath): array
     {
         $nodes = array();
         foreach ( array('elements', 'nodes', 'render_nodes') as $key ) {
             if ( is_array($evidence[$key] ?? null) ) {
-                $nodes = array_merge($nodes, $evidence[$key]);
+                $nodes = array_merge($nodes, $this->nodesForPage($evidence[$key], $pagePath));
             }
         }
 
         foreach ( is_array($evidence['entrypoints'] ?? null) ? $evidence['entrypoints'] : array() as $entrypoint ) {
             if ( is_array($entrypoint) && is_array($entrypoint['elements'] ?? null) ) {
-                $nodes = array_merge($nodes, $entrypoint['elements']);
+                $entrypointPagePath = isset($entrypoint['page_path']) && is_scalar($entrypoint['page_path']) ? (string) $entrypoint['page_path'] : null;
+                if ( null !== $pagePath && null !== $entrypointPagePath && $this->normalizePagePath($pagePath) !== $this->normalizePagePath($entrypointPagePath) ) {
+                    continue;
+                }
+                $nodes = array_merge($nodes, $this->nodesForPage($entrypoint['elements'], $pagePath, $entrypointPagePath));
             }
         }
 
         if ( empty($nodes) && is_array($evidence['generated']['elements'] ?? null) ) {
-            $nodes = $evidence['generated']['elements'];
+            $nodes = $this->nodesForPage($evidence['generated']['elements'], $pagePath);
         }
 
         $byId = array();
@@ -172,6 +178,37 @@ final class RenderStyleMismatchReportBuilder
 
         ksort($byId);
         return $byId;
+    }
+
+    /**
+     * @param array<int, mixed> $nodes
+     * @return array<int, mixed>
+     */
+    private function nodesForPage(array $nodes, ?string $pagePath, ?string $fallbackPagePath = null): array
+    {
+        if ( null === $pagePath ) {
+            return $nodes;
+        }
+
+        $filtered = array();
+        foreach ( $nodes as $node ) {
+            if ( ! is_array($node) ) {
+                continue;
+            }
+            $nodePagePath = isset($node['page_path']) && is_scalar($node['page_path']) ? (string) $node['page_path'] : $fallbackPagePath;
+            if ( null !== $nodePagePath && $this->normalizePagePath($nodePagePath) !== $this->normalizePagePath($pagePath) ) {
+                continue;
+            }
+            $node['page_path'] = $nodePagePath ?? $pagePath;
+            $filtered[] = $node;
+        }
+
+        return $filtered;
+    }
+
+    private function normalizePagePath(string $path): string
+    {
+        return ltrim(parse_url($path, PHP_URL_PATH) ?: $path, '/');
     }
 
     /**
@@ -243,7 +280,7 @@ final class RenderStyleMismatchReportBuilder
                 'property' => $mapping[1],
                 'expected' => $expectedValue,
                 'computed' => $computedValue,
-                'matches' => $this->styleValuesMatch($mapping[0], $mapping[1], $expectedValue, $computedValue),
+                'matches' => $this->styleValuesMatch($mapping[0], $mapping[1], $expectedValue, $computedValue, $source, $computed),
             );
         }
 
@@ -278,7 +315,11 @@ final class RenderStyleMismatchReportBuilder
         return null;
     }
 
-    private function styleValuesMatch(string $category, string $property, string $expected, string $computed): bool
+    /**
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $computedStyle
+     */
+    private function styleValuesMatch(string $category, string $property, string $expected, string $computed, array $source = array(), array $computedStyle = array()): bool
     {
         if ( in_array($category, array('color', 'background', 'border'), true) ) {
             return $this->normalizeColor($expected) === $this->normalizeColor($computed);
@@ -286,6 +327,15 @@ final class RenderStyleMismatchReportBuilder
 
         if ( 'font-family' === $property ) {
             return $this->normalizeFontFamily($expected) === $this->normalizeFontFamily($computed);
+        }
+
+        if ( 'line-height' === $property && $this->isUnitlessCssNumber($expected) && str_ends_with(strtolower(trim($computed)), 'px') ) {
+            $expectedNumber = $this->numberFromCssValue($expected);
+            $computedNumber = $this->numberFromCssValue($computed);
+            $fontSize = $this->lineHeightFontSize($source, $computedStyle);
+            if ( null !== $expectedNumber && null !== $computedNumber && null !== $fontSize ) {
+                return abs(($expectedNumber * $fontSize) - $computedNumber) <= 0.5;
+            }
         }
 
         if ( in_array($property, array('font-size', 'line-height', 'letter-spacing', 'border-width', 'opacity'), true) ) {
@@ -297,6 +347,27 @@ final class RenderStyleMismatchReportBuilder
         }
 
         return $this->normalizeCssToken($expected) === $this->normalizeCssToken($computed);
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $computedStyle
+     */
+    private function lineHeightFontSize(array $source, array $computedStyle): ?float
+    {
+        $computedFontSize = $this->computedStyleValue($computedStyle, 'font-size');
+        $computedNumber = null === $computedFontSize ? null : $this->numberFromCssValue($computedFontSize);
+        if ( null !== $computedNumber ) {
+            return $computedNumber;
+        }
+
+        $sourceFontSize = $this->sourceStyleValue($source, 'font_size');
+        return null === $sourceFontSize ? null : $this->numberFromCssValue($sourceFontSize);
+    }
+
+    private function isUnitlessCssNumber(string $value): bool
+    {
+        return 1 === preg_match('/^-?\d+(?:\.\d+)?$/', trim($value));
     }
 
     private function normalizeFontFamily(string $value): string

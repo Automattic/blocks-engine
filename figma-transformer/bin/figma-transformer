@@ -160,6 +160,13 @@ if ( isset($options['parity']['dom_boxes_path']) && is_scalar($options['parity']
     }
 }
 
+if ( isset($options['parity']['render_evidence_path']) && is_scalar($options['parity']['render_evidence_path']) ) {
+    $renderEvidence = blocks_engine_figma_transformer_cli_read_json_file((string) $options['parity']['render_evidence_path']);
+    if ( is_array($renderEvidence) ) {
+        $options['generated_render_evidence'] = $renderEvidence;
+    }
+}
+
 $transformer = blocks_engine_figma_transformer_cli_transformer(is_string($zstdCommand) && '' !== $zstdCommand ? $zstdCommand : null);
 if ( true === ($options['inspect_frames'] ?? false) ) {
     if ( str_ends_with(strtolower($path), '.json') ) {
