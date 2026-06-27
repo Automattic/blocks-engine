@@ -9,6 +9,13 @@ final class ButtonsPattern
 {
     private const BLOCK_LEVEL_LABEL_TAGS = 'address|article|aside|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|main|nav|ol|p|pre|section|table|ul';
 
+    private readonly ButtonStyleResolver $styleResolver;
+
+    public function __construct()
+    {
+        $this->styleResolver = new ButtonStyleResolver();
+    }
+
     /**
      * @param callable(DOMElement): array<string, mixed>|null $fileBlockFromAnchor
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
@@ -104,8 +111,20 @@ final class ButtonsPattern
     private function buttonPresentationAttributes(DOMElement $element, callable $presentationAttributes): array
     {
         $attrs = $presentationAttributes($element);
-        if ( $this->hasOutlineSignal($element, (string) ($attrs['style'] ?? '')) ) {
+        $resolvedStyle = (string) ($attrs['style'] ?? '');
+        if ( $this->hasOutlineSignal($element, $resolvedStyle) ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' is-style-outline');
+        }
+
+        // Translate the resolved source CSS (inline style merged with the matched
+        // <style>/linked CSS rules) into native core/button block attributes so the
+        // button renders with its source colors/border instead of the theme default.
+        // A button with no paintable styling resolves to no native attributes and
+        // stays a default button.
+        unset($attrs['style']);
+        $native = $this->styleResolver->nativeAttributes($resolvedStyle);
+        if ( array() !== $native ) {
+            $attrs = array_merge($attrs, $native);
         }
 
         return $attrs;

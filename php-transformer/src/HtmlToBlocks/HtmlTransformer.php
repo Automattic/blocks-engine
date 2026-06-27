@@ -3182,7 +3182,7 @@ final class HtmlTransformer
     private function structureSignals(DOMElement $element, array $attrs): array
     {
         $className = strtolower(trim($this->attr($element, 'class') . ' ' . (string) ($attrs['className'] ?? '')));
-        $style = strtolower(trim($this->attr($element, 'style') . ';' . (string) ($attrs['style'] ?? '')));
+        $style = strtolower(trim($this->attr($element, 'style') . ';' . (is_string($attrs['style'] ?? null) ? $attrs['style'] : '')));
         $signals = array();
 
         if ( preg_match('/(?:^|[\s_-])(?:card|feature|service|provider|resource|post|project|stat|badge|tile|panel|item)(?:$|[\s_-])/', $className) || 'article' === strtolower($element->tagName) ) {

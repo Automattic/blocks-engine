@@ -202,6 +202,8 @@ final class BlockFactory
         }
 
         if ( 'core/button' === $name ) {
+            $support = $this->buttonStyleSupport($attrs);
+
             if ( 'button' === ($attrs['tagName'] ?? '') ) {
                 $buttonAttrs = array_intersect_key($attrs, array_flip(array( 'type', 'role', 'aria-label', 'aria-controls', 'aria-expanded', 'aria-haspopup' )));
                 foreach ( $attrs as $attrName => $attrValue ) {
@@ -211,8 +213,8 @@ final class BlockFactory
                 }
                 $buttonAttrs = array_merge(array(
                     'id'    => (string) ($attrs['anchor'] ?? ''),
-                    'class' => $this->mergeClassNames('wp-block-button__link wp-element-button', (string) ($attrs['className'] ?? '')),
-                    'style' => (string) ($attrs['style'] ?? ''),
+                    'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button', (string) ($attrs['className'] ?? '')),
+                    'style' => $support['style'],
                 ), $buttonAttrs);
 
                 return '<div class="wp-block-button"><button' . $this->htmlAttrs($buttonAttrs) . '>' . ($attrs['text'] ?? '') . '</button></div>';
@@ -221,8 +223,8 @@ final class BlockFactory
             $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
             $wrapperClass = $this->mergeClassNames('wp-block-button', in_array('is-style-outline', preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true) ? 'is-style-outline' : '');
             $linkAttrs = array(
-                'class' => $this->mergeClassNames('wp-block-button__link wp-element-button', (string) ($attrs['className'] ?? '')),
-                'style' => (string) ($attrs['style'] ?? ''),
+                'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button', (string) ($attrs['className'] ?? '')),
+                'style' => $support['style'],
             );
             return '<div class="' . htmlspecialchars($wrapperClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"><a' . $this->htmlAttrs($linkAttrs) . $href . '>' . ($attrs['text'] ?? '') . '</a></div>';
         }
@@ -402,6 +404,80 @@ final class BlockFactory
         $button = '' !== trim($buttonText) ? '<button type="submit" class="wp-block-search__button wp-element-button">' . $buttonText . '</button>' : '';
 
         return '<form role="search" method="get"' . $this->blockSupportAttrs($attrs, 'wp-block-search') . '><label' . $this->htmlAttrs($labelAttrs) . '>' . $label . '</label><div class="wp-block-search__inside-wrapper"><input' . $this->htmlAttrs($inputAttrs) . ' />' . $button . '</div></form>';
+    }
+
+    /**
+     * Translate a core/button block's native style support into the rendered
+     * has-* support classes and the inline style string WordPress emits for
+     * custom colors and borders. Accepts the canonical `style` object; falls back
+     * to a legacy raw `style` string when present for backward compatibility.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array{classes: string, style: string}
+     */
+    private function buttonStyleSupport(array $attrs): array
+    {
+        $style = $attrs['style'] ?? null;
+        if ( ! is_array($style) ) {
+            return array(
+                'classes' => '',
+                'style'   => is_string($style) ? $style : '',
+            );
+        }
+
+        $classes = array();
+        $declarations = array();
+
+        $background = (string) ($style['color']['background'] ?? '');
+        $text = (string) ($style['color']['text'] ?? '');
+        if ( '' !== $text ) {
+            $classes[] = 'has-text-color';
+            $declarations[] = 'color:' . $text;
+        }
+        if ( '' !== $background ) {
+            $classes[] = 'has-background';
+            $declarations[] = 'background-color:' . $background;
+        }
+
+        $border = is_array($style['border'] ?? null) ? $style['border'] : array();
+        if ( isset($border['color']) && '' !== (string) $border['color'] ) {
+            $classes[] = 'has-border-color';
+            $declarations[] = 'border-color:' . (string) $border['color'];
+        }
+        if ( isset($border['width']) && '' !== (string) $border['width'] ) {
+            $declarations[] = 'border-width:' . (string) $border['width'];
+        }
+        if ( isset($border['style']) && '' !== (string) $border['style'] ) {
+            $declarations[] = 'border-style:' . (string) $border['style'];
+        }
+        if ( isset($border['radius']) && '' !== (string) $border['radius'] ) {
+            $declarations[] = 'border-radius:' . (string) $border['radius'];
+        }
+
+        $padding = is_array($style['spacing']['padding'] ?? null) ? $style['spacing']['padding'] : array();
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+            if ( isset($padding[$side]) && '' !== (string) $padding[$side] ) {
+                $declarations[] = 'padding-' . $side . ':' . (string) $padding[$side];
+            }
+        }
+
+        $typography = is_array($style['typography'] ?? null) ? $style['typography'] : array();
+        $typographyMap = array(
+            'fontSize'      => 'font-size',
+            'fontWeight'    => 'font-weight',
+            'lineHeight'    => 'line-height',
+            'textTransform' => 'text-transform',
+        );
+        foreach ( $typographyMap as $attrName => $cssName ) {
+            if ( isset($typography[$attrName]) && '' !== (string) $typography[$attrName] ) {
+                $declarations[] = $cssName . ':' . (string) $typography[$attrName];
+            }
+        }
+
+        return array(
+            'classes' => implode(' ', $classes),
+            'style'   => implode(';', $declarations),
+        );
     }
 
     private function mergeClassNames(string ...$classNames): string

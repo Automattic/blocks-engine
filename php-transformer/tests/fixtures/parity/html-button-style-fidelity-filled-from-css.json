@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-button-style-fidelity-filled-from-css",
+  "description": "Filled CTA button whose colors live only in page <style> CSS is translated onto native core/button attributes (style.color.background + style.color.text + style.border.radius) so it renders with its source fill instead of the theme default grey.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-button-style-fidelity-filled-from-css.json",
+    "notes": "Generic style-fidelity fixture: resolve source CSS rule -> native filled button attributes (issue #233)."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New native button style-fidelity behavior has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<!doctype html><html><head><style>.btn-primary{background:#13314f;color:#ffffff;border-radius:6px;padding:12px 24px}</style></head><body><main><a class=\"btn btn-primary\" href=\"/buy\">Buy now</a></main></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Buy now", "url": "/buy", "className": "btn btn-primary", "style": { "color": { "background": "#13314f", "text": "#ffffff" }, "border": { "radius": "6px" }, "spacing": { "padding": { "top": "12px", "right": "24px", "bottom": "12px", "left": "24px" } } } } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link has-text-color has-background wp-element-button btn btn-primary\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"color:#ffffff;background-color:#13314f;border-radius:6px;padding-top:12px;padding-right:24px;padding-bottom:12px;padding-left:24px\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "is-style-outline" }
+  ]
+}
