@@ -1404,12 +1404,171 @@ final class HtmlTransformer
     }
 
     /**
+     * A JS-only hamburger menu-toggle that is redundant chrome once a nearby
+     * navigation menu converts to core/navigation.
+     *
+     * The toggle is detected GENERICALLY by structural/semantic signals — never
+     * by a specific class string — so any framework's hamburger is recognized:
+     * a <button> (or <a role="button">) carrying aria-controls and/or
+     * aria-expanded whose visible content is empty/decorative bars (only empty
+     * spans or an icon, no text label). It is suppressed only when it is the
+     * opener for, or sits beside, a navigation menu that becomes
+     * core/navigation — which already ships its own working responsive overlay
+     * hamburger. Real labeled buttons, and toggles with no associated nav, still
+     * convert normally.
+     */
+    private function isRedundantMenuToggleControl(DOMElement $element): bool
+    {
+        if ( ! $this->isHamburgerMenuToggleControl($element) ) {
+            return false;
+        }
+
+        return $this->hasNearbyConvertibleNavigation($element);
+    }
+
+    private function isHamburgerMenuToggleControl(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        $isButton = 'button' === $tagName;
+        $isButtonRoleAnchor = 'a' === $tagName && 'button' === strtolower($this->attr($element, 'role'));
+        if ( ! $isButton && ! $isButtonRoleAnchor ) {
+            return false;
+        }
+
+        if ( ! $element->hasAttribute('aria-controls') && ! $element->hasAttribute('aria-expanded') ) {
+            return false;
+        }
+
+        return '' === $this->visibleMenuToggleLabel($element);
+    }
+
+    /**
+     * Visible text label of a control with decorative chrome (icons, empty
+     * hamburger bars) stripped. Empty means the control shows no text label.
+     */
+    private function visibleMenuToggleLabel(DOMElement $element): string
+    {
+        $html = $this->innerHtml($element);
+        $html = preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html;
+        $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>.*?<\/\1>/is', '', $html) ?? $html;
+
+        return trim($this->runtime->stripAllTags($html));
+    }
+
+    /**
+     * Whether a navigation menu that converts to core/navigation is the toggle's
+     * aria-controls target or sits within the toggle's enclosing landmark.
+     */
+    private function hasNearbyConvertibleNavigation(DOMElement $toggle): bool
+    {
+        $controlledIds = preg_split('/\s+/', trim($this->attr($toggle, 'aria-controls'))) ?: array();
+        foreach ( $controlledIds as $controlledId ) {
+            if ( '' === $controlledId ) {
+                continue;
+            }
+
+            $target = $this->elementWithId($toggle, $controlledId);
+            if ( $target instanceof DOMElement && ! $target->isSameNode($toggle) && $this->convertsToCoreNavigation($target) ) {
+                return true;
+            }
+        }
+
+        $scope = $this->menuToggleScope($toggle);
+        foreach ( $scope->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($toggle) ) {
+                continue;
+            }
+
+            if ( $this->isNavigationMenuCandidate($candidate) && $this->convertsToCoreNavigation($candidate) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Nearest enclosing navigation/header landmark, or the document body, used
+     * to bound the search for a sibling navigation menu.
+     */
+    private function menuToggleScope(DOMElement $toggle): DOMElement
+    {
+        for ( $node = $toggle->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $tagName = strtolower($node->tagName);
+            if ( 'body' === $tagName ) {
+                return $node;
+            }
+
+            if ( in_array($tagName, array( 'header', 'nav' ), true) || in_array(strtolower($this->attr($node, 'role')), array( 'banner', 'navigation' ), true) ) {
+                return $node;
+            }
+        }
+
+        return $toggle;
+    }
+
+    private function isNavigationMenuCandidate(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( 'nav' === $tagName || 'navigation' === strtolower($this->attr($element, 'role')) ) {
+            return true;
+        }
+
+        return in_array($tagName, array( 'ul', 'ol' ), true) && $this->hasSourceNavigationSignal($element);
+    }
+
+    private function convertsToCoreNavigation(DOMElement $element): bool
+    {
+        $navigation = $this->patternRecognizers->firstMatch($element, $this->probePatternContext());
+
+        return null !== $navigation && 'core/navigation' === ($navigation['blockName'] ?? '');
+    }
+
+    private function elementWithId(DOMElement $context, string $id): ?DOMElement
+    {
+        $document = $context->ownerDocument;
+        if ( ! $document instanceof DOMDocument ) {
+            return null;
+        }
+
+        foreach ( $document->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && $element->getAttribute('id') === $id ) {
+                return $element;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * A side-effect-free pattern context for probing whether an element would
+     * convert to a given block, without recording provenance or runtime islands.
+     */
+    private function probePatternContext(): PatternContext
+    {
+        return new PatternContext(
+            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+            static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array(
+                'blockName'   => $name,
+                'attrs'       => $attrs,
+                'innerBlocks' => $innerBlocks,
+            ),
+            null
+        );
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
     private function convertElement(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array
     {
         $tagName = strtolower($element->tagName);
+
+        if ( $this->isRedundantMenuToggleControl($element) ) {
+            return null;
+        }
 
         if ( preg_match('/^h([1-6])$/', $tagName, $matches) ) {
             $content = $this->innerHtml($element);
