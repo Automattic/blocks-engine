@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../figma-transformer.php';
+require_once __DIR__ . '/../../scripts/figma-fixture-selection.php';
 require_once __DIR__ . '/SyntheticFigKiwiFixtureBuilder.php';
 
 use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCapability;
@@ -1433,6 +1434,33 @@ $assert('Page One' === ($frameInspectionHome['page']['name'] ?? null), 'frame-in
 $assert('Marketing Pages' === ($frameInspectionHome['section']['name'] ?? null), 'frame-inspection-section-ancestor');
 $assert(1 === ($frameInspectionHome['text_count'] ?? null), 'frame-inspection-text-count');
 $assert(1 === ($frameInspectionHome['asset_reference_count'] ?? null), 'frame-inspection-asset-count');
+
+$matrixWebsiteCandidate = array(
+    'id'         => 'matrix:site:home',
+    'type'       => 'FRAME',
+    'name'       => 'Homepage',
+    'page'       => array('name' => 'Website Pages'),
+    'parent'     => array('type' => 'CANVAS'),
+    'width'      => 1440,
+    'height'     => 4200,
+    'text_count' => 24,
+    'score'      => 700,
+);
+$matrixResearchCandidate = array(
+    'id'         => 'matrix:research:screen',
+    'type'       => 'FRAME',
+    'name'       => 'Desktop - 12',
+    'page'       => array('name' => 'Research/Screens'),
+    'parent'     => array('type' => 'CANVAS'),
+    'width'      => 1440,
+    'height'     => 4600,
+    'text_count' => 40,
+    'score'      => 820,
+);
+$matrixSelection = matrix_select_frame_ids(array('candidates' => array($matrixResearchCandidate, $matrixWebsiteCandidate)), 2);
+$assert(array('matrix:site:home', 'matrix:research:screen') === $matrixSelection, 'fixture-matrix-research-screens-demoted');
+$assert(matrix_candidate_rank($matrixWebsiteCandidate) > matrix_candidate_rank($matrixResearchCandidate), 'fixture-matrix-reference-page-rank-penalty');
+$assert(! in_array('page_collection', matrix_candidate_selection_reasons($matrixResearchCandidate), true), 'fixture-matrix-reference-page-not-page-collection');
 
 $multiPageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'   => 'Multi Page Fixture',
