@@ -12,12 +12,16 @@ final class PatternContext
      * @param callable(DOMElement): string $innerHtml
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @param callable(DOMElement): bool|null $isRuntimeDomTarget
+     * @param callable(DOMElement): array<int, array<string, mixed>>|null $convertChildren
+     * @param callable(DOMElement, array<int, string>): array<int, array<string, mixed>>|null $convertChildrenWithoutTags
      */
     public function __construct(
         private readonly mixed $presentationAttributes,
         private readonly mixed $innerHtml,
         private readonly mixed $createBlock,
-        private readonly mixed $isRuntimeDomTarget = null
+        private readonly mixed $isRuntimeDomTarget = null,
+        private readonly mixed $convertChildren = null,
+        private readonly mixed $convertChildrenWithoutTags = null
     ) {
     }
 
@@ -51,5 +55,21 @@ final class PatternContext
     public function isRuntimeDomTargetCallback(): ?callable
     {
         return is_callable($this->isRuntimeDomTarget) ? $this->isRuntimeDomTarget : null;
+    }
+
+    /**
+     * @return callable(DOMElement): array<int, array<string, mixed>>|null
+     */
+    public function convertChildrenCallback(): ?callable
+    {
+        return is_callable($this->convertChildren) ? $this->convertChildren : null;
+    }
+
+    /**
+     * @return callable(DOMElement, array<int, string>): array<int, array<string, mixed>>|null
+     */
+    public function convertChildrenWithoutTagsCallback(): ?callable
+    {
+        return is_callable($this->convertChildrenWithoutTags) ? $this->convertChildrenWithoutTags : null;
     }
 }

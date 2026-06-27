@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
@@ -139,6 +140,7 @@ final class HtmlTransformer
         $this->detailsPattern    = new DetailsPattern();
         $this->logoPattern       = new LogoPattern();
         $this->patternRecognizers = new PatternRecognizerRegistry(array(
+            new AccordionPattern(),
             new NavigationPattern(),
         ));
     }
@@ -1439,8 +1441,29 @@ final class HtmlTransformer
             fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
             fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement),
-            $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement) : null
+            $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement) : null,
+            fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
+            fn (DOMElement $sourceElement, array $excludedTags): array => $this->convertPatternChildrenWithoutTags($sourceElement, $excludedTags)
         );
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function convertPatternChildren(DOMElement $element): array
+    {
+        $fallbacks = array();
+        return $this->convertChildren($element, $fallbacks, true);
+    }
+
+    /**
+     * @param array<int, string> $excludedTags
+     * @return array<int, array<string, mixed>>
+     */
+    private function convertPatternChildrenWithoutTags(DOMElement $element, array $excludedTags): array
+    {
+        $fallbacks = array();
+        return $this->convertChildrenWithoutTags($element, $fallbacks, $excludedTags);
     }
 
     /**
@@ -1594,6 +1617,8 @@ final class HtmlTransformer
                 'attrs'       => $attrs,
                 'innerBlocks' => $innerBlocks,
             ),
+            null,
+            null,
             null
         );
     }

@@ -131,6 +131,25 @@ final class BlockFactory
             );
         }
 
+        if ( 'core/accordion' === $name ) {
+            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-accordion') . '>', 'closing' => '</div>' );
+        }
+
+        if ( 'core/accordion-item' === $name ) {
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), ! empty($attrs['openByDefault']) ? 'is-open' : '');
+            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-accordion-item') . '>', 'closing' => '</div>' );
+        }
+
+        if ( 'core/accordion-heading' === $name ) {
+            $level = (int) ($attrs['level'] ?? 3);
+            $level = max(1, min(6, $level));
+            return '<h' . $level . $this->blockSupportAttrs($attrs, 'wp-block-accordion-heading') . '><button type="button" class="wp-block-accordion-heading__toggle"><span class="wp-block-accordion-heading__toggle-title">' . ($attrs['title'] ?? '') . '</span></button></h' . $level . '>';
+        }
+
+        if ( 'core/accordion-panel' === $name ) {
+            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-accordion-panel') . '>', 'closing' => '</div>' );
+        }
+
         if ( 'core/image' === $name ) {
             return $this->imageHtml($attrs);
         }

@@ -257,6 +257,28 @@ $assert(2 === count($navigationBlock['innerBlocks'] ?? array()), 'navigation con
 $assert('About' === ($navigationBlock['innerBlocks'][0]['attrs']['label'] ?? null), 'navigation conversion still preserves link labels');
 $assert('/about' === ($navigationBlock['innerBlocks'][0]['attrs']['url'] ?? null), 'navigation conversion still preserves link URLs');
 
+$accordionResult = ( new HtmlTransformer() )->transform('<section class="faq"><div class="faq-item active"><button class="faq-question" aria-expanded="true" aria-controls="answer-a">What is covered?</button><div id="answer-a" class="faq-answer"><p>Assessment and treatment planning.</p></div></div><div class="faq-item"><button class="faq-question" aria-expanded="false" aria-controls="answer-b">How long is a visit?</button><div id="answer-b" class="faq-answer"><p>Most visits take 45 minutes.</p></div></div></section>')->toArray();
+$accordionBlock = $accordionResult['blocks'][0] ?? array();
+$accordionItems = $accordionBlock['innerBlocks'] ?? array();
+$assert('core/accordion' === ($accordionBlock['blockName'] ?? null), 'clean FAQ containers convert to core accordion');
+$assert(2 === count($accordionItems), 'accordion conversion preserves repeated items');
+$assert('core/accordion-item' === ($accordionItems[0]['blockName'] ?? null), 'accordion conversion emits core accordion items');
+$assert(true === ($accordionItems[0]['attrs']['openByDefault'] ?? null), 'accordion conversion maps obvious expanded state');
+$assert('What is covered?' === ($accordionItems[0]['innerBlocks'][0]['attrs']['title'] ?? null), 'accordion conversion preserves item heading text');
+$assert('core/accordion-panel' === ($accordionItems[0]['innerBlocks'][1]['blockName'] ?? null), 'accordion conversion emits core accordion panels');
+$assert('Assessment and treatment planning.' === ($accordionItems[0]['innerBlocks'][1]['innerBlocks'][0]['attrs']['content'] ?? null), 'accordion conversion preserves panel text');
+$assert(str_contains((string) ($accordionResult['serialized_blocks'] ?? ''), '<!-- wp:accordion '), 'accordion conversion serializes native accordion block comments');
+
+$complexAccordionResult = ( new HtmlTransformer() )->transform('<section class="faq"><div class="faq-item"><button aria-controls="a">Question A</button><div id="a"><script src="accordion.js"></script><p>Answer A</p></div></div><div class="faq-item"><button aria-controls="b">Question B</button><div id="b"><p>Answer B</p></div></div></section>')->toArray();
+$assert('core/accordion' !== (($complexAccordionResult['blocks'][0] ?? array())['blockName'] ?? null), 'runtime-heavy accordion markup is not forced into native accordion');
+
+$detailsAccordionResult = ( new HtmlTransformer() )->transform('<div class="accordion"><details open><summary>Can I reschedule?</summary><p>Yes, with notice.</p></details><details><summary>Do you take cards?</summary><p>Yes.</p></details></div>')->toArray();
+$detailsAccordionItems = $detailsAccordionResult['blocks'][0]['innerBlocks'] ?? array();
+$assert('core/accordion' === (($detailsAccordionResult['blocks'][0] ?? array())['blockName'] ?? null), 'repeated details inside accordion wrappers convert to core accordion');
+$assert(true === ($detailsAccordionItems[0]['attrs']['openByDefault'] ?? null), 'details open state maps to accordion item open state');
+$assert('Can I reschedule?' === ($detailsAccordionItems[0]['innerBlocks'][0]['attrs']['title'] ?? null), 'details summary text maps to accordion heading');
+$assert('Yes, with notice.' === ($detailsAccordionItems[0]['innerBlocks'][1]['innerBlocks'][0]['attrs']['content'] ?? null), 'details body text maps to accordion panel');
+
 $fixture = file_get_contents(dirname(__DIR__) . '/fixtures/simple-html.html');
 $result  = ( new HtmlTransformer() )->transform($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><canvas>Fallback</canvas>")->toArray();
 
