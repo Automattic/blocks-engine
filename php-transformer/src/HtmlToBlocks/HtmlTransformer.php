@@ -21,6 +21,40 @@ final class HtmlTransformer
 {
     private const MAX_INTERACTION_CANDIDATES = 100;
 
+    /**
+     * @var array<int, string>
+     */
+    private const SUPPORTED_BLOCKS = array(
+        'core/audio',
+        'core/button',
+        'core/buttons',
+        'core/code',
+        'core/column',
+        'core/columns',
+        'core/details',
+        'core/embed',
+        'core/file',
+        'core/gallery',
+        'core/group',
+        'core/heading',
+        'core/image',
+        'core/list',
+        'core/list-item',
+        'core/navigation',
+        'core/navigation-link',
+        'core/paragraph',
+        'core/preformatted',
+        'core/pullquote',
+        'core/quote',
+        'core/separator',
+        'core/shortcode',
+        'core/spacer',
+        'core/navigation-submenu',
+        'core/table',
+        'core/video',
+        'core/search',
+    );
+
     private readonly BlockFactory $blockFactory;
 
     private readonly ButtonsPattern $buttonsPattern;
@@ -308,7 +342,10 @@ final class HtmlTransformer
         }
 
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
+        $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
         $sourceReports = array(
+            'native_target_blocks' => $nativeTargetBlocks,
+            'available_core_blocks' => $nativeTargetBlocks,
             'runtime_islands' => $this->runtimeIslands,
             'interaction_candidates' => $interactionCandidates,
             'wp_block_validity' => $blockValidityReport,
@@ -334,9 +371,11 @@ final class HtmlTransformer
             sourceReports: $sourceReports,
             coverage: array(
                 array(
-                    'supported_blocks' => array( 'core/audio', 'core/button', 'core/buttons', 'core/code', 'core/column', 'core/columns', 'core/details', 'core/embed', 'core/file', 'core/gallery', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/separator', 'core/shortcode', 'core/spacer', 'core/navigation-submenu', 'core/table', 'core/video', 'core/search' ),
-                    'block_count'      => count($blocks),
-                    'fallback_count'   => count($fallbacks),
+                    'supported_blocks'      => self::SUPPORTED_BLOCKS,
+                    'native_target_blocks'  => $nativeTargetBlocks,
+                    'available_core_blocks' => $nativeTargetBlocks,
+                    'block_count'           => count($blocks),
+                    'fallback_count'        => count($fallbacks),
                     'source_provenance_count' => count($sourceProvenance),
                 ),
             ),

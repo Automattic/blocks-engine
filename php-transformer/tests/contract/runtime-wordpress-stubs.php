@@ -81,6 +81,29 @@ if ( ! function_exists('esc_attr') ) {
     }
 }
 
+if ( ! class_exists('WP_Block_Type_Registry') ) {
+    final class WP_Block_Type_Registry
+    {
+        public static function get_instance(): self
+        {
+            return new self();
+        }
+
+        /**
+         * @return array<string|int, object>
+         */
+        public function get_all_registered(): array
+        {
+            return array(
+                'core/icon' => (object) array('name' => 'core/icon'),
+                'plugin/card' => (object) array('name' => 'plugin/card'),
+                (object) array('name' => 'core/math'),
+                'core/accordion' => (object) array('name' => 'core/accordion'),
+            );
+        }
+    }
+}
+
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -97,6 +120,7 @@ assertSame(array('stub' => 'ids="1,2"'), $runtime->parseShortcodeAttributes('ids
 assertSame('{"stub":{"path":"/demo"}}', $runtime->encodeJson(array('path' => '/demo')), 'Runtime should delegate JSON encoding to wp_json_encode().');
 assertSame('stub html <tag>', $runtime->escapeHtml('<tag>'), 'Runtime should delegate HTML escaping to esc_html().');
 assertSame('stub attr "value"', $runtime->escapeAttribute('"value"'), 'Runtime should delegate attribute escaping to esc_attr().');
+assertSame(array('core/accordion', 'core/icon', 'core/math'), $runtime->availableCoreBlockNames(), 'Runtime should expose registered core block names as native targets.');
 
 fwrite(STDOUT, "WordPress runtime stub contract passed.\n");
 

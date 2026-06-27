@@ -6,6 +6,50 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
 final class Runtime
 {
     /**
+     * @var array<int, string>
+     */
+    private const FALLBACK_CORE_BLOCK_NAMES = array(
+        'core/accordion',
+        'core/audio',
+        'core/breadcrumbs',
+        'core/button',
+        'core/buttons',
+        'core/categories',
+        'core/code',
+        'core/column',
+        'core/columns',
+        'core/details',
+        'core/embed',
+        'core/file',
+        'core/footnotes',
+        'core/gallery',
+        'core/group',
+        'core/heading',
+        'core/icon',
+        'core/image',
+        'core/list',
+        'core/list-item',
+        'core/math',
+        'core/navigation',
+        'core/navigation-link',
+        'core/navigation-submenu',
+        'core/paragraph',
+        'core/post-terms',
+        'core/preformatted',
+        'core/pullquote',
+        'core/query-total',
+        'core/quote',
+        'core/search',
+        'core/separator',
+        'core/shortcode',
+        'core/spacer',
+        'core/table',
+        'core/tag-cloud',
+        'core/term-description',
+        'core/video',
+    );
+
+    /**
      * @var array<int, array<string, mixed>>
      */
     private array $diagnostics = array();
@@ -60,6 +104,53 @@ final class Runtime
     public function canEscapeAttribute(): bool
     {
         return function_exists('esc_attr');
+    }
+
+    /**
+     * Native core block names available as potential WordPress targets.
+     *
+     * @return array<int, string>
+     */
+    public function availableCoreBlockNames(): array
+    {
+        $registered = $this->registeredCoreBlockNames();
+        if ( array() !== $registered ) {
+            return $registered;
+        }
+
+        return self::FALLBACK_CORE_BLOCK_NAMES;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function registeredCoreBlockNames(): array
+    {
+        if ( ! class_exists('WP_Block_Type_Registry') || ! method_exists('WP_Block_Type_Registry', 'get_instance') ) {
+            return array();
+        }
+
+        $registry = \WP_Block_Type_Registry::get_instance();
+        if ( ! is_object($registry) || ! method_exists($registry, 'get_all_registered') ) {
+            return array();
+        }
+
+        $names = array();
+        foreach ( $registry->get_all_registered() as $key => $blockType ) {
+            $name = is_string($key) ? $key : '';
+            if ( '' === $name && is_object($blockType) && isset($blockType->name) && is_string($blockType->name) ) {
+                $name = $blockType->name;
+            }
+
+            if ( str_starts_with($name, 'core/') ) {
+                $names[] = $name;
+            }
+        }
+
+        $names = array_values(array_unique($names));
+        sort($names);
+
+        return $names;
     }
 
     /**
