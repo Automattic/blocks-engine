@@ -263,6 +263,18 @@ $assert(array() === ($rangeControlResult['fallbacks'] ?? array()), 'standalone r
 $assert(str_contains($rangeControlText, 'Density: 28'), 'range input summary preserves current value');
 $assert(str_contains($rangeControlText, 'min 6, max 60, step 2'), 'range input summary preserves bounds');
 
+$standaloneControls = ( new HtmlTransformer() )->transform(
+    '<main><input id="donation" type="number" aria-label="Custom donation amount" placeholder="Enter amount"><select aria-label="Sort products"><option selected>Featured</option><option>Price: Low to High</option></select><select class="js-sort-select" aria-label="Runtime sort"><option>Newest</option></select></main>',
+    array('runtime_dom_selectors' => array('.js-sort-select'))
+)->toArray();
+$standaloneControlBlocks = $standaloneControls['blocks'][0]['innerBlocks'] ?? array();
+$assert(array() === ($standaloneControls['fallbacks'] ?? array()), 'standalone readable controls convert without unsupported-element fallback');
+$assert('core/paragraph' === ($standaloneControlBlocks[0]['blockName'] ?? ''), 'standalone non-runtime input converts to readable paragraph');
+$assert('core/list' === ($standaloneControlBlocks[1]['innerBlocks'][1]['blockName'] ?? ''), 'standalone non-runtime select options convert to readable list');
+$assert('core/html' === ($standaloneControlBlocks[2]['blockName'] ?? ''), 'runtime-targeted select preserves native DOM markup');
+$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'Featured (selected)'), 'readable select summary preserves selected option state');
+$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted select serialization preserves native element');
+
 $buttonResult = ( new HtmlTransformer() )->transform(
     '<main><a class="primary-button" href="#"><h3>Reserve now</h3><span aria-hidden="true"></span></a><button><strong>Call us</strong></button></main>'
 )->toArray();
