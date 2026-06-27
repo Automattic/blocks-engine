@@ -43,7 +43,7 @@ final class ScenegraphFrameInspector
 
             $stats = $this->subtreeStats($id, $nodes, $childrenIndex, $statsMemo);
             $dimensions = $this->dimensions($node);
-            $candidates[] = array_filter(
+            $candidates[$id] = array_filter(
                 array(
                     'id'                    => $id,
                     'name'                  => (string) ($node['name'] ?? ''),
@@ -58,10 +58,18 @@ final class ScenegraphFrameInspector
                     'text_count'            => $stats['texts'],
                     'asset_reference_count' => $stats['assets'],
                     'score'                 => $this->score($type, $dimensions, $stats),
+                    'device_hint'           => $this->deviceHint((string) ($node['name'] ?? ''), $dimensions),
+                    'sibling_group_key'     => $this->siblingGroupKey($id, $node, $nodes, $parentIndex),
                 ),
                 static fn (mixed $value): bool => null !== $value
             );
         }
+
+        foreach ( $candidates as $id => $candidate ) {
+            $candidates[$id]['responsive_siblings'] = $this->responsiveSiblings($id, $candidate, $candidates);
+        }
+
+        $candidates = array_values($candidates);
 
         usort(
             $candidates,
@@ -231,6 +239,126 @@ final class ScenegraphFrameInspector
             + ($area > 300000 ? 80 : 0)
             - (($dimensions['height'] ?? 0) > 0 && ($dimensions['height'] ?? 0) < 1500 && $stats['nodes'] > 200 ? 160 : 0)
             - ($area > 0 && $area < 10000 ? 60 : 0);
+    }
+
+    /**
+     * @param array{width: float|null, height: float|null} $dimensions
+     */
+    private function deviceHint(string $name, array $dimensions): string
+    {
+        $normalized = strtolower($name);
+        $width = isset($dimensions['width']) && is_numeric($dimensions['width']) ? (float) $dimensions['width'] : 0.0;
+
+        if ( 1 === preg_match('/\b(mobile|phone|iphone|android)\b/', $normalized) || ($width > 0 && $width < 700) ) {
+            return 'mobile';
+        }
+        if ( 1 === preg_match('/\b(tablet|ipad)\b/', $normalized) || ($width >= 700 && $width < 1100) ) {
+            return 'tablet';
+        }
+        if ( 1 === preg_match('/\b(desktop|web|1440|1512|1728|1920)\b/', $normalized) || $width >= 1100 ) {
+            return 'desktop';
+        }
+
+        return 'unknown';
+    }
+
+    /**
+     * @param array<string, mixed>                 $node
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, string>               $parentIndex
+     */
+    private function siblingGroupKey(string $id, array $node, array $nodes, array $parentIndex): string
+    {
+        $page = $this->nearestAncestor($id, array('CANVAS'), $nodes, $parentIndex);
+        $section = $this->nearestAncestor($id, array('SECTION'), $nodes, $parentIndex);
+        $scope = (string) (($section['id'] ?? null) ?: ($page['id'] ?? 'root'));
+
+        return $scope . ':' . $this->normalizedPageName((string) ($node['name'] ?? ''));
+    }
+
+    /**
+     * @param array<string, mixed>                $candidate
+     * @param array<string, array<string, mixed>> $candidates
+     * @return array<int, array<string, mixed>>
+     */
+    private function responsiveSiblings(string $id, array $candidate, array $candidates): array
+    {
+        $siblings = array();
+        $groupKey = (string) ($candidate['sibling_group_key'] ?? '');
+        $deviceHint = (string) ($candidate['device_hint'] ?? 'unknown');
+        $pageId = (string) ($candidate['page']['id'] ?? '');
+        $sectionId = (string) ($candidate['section']['id'] ?? '');
+        $parentId = (string) ($candidate['parent']['id'] ?? '');
+
+        foreach ( $candidates as $siblingId => $sibling ) {
+            if ( $siblingId === $id || ! is_array($sibling) ) {
+                continue;
+            }
+
+            $sameScope = '' !== $groupKey && $groupKey === (string) ($sibling['sibling_group_key'] ?? '');
+            $sameContainer = ('' !== $sectionId && $sectionId === (string) ($sibling['section']['id'] ?? ''))
+                || ('' !== $parentId && $parentId === (string) ($sibling['parent']['id'] ?? ''))
+                || ('' !== $pageId && $pageId === (string) ($sibling['page']['id'] ?? ''));
+            $nameSimilarity = $this->nameSimilarity((string) ($candidate['name'] ?? ''), (string) ($sibling['name'] ?? ''));
+            $siblingDeviceHint = (string) ($sibling['device_hint'] ?? 'unknown');
+
+            if ( ! $sameScope && ( ! $sameContainer || $nameSimilarity < 70 ) ) {
+                continue;
+            }
+
+            $confidence = ($sameScope ? 55 : 0)
+                + ($sameContainer ? 20 : 0)
+                + min(25, max(0, $nameSimilarity - 60))
+                + ('unknown' !== $deviceHint && 'unknown' !== $siblingDeviceHint && $deviceHint !== $siblingDeviceHint ? 15 : 0);
+
+            $siblings[] = array_filter(
+                array(
+                    'id' => (string) ($sibling['id'] ?? $siblingId),
+                    'name' => (string) ($sibling['name'] ?? ''),
+                    'device_hint' => $siblingDeviceHint,
+                    'width' => $sibling['width'] ?? null,
+                    'height' => $sibling['height'] ?? null,
+                    'name_similarity' => $nameSimilarity,
+                    'confidence' => min(100, $confidence),
+                ),
+                static fn (mixed $value): bool => null !== $value
+            );
+        }
+
+        usort(
+            $siblings,
+            static fn (array $left, array $right): int => ((int) ($right['confidence'] ?? 0) <=> (int) ($left['confidence'] ?? 0))
+                ?: strcmp((string) ($left['id'] ?? ''), (string) ($right['id'] ?? ''))
+        );
+
+        return array_slice($siblings, 0, 5);
+    }
+
+    private function normalizedPageName(string $name): string
+    {
+        $normalized = strtolower($name);
+        $normalized = (string) preg_replace('/\b(desktop|mobile|tablet|phone|web|copy|variant|version|v\d+|i\d+)\b/', ' ', $normalized);
+        $normalized = (string) preg_replace('/\b\d{3,4}\s*x\s*\d{3,5}\b/', ' ', $normalized);
+        $normalized = (string) preg_replace('/\b(320|375|390|393|414|428|768|834|1024|1280|1366|1440|1512|1728|1920)\b/', ' ', $normalized);
+        $normalized = trim((string) preg_replace('/[^a-z0-9]+/', '-', $normalized), '-');
+
+        return '' === $normalized ? 'frame' : $normalized;
+    }
+
+    private function nameSimilarity(string $left, string $right): int
+    {
+        $leftName = $this->normalizedPageName($left);
+        $rightName = $this->normalizedPageName($right);
+        if ( $leftName === $rightName ) {
+            return 100;
+        }
+
+        $max = max(strlen($leftName), strlen($rightName));
+        if ( 0 === $max ) {
+            return 0;
+        }
+
+        return (int) round((1 - (levenshtein($leftName, $rightName) / $max)) * 100);
     }
 
     /**
