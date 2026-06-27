@@ -926,7 +926,16 @@ $externalizedVectorDiagnostics = $externalizedVectorResult['source_reports']['fi
 $assert('blocks-engine/figma-transformer/generated-svg-assets/v1' === ($externalizedVectorDiagnostics['schema'] ?? null), 'generated-svg-assets-diagnostics-schema');
 $assert(1 === ($externalizedVectorDiagnostics['count'] ?? null), 'generated-svg-assets-diagnostics-count');
 $assert(($externalizedVectorDiagnostics['bytes'] ?? 0) > 65536, 'generated-svg-assets-diagnostics-bytes');
+$assert(($externalizedVectorDiagnostics['gzip_bytes'] ?? 0) > 0, 'generated-svg-assets-diagnostics-gzip-bytes');
+$assert(1 === ($externalizedVectorDiagnostics['path_element_count'] ?? null), 'generated-svg-assets-diagnostics-path-element-count');
+$assert(($externalizedVectorDiagnostics['path_data_bytes'] ?? 0) > 65536, 'generated-svg-assets-diagnostics-path-data-bytes');
+$assert(($externalizedVectorDiagnostics['largest_path_data_bytes'] ?? 0) > 65536, 'generated-svg-assets-diagnostics-largest-path-data-bytes');
+$assert(1 === ($externalizedVectorDiagnostics['unique_path_data_count'] ?? null), 'generated-svg-assets-diagnostics-unique-path-data-count');
+$assert(0 === ($externalizedVectorDiagnostics['duplicate_path_data_count'] ?? null), 'generated-svg-assets-diagnostics-duplicate-path-data-count');
 $assert(array((string) ($externalizedVectorAssets[0]['path'] ?? '')) === ($externalizedVectorDiagnostics['paths'] ?? null), 'generated-svg-assets-diagnostics-paths');
+$assert(1 === ($externalizedVectorDiagnostics['assets'][0]['path_element_count'] ?? null), 'generated-svg-assets-diagnostics-asset-path-element-count');
+$assert(($externalizedVectorDiagnostics['assets'][0]['path_data_bytes'] ?? 0) > 65536, 'generated-svg-assets-diagnostics-asset-path-data-bytes');
+$assert(1 === ($externalizedVectorDiagnostics['assets'][0]['unique_path_data_count'] ?? null), 'generated-svg-assets-diagnostics-asset-unique-path-data-count');
 
 $starVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Star Vector Fixture',
@@ -1608,6 +1617,7 @@ $multiPageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
                     'children' => array(
                         array('id' => 'text:home', 'type' => 'TEXT', 'name' => 'Home title', 'characters' => 'Home Hero', 'fontName' => array('family' => 'Example Sans', 'style' => 'Regular'), 'fontSize' => 20),
                         array('id' => 'image:home', 'type' => 'RECTANGLE', 'name' => 'Home image', 'width' => 100, 'height' => 60, 'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'home-image'))),
+                        array('id' => 'vector:home-large', 'type' => 'VECTOR', 'name' => 'Home Large Vector', 'width' => 10, 'height' => 10, 'figma_vector_paths' => array(array('data' => $externalizedVectorPath, 'source' => 'strokeGeometry'))),
                     ),
                 ),
                 array(
@@ -1644,7 +1654,7 @@ $assert(str_contains($multiPageStyle, '.figma-node-frame-about-about'), 'multi-p
 $assert(2 === ($multiPageResult['metrics']['page_count'] ?? null), 'multi-page-page-count');
 $assert(2 === ($multiPageResult['source_reports']['compiled_site']['totals']['page_count'] ?? null), 'multi-page-compiled-site-page-count');
 $assert('about.html' === ($multiPageResult['source_reports']['compiled_site']['pages'][1]['path'] ?? null), 'multi-page-compiled-site-page-path');
-$assert(2 === ($multiPageResult['source_reports']['compiled_site']['totals']['asset_count'] ?? null), 'multi-page-compiled-site-asset-count');
+$assert(3 === ($multiPageResult['source_reports']['compiled_site']['totals']['asset_count'] ?? null), 'multi-page-compiled-site-asset-count');
 $assert(array('Example Sans') === ($multiPageResult['source_reports']['figma']['html']['font_families'] ?? null), 'multi-page-font-families-aggregated');
 $assert(array(array('family' => 'Example Sans', 'weights' => array(400, 700))) === ($multiPageResult['source_reports']['figma']['html']['font_usage'] ?? null), 'multi-page-font-usage-aggregated');
 $assert(array(array('family' => 'Example Sans', 'weights' => array(400, 700))) === ($multiPageResult['source_reports']['compiled_site']['theme']['font_usage'] ?? null), 'multi-page-compiled-site-font-usage');
@@ -1658,8 +1668,13 @@ $assert(2 === count($multiPageTransformDiagnostics['pages'] ?? array()), 'multi-
 $assert('about.html' === ($multiPageTransformDiagnostics['pages'][1]['page_path'] ?? null), 'multi-page-transform-diagnostics-page-path');
 $assert(2 === ($multiPageTransformDiagnostics['images']['paint_refs'] ?? null), 'multi-page-transform-diagnostics-image-paints');
 $assert(2 === ($multiPageTransformDiagnostics['images']['resolved_assets'] ?? null), 'multi-page-transform-diagnostics-resolved-assets');
-$assert(2 === ($multiPageTransformDiagnostics['assets']['emitted_files'] ?? null), 'multi-page-transform-diagnostics-emitted-assets');
-$assert(0 === ($multiPageTransformDiagnostics['generated_svg_assets']['count'] ?? null), 'multi-page-transform-diagnostics-generated-svg-count');
+$assert(3 === ($multiPageTransformDiagnostics['assets']['emitted_files'] ?? null), 'multi-page-transform-diagnostics-emitted-assets');
+$assert(1 === ($multiPageTransformDiagnostics['generated_svg_assets']['count'] ?? null), 'multi-page-transform-diagnostics-generated-svg-count');
+$assert(($multiPageTransformDiagnostics['generated_svg_assets']['gzip_bytes'] ?? 0) > 0, 'multi-page-transform-diagnostics-generated-svg-gzip-bytes');
+$assert(1 === ($multiPageTransformDiagnostics['generated_svg_assets']['path_element_count'] ?? null), 'multi-page-transform-diagnostics-generated-svg-path-element-count');
+$assert(($multiPageTransformDiagnostics['generated_svg_assets']['path_data_bytes'] ?? 0) > 65536, 'multi-page-transform-diagnostics-generated-svg-path-data-bytes');
+$assert(1 === ($multiPageTransformDiagnostics['generated_svg_assets']['unique_path_data_count'] ?? null), 'multi-page-transform-diagnostics-generated-svg-unique-path-data-count');
+$assert(0 === ($multiPageTransformDiagnostics['generated_svg_assets']['duplicate_path_data_count'] ?? null), 'multi-page-transform-diagnostics-generated-svg-duplicate-path-data-count');
 $assert('selected_frames' === ($multiPageTransformDiagnostics['selection']['mode'] ?? null), 'multi-page-transform-diagnostics-selection-mode');
 $assert('frame:home' === ($multiPageTransformDiagnostics['selection']['selected_frames'][0]['frame_id'] ?? null), 'multi-page-transform-diagnostics-entry-frame-selection');
 $assert('about.html' === ($multiPageTransformDiagnostics['selection']['selected_frames'][1]['path'] ?? null), 'multi-page-transform-diagnostics-about-selection-path');

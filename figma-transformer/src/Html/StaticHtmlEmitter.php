@@ -968,13 +968,13 @@ final class StaticHtmlEmitter
             }
 
             $content = (string) ($file['content'] ?? '');
-            $assets[] = array(
+            $assets[] = array_merge(array(
                 'id'        => $sourceId,
                 'path'      => (string) ($file['path'] ?? ''),
                 'mime_type' => 'image/svg+xml',
                 'bytes'     => strlen($content),
                 'hash'      => hash('sha256', $content),
-            );
+            ), $this->svgAssetMetrics($content));
         }
 
         usort($assets, static fn (array $a, array $b): int => ((int) $b['bytes'] <=> (int) $a['bytes']) ?: strcmp((string) $a['path'], (string) $b['path']));
@@ -984,10 +984,59 @@ final class StaticHtmlEmitter
             'threshold_bytes' => self::EXTERNAL_VECTOR_SVG_BYTES,
             'count' => count($assets),
             'bytes' => array_sum(array_map(static fn (array $asset): int => (int) ($asset['bytes'] ?? 0), $assets)),
+            'gzip_bytes' => $this->sumNullableAssetMetric($assets, 'gzip_bytes'),
+            'path_element_count' => array_sum(array_map(static fn (array $asset): int => (int) ($asset['path_element_count'] ?? 0), $assets)),
+            'path_data_bytes' => array_sum(array_map(static fn (array $asset): int => (int) ($asset['path_data_bytes'] ?? 0), $assets)),
+            'largest_path_data_bytes' => empty($assets) ? 0 : max(array_map(static fn (array $asset): int => (int) ($asset['largest_path_data_bytes'] ?? 0), $assets)),
+            'unique_path_data_count' => $this->uniqueAssetPathDataCount($assets),
+            'duplicate_path_data_count' => $this->duplicateAssetPathDataCount($assets),
             'paths' => array_values(array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $assets)),
             'largest_assets' => array_slice($assets, 0, 10),
             'assets' => $assets,
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assets
+     */
+    private function sumNullableAssetMetric(array $assets, string $key): ?int
+    {
+        $sum = 0;
+        foreach ( $assets as $asset ) {
+            if ( ! array_key_exists($key, $asset) || null === $asset[$key] ) {
+                return null;
+            }
+            $sum += (int) $asset[$key];
+        }
+
+        return $sum;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assets
+     */
+    private function uniqueAssetPathDataCount(array $assets): int
+    {
+        $hashes = array();
+        foreach ( $assets as $asset ) {
+            foreach ( is_array($asset['path_data_hashes'] ?? null) ? $asset['path_data_hashes'] : array() as $hash ) {
+                if ( is_scalar($hash) && '' !== (string) $hash ) {
+                    $hashes[(string) $hash] = true;
+                }
+            }
+        }
+
+        return count($hashes);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assets
+     */
+    private function duplicateAssetPathDataCount(array $assets): int
+    {
+        $pathDataCount = array_sum(array_map(static fn (array $asset): int => (int) ($asset['path_data_count'] ?? 0), $assets));
+
+        return max(0, $pathDataCount - $this->uniqueAssetPathDataCount($assets));
     }
 
     /**
@@ -3037,16 +3086,49 @@ final class StaticHtmlEmitter
         $assets = array();
         foreach ( $assetFiles as $file ) {
             $content = (string) ($file['content'] ?? '');
-            $assets[] = array(
+            $asset = array(
                 'id'        => (string) ($file['source_id'] ?? ''),
                 'path'      => (string) $file['path'],
                 'mime_type' => (string) $file['mime_type'],
                 'bytes'     => strlen($content),
                 'hash'      => hash('sha256', $content),
             );
+            if ( 'image/svg+xml' === ($file['mime_type'] ?? null) && str_starts_with((string) ($file['source_id'] ?? ''), 'generated-vector-') ) {
+                $asset += $this->svgAssetMetrics($content);
+            }
+            $assets[] = $asset;
         }
 
         return $assets;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function svgAssetMetrics(string $content): array
+    {
+        $pathElementCount = preg_match_all('/<path\b[^>]*>/i', $content, $pathMatches);
+        $pathDataValues = array();
+        foreach ( $pathMatches[0] ?? array() as $pathElement ) {
+            if ( preg_match('/\bd\s*=\s*(["\'])(.*?)\1/is', (string) $pathElement, $pathDataMatch) ) {
+                $pathDataValues[] = html_entity_decode((string) $pathDataMatch[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            }
+        }
+
+        $pathDataBytes = array_map(static fn (string $pathData): int => strlen($pathData), $pathDataValues);
+        $pathDataHashes = array_map(static fn (string $pathData): string => hash('sha256', $pathData), $pathDataValues);
+        $uniquePathDataHashes = array_values(array_unique($pathDataHashes));
+
+        return array(
+            'gzip_bytes' => function_exists('gzencode') ? strlen((string) gzencode($content, 9)) : null,
+            'path_element_count' => false === $pathElementCount ? 0 : $pathElementCount,
+            'path_data_count' => count($pathDataValues),
+            'path_data_bytes' => array_sum($pathDataBytes),
+            'largest_path_data_bytes' => empty($pathDataBytes) ? 0 : max($pathDataBytes),
+            'unique_path_data_count' => count($uniquePathDataHashes),
+            'duplicate_path_data_count' => max(0, count($pathDataValues) - count($uniquePathDataHashes)),
+            'path_data_hashes' => $uniquePathDataHashes,
+        );
     }
 
     /**
