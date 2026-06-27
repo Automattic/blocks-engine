@@ -24,6 +24,7 @@ $only = isset($options['only']) ? array_filter(array_map('trim', explode(',', (s
 $adHocFixtures = matrix_list_option($options['fixture'] ?? array());
 $fontCssPassthrough = matrix_font_css_passthrough($options);
 $evidenceOptions = matrix_evidence_options($options);
+$selectionLock = matrix_selection_lock_options($options);
 
 $fixtures = matrix_discover_fixtures($fixtureDir);
 foreach ( $adHocFixtures as $fixturePath ) {
@@ -38,6 +39,20 @@ if ( isset($options['frame_ids']) ) {
         $fixtures[$index]['mode'] = 'transform';
         $fixtures[$index]['frame_ids'] = $globalFrameIds;
         $fixtures[$index]['entry_frame_id'] = (string) ($options['entry_frame_id'] ?? ($globalFrameIds[0] ?? ''));
+        $fixtures[$index]['selection_source'] = 'manual_frame_ids';
+    }
+} elseif ( ! empty($selectionLock['records']) ) {
+    foreach ( $fixtures as $index => $fixture ) {
+        $fixtureId = (string) ($fixture['id'] ?? '');
+        if ( '' === $fixtureId || ! isset($selectionLock['records'][$fixtureId]) ) {
+            continue;
+        }
+
+        $lockRecord = $selectionLock['records'][$fixtureId];
+        $fixtures[$index]['mode'] = 'transform';
+        $fixtures[$index]['frame_ids'] = $lockRecord['frame_ids'];
+        $fixtures[$index]['entry_frame_id'] = $lockRecord['entry_frame_id'] ?? ($lockRecord['frame_ids'][0] ?? '');
+        $fixtures[$index]['selection_source'] = 'selection_lock';
     }
 }
 
@@ -65,6 +80,7 @@ $summary = array(
     'dom_box_provider_command_configured' => $captureDomBoxes ? '' !== $domBoxProviderCommand : null,
     'font_css' => $fontCssPassthrough['summary'],
     'evidence' => $evidenceOptions['summary'],
+    'selection' => $selectionLock['summary'],
     'fixtures' => array(),
 );
 
@@ -100,7 +116,7 @@ foreach ( $fixtures as $fixture ) {
 
     if ( $dryRun ) {
         $record['status'] = 'planned';
-        $record['selection'] = isset($fixture['frame_ids']) ? 'manual_frame_ids' : 'auto_from_inspection';
+        $record['selection'] = $fixture['selection_source'] ?? (isset($fixture['frame_ids']) ? 'manual_frame_ids' : 'auto_from_inspection');
         $hasDryRunFrameIds = isset($fixture['frame_ids']) && is_array($fixture['frame_ids']);
         $dryRunFrameIds = $hasDryRunFrameIds ? $fixture['frame_ids'] : array('<selected-frame-ids>');
         $dryRunEntryFrameId = (string) ($fixture['entry_frame_id'] ?? ($hasDryRunFrameIds ? ($dryRunFrameIds[0] ?? '') : '<entry-frame-id>'));
@@ -130,6 +146,7 @@ foreach ( $fixtures as $fixture ) {
     $inspection = json_decode((string) file_get_contents($inspectPath), true);
     $record['inspection'] = matrix_inspection_summary(is_array($inspection) ? $inspection : array());
     $frameIds = isset($fixture['frame_ids']) && is_array($fixture['frame_ids']) ? $fixture['frame_ids'] : matrix_select_frame_ids(is_array($inspection) ? $inspection : array(), $maxPages);
+    $record['selection'] = $fixture['selection_source'] ?? (isset($fixture['frame_ids']) ? 'manual_frame_ids' : 'auto_from_inspection');
     $record['selected_frame_ids'] = $frameIds;
     $record['selected_frames'] = matrix_selected_frame_records(is_array($inspection) ? $inspection : array(), $frameIds);
     $record['entry_frame_id'] = (string) ($fixture['entry_frame_id'] ?? ($frameIds[0] ?? ''));
@@ -287,6 +304,81 @@ function matrix_list_option(mixed $value): array
     }
 
     return array();
+}
+
+/**
+ * @param array<string, mixed> $options
+ * @return array{records: array<string, array{frame_ids: array<int, string>, entry_frame_id?: string}>, summary: array<string, mixed>}
+ */
+function matrix_selection_lock_options(array $options): array
+{
+    if ( ! isset($options['selection_lock']) || ! is_scalar($options['selection_lock']) || '' === trim((string) $options['selection_lock']) ) {
+        return array(
+            'records' => array(),
+            'summary' => array(
+                'mode' => 'auto_from_inspection',
+            ),
+        );
+    }
+
+    $path = (string) $options['selection_lock'];
+    if ( ! is_file($path) || ! is_readable($path) ) {
+        fwrite(STDERR, "Selection lock is not readable: {$path}\n");
+        exit(1);
+    }
+
+    $decoded = json_decode((string) file_get_contents($path), true);
+    if ( ! is_array($decoded) ) {
+        fwrite(STDERR, "Selection lock is not valid JSON: {$path}\n");
+        exit(1);
+    }
+
+    $records = matrix_selection_lock_records($decoded);
+    return array(
+        'records' => $records,
+        'summary' => array(
+            'mode' => 'locked_frame_ids',
+            'path' => $path,
+            'fixture_count' => count($records),
+        ),
+    );
+}
+
+/**
+ * @param array<string, mixed> $decoded
+ * @return array<string, array{frame_ids: array<int, string>, entry_frame_id?: string}>
+ */
+function matrix_selection_lock_records(array $decoded): array
+{
+    $records = array();
+    $fixtures = is_array($decoded['fixtures'] ?? null) ? $decoded['fixtures'] : $decoded;
+
+    foreach ( $fixtures as $key => $fixture ) {
+        if ( ! is_array($fixture) ) {
+            continue;
+        }
+
+        $fixtureId = isset($fixture['id']) && is_scalar($fixture['id']) ? (string) $fixture['id'] : (is_string($key) ? $key : '');
+        $frameIds = array();
+        if ( is_array($fixture['selected_frame_ids'] ?? null) ) {
+            $frameIds = $fixture['selected_frame_ids'];
+        } elseif ( is_array($fixture['frame_ids'] ?? null) ) {
+            $frameIds = $fixture['frame_ids'];
+        }
+
+        $frameIds = array_values(array_filter(array_map('strval', $frameIds), static fn (string $frameId): bool => '' !== trim($frameId)));
+        if ( '' === $fixtureId || empty($frameIds) ) {
+            continue;
+        }
+
+        $record = array('frame_ids' => $frameIds);
+        if ( isset($fixture['entry_frame_id']) && is_scalar($fixture['entry_frame_id']) && '' !== (string) $fixture['entry_frame_id'] ) {
+            $record['entry_frame_id'] = (string) $fixture['entry_frame_id'];
+        }
+        $records[$fixtureId] = $record;
+    }
+
+    return $records;
 }
 
 /**
