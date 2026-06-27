@@ -15,14 +15,16 @@ final class RuntimeDependencyParityReport
      * @param array<int, array<string, mixed>> $files
      * @param array<int, array<string, mixed>> $runtimeIslands
      * @param array<int, array<string, mixed>> $assetReferences
+     * @param array<int, array<string, mixed>> $interactionCandidates
      * @return array<string, mixed>
      */
-    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = '', array $runtimeIslands = array(), array $assetReferences = array()): array
+    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = '', array $runtimeIslands = array(), array $assetReferences = array(), array $interactionCandidates = array()): array
     {
         $sourceTargets = $this->sourceTargets($sourceHtml, $sourcePath);
         $generatedTargets = $this->withRuntimeIslandTargets($this->htmlTargets($generatedHtml), $runtimeIslands);
         $dependencies = array();
         $findings = array();
+        $flaggedSelectors = array();
 
         foreach ( $files as $file ) {
             if ( ! $this->isScriptFile($file) ) {
@@ -65,6 +67,8 @@ final class RuntimeDependencyParityReport
                     continue;
                 }
 
+                $flaggedSelectors[$selector] = true;
+
                 $severity = 'telemetry' === $scriptKind ? 'info' : 'warning';
                 $repairBucket = $canvasApi ? 'runtime_canvas_target_preservation' : 'runtime_dom_target_preservation';
                 $findings[] = array_filter(array(
@@ -90,6 +94,10 @@ final class RuntimeDependencyParityReport
         }
 
         foreach ( $this->scriptMaterializationFindings($files, $runtimeIslands, $assetReferences, $generatedHtml, $sourcePath) as $finding ) {
+            $findings[] = $finding;
+        }
+
+        foreach ( $this->scriptTargetParityFindings($files, $interactionCandidates, $sourceTargets, $generatedTargets, $sourcePath, $flaggedSelectors) as $finding ) {
             $findings[] = $finding;
         }
 
@@ -173,6 +181,140 @@ final class RuntimeDependencyParityReport
         }
 
         return $findings;
+    }
+
+    /**
+     * Detect carried-but-inert client scripts: a first-party client script IS
+     * materialized in the artifact (so #218's `runtime_script_not_materialized`
+     * stays silent — the script loads/enqueues), yet an interactive DOM target
+     * the transformer authoritatively recorded for the source was transformed
+     * away (deduped, folded into a core block, or dropped) and is no longer
+     * present — verbatim — in the generated block markup or any preserved runtime
+     * island. The script therefore executes against a target that no longer
+     * exists and silently no-ops: "script enqueued" is a false parity signal.
+     *
+     * Targets come from `interaction_candidates` — the transformer's own record
+     * of interactive elements and the DOM they drive (authoritative), rather than
+     * re-deriving selectors from script source (the heuristic the main DOM-target
+     * loop already covers). Selectors already flagged by that loop are skipped to
+     * avoid duplicate findings, and native-behavior candidates (native `details`
+     * toggles, form submissions) plus form-control targets are excluded because
+     * they do not depend on a carried client script.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @param array<int, array<string, mixed>> $interactionCandidates
+     * @param array<string, array<string, mixed>> $sourceTargets
+     * @param array{ids: array<string, bool>, classes: array<string, bool>} $generatedTargets
+     * @param array<string, bool> $flaggedSelectors
+     * @return array<int, array<string, mixed>>
+     */
+    private function scriptTargetParityFindings(array $files, array $interactionCandidates, array $sourceTargets, array $generatedTargets, string $sourcePath, array $flaggedSelectors): array
+    {
+        if ( array() === $interactionCandidates || ! $this->hasCarriedFirstPartyClientScript($files) ) {
+            return array();
+        }
+
+        // Native behaviors (the native <details> toggle, native form submission)
+        // are rebuilt by core blocks / covered by the form fallback and do not
+        // depend on a carried client script, so a missing target there is not an
+        // inert-JS parity loss this diagnostic should own.
+        $nativeRuntimeRequirements = array('native_toggle', 'form_submission');
+        $findings = array();
+        $seenSelectors = array();
+
+        foreach ( $interactionCandidates as $candidate ) {
+            if ( ! is_array($candidate) ) {
+                continue;
+            }
+
+            $runtimeRequirement = (string) ($candidate['runtime_requirement'] ?? '');
+            if ( in_array($runtimeRequirement, $nativeRuntimeRequirements, true) ) {
+                continue;
+            }
+
+            $selector = $this->normalizedTargetSelector((string) ($candidate['target'] ?? ''));
+            if ( '' === $selector ) {
+                continue;
+            }
+            if ( isset($flaggedSelectors[$selector]) || isset($seenSelectors[$selector]) ) {
+                continue;
+            }
+
+            $target = $sourceTargets[$selector] ?? array();
+            if ( $this->isFormControlTarget($target) ) {
+                continue;
+            }
+            if ( $this->targetExists(array('selector' => $selector), $generatedTargets) ) {
+                continue;
+            }
+
+            $seenSelectors[$selector] = true;
+            $interactionKind = (string) ($candidate['kind'] ?? '');
+            $materializationHint = (string) ($candidate['materialization_hint'] ?? '');
+            $findings[] = array_filter(array(
+                'code'                 => 'runtime_script_target_missing',
+                'severity'             => 'warning',
+                'source_path'          => $target['source_path'] ?? $sourcePath,
+                'selector'             => $selector,
+                'target_id'            => $target['id'] ?? ( str_starts_with($selector, '#') ? substr($selector, 1) : '' ),
+                'target_class'         => $target['class'] ?? ( str_starts_with($selector, '.') ? substr($selector, 1) : '' ),
+                'target_kind'          => $target['tag'] ?? '',
+                'interaction_kind'     => $interactionKind,
+                'interaction_selector' => (string) ($candidate['selector'] ?? ''),
+                'trigger'              => (string) ($candidate['trigger'] ?? ''),
+                'runtime_requirement'  => $runtimeRequirement,
+                'client_script_present' => true,
+                'repair_bucket'        => 'runtime_interactive_behavior_restoration',
+                'suggested_primitive'  => 'runtime_dom_target',
+                'actionability'        => 'restore_or_rebuild_the_interactive_dom_target_so_the_carried_client_script_remains_functional',
+                'materialization_hint' => '' !== $materializationHint ? $materializationHint : 'preserve_interactive_target_markup_required_by_carried_client_script',
+                'message'              => sprintf('A client script is carried for the %s interaction, but its DOM target %s was transformed away and is no longer present in the generated block markup, so the carried script no-ops.', '' !== $interactionKind ? $interactionKind : 'interactive', $selector),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+        }
+
+        return $findings;
+    }
+
+    /**
+     * Whether the artifact carries a materialized first-party (non-telemetry)
+     * client script. Used to gate the carried-but-inert target diagnostic: only
+     * when a client script actually loads is a missing interactive target an
+     * inert-JS parity loss.
+     *
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function hasCarriedFirstPartyClientScript(array $files): bool
+    {
+        foreach ( $files as $file ) {
+            if ( ! is_array($file) || ! $this->isScriptFile($file) ) {
+                continue;
+            }
+            $content = (string) ($file['content'] ?? '');
+            if ( '' === trim($content) ) {
+                continue;
+            }
+            if ( 'telemetry' !== $this->scriptKind((string) ($file['path'] ?? ''), $content) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Normalize an interaction-candidate target to a single clean id/class
+     * selector (`#id` / `.class`). Structural nth-of-type paths and other
+     * non-id/class targets return '' so they are ignored — presence is only
+     * checkable for ids/classes.
+     */
+    private function normalizedTargetSelector(string $target): string
+    {
+        $target = trim($target);
+        if ( 1 === preg_match('/^[#.][A-Za-z][A-Za-z0-9_-]*$/', $target) ) {
+            return $target;
+        }
+
+        return '';
     }
 
     /**

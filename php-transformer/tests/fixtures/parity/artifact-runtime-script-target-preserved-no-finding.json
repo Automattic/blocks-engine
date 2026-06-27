@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-runtime-script-target-preserved-no-finding",
+  "description": "A carried client script whose interactive DOM target survives conversion (the toggle's aria-controls target is preserved verbatim) emits no runtime_script_target_missing finding.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-runtime-script-target-preserved-no-finding.json",
+    "notes": "Negative coverage for script-target parity: when the interactive target referenced by a carried first-party client script remains present in the generated block markup, runtime dependency parity stays clean (no false positive)."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Runtime dependency parity is an upstream artifact compiler contract with no legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<header><button class=\"nav-toggle\" aria-controls=\"mobile-menu\">Menu</button></header><nav id=\"mobile-menu\"><ul><li><a href=\"/\">Home</a></li></ul></nav><script src=\"js/nav.js\"></script>"
+        },
+        {
+          "path": "js/nav.js",
+          "kind": "js",
+          "content": "document.querySelectorAll('[aria-controls]').forEach(function (b) { b.addEventListener('click', function () { var t = document.getElementById(b.getAttribute('aria-controls')); if (t) { t.hidden = !t.hidden; } }); });"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "mobile-menu" }
+  ]
+}

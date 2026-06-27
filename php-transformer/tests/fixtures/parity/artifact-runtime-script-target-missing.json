@@ -1,0 +1,43 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-runtime-script-target-missing",
+  "description": "Flags a carried-but-inert client script: the script is materialized in the artifact, but an interactive DOM target the transformer recorded (a hamburger toggle's aria-controls target) was deduped away during conversion, so the carried script no-ops.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-runtime-script-target-missing.json",
+    "notes": "Generic script-target parity: a carried first-party client script whose interaction_candidates target is not present (verbatim) in the generated block markup must surface a feature-parity finding. The duplicate menu is deduplicated, so #mobile-menu is transformed away even though the control element survives."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Runtime dependency parity is an upstream artifact compiler contract with no legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<header><nav class=\"primary-nav\"><ul><li><a href=\"/\">Home</a></li><li><a href=\"/a\">A</a></li></ul></nav><button class=\"nav-toggle\" aria-controls=\"mobile-menu\">Menu</button></header><nav id=\"mobile-menu\"><ul><li><a href=\"/\">Home</a></li><li><a href=\"/a\">A</a></li></ul></nav><script src=\"js/nav.js\"></script>"
+        },
+        {
+          "path": "js/nav.js",
+          "kind": "js",
+          "content": "document.querySelectorAll('[aria-controls]').forEach(function (b) { b.addEventListener('click', function () { var t = document.getElementById(b.getAttribute('aria-controls')); if (t) { t.hidden = !t.hidden; } }); });"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success_with_warnings" },
+    { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "warning" },
+    { "path": "source_reports.runtime_dependency_parity.findings", "assert": "count", "count": 1 },
+    { "path": "source_reports.runtime_dependency_parity.findings.0.code", "assert": "equals", "value": "runtime_script_target_missing" },
+    { "path": "source_reports.runtime_dependency_parity.findings.0.severity", "assert": "equals", "value": "warning" },
+    { "path": "source_reports.runtime_dependency_parity.findings.0.selector", "assert": "equals", "value": "#mobile-menu" },
+    { "path": "source_reports.runtime_dependency_parity.findings.0.repair_bucket", "assert": "equals", "value": "runtime_interactive_behavior_restoration" },
+    { "path": "source_reports.runtime_dependency_parity.findings.0.client_script_present", "assert": "equals", "value": true },
+    { "path": "source_reports.conversion_report.runtime_dependency_parity.findings.0.code", "assert": "equals", "value": "runtime_script_target_missing" }
+  ]
+}
