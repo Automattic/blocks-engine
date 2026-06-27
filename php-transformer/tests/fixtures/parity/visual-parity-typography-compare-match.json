@@ -1,0 +1,26 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "visual-parity-typography-compare-match",
+  "description": "Compares matching source and target typography probes and emits a passing contract visual-parity report with no findings when font-family, weight, and type scale align.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/visual-parity-typography-compare-match.json",
+    "notes": "Generic PHP-boundary typography comparison; verifies a clean pass through the visual-parity report contract."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Typography comparison output is a diagnostic contract for visual parity review."
+  },
+  "operation": "typography_parity_probe.compare",
+  "input": {
+    "source_content": "<style>body{font-family:\"Inter\",sans-serif}h1{font-family:\"Playfair Display\",serif;font-size:48px;font-weight:700}p{font-size:18px}</style><body><article><h1>Welcome Home</h1><p>Some intro body copy here.</p></article></body>",
+    "target_content": "<style>body{font-family:'Inter', sans-serif}h1{font-family:'Playfair Display', serif;font-size:48px;font-weight:bold}p{font-size:18px}</style><body><section><h1>Welcome Home</h1><p>Some intro body copy here.</p></section></body>"
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/visual-parity-report/v1" },
+    { "path": "status", "assert": "equals", "value": "pass" },
+    { "path": "severity", "assert": "equals", "value": "none" },
+    { "path": "summary.matched_total", "assert": "equals", "value": 2 },
+    { "path": "summary.finding_total", "assert": "equals", "value": 0 }
+  ]
+}

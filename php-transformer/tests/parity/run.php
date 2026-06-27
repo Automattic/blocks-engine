@@ -8,6 +8,8 @@ use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\ButtonMenuVisualProbe;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\ButtonMenuVisualProbeComparator;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbe;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbeComparator;
 
 if ( in_array('--legacy-child', $argv ?? array(), true) ) {
     runLegacyChildProcess();
@@ -308,6 +310,20 @@ function runFixture(array $fixture): array
             $probe->extract((string) ($input['source_content'] ?? '')),
             $probe->extract((string) ($input['target_content'] ?? ''))
         );
+    }
+
+    if ( 'typography_parity_probe.extract' === $fixture['operation'] ) {
+        return ( new TypographyVisualProbe() )->extract((string) ($input['content'] ?? ''));
+    }
+
+    if ( 'typography_parity_probe.compare' === $fixture['operation'] ) {
+        $probe = new TypographyVisualProbe();
+        $report = ( new TypographyVisualProbeComparator() )->compare(
+            $probe->extract((string) ($input['source_content'] ?? '')),
+            $probe->extract((string) ($input['target_content'] ?? ''))
+        );
+        \Automattic\BlocksEngine\PhpTransformer\Contract\VisualParityReportContract::assertReport($report);
+        return $report;
     }
 
     fail("Fixture {$fixture['name']} declares unsupported operation: {$fixture['operation']}");

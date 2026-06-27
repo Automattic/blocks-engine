@@ -18,6 +18,8 @@ use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationView;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbe;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbeComparator;
 
 if ( ! function_exists('serialize_blocks') ) {
     /**
@@ -191,6 +193,35 @@ try {
 } catch ( \InvalidArgumentException $exception ) {
     $assert(str_contains($exception->getMessage(), 'unsupported component kind'), 'visual parity report rejects product-specific match kinds', $exception->getMessage());
 }
+
+// Typography visual probe comparator emits reports through the shared
+// VisualParityReportContract: findings when source vs target typography drifts,
+// none when they align.
+$typographyProbe = new TypographyVisualProbe();
+$typographyComparator = new TypographyVisualProbeComparator();
+$typographySource = '<style>body{font-family:"Inter",sans-serif}h1{font-family:"Playfair Display",serif;font-size:48px;font-weight:700}p{font-size:18px}</style><body><article><h1>Welcome Home</h1><p>Intro body copy here.</p></article></body>';
+$typographyTarget = '<style>body{font-family:Arial,sans-serif}h1{font-size:32px;font-weight:400}p{font-size:18px}</style><body><article><h1>Welcome Home</h1><p>Intro body copy here.</p></article></body>';
+
+$typographyMismatchReport = $typographyComparator->compare(
+    $typographyProbe->extract($typographySource),
+    $typographyProbe->extract($typographyTarget)
+);
+VisualParityReportContract::assertReport($typographyMismatchReport);
+$assert(VisualParityReportContract::REPORT_SCHEMA === ($typographyMismatchReport['schema'] ?? ''), 'typography probe emits the visual parity report contract schema');
+$assert('warning' === ($typographyMismatchReport['status'] ?? ''), 'typography probe report warns when source vs target typography differs');
+$assert(count($typographyMismatchReport['findings'] ?? array()) > 0, 'typography probe emits findings on typography drift');
+$typographyCategories = array_map(static fn (array $finding): string => (string) ($finding['category'] ?? ''), $typographyMismatchReport['findings'] ?? array());
+$assert(in_array('typography', $typographyCategories, true), 'typography probe findings use the typography category');
+$typographyMatchKinds = array_map(static fn (array $match): string => (string) ($match['kind'] ?? ''), $typographyMismatchReport['matches'] ?? array());
+$assert(array() === array_diff($typographyMatchKinds, array('generic')), 'typography probe matches use the generic component kind');
+
+$typographyMatchReport = $typographyComparator->compare(
+    $typographyProbe->extract($typographySource),
+    $typographyProbe->extract($typographySource)
+);
+VisualParityReportContract::assertReport($typographyMatchReport);
+$assert('pass' === ($typographyMatchReport['status'] ?? ''), 'typography probe report passes when source and target typography match');
+$assert(array() === ($typographyMatchReport['findings'] ?? array('non-empty')), 'typography probe emits no findings when typography matches');
 
 $assert('assets/logo.png' === ArtifactPath::safeRelativePath(' ./assets//logo.png '), 'artifact paths trim relative markers and duplicate separators');
 $assert('' === ArtifactPath::safeRelativePath('/assets/logo.png'), 'artifact paths reject root-absolute paths');
