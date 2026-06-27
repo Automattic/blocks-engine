@@ -76,6 +76,10 @@ final class ArtifactCompiler
         );
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks);
         $sourceReports['materialization_plan'] = ( new MaterializationPlanBuilder() )->fromCompiledSite($sourceReports['compiled_site']);
+        $companionPluginPayload = ( new CompanionPluginPayload() )->fromBlockTypes($blockTypes, $normalized['files'], $artifact);
+        if ( array() !== $companionPluginPayload ) {
+            $sourceReports['companion_plugin_payload'] = $companionPluginPayload;
+        }
         $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates']);
         if ( array() !== $entryBlocks['runtime_islands'] ) {
             $sourceReports['runtime_islands'] = $entryBlocks['runtime_islands'];
