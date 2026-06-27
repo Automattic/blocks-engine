@@ -1190,6 +1190,30 @@ $assert(2 === ($vectorNetworkDiagnostic['context']['occurrence_count'] ?? null),
 $assert(2 === ($vectorNetworkDiagnostic['context']['affected_node_count'] ?? null), 'vector-network-diagnostic-affected-node-count');
 $assert(array('vector:data-malformed', 'vector:data-painted-fallback') === ($vectorNetworkDiagnostic['context']['sample_node_ids'] ?? null), 'vector-network-diagnostic-sample-nodes');
 $assert(array('1') === ($vectorNetworkDiagnostic['context']['sample_blob_refs'] ?? null), 'vector-network-diagnostic-sample-blob-refs');
+
+$multiPageVectorPlaceholderResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Multi Page Vector Placeholder Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'page:vector-placeholder',
+            'type'     => 'CANVAS',
+            'name'     => 'Vector Placeholder Pages',
+            'children' => array(
+                array('id' => 'frame:vector-home', 'type' => 'FRAME', 'name' => 'Vector Home', 'width' => 320, 'height' => 240, 'children' => array()),
+                array('id' => 'frame:vector-about', 'type' => 'FRAME', 'name' => 'Vector About', 'width' => 320, 'height' => 240, 'children' => array(
+                    array('id' => 'vector:multi-page-placeholder', 'type' => 'VECTOR', 'name' => 'Multi Page Placeholder', 'width' => 16, 'height' => 16, 'pathData' => 'M 0 0' . str_repeat(' L 1 1', 4000) . ' Z'),
+                )),
+            ),
+        ),
+    ),
+), array(
+    'multi_page' => true,
+    'frame_ids' => array('frame:vector-home', 'frame:vector-about'),
+    'entry_frame_id' => 'frame:vector-home',
+));
+$multiPageVectorPlaceholderDiagnostics = $multiPageVectorPlaceholderResult['source_reports']['figma']['html']['transform_diagnostics']['vectors'] ?? array();
+$assert(1 === ($multiPageVectorPlaceholderDiagnostics['placeholder_reasons']['oversized_path_data'] ?? null), 'multi-page-vector-placeholder-reason-aggregated');
+
 $nonRectVectorNetworkDiagnostic = null;
 foreach ( $vectorNetworkDiagnostics as $diagnostic ) {
     if ( array(4, 4, 1) === ($diagnostic['context']['network_counts'] ?? null) ) {
