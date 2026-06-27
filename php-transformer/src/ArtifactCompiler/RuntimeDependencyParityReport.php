@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use DOMDocument;
 use DOMElement;
 
@@ -13,9 +14,10 @@ final class RuntimeDependencyParityReport
     /**
      * @param array<int, array<string, mixed>> $files
      * @param array<int, array<string, mixed>> $runtimeIslands
+     * @param array<int, array<string, mixed>> $assetReferences
      * @return array<string, mixed>
      */
-    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = '', array $runtimeIslands = array()): array
+    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = '', array $runtimeIslands = array(), array $assetReferences = array()): array
     {
         $sourceTargets = $this->sourceTargets($sourceHtml, $sourcePath);
         $generatedTargets = $this->withRuntimeIslandTargets($this->htmlTargets($generatedHtml), $runtimeIslands);
@@ -87,12 +89,144 @@ final class RuntimeDependencyParityReport
             }
         }
 
+        foreach ( $this->scriptMaterializationFindings($files, $runtimeIslands, $assetReferences, $generatedHtml, $sourcePath) as $finding ) {
+            $findings[] = $finding;
+        }
+
         return array_filter(array(
             'schema'       => self::SCHEMA,
             'status'       => array() === $findings ? 'pass' : 'warning',
             'dependencies' => $this->dedupeRows($dependencies),
             'findings'     => $this->dedupeRows($findings),
         ), static fn (mixed $value): bool => array() !== $value);
+    }
+
+    /**
+     * Detect source-declared client-script execution dependencies (referenced
+     * external `<script src>` islands flagged `client_script_execution`) whose
+     * backing script was never materialized as an artifact file nor carried into
+     * the generated markup. When that happens, every interaction that depended on
+     * that script is silently non-functional — a feature-parity loss the existing
+     * DOM-target comparison cannot see because it only inspects scripts present in
+     * the artifact.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @param array<int, array<string, mixed>> $runtimeIslands
+     * @param array<int, array<string, mixed>> $assetReferences
+     * @return array<int, array<string, mixed>>
+     */
+    private function scriptMaterializationFindings(array $files, array $runtimeIslands, array $assetReferences, string $generatedHtml, string $sourcePath): array
+    {
+        $materialized = $this->materializedScriptPaths($files, $assetReferences, $sourcePath);
+        $findings = array();
+
+        foreach ( $runtimeIslands as $island ) {
+            if ( ! is_array($island) ) {
+                continue;
+            }
+            if ( 'script' !== ($island['kind'] ?? '') ) {
+                continue;
+            }
+            if ( ! str_contains((string) ($island['runtime_requirement'] ?? ''), 'client_script_execution') ) {
+                continue;
+            }
+            if ( 'external' !== ($island['script_source_kind'] ?? '') ) {
+                continue;
+            }
+
+            $attributes = is_array($island['attributes'] ?? null) ? $island['attributes'] : array();
+            $src = trim((string) ($attributes['src'] ?? ''));
+            if ( '' === $src ) {
+                continue;
+            }
+
+            $islandSourcePath = (string) ($island['source_path'] ?? $sourcePath);
+            $resolved = ArtifactPath::resolveRelativePath($src, $islandSourcePath);
+            $normalizedSrc = $this->normalizeScriptPath($src);
+
+            if ( isset($materialized[$resolved]) || ('' !== $normalizedSrc && isset($materialized[$normalizedSrc])) ) {
+                continue;
+            }
+            if ( '' !== trim($generatedHtml) && str_contains($generatedHtml, $src) ) {
+                continue;
+            }
+
+            $scriptKind = $this->scriptKind($src, '');
+            $severity = 'telemetry' === $scriptKind ? 'info' : 'warning';
+            $findings[] = array_filter(array(
+                'code'              => 'runtime_script_not_materialized',
+                'severity'          => $severity,
+                'source_path'       => $islandSourcePath,
+                'script_path'       => '' !== $resolved ? $resolved : $src,
+                'script_src'        => $src,
+                'script_kind'       => $scriptKind,
+                'script_source_kind' => 'external',
+                'selector'          => (string) ($island['selector'] ?? ''),
+                'target_kind'       => (string) ($island['tag'] ?? 'script'),
+                'runtime_requirement' => 'client_script_execution',
+                'repair_bucket'     => 'runtime_script_materialization',
+                'suggested_primitive' => 'runtime_script',
+                'actionability'     => 'materialize_or_enqueue_the_referenced_client_script_so_dependent_interactions_execute',
+                'materialization_hint' => 'carry_or_enqueue_the_referenced_script_source_so_client_script_execution_is_restored',
+                'message'           => sprintf('Source references client script %s requiring client_script_execution, but it was not materialized or carried into the artifact, so the dependent interactions are non-functional.', $src),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+        }
+
+        return $findings;
+    }
+
+    /**
+     * Set of artifact-materialized script paths, keyed by normalized path. A
+     * script is considered materialized when its content survives as a file in
+     * the artifact bundle, or when it surfaces as a resolved asset reference
+     * (which is only recorded when the referenced file was found).
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @param array<int, array<string, mixed>> $assetReferences
+     * @return array<string, bool>
+     */
+    private function materializedScriptPaths(array $files, array $assetReferences, string $sourcePath): array
+    {
+        $paths = array();
+
+        foreach ( $files as $file ) {
+            if ( ! is_array($file) || ! $this->isScriptFile($file) ) {
+                continue;
+            }
+            $path = $this->normalizeScriptPath((string) ($file['path'] ?? ''));
+            if ( '' !== $path ) {
+                $paths[$path] = true;
+            }
+        }
+
+        foreach ( $assetReferences as $reference ) {
+            if ( ! is_array($reference) ) {
+                continue;
+            }
+            if ( 'script' !== ($reference['element'] ?? '') ) {
+                continue;
+            }
+            foreach ( array('asset_path', 'resolved_path') as $key ) {
+                $path = $this->normalizeScriptPath((string) ($reference[$key] ?? ''));
+                if ( '' !== $path ) {
+                    $paths[$path] = true;
+                }
+            }
+            $url = (string) ($reference['url'] ?? '');
+            if ( '' !== $url ) {
+                $resolved = ArtifactPath::resolveRelativePath($url, (string) ($reference['source_path'] ?? $sourcePath));
+                if ( '' !== $resolved ) {
+                    $paths[$this->normalizeScriptPath($resolved)] = true;
+                }
+            }
+        }
+
+        return $paths;
+    }
+
+    private function normalizeScriptPath(string $path): string
+    {
+        return ltrim(trim($path), '/');
     }
 
     /**
