@@ -188,6 +188,31 @@ async function extractElements(page, pagePath, textSampleLimit) {
       return 1;
     }
 
+    function serializeBoundingClientRect(rect) {
+      return {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        left: rect.left,
+      };
+    }
+
+    function serializeTextMetrics(element, computedStyle, textSample, textLength) {
+      return {
+        text_sample: textSample,
+        text_length: textLength,
+        scroll_width: element.scrollWidth,
+        scroll_height: element.scrollHeight,
+        client_width: element.clientWidth,
+        client_height: element.clientHeight,
+        line_count_estimate: estimateLineCount(element, computedStyle, textLength),
+      };
+    }
+
     function assetElementSummary(assetElement) {
       const tag = assetElement.tagName.toLowerCase();
       const summary = {
@@ -249,26 +274,9 @@ async function extractElements(page, pagePath, textSampleLimit) {
         selector: selectorFor(element, nodeId),
         tag: element.tagName.toLowerCase(),
         text_sample: textSample,
-        boundingClientRect: {
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-          top: rect.top,
-          right: rect.right,
-          bottom: rect.bottom,
-          left: rect.left,
-        },
+        boundingClientRect: serializeBoundingClientRect(rect),
         computed_style: computedStyle,
-        text_metrics: {
-          text_sample: textSample,
-          text_length: textLength,
-          scroll_width: element.scrollWidth,
-          scroll_height: element.scrollHeight,
-          client_width: element.clientWidth,
-          client_height: element.clientHeight,
-          line_count_estimate: estimateLineCount(element, computedStyle, textLength),
-        },
+        text_metrics: serializeTextMetrics(element, computedStyle, textSample, textLength),
         asset_state: serializeAssetState(element, computedStyle),
         visibility: serializeVisibility(element, rect, computedStyle),
       };
