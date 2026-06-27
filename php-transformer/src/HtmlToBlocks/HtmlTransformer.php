@@ -1202,6 +1202,10 @@ final class HtmlTransformer
         }
 
         if ( 'canvas' === $tagName ) {
+            if ( $this->isDecorativeCanvas($element) && ! $this->isRuntimeCanvasTarget($element) ) {
+                return null;
+            }
+
             $this->captureCanvasFallback($element, $fallbacks);
             if ( $this->isRuntimeCanvasTarget($element) ) {
                 $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
@@ -3057,6 +3061,16 @@ final class HtmlTransformer
         }
 
         return false;
+    }
+
+    private function isDecorativeCanvas(DOMElement $element): bool
+    {
+        if ( '' !== trim($element->textContent ?? '') || $this->childElementCount($element) > 0 ) {
+            return false;
+        }
+
+        return 'true' === strtolower($this->attr($element, 'aria-hidden'))
+            || in_array(strtolower($this->attr($element, 'role')), array('presentation', 'none'), true);
     }
 
     /**
