@@ -670,7 +670,8 @@ $clippedVisibleCopy = $findVisualNode($clippedDecorativeResult, 'clip:copy');
 $assert(str_contains($clippedDecorativeCss, '.figma-node-clip-parent-clipped-parent{width:200px;height:100px;overflow:hidden;position:relative}'), 'clipped-decorative-parent-overflow-hidden');
 $assert(! str_contains($clippedDecorativeHtml, 'Off canvas decorative group') && ! str_contains($clippedDecorativeCss, 'figma-node-clip-hidden-group'), 'fully-clipped-decorative-node-not-emitted');
 $assert(null === $clippedHiddenGroup && null === $clippedHiddenVector, 'fully-clipped-decorative-nodes-omitted-from-visual-map');
-$assert(array('x' => 0.0, 'y' => 20.0, 'width' => 40.0, 'height' => 30.0) === ($clippedPartialVector['rect'] ?? null), 'partly-clipped-decorative-node-visual-map-intersection');
+$assert(array('x' => -20.0, 'y' => 20.0, 'width' => 60.0, 'height' => 30.0) === ($clippedPartialVector['rect'] ?? null), 'partly-clipped-decorative-node-keeps-source-rect');
+$assert(array('x' => 0.0, 'y' => 20.0, 'width' => 40.0, 'height' => 30.0) === ($clippedPartialVector['visible_rect'] ?? null), 'partly-clipped-decorative-node-visible-rect-intersection');
 $assert(array('x' => -10.0, 'y' => 70.0, 'width' => 140.0, 'height' => 20.0) === ($clippedVisibleCopy['rect'] ?? null), 'clipped-content-node-keeps-source-rect');
 $assert(0 === ($clippedDecorativeDiagnostics['large_absolute_offset_count'] ?? null), 'fully-clipped-decorative-node-not-counted-as-large-offset');
 
@@ -723,9 +724,53 @@ $gamesControlLayoutResult = blocks_engine_figma_transformer_transform_scenegraph
 ));
 $gamesControlDiagnostics = $gamesControlLayoutResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
 $gamesControlIcon = $findVisualNode($gamesControlLayoutResult, 'games:icon');
-$assert(array('x' => 0.0, 'y' => 8.0, 'width' => 16.0, 'height' => 24.0) === ($gamesControlIcon['rect'] ?? null), 'games-control-clipped-icon-visual-map-intersection');
+$assert(array('x' => -8.0, 'y' => 8.0, 'width' => 24.0, 'height' => 24.0) === ($gamesControlIcon['rect'] ?? null), 'games-control-clipped-icon-source-rect');
+$assert(array('x' => 0.0, 'y' => 8.0, 'width' => 16.0, 'height' => 24.0) === ($gamesControlIcon['visible_rect'] ?? null), 'games-control-clipped-icon-visible-rect-intersection');
 $assert(0 === ($gamesControlDiagnostics['layout_mismatch_count'] ?? null), 'games-control-layout-mismatch-count-zero');
 $assert('pass' === ($gamesControlDiagnostics['layout_mismatch_status'] ?? null), 'games-control-layout-mismatch-pass');
+
+$flippedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Flipped Vector Layout Guard Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'       => 'flip:parent',
+            'type'     => 'FRAME',
+            'name'     => 'Flip parent',
+            'width'    => 120,
+            'height'   => 80,
+            'children' => array(
+                array(
+                    'id'           => 'flip:vector',
+                    'type'         => 'VECTOR',
+                    'name'         => 'Flipped vector',
+                    'x'            => 20,
+                    'y'            => 10,
+                    'width'        => 60,
+                    'height'       => 30,
+                    'transform'    => array('m00' => -1, 'm01' => 0, 'm02' => 0, 'm10' => 0, 'm11' => 1, 'm12' => 0),
+                    'fillGeometry' => array(array('commandsBlob' => 0)),
+                ),
+            ),
+        ),
+    ),
+), array(
+    'generated_dom_boxes' => array(
+        'schema' => 'homeboy/static-artifact-dom-boxes/v1',
+        'boxes'  => array(
+            array('node_id' => 'flip:parent', 'rect' => array('x' => 0, 'y' => 0, 'width' => 120, 'height' => 80)),
+            array('node_id' => 'flip:vector', 'rect' => array('x' => -40, 'y' => 10, 'width' => 60, 'height' => 30)),
+        ),
+    ),
+    'layout_mismatch_threshold'      => 1,
+    'layout_mismatch_size_threshold' => 1,
+));
+$flippedVectorDiagnostics = $flippedVectorResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+$flippedVectorNode = $findVisualNode($flippedVectorResult, 'flip:vector');
+$assert(str_contains($fileContent($flippedVectorResult, 'style.css'), 'transform:matrix(-1,0,0,1,0,0);transform-origin:0 0'), 'flipped-vector-css-transform-matrix');
+$assert(array('x' => -40.0, 'y' => 10.0, 'width' => 60.0, 'height' => 30.0) === ($flippedVectorNode['rect'] ?? null), 'flipped-vector-visual-map-applies-matrix');
+$assert(0 === ($flippedVectorDiagnostics['layout_mismatch_count'] ?? null), 'flipped-vector-layout-mismatch-count-zero');
+$assert('pass' === ($flippedVectorDiagnostics['layout_mismatch_status'] ?? null), 'flipped-vector-layout-mismatch-pass');
 
 $transparentVisualMapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Transparent Visual Map Fixture',
