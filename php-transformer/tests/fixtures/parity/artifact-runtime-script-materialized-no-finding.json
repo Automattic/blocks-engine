@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-runtime-script-materialized-no-finding",
+  "description": "A referenced external client script whose JavaScript is materialized in the artifact does not emit a runtime_script_not_materialized finding.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-runtime-script-materialized-no-finding.json",
+    "notes": "Negative coverage: when the referenced <script src> backing file is carried in the artifact bundle, runtime dependency parity stays clean."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Runtime dependency parity is an upstream artifact compiler contract with no legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<main><div class=\"counter\"><button id=\"increment\">Add</button><span id=\"total\">0</span></div><script src=\"js/app.js\"></script></main>"
+        },
+        {
+          "path": "js/app.js",
+          "kind": "js",
+          "content": "document.getElementById('increment').addEventListener('click', function () { document.getElementById('total'); });"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" }
+  ]
+}
