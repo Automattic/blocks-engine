@@ -779,6 +779,13 @@ $assert('preserve_runtime_island' === ($canvasDiagnostic['suggested_repair_class
 $assert('runtime_canvas' === ($canvasDiagnostic['pattern_family'] ?? ''), 'canvas runtime fallback exposes generic pattern family');
 $assert('preserve_runtime_island' === ($canvasDiagnostic['suggested_generic_repair_class'] ?? ''), 'canvas runtime fallback exposes generic repair class');
 $assert('canvas_requires_runtime' === ($canvasDiagnostic['reason'] ?? ''), 'canvas fallback exposes runtime-specific reason');
+$canvasTopLevelDiagnostics = array_values(array_filter($canvasFallback['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'html_canvas_runtime_fallback' === ($diagnostic['code'] ?? '')));
+$assert(1 === count($canvasTopLevelDiagnostics), 'runtime canvas fallback emits one top-level diagnostic');
+$assert('runtime_island_preserved' === ($canvasTopLevelDiagnostics[0]['loss_class'] ?? ''), 'runtime canvas top-level diagnostic preserves runtime island loss class');
+$assert('runtime_island_preserved' === ($canvasTopLevelDiagnostics[0]['diagnostic_class'] ?? ''), 'runtime canvas top-level diagnostic preserves runtime island diagnostic class');
+$assert('preserve_runtime_island' === ($canvasTopLevelDiagnostics[0]['suggested_repair_class'] ?? ''), 'runtime canvas top-level diagnostic routes to runtime island preservation');
+$assert('preserve_runtime_island' === ($canvasTopLevelDiagnostics[0]['suggested_generic_repair_class'] ?? ''), 'runtime canvas top-level diagnostic preserves generic repair class');
+$assert(($canvasDiagnostic['source_selector'] ?? '') === ($canvasTopLevelDiagnostics[0]['source_selector'] ?? ''), 'runtime canvas top-level diagnostic preserves selector metadata');
 $assert('bonsai' === ($canvasFallback['fallbacks'][0]['attributes']['id'] ?? ''), 'canvas fallback preserves id for runtime mapping');
 $assert(str_contains((string) ($canvasFallback['fallbacks'][0]['html'] ?? ''), '<canvas id="bonsai"'), 'canvas fallback preserves bounded safe canvas markup');
 $assert(str_contains((string) ($canvasDiagnostic['script_dependency_hint'] ?? ''), '#bonsai'), 'canvas diagnostic flags id-based script dependency risk');
