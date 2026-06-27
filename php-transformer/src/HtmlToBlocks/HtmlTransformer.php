@@ -3528,10 +3528,9 @@ final class HtmlTransformer
                 continue;
             }
 
-            $summary = $this->readableFormControlText($control);
-            if ( '' !== $summary ) {
-                $attrs = $this->isRuntimeDomTarget($control) ? $this->presentationAttributes($control) : array();
-                $contentBlocks[] = $this->createBlock('core/paragraph', array_merge($attrs, array( 'content' => $summary )), array(), $control);
+            $readableControlBlock = $this->readableFormControlBlockFromElement($control);
+            if ( null !== $readableControlBlock ) {
+                $contentBlocks[] = $readableControlBlock;
             }
         }
 
@@ -3611,12 +3610,50 @@ final class HtmlTransformer
             return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($element) ), array(), $element);
         }
 
+        if ( 'select' === $tagName ) {
+            $selectBlock = $this->readableSelectBlockFromElement($element);
+            if ( null !== $selectBlock ) {
+                return $selectBlock;
+            }
+        }
+
         $summary = $this->readableFormControlText($element);
         if ( '' === $summary ) {
             return null;
         }
 
         return $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $element);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function readableSelectBlockFromElement(DOMElement $select): ?array
+    {
+        $label = $this->readableFormControlLabel($select);
+        $optionBlocks = array();
+
+        foreach ( $this->selectOptions($select) as $option ) {
+            $optionLabel = trim((string) ($option['label'] ?? ''));
+            if ( '' === $optionLabel ) {
+                continue;
+            }
+
+            if ( true === ($option['selected'] ?? false) ) {
+                $optionLabel .= ' (selected)';
+            }
+
+            $optionBlocks[] = $this->createBlock('core/list-item', array( 'content' => $this->runtime->escapeHtml($optionLabel) ));
+        }
+
+        if ( array() === $optionBlocks ) {
+            return null;
+        }
+
+        return $this->createBlock('core/group', array(), array(
+            $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $select),
+            $this->createBlock('core/list', array(), $optionBlocks, $select),
+        ), $select);
     }
 
     /**
@@ -3652,16 +3689,7 @@ final class HtmlTransformer
 
     private function readableFormControlText(DOMElement $control): string
     {
-        $label = $this->formControlLabel($control);
-        if ( '' === $label ) {
-            $label = $this->attr($control, 'aria-label');
-        }
-        if ( '' === $label ) {
-            $label = $this->attr($control, 'placeholder');
-        }
-        if ( '' === $label ) {
-            $label = $this->attr($control, 'name');
-        }
+        $label = $this->readableFormControlLabel($control);
 
         $type = $this->formControlType($control);
         if ( '' === $label ) {
@@ -3723,6 +3751,27 @@ final class HtmlTransformer
         }
 
         return $this->runtime->escapeHtml($text);
+    }
+
+    private function readableFormControlLabel(DOMElement $control): string
+    {
+        $label = $this->formControlLabel($control);
+        if ( '' === $label ) {
+            $label = $this->attr($control, 'aria-label');
+        }
+        if ( '' === $label ) {
+            $label = $this->attr($control, 'placeholder');
+        }
+        if ( '' === $label ) {
+            $label = $this->attr($control, 'name');
+        }
+
+        $type = $this->formControlType($control);
+        if ( '' === $label ) {
+            return 'select' === $type ? 'Select option' : ucfirst($type);
+        }
+
+        return $label;
     }
 
     private function readableSubmitText(DOMElement $control): string
