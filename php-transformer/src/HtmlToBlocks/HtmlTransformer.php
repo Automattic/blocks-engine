@@ -10,6 +10,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
 use DOMElement;
@@ -27,7 +29,7 @@ final class HtmlTransformer
 
     private readonly LogoPattern $logoPattern;
 
-    private readonly NavigationPattern $navigationPattern;
+    private readonly PatternRecognizerRegistry $patternRecognizers;
 
     /**
      * @var array<string, string>
@@ -92,7 +94,9 @@ final class HtmlTransformer
         $this->buttonsPattern    = new ButtonsPattern();
         $this->detailsPattern    = new DetailsPattern();
         $this->logoPattern       = new LogoPattern();
-        $this->navigationPattern = new NavigationPattern();
+        $this->patternRecognizers = new PatternRecognizerRegistry(array(
+            new NavigationPattern(),
+        ));
     }
 
     /**
@@ -904,6 +908,16 @@ final class HtmlTransformer
         return $blocks;
     }
 
+    private function patternContext(bool $includeRuntimeDomTarget = true): PatternContext
+    {
+        return new PatternContext(
+            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement),
+            $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement) : null
+        );
+    }
+
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
@@ -978,13 +992,7 @@ final class HtmlTransformer
         }
 
         if ( 'ul' === $tagName || 'ol' === $tagName ) {
-            $navigation = $this->navigationPattern->match(
-                $element,
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement),
-                fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement)
-            );
+            $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext());
             if ( null !== $navigation ) {
                 return $navigation;
             }
@@ -1281,12 +1289,7 @@ final class HtmlTransformer
         }
 
         if ( 'nav' === $tagName ) {
-            $navigation = $this->navigationPattern->match(
-                $element,
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
+            $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext(false));
             if ( null !== $navigation ) {
                 return $navigation;
             }
@@ -1315,13 +1318,7 @@ final class HtmlTransformer
             }
 
             if ( ! $this->shouldDeferNavigationPatternToChildren($element) ) {
-                $navigation = $this->navigationPattern->match(
-                    $element,
-                    fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                    fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement),
-                    fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement)
-                );
+                $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext());
                 if ( null !== $navigation ) {
                     return $navigation;
                 }
