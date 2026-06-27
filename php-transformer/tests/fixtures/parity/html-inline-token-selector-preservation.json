@@ -1,0 +1,43 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-token-selector-preservation",
+  "description": "Preserves stable source classes for generic chip, pill, badge, tag, and filter-like inline groups while filtering JavaScript hook classes.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-token-selector-preservation.json",
+    "notes": "Product-neutral coverage for source selector parity on inline token groups used by runtime scripts."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"filter-chip-group js-filter-chip-group\"><span class=\"chip js-chip\" data-filter=\"all\">All</span><span class=\"pill js-pill\">Vegetarian</span><span class=\"badge jsBadge\">New</span><span class=\"tag js_tag\">Quick</span></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "filter-chip-group" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "chip", "content": "All" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "pill", "content": "Vegetarian" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/paragraph", "attrs": { "className": "badge", "content": "New" } },
+    { "path": "blocks.0.innerBlocks.3", "name": "core/paragraph", "attrs": { "className": "tag", "content": "Quick" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 4 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "filter-chip-group" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"chip\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"pill\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"badge\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"tag\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "js-filter-chip-group" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "js-chip" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "js-pill" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "jsBadge" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "js_tag" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" }
+  ]
+}

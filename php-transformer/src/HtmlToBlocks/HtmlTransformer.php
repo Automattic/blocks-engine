@@ -1846,6 +1846,11 @@ final class HtmlTransformer
                 return $namePriceRow;
             }
 
+            $inlineTokenGroup = $this->inlineTokenGroupBlockFromElement($element, $fallbacks);
+            if ( null !== $inlineTokenGroup ) {
+                return $inlineTokenGroup;
+            }
+
             $inlineContent = $this->paragraphBlockFromInlineContentWrapper($element);
             if ( null !== $inlineContent ) {
                 return $inlineContent;
@@ -2590,6 +2595,96 @@ final class HtmlTransformer
         }
 
         return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+    }
+
+    private function inlineTokenGroupBlockFromElement(DOMElement $element, array &$fallbacks): ?array
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+            return null;
+        }
+
+        if ( ! $this->hasInlineTokenGroupSignal($element) ) {
+            return null;
+        }
+
+        $children = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return null;
+                }
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( ! $this->isInlineTokenItemElement($child) ) {
+                return null;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( in_array($tagName, array( 'a', 'button' ), true) ) {
+                $block = $this->convertElement($child, $fallbacks, true);
+                if ( null === $block ) {
+                    return null;
+                }
+                $children[] = $block;
+                continue;
+            }
+
+            $content = $this->innerHtml($child);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+            $children[] = $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($child), array( 'content' => $content )), array(), $child);
+        }
+
+        if ( count($children) < 2 ) {
+            return null;
+        }
+
+        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+    }
+
+    private function hasInlineTokenGroupSignal(DOMElement $element): bool
+    {
+        if ( $this->hasInlineTokenSignal($element) ) {
+            return true;
+        }
+
+        $tokenChildren = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->isInlineTokenItemElement($child) ) {
+                ++$tokenChildren;
+            }
+        }
+
+        return 1 < $tokenChildren;
+    }
+
+    private function isInlineTokenItemElement(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( ! in_array($tagName, array( 'a', 'button' ), true) && ! $this->isInlineContentElement($tagName) ) {
+            return false;
+        }
+
+        return $this->hasInlineTokenSignal($element);
+    }
+
+    private function hasInlineTokenSignal(DOMElement $element): bool
+    {
+        $tokens = strtolower(trim(implode(' ', array(
+            $this->attr($element, 'class'),
+            $this->attr($element, 'id'),
+            $this->attr($element, 'role'),
+            $this->attr($element, 'data-filter'),
+            $this->attr($element, 'data-tag'),
+        ))));
+
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:chips?|pills?|badges?|tags?|filters?|facets?)(?:[^a-z0-9]|$)/', $tokens);
     }
 
     private function paragraphBlockFromInlineContentWrapper(DOMElement $element): ?array
