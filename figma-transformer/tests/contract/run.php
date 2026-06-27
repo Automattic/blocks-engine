@@ -928,9 +928,20 @@ $largeDecodedVectorDiagnosticCodes = array_map(
     static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
     $largeDecodedVectorResult['diagnostics'] ?? array()
 );
+$largeDecodedVectorDiagnostics = $largeDecodedVectorResult['source_reports']['figma']['html']['transform_diagnostics']['vectors'] ?? array();
+$largeRawPlaceholder = null;
+foreach ( $largeDecodedVectorDiagnostics['placeholder_nodes'] ?? array() as $placeholderNode ) {
+    if ( is_array($placeholderNode) && 'vector:large-raw' === ($placeholderNode['node_id'] ?? null) ) {
+        $largeRawPlaceholder = $placeholderNode;
+        break;
+    }
+}
 $assert(str_contains($largeDecodedVectorHtml, 'data-figma-node-id="vector:large-decoded"') && str_contains($largeDecodedVectorHtml, 'data-figma-vector="true"'), 'large-decoded-vector-path-renders');
 $assert(str_contains($largeDecodedVectorHtml, 'data-figma-node-id="vector:large-raw"') && str_contains($largeDecodedVectorHtml, 'data-figma-unsupported-vector="true"'), 'large-raw-vector-path-remains-capped');
 $assert(in_array('unsupported_vector_node_placeholder', $largeDecodedVectorDiagnosticCodes, true), 'large-raw-vector-placeholder-diagnostic');
+$assert('oversized_path_data' === ($largeRawPlaceholder['reason'] ?? null), 'large-raw-vector-placeholder-reason');
+$assert(array('pathData') === ($largeRawPlaceholder['source_fields'] ?? null), 'large-raw-vector-placeholder-source-field');
+$assert(1 === ($largeDecodedVectorDiagnostics['placeholder_reasons']['oversized_path_data'] ?? null), 'large-raw-vector-placeholder-reason-count');
 
 $externalizedVectorPath = 'M 0.0000 0.0000' . str_repeat(' L 10.000001 10.000001', 12000) . ' Z';
 $externalizedEquivalentVectorPath = 'M0,0' . str_repeat('L10,10', 12000) . 'Z';
@@ -1159,6 +1170,17 @@ $assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-closed-re
 $assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-non-rect-network"') && str_contains($vectorDataHtml, 'data-figma-unsupported-vector="true"'), 'vector-data-non-rect-network-keeps-placeholder');
 $assert(in_array('unsupported_vector_network_blob', $vectorDataDiagnosticCodes, true), 'vector-data-malformed-network-diagnostic');
 $assert(1 === ($vectorNetworkDiagnostic['context']['byte_length'] ?? null) && 'ff' === ($vectorNetworkDiagnostic['context']['signature_hex'] ?? null), 'vector-network-diagnostic-context');
+$vectorDataPlaceholderDiagnostics = $vectorDataResult['source_reports']['figma']['html']['transform_diagnostics']['vectors'] ?? array();
+$malformedNetworkPlaceholder = null;
+foreach ( $vectorDataPlaceholderDiagnostics['placeholder_nodes'] ?? array() as $placeholderNode ) {
+    if ( is_array($placeholderNode) && 'vector:data-malformed' === ($placeholderNode['node_id'] ?? null) ) {
+        $malformedNetworkPlaceholder = $placeholderNode;
+        break;
+    }
+}
+$assert('unsupported_vector_network_blob' === ($malformedNetworkPlaceholder['reason'] ?? null), 'vector-network-placeholder-reason');
+$assert(array('vectorData.vectorNetworkBlob') === ($malformedNetworkPlaceholder['source_fields'] ?? null), 'vector-network-placeholder-source-field');
+$assert(1 === ($vectorDataPlaceholderDiagnostics['placeholder_reasons']['unsupported_vector_network_blob'] ?? null), 'vector-network-placeholder-reason-count');
 $vectorNetworkDiagnostics = array_values(array_filter(
     $vectorDataResult['diagnostics'] ?? array(),
     static fn (array $diagnostic): bool => 'unsupported_vector_network_blob' === ($diagnostic['code'] ?? null)
