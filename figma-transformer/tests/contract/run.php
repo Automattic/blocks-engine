@@ -2242,6 +2242,40 @@ $assert(str_contains($derivedLineBreakHtml, "First line\nSecond line"), 'derived
 $assert(str_contains($derivedLineBreakCss, '.figma-node-text-derived-lines-measured-lines{width:120px;height:44px;line-height:22px;white-space:pre-line}'), 'derived-baselines-enable-pre-line');
 $assert(! str_contains($derivedLineBreakCss, 'line-height:40px;line-height:22px'), 'derived-baselines-replace-source-line-height');
 
+$derivedMeasuredLineHeightResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Derived Measured Line Height Fixture',
+    'nodes' => array(
+        array(
+            'id'              => 'text:derived-measured-line-height',
+            'type'            => 'TEXT',
+            'name'            => 'Measured Line Height',
+            'characters'      => 'First line Second line',
+            'width'           => 120,
+            'height'          => 40,
+            'lineHeightPx'    => 28,
+            'derivedTextData' => array(
+                'layoutSize' => array('x' => 120, 'y' => 40),
+                'baselines'  => array(
+                    array('firstCharacter' => 0, 'endCharacter' => 10, 'lineHeight' => 20, 'position' => array('x' => 0, 'y' => 15)),
+                    array('firstCharacter' => 11, 'endCharacter' => 22, 'lineHeight' => 20, 'position' => array('x' => 0, 'y' => 38)),
+                ),
+            ),
+        ),
+    ),
+));
+$derivedMeasuredLineHeightCss = $fileContent($derivedMeasuredLineHeightResult, 'style.css');
+$derivedMeasuredLineHeightDiagnostics = $derivedMeasuredLineHeightResult['source_reports']['figma']['html']['node_style_diagnostics'] ?? array();
+$derivedMeasuredLineHeightDiagnostic = null;
+foreach ( is_array($derivedMeasuredLineHeightDiagnostics) ? $derivedMeasuredLineHeightDiagnostics : array() as $styleDiagnostic ) {
+    if ( 'text:derived-measured-line-height' === ($styleDiagnostic['node']['id'] ?? null) ) {
+        $derivedMeasuredLineHeightDiagnostic = $styleDiagnostic;
+    }
+}
+$assert(str_contains($derivedMeasuredLineHeightCss, '.figma-node-text-derived-measured-line-height-measured-line-height{width:120px;height:40px;line-height:20px;white-space:pre-line}'), 'derived-baselines-prefer-measured-line-height');
+$assert('20px' === ($derivedMeasuredLineHeightDiagnostic['expected']['line_height'] ?? null), 'derived-baselines-measured-line-height-expected-diagnostic');
+$assert('20px' === ($derivedMeasuredLineHeightDiagnostic['emitted']['line_height'] ?? null), 'derived-baselines-measured-line-height-emitted-diagnostic');
+$assert(array() === ($derivedMeasuredLineHeightDiagnostic['mismatches'] ?? null), 'derived-baselines-measured-line-height-no-diagnostic-mismatch');
+
 $parityBuilder = new ParityReportBuilder();
 $pendingParity = $parityBuilder->build(array(
     'status'    => 'pending',

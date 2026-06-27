@@ -543,17 +543,7 @@ final class StaticHtmlEmitter
      */
     private function expectedTextStyleData(array $node): array
     {
-        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
-        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
-        if ( ! isset($style['color']) ) {
-            $paints = is_array($node['figma_paints']['fills'] ?? null) ? $node['figma_paints']['fills'] : array();
-            $color = $this->firstSolidPaint($paints);
-            if ( null !== $color ) {
-                $style['css_color'] = $color;
-            }
-        }
-
-        $declarations = $this->styleDeclarationMap($this->textStyleDeclarations($style));
+        $declarations = $this->styleDeclarationMap($this->textStyles($node));
         return array(
             'text_color'  => $declarations['color'] ?? null,
             'font_family' => $declarations['font-family'] ?? null,
@@ -2539,6 +2529,17 @@ final class StaticHtmlEmitter
         $baselines = is_array($derivedLayout['baselines'] ?? null) ? $derivedLayout['baselines'] : array();
         if ( 2 > count($baselines) ) {
             return null;
+        }
+
+        $lineHeights = array();
+        foreach ( $baselines as $baseline ) {
+            if ( is_array($baseline) && isset($baseline['lineHeight']) && is_numeric($baseline['lineHeight']) && 0.0 < (float) $baseline['lineHeight'] ) {
+                $lineHeights[] = (float) $baseline['lineHeight'];
+            }
+        }
+        if ( ! empty($lineHeights) ) {
+            sort($lineHeights);
+            return $lineHeights[(int) floor(( count($lineHeights) - 1 ) / 2)];
         }
 
         $positions = array();
