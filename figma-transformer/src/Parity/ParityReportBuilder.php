@@ -27,6 +27,8 @@ final class ParityReportBuilder
 
         $artifacts = $this->arrayValue($evidence, 'artifacts');
         $layoutDiagnostics = $this->arrayValue($evidence, 'layout_diagnostics');
+        $layoutEvidence = $this->arrayValue($evidence, 'layout_evidence');
+        $renderStyleEvidence = $this->arrayValue($evidence, 'render_style_evidence');
         $source = $this->arrayValue($evidence, 'source');
         $generated = $this->arrayValue($evidence, 'generated');
         $diff = $this->nullableArrayValue($evidence, 'diff');
@@ -48,6 +50,7 @@ final class ParityReportBuilder
         $this->copyScalar($evidence, 'dom_boxes_path', $artifacts, 'dom_boxes_path');
         $this->copyScalar($evidence, 'layout_report_path', $artifacts, 'layout_report_path');
         $this->copyScalar($evidence, 'layout_mismatch_report_path', $artifacts, 'layout_mismatch_report_path');
+        $this->copyScalar($evidence, 'render_evidence_path', $artifacts, 'render_evidence_path');
         $this->copyScalar($evidence, 'frame_id', $source, 'frame_id');
         $this->copyScalar($evidence, 'frame_id', $generated, 'frame_id');
         $this->copyNumeric($evidence, 'pixel_mismatch_count', $diffSummary, 'pixel_mismatch_count');
@@ -61,9 +64,35 @@ final class ParityReportBuilder
             $layoutDiagnostics['top_nodes'] = array_values($evidence['layout_top_nodes']);
         }
 
+        $hasLayoutEvidence = ! empty($layoutDiagnostics)
+            || isset($artifacts['dom_boxes_path'])
+            || isset($artifacts['layout_report_path'])
+            || isset($artifacts['layout_mismatch_report_path']);
+        $layoutMismatchCount = $layoutDiagnostics['mismatch_count'] ?? null;
+        if ( empty($layoutEvidence) && $hasLayoutEvidence ) {
+            $layoutEvidence = array(
+                'status' => is_numeric($layoutMismatchCount) ? (0 === (int) $layoutMismatchCount ? 'pass' : 'fail') : 'pending',
+                'source' => isset($artifacts['dom_boxes_path']) ? 'dom_boxes' : 'layout_report',
+                'mismatch_count' => is_numeric($layoutMismatchCount) ? (int) $layoutMismatchCount : null,
+            );
+        }
+
+        if ( empty($renderStyleEvidence) ) {
+            $renderStyleEvidence = array(
+                'status' => isset($artifacts['render_evidence_path']) ? 'pending' : 'not_run',
+            );
+        }
+
         if ( array_key_exists('threshold', $diffSummary) && array_key_exists('pixel_mismatch_ratio', $diffSummary) ) {
             $diffSummary['passed'] = (float) $diffSummary['pixel_mismatch_ratio'] <= (float) $diffSummary['threshold'];
         }
+
+        $hasPixelEvidence = array_key_exists('pixel_mismatch_count', $metrics)
+            || array_key_exists('pixel_mismatch_ratio', $metrics)
+            || array_key_exists('pixel_mismatch_count', $diffSummary)
+            || array_key_exists('pixel_mismatch_ratio', $diffSummary)
+            || ! empty($diff);
+        $visualPixelStatus = $hasPixelEvidence ? $status : 'not_run';
 
         return array(
             'schema'       => self::SCHEMA,
@@ -76,6 +105,9 @@ final class ParityReportBuilder
             'diff'         => empty($diff) ? null : $diff,
             'diff_summary' => $diffSummary,
             'layout_diagnostics' => $layoutDiagnostics,
+            'layout_evidence' => $layoutEvidence,
+            'render_style_evidence' => $renderStyleEvidence,
+            'visual_pixel_status' => $visualPixelStatus,
             'metrics'      => $metrics,
             'viewport'     => $viewport,
         );

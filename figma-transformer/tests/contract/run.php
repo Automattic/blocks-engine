@@ -2225,10 +2225,16 @@ $pendingParity = $parityBuilder->build(array(
     ),
     'dom_boxes_path' => 'artifacts/dom-boxes.json',
     'layout_report_path' => 'artifacts/layout-report.json',
+    'render_evidence_path' => 'artifacts/render-evidence.json',
     'layout_mismatch_count' => 3,
     'layout_top_nodes' => array(
         array('id' => '1:2', 'name' => 'Hero title'),
     ),
+));
+$layoutOnlyParity = $parityBuilder->build(array(
+    'status' => 'pass',
+    'dom_boxes_path' => 'artifacts/dom-boxes.json',
+    'layout_mismatch_count' => 0,
 ));
 $comparedParity = $parityBuilder->build(array(
     'status'    => 'compared',
@@ -2275,8 +2281,17 @@ $assert('pending' === ($pendingParity['status'] ?? null), 'parity-pending-status
 $assert('artifacts/parity-report.json' === ($pendingParity['artifacts']['report_path'] ?? null), 'parity-pending-artifact-path');
 $assert('artifacts/dom-boxes.json' === ($pendingParity['artifacts']['dom_boxes_path'] ?? null), 'parity-dom-boxes-artifact-path');
 $assert('artifacts/layout-report.json' === ($pendingParity['artifacts']['layout_report_path'] ?? null), 'parity-layout-report-artifact-path');
+$assert('artifacts/render-evidence.json' === ($pendingParity['artifacts']['render_evidence_path'] ?? null), 'parity-render-evidence-artifact-path');
 $assert(3 === ($pendingParity['layout_diagnostics']['mismatch_count'] ?? null), 'parity-layout-mismatch-count');
 $assert('1:2' === ($pendingParity['layout_diagnostics']['top_nodes'][0]['id'] ?? null), 'parity-layout-top-node');
+$assert('fail' === ($pendingParity['layout_evidence']['status'] ?? null), 'parity-layout-evidence-status-fail');
+$assert('pending' === ($pendingParity['render_style_evidence']['status'] ?? null), 'parity-render-style-evidence-pending');
+$assert('not_run' === ($pendingParity['visual_pixel_status'] ?? null), 'parity-pending-visual-pixel-not-run');
+$assert('pass' === ($layoutOnlyParity['layout_evidence']['status'] ?? null), 'parity-layout-only-layout-evidence-pass');
+$assert(0 === ($layoutOnlyParity['layout_evidence']['mismatch_count'] ?? null), 'parity-layout-only-layout-count-zero');
+$assert(! array_key_exists('pixel_mismatch_count', $layoutOnlyParity['metrics'] ?? array()), 'parity-layout-only-no-pixel-count');
+$assert('not_run' === ($layoutOnlyParity['visual_pixel_status'] ?? null), 'parity-layout-only-visual-pixel-not-run');
+$assert('not_run' === ($layoutOnlyParity['render_style_evidence']['status'] ?? null), 'parity-layout-only-render-style-not-run');
 $assert('compared' === ($comparedParity['status'] ?? null), 'parity-compared-status');
 $assert('artifacts/source.png' === ($comparedParity['source']['screenshot_path'] ?? null), 'parity-source-screenshot-path');
 $assert('artifacts/generated.png' === ($comparedParity['generated']['screenshot_path'] ?? null), 'parity-generated-screenshot-path');

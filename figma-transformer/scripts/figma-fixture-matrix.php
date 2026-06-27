@@ -353,6 +353,7 @@ Output and tooling:
   --dom-boxes=/path                 Evidence path template for DOM boxes.
   --layout-report=/path             Evidence path template for layout report.
   --layout-mismatch-report=/path    Evidence path template for layout mismatch report.
+  --render-evidence=/path           Evidence path template for no-screenshot render/style evidence.
   --help, -h                        Show this help text.
 
 Examples:
@@ -506,6 +507,8 @@ function matrix_evidence_options(array $options): array
         'layout_report_path' => 'layout_report_path',
         'layout_mismatch_report' => 'layout_mismatch_report_path',
         'layout_mismatch_report_path' => 'layout_mismatch_report_path',
+        'render_evidence' => 'render_evidence_path',
+        'render_evidence_path' => 'render_evidence_path',
     );
     $templates = array();
     foreach ( $map as $optionKey => $templateKey ) {
@@ -770,6 +773,7 @@ function matrix_evidence_transform_arguments(array $paths): array
         'dom_boxes_path' => '--parity-dom-boxes-path=',
         'layout_report_path' => '--parity-layout-report-path=',
         'layout_mismatch_report_path' => '--parity-layout-mismatch-report-path=',
+        'render_evidence_path' => '--parity-render-evidence-path=',
     );
     $arguments = array();
     foreach ( $map as $key => $argument ) {
@@ -881,6 +885,7 @@ function matrix_attach_evidence_to_result(array $result, array $evidence): array
         'dom_boxes_path' => 'dom_boxes_path',
         'layout_report_path' => 'layout_report_path',
         'layout_mismatch_report_path' => 'layout_mismatch_report_path',
+        'render_evidence_path' => 'render_evidence_path',
     ) as $pathKey => $artifactKey ) {
         $path = matrix_evidence_record_path($paths[$pathKey] ?? null);
         if ( '' !== $path ) {
@@ -902,6 +907,13 @@ function matrix_attach_evidence_to_result(array $result, array $evidence): array
     }
     if ( is_array($layoutReport) ) {
         $parity['layout_diagnostics'] = array_merge($parity['layout_diagnostics'], matrix_layout_summary($layoutReport));
+    }
+
+    $renderEvidence = matrix_read_json_evidence($paths['render_evidence_path'] ?? null);
+    if ( is_array($renderEvidence) ) {
+        $parity['render_style_evidence'] = matrix_render_style_evidence_summary($renderEvidence);
+    } elseif ( '' !== matrix_evidence_record_path($paths['render_evidence_path'] ?? null) ) {
+        $parity['render_style_evidence'] = array('status' => 'pending');
     }
 
     $result['parity'] = $parity;
@@ -984,6 +996,25 @@ function matrix_layout_summary(array $report): array
 }
 
 /**
+ * @param array<string, mixed> $report
+ * @return array<string, mixed>
+ */
+function matrix_render_style_evidence_summary(array $report): array
+{
+    $summary = is_array($report['summary'] ?? null) ? $report['summary'] : array();
+    $status = isset($report['status']) && is_scalar($report['status']) ? (string) $report['status'] : null;
+    if ( null === $status && isset($summary['status']) && is_scalar($summary['status']) ) {
+        $status = (string) $summary['status'];
+    }
+
+    return array_filter(array(
+        'status' => $status ?? 'completed',
+        'source' => 'render_evidence',
+        'diagnostic_count' => matrix_first_numeric($summary, array('diagnostic_count', 'render_diagnostic_count', 'count')) ?? matrix_first_numeric($report, array('diagnostic_count', 'render_diagnostic_count', 'count')),
+    ), static fn (mixed $value): bool => null !== $value);
+}
+
+/**
  * @param array<int, mixed> $mismatches
  * @return array<int, array<string, mixed>>
  */
@@ -1031,12 +1062,22 @@ function matrix_parity_summary(array $parity): array
     $metrics = is_array($parity['metrics'] ?? null) ? $parity['metrics'] : array();
     $diffSummary = is_array($parity['diff_summary'] ?? null) ? $parity['diff_summary'] : array();
     $layout = is_array($parity['layout_diagnostics'] ?? null) ? $parity['layout_diagnostics'] : array();
+    $layoutEvidence = is_array($parity['layout_evidence'] ?? null) ? $parity['layout_evidence'] : array();
+    $renderStyleEvidence = is_array($parity['render_style_evidence'] ?? null) ? $parity['render_style_evidence'] : array();
+    $pixelMismatchCount = $metrics['pixel_mismatch_count'] ?? $diffSummary['pixel_mismatch_count'] ?? null;
+    $pixelMismatchRatio = $metrics['pixel_mismatch_ratio'] ?? $diffSummary['pixel_mismatch_ratio'] ?? null;
+    $layoutMismatchCount = $layout['mismatch_count'] ?? null;
+    $layoutMismatchStatus = isset($layoutEvidence['status']) ? (string) $layoutEvidence['status'] : (is_numeric($layoutMismatchCount) ? (0 === (int) $layoutMismatchCount ? 'pass' : 'fail') : 'not_run');
 
     return array(
         'status' => $parity['status'] ?? 'not_run',
-        'pixel_mismatch_count' => $metrics['pixel_mismatch_count'] ?? $diffSummary['pixel_mismatch_count'] ?? null,
-        'pixel_mismatch_ratio' => $metrics['pixel_mismatch_ratio'] ?? $diffSummary['pixel_mismatch_ratio'] ?? null,
-        'layout_mismatch_count' => $layout['mismatch_count'] ?? null,
+        'visual_pixel_status' => $parity['visual_pixel_status'] ?? (null !== $pixelMismatchCount || null !== $pixelMismatchRatio ? ($parity['status'] ?? 'not_run') : 'not_run'),
+        'pixel_mismatch_count' => $pixelMismatchCount,
+        'pixel_mismatch_ratio' => $pixelMismatchRatio,
+        'layout_evidence' => empty($layoutEvidence) ? array('status' => $layoutMismatchStatus) : $layoutEvidence,
+        'render_style_evidence' => empty($renderStyleEvidence) ? array('status' => 'not_run') : $renderStyleEvidence,
+        'layout_mismatch_count' => $layoutMismatchCount,
+        'layout_mismatch_status' => $layoutMismatchStatus,
         'layout_top_nodes' => is_array($layout['top_nodes'] ?? null) ? array_slice($layout['top_nodes'], 0, 5) : array(),
         'layout_suspected_causes' => is_array($layout['suspected_causes'] ?? null) ? array_slice($layout['suspected_causes'], 0, 5) : array(),
     );
