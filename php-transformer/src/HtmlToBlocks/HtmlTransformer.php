@@ -212,6 +212,8 @@ final class HtmlTransformer
                     'source'              => self::class,
                     'reason'              => $fallback['reason'] ?? null,
                     'severity'            => $fallback['severity'] ?? null,
+                    'conversion_classification' => $fallback['conversion_classification'] ?? null,
+                    'preservation_strategy' => $fallback['preservation_strategy'] ?? null,
                     'runtime_requirement' => $fallback['runtime_requirement'] ?? null,
                     'tag'                 => $fallback['tag'] ?? null,
                     'selector'            => $fallback['selector'] ?? null,
@@ -1499,13 +1501,47 @@ final class HtmlTransformer
      */
     private function sourceProvenanceEntry(string $blockName, DOMElement $element): array
     {
-        return array(
+        return array_merge(array(
             'block_name'        => $blockName,
             'tag'               => strtolower($element->tagName),
             'selector'          => $this->elementSelector($element),
             'source_attributes' => $this->safeSourceAttributes($element),
             'source_fragment'   => $this->safeSourceFragment($element),
             'context'           => $this->sourceContext($element),
+        ), $this->sourceConversionMetadata($blockName, $element));
+    }
+
+    /**
+     * @return array{conversion_classification: string, preservation_strategy: string}
+     */
+    private function sourceConversionMetadata(string $blockName, DOMElement $element): array
+    {
+        $tagName = strtolower($element->tagName);
+
+        if ( 'core/html' === $blockName ) {
+            return array(
+                'conversion_classification' => 'runtime_island_preserved',
+                'preservation_strategy'     => 'bounded_raw_html_runtime_island',
+            );
+        }
+
+        if ( $this->isRuntimeDomTarget($element) ) {
+            return array(
+                'conversion_classification' => 'runtime_island_preserved',
+                'preservation_strategy'     => 'core_block_shell_with_runtime_target',
+            );
+        }
+
+        if ( in_array($tagName, array('form', 'input', 'select', 'textarea'), true) && 'core/search' !== $blockName ) {
+            return array(
+                'conversion_classification' => 'editable_approximation',
+                'preservation_strategy'     => 'readable_static_block_approximation',
+            );
+        }
+
+        return array(
+            'conversion_classification' => 'native_block_conversion',
+            'preservation_strategy'     => 'core_block',
         );
     }
 
