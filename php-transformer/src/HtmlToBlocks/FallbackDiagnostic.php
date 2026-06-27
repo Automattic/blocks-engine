@@ -37,10 +37,13 @@ final class FallbackDiagnostic
             'html_script_fallback' => array(
                 'severity'              => 'warning',
                 'conversion_classification' => 'runtime_island_preserved',
+                'loss_class'            => 'runtime_island_preserved',
+                'diagnostic_class'      => 'runtime_island_preserved',
                 'preservation_strategy' => 'scoped_runtime_metadata',
                 'runtime_requirement'   => 'client_script_execution',
                 'recoverability'        => 'recoverable_with_script_enqueue_or_component_runtime',
                 'actionability'         => 'review_script_source_and_enqueue_or_rebuild_behavior',
+                'suggested_repair_class' => 'preserve_runtime_island',
                 'suggested_primitive'   => 'script_asset',
                 'materialization_hint'  => 'enqueue_script_or_rebuild_as_interactive_block',
             ),
