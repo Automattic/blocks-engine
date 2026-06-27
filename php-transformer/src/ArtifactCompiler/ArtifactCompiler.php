@@ -76,7 +76,7 @@ final class ArtifactCompiler
         );
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks);
         $sourceReports['materialization_plan'] = ( new MaterializationPlanBuilder() )->fromCompiledSite($sourceReports['compiled_site']);
-        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references']);
+        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates']);
         if ( array() !== $entryBlocks['runtime_islands'] ) {
             $sourceReports['runtime_islands'] = $entryBlocks['runtime_islands'];
         }
@@ -129,7 +129,7 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>}
      */
     private function compileEntryBlocks(string $html, string $entryPath, array $files): array
     {
@@ -142,12 +142,13 @@ final class ArtifactCompiler
             'fallbacks'         => $result['fallbacks'],
             'assets'            => $result['assets'],
             'runtime_islands'   => $result['runtime_islands'],
+            'interaction_candidates' => $result['interaction_candidates'],
         );
     }
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>}
      */
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope): array
     {
@@ -159,6 +160,7 @@ final class ArtifactCompiler
                 'fallbacks'         => array(),
                 'assets'            => array(),
                 'runtime_islands'   => array(),
+                'interaction_candidates' => array(),
             );
         }
 
@@ -170,6 +172,7 @@ final class ArtifactCompiler
                 'fallbacks'         => array(),
                 'assets'            => array(),
                 'runtime_islands'   => array(),
+                'interaction_candidates' => array(),
             );
         }
 
@@ -190,6 +193,7 @@ final class ArtifactCompiler
             'fallbacks'         => is_array($result['fallbacks'] ?? null) ? $result['fallbacks'] : array(),
             'assets'            => is_array($result['assets'] ?? null) ? $result['assets'] : array(),
             'runtime_islands'   => is_array($result['source_reports']['runtime_islands'] ?? null) ? $result['source_reports']['runtime_islands'] : array(),
+            'interaction_candidates' => is_array($result['source_reports']['interaction_candidates'] ?? null) ? $result['source_reports']['interaction_candidates'] : array(),
         );
     }
 
