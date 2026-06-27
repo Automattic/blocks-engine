@@ -112,6 +112,7 @@ final class LayoutMismatchReportBuilder
                 'code_counts' => $codeCounts,
                 'clusters' => $this->diagnosticClusters($totalDiagnostics),
                 'suspected_causes' => $this->suspectedCauseSummary($totalDiagnostics),
+                'font_rendering' => $this->fontRenderingSummary($htmlSourceReport, $generatedNodes),
             ),
             'diagnostics' => $diagnostics,
         );
@@ -407,6 +408,110 @@ final class LayoutMismatchReportBuilder
     {
         $nodes = is_array($htmlSourceReport['visual_node_map'] ?? null) ? $htmlSourceReport['visual_node_map'] : array();
         return $this->nodesById($nodes);
+    }
+
+    /**
+     * @param array<string, mixed> $htmlSourceReport
+     * @param array<string, array<string, mixed>> $generatedNodes
+     * @return array<string, mixed>
+     */
+    private function fontRenderingSummary(array $htmlSourceReport, array $generatedNodes): array
+    {
+        $sourceByNode = array();
+        foreach ( is_array($htmlSourceReport['node_style_diagnostics'] ?? null) ? $htmlSourceReport['node_style_diagnostics'] : array() as $diagnostic ) {
+            if ( ! is_array($diagnostic) ) {
+                continue;
+            }
+            $node = is_array($diagnostic['node'] ?? null) ? $diagnostic['node'] : array();
+            $expected = is_array($diagnostic['expected'] ?? null) ? $diagnostic['expected'] : array();
+            $nodeId = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
+            $family = isset($expected['font_family']) && is_scalar($expected['font_family']) ? trim((string) $expected['font_family'], " \t\n\r\0\x0B\"") : '';
+            if ( '' !== $nodeId && '' !== $family ) {
+                $sourceByNode[$nodeId] = $family;
+            }
+        }
+
+        $matched = 0;
+        $computedFamilyMismatches = array();
+        $fontCheckFailures = array();
+        foreach ( $sourceByNode as $nodeId => $sourceFamily ) {
+            if ( ! isset($generatedNodes[$nodeId]) ) {
+                continue;
+            }
+            $generatedNode = $generatedNodes[$nodeId];
+            $computedFamily = $this->computedFontFamily($generatedNode);
+            $fontCheck = $this->fontCheckValue($generatedNode);
+            if ( null === $computedFamily && null === $fontCheck ) {
+                continue;
+            }
+
+            $matched++;
+            if ( null !== $computedFamily && ! $this->computedFamilyContains($computedFamily, $sourceFamily) ) {
+                $computedFamilyMismatches[] = array('node_id' => $nodeId, 'source_font_family' => $sourceFamily, 'computed_font_family' => $computedFamily);
+            }
+            if ( false === $fontCheck ) {
+                $fontCheckFailures[] = array('node_id' => $nodeId, 'source_font_family' => $sourceFamily, 'document_fonts_check' => false);
+            }
+        }
+
+        return array(
+            'status' => 0 === $matched ? 'not_evaluated' : (empty($computedFamilyMismatches) && empty($fontCheckFailures) ? 'pass' : 'warn'),
+            'source_font_family_count' => count(is_array($htmlSourceReport['font_families'] ?? null) ? $htmlSourceReport['font_families'] : array()),
+            'source_font_usage' => is_array($htmlSourceReport['font_usage'] ?? null) ? $htmlSourceReport['font_usage'] : array(),
+            'evidence_node_count' => $matched,
+            'computed_font_family_mismatch_count' => count($computedFamilyMismatches),
+            'document_fonts_check_failure_count' => count($fontCheckFailures),
+            'computed_font_family_mismatches' => array_slice($computedFamilyMismatches, 0, 10),
+            'document_fonts_check_failures' => array_slice($fontCheckFailures, 0, 10),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function computedFontFamily(array $node): ?string
+    {
+        foreach ( array('computed_font_family', 'font_family', 'fontFamily') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== trim((string) $node[$key]) ) {
+                return trim((string) $node[$key]);
+            }
+        }
+        foreach ( array('computed_style', 'computedStyle', 'style') as $key ) {
+            $style = is_array($node[$key] ?? null) ? $node[$key] : array();
+            foreach ( array('font-family', 'fontFamily', 'font_family') as $styleKey ) {
+                if ( isset($style[$styleKey]) && is_scalar($style[$styleKey]) && '' !== trim((string) $style[$styleKey]) ) {
+                    return trim((string) $style[$styleKey]);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function fontCheckValue(array $node): ?bool
+    {
+        foreach ( array('document_fonts_check', 'font_check', 'font_loaded') as $key ) {
+            if ( is_bool($node[$key] ?? null) ) {
+                return $node[$key];
+            }
+        }
+
+        return null;
+    }
+
+    private function computedFamilyContains(string $computedFamily, string $sourceFamily): bool
+    {
+        $sourceFamily = strtolower(trim($sourceFamily, " \t\n\r\0\x0B\"'"));
+        foreach ( explode(',', strtolower($computedFamily)) as $family ) {
+            if ( trim($family, " \t\n\r\0\x0B\"'") === $sourceFamily ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

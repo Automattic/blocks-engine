@@ -803,6 +803,7 @@ final class FigmaTransformer
             'layout_mismatch_clusters' => array(),
         );
         $fontFamilies = array();
+        $fontUsage = array();
         $missingCss = array();
         $fontCssSupplied = false;
         $fontMaterialized = false;
@@ -845,6 +846,7 @@ final class FigmaTransformer
 
             $pageFonts = is_array($diagnostics['fonts'] ?? null) ? $diagnostics['fonts'] : array();
             $fontFamilies = $this->mergeFontFamilies($fontFamilies, is_array($pageFonts['families'] ?? null) ? $pageFonts['families'] : array());
+            $fontUsage = $this->mergeFontUsage($fontUsage, is_array($pageFonts['usage'] ?? null) ? $pageFonts['usage'] : array());
             $missingCss = $this->mergeFontFamilies($missingCss, is_array($pageFonts['missing_css'] ?? null) ? $pageFonts['missing_css'] : array());
             $fontCssSupplied = $fontCssSupplied || true === ($pageFonts['css_supplied'] ?? false);
             $fontMaterialized = $fontMaterialized || true === ($pageFonts['materialized'] ?? false);
@@ -911,6 +913,7 @@ final class FigmaTransformer
         ksort($diagnosticCodes);
         $fonts = array(
             'families' => $fontFamilies,
+            'usage' => $fontUsage,
             'count' => count($fontFamilies),
             'css_supplied' => $fontCssSupplied,
             'materialized' => $fontMaterialized,
@@ -958,7 +961,12 @@ final class FigmaTransformer
             $signals[] = array('severity' => 'warning', 'code' => 'vector_placeholders', 'count' => (int) $vectors['placeholders']);
         }
         if ( ! empty($fonts['missing_css']) ) {
-            $signals[] = array('severity' => 'info', 'code' => 'font_css_missing', 'count' => count($fonts['missing_css']));
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'font_css_missing',
+                'count' => count($fonts['missing_css']),
+                'font_usage' => $this->fontUsageForFamilies(is_array($fonts['usage'] ?? null) ? $fonts['usage'] : array(), $fonts['missing_css']),
+            );
         }
         if ( ! empty($layout['large_negative_left_count']) ) {
             $signals[] = array('severity' => 'warning', 'code' => 'off_canvas_left_css', 'count' => (int) $layout['large_negative_left_count']);
@@ -1203,7 +1211,7 @@ final class FigmaTransformer
 
     /**
      * @param array<int, mixed> ...$usageSets
-     * @return array<int, array{family: string, weights: array<int, int>}>
+     * @return array<int, array<string, mixed>>
      */
     private function mergeFontUsage(array ...$usageSets): array
     {
@@ -1219,14 +1227,24 @@ final class FigmaTransformer
                     continue;
                 }
 
-                if ( ! isset($usage[$family]) ) {
-                    $usage[$family] = array();
-                }
+                $usage[$family] ??= array('weights' => array(), 'weight_counts' => array(), 'text_node_count' => 0, 'visible_text_area_px' => 0, 'sample_nodes' => array());
 
                 $weights = is_array($item['weights'] ?? null) ? $item['weights'] : array($item['weight'] ?? 400);
                 foreach ( $weights as $weight ) {
                     if ( is_numeric($weight) ) {
-                        $usage[$family][(int) $weight] = true;
+                        $usage[$family]['weights'][(int) $weight] = true;
+                    }
+                }
+                foreach ( is_array($item['weight_counts'] ?? null) ? $item['weight_counts'] : array() as $weight => $count ) {
+                    if ( is_numeric($weight) ) {
+                        $usage[$family]['weight_counts'][(string) (int) $weight] = ($usage[$family]['weight_counts'][(string) (int) $weight] ?? 0) + (int) $count;
+                    }
+                }
+                $usage[$family]['text_node_count'] += (int) ($item['text_node_count'] ?? 0);
+                $usage[$family]['visible_text_area_px'] += (int) ($item['visible_text_area_px'] ?? 0);
+                foreach ( is_array($item['sample_nodes'] ?? null) ? $item['sample_nodes'] : array() as $sampleNode ) {
+                    if ( is_array($sampleNode) && count($usage[$family]['sample_nodes']) < 10 ) {
+                        $usage[$family]['sample_nodes'][] = $sampleNode;
                     }
                 }
             }
@@ -1234,13 +1252,35 @@ final class FigmaTransformer
 
         ksort($usage, SORT_NATURAL | SORT_FLAG_CASE);
         $merged = array();
-        foreach ( $usage as $family => $weights ) {
-            $weightValues = array_keys($weights);
+        foreach ( $usage as $family => $data ) {
+            $weightValues = array_keys($data['weights']);
             sort($weightValues, SORT_NUMERIC);
-            $merged[] = array('family' => $family, 'weights' => $weightValues);
+            ksort($data['weight_counts']);
+            $merged[] = array(
+                'family' => $family,
+                'weights' => $weightValues,
+                'weight_counts' => $data['weight_counts'],
+                'text_node_count' => (int) $data['text_node_count'],
+                'visible_text_area_px' => (int) $data['visible_text_area_px'],
+                'sample_nodes' => $data['sample_nodes'],
+            );
         }
 
         return $merged;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fontUsage
+     * @param array<int, string> $families
+     * @return array<int, array<string, mixed>>
+     */
+    private function fontUsageForFamilies(array $fontUsage, array $families): array
+    {
+        $wanted = array_fill_keys(array_map('strtolower', $families), true);
+        return array_values(array_filter(
+            $fontUsage,
+            static fn (array $usage): bool => isset($wanted[strtolower((string) ($usage['family'] ?? ''))])
+        ));
     }
 
     /**

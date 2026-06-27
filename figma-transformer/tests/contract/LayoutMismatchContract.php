@@ -38,4 +38,24 @@ function blocks_engine_figma_transformer_run_layout_mismatch_contract(callable $
     $assert(4 === ($summary['code_counts']['misplaced_element'] ?? null), 'layout-mismatch-code-counts-uncapped');
     $assert(4 === ($summary['clusters']['repeated_position_delta'][0]['count'] ?? null), 'layout-mismatch-clusters-uncapped');
     $assert(2 === count($report['diagnostics'] ?? array()), 'layout-mismatch-diagnostics-limited');
+
+    $fontReport = ( new LayoutMismatchReportBuilder() )->build(
+        array(
+            'font_families' => array('Example Sans'),
+            'font_usage' => array(array('family' => 'Example Sans', 'weights' => array(400), 'text_node_count' => 1, 'visible_text_area_px' => 3200)),
+            'visual_node_map' => array(array('id' => 'font:node', 'name' => 'Font node', 'type' => 'TEXT', 'rect' => array('x' => 0, 'y' => 0, 'width' => 160, 'height' => 20))),
+            'node_style_diagnostics' => array(
+                array(
+                    'node' => array('id' => 'font:node', 'type' => 'TEXT'),
+                    'expected' => array('font_family' => '"Example Sans"'),
+                ),
+            ),
+        ),
+        array('boxes' => array(array('node_id' => 'font:node', 'rect' => array('x' => 0, 'y' => 0, 'width' => 160, 'height' => 20), 'computed_style' => array('font-family' => 'Arial, sans-serif'), 'document_fonts_check' => false)))
+    );
+    $fontRendering = $fontReport['summary']['font_rendering'] ?? array();
+    $assert('warn' === ($fontRendering['status'] ?? null), 'layout-mismatch-font-rendering-warn');
+    $assert(1 === ($fontRendering['computed_font_family_mismatch_count'] ?? null), 'layout-mismatch-font-rendering-computed-family-mismatch');
+    $assert(1 === ($fontRendering['document_fonts_check_failure_count'] ?? null), 'layout-mismatch-font-rendering-font-check-failure');
+    $assert(3200 === ($fontRendering['source_font_usage'][0]['visible_text_area_px'] ?? null), 'layout-mismatch-font-rendering-source-usage-area');
 }
