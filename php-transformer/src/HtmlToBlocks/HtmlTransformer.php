@@ -2192,9 +2192,14 @@ final class HtmlTransformer
     private function presentationClassName(string $className): string
     {
         $classes = preg_split('/\s+/', trim($className)) ?: array();
-        $classes = array_filter($classes, static fn (string $class): bool => '' !== $class && ! str_starts_with($class, 'js-'));
+        $classes = array_filter($classes, static fn (string $class): bool => '' !== $class && ! self::isBehaviorHookClassName($class));
 
         return implode(' ', array_values(array_unique($classes)));
+    }
+
+    private static function isBehaviorHookClassName(string $className): bool
+    {
+        return 1 === preg_match('/^js(?:$|[-_:]|[A-Z])/', $className);
     }
 
     /**
