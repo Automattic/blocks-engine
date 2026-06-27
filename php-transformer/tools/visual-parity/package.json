@@ -9,6 +9,7 @@
     "blocks-engine-dom-box-provider": "bin/dom-box-provider.mjs"
   },
   "scripts": {
+    "install:browsers": "playwright install chromium",
     "test": "node tests/smoke.mjs"
   },
   "devDependencies": {

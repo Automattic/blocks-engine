@@ -1,5 +1,6 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -8,8 +9,11 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const outputDir = path.join(root, 'tmp');
 const output = path.join(outputDir, 'visual-parity-smoke.json');
 const domFixture = path.join(outputDir, 'dom-box.html');
+const missingPlaywrightDir = path.join(tmpdir(), `blocks-engine-dom-provider-missing-playwright-${process.pid}`);
+const missingPlaywrightProvider = path.join(missingPlaywrightDir, 'dom-box-provider.mjs');
 
 await mkdir(outputDir, { recursive: true });
+await mkdir(missingPlaywrightDir, { recursive: true });
 
 await run(process.execPath, [
   path.join(root, 'bin/visual-parity.mjs'),
@@ -59,8 +63,19 @@ try {
   await new Promise((resolve) => server.close(resolve));
 }
 
+await copyFile(path.join(root, 'bin/dom-box-provider.mjs'), missingPlaywrightProvider);
+const missingPlaywright = await runFailure(process.execPath, [missingPlaywrightProvider], missingPlaywrightDir, {
+  ...process.env,
+  HOMEBOY_DOM_BOX_BASE_URL: 'http://127.0.0.1:9',
+  HOMEBOY_DOM_BOX_PAGE_PATHS_JSON: JSON.stringify(['/dom-box.html']),
+});
+assert(missingPlaywright.stderr.includes('Playwright is required for DOM box capture but is not installed.'), 'DOM provider explains missing Playwright dependency');
+assert(missingPlaywright.stderr.includes('npm ci --prefix php-transformer/tools/visual-parity'), 'DOM provider suggests npm ci');
+assert(missingPlaywright.stderr.includes('install:browsers'), 'DOM provider suggests browser install script');
+
 await rm(output, { force: true });
 await rm(domFixture, { force: true });
+await rm(missingPlaywrightDir, { recursive: true, force: true });
 console.log('Visual parity smoke test passed.');
 
 function run(command, args, cwd) {
@@ -73,6 +88,28 @@ function run(command, args, cwd) {
         return;
       }
       reject(new Error(`${command} exited with ${code}`));
+    });
+  });
+}
+
+function runFailure(command, args, cwd, env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      if (code === 0) {
+        reject(new Error(`${command} unexpectedly exited with 0`));
+        return;
+      }
+      resolve({ code, stdout, stderr });
     });
   });
 }
