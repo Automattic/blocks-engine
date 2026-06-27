@@ -58,6 +58,10 @@ final class RuntimeDependencyParityReport
                     continue;
                 }
 
+                if ( $this->isFormControlTarget($target) && true !== ( $dependency['control_runtime'] ?? false ) ) {
+                    continue;
+                }
+
                 $severity = 'telemetry' === $scriptKind ? 'info' : 'warning';
                 $repairBucket = $canvasApi ? 'runtime_canvas_target_preservation' : 'runtime_dom_target_preservation';
                 $findings[] = array_filter(array(
@@ -169,6 +173,7 @@ final class RuntimeDependencyParityReport
         $dependencies = array();
         $eventsBySelector = $this->eventsBySelector($script);
         $canvasSelectors = $this->scriptCanvasSelectors($script);
+        $controlRuntimeSelectors = $this->scriptControlRuntimeSelectors($script);
 
         if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $id ) {
@@ -178,6 +183,7 @@ final class RuntimeDependencyParityReport
                     'selector'   => $selector,
                     'events'     => $eventsBySelector[$selector] ?? array(),
                     'canvas_api' => isset($canvasSelectors[$selector]),
+                    'control_runtime' => isset($controlRuntimeSelectors[$selector]),
                 );
             }
         }
@@ -190,6 +196,7 @@ final class RuntimeDependencyParityReport
                     'selector'   => $selector,
                     'events'     => $eventsBySelector[$selector] ?? array(),
                     'canvas_api' => isset($canvasSelectors[$selector]),
+                    'control_runtime' => isset($controlRuntimeSelectors[$selector]),
                 );
             }
         }
@@ -202,6 +209,7 @@ final class RuntimeDependencyParityReport
                     'selector'   => $selector,
                     'events'     => $eventsBySelector[$selector] ?? array(),
                     'canvas_api' => isset($canvasSelectors[$selector]),
+                    'control_runtime' => isset($controlRuntimeSelectors[$selector]),
                 );
             }
         }
@@ -214,11 +222,48 @@ final class RuntimeDependencyParityReport
                     'selector'   => $selector,
                     'events'     => $eventsBySelector[$selector] ?? array(),
                     'canvas_api' => isset($canvasSelectors[$selector]),
+                    'control_runtime' => isset($controlRuntimeSelectors[$selector]),
                 );
             }
         }
 
         return $this->dedupeDependencies($dependencies);
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    private function scriptControlRuntimeSelectors(string $script): array
+    {
+        $selectors = array();
+        $runtimeUsePattern = '\.\s*(?:addEventListener|value|checked|selectedIndex|selectedOptions|options|files|validity|setCustomValidity|focus|select|click|dispatchEvent)\b';
+
+        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*(?:\.\s*[^;\n]*)?' . $runtimeUsePattern . '/', $script, $matches) ) {
+            foreach ( $matches[2] as $id ) {
+                $selectors['#' . (string) $id] = true;
+            }
+        }
+        if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*(?:\.\s*[^;\n]*)?' . $runtimeUsePattern . '/', $script, $matches) ) {
+            foreach ( $matches[2] as $selector ) {
+                $selectors[(string) $selector] = true;
+            }
+        }
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+            foreach ( $assignments as $assignment ) {
+                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $runtimeUsePattern . '/', $script) ) {
+                    $selectors['#' . (string) $assignment[3]] = true;
+                }
+            }
+        }
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+            foreach ( $assignments as $assignment ) {
+                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $runtimeUsePattern . '/', $script) ) {
+                    $selectors[(string) $assignment[3]] = true;
+                }
+            }
+        }
+
+        return $selectors;
     }
 
     /**
@@ -258,6 +303,14 @@ final class RuntimeDependencyParityReport
         }
 
         return $selectors;
+    }
+
+    /**
+     * @param array<string, mixed> $target
+     */
+    private function isFormControlTarget(array $target): bool
+    {
+        return in_array((string) ($target['tag'] ?? ''), array('button', 'input', 'select', 'textarea'), true);
     }
 
     /**
@@ -330,8 +383,8 @@ final class RuntimeDependencyParityReport
     }
 
     /**
-     * @param array<int, array{kind: string, selector: string, events: array<int, string>, canvas_api: bool}> $dependencies
-     * @return array<int, array{kind: string, selector: string, events: array<int, string>, canvas_api: bool}>
+     * @param array<int, array{kind: string, selector: string, events: array<int, string>, canvas_api: bool, control_runtime?: bool}> $dependencies
+     * @return array<int, array{kind: string, selector: string, events: array<int, string>, canvas_api: bool, control_runtime?: bool}>
      */
     private function dedupeDependencies(array $dependencies): array
     {
@@ -341,6 +394,7 @@ final class RuntimeDependencyParityReport
             if ( isset($deduped[$selector]) ) {
                 $deduped[$selector]['events'] = array_values(array_unique(array_merge($deduped[$selector]['events'], $dependency['events'])));
                 $deduped[$selector]['canvas_api'] = $deduped[$selector]['canvas_api'] || $dependency['canvas_api'];
+                $deduped[$selector]['control_runtime'] = ( $deduped[$selector]['control_runtime'] ?? false ) || ( $dependency['control_runtime'] ?? false );
                 continue;
             }
             $deduped[$selector] = $dependency;
