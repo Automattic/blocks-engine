@@ -498,7 +498,22 @@ function matrix_font_css_passthrough(array $options): array
  */
 function matrix_evidence_options(array $options): array
 {
-    $map = array(
+    $templates = array();
+    foreach ( matrix_evidence_option_keys() as $optionKey => $templateKey ) {
+        if ( isset($options[$optionKey]) && is_scalar($options[$optionKey]) && '' !== (string) $options[$optionKey] ) {
+            $templates[$templateKey] = (string) $options[$optionKey];
+        }
+    }
+
+    return matrix_evidence_options_from_templates($templates);
+}
+
+/**
+ * @return array<string, string>
+ */
+function matrix_evidence_option_keys(): array
+{
+    return array(
         'parity_report' => 'parity_report_path',
         'parity_report_path' => 'parity_report_path',
         'dom_boxes' => 'dom_boxes_path',
@@ -510,21 +525,30 @@ function matrix_evidence_options(array $options): array
         'render_evidence' => 'render_evidence_path',
         'render_evidence_path' => 'render_evidence_path',
     );
-    $templates = array();
-    foreach ( $map as $optionKey => $templateKey ) {
-        if ( isset($options[$optionKey]) && is_scalar($options[$optionKey]) && '' !== (string) $options[$optionKey] ) {
-            $templates[$templateKey] = (string) $options[$optionKey];
-        }
-    }
+}
 
+/**
+ * @param array<string, string> $templates
+ * @return array{templates: array<string, string>, summary: array<string, mixed>}
+ */
+function matrix_evidence_options_from_templates(array $templates): array
+{
     return array(
         'templates' => $templates,
         'summary' => empty($templates) ? array('source' => 'none') : array(
             'source' => 'runner_paths',
             'templates' => $templates,
-            'template_tokens' => array('{fixture}', '{id}', '{frame_id}', '{page}', '{slug}'),
+            'template_tokens' => matrix_evidence_template_tokens(),
         ),
     );
+}
+
+/**
+ * @return array<int, string>
+ */
+function matrix_evidence_template_tokens(): array
+{
+    return array('{fixture}', '{id}', '{frame_id}', '{page}', '{slug}');
 }
 
 /**
@@ -534,16 +558,7 @@ function matrix_evidence_options(array $options): array
  */
 function matrix_merge_evidence_templates(array $evidenceOptions, array $templates): array
 {
-    $merged = array_merge($evidenceOptions['templates'], $templates);
-
-    return array(
-        'templates' => $merged,
-        'summary' => empty($merged) ? array('source' => 'none') : array(
-            'source' => 'runner_paths',
-            'templates' => $merged,
-            'template_tokens' => array('{fixture}', '{id}', '{frame_id}', '{page}', '{slug}'),
-        ),
-    );
+    return matrix_evidence_options_from_templates(array_merge($evidenceOptions['templates'], $templates));
 }
 
 /**
@@ -768,21 +783,28 @@ function matrix_evidence_path_records(array $paths): array
  */
 function matrix_evidence_transform_arguments(array $paths): array
 {
-    $map = array(
-        'parity_report_path' => '--parity-report-path=',
-        'dom_boxes_path' => '--parity-dom-boxes-path=',
-        'layout_report_path' => '--parity-layout-report-path=',
-        'layout_mismatch_report_path' => '--parity-layout-mismatch-report-path=',
-        'render_evidence_path' => '--parity-render-evidence-path=',
-    );
     $arguments = array();
-    foreach ( $map as $key => $argument ) {
+    foreach ( matrix_evidence_transform_argument_prefixes() as $key => $argument ) {
         if ( isset($paths[$key]) && '' !== $paths[$key] ) {
             $arguments[] = $argument . escapeshellarg($paths[$key]);
         }
     }
 
     return $arguments;
+}
+
+/**
+ * @return array<string, string>
+ */
+function matrix_evidence_transform_argument_prefixes(): array
+{
+    return array(
+        'parity_report_path' => '--parity-report-path=',
+        'dom_boxes_path' => '--parity-dom-boxes-path=',
+        'layout_report_path' => '--parity-layout-report-path=',
+        'layout_mismatch_report_path' => '--parity-layout-mismatch-report-path=',
+        'render_evidence_path' => '--parity-render-evidence-path=',
+    );
 }
 
 /**
@@ -880,13 +902,7 @@ function matrix_attach_evidence_to_result(array $result, array $evidence): array
     $parity['layout_diagnostics'] = is_array($parity['layout_diagnostics'] ?? null) ? $parity['layout_diagnostics'] : array();
     $paths = is_array($evidence['paths'] ?? null) ? $evidence['paths'] : array();
 
-    foreach ( array(
-        'parity_report_path' => 'report_path',
-        'dom_boxes_path' => 'dom_boxes_path',
-        'layout_report_path' => 'layout_report_path',
-        'layout_mismatch_report_path' => 'layout_mismatch_report_path',
-        'render_evidence_path' => 'render_evidence_path',
-    ) as $pathKey => $artifactKey ) {
+    foreach ( matrix_evidence_artifact_keys() as $pathKey => $artifactKey ) {
         $path = matrix_evidence_record_path($paths[$pathKey] ?? null);
         if ( '' !== $path ) {
             $parity['artifacts'][$artifactKey] = $path;
@@ -918,6 +934,20 @@ function matrix_attach_evidence_to_result(array $result, array $evidence): array
 
     $result['parity'] = $parity;
     return $result;
+}
+
+/**
+ * @return array<string, string>
+ */
+function matrix_evidence_artifact_keys(): array
+{
+    return array(
+        'parity_report_path' => 'report_path',
+        'dom_boxes_path' => 'dom_boxes_path',
+        'layout_report_path' => 'layout_report_path',
+        'layout_mismatch_report_path' => 'layout_mismatch_report_path',
+        'render_evidence_path' => 'render_evidence_path',
+    );
 }
 
 /**
