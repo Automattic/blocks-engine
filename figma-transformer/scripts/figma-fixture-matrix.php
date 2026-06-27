@@ -1178,6 +1178,9 @@ function matrix_selected_frame_records(array $inspection, array $frameIds): arra
             'score' => $candidate['score'] ?? null,
             'rank' => matrix_candidate_rank($candidate),
             'bucket' => matrix_candidate_bucket($candidate),
+            'device_hint' => $candidate['device_hint'] ?? null,
+            'sibling_group_key' => $candidate['sibling_group_key'] ?? null,
+            'responsive_siblings' => is_array($candidate['responsive_siblings'] ?? null) ? $candidate['responsive_siblings'] : array(),
             'selection_reasons' => matrix_candidate_selection_reasons($candidate),
         );
     }

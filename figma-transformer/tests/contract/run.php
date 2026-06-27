@@ -1682,12 +1682,22 @@ $frameInspection = blocks_engine_figma_transformer_inspect_frames_scenegraph(arr
                                 array('id' => 'image:hero', 'type' => 'RECTANGLE', 'name' => 'Hero image', 'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'hero'))),
                             ),
                         ),
+                        array(
+                            'id' => 'frame:home-mobile',
+                            'type' => 'FRAME',
+                            'name' => 'Home Page Mobile',
+                            'width' => 390,
+                            'height' => 1200,
+                            'children' => array(
+                                array('id' => 'text:hero-mobile', 'type' => 'TEXT', 'name' => 'Hero Mobile', 'characters' => 'Hello'),
+                            ),
+                        ),
                     ),
                 ),
             ),
         ),
     ),
-), array('frame_inspection_limit' => 2));
+), array('frame_inspection_limit' => 3));
 $frameInspectionHome = null;
 foreach ( $frameInspection['candidates'] ?? array() as $candidate ) {
     if ( is_array($candidate) && 'frame:home' === ($candidate['id'] ?? null) ) {
@@ -1696,11 +1706,14 @@ foreach ( $frameInspection['candidates'] ?? array() as $candidate ) {
     }
 }
 $assert('blocks-engine/figma-transformer/frame-inspection/v1' === ($frameInspection['schema'] ?? null), 'frame-inspection-schema');
-$assert(2 === ($frameInspection['returned_count'] ?? null), 'frame-inspection-limit');
+$assert(3 === ($frameInspection['returned_count'] ?? null), 'frame-inspection-limit');
 $assert('Page One' === ($frameInspectionHome['page']['name'] ?? null), 'frame-inspection-page-ancestor');
 $assert('Marketing Pages' === ($frameInspectionHome['section']['name'] ?? null), 'frame-inspection-section-ancestor');
 $assert(1 === ($frameInspectionHome['text_count'] ?? null), 'frame-inspection-text-count');
 $assert(1 === ($frameInspectionHome['asset_reference_count'] ?? null), 'frame-inspection-asset-count');
+$assert('desktop' === ($frameInspectionHome['device_hint'] ?? null), 'frame-inspection-desktop-device-hint');
+$assert('frame:home-mobile' === ($frameInspectionHome['responsive_siblings'][0]['id'] ?? null), 'frame-inspection-responsive-sibling-id');
+$assert('mobile' === ($frameInspectionHome['responsive_siblings'][0]['device_hint'] ?? null), 'frame-inspection-responsive-sibling-device-hint');
 
 $matrixWebsiteCandidate = array(
     'id'         => 'matrix:site:home',
