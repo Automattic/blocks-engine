@@ -768,6 +768,34 @@ $assert(str_contains($unknownSerialized, 'Playground'), 'ancestor content around
 $assert(str_contains($unknownSerialized, 'Before embed.'), 'ancestor content before unknown iframe still converts');
 $assert(str_contains($unknownSerialized, 'After embed.'), 'ancestor content after unknown iframe still converts');
 
+$staticTemplate = ( new HtmlTransformer() )->transform(
+    '<main><section><h2>Visible</h2><template><article><h3>Deferred article</h3><p>Readable metadata.</p></article></template><p>After.</p></section></main>'
+)->toArray();
+$staticTemplateDiagnostics = $staticTemplate['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$staticTemplateMetadata = array_values(array_filter($staticTemplateDiagnostics, static fn (array $diagnostic): bool => 'html_template_metadata' === ($diagnostic['diagnostic_code'] ?? '')));
+$assert(1 === count($staticTemplateMetadata), 'static HTML template emits bounded metadata instead of unsupported fallback');
+$assert('native_conversion' === ($staticTemplateMetadata[0]['conversion_classification'] ?? ''), 'static HTML template metadata is not classified as unsupported loss');
+$assert('inert_template_metadata' === ($staticTemplateMetadata[0]['pattern_family'] ?? ''), 'static HTML template exposes generic inert template pattern family');
+$assert('none' === ($staticTemplateMetadata[0]['runtime_requirement'] ?? ''), 'static HTML template metadata does not require runtime');
+$staticTemplateUnsupported = array_values(array_filter($staticTemplateDiagnostics, static fn (array $diagnostic): bool => 'html_unsupported_element' === ($diagnostic['diagnostic_code'] ?? '')));
+$assert(array() === $staticTemplateUnsupported, 'static HTML template does not emit unsupported element fallback diagnostics');
+$assert(! str_contains((string) ($staticTemplate['serialized_blocks'] ?? ''), 'Deferred article'), 'static HTML template content is omitted from visual block output');
+
+$runtimeTemplate = ( new HtmlTransformer() )->transform(
+    '<main><div id="content-store" hidden><template data-content="readme"><article><h1>Runtime readme</h1><p>Loaded by app.js.</p></article></template></div><script src="/app.js"></script></main>'
+)->toArray();
+$runtimeTemplateDiagnostics = $runtimeTemplate['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$runtimeTemplateFallbacks = array_values(array_filter($runtimeTemplateDiagnostics, static fn (array $diagnostic): bool => 'html_template_runtime_fallback' === ($diagnostic['diagnostic_code'] ?? '')));
+$assert(1 === count($runtimeTemplateFallbacks), 'runtime HTML template emits template runtime fallback metadata');
+$assert('runtime_island_preserved' === ($runtimeTemplateFallbacks[0]['conversion_classification'] ?? ''), 'runtime HTML template fallback is classified as preserved runtime island');
+$assert('runtime_template' === ($runtimeTemplateFallbacks[0]['pattern_family'] ?? ''), 'runtime HTML template exposes generic runtime template pattern family');
+$templateRuntimeIslands = array_values(array_filter($runtimeTemplate['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'template' === ($island['kind'] ?? '')));
+$assert(1 === count($templateRuntimeIslands), 'runtime HTML template projects as a runtime island');
+$assert('template_requires_runtime' === ($templateRuntimeIslands[0]['preservation_reason'] ?? ''), 'runtime HTML template island exposes preservation reason');
+$assert('data_template' === ($templateRuntimeIslands[0]['template_role'] ?? ''), 'runtime HTML template island preserves source role metadata');
+$assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<!-- wp:html'), 'runtime HTML template does not emit raw HTML fallback blocks');
+$assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<template'), 'runtime HTML template does not serialize inert template markup into visual output');
+
 $canvasFallback = ( new HtmlTransformer() )->transform(
     '<main><canvas id="bonsai" class="stage" width="640" height="360">Fallback</canvas><script src="/js/script.js"></script></main>',
     array('runtime_canvas_selectors' => array('#bonsai'))
