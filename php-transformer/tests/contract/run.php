@@ -722,6 +722,33 @@ $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallba
 $assert(! isset($diagnosticsByCode['html_inline_svg_fallback']), 'safe inline SVGs convert to image blocks instead of fallback diagnostics');
 $assert(! isset($diagnosticsByCode['html_canvas_runtime_fallback']), 'non-runtime canvas does not emit runtime canvas fallback diagnostics');
 
+$safeProviderIframe = ( new HtmlTransformer() )->transform(
+    '<main><iframe title="Demo" src="https://www.youtube.com/embed/dQw4w9WgXcQ" width="560" height="315"></iframe></main>'
+)->toArray();
+$safeProviderBlock = $safeProviderIframe['blocks'][0] ?? array();
+$assert('core/embed' === ($safeProviderBlock['blockName'] ?? ''), 'safe provider iframe converts to core/embed');
+$assert('https://www.youtube.com/watch?v=dQw4w9WgXcQ' === ($safeProviderBlock['attrs']['url'] ?? ''), 'safe provider iframe canonicalizes embed URL');
+$assert('youtube' === ($safeProviderBlock['attrs']['providerNameSlug'] ?? ''), 'safe provider iframe records provider slug');
+$assert(array() === ($safeProviderIframe['fallbacks'] ?? array()), 'safe provider iframe does not emit fallback metadata');
+
+$unknownIframe = ( new HtmlTransformer() )->transform(
+    '<main><section><h2>Playground</h2><p>Before embed.</p><iframe title="Interactive demo" src="https://example.test/playground" width="640" height="360" allow="fullscreen"></iframe><p>After embed.</p></section></main>'
+)->toArray();
+$unknownDiagnostics = $unknownIframe['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$unknownIframeDiagnostics = array_values(array_filter($unknownDiagnostics, static fn (array $diagnostic): bool => 'html_iframe_embed_fallback' === ($diagnostic['diagnostic_code'] ?? '')));
+$assert(1 === count($unknownIframeDiagnostics), 'unknown iframe emits one iframe fallback diagnostic');
+$assert('runtime_island_preserved' === ($unknownIframeDiagnostics[0]['conversion_classification'] ?? ''), 'unknown iframe fallback is classified as runtime island preservation');
+$assert('https://example.test/playground' === ($unknownIframe['fallbacks'][0]['attributes']['src'] ?? ''), 'unknown iframe fallback preserves bounded safe src metadata');
+$unknownIframeIslands = array_values(array_filter($unknownIframe['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'iframe' === ($island['kind'] ?? '')));
+$assert(1 === count($unknownIframeIslands), 'unknown iframe projects as a runtime island');
+$assert('iframe_requires_embed_runtime' === ($unknownIframeIslands[0]['preservation_reason'] ?? ''), 'unknown iframe runtime island exposes preservation reason');
+$unknownSerialized = (string) ($unknownIframe['serialized_blocks'] ?? '');
+$assert(! str_contains($unknownSerialized, '<!-- wp:embed'), 'unknown iframe does not become a provider embed block');
+$assert(! str_contains($unknownSerialized, '<!-- wp:html'), 'unknown iframe does not force raw HTML fallback materialization');
+$assert(str_contains($unknownSerialized, 'Playground'), 'ancestor content around unknown iframe still converts heading content');
+$assert(str_contains($unknownSerialized, 'Before embed.'), 'ancestor content before unknown iframe still converts');
+$assert(str_contains($unknownSerialized, 'After embed.'), 'ancestor content after unknown iframe still converts');
+
 $canvasFallback = ( new HtmlTransformer() )->transform(
     '<main><canvas id="bonsai" class="stage" width="640" height="360">Fallback</canvas><script src="/js/script.js"></script></main>',
     array('runtime_canvas_selectors' => array('#bonsai'))
