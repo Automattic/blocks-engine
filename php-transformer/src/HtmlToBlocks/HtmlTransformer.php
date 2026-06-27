@@ -5188,6 +5188,7 @@ final class HtmlTransformer
         $attrs = array(
             'href'            => $this->safeLinkUrl($this->attr($link, 'href')),
             'linkDestination' => 'custom',
+            'linkAnchor'      => $this->safeAnchor($this->attr($link, 'id')),
             'linkTarget'      => $this->attr($link, 'target'),
             'rel'             => $this->attr($link, 'rel'),
             'linkClass'       => $this->attr($link, 'class'),
