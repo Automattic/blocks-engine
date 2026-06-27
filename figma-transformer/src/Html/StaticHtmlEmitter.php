@@ -1630,7 +1630,8 @@ final class StaticHtmlEmitter
             $sizing = strtoupper((string) ($layout[$sizingKey] ?? ''));
             if ( 'HUG' === $sizing ) {
                 if ( 'flex' === ($layout['display'] ?? null) && isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
-                    $styles[] = $dimension . ':' . $this->number((float) $box[$dimension]) . 'px';
+                    $intrinsicMainAxisSize = $this->flexHugMainAxisIntrinsicSizeStyle($node, $dimension);
+                    $styles[] = $dimension . ':' . (null === $intrinsicMainAxisSize ? $this->number((float) $box[$dimension]) . 'px' : $intrinsicMainAxisSize);
                 } else {
                     $styles[] = $dimension . ':fit-content';
                 }
@@ -1757,6 +1758,65 @@ final class StaticHtmlEmitter
         }
 
         return array_values(array_unique($styles));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function flexHugMainAxisIntrinsicSizeStyle(array $node, string $dimension): ?string
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $isRow = 'row' === ($layout['flex_direction'] ?? null);
+        $mainAxis = $isRow ? 'width' : 'height';
+        if ( $dimension !== $mainAxis || 'wrap' === ($layout['flex_wrap'] ?? null) || ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) ) {
+            return null;
+        }
+
+        $children = $this->nodeList($node);
+        if ( empty($children) ) {
+            return null;
+        }
+
+        $childCount = 0;
+        $childMainSpan = 0.0;
+        foreach ( $children as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $childLayout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( 'absolute' === ($childLayout['positioning'] ?? null) || $this->isDecorativeFlexUnderlay($child, $node) ) {
+                continue;
+            }
+
+            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
+            if ( ! isset($childBox[$mainAxis]) || ! is_numeric($childBox[$mainAxis]) ) {
+                return null;
+            }
+
+            $childMainSpan += (float) $childBox[$mainAxis];
+            $childCount++;
+        }
+
+        if ( 0 === $childCount ) {
+            return null;
+        }
+
+        $padding = is_array($layout['padding'] ?? null) ? $layout['padding'] : array();
+        $paddingStart = $isRow ? 'left' : 'top';
+        $paddingEnd = $isRow ? 'right' : 'bottom';
+        $paddingSpan = 0.0;
+        foreach ( array($paddingStart, $paddingEnd) as $edge ) {
+            if ( isset($padding[$edge]) && is_numeric($padding[$edge]) ) {
+                $paddingSpan += (float) $padding[$edge];
+            }
+        }
+
+        $gap = isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ? (float) $layout['item_spacing'] : 0.0;
+        $intrinsicMainSpan = $childMainSpan + $paddingSpan + max(0, $childCount - 1) * $gap;
+
+        return $intrinsicMainSpan > (float) $box[$dimension] + 1.0 ? 'max-content' : null;
     }
 
     /**

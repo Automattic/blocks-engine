@@ -3148,6 +3148,33 @@ $assert(str_contains($layoutFidelityCss, '.figma-node-5-5-absolute-badge{width:5
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-6-matrix-transform{width:30px;height:30px;transform:matrix(0,1,-1,0,40,60);transform-origin:0 0;flex-shrink:0}'), 'layout-relative-transform-matrix');
 $assert(! str_contains($layoutFidelityCss, 'font-family:Inter') && ! str_contains($layoutFidelityCss, 'body{margin:0;background') && ! str_contains($layoutFidelityCss, 'body{margin:0;color'), 'layout-css-avoids-theme-defaults');
 
+$hugOverflowResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Hug Flex Overflow Fixture',
+    'nodes' => array(
+        array(
+            'id'                     => 'hug-overflow:button',
+            'type'                   => 'FRAME',
+            'name'                   => 'Hug overflow button',
+            'width'                  => 73,
+            'height'                 => 40,
+            'layoutMode'             => 'HORIZONTAL',
+            'primaryAxisAlignItems'  => 'MAX',
+            'counterAxisAlignItems'  => 'CENTER',
+            'layoutSizingHorizontal' => 'HUG',
+            'layoutSizingVertical'   => 'HUG',
+            'itemSpacing'            => 8,
+            'paddingLeft'            => 6,
+            'paddingRight'           => 6,
+            'children'               => array(
+                array('id' => 'hug-overflow:left', 'type' => 'RECTANGLE', 'name' => 'Left intrinsic item', 'width' => 50, 'height' => 20),
+                array('id' => 'hug-overflow:right', 'type' => 'RECTANGLE', 'name' => 'Right intrinsic item', 'width' => 50, 'height' => 20),
+            ),
+        ),
+    ),
+));
+$hugOverflowCss = $fileContent($hugOverflowResult, 'style.css');
+$assert(str_contains($hugOverflowCss, '.figma-node-hug-overflow-button-hug-overflow-button{width:max-content;height:40px;display:flex;flex-direction:row;justify-content:flex-end;align-items:center;padding-right:6px;padding-left:6px;gap:8px}'), 'layout-hug-flex-main-axis-expands-to-intrinsic-span');
+
 $visualFlexAlignmentResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Visual Flex Alignment Fixture',
     'nodes' => array(
