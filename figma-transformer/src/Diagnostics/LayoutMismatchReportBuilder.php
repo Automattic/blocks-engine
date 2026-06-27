@@ -36,8 +36,8 @@ final class LayoutMismatchReportBuilder
                 continue;
             }
 
-            $sourceBox = $this->boxFromNode($sourceNode);
             $generatedBox = $this->boxFromNode($generatedNode);
+            $sourceBox = null === $generatedBox ? $this->boxFromNode($sourceNode) : $this->sourceBoxForGeneratedBox($sourceNode, $generatedBox);
             if ( null === $sourceBox || null === $generatedBox ) {
                 continue;
             }
@@ -491,6 +491,40 @@ final class LayoutMismatchReportBuilder
         }
 
         return $this->boxFromValue($node);
+    }
+
+    /**
+     * @param array<string, mixed> $sourceNode
+     * @param array{x: float, y: float, width: float, height: float} $generatedBox
+     * @return array{x: float, y: float, width: float, height: float}|null
+     */
+    private function sourceBoxForGeneratedBox(array $sourceNode, array $generatedBox): ?array
+    {
+        $sourceBox = $this->boxFromNode($sourceNode);
+        if ( ! is_array($sourceNode['visible_rect'] ?? null) ) {
+            return $sourceBox;
+        }
+
+        $visibleBox = $this->boxFromValue($sourceNode['visible_rect']);
+        if ( null === $sourceBox || null === $visibleBox ) {
+            return $sourceBox ?? $visibleBox;
+        }
+
+        return $this->boxDistance($visibleBox, $generatedBox) < $this->boxDistance($sourceBox, $generatedBox) ? $visibleBox : $sourceBox;
+    }
+
+    /**
+     * @param array{x: float, y: float, width: float, height: float} $left
+     * @param array{x: float, y: float, width: float, height: float} $right
+     */
+    private function boxDistance(array $left, array $right): float
+    {
+        return max(
+            abs($right['x'] - $left['x']),
+            abs($right['y'] - $left['y']),
+            abs($right['width'] - $left['width']),
+            abs($right['height'] - $left['height'])
+        );
     }
 
     /**
