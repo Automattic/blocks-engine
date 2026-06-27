@@ -97,6 +97,20 @@ final class BlockFactory
             return '<pre class="wp-block-code"><code>' . $content . '</code></pre>';
         }
 
+        if ( 'core/math' === $name ) {
+            return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-math') . '>' . ($attrs['content'] ?? '') . '</div>';
+        }
+
+        if ( 'core/icon' === $name ) {
+            $iconAttrs = array(
+                'class'       => $this->mergeClassNames('wp-block-icon', (string) ($attrs['className'] ?? '')),
+                'style'       => (string) ($attrs['style'] ?? ''),
+                'aria-label'  => (string) ($attrs['label'] ?? ''),
+                'aria-hidden' => ! empty($attrs['ariaHidden']) ? 'true' : '',
+            );
+            return '<div' . $this->htmlAttrs($iconAttrs) . '>' . ($attrs['svg'] ?? '') . '</div>';
+        }
+
         if ( 'core/preformatted' === $name ) {
             return '<pre' . $this->blockSupportAttrs($attrs, 'wp-block-preformatted') . '>' . ($attrs['content'] ?? '') . '</pre>';
         }

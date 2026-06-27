@@ -509,18 +509,35 @@ $safeInlineSvgSerialized = (string) ($safeInlineSvg['serialized_blocks'] ?? '');
 $assert('success' === ($safeInlineSvg['status'] ?? ''), 'safe inline SVG does not trip strict fallback gates', (string) ($safeInlineSvg['status'] ?? ''));
 $assert(array() === ($safeInlineSvg['fallbacks'] ?? array()), 'safe decorative inline SVG is consumed instead of recorded as fallback metadata');
 $assert('core/group' === ($safeInlineSvg['blocks'][0]['blockName'] ?? ''), 'decorative inline SVG preserves its CSS-addressable wrapper when present');
+$assert('core/icon' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'icon-context decorative SVG converts to a core icon block');
 $assert(! str_contains($safeInlineSvgSerialized, '<!-- wp:html'), 'safe inline SVG conversion avoids raw HTML blocks');
 $assert(! str_contains($safeInlineSvgSerialized, 'data:image/svg+xml,'), 'decorative inline SVG avoids image data URI noise');
-$assert(! str_contains(rawurldecode($safeInlineSvgSerialized), '<svg'), 'decorative inline SVG markup is omitted from serialized blocks');
+$assert(str_contains(rawurldecode($safeInlineSvgSerialized), '<svg'), 'decorative icon SVG markup is preserved in the core icon block');
 
 $safeInlineSvgAsset = ( new HtmlTransformer() )->transform(
     '<svg role="img" aria-label="Status badge" viewBox="0 0 10 10"><title>Status badge</title><circle cx="5" cy="5" r="4"></circle></svg>'
 )->toArray();
-$safeInlineSvgAssetPath = (string) ($safeInlineSvgAsset['blocks'][0]['attrs']['url'] ?? '');
-$assert(str_starts_with($safeInlineSvgAssetPath, 'assets/inline-svg-'), 'safe accessible inline SVG image references a generated SVG asset');
-$assert('image/svg+xml' === ($safeInlineSvgAsset['assets'][0]['mime_type'] ?? ''), 'safe accessible inline SVG exposes a materializable SVG asset');
-$assert(str_contains((string) ($safeInlineSvgAsset['assets'][0]['content'] ?? ''), 'aria-label="Status badge"'), 'safe accessible inline SVG asset preserves accessible label');
+$assert('core/icon' === ($safeInlineSvgAsset['blocks'][0]['blockName'] ?? ''), 'simple accessible inline SVG converts to a core icon block');
+$assert('Status badge' === ($safeInlineSvgAsset['blocks'][0]['attrs']['label'] ?? ''), 'safe accessible inline SVG icon preserves accessible label');
+$assert(array() === ($safeInlineSvgAsset['assets'] ?? array()), 'safe accessible inline SVG icon does not generate an image asset');
 $assert(! str_contains((string) ($safeInlineSvgAsset['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'safe accessible inline SVG avoids data URI serialization');
+
+$complexSvgAsset = ( new HtmlTransformer() )->transform(
+    '<svg role="img" aria-label="Site illustration" viewBox="0 0 400 200"><title>Site illustration</title><path d="M0 0h400v200H0z"></path></svg>'
+)->toArray();
+$assert('core/image' === ($complexSvgAsset['blocks'][0]['blockName'] ?? ''), 'large accessible inline SVG stays on the existing image asset path');
+
+$mathMlResult = ( new HtmlTransformer() )->transform('<main><math><mi>x</mi><mo>=</mo><mn>2</mn></math></main>')->toArray();
+$mathMlBlock = $mathMlResult['blocks'][0] ?? array();
+$assert('core/math' === ($mathMlBlock['blockName'] ?? ''), 'MathML converts to a core math block');
+$assert(str_contains((string) ($mathMlBlock['attrs']['content'] ?? ''), '<math>'), 'MathML core math block preserves the expression markup');
+
+$texClassResult = ( new HtmlTransformer() )->transform('<main><span class="katex">E = mc^2</span><p>\(a^2 + b^2 = c^2\)</p></main>')->toArray();
+$texClassBlocks = $texClassResult['blocks'][0]['innerBlocks'] ?? array();
+$assert('core/math' === ($texClassBlocks[0]['blockName'] ?? ''), 'math-like class wrapper converts to a core math block');
+$assert('E = mc^2' === ($texClassBlocks[0]['attrs']['content'] ?? ''), 'math-like class wrapper preserves expression text');
+$assert('core/math' === ($texClassBlocks[1]['blockName'] ?? ''), 'TeX-delimited text wrapper converts to a core math block');
+$assert(str_contains((string) ($texClassBlocks[1]['attrs']['content'] ?? ''), 'a^2 + b^2 = c^2'), 'TeX-delimited math preserves expression content');
 
 $unsafeInlineSvg = ( new HtmlTransformer() )->transform('<main><svg onload="alert(1)"><path d="M0 0h1v1z"></path></svg></main>')->toArray();
 $assert('html_unsafe_inline_svg' === ($unsafeInlineSvg['fallbacks'][0]['diagnostic_code'] ?? ''), 'unsafe inline SVG remains a fallback diagnostic');
@@ -1086,10 +1103,9 @@ $artifactNonEntryInlineSvg = $compiler->compile(
     )
 )->toArray();
 $artifactNonEntryInlineSvgPage = $artifactNonEntryInlineSvg['source_reports']['materialization_plan']['pages'][1] ?? array();
-$artifactNonEntryInlineSvgAsset = $artifactNonEntryInlineSvg['source_reports']['materialization_plan']['assets'][0] ?? array();
-$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), 'assets/inline-svg-'), 'non-entry artifact page references generated inline SVG asset');
-$assert('image/svg+xml' === ($artifactNonEntryInlineSvgAsset['mime_type'] ?? ''), 'non-entry artifact generated inline SVG asset is materialized');
-$assert(str_contains((string) ($artifactNonEntryInlineSvgAsset['content'] ?? ''), 'aria-label="About icon"'), 'non-entry artifact generated inline SVG asset preserves safe SVG content');
+$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), '<!-- wp:icon'), 'non-entry artifact simple icon SVG converts to a core icon block');
+$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), 'About icon'), 'non-entry artifact core icon preserves safe SVG accessible label');
+$assert(array() === ($artifactNonEntryInlineSvg['source_reports']['materialization_plan']['assets'] ?? array()), 'non-entry artifact simple icon SVG does not materialize a generated image asset');
 $assert(1 === ($simple['source_reports']['materialization_plan']['totals']['pages'] ?? null), 'materialization plan counts pages');
 $assert('index' === ($simple['source_reports']['materialization_plan']['pages'][0]['slug'] ?? ''), 'materialization plan exposes page slug');
 $assert('blocks' === ($simple['source_reports']['materialization_plan']['pages'][0]['body_format'] ?? ''), 'materialization plan exposes converted block body format');
