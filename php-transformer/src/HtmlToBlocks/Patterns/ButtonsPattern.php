@@ -152,10 +152,54 @@ final class ButtonsPattern
             return true;
         }
 
-		return $this->hasAnyToken($anchor, array( 'button', 'btn', 'cta', 'action' ))
+		return $this->hasButtonClassSignal($anchor)
+			|| $this->hasAnyToken($anchor, array( 'cta', 'action' ))
 			|| $this->hasPhrase($anchor, array( 'call-to-action', 'primary-action', 'secondary-action' ))
-			|| $this->hasActionText($anchor);
+			|| $this->hasActionText($anchor)
+			|| $this->hasButtonStyleSignal($anchor);
     }
+
+	/**
+	 * Detect button-like class/id tokens generically.
+	 *
+	 * Keys off the generic "btn"/"button" substring rather than any one specific
+	 * class string, so framework variants are all recognized: btn, btn-primary,
+	 * hero-btn, link-btn, btnPrimary, actionButton, icon-button, roundedbtn, etc.
+	 */
+	private function hasButtonClassSignal(DOMElement $element): bool
+	{
+		foreach ( array( 'class', 'id' ) as $attribute ) {
+			$value = strtolower($element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '');
+			if ( str_contains($value, 'btn') || str_contains($value, 'button') ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Detect button-like inline styling.
+	 *
+	 * Treats an element as a button when it carries padding plus a button shape
+	 * signal (a filled, non-transparent background or a border radius). This lets
+	 * styled anchors with no recognizable class still be promoted to buttons,
+	 * while plain text links (no padding/fill) stay links.
+	 */
+	private function hasButtonStyleSignal(DOMElement $element): bool
+	{
+		$style = strtolower($element->hasAttribute('style') ? $element->getAttribute('style') : '');
+		if ( '' === $style || ! preg_match('/(?:^|;)\s*padding(?:-[a-z]+)?\s*:\s*[^;]+/', $style) ) {
+			return false;
+		}
+
+		if ( preg_match('/(?:^|;)\s*border[a-z-]*radius\s*:\s*[^;]+/', $style) ) {
+			return true;
+		}
+
+		return preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*[^;]+/', $style) === 1
+			&& preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*(?:transparent|none|inherit|initial|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*(?:;|$)/', $style) !== 1;
+	}
 
 	private function hasContainerButtonSignal(DOMElement $element): bool
 	{

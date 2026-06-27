@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-button-generic-class-and-style-signal",
+  "description": "Recognizes button-like anchors generically: a camelCase class carrying the btn token, an inline button-shape style (padding plus fill and radius) with no recognizable class, and role=button all convert to core/buttons/core/button rather than plain links.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-button-generic-class-and-style-signal.json",
+    "notes": "Generic transformer boundary fixture for button-signal detection (button-fidelity diagnostic iteration)."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New generic button-signal detection has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><a class=\"btnPrimary\" href=\"/teams\">See the Teams</a><a href=\"/signup\" style=\"display:inline-block;padding:12px 24px;background:#0a66c2;color:#ffffff;border-radius:6px\">Sign up today</a><a href=\"/donate\" role=\"button\">Donate</a></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "See the Teams", "url": "/teams", "className": "btnPrimary" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/button", "attrs": { "text": "Sign up today", "url": "/signup", "style": "display:inline-block;padding:12px 24px;background:#0a66c2;color:#ffffff;border-radius:6px" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/button", "attrs": { "text": "Donate", "url": "/donate" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:buttons -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link wp-element-button btnPrimary\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"display:inline-block;padding:12px 24px;background:#0a66c2;color:#ffffff;border-radius:6px\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:paragraph" }
+  ]
+}
