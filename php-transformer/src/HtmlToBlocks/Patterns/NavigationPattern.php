@@ -66,6 +66,13 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
+            if ( $child instanceof DOMElement && $this->isNavigationChromeElement($child) ) {
+                if ( null !== $isRuntimeDomTarget && $isRuntimeDomTarget($child) ) {
+                    return array();
+                }
+                continue;
+            }
+
             if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== $this->anchorLabel($child, $innerHtml) ) {
                 if ( ! $allowsDirectItems ) {
                     return array();
@@ -84,13 +91,6 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             if ( $child instanceof DOMElement ) {
-                if ( $this->isMenuToggleControl($child) ) {
-                    if ( null !== $isRuntimeDomTarget && $isRuntimeDomTarget($child) ) {
-                        return array();
-                    }
-                    continue;
-                }
-
                 if ( ! $allowsDirectItems ) {
                     return array();
                 }
@@ -99,6 +99,14 @@ final class NavigationPattern implements PatternRecognizerInterface
                 if ( null !== $block ) {
                     $blocks[] = $block;
                     continue;
+                }
+
+                if ( $this->isNavigationWrapperElement($child) ) {
+                    $wrappedBlocks = $this->navigationBlocks($child, $presentationAttributes, $innerHtml, $createBlock, $isRuntimeDomTarget);
+                    if ( array() !== $wrappedBlocks ) {
+                        $blocks = array_merge($blocks, $wrappedBlocks);
+                        continue;
+                    }
                 }
             }
 
@@ -116,6 +124,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         $blocks = array();
         foreach ( $list->childNodes as $item ) {
             if ( XML_TEXT_NODE === $item->nodeType && '' === trim($item->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( $item instanceof DOMElement && $this->isNavigationChromeElement($item) ) {
                 continue;
             }
 
@@ -149,6 +161,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         if ( array() !== $submenuBlocks ) {
+            if ( 1 !== count($this->anchorsExcludingSubmenus($element, $anchor)) ) {
+                return null;
+            }
+
             $submenuAttrs = array(
                 'label' => $this->anchorLabel($anchor, $innerHtml),
                 'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
@@ -267,6 +283,10 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
+            if ( $this->isNavigationChromeElement($child) ) {
+                continue;
+            }
+
             $tagName = strtolower($child->tagName);
             if ( in_array($tagName, array( 'ul', 'ol' ), true) || $this->hasSubmenuSignal($child) ) {
                 $containers[] = $child;
@@ -307,6 +327,57 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return false;
+    }
+
+    private function isNavigationChromeElement(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( $this->isMenuToggleControl($element) ) {
+            return true;
+        }
+
+        if ( in_array(strtolower($this->attr($element, 'role')), array( 'separator', 'presentation', 'none' ), true) ) {
+            return true;
+        }
+
+        if ( in_array($tagName, array( 'hr', 'svg' ), true) ) {
+            return true;
+        }
+
+        if ( 'a' === $tagName && '' === trim($element->textContent ?? '') && '' === trim($this->attr($element, 'aria-label') . $this->attr($element, 'title')) ) {
+            return true;
+        }
+
+        $tokens = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:separator|divider|toggle|hamburger|menu-button|menu-toggle)(?:[^a-z0-9]|$)/', $tokens);
+    }
+
+    private function isNavigationWrapperElement(DOMElement $element): bool
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span', 'section' ), true) ) {
+            return false;
+        }
+
+        $hasNavigationChild = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( in_array($tagName, array( 'a', 'ul', 'ol' ), true) || $this->hasNavigationSignal($child) || $this->isNavigationChromeElement($child) ) {
+                $hasNavigationChild = true;
+                continue;
+            }
+
+            if ( ! $this->isNavigationWrapperElement($child) ) {
+                return false;
+            }
+
+            $hasNavigationChild = true;
+        }
+
+        return $hasNavigationChild;
     }
 
     private function isSectionLabelElement(DOMElement $element): bool
