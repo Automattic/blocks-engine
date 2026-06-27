@@ -1723,6 +1723,11 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( 'template' === $tagName ) {
+            $this->captureTemplateFallback($element, $fallbacks);
+            return null;
+        }
+
         if ( 'form' === $tagName ) {
             $searchBlock = $this->searchBlockFromForm($element);
             if ( null !== $searchBlock ) {
@@ -3867,6 +3872,99 @@ final class HtmlTransformer
         );
 
         return true;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function captureTemplateFallback(DOMElement $element, array &$fallbacks): void
+    {
+        $runtimeTemplate = $this->templateRequiresRuntimePreservation($element);
+        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+        $boundedBody = $this->boundedFallbackHtml($this->innerHtml($element));
+        $attributes = $this->safeTemplateAttributes($element);
+
+        if ( $runtimeTemplate ) {
+            $this->recordRuntimeIsland($element, 'template', 'template_requires_runtime', 'client_template_instantiation', array(
+                'attributes'      => $attributes,
+                'template_role'   => $this->templateRole($element),
+                'template_body'   => $boundedBody['html'],
+                'body_bytes'      => $boundedBody['bytes'],
+                'body_truncated'  => $boundedBody['truncated'],
+                'required_scripts' => $this->requiredScriptsForElement($element),
+            ));
+        }
+
+        $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
+            'type'            => 'html',
+            'reason'          => $runtimeTemplate ? 'template_requires_runtime' : 'template_static_metadata',
+            'diagnostic_code' => $runtimeTemplate ? 'html_template_runtime_fallback' : 'html_template_metadata',
+            'message'         => $runtimeTemplate
+                ? 'HTML template content is inert until client runtime instantiates it and was preserved as bounded runtime metadata.'
+                : 'HTML template content is inert and was preserved as bounded metadata without visual output.',
+            'source_format'   => 'html',
+            'tag'             => 'template',
+            'selector'        => $this->elementSelector($element),
+            'attributes'      => $attributes,
+            'context'         => $this->sourceContext($element),
+            'template_role'   => $this->templateRole($element),
+            'text_length'     => strlen(trim($element->textContent ?? '')),
+            'child_count'     => $this->childElementCount($element),
+            'html'            => $boundedHtml['html'],
+            'html_bytes'      => $boundedHtml['bytes'],
+            'html_truncated'  => $boundedHtml['truncated'],
+            'body'            => $boundedBody['html'],
+            'body_bytes'      => $boundedBody['bytes'],
+            'body_truncated'  => $boundedBody['truncated'],
+        ), static fn (mixed $value): bool => '' !== $value && array() !== $value), $this->fallbackProvenance);
+    }
+
+    private function templateRequiresRuntimePreservation(DOMElement $element): bool
+    {
+        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+            $normalizedName = strtolower($name);
+            if ( 'id' === $normalizedName || str_starts_with($normalizedName, 'data-') || preg_match('/^(?:x-|v-|ng-|:|@)/', $normalizedName) ) {
+                return true;
+            }
+            if ( preg_match('/\b(?:template|runtime|component|partial|slot|content)\b/i', $value) ) {
+                return true;
+            }
+        }
+
+        $body = $this->innerHtml($element);
+        return preg_match('/<\s*(?:script|canvas|iframe|form|input|select|textarea|button)\b/i', $body) === 1
+            || preg_match('/\{\{|\$\{|<\s*slot\b/i', $body) === 1;
+    }
+
+    private function templateRole(DOMElement $element): string
+    {
+        if ( '' !== trim($this->attr($element, 'id')) ) {
+            return 'addressable_template';
+        }
+
+        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+            if ( str_starts_with(strtolower($name), 'data-') && '' !== trim($value) ) {
+                return 'data_template';
+            }
+        }
+
+        return $this->templateRequiresRuntimePreservation($element) ? 'runtime_template' : 'static_template_metadata';
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function safeTemplateAttributes(DOMElement $element): array
+    {
+        $safe = array();
+        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+            if ( preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:/i', $value) ) {
+                continue;
+            }
+            $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
+        }
+
+        return $safe;
     }
 
     private function scriptRole(DOMElement $element): string
