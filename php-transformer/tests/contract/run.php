@@ -260,12 +260,13 @@ $assertInvalidCanonicalEnvelope($missingConversionReport, 'source_reports.conver
 $assertInvalidCanonicalEnvelope($result, 'source_reports.materialization_plan', 'canonical validation can require materialization plans for downstream artifact consumers', true);
 
 $contextual = ( new HtmlTransformer() )->transform(
-    '<main><h1>Context</h1><canvas>Fallback</canvas></main>',
+    '<main><h1>Context</h1><canvas id="runtime-context">Fallback</canvas></main>',
     array(
         'source'          => 'fixture:contextual-html',
         'source_scope'    => 'contract-test',
         'strict'          => true,
         'allow_fallbacks' => false,
+        'runtime_canvas_selectors' => array('#runtime-context'),
     )
 )->toArray();
 $assert('failed' === $contextual['status'], 'strict HTML transform fails when fallbacks are disallowed', (string) $contextual['status']);
@@ -594,12 +595,13 @@ foreach ( $normalizedDiagnostics as $diagnostic ) {
 }
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_unsafe_inline_svg'] ?? array(), 'html_unsafe_inline_svg', 'warning', 'sanitization_review', 'image_asset');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_script_fallback'] ?? array(), 'html_script_fallback', 'warning', 'client_script_execution', 'script_asset');
-$assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_canvas_runtime_fallback'] ?? array(), 'html_canvas_runtime_fallback', 'warning', 'canvas_element_and_client_script_execution', 'runtime_canvas', 'runtime_island_preserved');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallback'] ?? array(), 'html_iframe_embed_fallback', 'warning', 'third_party_embed_runtime', 'embed');
 $assert(! isset($diagnosticsByCode['html_inline_svg_fallback']), 'safe inline SVGs convert to image blocks instead of fallback diagnostics');
+$assert(! isset($diagnosticsByCode['html_canvas_runtime_fallback']), 'non-runtime canvas does not emit runtime canvas fallback diagnostics');
 
 $canvasFallback = ( new HtmlTransformer() )->transform(
-    '<main><canvas id="bonsai" class="stage" width="640" height="360">Fallback</canvas><script src="/js/script.js"></script></main>'
+    '<main><canvas id="bonsai" class="stage" width="640" height="360">Fallback</canvas><script src="/js/script.js"></script></main>',
+    array('runtime_canvas_selectors' => array('#bonsai'))
 )->toArray();
 $canvasDiagnostic = $canvasFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
 $assertNormalizedFallbackDiagnostic($canvasDiagnostic, 'html_canvas_runtime_fallback', 'warning', 'canvas_element_and_client_script_execution', 'runtime_canvas', 'runtime_island_preserved');
@@ -607,8 +609,8 @@ $assert('canvas_requires_runtime' === ($canvasDiagnostic['reason'] ?? ''), 'canv
 $assert('bonsai' === ($canvasFallback['fallbacks'][0]['attributes']['id'] ?? ''), 'canvas fallback preserves id for runtime mapping');
 $assert(str_contains((string) ($canvasFallback['fallbacks'][0]['html'] ?? ''), '<canvas id="bonsai"'), 'canvas fallback preserves bounded safe canvas markup');
 $assert(str_contains((string) ($canvasDiagnostic['script_dependency_hint'] ?? ''), '#bonsai'), 'canvas diagnostic flags id-based script dependency risk');
-$assert(! str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'canvas fallback does not emit core/html');
-$assert(! str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<canvas'), 'canvas fallback does not smuggle raw canvas markup into generated core blocks');
+$assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'runtime canvas emits bounded core/html preservation island');
+$assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<canvas id="bonsai"'), 'runtime canvas preserves native canvas markup for script execution');
 
 $runtimePreserved = ( new HtmlTransformer() )->transform(
     '<main><canvas id="stage" aria-hidden="true"></canvas><input id="amount" value="10"></main>',
@@ -644,6 +646,24 @@ $decorativeCanvas = ( new HtmlTransformer() )->transform(
 $assert('success' === ($decorativeCanvas['status'] ?? ''), 'decorative canvas without runtime selectors does not trip strict fallback gates', (string) ($decorativeCanvas['status'] ?? ''));
 $assert(array() === ($decorativeCanvas['fallbacks'] ?? array()), 'decorative canvas without runtime selectors is omitted instead of reported as runtime fallback');
 $assert(! str_contains((string) ($decorativeCanvas['serialized_blocks'] ?? ''), '<canvas'), 'decorative canvas without runtime selectors is not emitted as raw markup');
+
+$staticCanvas = ( new HtmlTransformer() )->transform(
+    '<main><canvas id="static-canvas" class="preview" width="640" height="360"></canvas><h2>Static preview</h2></main>',
+    array(
+        'strict'          => true,
+        'allow_fallbacks' => false,
+    )
+)->toArray();
+$assert('success' === ($staticCanvas['status'] ?? ''), 'static canvas without runtime selectors does not trip strict fallback gates', (string) ($staticCanvas['status'] ?? ''));
+$assert(array() === ($staticCanvas['fallbacks'] ?? array()), 'static canvas without runtime selectors is omitted instead of reported as runtime fallback');
+$assert(! str_contains((string) ($staticCanvas['serialized_blocks'] ?? ''), '<canvas'), 'static canvas without runtime selectors is not emitted as raw markup');
+
+$starfieldCanvas = ( new HtmlTransformer() )->transform(
+    '<main><canvas class="starfield" aria-hidden="true"></canvas><h1>Night sky</h1></main>'
+)->toArray();
+$assert(array() === ($starfieldCanvas['source_reports']['runtime_islands'] ?? array()), 'decorative starfield canvas without runtime selectors is not reported as a runtime island');
+$assert(array() === ($starfieldCanvas['fallbacks'] ?? array()), 'decorative starfield canvas without runtime selectors does not emit runtime fallback diagnostics');
+$assert(! str_contains((string) ($starfieldCanvas['serialized_blocks'] ?? ''), 'starfield'), 'decorative starfield canvas without runtime selectors is omitted from serialized blocks');
 
 $safeDecorativeSvg = ( new HtmlTransformer() )->transform(
     '<main><svg aria-hidden="true" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"></circle></svg><div class="site-logo"><svg viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg></div></main>'
@@ -1320,17 +1340,17 @@ assertSame(1, $result['blocks'][0]['innerBlocks'][0]['attrs']['level'], 'h1 leve
 assertSame('core/paragraph', $result['blocks'][0]['innerBlocks'][1]['blockName'], 'p should convert to a paragraph block.');
 assertSame('core/list', $result['blocks'][1]['blockName'], 'ul should convert to a list block.');
 assertSame('core/list-item', $result['blocks'][1]['innerBlocks'][0]['blockName'], 'li should convert to list-item blocks.');
-assertSame('html', $result['fallbacks'][0]['type'], 'canvas elements should be reported as HTML runtime fallbacks.');
-assertSame('canvas_requires_runtime', $result['fallbacks'][0]['reason'], 'canvas fallbacks should expose a runtime-specific reason.');
-assertSame('html_canvas_runtime_fallback', $result['fallbacks'][0]['diagnostic_code'], 'canvas fallbacks should expose a runtime-specific diagnostic code for cross-process consumers.');
-assertSame('html', $result['fallbacks'][0]['source_format'], 'fallbacks should expose the source format.');
-assertSame('canvas', $result['fallbacks'][0]['tag'], 'fallback should identify the unsupported tag.');
+assertSame('html', $runtimeCanvasResult['fallbacks'][0]['type'], 'runtime-targeted canvas elements should be reported as HTML runtime fallbacks.');
+assertSame('canvas_requires_runtime', $runtimeCanvasResult['fallbacks'][0]['reason'], 'runtime-targeted canvas fallbacks should expose a runtime-specific reason.');
+assertSame('html_canvas_runtime_fallback', $runtimeCanvasResult['fallbacks'][0]['diagnostic_code'], 'runtime-targeted canvas fallbacks should expose a runtime-specific diagnostic code for cross-process consumers.');
+assertSame('html', $runtimeCanvasResult['fallbacks'][0]['source_format'], 'fallbacks should expose the source format.');
+assertSame('canvas', $runtimeCanvasResult['fallbacks'][0]['tag'], 'fallback should identify the unsupported tag.');
 assertContains('html_to_blocks_core_slice', array_column($result['diagnostics'], 'code'), 'expanded core-slice conversion diagnostic should be present.');
 assertSame('html', $result['provenance'][0]['source_format'], 'source provenance should identify HTML input.');
 assertSame(strlen($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><canvas>Fallback</canvas>"), $result['metrics']['input_bytes'], 'HTML metrics should expose input bytes.');
 assertSame(strlen($result['serialized_blocks']), $result['metrics']['output_bytes'], 'HTML metrics should expose output bytes.');
 assertSame(6, $result['metrics']['block_count'], 'HTML metrics should count nested blocks.');
-assertSame(1, $result['metrics']['fallback_count'], 'HTML metrics should expose fallback count.');
+assertSame(0, $result['metrics']['fallback_count'], 'HTML metrics should not count non-runtime canvas as a runtime fallback.');
 assertSame(count($result['diagnostics']), $result['metrics']['diagnostic_count'], 'HTML metrics should expose diagnostic count.');
 $assert(is_float($result['metrics']['transform_duration_ms'] ?? null), 'HTML metrics expose transform duration');
 
