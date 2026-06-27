@@ -1,14 +1,14 @@
 {
   "schema": "blocks-engine/fixtures/website-product-class-manifest/v1",
   "source": "homeboy-rigs/static-site-importer-fixture-matrix/v1",
-  "source_fixture_count": 71,
+  "source_fixture_count": 72,
   "entrypoint": "index.html",
   "description": "Migration manifest for organizing fixtures/websites by Homeboy Rigs product class directories. Paths are repository-relative to fixtures/.",
   "classes": [
     { "product_class": "canvas/webgl/audio/runtime-heavy", "fixture_count": 9 },
     { "product_class": "docs/blog", "fixture_count": 5 },
     { "product_class": "ecommerce/catalog", "fixture_count": 1 },
-    { "product_class": "marketing/static", "fixture_count": 56 }
+    { "product_class": "marketing/static", "fixture_count": 57 }
   ],
   "fixtures": [
     { "id": "2-onepager-coffee", "current_path": "websites/2-onepager-coffee", "product_class": "marketing/static", "intended_path": "websites/marketing/static/2-onepager-coffee", "entrypoint": "index.html" },
@@ -81,6 +81,7 @@
     { "id": "69-markdown-editor", "current_path": "websites/69-markdown-editor", "product_class": "marketing/static", "intended_path": "websites/marketing/static/69-markdown-editor", "entrypoint": "index.html" },
     { "id": "70-typing-test", "current_path": "websites/70-typing-test", "product_class": "marketing/static", "intended_path": "websites/marketing/static/70-typing-test", "entrypoint": "index.html" },
     { "id": "71-beyond-the-block", "current_path": "websites/71-beyond-the-block", "product_class": "marketing/static", "intended_path": "websites/marketing/static/71-beyond-the-block", "entrypoint": "index.html" },
-    { "id": "72-why-wordpress", "current_path": "websites/72-why-wordpress", "product_class": "marketing/static", "intended_path": "websites/marketing/static/72-why-wordpress", "entrypoint": "index.html" }
+    { "id": "72-why-wordpress", "current_path": "websites/72-why-wordpress", "product_class": "marketing/static", "intended_path": "websites/marketing/static/72-why-wordpress", "entrypoint": "index.html" },
+    { "id": "73-h44-lacrosse", "current_path": "websites/73-h44-lacrosse", "product_class": "marketing/static", "intended_path": "websites/marketing/static/73-h44-lacrosse", "entrypoint": "index.html" }
   ]
 }
