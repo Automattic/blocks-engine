@@ -771,14 +771,41 @@ function matrix_merge_parity_report(array $parity, array $report): array
  */
 function matrix_layout_summary(array $report): array
 {
-    $mismatches = is_array($report['mismatches'] ?? null) ? array_values($report['mismatches']) : array();
-    $topNodes = $report['top_nodes'] ?? $report['top_mismatches'] ?? array_slice($mismatches, 0, 5);
+    $mismatches = is_array($report['mismatches'] ?? null) ? array_values($report['mismatches']) : (is_array($report['diagnostics'] ?? null) ? array_values($report['diagnostics']) : array());
+    $topNodes = $report['top_nodes'] ?? $report['top_mismatches'] ?? matrix_layout_top_nodes($mismatches);
+    $summary = is_array($report['summary'] ?? null) ? $report['summary'] : array();
+    $suspectedCauses = $summary['suspected_causes'] ?? $report['suspected_causes'] ?? array();
 
     return array(
         'status' => $report['status'] ?? null,
-        'mismatch_count' => matrix_first_numeric($report, array('layout_mismatch_count', 'mismatch_count', 'count')) ?? count($mismatches),
+        'mismatch_count' => matrix_first_numeric($summary, array('diagnostic_count', 'layout_mismatch_count', 'mismatch_count', 'count')) ?? matrix_first_numeric($report, array('layout_mismatch_count', 'mismatch_count', 'count')) ?? count($mismatches),
         'top_nodes' => is_array($topNodes) ? array_slice(array_values($topNodes), 0, 5) : array(),
+        'suspected_causes' => is_array($suspectedCauses) ? array_slice(array_values($suspectedCauses), 0, 5) : array(),
     );
+}
+
+/**
+ * @param array<int, mixed> $mismatches
+ * @return array<int, array<string, mixed>>
+ */
+function matrix_layout_top_nodes(array $mismatches): array
+{
+    $nodes = array();
+    foreach ( array_slice($mismatches, 0, 5) as $mismatch ) {
+        if ( ! is_array($mismatch) ) {
+            continue;
+        }
+        $node = is_array($mismatch['node'] ?? null) ? $mismatch['node'] : $mismatch;
+        $nodes[] = array_filter(array(
+            'id' => isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : null,
+            'name' => isset($node['name']) && is_scalar($node['name']) ? (string) $node['name'] : null,
+            'type' => isset($node['type']) && is_scalar($node['type']) ? (string) $node['type'] : null,
+            'code' => isset($mismatch['code']) && is_scalar($mismatch['code']) ? (string) $mismatch['code'] : null,
+            'max_delta' => isset($mismatch['max_delta']) && is_numeric($mismatch['max_delta']) ? (float) $mismatch['max_delta'] : null,
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+    }
+
+    return $nodes;
 }
 
 /**
@@ -812,6 +839,7 @@ function matrix_parity_summary(array $parity): array
         'pixel_mismatch_ratio' => $metrics['pixel_mismatch_ratio'] ?? $diffSummary['pixel_mismatch_ratio'] ?? null,
         'layout_mismatch_count' => $layout['mismatch_count'] ?? null,
         'layout_top_nodes' => is_array($layout['top_nodes'] ?? null) ? array_slice($layout['top_nodes'], 0, 5) : array(),
+        'layout_suspected_causes' => is_array($layout['suspected_causes'] ?? null) ? array_slice($layout['suspected_causes'], 0, 5) : array(),
     );
 }
 

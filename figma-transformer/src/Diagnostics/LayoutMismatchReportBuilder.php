@@ -46,10 +46,12 @@ final class LayoutMismatchReportBuilder
             $delta = $this->delta($sourceBox, $generatedBox);
             $positionMismatch = abs($delta['x']) > $threshold || abs($delta['y']) > $threshold;
             $sizeMismatch = abs($delta['width']) > $sizeThreshold || abs($delta['height']) > $sizeThreshold;
-            $outsideParent = $this->outsideGeneratedParent($sourceNode, $generatedNode, $generatedNodes, $threshold);
+            $outsideParent = $this->outsideGeneratedParent($sourceNode, $generatedNode, $sourceNodes, $generatedNodes, $threshold);
             if ( ! $positionMismatch && ! $sizeMismatch && null === $outsideParent ) {
                 continue;
             }
+
+            $context = $this->diagnosticContext($sourceNode, $generatedNode, $sourceNodes, $generatedNodes);
 
             if ( $positionMismatch || $sizeMismatch ) {
                 $diagnostics[] = $this->diagnostic(
@@ -60,17 +62,18 @@ final class LayoutMismatchReportBuilder
                     $generatedBox,
                     $delta,
                     $threshold,
-                    $sizeThreshold
+                    $sizeThreshold,
+                    $context
                 );
             }
 
             if ( $positionMismatch && $sizeMismatch ) {
-                $diagnostics[] = $this->diagnostic('element_size_mismatch', $sourceNode, $generatedNode, $sourceBox, $generatedBox, $delta, $threshold, $sizeThreshold);
+                $diagnostics[] = $this->diagnostic('element_size_mismatch', $sourceNode, $generatedNode, $sourceBox, $generatedBox, $delta, $threshold, $sizeThreshold, $context);
             }
 
             if ( null !== $outsideParent ) {
                 $diagnostics[] = array_merge(
-                    $this->diagnostic('element_outside_parent_bounds', $sourceNode, $generatedNode, $sourceBox, $generatedBox, $delta, $threshold, $sizeThreshold),
+                    $this->diagnostic('element_outside_parent_bounds', $sourceNode, $generatedNode, $sourceBox, $generatedBox, $delta, $threshold, $sizeThreshold, $context),
                     array('parent' => $outsideParent)
                 );
             }
@@ -105,6 +108,7 @@ final class LayoutMismatchReportBuilder
                 'diagnostic_count' => count($diagnostics),
                 'code_counts' => $codeCounts,
                 'clusters' => $this->diagnosticClusters($diagnostics),
+                'suspected_causes' => $this->suspectedCauseSummary($diagnostics),
             ),
             'diagnostics' => $diagnostics,
         );
@@ -180,6 +184,130 @@ final class LayoutMismatchReportBuilder
         }
 
         return $this->clusterValues($groups);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<int, array<string, mixed>>
+     */
+    private function suspectedCauseSummary(array $diagnostics): array
+    {
+        $groups = array();
+        foreach ( $diagnostics as $diagnostic ) {
+            foreach ( $this->suspectedCausesForDiagnostic($diagnostic) as $cause ) {
+                $this->addClusterDiagnostic($groups, $cause, $diagnostic, array('cause' => $cause));
+            }
+        }
+
+        $causes = $this->clusterValues($groups);
+        usort(
+            $causes,
+            fn (array $left, array $right): int => $this->suspectedCausePriority((string) ($left['cause'] ?? '')) <=> $this->suspectedCausePriority((string) ($right['cause'] ?? ''))
+                ?: ((int) ($right['count'] ?? 0) <=> (int) ($left['count'] ?? 0))
+                ?: ((float) ($right['max_delta'] ?? 0.0) <=> (float) ($left['max_delta'] ?? 0.0))
+        );
+
+        return $causes;
+    }
+
+    private function suspectedCausePriority(string $cause): int
+    {
+        return match ( $cause ) {
+            'source-overflow', 'generated-vs-source-clipping', 'clipping' => 0,
+            'parent-visual-map-mismatch' => 1,
+            'same-size-position-shift', 'absolute-offset' => 2,
+            'zero-size-source-box' => 3,
+            'root-fill' => 4,
+            'text-height' => 5,
+            'vector-shell-wrapper-offset' => 6,
+            'icon/vector-bounds' => 7,
+            default => 99,
+        };
+    }
+
+    /**
+     * @param array<string, mixed> $diagnostic
+     * @return array<int, string>
+     */
+    private function suspectedCausesForDiagnostic(array $diagnostic): array
+    {
+        $causes = array();
+        $code = isset($diagnostic['code']) && is_scalar($diagnostic['code']) ? (string) $diagnostic['code'] : '';
+        $node = is_array($diagnostic['node'] ?? null) ? $diagnostic['node'] : array();
+        $type = strtoupper(isset($node['type']) && is_scalar($node['type']) ? (string) $node['type'] : '');
+        $name = strtolower(isset($node['name']) && is_scalar($node['name']) ? (string) $node['name'] : '');
+        $delta = is_array($diagnostic['delta'] ?? null) ? $diagnostic['delta'] : array();
+        $threshold = is_numeric($diagnostic['threshold'] ?? null) ? (float) $diagnostic['threshold'] : 0.0;
+        $sizeThreshold = is_numeric($diagnostic['size_threshold'] ?? null) ? (float) $diagnostic['size_threshold'] : $threshold;
+        $deltaX = is_numeric($delta['x'] ?? null) ? (float) $delta['x'] : 0.0;
+        $deltaY = is_numeric($delta['y'] ?? null) ? (float) $delta['y'] : 0.0;
+        $deltaWidth = is_numeric($delta['width'] ?? null) ? (float) $delta['width'] : 0.0;
+        $deltaHeight = is_numeric($delta['height'] ?? null) ? (float) $delta['height'] : 0.0;
+        $sourceBox = is_array($diagnostic['source_box'] ?? null) ? $diagnostic['source_box'] : array();
+        $parentDelta = is_array($diagnostic['parent_delta'] ?? null) ? $diagnostic['parent_delta'] : array();
+        $positionShift = max(abs($deltaX), abs($deltaY));
+        $sizeShift = max(abs($deltaWidth), abs($deltaHeight));
+
+        if ( 'element_outside_parent_bounds' === $code ) {
+            $parent = is_array($diagnostic['parent'] ?? null) ? $diagnostic['parent'] : array();
+            $sourceOverflow = is_array($parent['source_overflow'] ?? null) ? $parent['source_overflow'] : array();
+            $sourceOverflowMax = max(array_map(static fn (mixed $value): float => is_numeric($value) ? (float) $value : 0.0, $sourceOverflow) ?: array(0.0));
+            if ( 0.0 < $sourceOverflowMax ) {
+                $causes[] = 'source-overflow';
+            } else {
+                $causes[] = 'generated-vs-source-clipping';
+                $causes[] = 'clipping';
+            }
+        }
+
+        if ( 'misplaced_element' === $code && $positionShift > $threshold && $sizeShift <= $sizeThreshold ) {
+            $causes[] = 'same-size-position-shift';
+        }
+
+        if ( 'misplaced_element' === $code && $positionShift > max($threshold, $sizeShift) ) {
+            $causes[] = 'absolute-offset';
+        }
+
+        if ( is_numeric($parentDelta['x'] ?? null) && is_numeric($parentDelta['y'] ?? null) && $positionShift > $threshold ) {
+            $parentDeltaX = (float) $parentDelta['x'];
+            $parentDeltaY = (float) $parentDelta['y'];
+            if ( max(abs($parentDeltaX), abs($parentDeltaY)) > $threshold && abs($deltaX - $parentDeltaX) <= 2.0 && abs($deltaY - $parentDeltaY) <= 2.0 ) {
+                $causes[] = 'parent-visual-map-mismatch';
+            }
+        }
+
+        if ( $this->isNearZeroBox($sourceBox) && ($positionShift > $threshold || $sizeShift > $sizeThreshold) ) {
+            $causes[] = 'zero-size-source-box';
+        }
+
+        if ( 'TEXT' === $type && abs($deltaHeight) > $sizeThreshold ) {
+            $causes[] = 'text-height';
+        }
+
+        if ( '' === (string) ($node['parent_id'] ?? '') && (abs($deltaWidth) > $sizeThreshold || abs($deltaHeight) > $sizeThreshold) ) {
+            $causes[] = 'root-fill';
+        }
+
+        if ( ('VECTOR' === $type || str_contains($name, 'icon')) && (abs($deltaWidth) > $sizeThreshold || abs($deltaHeight) > $sizeThreshold) ) {
+            $causes[] = 'icon/vector-bounds';
+        }
+
+        if ( ('VECTOR' === $type || 'BOOLEAN_OPERATION' === $type) && 'misplaced_element' === $code && $positionShift > $threshold && $sizeShift <= $sizeThreshold ) {
+            $causes[] = 'vector-shell-wrapper-offset';
+        }
+
+        return array_values(array_unique($causes));
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     */
+    private function isNearZeroBox(array $box): bool
+    {
+        $width = is_numeric($box['width'] ?? null) ? abs((float) $box['width']) : null;
+        $height = is_numeric($box['height'] ?? null) ? abs((float) $box['height']) : null;
+
+        return null !== $width && null !== $height && ($width <= 1.0 || $height <= 1.0);
     }
 
     /**
@@ -409,10 +537,11 @@ final class LayoutMismatchReportBuilder
     /**
      * @param array<string, mixed> $sourceNode
      * @param array<string, mixed> $generatedNode
+     * @param array<string, array<string, mixed>> $sourceNodes
      * @param array<string, array<string, mixed>> $generatedNodes
      * @return array<string, mixed>|null
      */
-    private function outsideGeneratedParent(array $sourceNode, array $generatedNode, array $generatedNodes, float $threshold): ?array
+    private function outsideGeneratedParent(array $sourceNode, array $generatedNode, array $sourceNodes, array $generatedNodes, float $threshold): ?array
     {
         $parentId = isset($sourceNode['parent_id']) && is_scalar($sourceNode['parent_id']) ? (string) $sourceNode['parent_id'] : '';
         if ( '' === $parentId || ! isset($generatedNodes[$parentId]) ) {
@@ -425,22 +554,68 @@ final class LayoutMismatchReportBuilder
             return null;
         }
 
-        $overflow = array(
-            'left' => max(0.0, $parentBox['x'] - $childBox['x']),
-            'top' => max(0.0, $parentBox['y'] - $childBox['y']),
-            'right' => max(0.0, ($childBox['x'] + $childBox['width']) - ($parentBox['x'] + $parentBox['width'])),
-            'bottom' => max(0.0, ($childBox['y'] + $childBox['height']) - ($parentBox['y'] + $parentBox['height'])),
-        );
+        $overflow = $this->parentOverflow($parentBox, $childBox);
         $maxOverflow = max($overflow);
         if ( $maxOverflow <= $threshold ) {
             return null;
         }
 
-        return array(
+        $sourceParentBox = isset($sourceNodes[$parentId]) ? $this->boxFromNode($sourceNodes[$parentId]) : null;
+        $sourceChildBox = $this->boxFromNode($sourceNode);
+        $sourceOverflow = null;
+        if ( null !== $sourceParentBox && null !== $sourceChildBox ) {
+            $sourceOverflow = $this->parentOverflow($sourceParentBox, $sourceChildBox);
+            if ( $maxOverflow <= max($sourceOverflow) + $threshold ) {
+                return null;
+            }
+        }
+
+        return array_filter(array(
             'id' => $parentId,
             'generated_box' => $parentBox,
             'overflow' => $overflow,
             'max_overflow' => $maxOverflow,
+            'source_overflow' => $sourceOverflow,
+        ), static fn (mixed $value): bool => null !== $value);
+    }
+
+    /**
+     * @param array{x: float, y: float, width: float, height: float} $parentBox
+     * @param array{x: float, y: float, width: float, height: float} $childBox
+     * @return array{left: float, top: float, right: float, bottom: float}
+     */
+    private function parentOverflow(array $parentBox, array $childBox): array
+    {
+        return array(
+            'left' => max(0.0, $parentBox['x'] - $childBox['x']),
+            'top' => max(0.0, $parentBox['y'] - $childBox['y']),
+            'right' => max(0.0, ($childBox['x'] + $childBox['width']) - ($parentBox['x'] + $parentBox['width'])),
+            'bottom' => max(0.0, ($childBox['y'] + $childBox['height']) - ($parentBox['y'] + $parentBox['height'])),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $sourceNode
+     * @param array<string, mixed> $generatedNode
+     * @param array<string, array<string, mixed>> $sourceNodes
+     * @param array<string, array<string, mixed>> $generatedNodes
+     * @return array<string, mixed>
+     */
+    private function diagnosticContext(array $sourceNode, array $generatedNode, array $sourceNodes, array $generatedNodes): array
+    {
+        $parentId = isset($sourceNode['parent_id']) && is_scalar($sourceNode['parent_id']) ? (string) $sourceNode['parent_id'] : '';
+        if ( '' === $parentId || ! isset($sourceNodes[$parentId], $generatedNodes[$parentId]) ) {
+            return array();
+        }
+
+        $sourceParentBox = $this->boxFromNode($sourceNodes[$parentId]);
+        $generatedParentBox = $this->boxFromNode($generatedNodes[$parentId]);
+        if ( null === $sourceParentBox || null === $generatedParentBox ) {
+            return array();
+        }
+
+        return array(
+            'parent_delta' => $this->delta($sourceParentBox, $generatedParentBox),
         );
     }
 
@@ -450,11 +625,12 @@ final class LayoutMismatchReportBuilder
      * @param array{x: float, y: float, width: float, height: float} $sourceBox
      * @param array{x: float, y: float, width: float, height: float} $generatedBox
      * @param array{x: float, y: float, width: float, height: float} $delta
+     * @param array<string, mixed> $context
      * @return array<string, mixed>
      */
-    private function diagnostic(string $code, array $sourceNode, array $generatedNode, array $sourceBox, array $generatedBox, array $delta, float $threshold, float $sizeThreshold): array
+    private function diagnostic(string $code, array $sourceNode, array $generatedNode, array $sourceBox, array $generatedBox, array $delta, float $threshold, float $sizeThreshold, array $context = array()): array
     {
-        return array_filter(array(
+        return array_filter(array_merge(array(
             'severity' => 'warning',
             'code' => $code,
             'node' => array(
@@ -472,6 +648,6 @@ final class LayoutMismatchReportBuilder
             'page_path' => isset($generatedNode['page_path']) && is_scalar($generatedNode['page_path']) ? (string) $generatedNode['page_path'] : null,
             'frame_id' => isset($generatedNode['frame_id']) && is_scalar($generatedNode['frame_id']) ? (string) $generatedNode['frame_id'] : null,
             'selector' => isset($generatedNode['selector']) && is_scalar($generatedNode['selector']) ? (string) $generatedNode['selector'] : null,
-        ), static fn (mixed $value): bool => null !== $value);
+        ), $context), static fn (mixed $value): bool => null !== $value);
     }
 }
