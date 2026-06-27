@@ -939,9 +939,19 @@ $assert(! in_array('unsupported_vector_node_placeholder', $geometrylessVectorDia
 
 $simpleRectNetworkPrefix = hex2bin('0400000004000000000000000000000000000000000000000000000000008043');
 $simpleRectNetworkBlob = str_pad(false === $simpleRectNetworkPrefix ? '' : $simpleRectNetworkPrefix, 172, "\0");
+$closedRectNetworkBlob = pack('V3', 4, 4, 1) . str_repeat("\0", 188);
+foreach ( array(array(0.0, 0.0), array(12.0, 0.0), array(12.0, 6.0), array(0.0, 6.0)) as $index => $point ) {
+    $offset = 12 + ( $index * 20 ) + 4;
+    $closedRectNetworkBlob = substr_replace($closedRectNetworkBlob, pack('g', $point[0]) . pack('g', $point[1]), $offset, 8);
+}
+$nonRectNetworkBlob = pack('V3', 4, 4, 1) . str_repeat("\0", 188);
+foreach ( array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)) as $index => $point ) {
+    $offset = 12 + ( $index * 20 ) + 4;
+    $nonRectNetworkBlob = substr_replace($nonRectNetworkBlob, pack('g', $point[0]) . pack('g', $point[1]), $offset, 8);
+}
 $vectorDataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Vector Data Fixture',
-    'blobs' => array(array('bytes' => $vectorCommandBlob), array('bytes' => "\xff"), array('bytes' => $simpleRectNetworkBlob)),
+    'blobs' => array(array('bytes' => $vectorCommandBlob), array('bytes' => "\xff"), array('bytes' => $simpleRectNetworkBlob), array('bytes' => $closedRectNetworkBlob), array('bytes' => $nonRectNetworkBlob)),
     'nodes' => array(
         array(
             'id'         => 'vector:data',
@@ -978,6 +988,24 @@ $vectorDataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
             'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0.5, 'b' => 1))),
             'vectorData' => array('vectorNetworkBlob' => 2),
         ),
+        array(
+            'id'         => 'vector:data-closed-rect-network',
+            'type'       => 'VECTOR',
+            'name'       => 'Closed Rect Network',
+            'width'      => 12,
+            'height'     => 6,
+            'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.2, 'g' => 0.4, 'b' => 0.6))),
+            'vectorData' => array('vectorNetworkBlob' => 3),
+        ),
+        array(
+            'id'         => 'vector:data-non-rect-network',
+            'type'       => 'VECTOR',
+            'name'       => 'Non Rect Network',
+            'width'      => 12,
+            'height'     => 6,
+            'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.6, 'g' => 0.4, 'b' => 0.2))),
+            'vectorData' => array('vectorNetworkBlob' => 4),
+        ),
     ),
 ));
 $vectorDataHtml = $fileContent($vectorDataResult, 'index.html');
@@ -996,13 +1024,15 @@ $assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data"') && str
 $assert(str_contains($vectorDataHtml, 'd="M0 0L10 0 10 10Z"'), 'vector-data-renders-command-blob-path');
 $assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-painted-fallback"') && str_contains($vectorDataHtml, '<rect x="0" y="0" width="12" height="6" fill="#0000ff"/>'), 'vector-data-painted-network-fallback-rect');
 $assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-simple-rect-network"') && str_contains($vectorDataHtml, 'd="M0 0L12 0 12 6 0 6Z"') && str_contains($vectorDataHtml, 'fill="#0080ff"'), 'vector-data-simple-rect-network-renders-bounded-path');
+$assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-closed-rect-network"') && str_contains($vectorDataHtml, 'd="M0 0L12 0 12 6 0 6Z"') && str_contains($vectorDataHtml, 'fill="#336699"'), 'vector-data-closed-rect-network-renders-bounded-path');
+$assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-non-rect-network"') && str_contains($vectorDataHtml, 'data-figma-unsupported-vector="true"'), 'vector-data-non-rect-network-keeps-placeholder');
 $assert(in_array('unsupported_vector_network_blob', $vectorDataDiagnosticCodes, true), 'vector-data-malformed-network-diagnostic');
 $assert(1 === ($vectorNetworkDiagnostic['context']['byte_length'] ?? null) && 'ff' === ($vectorNetworkDiagnostic['context']['signature_hex'] ?? null), 'vector-network-diagnostic-context');
 $vectorNetworkDiagnostics = array_values(array_filter(
     $vectorDataResult['diagnostics'] ?? array(),
     static fn (array $diagnostic): bool => 'unsupported_vector_network_blob' === ($diagnostic['code'] ?? null)
 ));
-$assert(1 === count($vectorNetworkDiagnostics), 'vector-network-repeated-diagnostics-compacted');
+$assert(2 === count($vectorNetworkDiagnostics), 'vector-network-repeated-diagnostics-compacted');
 $assert(2 === ($vectorNetworkDiagnostic['context']['occurrence_count'] ?? null), 'vector-network-diagnostic-occurrence-count');
 $assert(2 === ($vectorNetworkDiagnostic['context']['affected_node_count'] ?? null), 'vector-network-diagnostic-affected-node-count');
 $assert(array('vector:data-malformed', 'vector:data-painted-fallback') === ($vectorNetworkDiagnostic['context']['sample_node_ids'] ?? null), 'vector-network-diagnostic-sample-nodes');
