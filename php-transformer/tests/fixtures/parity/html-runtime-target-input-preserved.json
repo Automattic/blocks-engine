@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-runtime-target-input-preserved",
-  "description": "Preserves non-search standalone input DOM targets when scripts reference them.",
+  "description": "Classifies non-search standalone input DOM targets as runtime islands while emitting readable blocks.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-runtime-target-input-preserved.json",
-    "notes": "Covers runtime dependency target preservation for input controls used by first-party scripts."
+    "notes": "Covers runtime dependency metadata preservation for input controls used by first-party scripts without raw HTML fallback blocks."
   },
   "legacy_comparison": {
     "skip": true,
@@ -19,14 +19,17 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/html", "attrs": { "content": "<input id=\"grid-size\" class=\"grid-size\" type=\"range\" min=\"2\" max=\"12\" value=\"6\">" } }
+    { "path": "blocks.0", "name": "core/paragraph", "attrs": { "content": "Range: 6 (min 2, max 12)" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<input id=\"grid-size\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html" }
+    { "path": "source_reports.html.runtime_islands.0.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.html.runtime_islands.0.selector", "assert": "equals", "value": "#grid-size" },
+    { "path": "source_reports.html.runtime_islands.0.source_snippet", "assert": "contains", "value": "<input id=\"grid-size\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<input id=\"grid-size\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" }
   ]
 }

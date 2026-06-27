@@ -3804,8 +3804,6 @@ final class HtmlTransformer
                     'events'           => $this->eventMetadata($control),
                     'required_scripts' => $this->requiredScriptsForElement($control),
                 ));
-                $contentBlocks[] = $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($control) ), array(), $control);
-                continue;
             }
 
             $readableControlBlock = $this->readableFormControlBlockFromElement($control);
@@ -3892,7 +3890,6 @@ final class HtmlTransformer
                 'events'           => $this->eventMetadata($element),
                 'required_scripts' => $this->requiredScriptsForElement($element),
             ));
-            return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($element) ), array(), $element);
         }
 
         if ( 'select' === $tagName ) {
