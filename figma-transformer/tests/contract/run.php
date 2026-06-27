@@ -993,6 +993,27 @@ $assert(! in_array('unsupported_vector_node_placeholder', $geometrylessVectorDia
 
 $simpleRectNetworkPrefix = hex2bin('0400000004000000000000000000000000000000000000000000000000008043');
 $simpleRectNetworkBlob = str_pad(false === $simpleRectNetworkPrefix ? '' : $simpleRectNetworkPrefix, 172, "\0");
+$singleLoopNetworkBlob = static function (array $points, array $segments, array $regionEntries, ?int $regionSegmentCount = null): string {
+    $vertexCount = count($points);
+    $segmentCount = count($segments);
+    $blob = pack('V3', $vertexCount, $segmentCount, 1) . str_repeat("\0", ( $vertexCount * 20 ) + ( $segmentCount * 16 ) + 12 + ( $vertexCount * 8 ));
+    foreach ( $points as $index => $point ) {
+        $blob = substr_replace($blob, pack('g', $point[0]) . pack('g', $point[1]), 12 + ( $index * 20 ) + 4, 8);
+    }
+
+    $segmentOffset = 12 + ( $vertexCount * 20 );
+    foreach ( $segments as $index => $segment ) {
+        $blob = substr_replace($blob, pack('V2', $segment[0], $segment[1]), $segmentOffset + ( $index * 16 ), 8);
+    }
+
+    $regionOffset = $segmentOffset + ( $segmentCount * 16 );
+    $blob = substr_replace($blob, pack('V3', $regionSegmentCount ?? count($regionEntries), 0, 0), $regionOffset, 12);
+    foreach ( $regionEntries as $index => $entry ) {
+        $blob = substr_replace($blob, pack('V2', $entry[0], $entry[1]), $regionOffset + 12 + ( $index * 8 ), 8);
+    }
+
+    return $blob;
+};
 $closedRectNetworkBlob = pack('V3', 4, 4, 1) . str_repeat("\0", 188);
 foreach ( array(array(0.0, 0.0), array(12.0, 0.0), array(12.0, 6.0), array(0.0, 6.0)) as $index => $point ) {
     $offset = 12 + ( $index * 20 ) + 4;
@@ -1102,6 +1123,49 @@ $assert(true === ($nonRectVectorNetworkDiagnostic['context']['single_region_loop
 $assert(array('vertex_stride' => 20, 'segment_stride' => 16, 'region_bytes' => 44) === ($nonRectVectorNetworkDiagnostic['context']['candidate_layout'] ?? null), 'vector-network-candidate-layout-diagnostic');
 $assert(array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)) === ($nonRectVectorNetworkDiagnostic['context']['candidate_vertex_points_sample'] ?? null), 'vector-network-candidate-point-sample');
 $assert('Decode only after segment endpoints and region winding/order are validated as one closed non-branching loop.' === ($nonRectVectorNetworkDiagnostic['context']['candidate_decoder_requirement'] ?? null), 'vector-network-candidate-requirement');
+
+$loopDecoderResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Vector Network Loop Decoder Fixture',
+    'blobs' => array(
+        array('bytes' => $singleLoopNetworkBlob(
+            array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)),
+            array(array(0, 1), array(1, 2), array(2, 3), array(3, 0)),
+            array(array(0, 0), array(1, 0), array(2, 0), array(3, 0))
+        )),
+        array('bytes' => $singleLoopNetworkBlob(
+            array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)),
+            array(array(0, 1), array(1, 2), array(1, 3), array(3, 0)),
+            array(array(0, 0), array(1, 0), array(2, 0), array(3, 0))
+        )),
+        array('bytes' => $singleLoopNetworkBlob(
+            array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)),
+            array(array(0, 1), array(1, 2), array(2, 3), array(3, 0)),
+            array(array(0, 0), array(1, 0), array(2, 0), array(3, 1))
+        )),
+        array('bytes' => $singleLoopNetworkBlob(
+            array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)),
+            array(array(0, 1), array(1, 2), array(2, 3), array(3, 0)),
+            array(array(0, 0), array(1, 0), array(2, 0), array(3, 0)),
+            3
+        )),
+    ),
+    'nodes' => array(
+        array('id' => 'vector:loop-supported', 'type' => 'VECTOR', 'name' => 'Supported Loop', 'width' => 12, 'height' => 6, 'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.1, 'g' => 0.2, 'b' => 0.3))), 'vectorData' => array('vectorNetworkBlob' => 0)),
+        array('id' => 'vector:loop-branch', 'type' => 'VECTOR', 'name' => 'Branched Loop', 'width' => 12, 'height' => 6, 'vectorData' => array('vectorNetworkBlob' => 1)),
+        array('id' => 'vector:loop-open-order', 'type' => 'VECTOR', 'name' => 'Open Region Order', 'width' => 12, 'height' => 6, 'vectorData' => array('vectorNetworkBlob' => 2)),
+        array('id' => 'vector:loop-malformed-region', 'type' => 'VECTOR', 'name' => 'Malformed Region', 'width' => 12, 'height' => 6, 'vectorData' => array('vectorNetworkBlob' => 3)),
+    ),
+));
+$loopDecoderHtml = $fileContent($loopDecoderResult, 'index.html');
+$loopDecoderDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $loopDecoderResult['diagnostics'] ?? array()
+);
+$assert(str_contains($loopDecoderHtml, 'data-figma-node-id="vector:loop-supported"') && str_contains($loopDecoderHtml, 'd="M0 0L12 0 8 6 0 6Z"') && str_contains($loopDecoderHtml, 'fill="#1a334d"'), 'vector-network-single-loop-renders-path');
+$assert(str_contains($loopDecoderHtml, 'data-figma-node-id="vector:loop-branch"') && str_contains($loopDecoderHtml, 'data-figma-unsupported-vector="true"'), 'vector-network-branch-keeps-placeholder');
+$assert(str_contains($loopDecoderHtml, 'data-figma-node-id="vector:loop-open-order"') && str_contains($loopDecoderHtml, 'data-figma-unsupported-vector="true"'), 'vector-network-open-order-keeps-placeholder');
+$assert(str_contains($loopDecoderHtml, 'data-figma-node-id="vector:loop-malformed-region"') && str_contains($loopDecoderHtml, 'data-figma-unsupported-vector="true"'), 'vector-network-malformed-region-keeps-placeholder');
+$assert(in_array('unsupported_vector_network_blob', $loopDecoderDiagnosticCodes, true), 'vector-network-unsupported-loop-topology-diagnostic');
 
 $zeroHeightSeparatorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Zero Height Separator Fixture',

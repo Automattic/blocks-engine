@@ -2018,6 +2018,11 @@ final class ScenegraphNormalizer
             return array('data' => $path, 'source' => 'vectorData.vectorNetworkBlob', 'windingRule' => 'NONZERO');
         }
 
+        $path = $this->decodeSingleClosedLoopVectorNetworkBlob($bytes);
+        if ( null !== $path ) {
+            return array('data' => $path, 'source' => 'vectorData.vectorNetworkBlob.singleClosedLoop', 'windingRule' => 'NONZERO');
+        }
+
         $path = $this->decodeSimpleRectVectorNetworkBlob($bytes, $node);
         if ( null !== $path ) {
             return array('data' => $path, 'source' => 'vectorData.vectorNetworkBlob.simpleRectFallback', 'windingRule' => 'NONZERO');
@@ -2128,6 +2133,118 @@ final class ScenegraphNormalizer
             . ' L ' . $this->svgNumber($maxX) . ' ' . $this->svgNumber($maxY)
             . ' L ' . $this->svgNumber($minX) . ' ' . $this->svgNumber($maxY)
             . ' Z';
+    }
+
+    private function decodeSingleClosedLoopVectorNetworkBlob(string $bytes): ?string
+    {
+        $counts = $this->vectorNetworkCounts($bytes);
+        if ( null === $counts ) {
+            return null;
+        }
+
+        [$vertexCount, $segmentCount, $regionCount] = $counts;
+        if ( $vertexCount < 3 || $vertexCount > 32 || $vertexCount !== $segmentCount || 1 !== $regionCount ) {
+            return null;
+        }
+
+        if ( strlen($bytes) !== 24 + ( $vertexCount * 44 ) ) {
+            return null;
+        }
+
+        $vertices = array();
+        for ( $index = 0; $index < $vertexCount; $index++ ) {
+            $vertexOffset = 12 + ( $index * 20 );
+            if ( ! $this->bytesAreZero($bytes, $vertexOffset, 4) || ! $this->bytesAreZero($bytes, $vertexOffset + 12, 8) ) {
+                return null;
+            }
+
+            $point = $this->readFloatPair($bytes, $vertexOffset + 4);
+            if ( null === $point || ! is_finite($point[0]) || ! is_finite($point[1]) ) {
+                return null;
+            }
+            $vertices[] = $point;
+        }
+
+        $segments = array();
+        $degree = array_fill(0, $vertexCount, 0);
+        $segmentOffset = 12 + ( $vertexCount * 20 );
+        for ( $index = 0; $index < $segmentCount; $index++ ) {
+            $currentSegmentOffset = $segmentOffset + ( $index * 16 );
+            if ( ! $this->bytesAreZero($bytes, $currentSegmentOffset + 8, 8) ) {
+                return null;
+            }
+
+            $start = $this->readUint32($bytes, $currentSegmentOffset);
+            $end = $this->readUint32($bytes, $currentSegmentOffset + 4);
+            if ( null === $start || null === $end || $start < 0 || $start >= $vertexCount || $end < 0 || $end >= $vertexCount || $start === $end ) {
+                return null;
+            }
+            $segments[] = array($start, $end);
+            $degree[$start]++;
+            $degree[$end]++;
+        }
+
+        foreach ( $degree as $vertexDegree ) {
+            if ( 2 !== $vertexDegree ) {
+                return null;
+            }
+        }
+
+        $regionOffset = $segmentOffset + ( $segmentCount * 16 );
+        $regionSegmentCount = $this->readUint32($bytes, $regionOffset);
+        if ( $segmentCount !== $regionSegmentCount || ! $this->bytesAreZero($bytes, $regionOffset + 4, 8) ) {
+            return null;
+        }
+
+        $orderedVertexIndexes = array();
+        $usedSegments = array();
+        for ( $index = 0; $index < $segmentCount; $index++ ) {
+            $entryOffset = $regionOffset + 12 + ( $index * 8 );
+            $segmentIndex = $this->readUint32($bytes, $entryOffset);
+            $direction = $this->readUint32($bytes, $entryOffset + 4);
+            if ( null === $segmentIndex || null === $direction || $segmentIndex < 0 || $segmentIndex >= $segmentCount || isset($usedSegments[$segmentIndex]) || ( 0 !== $direction && 1 !== $direction ) ) {
+                return null;
+            }
+
+            $usedSegments[$segmentIndex] = true;
+            [$start, $end] = $segments[$segmentIndex];
+            if ( 1 === $direction ) {
+                [$start, $end] = array($end, $start);
+            }
+
+            if ( 0 === $index ) {
+                $orderedVertexIndexes[] = $start;
+                $orderedVertexIndexes[] = $end;
+                continue;
+            }
+
+            if ( $orderedVertexIndexes[count($orderedVertexIndexes) - 1] !== $start ) {
+                return null;
+            }
+            $orderedVertexIndexes[] = $end;
+        }
+
+        if ( count($orderedVertexIndexes) !== $vertexCount + 1 || $orderedVertexIndexes[0] !== $orderedVertexIndexes[count($orderedVertexIndexes) - 1] || count(array_unique(array_slice($orderedVertexIndexes, 0, -1))) !== $vertexCount ) {
+            return null;
+        }
+
+        $windingArea = 0.0;
+        for ( $index = 0; $index < $vertexCount; $index++ ) {
+            $current = $vertices[$orderedVertexIndexes[$index]];
+            $next = $vertices[$orderedVertexIndexes[$index + 1]];
+            $windingArea += ( $current[0] * $next[1] ) - ( $next[0] * $current[1] );
+        }
+        if ( abs($windingArea) < 0.000001 ) {
+            return null;
+        }
+
+        $parts = array();
+        foreach ( array_slice($orderedVertexIndexes, 0, -1) as $index => $vertexIndex ) {
+            $point = $vertices[$vertexIndex];
+            $parts[] = ( 0 === $index ? 'M ' : 'L ' ) . $this->svgNumber($point[0]) . ' ' . $this->svgNumber($point[1]);
+        }
+
+        return implode(' ', $parts) . ' Z';
     }
 
     /**
@@ -2374,6 +2491,25 @@ final class ScenegraphNormalizer
         }
 
         return array((float) $x[1], (float) $y[1]);
+    }
+
+    private function bytesAreZero(string $bytes, int $offset, int $length): bool
+    {
+        if ( strlen($bytes) < $offset + $length ) {
+            return false;
+        }
+
+        return str_repeat("\0", $length) === substr($bytes, $offset, $length);
+    }
+
+    private function readUint32(string $bytes, int $offset): ?int
+    {
+        if ( strlen($bytes) < $offset + 4 ) {
+            return null;
+        }
+
+        $value = unpack('V', substr($bytes, $offset, 4));
+        return false === $value ? null : (int) $value[1];
     }
 
     private function svgNumber(float $value): string
