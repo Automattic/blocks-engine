@@ -312,29 +312,39 @@ $assert('contract-test' === ($contextual['provenance'][0]['scope'] ?? ''), 'HTML
 $formFallback = ( new HtmlTransformer() )->transform(
     '<main><form action="/contact" method="post" data-action="contact-submit"><label for="email">Email</label><input id="email" name="email" type="email" required><select name="topic"><option value="support" selected>Support</option></select><button type="submit">Send</button></form></main>'
 )->toArray();
-$formDiagnostic = $formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
+$formRuntimeIsland = $formFallback['source_reports']['runtime_islands'][0] ?? array();
 $formFallbackBlocks = $formFallback['blocks'][0]['innerBlocks'] ?? array();
-$assert('core/group' === ($formFallback['blocks'][0]['blockName'] ?? ''), 'form fallback materializes readable control blocks');
-$assert('core/paragraph' === ($formFallbackBlocks[0]['blockName'] ?? ''), 'form fallback exposes readable input text');
-$assert('core/group' === ($formFallbackBlocks[1]['blockName'] ?? ''), 'form fallback exposes readable select options');
-$assert('core/buttons' === ($formFallbackBlocks[2]['blockName'] ?? ''), 'form fallback exposes readable submit button');
-$assertNormalizedFallbackDiagnostic($formDiagnostic, 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
+$assert(array() === ($formFallback['fallbacks'] ?? array()), 'readable runtime form converts without unsupported fallback diagnostics');
+$assert(array() === ($formFallback['source_reports']['conversion_report']['fallback_diagnostics'] ?? array()), 'readable runtime form is not projected as a fallback diagnostic');
+$assert('core/group' === ($formFallback['blocks'][0]['blockName'] ?? ''), 'runtime form materializes readable control blocks');
+$assert('core/paragraph' === ($formFallbackBlocks[0]['blockName'] ?? ''), 'runtime form exposes readable input text');
+$assert('core/group' === ($formFallbackBlocks[1]['blockName'] ?? ''), 'runtime form exposes readable select options');
+$assert('core/buttons' === ($formFallbackBlocks[2]['blockName'] ?? ''), 'runtime form exposes readable submit button');
 $assert('form' === ($formFallback['source_reports']['interaction_candidates'][0]['kind'] ?? ''), 'HTML source report exposes form interaction candidate');
 $assert('form' === ($formFallback['source_reports']['conversion_report']['interaction_candidates'][0]['kind'] ?? ''), 'conversion report projects interaction candidates');
 $assert('/contact' === ($formFallback['source_reports']['interaction_candidates'][0]['target'] ?? ''), 'form interaction candidate exposes action target');
-$assert('html_form_fallback' === ($formDiagnostic['diagnostic_code'] ?? ''), 'conversion report exposes form fallback diagnostic code');
-$assert('interactive_form' === ($formDiagnostic['pattern_family'] ?? ''), 'conversion report exposes form fallback pattern family');
-$assert('inside_main' === ($formDiagnostic['parent_reason'] ?? ''), 'conversion report exposes fallback parent reason');
-$assert('0,2,2' === ($formDiagnostic['source_selector_specificity']['score'] ?? ''), 'conversion report exposes fallback selector specificity');
-$assert('preserve_runtime_island' === ($formDiagnostic['suggested_generic_repair_class'] ?? ''), 'conversion report exposes form fallback generic repair class');
-$assert('/contact' === ($formDiagnostic['form']['action'] ?? ''), 'conversion report exposes form action metadata');
-$assert('post' === ($formDiagnostic['form']['method'] ?? ''), 'conversion report exposes normalized form method metadata');
-$assert(3 === ($formDiagnostic['control_count'] ?? null), 'conversion report exposes form control count');
-$assert('email' === ($formDiagnostic['controls'][0]['name'] ?? ''), 'conversion report exposes form control names');
-$assert('Email' === ($formDiagnostic['controls'][0]['label'] ?? ''), 'conversion report exposes form control labels');
-$assert(true === ($formDiagnostic['controls'][0]['required'] ?? null), 'conversion report exposes required form controls');
-$assert('support' === ($formDiagnostic['controls'][1]['options'][0]['value'] ?? ''), 'conversion report exposes select option values');
-$assert(is_int($formDiagnostic['html_bytes'] ?? null), 'conversion report exposes bounded fallback HTML byte size');
+$assert('form' === ($formRuntimeIsland['kind'] ?? ''), 'readable runtime form reports as a runtime island');
+$assert('form_requires_runtime' === ($formRuntimeIsland['preservation_reason'] ?? ''), 'form runtime island exposes preservation reason');
+$assert('interactive_form' === ($formRuntimeIsland['pattern_family'] ?? ''), 'form runtime island exposes generic pattern family');
+$assert('preserve_runtime_island' === ($formRuntimeIsland['suggested_generic_repair_class'] ?? ''), 'form runtime island exposes generic repair class metadata');
+$assert('/contact' === ($formRuntimeIsland['form']['action'] ?? ''), 'form runtime island exposes form action metadata');
+$assert('post' === ($formRuntimeIsland['form']['method'] ?? ''), 'form runtime island exposes normalized form method metadata');
+$assert(3 === ($formRuntimeIsland['control_count'] ?? null), 'form runtime island exposes form control count');
+$assert('email' === ($formRuntimeIsland['controls'][0]['name'] ?? ''), 'form runtime island exposes form control names');
+$assert('Email' === ($formRuntimeIsland['controls'][0]['label'] ?? ''), 'form runtime island exposes form control labels');
+$assert(true === ($formRuntimeIsland['controls'][0]['required'] ?? null), 'form runtime island exposes required form controls');
+$assert('support' === ($formRuntimeIsland['controls'][1]['options'][0]['value'] ?? ''), 'form runtime island exposes select option values');
+$assert(is_int($formRuntimeIsland['source_bytes'] ?? null), 'form runtime island exposes bounded source byte size');
+$assert('core/group' === ($formRuntimeIsland['readable_blocks'][0]['blockName'] ?? ''), 'form runtime island carries its readable approximation metadata');
+
+$scriptOnlyFormFallback = ( new HtmlTransformer() )->transform('<main><form action="/contact" method="post"><script>window.submitContact()</script></form></main>')->toArray();
+$scriptOnlyFormDiagnostic = $scriptOnlyFormFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
+$assertNormalizedFallbackDiagnostic($scriptOnlyFormDiagnostic, 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
+$assert('interactive_form' === ($scriptOnlyFormDiagnostic['pattern_family'] ?? ''), 'conversion report exposes form fallback pattern family');
+$assert('inside_main' === ($scriptOnlyFormDiagnostic['parent_reason'] ?? ''), 'conversion report exposes fallback parent reason');
+$assert('0,2,2' === ($scriptOnlyFormDiagnostic['source_selector_specificity']['score'] ?? ''), 'conversion report exposes fallback selector specificity');
+$assert('preserve_runtime_island' === ($scriptOnlyFormDiagnostic['suggested_generic_repair_class'] ?? ''), 'conversion report exposes form fallback generic repair class');
+$assert(array() === ($scriptOnlyFormFallback['blocks'] ?? array()), 'runtime form without readable controls still falls back only as metadata');
 
 $rangeControlResult = ( new HtmlTransformer() )->transform(
     '<main><section><label for="density">Density</label><input type="range" id="density" min="6" max="60" step="2" value="28"></section></main>'
@@ -731,6 +741,33 @@ $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallba
 $assert(! isset($diagnosticsByCode['html_inline_svg_fallback']), 'safe inline SVGs convert to image blocks instead of fallback diagnostics');
 $assert(! isset($diagnosticsByCode['html_canvas_runtime_fallback']), 'non-runtime canvas does not emit runtime canvas fallback diagnostics');
 
+$safeProviderIframe = ( new HtmlTransformer() )->transform(
+    '<main><iframe title="Demo" src="https://www.youtube.com/embed/dQw4w9WgXcQ" width="560" height="315"></iframe></main>'
+)->toArray();
+$safeProviderBlock = $safeProviderIframe['blocks'][0] ?? array();
+$assert('core/embed' === ($safeProviderBlock['blockName'] ?? ''), 'safe provider iframe converts to core/embed');
+$assert('https://www.youtube.com/watch?v=dQw4w9WgXcQ' === ($safeProviderBlock['attrs']['url'] ?? ''), 'safe provider iframe canonicalizes embed URL');
+$assert('youtube' === ($safeProviderBlock['attrs']['providerNameSlug'] ?? ''), 'safe provider iframe records provider slug');
+$assert(array() === ($safeProviderIframe['fallbacks'] ?? array()), 'safe provider iframe does not emit fallback metadata');
+
+$unknownIframe = ( new HtmlTransformer() )->transform(
+    '<main><section><h2>Playground</h2><p>Before embed.</p><iframe title="Interactive demo" src="https://example.test/playground" width="640" height="360" allow="fullscreen"></iframe><p>After embed.</p></section></main>'
+)->toArray();
+$unknownDiagnostics = $unknownIframe['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$unknownIframeDiagnostics = array_values(array_filter($unknownDiagnostics, static fn (array $diagnostic): bool => 'html_iframe_embed_fallback' === ($diagnostic['diagnostic_code'] ?? '')));
+$assert(1 === count($unknownIframeDiagnostics), 'unknown iframe emits one iframe fallback diagnostic');
+$assert('runtime_island_preserved' === ($unknownIframeDiagnostics[0]['conversion_classification'] ?? ''), 'unknown iframe fallback is classified as runtime island preservation');
+$assert('https://example.test/playground' === ($unknownIframe['fallbacks'][0]['attributes']['src'] ?? ''), 'unknown iframe fallback preserves bounded safe src metadata');
+$unknownIframeIslands = array_values(array_filter($unknownIframe['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'iframe' === ($island['kind'] ?? '')));
+$assert(1 === count($unknownIframeIslands), 'unknown iframe projects as a runtime island');
+$assert('iframe_requires_embed_runtime' === ($unknownIframeIslands[0]['preservation_reason'] ?? ''), 'unknown iframe runtime island exposes preservation reason');
+$unknownSerialized = (string) ($unknownIframe['serialized_blocks'] ?? '');
+$assert(! str_contains($unknownSerialized, '<!-- wp:embed'), 'unknown iframe does not become a provider embed block');
+$assert(! str_contains($unknownSerialized, '<!-- wp:html'), 'unknown iframe does not force raw HTML fallback materialization');
+$assert(str_contains($unknownSerialized, 'Playground'), 'ancestor content around unknown iframe still converts heading content');
+$assert(str_contains($unknownSerialized, 'Before embed.'), 'ancestor content before unknown iframe still converts');
+$assert(str_contains($unknownSerialized, 'After embed.'), 'ancestor content after unknown iframe still converts');
+
 $canvasFallback = ( new HtmlTransformer() )->transform(
     '<main><canvas id="bonsai" class="stage" width="640" height="360">Fallback</canvas><script src="/js/script.js"></script></main>',
     array('runtime_canvas_selectors' => array('#bonsai'))
@@ -745,8 +782,13 @@ $assert('canvas_requires_runtime' === ($canvasDiagnostic['reason'] ?? ''), 'canv
 $assert('bonsai' === ($canvasFallback['fallbacks'][0]['attributes']['id'] ?? ''), 'canvas fallback preserves id for runtime mapping');
 $assert(str_contains((string) ($canvasFallback['fallbacks'][0]['html'] ?? ''), '<canvas id="bonsai"'), 'canvas fallback preserves bounded safe canvas markup');
 $assert(str_contains((string) ($canvasDiagnostic['script_dependency_hint'] ?? ''), '#bonsai'), 'canvas diagnostic flags id-based script dependency risk');
-$assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'runtime canvas emits bounded core/html preservation island');
-$assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<canvas id="bonsai"'), 'runtime canvas preserves native canvas markup for script execution');
+$canvasRuntimeIslands = array_values(array_filter($canvasFallback['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'canvas' === ($island['kind'] ?? '')));
+$assert(1 === count($canvasRuntimeIslands), 'runtime canvas projects as a bounded runtime island');
+$assert('#bonsai' === ($canvasRuntimeIslands[0]['selector'] ?? ''), 'runtime canvas island preserves script-addressable selector');
+$assert(str_contains((string) ($canvasRuntimeIslands[0]['source_snippet'] ?? ''), '<canvas id="bonsai"'), 'runtime canvas island preserves bounded source snippet for runtime mapping');
+$assert(1 === count($canvasRuntimeIslands[0]['required_scripts'] ?? array()), 'runtime canvas island preserves required script context');
+$assert(! str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'runtime canvas does not emit serialized core/html fallback blocks');
+$assert(! str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<canvas id="bonsai"'), 'runtime canvas does not serialize raw canvas markup into block output');
 
 $runtimePreserved = ( new HtmlTransformer() )->transform(
     '<main><canvas id="stage" aria-hidden="true"></canvas><input id="amount" value="10"><div id="app-shell">Runtime shell</div></main>',
@@ -765,7 +807,7 @@ foreach ( $runtimeSelectors as $selector ) {
         $runtimeClassifications[$selector['tag'] ?? ''] = $selector['conversion_classification'] ?? '';
     }
 }
-$assert('runtime_island_preserved' === ($runtimeClassifications['canvas'] ?? ''), 'runtime-preserved canvas core/html block is classified as runtime island preservation');
+$assert('runtime_island_preserved' === ($runtimeClassifications['canvas'] ?? ''), 'runtime-preserved canvas metadata is classified as runtime island preservation');
 $assert('runtime_island_preserved' === ($runtimeClassifications['input'] ?? ''), 'runtime-preserved control metadata is classified as runtime island preservation');
 $runtimePreservedIslandKinds = array_map(static fn (array $island): string => (string) ($island['kind'] ?? ''), $runtimePreserved['source_reports']['runtime_islands'] ?? array());
 $assert(in_array('dom', $runtimePreservedIslandKinds, true), 'runtime-preserved DOM target projects as a runtime island');
@@ -1052,7 +1094,7 @@ $assert(true === ($canvasDependency['canvas_api'] ?? null), 'runtime dependency 
 $assert(true === ($canvasDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved canvas id target');
 $assert(null !== $stageDependency, 'runtime dependency parity records canvas class querySelector dependency');
 $assert(true === ($stageDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved canvas class target');
-$assert(str_contains($runtimeDependencyMarkup, '<canvas id="canvas" class="stage"></canvas>'), 'artifact compiler emits referenced canvas runtime target markup');
+$assert(! str_contains($runtimeDependencyMarkup, '<canvas id="canvas" class="stage"></canvas>'), 'artifact compiler does not emit referenced canvas runtime target markup');
 $assert(! str_contains($runtimeDependencyMarkup, 'unused-canvas'), 'artifact compiler does not preserve unreferenced canvas markup');
 $runtimeDependencyIslands = $runtimeDependencySite['source_reports']['runtime_islands'] ?? array();
 $runtimeDependencyIslandsByKind = array();
@@ -1065,6 +1107,7 @@ $runtimeDependencyCanvasIsland = $runtimeDependencyIslandsByKind['canvas'][0] ??
 $runtimeDependencyDomIsland = $runtimeDependencyIslandsByKind['dom'][0] ?? array();
 $assert('canvas' === ($runtimeDependencyCanvasIsland['kind'] ?? ''), 'artifact runtime island identifies canvas kind');
 $assert('#canvas' === ($runtimeDependencyCanvasIsland['selector'] ?? ''), 'artifact runtime island exposes canvas selector');
+$assert('stage' === ($runtimeDependencyCanvasIsland['attributes']['class'] ?? ''), 'artifact runtime island exposes canvas class for runtime dependency parity');
 $assert(str_contains((string) ($runtimeDependencyCanvasIsland['source_snippet'] ?? ''), '<canvas id="canvas" class="stage"></canvas>'), 'artifact runtime island exposes canvas source snippet');
 $assert(! empty($runtimeDependencyCanvasIsland['required_scripts'] ?? array()), 'artifact runtime island exposes required script metadata');
 $assert('#status-container' === ($runtimeDependencyDomIsland['selector'] ?? ''), 'artifact DOM runtime island exposes selector');
@@ -1088,12 +1131,13 @@ $decorativeCanvasSite = $compiler->compile(
 )->toArray();
 $decorativeCanvasMarkup = (string) ($decorativeCanvasSite['serialized_blocks'] ?? '');
 $decorativeCanvasFallbacks = $decorativeCanvasSite['fallbacks'] ?? array();
-$assert(str_contains($decorativeCanvasMarkup, '<canvas id="lab-canvas" class="stage" aria-label="Live pattern"></canvas>'), 'artifact compiler preserves canvas markup only for selectors with direct canvas API usage');
+$assert(! str_contains($decorativeCanvasMarkup, '<canvas id="lab-canvas" class="stage" aria-label="Live pattern"></canvas>'), 'artifact compiler omits runtime canvas markup from serialized blocks');
 $assert(! str_contains($decorativeCanvasMarkup, 'hero-canvas'), 'artifact compiler omits decorative canvas touched by script without canvas API usage');
 $assert(1 === count($decorativeCanvasFallbacks), 'artifact compiler records one runtime canvas fallback for the interactive canvas only');
 $assert('lab-canvas' === ($decorativeCanvasFallbacks[0]['attributes']['id'] ?? ''), 'runtime canvas fallback provenance points to the interactive canvas');
 $assert(1 === count($decorativeCanvasSite['source_reports']['runtime_islands'] ?? array()), 'decorative canvas is not over-reported as a runtime island');
 $assert('#lab-canvas' === ($decorativeCanvasSite['source_reports']['runtime_islands'][0]['selector'] ?? ''), 'runtime island provenance points to the interactive canvas');
+$assert(str_contains((string) ($decorativeCanvasSite['source_reports']['runtime_islands'][0]['source_snippet'] ?? ''), '<canvas id="lab-canvas" class="stage" aria-label="Live pattern"></canvas>'), 'artifact compiler preserves direct canvas API target as runtime island metadata');
 
 $runtimeTargetContainerSite = $compiler->compile(
     array(

@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-static-script-metadata-no-fallback",
-  "description": "Preserves non-executable inline script data as metadata while keeping executable scripts as runtime fallbacks.",
+  "description": "Preserves structured data, static config, import maps, and import-only module scripts as metadata while keeping executable scripts as runtime fallbacks.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-static-script-metadata-no-fallback.json",
-    "notes": "JSON-LD script tags are structured data, not client runtime behavior; executable inline scripts still require runtime fallback diagnostics."
+    "notes": "Static script data and import-only module scripts are bounded metadata; executable inline scripts still require runtime fallback diagnostics."
   },
   "legacy_comparison": {
     "skip": true,
@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<main><h1>Bakery</h1><script type=\"application/ld+json\">{\"@context\":\"https://schema.org\",\"@type\":\"Bakery\",\"name\":\"Loaf Lab\"}</script><script type=\"text/javascript\">window.loafLab.init();</script><p>Fresh bread daily.</p></main>"
+    "content": "<main><h1>Bakery</h1><script type=\"application/ld+json\">{\"@context\":\"https://schema.org\",\"@type\":\"Bakery\",\"name\":\"Loaf Lab\"}</script><script type=\"application/json\" id=\"site-data\">{\"theme\":\"warm\",\"featured\":true}</script><script type=\"importmap\">{\"imports\":{\"loaf\":\"./assets/loaf.js\"}}</script><script>window.__LOAF_CONFIG__ = {\"currency\":\"USD\",\"featured\":true};</script><script type=\"module\">import \"./assets/config.js\";\nimport settings from \"./assets/settings.js\";</script><script type=\"text/javascript\">document.querySelector(\"main\").classList.add(\"hydrated\");</script><p>Fresh bread daily.</p></main>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
@@ -26,7 +26,7 @@
       "diagnostic_code": "html_script_fallback",
       "script_role": "runtime",
       "script_source_kind": "inline",
-      "body": "window.loafLab.init();"
+      "body": "document.querySelector(\"main\").classList.add(\"hydrated\");"
     }
   ],
   "expect": [
@@ -34,10 +34,18 @@
     { "path": "fallbacks", "assert": "count", "count": 1 },
     { "path": "diagnostics.1.code", "assert": "equals", "value": "html_static_script_metadata" },
     { "path": "diagnostics.1.reason", "assert": "equals", "value": "script_static_metadata" },
-    { "path": "source_reports.html.script_metadata", "assert": "count", "count": 1 },
+    { "path": "source_reports.html.script_metadata", "assert": "count", "count": 5 },
     { "path": "source_reports.html.script_metadata.0.script_role", "assert": "equals", "value": "data" },
     { "path": "source_reports.html.script_metadata.0.attributes.type", "assert": "equals", "value": "application/ld+json" },
     { "path": "source_reports.html.script_metadata.0.body", "assert": "contains", "value": "schema.org" },
+    { "path": "source_reports.html.script_metadata.1.attributes.type", "assert": "equals", "value": "application/json" },
+    { "path": "source_reports.html.script_metadata.2.attributes.type", "assert": "equals", "value": "importmap" },
+    { "path": "source_reports.html.script_metadata.3.script_role", "assert": "equals", "value": "static_config" },
+    { "path": "source_reports.html.script_metadata.3.body", "assert": "contains", "value": "__LOAF_CONFIG__" },
+    { "path": "source_reports.html.script_metadata.4.script_role", "assert": "equals", "value": "static_import" },
+    { "path": "source_reports.html.script_metadata.4.body", "assert": "contains", "value": "./assets/settings.js" },
+    { "path": "source_reports.runtime_islands", "assert": "count", "count": 1 },
+    { "path": "source_reports.runtime_islands.0.script_role", "assert": "equals", "value": "runtime" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
   ]
 }

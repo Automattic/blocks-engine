@@ -1711,8 +1711,7 @@ final class HtmlTransformer
             }
 
             $this->captureCanvasFallback($element, $fallbacks);
-            $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-            return $this->createBlock('core/html', array( 'content' => $boundedHtml['html'] ), array(), $element);
+            return null;
         }
 
         if ( 'script' === $tagName ) {
@@ -1743,8 +1742,14 @@ final class HtmlTransformer
                 'controls'        => $controls,
                 'control_count'   => count($controls),
                 'events'          => $this->eventMetadata($element),
+                'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
                 'required_scripts' => $this->requiredScriptsForElement($element),
             ));
+
+            if ( null !== $readableFormBlock ) {
+                return $readableFormBlock;
+            }
+
             $fallbacks[] = FallbackDiagnostic::build(array(
                 'type'            => 'html',
                 'reason'          => 'form_requires_runtime',
@@ -1767,7 +1772,7 @@ final class HtmlTransformer
                 'html_truncated'  => $boundedHtml['truncated'],
             ), $this->fallbackProvenance);
 
-            return $readableFormBlock;
+            return null;
         }
 
         if ( 'nav' === $tagName ) {
@@ -2387,9 +2392,14 @@ final class HtmlTransformer
     private function presentationClassName(string $className): string
     {
         $classes = preg_split('/\s+/', trim($className)) ?: array();
-        $classes = array_filter($classes, static fn (string $class): bool => '' !== $class && ! str_starts_with($class, 'js-'));
+        $classes = array_filter($classes, static fn (string $class): bool => '' !== $class && ! self::isBehaviorHookClassName($class));
 
         return implode(' ', array_values(array_unique($classes)));
+    }
+
+    private static function isBehaviorHookClassName(string $className): bool
+    {
+        return 1 === preg_match('/^js(?:$|[-_:]|[A-Z])/', $className);
     }
 
     /**
@@ -2516,7 +2526,7 @@ final class HtmlTransformer
 
     private function isInlineContentElement(string $tagName): bool
     {
-        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'font', 'i', 'mark', 'rp', 'rt', 'ruby', 'small', 'span', 'strong', 'sub', 'sup', 'time' ), true);
+        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'font', 'i', 'kbd', 'mark', 'rp', 'rt', 'ruby', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'var' ), true);
     }
 
     private function hasBlockContentChildren(DOMElement $element): bool
@@ -3834,6 +3844,9 @@ final class HtmlTransformer
 
         $scriptRole = $this->scriptRole($element);
         if ( 'data' !== $scriptRole ) {
+            $scriptRole = $this->staticScriptMetadataRole($element);
+        }
+        if ( null === $scriptRole ) {
             return false;
         }
 
@@ -3872,6 +3885,45 @@ final class HtmlTransformer
         }
 
         return 'runtime';
+    }
+
+    private function staticScriptMetadataRole(DOMElement $element): ?string
+    {
+        $body = trim($element->textContent ?? '');
+        if ( '' === $body || $this->scriptBodyHasExecutableRuntimeSignals($body) ) {
+            return null;
+        }
+
+        $type = strtolower(trim($this->attr($element, 'type')));
+        if ( 'module' === $type && $this->scriptBodyContainsOnlyStaticImports($body) ) {
+            return 'static_import';
+        }
+
+        if ( $this->scriptBodyContainsOnlyStaticConfig($body) ) {
+            return 'static_config';
+        }
+
+        return null;
+    }
+
+    private function scriptBodyHasExecutableRuntimeSignals(string $body): bool
+    {
+        return 1 === preg_match('/\b(?:document|location|navigator|history|customElements)\b|\b(?:addEventListener|removeEventListener|querySelector|getElementById|appendChild|insertBefore|replaceChild|removeChild|classList|innerHTML|outerHTML|fetch|XMLHttpRequest|setTimeout|setInterval|requestAnimationFrame|import\s*\()\b|\b(?:function|class|new)\b|=>/', $body);
+    }
+
+    private function scriptBodyContainsOnlyStaticImports(string $body): bool
+    {
+        $withoutImports = preg_replace('/^\s*import\s+(?:(?:[\s\S]*?\s+from\s+)?[\'\"][^\'\"]+[\'\"]|[\'\"][^\'\"]+[\'\"])\s*;?\s*/m', '', $body);
+
+        return is_string($withoutImports) && '' === trim($withoutImports);
+    }
+
+    private function scriptBodyContainsOnlyStaticConfig(string $body): bool
+    {
+        $statementPattern = '(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*(?:\{[\s\S]*?\}|\[[\s\S]*?\]|[\'\"][\s\S]*?[\'\"]|[0-9.]+|true|false|null)\s*;?';
+        $globalConfigPattern = '(?:window|globalThis)\.[A-Za-z_$][A-Za-z0-9_$.]*(?:CONFIG|Config|config|SETTINGS|Settings|settings|DATA|Data|data|PROPS|Props|props)[A-Za-z0-9_$.]*\s*=\s*(?:\{[\s\S]*?\}|\[[\s\S]*?\]|[\'\"][\s\S]*?[\'\"]|[0-9.]+|true|false|null)\s*;?';
+
+        return 1 === preg_match('/^\s*(?:' . $statementPattern . '|' . $globalConfigPattern . ')+\s*$/', $body);
     }
 
     /**
@@ -5471,7 +5523,7 @@ final class HtmlTransformer
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
         $path = (string) parse_url($url, PHP_URL_PATH);
 
-        if ( str_ends_with($host, 'youtube.com') && preg_match('~^/embed/([^/?#]+)~', $path, $matches) ) {
+        if ( ( str_ends_with($host, 'youtube.com') || str_ends_with($host, 'youtube-nocookie.com') ) && preg_match('~^/embed/([^/?#]+)~', $path, $matches) ) {
             return 'https://www.youtube.com/watch?v=' . $matches[1];
         }
 
@@ -5489,7 +5541,7 @@ final class HtmlTransformer
     private function embedProviderSlug(string $url): string
     {
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-        if ( str_ends_with($host, 'youtube.com') || 'youtu.be' === $host ) {
+        if ( str_ends_with($host, 'youtube.com') || str_ends_with($host, 'youtube-nocookie.com') || 'youtu.be' === $host ) {
             return 'youtube';
         }
         if ( str_ends_with($host, 'vimeo.com') ) {
@@ -5522,15 +5574,20 @@ final class HtmlTransformer
     private function convertIframeElement(DOMElement $iframe, array &$fallbacks): ?array
     {
         $url = $this->safeEmbedUrl($this->attr($iframe, 'src'));
-        if ( '' !== $url ) {
+        $providerNameSlug = '' === $url ? '' : $this->embedProviderSlug($url);
+        if ( '' !== $providerNameSlug ) {
             return $this->createBlock('core/embed', array_filter(array_merge($this->presentationAttributes($iframe), array(
                 'url'              => $this->canonicalEmbedUrl($url),
                 'type'             => 'video',
-                'providerNameSlug' => $this->embedProviderSlug($url),
+                'providerNameSlug' => $providerNameSlug,
             )), static fn ($value): bool => '' !== $value), array(), $iframe);
         }
 
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($iframe));
+        $this->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
+            'preservation_strategy' => 'sanitized_embed_markup',
+            'attributes'            => $this->safeEmbedAttributes($iframe),
+        ));
         $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'html',
             'reason'          => 'iframe_embed_fallback',
