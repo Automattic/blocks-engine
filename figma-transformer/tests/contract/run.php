@@ -2318,6 +2318,14 @@ $layoutOnlyParity = $parityBuilder->build(array(
     'dom_boxes_path' => 'artifacts/dom-boxes.json',
     'layout_mismatch_count' => 0,
 ));
+$screenshotCandidateParity = $parityBuilder->build(array(
+    'source_screenshot_path' => 'artifacts/source-candidate.png',
+    'source_screenshot_exists' => false,
+    'source_screenshot_readable' => false,
+    'generated_screenshot_path' => 'artifacts/generated-candidate.png',
+    'generated_screenshot_exists' => false,
+    'generated_screenshot_readable' => false,
+));
 $comparedParity = $parityBuilder->build(array(
     'status'    => 'compared',
     'artifacts' => array(
@@ -2374,6 +2382,12 @@ $assert(0 === ($layoutOnlyParity['layout_evidence']['mismatch_count'] ?? null), 
 $assert(! array_key_exists('pixel_mismatch_count', $layoutOnlyParity['metrics'] ?? array()), 'parity-layout-only-no-pixel-count');
 $assert('not_run' === ($layoutOnlyParity['visual_pixel_status'] ?? null), 'parity-layout-only-visual-pixel-not-run');
 $assert('not_run' === ($layoutOnlyParity['render_style_evidence']['status'] ?? null), 'parity-layout-only-render-style-not-run');
+$assert('pending' === ($screenshotCandidateParity['status'] ?? null), 'parity-screenshot-candidate-pending');
+$assert('screenshot_evidence_configured' === ($screenshotCandidateParity['reason'] ?? null), 'parity-screenshot-candidate-reason');
+$assert('not_run' === ($screenshotCandidateParity['visual_pixel_status'] ?? null), 'parity-screenshot-candidate-visual-not-run');
+$assert('artifacts/source-candidate.png' === ($screenshotCandidateParity['source']['screenshot_path'] ?? null), 'parity-screenshot-candidate-source-path');
+$assert(false === ($screenshotCandidateParity['source']['screenshot_exists'] ?? null), 'parity-screenshot-candidate-source-exists-false');
+$assert(false === ($screenshotCandidateParity['generated']['screenshot_readable'] ?? null), 'parity-screenshot-candidate-generated-readable-false');
 $assert('compared' === ($comparedParity['status'] ?? null), 'parity-compared-status');
 $assert('artifacts/source.png' === ($comparedParity['source']['screenshot_path'] ?? null), 'parity-source-screenshot-path');
 $assert('artifacts/generated.png' === ($comparedParity['generated']['screenshot_path'] ?? null), 'parity-generated-screenshot-path');

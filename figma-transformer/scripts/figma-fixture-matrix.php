@@ -354,6 +354,9 @@ Output and tooling:
   --layout-report=/path             Evidence path template for layout report.
   --layout-mismatch-report=/path    Evidence path template for layout mismatch report.
   --render-evidence=/path           Evidence path template for no-screenshot render/style evidence.
+  --source-screenshot=/path         Source screenshot path template for later pixel parity.
+  --generated-screenshot=/path      Generated screenshot path template for later pixel parity.
+  --diff-image=/path                Diff image path template for later pixel parity.
   --help, -h                        Show this help text.
 
 Examples:
@@ -524,6 +527,12 @@ function matrix_evidence_option_keys(): array
         'layout_mismatch_report_path' => 'layout_mismatch_report_path',
         'render_evidence' => 'render_evidence_path',
         'render_evidence_path' => 'render_evidence_path',
+        'source_screenshot' => 'source_screenshot_path',
+        'source_screenshot_path' => 'source_screenshot_path',
+        'generated_screenshot' => 'generated_screenshot_path',
+        'generated_screenshot_path' => 'generated_screenshot_path',
+        'diff_image' => 'diff_image_path',
+        'diff_image_path' => 'diff_image_path',
     );
 }
 
@@ -804,6 +813,9 @@ function matrix_evidence_transform_argument_prefixes(): array
         'layout_report_path' => '--parity-layout-report-path=',
         'layout_mismatch_report_path' => '--parity-layout-mismatch-report-path=',
         'render_evidence_path' => '--parity-render-evidence-path=',
+        'source_screenshot_path' => '--parity-source-screenshot-path=',
+        'generated_screenshot_path' => '--parity-generated-screenshot-path=',
+        'diff_image_path' => '--parity-diff-image-path=',
     );
 }
 
@@ -909,6 +921,10 @@ function matrix_attach_evidence_to_result(array $result, array $evidence): array
         }
     }
 
+    matrix_attach_screenshot_candidate($parity, $paths, 'source_screenshot_path', 'source', 'screenshot');
+    matrix_attach_screenshot_candidate($parity, $paths, 'generated_screenshot_path', 'generated', 'screenshot');
+    matrix_attach_screenshot_candidate($parity, $paths, 'diff_image_path', 'diff', 'image');
+
     $parityReport = matrix_read_json_evidence($paths['parity_report_path'] ?? null);
     if ( is_array($parityReport) ) {
         $parity = matrix_merge_parity_report($parity, $parityReport);
@@ -948,6 +964,33 @@ function matrix_evidence_artifact_keys(): array
         'layout_mismatch_report_path' => 'layout_mismatch_report_path',
         'render_evidence_path' => 'render_evidence_path',
     );
+}
+
+/**
+ * @param array<string, mixed> $parity
+ * @param array<string, mixed> $paths
+ */
+function matrix_attach_screenshot_candidate(array &$parity, array $paths, string $pathKey, string $section, string $prefix): void
+{
+    $record = is_array($paths[$pathKey] ?? null) ? $paths[$pathKey] : null;
+    $path = matrix_evidence_record_path($record);
+    if ( '' === $path || ! is_array($record) ) {
+        return;
+    }
+
+    $parity[$section] = is_array($parity[$section] ?? null) ? $parity[$section] : array();
+    $parity[$section][$prefix . '_path'] = $path;
+    $parity[$section][$prefix . '_exists'] = true === ($record['exists'] ?? false);
+    $parity[$section][$prefix . '_readable'] = true === ($record['readable'] ?? false);
+
+    if ( false === $parity[$section][$prefix . '_exists'] && 'not_run' === ($parity['status'] ?? 'not_run') ) {
+        $parity['status'] = 'pending';
+        $parity['reason'] = $parity['reason'] ?? 'screenshot_evidence_configured';
+    }
+
+    if ( ! isset($parity['visual_pixel_status']) ) {
+        $parity['visual_pixel_status'] = 'not_run';
+    }
 }
 
 /**
