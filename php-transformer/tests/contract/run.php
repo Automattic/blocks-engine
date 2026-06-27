@@ -555,6 +555,39 @@ $assert('pass' === ($dropdownHeaderParity['status'] ?? ''), 'dropdown header nav
 $assert(5 === ($dropdownHeaderBlockMenu['item_count'] ?? null), 'dropdown header nav counts parent and submenu items consistently');
 $assert('Day Hike' === ($dropdownHeaderBlockMenu['items'][2]['label'] ?? ''), 'dropdown header nav preserves submenu item labels');
 
+// Regression: a <nav> that sits as a SIBLING of a brand/logo and a menu-toggle
+// inside header/footer "chrome" container divs (direct-anchor menus, no <ul>)
+// must still be represented as core/navigation. This locks in the diagnostic
+// findings html_semantic_parity_landmark_count_mismatch (header nav) and
+// html_semantic_parity_navigation_menu_missing (footer nav) reported against an
+// earlier deployed transformer for shared-chrome static sites. Markup is generic
+// (structural signals only — no fixture-specific class names).
+$chromeHeaderNavigation = ( new HtmlTransformer() )->transform(
+    '<header class="masthead" role="banner"><div class="bar inner"><a class="logo" href="/" aria-label="Brand home"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0h1v1z"></path></svg><span>Brand</span></a><nav class="primary" aria-label="Primary navigation"><a href="/">Home</a><a href="/about">About</a><a href="/teams">Teams</a><a href="/contact">Contact</a></nav><button class="burger" aria-label="Open navigation menu" aria-expanded="false" aria-controls="drawer"><span></span><span></span><span></span></button></div></header><nav class="drawer" id="drawer" aria-label="Mobile navigation"><a href="/">Home</a><a href="/about">About</a><a href="/teams">Teams</a><a href="/contact">Contact</a></nav>'
+)->toArray();
+$chromeHeaderParity = $chromeHeaderNavigation['source_reports']['semantic_parity'] ?? array();
+$chromeHeaderBlockMenu = $chromeHeaderParity['navigation_menus']['blocks'][0] ?? array();
+$chromeHeaderFindingCodes = array_map(static fn ($f): string => (string) ($f['code'] ?? ''), $chromeHeaderParity['findings'] ?? array());
+$assert('pass' === ($chromeHeaderParity['status'] ?? ''), 'header chrome sibling nav (brand + nav + toggle) preserves semantic parity');
+$assert(! in_array('landmark_count_mismatch', $chromeHeaderFindingCodes, true), 'header chrome sibling nav avoids landmark_count_mismatch loss');
+$assert(($chromeHeaderParity['landmarks']['source']['nav'] ?? -1) === ($chromeHeaderParity['landmarks']['blocks']['nav'] ?? -2), 'header chrome sibling nav generates one core navigation landmark per source nav landmark');
+$assert(1 === count($chromeHeaderParity['navigation_menus']['blocks'] ?? array()), 'header chrome sibling nav dedupes the mobile drawer duplicate menu');
+$assert(true === ($chromeHeaderBlockMenu['represented_as_core_navigation'] ?? null), 'header chrome sibling nav is represented as core/navigation');
+$assert(4 === ($chromeHeaderBlockMenu['item_count'] ?? null), 'header chrome sibling nav preserves all direct-anchor menu items');
+$assert('Home' === ($chromeHeaderBlockMenu['items'][0]['label'] ?? ''), 'header chrome sibling nav preserves menu item labels');
+
+$chromeFooterNavigation = ( new HtmlTransformer() )->transform(
+    '<footer class="colophon"><div class="wrap"><div class="cols"><div class="about"><span>Brand Org</span></div><nav class="secondary" aria-label="Footer navigation"><a href="/">Home</a><a href="/about">About</a><a href="/teams">Teams</a><a href="/contact">Contact</a></nav></div><div class="legal">(c) 2026 Brand.</div></div></footer>'
+)->toArray();
+$chromeFooterParity = $chromeFooterNavigation['source_reports']['semantic_parity'] ?? array();
+$chromeFooterBlockMenu = $chromeFooterParity['navigation_menus']['blocks'][0] ?? array();
+$chromeFooterFindingCodes = array_map(static fn ($f): string => (string) ($f['code'] ?? ''), $chromeFooterParity['findings'] ?? array());
+$assert('pass' === ($chromeFooterParity['status'] ?? ''), 'footer chrome nested-div sibling nav preserves semantic parity');
+$assert(! in_array('navigation_menu_missing', $chromeFooterFindingCodes, true), 'footer chrome nested-div sibling nav avoids navigation_menu_missing loss');
+$assert(true === ($chromeFooterBlockMenu['represented_as_core_navigation'] ?? null), 'footer chrome nested-div nav is represented as core/navigation');
+$assert(4 === ($chromeFooterBlockMenu['item_count'] ?? null), 'footer chrome nested-div nav preserves all direct-anchor menu items');
+$assert('Contact' === ($chromeFooterBlockMenu['items'][3]['label'] ?? ''), 'footer chrome nested-div nav preserves last menu item label');
+
 $runtimeTargetNavigation = ( new HtmlTransformer() )->transform(
     '<nav aria-label="Docs"><ul><li><a class="nav-link" href="/guide">Guide</a></li></ul></nav>',
     array('runtime_dom_selectors' => array('.nav-link'))
