@@ -3638,6 +3638,9 @@ final class HtmlTransformer
 
         $scriptRole = $this->scriptRole($element);
         if ( 'data' !== $scriptRole ) {
+            $scriptRole = $this->staticScriptMetadataRole($element);
+        }
+        if ( null === $scriptRole ) {
             return false;
         }
 
@@ -3676,6 +3679,45 @@ final class HtmlTransformer
         }
 
         return 'runtime';
+    }
+
+    private function staticScriptMetadataRole(DOMElement $element): ?string
+    {
+        $body = trim($element->textContent ?? '');
+        if ( '' === $body || $this->scriptBodyHasExecutableRuntimeSignals($body) ) {
+            return null;
+        }
+
+        $type = strtolower(trim($this->attr($element, 'type')));
+        if ( 'module' === $type && $this->scriptBodyContainsOnlyStaticImports($body) ) {
+            return 'static_import';
+        }
+
+        if ( $this->scriptBodyContainsOnlyStaticConfig($body) ) {
+            return 'static_config';
+        }
+
+        return null;
+    }
+
+    private function scriptBodyHasExecutableRuntimeSignals(string $body): bool
+    {
+        return 1 === preg_match('/\b(?:document|location|navigator|history|customElements)\b|\b(?:addEventListener|removeEventListener|querySelector|getElementById|appendChild|insertBefore|replaceChild|removeChild|classList|innerHTML|outerHTML|fetch|XMLHttpRequest|setTimeout|setInterval|requestAnimationFrame|import\s*\()\b|\b(?:function|class|new)\b|=>/', $body);
+    }
+
+    private function scriptBodyContainsOnlyStaticImports(string $body): bool
+    {
+        $withoutImports = preg_replace('/^\s*import\s+(?:(?:[\s\S]*?\s+from\s+)?[\'\"][^\'\"]+[\'\"]|[\'\"][^\'\"]+[\'\"])\s*;?\s*/m', '', $body);
+
+        return is_string($withoutImports) && '' === trim($withoutImports);
+    }
+
+    private function scriptBodyContainsOnlyStaticConfig(string $body): bool
+    {
+        $statementPattern = '(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*(?:\{[\s\S]*?\}|\[[\s\S]*?\]|[\'\"][\s\S]*?[\'\"]|[0-9.]+|true|false|null)\s*;?';
+        $globalConfigPattern = '(?:window|globalThis)\.[A-Za-z_$][A-Za-z0-9_$.]*(?:CONFIG|Config|config|SETTINGS|Settings|settings|DATA|Data|data|PROPS|Props|props)[A-Za-z0-9_$.]*\s*=\s*(?:\{[\s\S]*?\}|\[[\s\S]*?\]|[\'\"][\s\S]*?[\'\"]|[0-9.]+|true|false|null)\s*;?';
+
+        return 1 === preg_match('/^\s*(?:' . $statementPattern . '|' . $globalConfigPattern . ')+\s*$/', $body);
     }
 
     /**
