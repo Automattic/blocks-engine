@@ -26,6 +26,8 @@ final class FallbackDiagnostic
         return match ( $code ) {
             'html_form_fallback' => array(
                 'severity'              => 'warning',
+                'conversion_classification' => 'runtime_island_preserved',
+                'preservation_strategy' => 'fallback_metadata_with_readable_blocks',
                 'runtime_requirement'   => 'server_or_client_form_handler',
                 'recoverability'        => 'recoverable_with_runtime_mapping',
                 'actionability'         => 'map_form_action_controls_and_submission_handler',
@@ -34,6 +36,8 @@ final class FallbackDiagnostic
             ),
             'html_script_fallback' => array(
                 'severity'              => 'warning',
+                'conversion_classification' => 'runtime_island_preserved',
+                'preservation_strategy' => 'scoped_runtime_metadata',
                 'runtime_requirement'   => 'client_script_execution',
                 'recoverability'        => 'recoverable_with_script_enqueue_or_component_runtime',
                 'actionability'         => 'review_script_source_and_enqueue_or_rebuild_behavior',
@@ -42,6 +46,8 @@ final class FallbackDiagnostic
             ),
             'html_inline_svg_fallback' => array(
                 'severity'              => 'info',
+                'conversion_classification' => 'editable_approximation',
+                'preservation_strategy' => 'sanitized_static_markup_or_image',
                 'runtime_requirement'   => 'none',
                 'recoverability'        => 'recoverable_as_static_markup_or_image_asset',
                 'actionability'         => 'review_sanitized_svg_and_materialize_as_image_or_html',
@@ -50,6 +56,8 @@ final class FallbackDiagnostic
             ),
             'html_unsafe_inline_svg' => array(
                 'severity'              => 'warning',
+                'conversion_classification' => 'unsupported_loss',
+                'preservation_strategy' => 'diagnostic_only_until_security_review',
                 'runtime_requirement'   => 'sanitization_review',
                 'recoverability'        => 'recoverable_after_security_review',
                 'actionability'         => 'remove_scriptable_svg_content_or_replace_with_safe_asset',
@@ -58,6 +66,8 @@ final class FallbackDiagnostic
             ),
             'html_iframe_embed_fallback' => array(
                 'severity'              => 'warning',
+                'conversion_classification' => 'runtime_island_preserved',
+                'preservation_strategy' => 'sanitized_embed_markup',
                 'runtime_requirement'   => 'third_party_embed_runtime',
                 'recoverability'        => 'recoverable_with_embed_provider_or_html_preservation',
                 'actionability'         => 'map_iframe_src_to_supported_embed_provider_or_preserve_html',
@@ -66,6 +76,8 @@ final class FallbackDiagnostic
             ),
             'html_canvas_runtime_fallback' => array(
                 'severity'              => 'warning',
+                'conversion_classification' => 'runtime_island_preserved',
+                'preservation_strategy' => 'bounded_raw_html_runtime_island',
                 'runtime_requirement'   => 'canvas_element_and_client_script_execution',
                 'recoverability'        => 'recoverable_with_canvas_markup_preservation_or_rebuilt_interactive_block',
                 'actionability'         => 'preserve_canvas_markup_with_matching_script_runtime_or_rebuild_canvas_behavior',
@@ -74,6 +86,8 @@ final class FallbackDiagnostic
             ),
             'html_unsupported_element' => array(
                 'severity'              => 'info',
+                'conversion_classification' => 'unsupported_loss',
+                'preservation_strategy' => 'diagnostic_only',
                 'runtime_requirement'   => 'unknown',
                 'recoverability'        => 'recoverable_with_manual_mapping',
                 'actionability'         => 'map_element_to_supported_block_or_preserve_html',
@@ -82,6 +96,8 @@ final class FallbackDiagnostic
             ),
             default => array(
                 'severity'              => 'warning',
+                'conversion_classification' => 'unsupported_loss',
+                'preservation_strategy' => 'diagnostic_only',
                 'runtime_requirement'   => 'unknown',
                 'recoverability'        => 'unknown',
                 'actionability'         => 'review_fallback_metadata',

@@ -25,6 +25,7 @@ final class ConversionReportProjection
             'scope'                 => self::firstString($provenance, 'scope'),
             'source_summary'        => self::sourceSummary($sourceFormat, $blocks, $fallbacks, $sourceReports, $assets, $metrics),
             'selector_summary'      => self::selectorSummary($sourceReports, $fallbacks),
+            'conversion_classification_summary' => self::conversionClassificationSummary($sourceReports, $fallbacks),
             'fallback_diagnostics'  => self::fallbackDiagnostics($fallbacks),
             'asset_refs'            => self::assetReferences($blocks, $sourceReports),
             'navigation_candidates' => self::navigationCandidates($blocks, $sourceReports),
@@ -123,6 +124,8 @@ final class ConversionReportProjection
                     'reason'          => $fallback['reason'] ?? '',
                     'diagnostic_code' => $fallback['diagnostic_code'] ?? '',
                     'severity'        => $fallback['severity'] ?? '',
+                    'conversion_classification' => $fallback['conversion_classification'] ?? '',
+                    'preservation_strategy' => $fallback['preservation_strategy'] ?? '',
                     'runtime_requirement' => $fallback['runtime_requirement'] ?? '',
                     'recoverability'  => $fallback['recoverability'] ?? '',
                     'actionability'   => $fallback['actionability'] ?? '',
@@ -151,6 +154,41 @@ final class ConversionReportProjection
         }
 
         return $diagnostics;
+    }
+
+    /**
+     * @param array<string, mixed> $sourceReports
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>
+     */
+    private static function conversionClassificationSummary(array $sourceReports, array $fallbacks): array
+    {
+        $byClassification = array();
+        $byStrategy = array();
+
+        foreach ( array_merge(self::sourceProvenance($sourceReports), self::fallbackDiagnostics($fallbacks)) as $entry ) {
+            if ( ! is_array($entry) ) {
+                continue;
+            }
+
+            $classification = (string) ($entry['conversion_classification'] ?? '');
+            if ( '' !== $classification ) {
+                $byClassification[$classification] = ($byClassification[$classification] ?? 0) + 1;
+            }
+
+            $strategy = (string) ($entry['preservation_strategy'] ?? '');
+            if ( '' !== $strategy ) {
+                $byStrategy[$strategy] = ($byStrategy[$strategy] ?? 0) + 1;
+            }
+        }
+
+        return array_filter(
+            array(
+                'by_classification' => $byClassification,
+                'by_preservation_strategy' => $byStrategy,
+            ),
+            static fn (mixed $value): bool => array() !== $value
+        );
     }
 
     /**
@@ -401,6 +439,8 @@ final class ConversionReportProjection
                 'block_name'  => $entry['block_name'] ?? '',
                 'tag'         => $entry['tag'] ?? ($entry['element'] ?? ''),
                 'attribute'   => $entry['attribute'] ?? '',
+                'conversion_classification' => $entry['conversion_classification'] ?? '',
+                'preservation_strategy' => $entry['preservation_strategy'] ?? '',
             ),
             static fn (mixed $value): bool => '' !== $value
         );
