@@ -1244,16 +1244,13 @@ final class HtmlTransformer
         }
 
         if ( 'canvas' === $tagName ) {
-            if ( $this->isDecorativeCanvas($element) && ! $this->isRuntimeCanvasTarget($element) ) {
+            if ( ! $this->isRuntimeCanvasTarget($element) ) {
                 return null;
             }
 
             $this->captureCanvasFallback($element, $fallbacks);
-            if ( $this->isRuntimeCanvasTarget($element) ) {
-                $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-                return $this->createBlock('core/html', array( 'content' => $boundedHtml['html'] ), array(), $element);
-            }
-            return null;
+            $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+            return $this->createBlock('core/html', array( 'content' => $boundedHtml['html'] ), array(), $element);
         }
 
         if ( 'script' === $tagName ) {
@@ -3094,16 +3091,18 @@ final class HtmlTransformer
      */
     private function captureCanvasFallback(DOMElement $element, array &$fallbacks): void
     {
+        if ( ! $this->isRuntimeCanvasTarget($element) ) {
+            return;
+        }
+
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $id = trim($this->attr($element, 'id'));
-        if ( $this->isRuntimeCanvasTarget($element) ) {
-            $this->recordRuntimeIsland($element, 'canvas', 'canvas_requires_runtime', 'canvas_element_and_client_script_execution', array(
-                'script_dependency_hint' => '' !== $id
-                    ? 'Scripts may target #' . $id . ' and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.'
-                    : 'Scripts may target this canvas by selector and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.',
-                'required_scripts' => $this->requiredScriptsForElement($element),
-            ));
-        }
+        $this->recordRuntimeIsland($element, 'canvas', 'canvas_requires_runtime', 'canvas_element_and_client_script_execution', array(
+            'script_dependency_hint' => '' !== $id
+                ? 'Scripts may target #' . $id . ' and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.'
+                : 'Scripts may target this canvas by selector and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.',
+            'required_scripts' => $this->requiredScriptsForElement($element),
+        ));
 
         $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
             'type'            => 'html',
@@ -3141,16 +3140,6 @@ final class HtmlTransformer
         }
 
         return false;
-    }
-
-    private function isDecorativeCanvas(DOMElement $element): bool
-    {
-        if ( '' !== trim($element->textContent ?? '') || $this->childElementCount($element) > 0 ) {
-            return false;
-        }
-
-        return 'true' === strtolower($this->attr($element, 'aria-hidden'))
-            || in_array(strtolower($this->attr($element, 'role')), array('presentation', 'none'), true);
     }
 
     /**
