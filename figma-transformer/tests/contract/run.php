@@ -1087,6 +1087,17 @@ $assert(2 === ($vectorNetworkDiagnostic['context']['occurrence_count'] ?? null),
 $assert(2 === ($vectorNetworkDiagnostic['context']['affected_node_count'] ?? null), 'vector-network-diagnostic-affected-node-count');
 $assert(array('vector:data-malformed', 'vector:data-painted-fallback') === ($vectorNetworkDiagnostic['context']['sample_node_ids'] ?? null), 'vector-network-diagnostic-sample-nodes');
 $assert(array('1') === ($vectorNetworkDiagnostic['context']['sample_blob_refs'] ?? null), 'vector-network-diagnostic-sample-blob-refs');
+$nonRectVectorNetworkDiagnostic = null;
+foreach ( $vectorNetworkDiagnostics as $diagnostic ) {
+    if ( array(4, 4, 1) === ($diagnostic['context']['network_counts'] ?? null) ) {
+        $nonRectVectorNetworkDiagnostic = $diagnostic;
+        break;
+    }
+}
+$assert(true === ($nonRectVectorNetworkDiagnostic['context']['single_region_loop_candidate'] ?? null), 'vector-network-single-region-candidate-diagnostic');
+$assert(array('vertex_stride' => 20, 'segment_stride' => 16, 'region_bytes' => 44) === ($nonRectVectorNetworkDiagnostic['context']['candidate_layout'] ?? null), 'vector-network-candidate-layout-diagnostic');
+$assert(array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)) === ($nonRectVectorNetworkDiagnostic['context']['candidate_vertex_points_sample'] ?? null), 'vector-network-candidate-point-sample');
+$assert('Decode only after segment endpoints and region winding/order are validated as one closed non-branching loop.' === ($nonRectVectorNetworkDiagnostic['context']['candidate_decoder_requirement'] ?? null), 'vector-network-candidate-requirement');
 
 $zeroHeightSeparatorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Zero Height Separator Fixture',

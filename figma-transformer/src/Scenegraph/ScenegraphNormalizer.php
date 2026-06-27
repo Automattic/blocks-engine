@@ -251,7 +251,7 @@ final class ScenegraphNormalizer
                     'blob_ref_seen' => array(),
                 );
 
-                foreach ( array('geometry', 'blob_ref', 'byte_length', 'signature_hex', 'network_counts') as $contextKey ) {
+                foreach ( array('geometry', 'blob_ref', 'byte_length', 'signature_hex', 'network_counts', 'single_region_loop_candidate', 'candidate_layout', 'candidate_vertex_points_sample', 'candidate_decoder_requirement') as $contextKey ) {
                     if ( array_key_exists($contextKey, $context) ) {
                         $groups[$key]['context'][$contextKey] = $context[$contextKey];
                     }
@@ -2218,9 +2218,56 @@ final class ScenegraphNormalizer
         $counts = $this->vectorNetworkCounts($bytes);
         if ( null !== $counts ) {
             $context['network_counts'] = $counts;
+            $context += $this->vectorNetworkSingleRegionCandidateContext($bytes, $counts);
         }
 
         return $context;
+    }
+
+    /**
+     * @param array{0:int,1:int,2:int} $counts
+     * @return array<string, mixed>
+     */
+    private function vectorNetworkSingleRegionCandidateContext(string $bytes, array $counts): array
+    {
+        [$vertexCount, $segmentCount, $regionCount] = $counts;
+        if ( $vertexCount < 3 || $vertexCount > 32 || $vertexCount !== $segmentCount || 1 !== $regionCount ) {
+            return array();
+        }
+
+        $expectedLength = 24 + ( $vertexCount * 44 );
+        if ( strlen($bytes) !== $expectedLength ) {
+            return array();
+        }
+
+        return array(
+            'single_region_loop_candidate' => true,
+            'candidate_layout' => array(
+                'vertex_stride' => 20,
+                'segment_stride' => 16,
+                'region_bytes'  => 12 + ( $vertexCount * 8 ),
+            ),
+            'candidate_vertex_points_sample' => $this->vectorNetworkVertexPointSample($bytes, $vertexCount),
+            'candidate_decoder_requirement' => 'Decode only after segment endpoints and region winding/order are validated as one closed non-branching loop.',
+        );
+    }
+
+    /**
+     * @return array<int, array{0: float, 1: float}>
+     */
+    private function vectorNetworkVertexPointSample(string $bytes, int $vertexCount): array
+    {
+        $points = array();
+        $limit = min($vertexCount, 8);
+        for ( $index = 0; $index < $limit; $index++ ) {
+            $point = $this->readFloatPair($bytes, 12 + ( $index * 20 ) + 4);
+            if ( null === $point || ! is_finite($point[0]) || ! is_finite($point[1]) ) {
+                return array();
+            }
+            $points[] = array($point[0], $point[1]);
+        }
+
+        return $points;
     }
 
     /**
