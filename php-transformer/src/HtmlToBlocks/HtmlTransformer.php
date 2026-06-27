@@ -391,6 +391,10 @@ final class HtmlTransformer
     private function landmarkKindForElement(DOMElement $element): string
     {
         $tagName = strtolower($element->tagName);
+        if ( 'footer' === $tagName && $this->hasAncestorTag($element, array( 'blockquote', 'figure' )) ) {
+            return '';
+        }
+
         if ( in_array($tagName, array( 'header', 'nav', 'main', 'footer' ), true) ) {
             return 'nav' === $tagName ? 'nav' : $tagName;
         }
@@ -402,6 +406,20 @@ final class HtmlTransformer
             'contentinfo' => 'footer',
             default => '',
         };
+    }
+
+    /**
+     * @param array<int, string> $tagNames
+     */
+    private function hasAncestorTag(DOMElement $element, array $tagNames): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
+            if ( in_array(strtolower($node->tagName), $tagNames, true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

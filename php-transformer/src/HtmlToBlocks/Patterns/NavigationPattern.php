@@ -216,6 +216,10 @@ final class NavigationPattern
         $itemAttrs = $item->isSameNode($anchor) ? array() : $presentationAttributes($item);
         $anchorAttrs = $presentationAttributes($anchor);
         $submenuAttrs = $submenuContainer instanceof DOMElement ? $presentationAttributes($submenuContainer) : array();
+        if ( '' === (string) ($itemAttrs['className'] ?? '') && '' !== (string) ($anchorAttrs['className'] ?? '') ) {
+            $itemAttrs['className'] = $anchorAttrs['className'];
+        }
+
         return array_filter(array_merge($itemAttrs, $baseAttrs, array(
             'anchorClassName'  => $anchorAttrs['className'] ?? '',
             'anchorStyle'      => $anchorAttrs['style'] ?? '',

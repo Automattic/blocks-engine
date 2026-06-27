@@ -434,6 +434,15 @@ $assert('GitHub' === ($footerNavigationMenus[2]['items'][1]['label'] ?? ''), 'ic
 $assert(str_contains($footerNavigationSerialized, 'footer-link'), 'footer navigation preserves link classes for styling and script targets');
 $assert(str_contains($footerNavigationSerialized, 'social-link'), 'social navigation preserves social link classes for styling and script targets');
 
+$runtimeTargetNavigation = ( new HtmlTransformer() )->transform(
+    '<nav aria-label="Docs"><ul><li><a class="nav-link" href="/guide">Guide</a></li></ul></nav>',
+    array('runtime_dom_selectors' => array('.nav-link'))
+)->toArray();
+$runtimeTargetNavigationSerialized = (string) ($runtimeTargetNavigation['serialized_blocks'] ?? '');
+$runtimeTargetNavigationItemAttrs = $runtimeTargetNavigation['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
+$assert('nav-link' === ($runtimeTargetNavigationItemAttrs['className'] ?? ''), 'runtime-target navigation link classes are preserved on navigation item attrs');
+$assert(str_contains($runtimeTargetNavigationSerialized, '<li class="wp-block-navigation-item wp-block-navigation-link nav-link">'), 'runtime-target navigation link classes are exposed on navigation item markup');
+
 $headerCluster = ( new HtmlTransformer() )->transform(
     '<header class="site-header"><a class="site-logo" href="/">Acme Lab</a><nav class="primary-nav" aria-label="Primary"><a class="nav-link" href="/work">Work</a><a class="nav-link" href="/docs"><span>Docs</span></a></nav><form class="site-search" role="search" action="/search"><label for="q">Search</label><input id="q" type="search" name="q" placeholder="Search docs"><button type="submit">Search</button></form><div class="header-actions"><a class="cta" href="/start">Get started</a></div></header>'
 )->toArray();
@@ -455,6 +464,13 @@ $assert('landmark_count_mismatch' === ($unmappedFinding['code'] ?? ''), 'semanti
 $assert('nav' === ($unmappedFinding['kind'] ?? ''), 'semantic parity missing landmark finding names the nav kind');
 $assert(1 === ($unmappedFinding['source_count'] ?? null), 'semantic parity missing landmark finding exposes source count');
 $assert(0 === ($unmappedFinding['block_count'] ?? null), 'semantic parity missing landmark finding exposes generated block count');
+
+$quoteCitationFooter = ( new HtmlTransformer() )->transform(
+    '<main><section><blockquote><p>Lovely dinner.</p><footer>Local Guide</footer></blockquote></section></main><footer>Restaurant footer</footer>'
+)->toArray();
+$quoteCitationParity = $quoteCitationFooter['source_reports']['semantic_parity'] ?? array();
+$assert('pass' === ($quoteCitationParity['status'] ?? ''), 'blockquote citation footer is not counted as a page footer landmark');
+$assert(1 === ($quoteCitationParity['landmarks']['source']['footer'] ?? null), 'semantic parity counts only the actual page footer landmark');
 
 $assertNoInnerContentChildCountMismatch = static function (array $result, string $message) use ($assert): void {
     $findingCodes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $result['source_reports']['wp_block_validity']['findings'] ?? array());
