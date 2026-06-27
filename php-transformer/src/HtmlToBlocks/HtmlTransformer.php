@@ -869,12 +869,15 @@ final class HtmlTransformer
                 $matchedBlockMenuIndexes[$blockMenuIndex] = true;
             }
             if ( ! is_array($blockMenu) ) {
+                $sourceItems = is_array($sourceMenu['items'] ?? null) ? array_values($sourceMenu['items']) : array();
                 $findings[] = array(
                     'code' => 'navigation_menu_missing',
                     'severity' => 'warning',
                     'selector' => $sourceMenu['selector'] ?? '',
                     'source_item_count' => $sourceMenu['item_count'] ?? 0,
                     'block_item_count' => 0,
+                    'source_items' => $sourceItems,
+                    'block_items' => array(),
                     'summary' => 'Source navigation menu was not represented as a core/navigation block.',
                 );
                 continue;
@@ -898,6 +901,8 @@ final class HtmlTransformer
                     'selector' => $sourceMenu['selector'] ?? '',
                     'source_item_count' => count($sourceItems),
                     'block_item_count' => count($blockItems),
+                    'source_items' => $sourceItems,
+                    'block_items' => $blockItems,
                     'summary' => 'Source navigation item count differs from generated core navigation items.',
                 );
                 continue;
