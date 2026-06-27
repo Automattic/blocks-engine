@@ -1555,51 +1555,6 @@ $assert(in_array('vector-shell-wrapper-offset', $genericCauses, true), 'layout-m
 blocks_engine_figma_transformer_run_layout_mismatch_contract($assert);
 blocks_engine_figma_transformer_run_render_style_mismatch_contract($assert);
 
-$renderStyleMismatchResult = blocks_engine_figma_transformer_transform_scenegraph(array(
-    'name' => 'Render Style Fixture',
-    'nodes' => array(
-        array(
-            'id' => 'render:frame',
-            'type' => 'FRAME',
-            'name' => 'Render Style Page',
-            'width' => 320,
-            'height' => 200,
-            'children' => array(
-                array(
-                    'id' => 'render:text',
-                    'type' => 'TEXT',
-                    'name' => 'Render title',
-                    'text' => 'Computed style check',
-                    'fontFamily' => 'Inter',
-                    'fontSize' => 48,
-                    'fontWeight' => 700,
-                    'color' => array('r' => 0.1, 'g' => 0.2, 'b' => 0.3),
-                ),
-            ),
-        ),
-    ),
-), array(
-    'generated_render_evidence' => array(
-        'elements' => array(
-            array(
-                'data-figma-node-id' => 'render:text',
-                'computed_style' => array(
-                    'font-family' => 'Arial, sans-serif',
-                    'font-size' => '48px',
-                    'font-weight' => '700',
-                    'color' => 'rgb(255, 0, 0)',
-                ),
-            ),
-        ),
-    ),
-));
-$renderStyleDiagnostics = $renderStyleMismatchResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['render_style'] ?? array();
-$renderStyleArtifactQualityCodes = $artifactQualitySignalCodes($renderStyleMismatchResult);
-$assert('fail' === ($renderStyleDiagnostics['status'] ?? null), 'render-style-transform-status');
-$assert(1 === ($renderStyleDiagnostics['summary']['font_mismatch_count'] ?? null), 'render-style-transform-font-count');
-$assert(1 === ($renderStyleDiagnostics['summary']['color_mismatch_count'] ?? null), 'render-style-transform-color-count');
-$assert(in_array('render_style_mismatch', $renderStyleArtifactQualityCodes, true), 'render-style-artifact-quality-signal');
-
 $layoutMismatchTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name' => 'Layout Mismatch Fixture',
     'nodes' => array(

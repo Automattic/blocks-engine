@@ -9,6 +9,14 @@ use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\RenderStyleMismatchRepo
  */
 function blocks_engine_figma_transformer_run_render_style_mismatch_contract(callable $assert): void
 {
+    $artifactQualitySignalCodes = static function (array $result): array {
+        $signals = $result['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['signals'] ?? array();
+        return array_values(array_map(
+            static fn (array $signal): string => (string) ($signal['code'] ?? ''),
+            is_array($signals) ? $signals : array()
+        ));
+    };
+
     $report = ( new RenderStyleMismatchReportBuilder() )->build(
         array(
             'node_style_diagnostics' => array(
@@ -113,4 +121,48 @@ function blocks_engine_figma_transformer_run_render_style_mismatch_contract(call
     $assert('about.html' === ($pageScopedSummary['page_path'] ?? null), 'render-style-page-scope-summary-path');
     $assert(1 === ($pageScopedSummary['render_node_count'] ?? null), 'render-style-page-scope-render-count');
     $assert(1 === ($pageScopedSummary['color_mismatch_count'] ?? null), 'render-style-page-scope-selected-page-color');
+
+    $transformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name' => 'Render Style Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'render:frame',
+                'type' => 'FRAME',
+                'name' => 'Render Style Page',
+                'width' => 320,
+                'height' => 200,
+                'children' => array(
+                    array(
+                        'id' => 'render:text',
+                        'type' => 'TEXT',
+                        'name' => 'Render title',
+                        'text' => 'Computed style check',
+                        'fontFamily' => 'Inter',
+                        'fontSize' => 48,
+                        'fontWeight' => 700,
+                        'color' => array('r' => 0.1, 'g' => 0.2, 'b' => 0.3),
+                    ),
+                ),
+            ),
+        ),
+    ), array(
+        'generated_render_evidence' => array(
+            'elements' => array(
+                array(
+                    'data-figma-node-id' => 'render:text',
+                    'computed_style' => array(
+                        'font-family' => 'Arial, sans-serif',
+                        'font-size' => '48px',
+                        'font-weight' => '700',
+                        'color' => 'rgb(255, 0, 0)',
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $transformDiagnostics = $transformResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['render_style'] ?? array();
+    $assert('fail' === ($transformDiagnostics['status'] ?? null), 'render-style-transform-status');
+    $assert(1 === ($transformDiagnostics['summary']['font_mismatch_count'] ?? null), 'render-style-transform-font-count');
+    $assert(1 === ($transformDiagnostics['summary']['color_mismatch_count'] ?? null), 'render-style-transform-color-count');
+    $assert(in_array('render_style_mismatch', $artifactQualitySignalCodes($transformResult), true), 'render-style-artifact-quality-signal');
 }
