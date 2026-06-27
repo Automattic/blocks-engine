@@ -61,7 +61,11 @@ final class NavigationPattern
                 continue;
             }
 
-            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') ) {
+            if ( $child instanceof DOMElement && $this->isSectionLabelElement($child) ) {
+                continue;
+            }
+
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== $this->anchorLabel($child, $innerHtml) ) {
                 if ( ! $allowsDirectItems ) {
                     return array();
                 }
@@ -132,7 +136,7 @@ final class NavigationPattern
     private function navigationBlockFromItem(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null): ?array
     {
         $anchor = $this->primaryNavigationAnchor($element);
-        if ( ! $anchor instanceof DOMElement || '' === trim($anchor->textContent ?? '') ) {
+        if ( ! $anchor instanceof DOMElement || '' === $this->anchorLabel($anchor, $innerHtml) ) {
             return null;
         }
 
@@ -145,7 +149,7 @@ final class NavigationPattern
 
         if ( array() !== $submenuBlocks ) {
             $submenuAttrs = array(
-                'label' => $this->navigationLabel($innerHtml($anchor)),
+                'label' => $this->anchorLabel($anchor, $innerHtml),
                 'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
                 'kind'  => 'custom',
             );
@@ -163,10 +167,35 @@ final class NavigationPattern
     private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?DOMElement $item = null): array
     {
         return $createBlock('core/navigation-link', $this->navigationItemAttributes($item ?? $anchor, $anchor, null, array(
-            'label' => $this->navigationLabel($innerHtml($anchor)),
+            'label' => $this->anchorLabel($anchor, $innerHtml),
             'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
             'kind'  => 'custom',
         ), $presentationAttributes), array(), $anchor);
+    }
+
+    private function anchorLabel(DOMElement $anchor, callable $innerHtml): string
+    {
+        $label = $this->navigationLabel($innerHtml($anchor));
+        if ( '' !== $label ) {
+            return $label;
+        }
+
+        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
+            $fallback = trim($this->attr($anchor, $attribute));
+            if ( '' !== $fallback ) {
+                return htmlspecialchars($fallback, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            }
+        }
+
+        $image = $anchor->getElementsByTagName('img')->item(0);
+        if ( $image instanceof DOMElement ) {
+            $alt = trim($this->attr($image, 'alt'));
+            if ( '' !== $alt ) {
+                return htmlspecialchars($alt, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            }
+        }
+
+        return '';
     }
 
     private function navigationLabel(string $html): string
@@ -273,6 +302,21 @@ final class NavigationPattern
         }
 
         return false;
+    }
+
+    private function isSectionLabelElement(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( preg_match('/^h[1-6]$/', $tagName) ) {
+            return true;
+        }
+
+        if ( ! in_array($tagName, array( 'span', 'p', 'strong', 'b' ), true) ) {
+            return false;
+        }
+
+        $tokens = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:label|heading|title)(?:[^a-z0-9]|$)/', $tokens);
     }
 
     private function hasNavigationChrome(DOMElement $element): bool
