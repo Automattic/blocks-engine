@@ -388,9 +388,7 @@ final class StaticHtmlEmitter
                 'severity' => 'warning',
                 'code'     => 'unsupported_vector_node_placeholder',
                 'message'  => 'Unsupported vector-like Figma node emitted as a static placeholder.',
-                'node_id'  => (string) ($node['id'] ?? ''),
-                'type'     => $type,
-            );
+            ) + $this->vectorPlaceholderDiagnostic($node, $type, $parentNode);
 
             $content = '';
         }
@@ -543,17 +541,7 @@ final class StaticHtmlEmitter
      */
     private function expectedTextStyleData(array $node): array
     {
-        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
-        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
-        if ( ! isset($style['color']) ) {
-            $paints = is_array($node['figma_paints']['fills'] ?? null) ? $node['figma_paints']['fills'] : array();
-            $color = $this->firstSolidPaint($paints);
-            if ( null !== $color ) {
-                $style['css_color'] = $color;
-            }
-        }
-
-        $declarations = $this->styleDeclarationMap($this->textStyleDeclarations($style));
+        $declarations = $this->styleDeclarationMap($this->textStyles($node));
         return array(
             'text_color'  => $declarations['color'] ?? null,
             'font_family' => $declarations['font-family'] ?? null,
@@ -749,6 +737,7 @@ final class StaticHtmlEmitter
             'rendered_paths'           => 0,
             'rendered_asset_fallbacks' => 0,
             'placeholders'             => 0,
+            'placeholder_reasons'      => array(),
             'placeholder_nodes'        => array(),
         );
         $layout = array(
@@ -1166,11 +1155,10 @@ final class StaticHtmlEmitter
                 ++$vectors['rendered_asset_fallbacks'];
             } else {
                 ++$vectors['placeholders'];
-                $vectors['placeholder_nodes'][] = array(
-                    'node_id' => (string) ($node['id'] ?? ''),
-                    'name'    => (string) ($node['name'] ?? ''),
-                    'type'    => $type,
-                );
+                $placeholder = $this->vectorPlaceholderDiagnostic($node, $type, $parentNode);
+                $reason = (string) ($placeholder['reason'] ?? 'unknown');
+                $vectors['placeholder_reasons'][$reason] = (int) ($vectors['placeholder_reasons'][$reason] ?? 0) + 1;
+                $vectors['placeholder_nodes'][] = $placeholder;
             }
         }
 
@@ -2541,6 +2529,17 @@ final class StaticHtmlEmitter
             return null;
         }
 
+        $lineHeights = array();
+        foreach ( $baselines as $baseline ) {
+            if ( is_array($baseline) && isset($baseline['lineHeight']) && is_numeric($baseline['lineHeight']) && 0.0 < (float) $baseline['lineHeight'] ) {
+                $lineHeights[] = (float) $baseline['lineHeight'];
+            }
+        }
+        if ( ! empty($lineHeights) ) {
+            sort($lineHeights);
+            return $lineHeights[(int) floor(( count($lineHeights) - 1 ) / 2)];
+        }
+
         $positions = array();
         foreach ( $baselines as $baseline ) {
             if ( is_array($baseline) && isset($baseline['position_y']) && is_numeric($baseline['position_y']) ) {
@@ -3535,6 +3534,158 @@ final class StaticHtmlEmitter
         }
 
         return isset($node['vectorData']) && is_array($node['vectorData']) && ! empty($node['vectorData']);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function vectorPlaceholderDiagnostic(array $node, string $type, ?array $parentNode = null): array
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width']) : 0.0;
+        $height = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height']) : 0.0;
+        $sourceFields = $this->vectorSourceFieldNames($node);
+        $rejectedPathSources = $this->rejectedVectorPathSourceDiagnostics($node);
+        $missingFields = array();
+        $reason = 'missing_vector_geometry';
+
+        if ( $width <= 0.0 || ( $height <= 0.0 && null === $this->zeroHeightVectorFallbackHeight($node, $type) ) ) {
+            $reason = 'missing_dimensions';
+            if ( $width <= 0.0 ) {
+                $missingFields[] = 'box.width';
+            }
+            if ( $height <= 0.0 ) {
+                $missingFields[] = 'box.height';
+            }
+        } elseif ( ! empty($rejectedPathSources) ) {
+            $reason = $this->hasOversizedRejectedVectorPath($rejectedPathSources) ? 'oversized_path_data' : 'unsupported_path_data';
+        } elseif ( 'BOOLEAN_OPERATION' === $type && ! empty($this->nodeList($node)) ) {
+            $reason = 'unsupported_boolean_operation_children';
+        } elseif ( isset($node['vectorData']) && is_array($node['vectorData']) && array_key_exists('vectorNetworkBlob', $node['vectorData']) ) {
+            $reason = 'unsupported_vector_network_blob';
+        } elseif ( ! empty($this->explicitNodeAssetReferences($node)) || ! empty($this->nodeImagePaints($node)) ) {
+            $reason = 'unresolved_asset_fallback';
+        } elseif ( ! empty($sourceFields) ) {
+            $reason = 'unsupported_vector_geometry';
+        } else {
+            $missingFields[] = 'figma_vector_paths';
+            $missingFields[] = 'vectorPaths';
+            $missingFields[] = 'paths';
+            $missingFields[] = 'pathData';
+            $missingFields[] = 'vectorData.vectorNetworkBlob';
+        }
+
+        $diagnostic = array(
+            'node_id' => (string) ($node['id'] ?? ''),
+            'name' => (string) ($node['name'] ?? ''),
+            'type' => $type,
+            'reason' => $reason,
+            'source_fields' => $sourceFields,
+            'missing_fields' => array_values(array_unique($missingFields)),
+        );
+
+        if ( ! empty($rejectedPathSources) ) {
+            $diagnostic['rejected_path_sources'] = $rejectedPathSources;
+        }
+        if ( null !== $parentNode && empty($sourceFields) && ! empty($this->inheritedVectorPaintAttributes($parentNode)) ) {
+            $diagnostic['inherited_paint_available'] = true;
+        }
+
+        return $diagnostic;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function vectorSourceFieldNames(array $node): array
+    {
+        $fields = array();
+        foreach ( array('figma_vector_paths', 'vectorPaths', 'paths', 'fillGeometry', 'strokeGeometry') as $key ) {
+            if ( ! empty($node[$key]) ) {
+                $fields[] = $key;
+            }
+        }
+        foreach ( array('pathData', 'path', 'd') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== trim((string) $node[$key]) ) {
+                $fields[] = $key;
+            }
+        }
+        if ( isset($node['vectorData']) && is_array($node['vectorData']) && ! empty($node['vectorData']) ) {
+            foreach ( array_keys($node['vectorData']) as $key ) {
+                if ( is_scalar($key) ) {
+                    $fields[] = 'vectorData.' . (string) $key;
+                }
+            }
+        }
+
+        return array_values(array_unique($fields));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, array<string, mixed>>
+     */
+    private function rejectedVectorPathSourceDiagnostics(array $node): array
+    {
+        $rawPaths = array();
+        if ( is_array($node['figma_vector_paths'] ?? null) ) {
+            foreach ( $node['figma_vector_paths'] as $rawPath ) {
+                $rawPaths[] = array('field' => 'figma_vector_paths', 'value' => $rawPath);
+            }
+        }
+        foreach ( array('vectorPaths', 'paths') as $key ) {
+            if ( is_array($node[$key] ?? null) ) {
+                foreach ( $node[$key] as $rawPath ) {
+                    $rawPaths[] = array('field' => $key, 'value' => $rawPath);
+                }
+            }
+        }
+        foreach ( array('pathData', 'path', 'd') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
+                $rawPaths[] = array('field' => $key, 'value' => array('data' => (string) $node[$key]));
+            }
+        }
+
+        $rejected = array();
+        foreach ( $rawPaths as $rawPath ) {
+            $value = $rawPath['value'];
+            $path = is_array($value) ? (string) ($value['data'] ?? $value['pathData'] ?? $value['path'] ?? $value['d'] ?? '') : (string) $value;
+            if ( '' === trim($path) ) {
+                continue;
+            }
+            $limit = $this->svgPathDataByteLimit($value);
+            if ( null !== $this->safeSvgPathData($path, $limit) ) {
+                continue;
+            }
+
+            $reason = strlen($path) > $limit ? 'oversized_path_data' : 'unsupported_path_data';
+            $source = is_array($value) && isset($value['source']) && is_scalar($value['source']) ? (string) $value['source'] : (string) $rawPath['field'];
+            $rejected[] = array(
+                'field' => (string) $rawPath['field'],
+                'source' => $source,
+                'reason' => $reason,
+                'bytes' => strlen($path),
+                'limit_bytes' => $limit,
+            );
+        }
+
+        return $rejected;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rejectedPathSources
+     */
+    private function hasOversizedRejectedVectorPath(array $rejectedPathSources): bool
+    {
+        foreach ( $rejectedPathSources as $source ) {
+            if ( 'oversized_path_data' === ($source['reason'] ?? null) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function primitiveStarPath(float $width, float $height): string

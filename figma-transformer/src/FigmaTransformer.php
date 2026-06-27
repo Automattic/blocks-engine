@@ -792,7 +792,7 @@ final class FigmaTransformer
     private function mergePageTransformDiagnostics(array $pageReports, array $assetReport): array
     {
         $images = array('paint_refs' => 0, 'node_refs' => 0, 'resolved_assets' => 0, 'image_block_count' => 0, 'total_node_count' => 0, 'image_block_nodes' => array(), 'missing_assets' => array());
-        $vectors = array('nodes' => 0, 'rendered_paths' => 0, 'rendered_asset_fallbacks' => 0, 'placeholders' => 0, 'placeholder_nodes' => array());
+        $vectors = array('nodes' => 0, 'rendered_paths' => 0, 'rendered_asset_fallbacks' => 0, 'placeholders' => 0, 'placeholder_nodes' => array(), 'placeholder_reasons' => array());
         $layout = array(
             'large_negative_left_count' => 0,
             'fixed_root_width_count' => 0,
@@ -871,6 +871,9 @@ final class FigmaTransformer
                 if ( is_array($item) ) {
                     $vectors['placeholder_nodes'][] = array_merge($pageContext, $item);
                 }
+            }
+            foreach ( is_array($pageVectors['placeholder_reasons'] ?? null) ? $pageVectors['placeholder_reasons'] : array() as $reason => $count ) {
+                $vectors['placeholder_reasons'][(string) $reason] = (int) ($vectors['placeholder_reasons'][(string) $reason] ?? 0) + (int) $count;
             }
 
             $pageFonts = is_array($diagnostics['fonts'] ?? null) ? $diagnostics['fonts'] : array();

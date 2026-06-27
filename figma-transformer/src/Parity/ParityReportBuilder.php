@@ -24,6 +24,7 @@ final class ParityReportBuilder
         if ( ! in_array($status, self::KNOWN_STATUSES, true) ) {
             $status = 'pending';
         }
+        $reason = (string) ($overrides['reason'] ?? $evidence['reason'] ?? '');
 
         $artifacts = $this->arrayValue($evidence, 'artifacts');
         $layoutDiagnostics = $this->arrayValue($evidence, 'layout_diagnostics');
@@ -39,12 +40,18 @@ final class ParityReportBuilder
         $this->copyScalar($evidence, 'source_screenshot_path', $source, 'screenshot_path');
         $this->copyScalar($evidence, 'source_screenshot_url', $source, 'screenshot_url');
         $this->copyScalar($evidence, 'source_screenshot_artifact', $source, 'screenshot_artifact');
+        $this->copyBool($evidence, 'source_screenshot_exists', $source, 'screenshot_exists');
+        $this->copyBool($evidence, 'source_screenshot_readable', $source, 'screenshot_readable');
         $this->copyScalar($evidence, 'generated_screenshot_path', $generated, 'screenshot_path');
         $this->copyScalar($evidence, 'generated_screenshot_url', $generated, 'screenshot_url');
         $this->copyScalar($evidence, 'generated_screenshot_artifact', $generated, 'screenshot_artifact');
+        $this->copyBool($evidence, 'generated_screenshot_exists', $generated, 'screenshot_exists');
+        $this->copyBool($evidence, 'generated_screenshot_readable', $generated, 'screenshot_readable');
         $this->copyScalar($evidence, 'diff_image_path', $diff, 'image_path');
         $this->copyScalar($evidence, 'diff_image_url', $diff, 'image_url');
         $this->copyScalar($evidence, 'diff_image_artifact', $diff, 'image_artifact');
+        $this->copyBool($evidence, 'diff_image_exists', $diff, 'image_exists');
+        $this->copyBool($evidence, 'diff_image_readable', $diff, 'image_readable');
         $this->copyScalar($evidence, 'report_path', $artifacts, 'report_path');
         $this->copyScalar($evidence, 'report_artifact', $artifacts, 'report_artifact');
         $this->copyScalar($evidence, 'dom_boxes_path', $artifacts, 'dom_boxes_path');
@@ -90,14 +97,18 @@ final class ParityReportBuilder
         $hasPixelEvidence = array_key_exists('pixel_mismatch_count', $metrics)
             || array_key_exists('pixel_mismatch_ratio', $metrics)
             || array_key_exists('pixel_mismatch_count', $diffSummary)
-            || array_key_exists('pixel_mismatch_ratio', $diffSummary)
-            || ! empty($diff);
+            || array_key_exists('pixel_mismatch_ratio', $diffSummary);
+        $hasScreenshotCandidates = ! empty($source) || ! empty($generated);
+        if ( ! $hasPixelEvidence && $hasScreenshotCandidates && 'not_run' === $status ) {
+            $status = 'pending';
+            $reason = '' !== $reason ? $reason : 'screenshot_evidence_configured';
+        }
         $visualPixelStatus = $hasPixelEvidence ? $status : 'not_run';
 
         return array(
             'schema'       => self::SCHEMA,
             'status'       => $status,
-            'reason'       => (string) ($overrides['reason'] ?? $evidence['reason'] ?? ''),
+            'reason'       => $reason,
             'artifacts'    => $artifacts,
             'source'       => $source,
             'generated'    => $generated,
@@ -139,6 +150,17 @@ final class ParityReportBuilder
     {
         if ( isset($source[$sourceKey]) && is_scalar($source[$sourceKey]) ) {
             $target[$targetKey] = (string) $source[$sourceKey];
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $target
+     */
+    private function copyBool(array $source, string $sourceKey, array &$target, string $targetKey): void
+    {
+        if ( isset($source[$sourceKey]) && is_bool($source[$sourceKey]) ) {
+            $target[$targetKey] = $source[$sourceKey];
         }
     }
 

@@ -51,6 +51,12 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
         '--frame-ids=render:home',
         '--render-evidence=' . $matrixFixtureDir . '/{fixture}/render-evidence.json',
     ));
+    $matrixScreenshotSummary = $matrixDryRun(array(
+        '--frame-ids=render:home',
+        '--source-screenshot=' . $matrixFixtureDir . '/screenshots/{fixture}/{slug}-source.png',
+        '--generated-screenshot=' . $matrixFixtureDir . '/screenshots/{fixture}/{slug}-generated.png',
+        '--diff-image=' . $matrixFixtureDir . '/screenshots/{fixture}/{slug}-diff.png',
+    ));
     $missingHomeboyOutput = array();
     $missingHomeboyCommand = escapeshellarg(PHP_BINARY)
         . ' ' . escapeshellarg(__DIR__ . '/../../scripts/figma-fixture-matrix.php')
@@ -102,6 +108,14 @@ function blocks_engine_figma_transformer_run_fixture_matrix_contract(callable $a
     $assert($matrixFixtureDir . '/{fixture}/render-evidence.json' === ($matrixEvidenceSummary['evidence']['templates']['render_evidence_path'] ?? null), 'fixture-matrix-render-evidence-template-summary');
     $matrixEvidenceCommand = (string) ($matrixEvidenceSummary['fixtures'][0]['command'] ?? '');
     $assert(str_contains($matrixEvidenceCommand, '--parity-render-evidence-path=' . escapeshellarg($matrixFixtureDir . '/alias/render-evidence.json')), 'fixture-matrix-render-evidence-transform-argument');
+    $assert(is_array($matrixScreenshotSummary), 'fixture-matrix-screenshot-json-summary');
+    $assert($matrixFixtureDir . '/screenshots/{fixture}/{slug}-source.png' === ($matrixScreenshotSummary['evidence']['templates']['source_screenshot_path'] ?? null), 'fixture-matrix-source-screenshot-template-summary');
+    $matrixScreenshotPaths = $matrixScreenshotSummary['fixtures'][0]['evidence']['pages'][0]['paths'] ?? array();
+    $assert(false === ($matrixScreenshotPaths['source_screenshot_path']['exists'] ?? null), 'fixture-matrix-source-screenshot-missing-recorded');
+    $matrixScreenshotCommand = (string) ($matrixScreenshotSummary['fixtures'][0]['command'] ?? '');
+    $assert(str_contains($matrixScreenshotCommand, '--parity-source-screenshot-path=' . escapeshellarg($matrixFixtureDir . '/screenshots/alias/alias-source.png')), 'fixture-matrix-source-screenshot-transform-argument');
+    $assert(str_contains($matrixScreenshotCommand, '--parity-generated-screenshot-path=' . escapeshellarg($matrixFixtureDir . '/screenshots/alias/alias-generated.png')), 'fixture-matrix-generated-screenshot-transform-argument');
+    $assert(str_contains($matrixScreenshotCommand, '--parity-diff-image-path=' . escapeshellarg($matrixFixtureDir . '/screenshots/alias/alias-diff.png')), 'fixture-matrix-diff-image-transform-argument');
     $assert(0 !== $missingHomeboyExitCode, 'fixture-matrix-capture-preflight-missing-homeboy-fails');
     $missingHomeboyMessage = implode("\n", $missingHomeboyOutput);
     $assert(str_contains($missingHomeboyMessage, 'DOM box capture requires a runnable Homeboy command'), 'fixture-matrix-capture-preflight-missing-homeboy-message');
