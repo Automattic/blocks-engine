@@ -254,6 +254,10 @@ function matrix_options(array $argv): array
 
         [$name, $value] = explode('=', substr($arg, 2), 2);
         $key = str_replace('-', '_', $name);
+        $key = array(
+            'dom_box_command' => 'dom_box_provider_command',
+            'homeboy_bin'     => 'homeboy_command',
+        )[$key] ?? $key;
         if ( 'fixture' === $key ) {
             $options[$key] ??= array();
             $options[$key][] = $value;
