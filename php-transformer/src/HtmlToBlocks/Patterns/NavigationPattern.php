@@ -171,6 +171,8 @@ final class NavigationPattern
 
     private function navigationLabel(string $html): string
     {
+        $html = preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html;
+        $html = preg_replace('/<span\b[^>]*>\s*<\/span>/i', '', $html) ?? $html;
         $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
         $html = preg_replace('/<\/?(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i', '', $html) ?? $html;
         return trim($html);
