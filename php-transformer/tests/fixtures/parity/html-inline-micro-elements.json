@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-micro-elements",
+  "description": "Converts generic inline micro-elements into paragraph and list content instead of treating their ancestors as unsupported fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-micro-elements.json",
+    "notes": "Synthetic coverage for kbd/samp/var/mark/time phrasing elements observed in static-site fixture 60-node-editor."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><kbd>Ctrl</kbd><p>Use <kbd>Ctrl</kbd> + <kbd>K</kbd> to open <samp>Command Palette</samp> for <var>query</var> at <time datetime=\"2026-06-27\">today</time> and <mark>highlight</mark> results.</p><section><samp>stdout</samp> stores <var>$value</var></section><ul><li>Press <kbd>Enter</kbd> after <samp>Ready</samp></li></ul></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "<kbd>Ctrl</kbd>" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Use <kbd>Ctrl</kbd> + <kbd>K</kbd> to open <samp>Command Palette</samp> for <var>query</var> at <time datetime=\"2026-06-27\">today</time> and <mark>highlight</mark> results." } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/paragraph", "attrs": { "content": "<samp>stdout</samp> stores <var>$value</var>" } },
+    { "path": "blocks.0.innerBlocks.3", "name": "core/list" },
+    { "path": "blocks.0.innerBlocks.3.innerBlocks.0", "name": "core/list-item", "attrs": { "content": "Press <kbd>Enter</kbd> after <samp>Ready</samp>" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 4 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<kbd>Ctrl</kbd>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<samp>stdout</samp> stores <var>$value</var>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<time datetime=\"2026-06-27\">today</time>" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
