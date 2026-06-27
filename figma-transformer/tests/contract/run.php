@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../figma-transformer.php';
 require_once __DIR__ . '/../../scripts/figma-fixture-selection.php';
 require_once __DIR__ . '/FixtureMatrixContract.php';
 require_once __DIR__ . '/LayoutMismatchContract.php';
+require_once __DIR__ . '/OriginInferenceContract.php';
 require_once __DIR__ . '/SyntheticFigKiwiFixtureBuilder.php';
 
 use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCapability;
@@ -523,9 +524,11 @@ $decorativeUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph
 ));
 $decorativeUnderlayCss = $fileContent($decorativeUnderlayResult, 'style.css');
 $decorativeUnderlayDiagnostics = $decorativeUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
+$decorativeUnderlayLayout = $decorativeUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
 $assert(str_contains($decorativeUnderlayCss, '.figma-node-underlay-parent-flex-hero{width:1000px;min-height:600px;position:relative;display:flex;flex-direction:row}'), 'decorative-underlay-parent-relative');
 $assert(str_contains($decorativeUnderlayCss, '.figma-node-underlay-art-decorative-art{width:900px;height:700px;position:absolute;left:40px;top:-50px;z-index:0;pointer-events:none}'), 'decorative-underlay-absolute');
 $assert(str_contains($decorativeUnderlayCss, '.figma-node-underlay-copy-copy-stack{width:320px;height:120px;position:relative;z-index:1;flex-shrink:0}'), 'decorative-underlay-content-stacks-above');
+$assert(0 === ($decorativeUnderlayLayout['large_absolute_offset_count'] ?? null), 'decorative-underlay-not-large-absolute-offset');
 $assert(1 === ($decorativeUnderlayDiagnostics['count'] ?? null), 'decorative-underlay-diagnostics-count');
 $assert(array(
     'node_id'       => 'underlay:art',
@@ -3523,6 +3526,7 @@ $assert(str_contains($positiveRootCanvasOriginCss, '.figma-node-positive-origin-
 $assert(str_contains($positiveRootCanvasOriginCss, '.figma-node-positive-origin-cta-cta{width:240px;height:40px;position:absolute;left:200px;top:400px'), 'positive-root-canvas-origin-normalizes-text-child');
 $positiveRootCanvasOriginDiagnostics = $positiveRootCanvasOriginResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
 $assert(0 === ($positiveRootCanvasOriginDiagnostics['layout']['large_absolute_offset_count'] ?? null), 'positive-root-canvas-origin-diagnostics-no-large-offset');
+blocks_engine_figma_transformer_run_origin_inference_contract($assert, $fileContent, $findVisualNode);
 
 $resolvedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Component Instance Fixture',

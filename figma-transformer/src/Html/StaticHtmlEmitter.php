@@ -1092,7 +1092,7 @@ final class StaticHtmlEmitter
     private function largeAbsoluteOffsetDiagnostic(array $node, array $parentNode): ?array
     {
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        if ( 'absolute' !== ($layout['positioning'] ?? null) && ! $this->isFreeformContainer($parentNode) && ! $this->isDecorativeFlexUnderlay($node, $parentNode) ) {
+        if ( $this->isDecorativeFlexUnderlay($node, $parentNode) || ('absolute' !== ($layout['positioning'] ?? null) && ! $this->isFreeformContainer($parentNode)) ) {
             return null;
         }
 
@@ -2008,7 +2008,8 @@ final class StaticHtmlEmitter
      */
     private function inferredContainingBlockOrigin(array $parentNode, string $dimension): ?float
     {
-        $origin = null;
+        $preferredOrigin = null;
+        $fallbackOrigin = null;
         foreach ( $this->nodeList($parentNode) as $child ) {
             if ( ! is_array($child) ) {
                 continue;
@@ -2020,10 +2021,23 @@ final class StaticHtmlEmitter
             }
 
             $value = (float) $childBox[$dimension];
-            $origin = null === $origin ? $value : min($origin, $value);
+            $fallbackOrigin = null === $fallbackOrigin ? $value : min($fallbackOrigin, $value);
+            if ( $this->isContainingBlockOriginCandidate($child) ) {
+                $preferredOrigin = null === $preferredOrigin ? $value : min($preferredOrigin, $value);
+            }
         }
 
-        return $origin;
+        return $preferredOrigin ?? $fallbackOrigin;
+    }
+
+    /**
+     * Prefer content-bearing children for canvas-origin inference so decorative vector underlays do not rebase content.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function isContainingBlockOriginCandidate(array $node): bool
+    {
+        return $this->treeHasText($node) || $this->treeHasImageReference($node) || ! $this->treeIsVectorShapeOnly($node);
     }
 
     /**
