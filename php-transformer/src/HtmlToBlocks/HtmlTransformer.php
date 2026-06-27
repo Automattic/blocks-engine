@@ -1728,8 +1728,14 @@ final class HtmlTransformer
                 'controls'        => $controls,
                 'control_count'   => count($controls),
                 'events'          => $this->eventMetadata($element),
+                'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
                 'required_scripts' => $this->requiredScriptsForElement($element),
             ));
+
+            if ( null !== $readableFormBlock ) {
+                return $readableFormBlock;
+            }
+
             $fallbacks[] = FallbackDiagnostic::build(array(
                 'type'            => 'html',
                 'reason'          => 'form_requires_runtime',
@@ -1752,7 +1758,7 @@ final class HtmlTransformer
                 'html_truncated'  => $boundedHtml['truncated'],
             ), $this->fallbackProvenance);
 
-            return $readableFormBlock;
+            return null;
         }
 
         if ( 'nav' === $tagName ) {

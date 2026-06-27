@@ -309,25 +309,33 @@ $assert('contract-test' === ($contextual['provenance'][0]['scope'] ?? ''), 'HTML
 $formFallback = ( new HtmlTransformer() )->transform(
     '<main><form action="/contact" method="post" data-action="contact-submit"><label for="email">Email</label><input id="email" name="email" type="email" required><select name="topic"><option value="support" selected>Support</option></select><button type="submit">Send</button></form></main>'
 )->toArray();
-$formDiagnostic = $formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
+$formRuntimeIsland = $formFallback['source_reports']['runtime_islands'][0] ?? array();
 $formFallbackBlocks = $formFallback['blocks'][0]['innerBlocks'] ?? array();
-$assert('core/group' === ($formFallback['blocks'][0]['blockName'] ?? ''), 'form fallback materializes readable control blocks');
-$assert('core/paragraph' === ($formFallbackBlocks[0]['blockName'] ?? ''), 'form fallback exposes readable input text');
-$assert('core/group' === ($formFallbackBlocks[1]['blockName'] ?? ''), 'form fallback exposes readable select options');
-$assert('core/buttons' === ($formFallbackBlocks[2]['blockName'] ?? ''), 'form fallback exposes readable submit button');
-$assertNormalizedFallbackDiagnostic($formDiagnostic, 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
+$assert(array() === ($formFallback['fallbacks'] ?? array()), 'readable runtime form converts without unsupported fallback diagnostics');
+$assert(array() === ($formFallback['source_reports']['conversion_report']['fallback_diagnostics'] ?? array()), 'readable runtime form is not projected as a fallback diagnostic');
+$assert('core/group' === ($formFallback['blocks'][0]['blockName'] ?? ''), 'runtime form materializes readable control blocks');
+$assert('core/paragraph' === ($formFallbackBlocks[0]['blockName'] ?? ''), 'runtime form exposes readable input text');
+$assert('core/group' === ($formFallbackBlocks[1]['blockName'] ?? ''), 'runtime form exposes readable select options');
+$assert('core/buttons' === ($formFallbackBlocks[2]['blockName'] ?? ''), 'runtime form exposes readable submit button');
 $assert('form' === ($formFallback['source_reports']['interaction_candidates'][0]['kind'] ?? ''), 'HTML source report exposes form interaction candidate');
 $assert('form' === ($formFallback['source_reports']['conversion_report']['interaction_candidates'][0]['kind'] ?? ''), 'conversion report projects interaction candidates');
 $assert('/contact' === ($formFallback['source_reports']['interaction_candidates'][0]['target'] ?? ''), 'form interaction candidate exposes action target');
-$assert('html_form_fallback' === ($formDiagnostic['diagnostic_code'] ?? ''), 'conversion report exposes form fallback diagnostic code');
-$assert('/contact' === ($formDiagnostic['form']['action'] ?? ''), 'conversion report exposes form action metadata');
-$assert('post' === ($formDiagnostic['form']['method'] ?? ''), 'conversion report exposes normalized form method metadata');
-$assert(3 === ($formDiagnostic['control_count'] ?? null), 'conversion report exposes form control count');
-$assert('email' === ($formDiagnostic['controls'][0]['name'] ?? ''), 'conversion report exposes form control names');
-$assert('Email' === ($formDiagnostic['controls'][0]['label'] ?? ''), 'conversion report exposes form control labels');
-$assert(true === ($formDiagnostic['controls'][0]['required'] ?? null), 'conversion report exposes required form controls');
-$assert('support' === ($formDiagnostic['controls'][1]['options'][0]['value'] ?? ''), 'conversion report exposes select option values');
-$assert(is_int($formDiagnostic['html_bytes'] ?? null), 'conversion report exposes bounded fallback HTML byte size');
+$assert('form' === ($formRuntimeIsland['kind'] ?? ''), 'readable runtime form reports as a runtime island');
+$assert('form_requires_runtime' === ($formRuntimeIsland['preservation_reason'] ?? ''), 'form runtime island exposes preservation reason');
+$assert('/contact' === ($formRuntimeIsland['form']['action'] ?? ''), 'form runtime island exposes form action metadata');
+$assert('post' === ($formRuntimeIsland['form']['method'] ?? ''), 'form runtime island exposes normalized form method metadata');
+$assert(3 === ($formRuntimeIsland['control_count'] ?? null), 'form runtime island exposes form control count');
+$assert('email' === ($formRuntimeIsland['controls'][0]['name'] ?? ''), 'form runtime island exposes form control names');
+$assert('Email' === ($formRuntimeIsland['controls'][0]['label'] ?? ''), 'form runtime island exposes form control labels');
+$assert(true === ($formRuntimeIsland['controls'][0]['required'] ?? null), 'form runtime island exposes required form controls');
+$assert('support' === ($formRuntimeIsland['controls'][1]['options'][0]['value'] ?? ''), 'form runtime island exposes select option values');
+$assert(is_int($formRuntimeIsland['source_bytes'] ?? null), 'form runtime island exposes bounded source byte size');
+$assert('core/group' === ($formRuntimeIsland['readable_blocks'][0]['blockName'] ?? ''), 'form runtime island carries its readable approximation metadata');
+
+$scriptOnlyFormFallback = ( new HtmlTransformer() )->transform('<main><form action="/contact" method="post"><script>window.submitContact()</script></form></main>')->toArray();
+$scriptOnlyFormDiagnostic = $scriptOnlyFormFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
+$assertNormalizedFallbackDiagnostic($scriptOnlyFormDiagnostic, 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
+$assert(array() === ($scriptOnlyFormFallback['blocks'] ?? array()), 'runtime form without readable controls still falls back only as metadata');
 
 $rangeControlResult = ( new HtmlTransformer() )->transform(
     '<main><section><label for="density">Density</label><input type="range" id="density" min="6" max="60" step="2" value="28"></section></main>'
