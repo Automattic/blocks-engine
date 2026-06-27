@@ -260,7 +260,16 @@ final class ButtonMenuVisualProbe
 
     private function hasButtonSignal(DOMElement $element): bool
     {
-        return $this->hasAnyToken($element, array( 'button', 'btn' )) || str_contains(strtolower($element->hasAttribute('class') ? $element->getAttribute('class') : ''), 'wp-element-button');
+        // Generic button-token detection: any class/id containing the "btn" or
+        // "button" substring (covers btn, btn-primary, hero-btn, btnPrimary,
+        // actionButton, roundedbtn, wp-element-button, etc.). Kept consistent with
+        // the HTML transformer's button-signal heuristic.
+        $value = strtolower(
+            ( $element->hasAttribute('class') ? $element->getAttribute('class') : '' ) . ' '
+            . ( $element->hasAttribute('id') ? $element->getAttribute('id') : '' )
+        );
+
+        return str_contains($value, 'btn') || str_contains($value, 'button');
     }
 
     private function hasRegressionRiskSignal(DOMElement $element): bool
