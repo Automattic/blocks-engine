@@ -525,9 +525,13 @@ $decorativeUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph
 $decorativeUnderlayCss = $fileContent($decorativeUnderlayResult, 'style.css');
 $decorativeUnderlayDiagnostics = $decorativeUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
 $decorativeUnderlayLayout = $decorativeUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+$decorativeUnderlayArt = $findVisualNode($decorativeUnderlayResult, 'underlay:art');
+$decorativeUnderlayVector = $findVisualNode($decorativeUnderlayResult, 'underlay:vector');
 $assert(str_contains($decorativeUnderlayCss, '.figma-node-underlay-parent-flex-hero{width:1000px;min-height:600px;position:relative;display:flex;flex-direction:row}'), 'decorative-underlay-parent-relative');
 $assert(str_contains($decorativeUnderlayCss, '.figma-node-underlay-art-decorative-art{width:900px;height:700px;position:absolute;left:40px;top:-50px;z-index:0;pointer-events:none}'), 'decorative-underlay-absolute');
 $assert(str_contains($decorativeUnderlayCss, '.figma-node-underlay-copy-copy-stack{width:320px;height:120px;position:relative;z-index:1;flex-shrink:0}'), 'decorative-underlay-content-stacks-above');
+$assert(array('x' => 40.0, 'y' => -50.0, 'width' => 900.0, 'height' => 700.0) === ($decorativeUnderlayArt['rect'] ?? null), 'decorative-underlay-visual-map-includes-css-offset');
+$assert(array('x' => 40.0, 'y' => -50.0, 'width' => 900.0, 'height' => 700.0) === ($decorativeUnderlayVector['rect'] ?? null), 'decorative-underlay-child-visual-map-inherits-css-offset');
 $assert(0 === ($decorativeUnderlayLayout['large_absolute_offset_count'] ?? null), 'decorative-underlay-not-large-absolute-offset');
 $assert(1 === ($decorativeUnderlayDiagnostics['count'] ?? null), 'decorative-underlay-diagnostics-count');
 $assert(array(
