@@ -1286,7 +1286,7 @@ final class StaticHtmlEmitter
         if ( null !== $parentNode && $this->isFreeformContainer($parentNode) ) {
             $x += $this->positionOffset($box, $parentBox, 'x', $parentNode) ?? 0.0;
             $y += $this->positionOffset($box, $parentBox, 'y', $parentNode) ?? 0.0;
-        } elseif ( null !== $parentNode && 'absolute' === ($layout['positioning'] ?? null) ) {
+        } elseif ( null !== $parentNode && ('absolute' === ($layout['positioning'] ?? null) || $this->isDecorativeFlexUnderlay($node, $parentNode)) ) {
             $x += $this->positionOffset($box, $parentBox, 'x', $parentNode) ?? 0.0;
             $y += $this->positionOffset($box, $parentBox, 'y', $parentNode) ?? 0.0;
         }
