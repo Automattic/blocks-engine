@@ -1697,8 +1697,7 @@ final class HtmlTransformer
             }
 
             $this->captureCanvasFallback($element, $fallbacks);
-            $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-            return $this->createBlock('core/html', array( 'content' => $boundedHtml['html'] ), array(), $element);
+            return null;
         }
 
         if ( 'script' === $tagName ) {
