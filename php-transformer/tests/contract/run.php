@@ -206,6 +206,11 @@ $assert(! array_key_exists('legacy_mapping', $result), 'canonical result omits c
 $assertInvalidCanonicalEnvelope(array_merge($result, array('legacy_mapping' => array())), 'legacy_mapping', 'canonical validation rejects legacy mapping aliases');
 $assertInvalidCanonicalEnvelope(array_merge($result, array('conversion_report' => $result['source_reports']['conversion_report'])), 'only under source_reports', 'canonical validation rejects top-level conversion report aliases');
 $assertInvalidCanonicalEnvelope(array_merge($result, array('materialization_plan' => array())), 'only under source_reports', 'canonical validation rejects top-level materialization plan aliases');
+$runtimeCanvasResult = ( new HtmlTransformer() )->transform('<main><canvas id="fixture-canvas">Fallback</canvas></main>', array('runtime_canvas_selectors' => array('#fixture-canvas')))->toArray();
+$assert('canvas' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['kind'] ?? ''), 'HTML transform reports runtime-targeted canvas fallback as a runtime island');
+$assert('canvas_requires_runtime' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['preservation_reason'] ?? ''), 'runtime island exposes canvas preservation reason');
+$assert(str_contains((string) ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['source_snippet'] ?? ''), '<canvas id="fixture-canvas">Fallback</canvas>'), 'runtime island exposes bounded source snippet');
+$assert($runtimeCanvasResult['source_reports']['runtime_islands'] === ($runtimeCanvasResult['source_reports']['conversion_report']['runtime_islands'] ?? array()), 'conversion report projects runtime islands');
 
 $invalidStatus = $result;
 $invalidStatus['status'] = 'ok';
@@ -274,6 +279,10 @@ $assert('core/list' === ($standaloneControlBlocks[1]['innerBlocks'][1]['blockNam
 $assert('core/html' === ($standaloneControlBlocks[2]['blockName'] ?? ''), 'runtime-targeted select preserves native DOM markup');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'Featured (selected)'), 'readable select summary preserves selected option state');
 $assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted select serialization preserves native element');
+$assert(1 === count($standaloneControls['source_reports']['runtime_islands'] ?? array()), 'runtime islands report only the explicitly runtime-targeted standalone control');
+$assert('control' === ($standaloneControls['source_reports']['runtime_islands'][0]['kind'] ?? ''), 'runtime-targeted standalone control reports as a control island');
+$assert('.js-sort-select' === ($standaloneControls['source_reports']['runtime_islands'][0]['selector'] ?? ''), 'runtime-targeted standalone control reports selector metadata');
+$assert('select' === ($standaloneControls['source_reports']['runtime_islands'][0]['control']['tag'] ?? ''), 'runtime-targeted standalone control reports control metadata');
 
 $buttonResult = ( new HtmlTransformer() )->transform(
     '<main><a class="primary-button" href="#"><h3>Reserve now</h3><span aria-hidden="true"></span></a><button><strong>Call us</strong></button></main>'
@@ -796,6 +805,13 @@ $assert(null !== $stageDependency, 'runtime dependency parity records canvas cla
 $assert(true === ($stageDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved canvas class target');
 $assert(str_contains($runtimeDependencyMarkup, '<canvas id="canvas" class="stage"></canvas>'), 'artifact compiler emits referenced canvas runtime target markup');
 $assert(! str_contains($runtimeDependencyMarkup, 'unused-canvas'), 'artifact compiler does not preserve unreferenced canvas markup');
+$runtimeDependencyIslands = $runtimeDependencySite['source_reports']['runtime_islands'] ?? array();
+$assert(1 === count($runtimeDependencyIslands), 'artifact compiler reports only the preserved canvas as a runtime island');
+$assert('canvas' === ($runtimeDependencyIslands[0]['kind'] ?? ''), 'artifact runtime island identifies canvas kind');
+$assert('#canvas' === ($runtimeDependencyIslands[0]['selector'] ?? ''), 'artifact runtime island exposes canvas selector');
+$assert(str_contains((string) ($runtimeDependencyIslands[0]['source_snippet'] ?? ''), '<canvas id="canvas" class="stage"></canvas>'), 'artifact runtime island exposes canvas source snippet');
+$assert(! empty($runtimeDependencyIslands[0]['required_scripts'] ?? array()), 'artifact runtime island exposes required script metadata');
+$assert($runtimeDependencyIslands === ($runtimeDependencySite['source_reports']['conversion_report']['runtime_islands'] ?? array()), 'artifact conversion report projects runtime islands');
 $assert(null !== $statusDependency, 'runtime dependency parity records preserved status container dependency');
 $assert('index.html' === ($statusDependency['source_path'] ?? ''), 'runtime dependency parity records source path for preserved DOM dependency');
 $assert(true === ($statusDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved div id target');
@@ -818,6 +834,8 @@ $assert(str_contains($decorativeCanvasMarkup, '<canvas id="lab-canvas" class="st
 $assert(! str_contains($decorativeCanvasMarkup, 'hero-canvas'), 'artifact compiler omits decorative canvas touched by script without canvas API usage');
 $assert(1 === count($decorativeCanvasFallbacks), 'artifact compiler records one runtime canvas fallback for the interactive canvas only');
 $assert('lab-canvas' === ($decorativeCanvasFallbacks[0]['attributes']['id'] ?? ''), 'runtime canvas fallback provenance points to the interactive canvas');
+$assert(1 === count($decorativeCanvasSite['source_reports']['runtime_islands'] ?? array()), 'decorative canvas is not over-reported as a runtime island');
+$assert('#lab-canvas' === ($decorativeCanvasSite['source_reports']['runtime_islands'][0]['selector'] ?? ''), 'runtime island provenance points to the interactive canvas');
 
 $runtimeTargetContainerSite = $compiler->compile(
     array(

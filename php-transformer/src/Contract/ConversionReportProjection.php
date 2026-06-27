@@ -30,6 +30,7 @@ final class ConversionReportProjection
             'navigation_candidates' => self::navigationCandidates($blocks, $sourceReports),
             'semantic_parity'       => self::semanticParity($sourceReports),
             'runtime_dependency_parity' => self::runtimeDependencyParity($sourceReports),
+            'runtime_islands'      => self::runtimeIslands($sourceReports),
             'interaction_candidates' => self::interactionCandidates($sourceReports),
             'presentation_gaps'     => self::presentationGaps($sourceReports),
             'metrics'               => $metrics,
@@ -273,6 +274,23 @@ final class ConversionReportProjection
         }
 
         return self::dedupeRows(array_values(array_filter($candidates, static fn (mixed $candidate): bool => is_array($candidate))));
+    }
+
+    /**
+     * @param array<string, mixed> $sourceReports
+     * @return array<int, array<string, mixed>>
+     */
+    private static function runtimeIslands(array $sourceReports): array
+    {
+        $islands = $sourceReports['runtime_islands'] ?? array();
+        if ( ! is_array($islands) ) {
+            $islands = array();
+        }
+
+        $html = is_array($sourceReports['html'] ?? null) ? $sourceReports['html'] : array();
+        $htmlIslands = is_array($html['runtime_islands'] ?? null) ? $html['runtime_islands'] : array();
+
+        return self::dedupeRows(array_values(array_filter(array_merge($islands, $htmlIslands), static fn (mixed $island): bool => is_array($island))));
     }
 
     /**
