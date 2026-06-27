@@ -17,13 +17,14 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Learn more", "url": "/learn", "className": "cta ghost-link is-style-outline", "style": "background-color:transparent;color:#135e96;border:2px solid currentColor;border-radius:8px;padding:12px 24px;font-weight:600;text-transform:none" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Learn more", "url": "/learn", "className": "cta ghost-link is-style-outline", "style": { "color": { "text": "#135e96" }, "border": { "width": "2px", "style": "solid", "color": "currentColor", "radius": "8px" }, "spacing": { "padding": { "top": "12px", "right": "24px", "bottom": "12px", "left": "24px" } }, "typography": { "fontWeight": "600", "textTransform": "none" } } } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button is-style-outline\">" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link wp-element-button cta ghost-link is-style-outline\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "background-color:transparent;color:#135e96;border:2px solid currentColor;border-radius:8px;padding:12px 24px;font-weight:600;text-transform:none" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link has-text-color has-border-color wp-element-button cta ghost-link is-style-outline\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"color:#135e96;border-color:currentColor;border-width:2px;border-style:solid;border-radius:8px;padding-top:12px;padding-right:24px;padding-bottom:12px;padding-left:24px;font-weight:600;text-transform:none\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "background-color" }
   ]
 }

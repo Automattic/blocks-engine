@@ -31,11 +31,11 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "btn-primary" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "background-color:#1257ff;color:#fff;padding:12px 20px;border-radius:999px" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"color:#fff;background-color:#1257ff;border-radius:999px;padding-top:12px;padding-right:20px;padding-bottom:12px;padding-left:20px\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "nav-cta" },
     { "path": "serialized_blocks", "assert": "contains", "value": "background-color:#101827;color:white;padding:10px 16px;border-radius:8px" },
     { "path": "serialized_blocks", "assert": "contains", "value": "product-card" },
     { "path": "serialized_blocks", "assert": "contains", "value": "border:1px solid #d8dee9;border-radius:16px;padding:24px" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "background:#0f766e;color:#ffffff;padding:11px 18px;border-radius:6px" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"color:#ffffff;background-color:#0f766e;border-radius:6px;padding-top:11px;padding-right:18px;padding-bottom:11px;padding-left:18px\"" }
   ]
 }

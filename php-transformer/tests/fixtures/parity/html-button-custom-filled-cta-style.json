@@ -17,13 +17,13 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Get started", "url": "/start", "className": "hero-cta brand-primary", "style": "background-color:#135e96;color:#fff;border:2px solid #135e96;border-radius:999px;padding:14px 28px;font-weight:700;text-transform:uppercase" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Get started", "url": "/start", "className": "hero-cta brand-primary", "style": { "color": { "background": "#135e96", "text": "#fff" }, "border": { "width": "2px", "style": "solid", "color": "#135e96", "radius": "999px" }, "spacing": { "padding": { "top": "14px", "right": "28px", "bottom": "14px", "left": "28px" } }, "typography": { "fontWeight": "700", "textTransform": "uppercase" } } } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link wp-element-button hero-cta brand-primary\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"background-color:#135e96;color:#fff;border:2px solid #135e96;border-radius:999px;padding:14px 28px;font-weight:700;text-transform:uppercase\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link has-text-color has-background has-border-color wp-element-button hero-cta brand-primary\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"color:#fff;background-color:#135e96;border-color:#135e96;border-width:2px;border-style:solid;border-radius:999px;padding-top:14px;padding-right:28px;padding-bottom:14px;padding-left:28px;font-weight:700;text-transform:uppercase\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "background-color:#f7f7f7" }
   ]
 }
