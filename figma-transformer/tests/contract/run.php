@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../figma-transformer.php';
+require_once __DIR__ . '/../../scripts/figma-fixture-selection.php';
 require_once __DIR__ . '/SyntheticFigKiwiFixtureBuilder.php';
 
 use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCapability;
@@ -234,6 +235,34 @@ $assert(str_contains($css, '.figma-root{position:relative;min-width:100%;width:m
 $assert(! str_contains($css, 'overflow-x:hidden'), 'css-preserves-horizontal-scroll');
 $assert(! str_contains($css, 'order:'), 'css-avoids-source-order');
 $assert(! str_contains($css, 'font-family:Inter') && ! str_contains($css, 'body{margin:0;background') && ! str_contains($css, 'body{margin:0;color'), 'css-avoids-hardcoded-theme-style');
+
+$absoluteTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name' => 'Absolute Transform Fixture',
+    'nodes' => array(
+        array(
+            'id' => 'absolute:root',
+            'type' => 'FRAME',
+            'name' => 'Root',
+            'absoluteBoundingBox' => array('x' => 0, 'y' => 0, 'width' => 300, 'height' => 200),
+            'children' => array(
+                array(
+                    'id' => 'absolute:child',
+                    'type' => 'RECTANGLE',
+                    'name' => 'Rotated child',
+                    'absoluteBoundingBox' => array('x' => 40, 'y' => 50, 'width' => 80, 'height' => 60),
+                    'layoutPositioning' => 'ABSOLUTE',
+                    'relativeTransform' => array(
+                        array(0, -1, 40),
+                        array(1, 0, 50),
+                    ),
+                    'fill' => array('r' => 1, 'g' => 0, 'b' => 0),
+                ),
+            ),
+        ),
+    ),
+));
+$absoluteTransformCss = $fileContent($absoluteTransformResult, 'style.css');
+$assert(str_contains($absoluteTransformCss, '.figma-node-absolute-child-rotated-child{width:80px;height:60px;position:absolute;left:40px;top:50px;background:#ff0000}'), 'absolute-visual-bounds-skip-css-transform');
 
 $qualityAssets = array();
 for ( $i = 1; $i <= 20; $i++ ) {
@@ -641,7 +670,8 @@ $clippedVisibleCopy = $findVisualNode($clippedDecorativeResult, 'clip:copy');
 $assert(str_contains($clippedDecorativeCss, '.figma-node-clip-parent-clipped-parent{width:200px;height:100px;overflow:hidden;position:relative}'), 'clipped-decorative-parent-overflow-hidden');
 $assert(! str_contains($clippedDecorativeHtml, 'Off canvas decorative group') && ! str_contains($clippedDecorativeCss, 'figma-node-clip-hidden-group'), 'fully-clipped-decorative-node-not-emitted');
 $assert(null === $clippedHiddenGroup && null === $clippedHiddenVector, 'fully-clipped-decorative-nodes-omitted-from-visual-map');
-$assert(array('x' => 0.0, 'y' => 20.0, 'width' => 40.0, 'height' => 30.0) === ($clippedPartialVector['rect'] ?? null), 'partly-clipped-decorative-node-visual-map-intersection');
+$assert(array('x' => -20.0, 'y' => 20.0, 'width' => 60.0, 'height' => 30.0) === ($clippedPartialVector['rect'] ?? null), 'partly-clipped-decorative-node-keeps-source-rect');
+$assert(array('x' => 0.0, 'y' => 20.0, 'width' => 40.0, 'height' => 30.0) === ($clippedPartialVector['visible_rect'] ?? null), 'partly-clipped-decorative-node-visible-rect-intersection');
 $assert(array('x' => -10.0, 'y' => 70.0, 'width' => 140.0, 'height' => 20.0) === ($clippedVisibleCopy['rect'] ?? null), 'clipped-content-node-keeps-source-rect');
 $assert(0 === ($clippedDecorativeDiagnostics['large_absolute_offset_count'] ?? null), 'fully-clipped-decorative-node-not-counted-as-large-offset');
 
@@ -694,9 +724,53 @@ $gamesControlLayoutResult = blocks_engine_figma_transformer_transform_scenegraph
 ));
 $gamesControlDiagnostics = $gamesControlLayoutResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
 $gamesControlIcon = $findVisualNode($gamesControlLayoutResult, 'games:icon');
-$assert(array('x' => 0.0, 'y' => 8.0, 'width' => 16.0, 'height' => 24.0) === ($gamesControlIcon['rect'] ?? null), 'games-control-clipped-icon-visual-map-intersection');
+$assert(array('x' => -8.0, 'y' => 8.0, 'width' => 24.0, 'height' => 24.0) === ($gamesControlIcon['rect'] ?? null), 'games-control-clipped-icon-source-rect');
+$assert(array('x' => 0.0, 'y' => 8.0, 'width' => 16.0, 'height' => 24.0) === ($gamesControlIcon['visible_rect'] ?? null), 'games-control-clipped-icon-visible-rect-intersection');
 $assert(0 === ($gamesControlDiagnostics['layout_mismatch_count'] ?? null), 'games-control-layout-mismatch-count-zero');
 $assert('pass' === ($gamesControlDiagnostics['layout_mismatch_status'] ?? null), 'games-control-layout-mismatch-pass');
+
+$flippedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Flipped Vector Layout Guard Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'       => 'flip:parent',
+            'type'     => 'FRAME',
+            'name'     => 'Flip parent',
+            'width'    => 120,
+            'height'   => 80,
+            'children' => array(
+                array(
+                    'id'           => 'flip:vector',
+                    'type'         => 'VECTOR',
+                    'name'         => 'Flipped vector',
+                    'x'            => 20,
+                    'y'            => 10,
+                    'width'        => 60,
+                    'height'       => 30,
+                    'transform'    => array('m00' => -1, 'm01' => 0, 'm02' => 0, 'm10' => 0, 'm11' => 1, 'm12' => 0),
+                    'fillGeometry' => array(array('commandsBlob' => 0)),
+                ),
+            ),
+        ),
+    ),
+), array(
+    'generated_dom_boxes' => array(
+        'schema' => 'homeboy/static-artifact-dom-boxes/v1',
+        'boxes'  => array(
+            array('node_id' => 'flip:parent', 'rect' => array('x' => 0, 'y' => 0, 'width' => 120, 'height' => 80)),
+            array('node_id' => 'flip:vector', 'rect' => array('x' => -40, 'y' => 10, 'width' => 60, 'height' => 30)),
+        ),
+    ),
+    'layout_mismatch_threshold'      => 1,
+    'layout_mismatch_size_threshold' => 1,
+));
+$flippedVectorDiagnostics = $flippedVectorResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+$flippedVectorNode = $findVisualNode($flippedVectorResult, 'flip:vector');
+$assert(str_contains($fileContent($flippedVectorResult, 'style.css'), 'transform:matrix(-1,0,0,1,0,0);transform-origin:0 0'), 'flipped-vector-css-transform-matrix');
+$assert(array('x' => -40.0, 'y' => 10.0, 'width' => 60.0, 'height' => 30.0) === ($flippedVectorNode['rect'] ?? null), 'flipped-vector-visual-map-applies-matrix');
+$assert(0 === ($flippedVectorDiagnostics['layout_mismatch_count'] ?? null), 'flipped-vector-layout-mismatch-count-zero');
+$assert('pass' === ($flippedVectorDiagnostics['layout_mismatch_status'] ?? null), 'flipped-vector-layout-mismatch-pass');
 
 $transparentVisualMapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Transparent Visual Map Fixture',
@@ -910,9 +984,19 @@ $assert(! in_array('unsupported_vector_node_placeholder', $geometrylessVectorDia
 
 $simpleRectNetworkPrefix = hex2bin('0400000004000000000000000000000000000000000000000000000000008043');
 $simpleRectNetworkBlob = str_pad(false === $simpleRectNetworkPrefix ? '' : $simpleRectNetworkPrefix, 172, "\0");
+$closedRectNetworkBlob = pack('V3', 4, 4, 1) . str_repeat("\0", 188);
+foreach ( array(array(0.0, 0.0), array(12.0, 0.0), array(12.0, 6.0), array(0.0, 6.0)) as $index => $point ) {
+    $offset = 12 + ( $index * 20 ) + 4;
+    $closedRectNetworkBlob = substr_replace($closedRectNetworkBlob, pack('g', $point[0]) . pack('g', $point[1]), $offset, 8);
+}
+$nonRectNetworkBlob = pack('V3', 4, 4, 1) . str_repeat("\0", 188);
+foreach ( array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)) as $index => $point ) {
+    $offset = 12 + ( $index * 20 ) + 4;
+    $nonRectNetworkBlob = substr_replace($nonRectNetworkBlob, pack('g', $point[0]) . pack('g', $point[1]), $offset, 8);
+}
 $vectorDataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Vector Data Fixture',
-    'blobs' => array(array('bytes' => $vectorCommandBlob), array('bytes' => "\xff"), array('bytes' => $simpleRectNetworkBlob)),
+    'blobs' => array(array('bytes' => $vectorCommandBlob), array('bytes' => "\xff"), array('bytes' => $simpleRectNetworkBlob), array('bytes' => $closedRectNetworkBlob), array('bytes' => $nonRectNetworkBlob)),
     'nodes' => array(
         array(
             'id'         => 'vector:data',
@@ -949,6 +1033,24 @@ $vectorDataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
             'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0.5, 'b' => 1))),
             'vectorData' => array('vectorNetworkBlob' => 2),
         ),
+        array(
+            'id'         => 'vector:data-closed-rect-network',
+            'type'       => 'VECTOR',
+            'name'       => 'Closed Rect Network',
+            'width'      => 12,
+            'height'     => 6,
+            'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.2, 'g' => 0.4, 'b' => 0.6))),
+            'vectorData' => array('vectorNetworkBlob' => 3),
+        ),
+        array(
+            'id'         => 'vector:data-non-rect-network',
+            'type'       => 'VECTOR',
+            'name'       => 'Non Rect Network',
+            'width'      => 12,
+            'height'     => 6,
+            'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.6, 'g' => 0.4, 'b' => 0.2))),
+            'vectorData' => array('vectorNetworkBlob' => 4),
+        ),
     ),
 ));
 $vectorDataHtml = $fileContent($vectorDataResult, 'index.html');
@@ -967,13 +1069,15 @@ $assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data"') && str
 $assert(str_contains($vectorDataHtml, 'd="M0 0L10 0 10 10Z"'), 'vector-data-renders-command-blob-path');
 $assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-painted-fallback"') && str_contains($vectorDataHtml, '<rect x="0" y="0" width="12" height="6" fill="#0000ff"/>'), 'vector-data-painted-network-fallback-rect');
 $assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-simple-rect-network"') && str_contains($vectorDataHtml, 'd="M0 0L12 0 12 6 0 6Z"') && str_contains($vectorDataHtml, 'fill="#0080ff"'), 'vector-data-simple-rect-network-renders-bounded-path');
+$assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-closed-rect-network"') && str_contains($vectorDataHtml, 'd="M0 0L12 0 12 6 0 6Z"') && str_contains($vectorDataHtml, 'fill="#336699"'), 'vector-data-closed-rect-network-renders-bounded-path');
+$assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-non-rect-network"') && str_contains($vectorDataHtml, 'data-figma-unsupported-vector="true"'), 'vector-data-non-rect-network-keeps-placeholder');
 $assert(in_array('unsupported_vector_network_blob', $vectorDataDiagnosticCodes, true), 'vector-data-malformed-network-diagnostic');
 $assert(1 === ($vectorNetworkDiagnostic['context']['byte_length'] ?? null) && 'ff' === ($vectorNetworkDiagnostic['context']['signature_hex'] ?? null), 'vector-network-diagnostic-context');
 $vectorNetworkDiagnostics = array_values(array_filter(
     $vectorDataResult['diagnostics'] ?? array(),
     static fn (array $diagnostic): bool => 'unsupported_vector_network_blob' === ($diagnostic['code'] ?? null)
 ));
-$assert(1 === count($vectorNetworkDiagnostics), 'vector-network-repeated-diagnostics-compacted');
+$assert(2 === count($vectorNetworkDiagnostics), 'vector-network-repeated-diagnostics-compacted');
 $assert(2 === ($vectorNetworkDiagnostic['context']['occurrence_count'] ?? null), 'vector-network-diagnostic-occurrence-count');
 $assert(2 === ($vectorNetworkDiagnostic['context']['affected_node_count'] ?? null), 'vector-network-diagnostic-affected-node-count');
 $assert(array('vector:data-malformed', 'vector:data-painted-fallback') === ($vectorNetworkDiagnostic['context']['sample_node_ids'] ?? null), 'vector-network-diagnostic-sample-nodes');
@@ -1433,6 +1537,33 @@ $assert('Page One' === ($frameInspectionHome['page']['name'] ?? null), 'frame-in
 $assert('Marketing Pages' === ($frameInspectionHome['section']['name'] ?? null), 'frame-inspection-section-ancestor');
 $assert(1 === ($frameInspectionHome['text_count'] ?? null), 'frame-inspection-text-count');
 $assert(1 === ($frameInspectionHome['asset_reference_count'] ?? null), 'frame-inspection-asset-count');
+
+$matrixWebsiteCandidate = array(
+    'id'         => 'matrix:site:home',
+    'type'       => 'FRAME',
+    'name'       => 'Homepage',
+    'page'       => array('name' => 'Website Pages'),
+    'parent'     => array('type' => 'CANVAS'),
+    'width'      => 1440,
+    'height'     => 4200,
+    'text_count' => 24,
+    'score'      => 700,
+);
+$matrixResearchCandidate = array(
+    'id'         => 'matrix:research:screen',
+    'type'       => 'FRAME',
+    'name'       => 'Desktop - 12',
+    'page'       => array('name' => 'Research/Screens'),
+    'parent'     => array('type' => 'CANVAS'),
+    'width'      => 1440,
+    'height'     => 4600,
+    'text_count' => 40,
+    'score'      => 820,
+);
+$matrixSelection = matrix_select_frame_ids(array('candidates' => array($matrixResearchCandidate, $matrixWebsiteCandidate)), 2);
+$assert(array('matrix:site:home', 'matrix:research:screen') === $matrixSelection, 'fixture-matrix-research-screens-demoted');
+$assert(matrix_candidate_rank($matrixWebsiteCandidate) > matrix_candidate_rank($matrixResearchCandidate), 'fixture-matrix-reference-page-rank-penalty');
+$assert(! in_array('page_collection', matrix_candidate_selection_reasons($matrixResearchCandidate), true), 'fixture-matrix-reference-page-not-page-collection');
 
 $multiPageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'   => 'Multi Page Fixture',
