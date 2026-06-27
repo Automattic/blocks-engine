@@ -1,0 +1,47 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-inline-token-runtime-target-parity",
+  "description": "Keeps generated block markup addressable for first-party scripts targeting generic chip, pill, badge, tag, and filter token selectors.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-inline-token-runtime-target-parity.json",
+    "notes": "Covers the post-release SSI matrix runtime-target gap for token-like inline selectors without fixture-specific class names."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Runtime dependency parity is an upstream artifact compiler contract with no legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<main><section class=\"filter-chip-group js-filter-chip-group\"><span class=\"chip js-chip\" data-filter=\"all\">All</span><span class=\"pill js-pill\">Vegetarian</span><span class=\"badge jsBadge\">New</span><span class=\"tag js_tag\">Quick</span></section><script src=\"site.js\"></script></main>"
+        },
+        {
+          "path": "site.js",
+          "kind": "js",
+          "content": "document.querySelectorAll('.chip').forEach(function (chip) { chip.addEventListener('click', function () {}); }); document.querySelector('.pill'); document.querySelector('.badge'); document.querySelector('.tag'); document.querySelector('.filter-chip-group');"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
+    { "path": "source_reports.runtime_dependency_parity.dependencies", "assert": "count", "count": 5 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "filter-chip-group" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"chip\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"pill\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"badge\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"tag\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "js-filter-chip-group" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "js-chip" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "js-pill" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "jsBadge" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "js_tag" }
+  ]
+}
