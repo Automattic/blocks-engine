@@ -12,7 +12,30 @@ final class FallbackDiagnostic
      */
     public static function build(array $fields, array $provenance = array()): array
     {
-        return array_merge(self::defaults($fields), $fields, $provenance);
+        return self::withGenericFindingMetadata(array_merge(self::defaults($fields), $fields, $provenance));
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     * @return array<string, mixed>
+     */
+    public static function withGenericFindingMetadata(array $fields): array
+    {
+        $selector = is_string($fields['selector'] ?? null) ? trim($fields['selector']) : '';
+        $context = is_array($fields['context'] ?? null) ? $fields['context'] : array();
+        $patternFamily = self::patternFamily($fields);
+
+        $metadata = array_filter(array(
+            'pattern_family'                 => $patternFamily,
+            'pattern_family_detail'          => self::patternFamilyDetail($fields),
+            'source_selector'                => $selector,
+            'source_selector_specificity'    => '' !== $selector ? self::selectorSpecificity($selector) : array(),
+            'parent_reason'                  => self::parentReason($context),
+            'ancestor_reason'                => self::ancestorReason($context),
+            'suggested_generic_repair_class' => self::genericRepairClass($fields, $patternFamily),
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+
+        return array_merge($metadata, $fields);
     }
 
     /**
@@ -99,23 +122,139 @@ final class FallbackDiagnostic
             'html_unsupported_element' => array(
                 'severity'              => 'info',
                 'conversion_classification' => 'unsupported_loss',
+                'loss_class'            => 'unsupported_element_loss',
+                'diagnostic_class'      => 'unsupported_element',
                 'preservation_strategy' => 'diagnostic_only',
                 'runtime_requirement'   => 'unknown',
                 'recoverability'        => 'recoverable_with_manual_mapping',
                 'actionability'         => 'map_element_to_supported_block_or_preserve_html',
+                'suggested_repair_class' => 'add_generic_pattern_recognizer',
                 'suggested_primitive'   => 'core/html',
                 'materialization_hint'  => 'preserve_sanitized_markup_until_a_specific_block_mapping_exists',
             ),
             default => array(
                 'severity'              => 'warning',
                 'conversion_classification' => 'unsupported_loss',
+                'loss_class'            => 'unsupported_loss',
+                'diagnostic_class'      => 'fallback_metadata',
                 'preservation_strategy' => 'diagnostic_only',
                 'runtime_requirement'   => 'unknown',
                 'recoverability'        => 'unknown',
                 'actionability'         => 'review_fallback_metadata',
+                'suggested_repair_class' => 'review_generic_mapping',
                 'suggested_primitive'   => 'core/html',
                 'materialization_hint'  => 'preserve_fallback_metadata_for_manual_review',
             ),
         };
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     */
+    private static function patternFamily(array $fields): string
+    {
+        $code = (string) ($fields['diagnostic_code'] ?? $fields['code'] ?? '');
+        $tag = (string) ($fields['tag'] ?? '');
+        $kind = (string) ($fields['kind'] ?? '');
+
+        return match ( $code ) {
+            'html_form_fallback' => 'interactive_form',
+            'html_script_fallback' => 'runtime_script',
+            'html_iframe_embed_fallback' => 'external_embed',
+            'html_canvas_runtime_fallback' => 'runtime_canvas',
+            'html_inline_svg_fallback', 'html_unsafe_inline_svg' => 'inline_svg',
+            'html_unsupported_element' => '' !== $tag ? 'unsupported_' . $tag : 'unsupported_element',
+            default => match ( $kind ) {
+                'form', 'control' => 'interactive_form',
+                'script' => 'runtime_script',
+                'canvas' => 'runtime_canvas',
+                default => '' !== $tag ? 'html_' . $tag : 'html_fallback',
+            },
+        };
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     */
+    private static function patternFamilyDetail(array $fields): string
+    {
+        $parts = array_filter(array(
+            (string) ($fields['tag'] ?? ''),
+            (string) ($fields['reason'] ?? $fields['preservation_reason'] ?? ''),
+            (string) ($fields['runtime_requirement'] ?? ''),
+        ));
+
+        return implode(':', $parts);
+    }
+
+    /**
+     * @return array{ids: int, classes: int, attributes: int, pseudo_classes: int, elements: int, score: string}
+     */
+    private static function selectorSpecificity(string $selector): array
+    {
+        preg_match_all('/#[A-Za-z0-9_-]+/', $selector, $ids);
+        preg_match_all('/\.[A-Za-z0-9_-]+/', $selector, $classes);
+        preg_match_all('/\[[^\]]+\]/', $selector, $attributes);
+        preg_match_all('/:nth-of-type\(/', $selector, $pseudoClasses);
+        preg_match_all('/(?:^|>\s*)([a-z][a-z0-9-]*)/i', $selector, $elements);
+
+        $idCount = count($ids[0]);
+        $classCount = count($classes[0]);
+        $attributeCount = count($attributes[0]);
+        $pseudoClassCount = count($pseudoClasses[0]);
+        $elementCount = count($elements[1]);
+
+        return array(
+            'ids'            => $idCount,
+            'classes'        => $classCount,
+            'attributes'     => $attributeCount,
+            'pseudo_classes' => $pseudoClassCount,
+            'elements'       => $elementCount,
+            'score'          => $idCount . ',' . ($classCount + $attributeCount + $pseudoClassCount) . ',' . $elementCount,
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    private static function parentReason(array $context): string
+    {
+        $parent = is_string($context['parent_tag'] ?? null) ? trim($context['parent_tag']) : '';
+
+        return '' !== $parent ? 'inside_' . $parent : '';
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    private static function ancestorReason(array $context): string
+    {
+        $ancestors = is_array($context['ancestor_tags'] ?? null) ? array_values(array_filter($context['ancestor_tags'], 'is_string')) : array();
+
+        return array() !== $ancestors ? 'within_' . implode('_', $ancestors) : '';
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     */
+    private static function genericRepairClass(array $fields, string $patternFamily): string
+    {
+        if ( is_string($fields['suggested_repair_class'] ?? null) && '' !== trim($fields['suggested_repair_class']) ) {
+            return (string) $fields['suggested_repair_class'];
+        }
+
+        if ( str_starts_with($patternFamily, 'runtime_') || in_array($patternFamily, array('interactive_form', 'external_embed'), true) ) {
+            return 'preserve_runtime_island';
+        }
+
+        if ( str_starts_with($patternFamily, 'unsupported_') ) {
+            return 'add_generic_pattern_recognizer';
+        }
+
+        if ( 'inline_svg' === $patternFamily ) {
+            return 'materialize_static_asset';
+        }
+
+        return 'review_generic_mapping';
     }
 }
