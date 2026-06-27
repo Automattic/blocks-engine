@@ -19,7 +19,7 @@ Use this checklist for each compatibility repository before changing its default
 
 ## Static Site Importer
 
-- Static Site Importer calls one local adapter instead of scattered `bfb_*` and `bac_*` functions.
+- Static Site Importer calls one local adapter instead of scattered conversion-package functions.
 - Import report fields remain stable for CLI, abilities, and quality gates.
 - Fixture comparison confirms no new unsupported HTML fallbacks, invalid blocks, or content-loss aborts.
 - Theme/page creation and activation paths stay outside `php-transformer`.
@@ -27,6 +27,6 @@ Use this checklist for each compatibility repository before changing its default
 ## Release Order
 
 1. Ship transformer implementation and shared fixtures.
-2. Ship compatibility wrappers in `html-to-blocks-converter`, `block-format-bridge`, and `block-artifact-compiler`.
+2. Ship the compatibility wrapper in `html-to-blocks-converter`.
 3. Switch Static Site Importer to its local transformer adapter.
 4. Deprecate old internals only after known consumers have migrated.
