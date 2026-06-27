@@ -65,6 +65,10 @@ if ( empty($fixtures) ) {
     exit(1);
 }
 
+if ( $captureDomBoxes && ! $dryRun ) {
+    matrix_preflight_homeboy_command($homeboyCommand);
+}
+
 $summary = array(
     'schema' => 'blocks-engine/figma-transformer/fixture-matrix/v1',
     'fixture_dir' => $fixtureDir,
@@ -528,6 +532,32 @@ function matrix_default_zstd_command(): string
 
     $path = trim((string) shell_exec('command -v zstd 2>/dev/null'));
     return '' !== $path ? $path : 'zstd';
+}
+
+function matrix_preflight_homeboy_command(string $homeboyCommand): void
+{
+    $homeboyCommand = trim($homeboyCommand);
+    if ( '' === $homeboyCommand ) {
+        fwrite(STDERR, "DOM box capture requires a Homeboy command. Set --homeboy-command, --homeboy-bin, or HOMEBOY_COMMAND to a runnable homeboy binary.\n");
+        exit(1);
+    }
+
+    if ( str_contains($homeboyCommand, DIRECTORY_SEPARATOR) ) {
+        if ( is_file($homeboyCommand) && is_executable($homeboyCommand) ) {
+            return;
+        }
+
+        fwrite(STDERR, "DOM box capture requires a runnable Homeboy command, but configured path is not executable: {$homeboyCommand}\nSet --homeboy-command, --homeboy-bin, or HOMEBOY_COMMAND to the active homeboy binary before rerunning.\n");
+        exit(1);
+    }
+
+    $resolved = trim((string) shell_exec('command -v ' . escapeshellarg($homeboyCommand) . ' 2>/dev/null'));
+    if ( '' !== $resolved ) {
+        return;
+    }
+
+    fwrite(STDERR, "DOM box capture requires a runnable Homeboy command, but '{$homeboyCommand}' was not found on PATH.\nSet --homeboy-command, --homeboy-bin, or HOMEBOY_COMMAND to the active homeboy binary before rerunning.\n");
+    exit(1);
 }
 
 function matrix_inspect_command(string $figmaRoot, string $fixturePath, string $resultPath, string $zstdCommand, int $inspectLimit): string

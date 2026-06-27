@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { chromium } from 'playwright';
 
 const DEFAULT_VIEWPORT = { width: 1440, height: 900, device_scale_factor: 1 };
+const PLAYWRIGHT_SETUP_HELP = 'Install DOM capture dependencies with: npm ci --prefix php-transformer/tools/visual-parity && npm --prefix php-transformer/tools/visual-parity run install:browsers';
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
@@ -17,8 +17,14 @@ async function main() {
   const baseUrl = requiredEnv('HOMEBOY_DOM_BOX_BASE_URL').replace(/\/+$/, '');
   const pagePaths = parsePagePaths(requiredEnv('HOMEBOY_DOM_BOX_PAGE_PATHS_JSON'));
   const textSampleLimit = parseTextSampleLimit(process.env.HOMEBOY_DOM_BOX_TEXT_SAMPLE_LIMIT ?? '160');
+  const { chromium } = await loadPlaywright();
 
-  const browser = await chromium.launch();
+  let browser;
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    throw withPlaywrightSetupHelp(error);
+  }
   try {
     const context = await browser.newContext({
       viewport: { width: DEFAULT_VIEWPORT.width, height: DEFAULT_VIEWPORT.height },
@@ -43,6 +49,29 @@ async function main() {
   } finally {
     await browser.close();
   }
+}
+
+async function loadPlaywright() {
+  try {
+    return await import('playwright');
+  } catch (error) {
+    if (isMissingPlaywrightModule(error)) {
+      throw new Error(`Playwright is required for DOM box capture but is not installed. ${PLAYWRIGHT_SETUP_HELP}`);
+    }
+    throw error;
+  }
+}
+
+function isMissingPlaywrightModule(error) {
+  return error?.code === 'ERR_MODULE_NOT_FOUND' && String(error?.message ?? '').includes("'playwright'");
+}
+
+function withPlaywrightSetupHelp(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('Executable doesn\'t exist') || message.includes('playwright install')) {
+    return new Error(`${message}\n${PLAYWRIGHT_SETUP_HELP}`);
+  }
+  return error;
 }
 
 function requiredEnv(name) {
