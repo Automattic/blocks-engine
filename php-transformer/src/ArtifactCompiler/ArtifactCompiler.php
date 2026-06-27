@@ -295,9 +295,48 @@ final class ArtifactCompiler
 
         $selectors = array();
         foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
-            foreach ( $this->scriptDomSelectors($script) as $selector ) {
+            foreach ( $this->scriptCanvasSelectors($script) as $selector ) {
                 if ( isset($canvasSelectors[$selector]) ) {
                     $selectors[$selector] = true;
+                }
+            }
+        }
+
+        return array_keys($selectors);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function scriptCanvasSelectors(string $script): array
+    {
+        $selectors = array();
+        $getContextPattern = '\.\s*getContext\s*\(';
+
+        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*' . $getContextPattern . '/', $script, $matches) ) {
+            foreach ( $matches[2] as $id ) {
+                $selectors['#' . (string) $id] = true;
+            }
+        }
+
+        if ( preg_match_all('/document\s*\.\s*querySelector\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*' . $getContextPattern . '/', $script, $matches) ) {
+            foreach ( $matches[2] as $selector ) {
+                $selectors[(string) $selector] = true;
+            }
+        }
+
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+            foreach ( $assignments as $assignment ) {
+                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $getContextPattern . '/', $script) ) {
+                    $selectors['#' . (string) $assignment[3]] = true;
+                }
+            }
+        }
+
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*querySelector\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+            foreach ( $assignments as $assignment ) {
+                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $getContextPattern . '/', $script) ) {
+                    $selectors[(string) $assignment[3]] = true;
                 }
             }
         }

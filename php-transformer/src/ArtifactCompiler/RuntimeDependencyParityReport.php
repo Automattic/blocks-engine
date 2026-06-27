@@ -168,7 +168,7 @@ final class RuntimeDependencyParityReport
     {
         $dependencies = array();
         $eventsBySelector = $this->eventsBySelector($script);
-        $canvasApi = preg_match('/\.\s*getContext\s*\(\s*(["\'])2d\1\s*\)/', $script) === 1;
+        $canvasSelectors = $this->scriptCanvasSelectors($script);
 
         if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $id ) {
@@ -177,7 +177,7 @@ final class RuntimeDependencyParityReport
                     'kind'       => 'id',
                     'selector'   => $selector,
                     'events'     => $eventsBySelector[$selector] ?? array(),
-                    'canvas_api' => $canvasApi,
+                    'canvas_api' => isset($canvasSelectors[$selector]),
                 );
             }
         }
@@ -189,7 +189,7 @@ final class RuntimeDependencyParityReport
                     'kind'       => str_starts_with($selector, '#') ? 'id' : 'class',
                     'selector'   => $selector,
                     'events'     => $eventsBySelector[$selector] ?? array(),
-                    'canvas_api' => $canvasApi,
+                    'canvas_api' => isset($canvasSelectors[$selector]),
                 );
             }
         }
@@ -201,7 +201,7 @@ final class RuntimeDependencyParityReport
                     'kind'       => str_starts_with($selector, '#') ? 'id' : 'class',
                     'selector'   => $selector,
                     'events'     => $eventsBySelector[$selector] ?? array(),
-                    'canvas_api' => $canvasApi,
+                    'canvas_api' => isset($canvasSelectors[$selector]),
                 );
             }
         }
@@ -213,12 +213,51 @@ final class RuntimeDependencyParityReport
                     'kind'       => str_starts_with($selector, '#') ? 'id' : 'class',
                     'selector'   => $selector,
                     'events'     => $eventsBySelector[$selector] ?? array(),
-                    'canvas_api' => $canvasApi,
+                    'canvas_api' => isset($canvasSelectors[$selector]),
                 );
             }
         }
 
         return $this->dedupeDependencies($dependencies);
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    private function scriptCanvasSelectors(string $script): array
+    {
+        $selectors = array();
+        $getContextPattern = '\.\s*getContext\s*\(';
+
+        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*' . $getContextPattern . '/', $script, $matches) ) {
+            foreach ( $matches[2] as $id ) {
+                $selectors['#' . (string) $id] = true;
+            }
+        }
+
+        if ( preg_match_all('/document\s*\.\s*querySelector\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*' . $getContextPattern . '/', $script, $matches) ) {
+            foreach ( $matches[2] as $selector ) {
+                $selectors[(string) $selector] = true;
+            }
+        }
+
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+            foreach ( $assignments as $assignment ) {
+                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $getContextPattern . '/', $script) ) {
+                    $selectors['#' . (string) $assignment[3]] = true;
+                }
+            }
+        }
+
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*querySelector\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+            foreach ( $assignments as $assignment ) {
+                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $getContextPattern . '/', $script) ) {
+                    $selectors[(string) $assignment[3]] = true;
+                }
+            }
+        }
+
+        return $selectors;
     }
 
     /**

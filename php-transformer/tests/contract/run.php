@@ -519,6 +519,17 @@ $assert(str_contains((string) ($canvasDiagnostic['script_dependency_hint'] ?? ''
 $assert(! str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'canvas fallback does not emit core/html');
 $assert(! str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<canvas'), 'canvas fallback does not smuggle raw canvas markup into generated core blocks');
 
+$decorativeCanvas = ( new HtmlTransformer() )->transform(
+    '<main><section class="hero"><canvas id="stars" aria-hidden="true"></canvas><h1>Stars</h1></section></main>',
+    array(
+        'strict'          => true,
+        'allow_fallbacks' => false,
+    )
+)->toArray();
+$assert('success' === ($decorativeCanvas['status'] ?? ''), 'decorative canvas without runtime selectors does not trip strict fallback gates', (string) ($decorativeCanvas['status'] ?? ''));
+$assert(array() === ($decorativeCanvas['fallbacks'] ?? array()), 'decorative canvas without runtime selectors is omitted instead of reported as runtime fallback');
+$assert(! str_contains((string) ($decorativeCanvas['serialized_blocks'] ?? ''), '<canvas'), 'decorative canvas without runtime selectors is not emitted as raw markup');
+
 $safeDecorativeSvg = ( new HtmlTransformer() )->transform(
     '<main><svg aria-hidden="true" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"></circle></svg><div class="site-logo"><svg viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg></div></main>'
 )->toArray();
@@ -760,8 +771,25 @@ $assert(! str_contains($runtimeDependencyMarkup, 'unused-canvas'), 'artifact com
 $assert(null !== $statusDependency, 'runtime dependency parity records preserved status container dependency');
 $assert('index.html' === ($statusDependency['source_path'] ?? ''), 'runtime dependency parity records source path for preserved DOM dependency');
 $assert(true === ($statusDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved div id target');
+$assert(false === ($statusDependency['canvas_api'] ?? null), 'runtime dependency parity does not mark non-canvas DOM targets as canvas API dependencies');
 $assert(! empty($statusDependency['events'] ?? array()), 'runtime dependency parity records simple addEventListener usage');
 $assert('info' === ($rumFinding['severity'] ?? ''), 'telemetry-like runtime dependency misses are info severity');
+
+$decorativeCanvasSite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><canvas id="hero-canvas" aria-hidden="true"></canvas><canvas id="lab-canvas" class="stage" aria-label="Live pattern"></canvas><script src="js/app.js"></script></main>',
+            'js/app.js' => 'const lab = document.getElementById("lab-canvas"); lab.getContext("2d"); document.getElementById("hero-canvas");',
+        ),
+    )
+)->toArray();
+$decorativeCanvasMarkup = (string) ($decorativeCanvasSite['serialized_blocks'] ?? '');
+$decorativeCanvasFallbacks = $decorativeCanvasSite['fallbacks'] ?? array();
+$assert(str_contains($decorativeCanvasMarkup, '<canvas id="lab-canvas" class="stage" aria-label="Live pattern"></canvas>'), 'artifact compiler preserves canvas markup only for selectors with direct canvas API usage');
+$assert(! str_contains($decorativeCanvasMarkup, 'hero-canvas'), 'artifact compiler omits decorative canvas touched by script without canvas API usage');
+$assert(1 === count($decorativeCanvasFallbacks), 'artifact compiler records one runtime canvas fallback for the interactive canvas only');
+$assert('lab-canvas' === ($decorativeCanvasFallbacks[0]['attributes']['id'] ?? ''), 'runtime canvas fallback provenance points to the interactive canvas');
 
 $runtimeTargetContainerSite = $compiler->compile(
     array(
