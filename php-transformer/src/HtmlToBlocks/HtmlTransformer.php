@@ -38,9 +38,11 @@ final class HtmlTransformer
         'core/gallery',
         'core/group',
         'core/heading',
+        'core/icon',
         'core/image',
         'core/list',
         'core/list-item',
+        'core/math',
         'core/navigation',
         'core/navigation-link',
         'core/paragraph',
@@ -1635,6 +1637,11 @@ final class HtmlTransformer
             return null;
         }
 
+        $mathBlock = $this->mathBlockFromElement($element);
+        if ( null !== $mathBlock ) {
+            return $mathBlock;
+        }
+
         if ( preg_match('/^h([1-6])$/', $tagName, $matches) ) {
             $content = $this->innerHtml($element);
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
@@ -1675,7 +1682,7 @@ final class HtmlTransformer
         }
 
         if ( $this->isInlineContentElement($tagName) ) {
-            if ( $this->isRuntimeDomTarget($element) || ( '' === trim($element->textContent ?? '') && $this->hasIconLikeContext($element) ) ) {
+            if ( $this->isRuntimeDomTarget($element) ) {
                 return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
             }
 
@@ -1920,6 +1927,11 @@ final class HtmlTransformer
         }
 
         if ( 'svg' === $tagName ) {
+            $iconBlock = $this->iconBlockFromSvgElement($element);
+            if ( null !== $iconBlock ) {
+                return $iconBlock;
+            }
+
             if ( $this->isSafeDecorativeSvgElement($element) ) {
                 if ( $this->hasIconLikeContext($element) ) {
                     return $this->inlineSvgBlockFromElement($element);
@@ -4003,6 +4015,93 @@ final class HtmlTransformer
         return $this->createBlock('core/image', $attrs, array(), $element);
     }
 
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function iconBlockFromSvgElement(DOMElement $element): ?array
+    {
+        if ( ! $this->isSafeSvgContent($this->outerHtml($element)) || ! $this->isPassiveSvgMarkup($element) || ! $this->isIconSvgElement($element) ) {
+            return null;
+        }
+
+        $html = $this->safeFallbackHtml($element);
+        if ( ! $this->isSafeSvgContent($html) ) {
+            return null;
+        }
+
+        $label = $this->inlineSvgAltText($element);
+        $attrs = array_filter(array_merge($this->presentationAttributes($element), array(
+            'svg'        => $html,
+            'label'      => $label,
+            'ariaHidden' => '' === $label && ( 'true' === strtolower($this->attr($element, 'aria-hidden')) || in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true) ),
+        )), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
+
+        return $this->createBlock('core/icon', $attrs, array(), $element);
+    }
+
+    private function isIconSvgElement(DOMElement $element): bool
+    {
+        if ( $this->hasLogoLikeContext($element) || $this->hasImageLikeContext($element) || ! $this->hasSimpleSvgShape($element) ) {
+            return false;
+        }
+
+        $role = strtolower(trim($this->attr($element, 'role')));
+        if ( 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) || in_array($role, array( 'presentation', 'none' ), true) || $this->hasAriaHiddenAncestor($element) ) {
+            return $this->hasIconLikeContext($element);
+        }
+
+        return 'img' === $role && '' !== $this->inlineSvgAltText($element);
+    }
+
+    private function hasAriaHiddenAncestor(DOMElement $element): bool
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode instanceof DOMElement ? $parent->parentNode : null ) {
+            if ( 'true' === strtolower(trim($this->attr($parent, 'aria-hidden'))) ) {
+                return true;
+            }
+            if ( in_array(strtolower($parent->tagName), array( 'body', 'main', 'article', 'section' ), true) ) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasSimpleSvgShape(DOMElement $element): bool
+    {
+        $shapeCount = 0;
+        foreach ( $element->getElementsByTagName('*') as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( in_array(strtolower($child->tagName), array( 'circle', 'ellipse', 'line', 'path', 'polygon', 'polyline', 'rect' ), true) ) {
+                ++$shapeCount;
+            }
+        }
+
+        return 0 < $shapeCount && $shapeCount <= 8 && $this->hasSmallSvgViewport($element);
+    }
+
+    private function hasSmallSvgViewport(DOMElement $element): bool
+    {
+        $viewBox = trim($this->attr($element, 'viewBox'));
+        if ( '' === $viewBox ) {
+            $viewBox = trim($this->attr($element, 'viewbox'));
+        }
+        if ( preg_match('/^-?\d+(?:\.\d+)?\s+-?\d+(?:\.\d+)?\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)/', $viewBox, $matches) ) {
+            return (float) $matches[1] <= 128 && (float) $matches[2] <= 128;
+        }
+
+        $width = $this->numericSvgLength($this->attr($element, 'width'));
+        $height = $this->numericSvgLength($this->attr($element, 'height'));
+        return null !== $width && null !== $height && $width <= 128 && $height <= 128;
+    }
+
+    private function numericSvgLength(string $value): ?float
+    {
+        return preg_match('/^\s*(\d+(?:\.\d+)?)(?:px)?\s*$/i', $value, $matches) ? (float) $matches[1] : null;
+    }
+
     private function materializeInlineSvgAsset(string $html, DOMElement $element): string
     {
         $hash = hash('sha256', $html);
@@ -4661,10 +4760,111 @@ final class HtmlTransformer
         return false;
     }
 
+    private function hasLogoLikeContext(DOMElement $element): bool
+    {
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            $context = strtolower(trim(implode(' ', array(
+                $this->attr($current, 'class'),
+                $this->attr($current, 'id'),
+                $this->attr($current, 'aria-label'),
+                $this->attr($current, 'title'),
+            ))));
+
+            if ( preg_match('/(?:^|[\s_-])(?:brand|diagram|illustration|logo|logomark|wordmark)(?:$|[\s_-])/', $context) ) {
+                return true;
+            }
+
+            if ( in_array(strtolower($current->tagName), array( 'body', 'main', 'article', 'section' ), true) ) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasImageLikeContext(DOMElement $element): bool
+    {
+        $context = strtolower(trim(implode(' ', array(
+            $this->attr($element, 'class'),
+            $this->attr($element, 'id'),
+            $this->attr($element, 'aria-label'),
+            $this->attr($element, 'title'),
+        ))));
+
+        return (bool) preg_match('/(?:^|[\s_-])(?:image|photo|picture)(?:$|[\s_-])/', $context);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function mathBlockFromElement(DOMElement $element): ?array
+    {
+        if ( ! $this->isMathElement($element) ) {
+            return null;
+        }
+
+        $tagName = strtolower($element->tagName);
+        $content = 'math' === $tagName ? $this->safeFallbackHtml($element) : $this->mathExpressionContent($element);
+        if ( '' === trim($content) ) {
+            return null;
+        }
+
+        return $this->createBlock('core/math', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+    }
+
+    private function isMathElement(DOMElement $element): bool
+    {
+        if ( 'math' === strtolower($element->tagName) ) {
+            return true;
+        }
+
+        if ( $this->hasMathSignal($element) ) {
+            return true;
+        }
+
+        return in_array(strtolower($element->tagName), array( 'div', 'p', 'span' ), true) && $this->isTeXDelimitedText(trim($element->textContent ?? ''));
+    }
+
+    private function hasMathSignal(DOMElement $element): bool
+    {
+        $signals = strtolower(trim(implode(' ', array(
+            $this->attr($element, 'class'),
+            $this->attr($element, 'id'),
+            $this->attr($element, 'data-math'),
+            $this->attr($element, 'data-latex'),
+            $this->attr($element, 'data-tex'),
+        ))));
+
+        return (bool) preg_match('/(?:^|[\s_-])(?:math|latex|tex|katex|mathjax)(?:$|[\s_-])/', $signals);
+    }
+
+    private function mathExpressionContent(DOMElement $element): string
+    {
+        $html = $this->innerHtml($element);
+        if ( '' !== trim($html) && ! preg_match('/<(?:script|style)\b/i', $html) ) {
+            return $html;
+        }
+
+        return $this->runtime->escapeHtml(trim($element->textContent ?? ''));
+    }
+
+    private function isTeXDelimitedText(string $text): bool
+    {
+        if ( str_starts_with($text, '$$') && str_ends_with($text, '$$') && 4 < strlen($text) ) {
+            return true;
+        }
+        if ( str_starts_with($text, '$') && str_ends_with($text, '$') && 2 < strlen($text) && ! str_starts_with($text, '$$') ) {
+            return true;
+        }
+
+        return ( str_starts_with($text, '\\(') && str_ends_with($text, '\\)') && 4 < strlen($text) )
+            || ( str_starts_with($text, '\\[') && str_ends_with($text, '\\]') && 4 < strlen($text) );
+    }
+
     private function isPassiveSvgMarkup(DOMElement $element): bool
     {
         $allowedTags = array_flip(array( 'circle', 'clippath', 'defs', 'desc', 'ellipse', 'g', 'line', 'lineargradient', 'mask', 'path', 'polygon', 'polyline', 'radialgradient', 'rect', 'stop', 'svg', 'title' ));
-        $allowedAttributes = array_flip(array( 'aria-hidden', 'class', 'clip-path', 'clip-rule', 'cx', 'cy', 'd', 'fill', 'fill-opacity', 'fill-rule', 'gradienttransform', 'gradientunits', 'height', 'id', 'offset', 'opacity', 'points', 'preserveaspectratio', 'r', 'role', 'rx', 'ry', 'stop-color', 'stop-opacity', 'stroke', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-opacity', 'stroke-width', 'style', 'transform', 'viewbox', 'width', 'x', 'x1', 'x2', 'xmlns', 'y', 'y1', 'y2' ));
+        $allowedAttributes = array_flip(array( 'aria-hidden', 'aria-label', 'class', 'clip-path', 'clip-rule', 'cx', 'cy', 'd', 'fill', 'fill-opacity', 'fill-rule', 'gradienttransform', 'gradientunits', 'height', 'id', 'offset', 'opacity', 'points', 'preserveaspectratio', 'r', 'role', 'rx', 'ry', 'stop-color', 'stop-opacity', 'stroke', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-opacity', 'stroke-width', 'style', 'transform', 'viewbox', 'width', 'x', 'x1', 'x2', 'xmlns', 'y', 'y1', 'y2' ));
 
         foreach ( $element->getElementsByTagName('*') as $child ) {
             if ( ! $child instanceof DOMElement || ! $this->isPassiveSvgElement($child, $allowedTags, $allowedAttributes) ) {

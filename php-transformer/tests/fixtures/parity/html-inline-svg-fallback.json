@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-inline-svg-fallback",
-  "description": "Represents safe inline SVG as a bounded image block while preserving supported siblings.",
+  "description": "Represents simple accessible inline SVG as a core icon block while preserving supported siblings.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-inline-svg-fallback.json",
-    "notes": "Product-neutral fixture for generic safe inline SVG image handling."
+    "notes": "Product-neutral fixture for generic safe inline SVG icon handling."
   },
   "legacy_comparison": {
     "skip": true,
@@ -17,16 +17,14 @@
   },
   "expected_blocks": [
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Icon row", "level": 2 } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/image", "attrs": { "alt": "Status", "title": "Status" } }
+    { "path": "blocks.0.innerBlocks.1", "name": "core/icon", "attrs": { "label": "Status" } }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "contains", "value": "assets/inline-svg-" },
-    { "path": "blocks.0.innerBlocks.1.attrs.url", "assert": "contains", "value": ".svg" },
-    { "path": "assets.0.mime_type", "assert": "equals", "value": "image/svg+xml" },
-    { "path": "assets.0.content", "assert": "contains", "value": "aria-label=\"Status\"" },
+    { "path": "blocks.0.innerBlocks.1.attrs.svg", "assert": "contains", "value": "aria-label=\"Status\"" },
+    { "path": "assets", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }
