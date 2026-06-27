@@ -420,6 +420,31 @@ $assert(! str_contains((string) ($navigationLabelResult['serialized_blocks'] ?? 
 $assert(! str_contains((string) ($navigationLabelResult['serialized_blocks'] ?? ''), '<div>Guides</div>'), 'navigation serialization avoids div markup inside submenu link text');
 $assert('pass' === ($navigationLabelResult['source_reports']['wp_block_validity']['status'] ?? ''), 'navigation labels with block-level source markup pass WordPress block validity');
 
+$footerNavigationSections = ( new HtmlTransformer() )->transform(
+    '<footer><div class="footer-grid"><nav aria-label="Product"><h3>Product</h3><ul><li><a class="footer-link" href="/features">Features</a></li><li><a class="footer-link" href="/pricing">Pricing</a></li></ul></nav><nav aria-label="Company"><p class="nav-title">Company</p><a class="footer-link" href="/about">About</a><a class="footer-link" href="/contact">Contact</a></nav><nav class="social-links" aria-label="Social"><a class="social-link" href="https://example.com/mastodon" aria-label="Mastodon"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><a class="social-link" href="https://example.com/github" title="GitHub"><span aria-hidden="true"></span></a></nav></div></footer>'
+)->toArray();
+$footerNavigationParity = $footerNavigationSections['source_reports']['semantic_parity'] ?? array();
+$footerNavigationMenus = $footerNavigationParity['navigation_menus']['blocks'] ?? array();
+$footerNavigationSerialized = (string) ($footerNavigationSections['serialized_blocks'] ?? '');
+$assert('pass' === ($footerNavigationParity['status'] ?? ''), 'footer navigation sections with headings and social labels pass semantic parity');
+$assert(3 === count($footerNavigationMenus), 'footer navigation sections emit one core/navigation block per source nav landmark');
+$assert(2 === ($footerNavigationMenus[0]['item_count'] ?? null), 'footer heading nav preserves list link count');
+$assert('Mastodon' === ($footerNavigationMenus[2]['items'][0]['label'] ?? ''), 'icon-only social links use aria-label as navigation label');
+$assert('GitHub' === ($footerNavigationMenus[2]['items'][1]['label'] ?? ''), 'icon-only social links use title as navigation label');
+$assert(str_contains($footerNavigationSerialized, 'footer-link'), 'footer navigation preserves link classes for styling and script targets');
+$assert(str_contains($footerNavigationSerialized, 'social-link'), 'social navigation preserves social link classes for styling and script targets');
+
+$headerCluster = ( new HtmlTransformer() )->transform(
+    '<header class="site-header"><a class="site-logo" href="/">Acme Lab</a><nav class="primary-nav" aria-label="Primary"><a class="nav-link" href="/work">Work</a><a class="nav-link" href="/docs"><span>Docs</span></a></nav><form class="site-search" role="search" action="/search"><label for="q">Search</label><input id="q" type="search" name="q" placeholder="Search docs"><button type="submit">Search</button></form><div class="header-actions"><a class="cta" href="/start">Get started</a></div></header>'
+)->toArray();
+$headerClusterSerialized = (string) ($headerCluster['serialized_blocks'] ?? '');
+$headerClusterParity = $headerCluster['source_reports']['semantic_parity'] ?? array();
+$assert('pass' === ($headerClusterParity['status'] ?? ''), 'header logo/nav/search/CTA clusters preserve source navigation semantic parity');
+$assert(str_contains($headerClusterSerialized, 'site-logo'), 'header cluster preserves logo link wrapper');
+$assert(str_contains($headerClusterSerialized, 'nav-link'), 'header cluster preserves nav link class target');
+$assert(str_contains($headerClusterSerialized, '<!-- wp:search'), 'header cluster converts search form to core/search');
+$assert(str_contains($headerClusterSerialized, '<!-- wp:buttons'), 'header cluster converts CTA action to buttons');
+
 $unmappedNavigation = ( new HtmlTransformer() )->transform(
     '<main><nav aria-label="Main navigation"><ul><li><a href="/">Home</a></li></ul><p>Unexpected helper copy</p></nav></main>'
 )->toArray();

@@ -491,7 +491,7 @@ final class HtmlTransformer
             $items = array();
             foreach ( $element->getElementsByTagName('a') as $anchor ) {
                 if ( $anchor instanceof DOMElement ) {
-                    $label = $this->normalizedNavigationLabel($anchor->textContent ?? '');
+                    $label = $this->sourceNavigationAnchorLabel($anchor);
                     if ( '' !== $label ) {
                         $items[] = array(
                             'label' => $label,
@@ -583,6 +583,28 @@ final class HtmlTransformer
     private function normalizedNavigationLabel(string $label): string
     {
         return trim(preg_replace('/\s+/', ' ', html_entity_decode($this->runtime->stripAllTags($label), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? $label);
+    }
+
+    private function sourceNavigationAnchorLabel(DOMElement $anchor): string
+    {
+        $label = $this->normalizedNavigationLabel($anchor->textContent ?? '');
+        if ( '' !== $label ) {
+            return $label;
+        }
+
+        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
+            $label = $this->normalizedNavigationLabel($this->attr($anchor, $attribute));
+            if ( '' !== $label ) {
+                return $label;
+            }
+        }
+
+        $image = $anchor->getElementsByTagName('img')->item(0);
+        if ( $image instanceof DOMElement ) {
+            return $this->normalizedNavigationLabel($this->attr($image, 'alt'));
+        }
+
+        return '';
     }
 
     /**
@@ -688,7 +710,7 @@ final class HtmlTransformer
 
             if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
                 $signature = $this->navigationBlockSignature($block);
-                if ( '' !== $signature && isset($seen[$signature]) ) {
+                if ( '' !== $signature && isset($seen[$signature]) && $this->isMobileDuplicateNavigationBlock($block) ) {
                     continue;
                 }
                 if ( '' !== $signature ) {
@@ -700,6 +722,26 @@ final class HtmlTransformer
         }
 
         return $deduplicated;
+    }
+
+    /**
+     * @param array<string, mixed> $block
+     */
+    private function isMobileDuplicateNavigationBlock(array $block): bool
+    {
+        $provenanceId = $block['_source_provenance_id'] ?? null;
+        $source = is_int($provenanceId) ? ( $this->sourceProvenance[$provenanceId] ?? array() ) : array();
+        $attributes = is_array($source['source_attributes'] ?? null) ? $source['source_attributes'] : array();
+        $context = is_array($source['context'] ?? null) ? $source['context'] : array();
+        $classNames = is_array($context['class_names'] ?? null) ? implode(' ', $context['class_names']) : '';
+
+        $haystack = strtolower(trim(implode(' ', array(
+            (string) ($attributes['class'] ?? ''),
+            (string) ($attributes['id'] ?? ''),
+            $classNames,
+        ))));
+
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|hamburger|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', $haystack);
     }
 
     /**
@@ -889,6 +931,10 @@ final class HtmlTransformer
         }
 
         if ( $this->isInlineContentElement($tagName) ) {
+            if ( $this->isRuntimeDomTarget($element) || ( '' === trim($element->textContent ?? '') && $this->hasIconLikeContext($element) ) ) {
+                return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
+            }
+
             $dynamicText = $this->dynamicTextContent($element);
             if ( null !== $dynamicText ) {
                 return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->runtime->escapeHtml($dynamicText) )), array(), $element);
@@ -986,6 +1032,19 @@ final class HtmlTransformer
             $codeWindow = $this->codeWindowBlockFromElement($element, $fallbacks);
             if ( null !== $codeWindow ) {
                 return $codeWindow;
+            }
+
+            $linkedMedia = $this->figureLinkedMediaAnchor($element);
+            if ( $linkedMedia instanceof DOMElement ) {
+                $linkedPicture = $this->firstChildElement($linkedMedia, 'picture');
+                if ( $linkedPicture instanceof DOMElement ) {
+                    return $this->convertPictureElement($linkedPicture, $element, $linkedMedia);
+                }
+
+                $linkedImage = $this->firstChildElement($linkedMedia, 'img');
+                if ( $linkedImage instanceof DOMElement ) {
+                    return $this->convertImageElement($linkedImage, $element, null, $linkedMedia);
+                }
             }
 
             $image = $this->figureMediaElement($element, 'img');
@@ -1518,7 +1577,7 @@ final class HtmlTransformer
             $this->attr($element, 'role'),
         ))));
 
-        if ( preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action|nav|menu|cards?|tile|panel|pricing|price|product|grid|columns|layout|stack|cluster|row|wrap)(?:[^a-z0-9]|$)/', $tokens) ) {
+        if ( preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action|nav|menu|cards?|tile|panel|pricing|price|product|grid|columns|layout|stack|cluster|row|wrap|hero|masthead|banner|media|image|photo|gallery)(?:[^a-z0-9]|$)/', $tokens) ) {
             return true;
         }
 
@@ -1582,6 +1641,7 @@ final class HtmlTransformer
         $safe = array_flip(array(
             'background',
             'background-color',
+            'background-image',
             'border',
             'border-color',
             'border-radius',
@@ -1633,7 +1693,8 @@ final class HtmlTransformer
             [$name, $value] = array_map('trim', explode(':', $declaration, 2));
             $name = strtolower($name);
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
-            if ( '' !== $name && '' !== $value && ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $value) ) {
+            $allowsImageUrl = in_array($name, array( 'background', 'background-image' ), true) && ! preg_match('/(?:expression\s*\(|javascript\s*:)/i', $value);
+            if ( '' !== $name && '' !== $value && ( $allowsImageUrl || ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $value) ) ) {
                 $declarations[$name] = $value;
             }
         }
@@ -2530,6 +2591,28 @@ final class HtmlTransformer
         return $this->onlyChildElement($wrapper, $tagName);
     }
 
+    private function figureLinkedMediaAnchor(DOMElement $figure): ?DOMElement
+    {
+        $anchor = null;
+        foreach ( $figure->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'figcaption' === strtolower($child->tagName) ) {
+                continue;
+            }
+
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement || 'a' !== strtolower($child->tagName) || null !== $anchor ) {
+                return null;
+            }
+
+            $anchor = $child;
+        }
+
+        return $anchor instanceof DOMElement && $this->isImageOnlyAnchor($anchor) ? $anchor : null;
+    }
+
     private function onlyChildElement(DOMElement $element, string $tagName): ?DOMElement
     {
         $match = null;
@@ -3419,11 +3502,6 @@ final class HtmlTransformer
                 return null;
             }
 
-            if ( $this->isRuntimeDomTarget($control) ) {
-                $contentBlocks[] = $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($control) ), array(), $control);
-                continue;
-            }
-
             if ( 'submit' === $this->formControlType($control) ) {
                 $buttonBlocks[] = $this->createBlock('core/button', array_merge($this->presentationAttributes($control), array(
                     'text' => $this->runtime->escapeHtml($this->readableSubmitText($control)),
@@ -3431,9 +3509,15 @@ final class HtmlTransformer
                 continue;
             }
 
+            if ( $this->isRuntimeDomTarget($control) ) {
+                $contentBlocks[] = $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($control) ), array(), $control);
+                continue;
+            }
+
             $summary = $this->readableFormControlText($control);
             if ( '' !== $summary ) {
-                $contentBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $control);
+                $attrs = $this->isRuntimeDomTarget($control) ? $this->presentationAttributes($control) : array();
+                $contentBlocks[] = $this->createBlock('core/paragraph', array_merge($attrs, array( 'content' => $summary )), array(), $control);
             }
         }
 
@@ -3461,11 +3545,6 @@ final class HtmlTransformer
                 foreach ( $controls as $control ) {
                     if ( ! $this->isReadableFormControl($control) || array() !== $this->eventMetadata($control) ) {
                         return null;
-                    }
-
-                    if ( $this->isRuntimeDomTarget($control) ) {
-                        $blocks[] = $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($control) ), array(), $control);
-                        continue;
                     }
 
                     $summary = $this->readableFormControlText($control);
@@ -3514,13 +3593,16 @@ final class HtmlTransformer
             return $this->createBlock('core/search', $attrs, array(), $element);
         }
 
+        if ( $this->isRuntimeDomTarget($element) ) {
+            return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($element) ), array(), $element);
+        }
+
         $summary = $this->readableFormControlText($element);
         if ( '' === $summary ) {
             return null;
         }
 
-        $attrs = $this->isRuntimeDomTarget($element) ? $this->presentationAttributes($element) : array();
-        return $this->createBlock('core/paragraph', array_merge($attrs, array( 'content' => $summary )), array(), $element);
+        return $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $element);
     }
 
     /**
@@ -3870,6 +3952,21 @@ final class HtmlTransformer
             }
 
             if ( 'figure' === $tagName ) {
+                $linkedMedia = $this->figureLinkedMediaAnchor($child);
+                if ( $linkedMedia instanceof DOMElement ) {
+                    $linkedPicture = $this->firstChildElement($linkedMedia, 'picture');
+                    if ( $linkedPicture instanceof DOMElement ) {
+                        $images[] = $this->convertPictureElement($linkedPicture, $child, $linkedMedia);
+                        continue;
+                    }
+
+                    $linkedImage = $this->firstChildElement($linkedMedia, 'img');
+                    if ( $linkedImage instanceof DOMElement ) {
+                        $images[] = $this->convertImageElement($linkedImage, $child, null, $linkedMedia);
+                        continue;
+                    }
+                }
+
                 $image = $this->firstChildElement($child, 'img');
                 if ( $image instanceof DOMElement ) {
                     $images[] = $this->convertImageElement($image, $child);
@@ -3915,13 +4012,13 @@ final class HtmlTransformer
      */
     private function backgroundImageBlockFromElement(DOMElement $element): ?array
     {
-        $url = $this->backgroundImageUrlFromStyle($this->attr($element, 'style'));
+        $url = $this->backgroundImageUrlFromStyle($this->mergedPresentationStyle($element));
         if ( '' === $url ) {
             return null;
         }
 
         return $this->createBlock('core/image', array_filter(array(
-            'url'       => $url,
+            'url'       => $this->resolvedAssetImageUrl($url),
             'alt'       => $this->backgroundImageAlt($element),
             'className' => 'blocks-engine-background-image',
         ), static fn (string $value): bool => '' !== $value), array(), $element);
@@ -4443,14 +4540,14 @@ final class HtmlTransformer
         return in_array($extension, array( 'doc', 'docx', 'odp', 'ods', 'odt', 'pdf', 'ppt', 'pptx', 'rtf', 'txt', 'xls', 'xlsx', 'zip' ), true) ? $url : '';
     }
 
-    private function convertPictureElement(DOMElement $picture, ?DOMElement $figure = null): ?array
+    private function convertPictureElement(DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array
     {
         $image = $this->firstChildElement($picture, 'img');
         if ( ! $image instanceof DOMElement ) {
             return null;
         }
 
-        return $this->convertImageElement($image, $figure ?? $picture, $picture);
+        return $this->convertImageElement($image, $figure ?? $picture, $picture, $link);
     }
 
     private function imageBlockFromAnchor(DOMElement $anchor): ?array

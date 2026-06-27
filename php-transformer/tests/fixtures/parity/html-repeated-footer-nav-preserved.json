@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-repeated-footer-nav-preserved",
+  "description": "Preserves repeated non-mobile navigation menus instead of globally deduplicating by identical link signature.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-repeated-footer-nav-preserved.json",
+    "notes": "Covers SSI matrix footer/header semantic parity where footer menus intentionally repeat primary links."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header><nav class=\"primary-nav\"><a href=\"/\">Home</a><a href=\"/about\">About</a></nav></header><footer><nav class=\"footer-nav\"><a href=\"/\">Home</a><a href=\"/about\">About</a></nav></footer>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "primary-nav" } },
+    { "path": "blocks.1", "name": "core/navigation", "attrs": { "className": "footer-nav" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.1.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "source_reports.semantic_parity.navigation_menus.source", "assert": "count", "count": 2 },
+    { "path": "source_reports.semantic_parity.navigation_menus.blocks", "assert": "count", "count": 2 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "primary-nav" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "footer-nav" }
+  ]
+}

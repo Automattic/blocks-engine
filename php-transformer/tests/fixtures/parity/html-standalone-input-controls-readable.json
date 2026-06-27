@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-standalone-input-controls-readable",
+  "description": "Converts placeholder-only standalone text, email, and number inputs to readable paragraphs without raw HTML fallback.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-standalone-input-controls-readable.json",
+    "notes": "Mirrors r10 nonprofit donation/volunteer standalone input fallbacks."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<input type=\"number\" id=\"d-custom\" name=\"custom-amount\" class=\"form-input\" placeholder=\"Enter amount\" min=\"1\" aria-label=\"Custom donation amount\"><input type=\"text\" id=\"d-name\" name=\"name\" class=\"form-input\" placeholder=\"Your name\" required autocomplete=\"name\"><input type=\"email\" id=\"d-email\" name=\"email\" class=\"form-input\" placeholder=\"you@example.com\" required autocomplete=\"email\">"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/paragraph", "attrs": { "content": "Custom donation amount: Enter amount" } },
+    { "path": "blocks.1", "name": "core/paragraph", "attrs": { "content": "Your name: Your name (required)" } },
+    { "path": "blocks.2", "name": "core/paragraph", "attrs": { "content": "you@example.com: you@example.com (required)" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 3 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:html" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Custom donation amount: Enter amount" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
