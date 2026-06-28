@@ -203,7 +203,7 @@ trait StyleResolutionTrait
             }
             foreach ( explode(',', (string) $match[1]) as $selector ) {
                 $selector = trim($selector);
-                if ( '' !== $selector && $this->isSupportedCssSelector($selector) ) {
+                if ( '' !== $selector && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector) ) {
                     $rules[] = array(
                         'selector' => $selector,
                         'declarations' => $declarations,
@@ -341,6 +341,23 @@ trait StyleResolutionTrait
         }
 
         return true;
+    }
+
+    /**
+     * Whether a selector targets a pseudo-state or pseudo-element rather than the
+     * element's resting state. Such rules (`:hover`, `:focus`, `:active`,
+     * `:visited`, `:focus-visible`, `:focus-within`, `::before`/`::after`, and the
+     * single-colon legacy `:before`/`:after`) describe transient or generated
+     * presentation. They must never be folded into an element's RESTING inline
+     * style — they belong in the verbatim materialized stylesheet, where they fire
+     * on real interaction. Selectors carrying one of these are excluded from the
+     * inline-style resolution rule set entirely (not stripped-and-kept), so a
+     * `.btn-primary:hover{background:#f0ac22}` rule no longer overrides the correct
+     * resting `.btn-primary` declarations on the element.
+     */
+    private function selectorCarriesPseudoState(string $selector): bool
+    {
+        return 1 === preg_match('/:{1,2}(?:hover|focus-visible|focus-within|focus|active|visited|before|after)\b/i', $selector);
     }
 
     private function normalizeCssSelector(string $selector): string
