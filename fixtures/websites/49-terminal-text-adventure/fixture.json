@@ -1,0 +1,11 @@
+{
+  "class": "canvas/webgl/audio/runtime-heavy",
+  "tags": [
+    "game",
+    "text-adventure",
+    "terminal",
+    "interactive-fiction",
+    "has-form"
+  ],
+  "complexity": 4
+}

@@ -1,0 +1,11 @@
+{
+  "class": "canvas/webgl/audio/runtime-heavy",
+  "tags": [
+    "physics",
+    "sandbox",
+    "simulation",
+    "canvas",
+    "interactive"
+  ],
+  "complexity": 5
+}

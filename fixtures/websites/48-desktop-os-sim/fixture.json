@@ -1,0 +1,12 @@
+{
+  "class": "canvas/webgl/audio/runtime-heavy",
+  "tags": [
+    "os-sim",
+    "desktop",
+    "simulation",
+    "canvas",
+    "audio",
+    "app"
+  ],
+  "complexity": 5
+}
