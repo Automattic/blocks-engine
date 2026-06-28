@@ -214,6 +214,18 @@ final class BlockFactory
         if ( 'core/button' === $name ) {
             $support = $this->buttonStyleSupport($attrs);
 
+            // Match core/button save(): useBlockProps.save() lives on the OUTER
+            // wrapper <div>, so the block className and the anchor id belong on
+            // the wrapper. The inner <a>/<button> carries only the structural
+            // wp-block-button__link / wp-element-button classes plus color and
+            // border support classes/styles. Routing the source className onto
+            // the inner element instead leaves the stored markup divergent from
+            // save() and the editor flags the block invalid.
+            $wrapperAttrs = array(
+                'id'    => (string) ($attrs['anchor'] ?? ''),
+                'class' => $this->mergeClassNames('wp-block-button', (string) ($attrs['className'] ?? '')),
+            );
+
             if ( 'button' === ($attrs['tagName'] ?? '') ) {
                 $buttonAttrs = array_intersect_key($attrs, array_flip(array( 'type', 'role', 'aria-label', 'aria-controls', 'aria-expanded', 'aria-haspopup' )));
                 foreach ( $attrs as $attrName => $attrValue ) {
@@ -222,21 +234,19 @@ final class BlockFactory
                     }
                 }
                 $buttonAttrs = array_merge(array(
-                    'id'    => (string) ($attrs['anchor'] ?? ''),
-                    'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button', (string) ($attrs['className'] ?? '')),
+                    'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button'),
                     'style' => $support['style'],
                 ), $buttonAttrs);
 
-                return '<div class="wp-block-button"><button' . $this->htmlAttrs($buttonAttrs) . '>' . ($attrs['text'] ?? '') . '</button></div>';
+                return '<div' . $this->htmlAttrs($wrapperAttrs) . '><button' . $this->htmlAttrs($buttonAttrs) . '>' . ($attrs['text'] ?? '') . '</button></div>';
             }
 
             $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-            $wrapperClass = $this->mergeClassNames('wp-block-button', in_array('is-style-outline', preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true) ? 'is-style-outline' : '');
             $linkAttrs = array(
-                'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button', (string) ($attrs['className'] ?? '')),
+                'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button'),
                 'style' => $support['style'],
             );
-            return '<div class="' . htmlspecialchars($wrapperClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"><a' . $this->htmlAttrs($linkAttrs) . $href . '>' . ($attrs['text'] ?? '') . '</a></div>';
+            return '<div' . $this->htmlAttrs($wrapperAttrs) . '><a' . $this->htmlAttrs($linkAttrs) . $href . '>' . ($attrs['text'] ?? '') . '</a></div>';
         }
 
         if ( 'core/navigation' === $name ) {

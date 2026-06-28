@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-group-wrapper-canonical-save-shape",
+  "description": "A source wrapper <div class=\"grid-3 custom-x\" id=\"foo\"> emits a core/group whose source classes ride in the className attribute and whose id rides in the anchor attribute, so the saved wrapper markup matches core save() and round-trips through the editor block validator (valid by construction).",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-group-wrapper-canonical-save-shape.json",
+    "notes": "Guards the canonical save()-shape contract for static core wrappers: source class/id never leak onto the wrapper element outside className/anchor."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Canonical save()-shape routing has no legacy converter equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><div class=\"grid-3 custom-x\" id=\"foo\"><div class=\"card\"><h3>A</h3></div><div class=\"card\"><h3>B</h3></div></div></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "anchor": "foo", "className": "grid-3 custom-x" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div id=\"foo\" class=\"wp-block-group grid-3 custom-x\">" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "id=\"foo\" class=\"wp-block-group grid-3 custom-x\" id=" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

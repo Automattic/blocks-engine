@@ -259,7 +259,7 @@ final class Runtime
     {
         if ( is_string($serializedBlocksOrBlocks) ) {
             $blocks = $this->parseBlocks($serializedBlocksOrBlocks);
-            $report = ( new BlockValidityValidator() )->validateBlocks($blocks);
+            $report = $this->buildBlockValidityReport($blocks);
 
             if ( array() === $blocks && str_contains($serializedBlocksOrBlocks, '<!-- wp:') ) {
                 $report['status'] = 'warning';
@@ -276,7 +276,33 @@ final class Runtime
             return $report;
         }
 
-        return ( new BlockValidityValidator() )->validateBlocks($serializedBlocksOrBlocks);
+        return $this->buildBlockValidityReport($serializedBlocksOrBlocks);
+    }
+
+    /**
+     * Run the serialization-structure validator and the canonical save()-shape
+     * validator over the same parsed block tree and merge their findings into a
+     * single wp_block_validity report. Both are pure-PHP and need no WordPress
+     * runtime, so the report stays usable in the standalone transformer loop.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<string, mixed>
+     */
+    private function buildBlockValidityReport(array $blocks): array
+    {
+        $report = ( new BlockValidityValidator() )->validateBlocks($blocks);
+
+        $saveShapeFindings = ( new CanonicalSaveShapeValidator() )->findings($blocks);
+        if ( array() !== $saveShapeFindings ) {
+            $report['findings'] = array_merge(
+                is_array($report['findings'] ?? null) ? $report['findings'] : array(),
+                $saveShapeFindings
+            );
+            $report['summary']['finding_count'] = count($report['findings']);
+            $report['status'] = 'warning';
+        }
+
+        return $report;
     }
 
     public function stripAllTags(string $text, bool $removeBreaks = false): string
