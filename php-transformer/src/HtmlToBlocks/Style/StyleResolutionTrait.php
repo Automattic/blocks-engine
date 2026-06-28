@@ -408,11 +408,35 @@ trait StyleResolutionTrait
             return array( 'type' => 'grid' );
         }
 
+        // An explicit grid class token (`grid`, `grid-3`, `footer-grid`,
+        // `card-grid`, …) is a deterministic CSS-grid signal on its own. When the
+        // container holds more than one element child, emit grid layout so the
+        // multi-column arrangement survives even when the children are plain
+        // wrappers rather than recognized card markup. Without this the grid
+        // collapses to a vertical stack and loses visual parity.
+        if ( $this->hasExplicitGridClass($element) && 1 < $this->directElementChildCount($element) ) {
+            return array( 'type' => 'grid' );
+        }
+
         if ( $this->hasGridLikeClass($element) && 1 < $this->cardLikeChildCount($element) ) {
             return array( 'type' => 'grid' );
         }
 
         return array();
+    }
+
+    /**
+     * Unambiguous grid class tokens: a bare `grid`, a numbered `grid-N`, or any
+     * `*-grid` / `*_grid` suffix (footer-grid, card-grid, mission-grid, …) plus
+     * the common `grid-cols` / `grid-columns` utility names. These map directly to
+     * `display:grid` containers, so they are safe to treat as grids regardless of
+     * child semantics. Ambiguous semantic names (cards, features, …) stay gated on
+     * card-like children via hasGridLikeClass().
+     */
+    private function hasExplicitGridClass(DOMElement $element): bool
+    {
+        $className = strtolower($this->attr($element, 'class'));
+        return (bool) preg_match('/(?:^|[\s_-])(?:grid|grid-[0-9]+|grid-cols(?:-[0-9]+)?|grid-columns|[a-z0-9]+[-_]grid)(?:$|[\s_-])/', $className);
     }
 
     private function hasGridLikeClass(DOMElement $element): bool

@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-non-grid-class-stays-plain-group",
+  "description": "Guard: a container whose class is not an explicit grid token and whose children are not card-like stays a plain core/group with no grid layout, so the explicit-grid promotion does not over-match neutral wrappers.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-non-grid-class-stays-plain-group.json",
+    "notes": "Negative control for the explicit grid-class layout promotion."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"feature-list\"><div class=\"row\"><h4>First</h4><p>Alpha.</p></div><div class=\"row\"><h4>Second</h4><p>Beta.</p></div></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "feature-list" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "row" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "row" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"feature-list\"} -->" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"className\":\"feature-list\",\"layout\":{\"type\":\"grid\"}" }
+  ]
+}
