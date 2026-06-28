@@ -146,6 +146,7 @@ final class StaticHtmlEmitter
             $cssRules[] = '.figma-text-glyphs{display:block;width:100%;height:100%;overflow:visible}';
         }
         $operatorFontCss = $this->fontCss($options);
+        $familyOverrides = $this->fontFamilyOverrides($options);
 
         foreach ( $nodes as $node ) {
             if ( ! is_array($node) ) {
@@ -162,7 +163,7 @@ final class StaticHtmlEmitter
 
         $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
         $fontUsage = $this->fontUsage($nodeStyleDiagnostics);
-        $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss);
+        $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss, $familyOverrides);
         $fontCss = (string) $fontResolution['css'];
 
         $designSystem = $this->designSystemExtractor()->extract($scenegraph);
@@ -266,6 +267,7 @@ final class StaticHtmlEmitter
             $cssRules[] = '.figma-text-glyphs{display:block;width:100%;height:100%;overflow:visible}';
         }
         $operatorFontCss = $this->fontCss($options);
+        $familyOverrides = $this->fontFamilyOverrides($options);
         $files = array();
         $pages = array();
         $renderedNodes = array();
@@ -362,7 +364,7 @@ final class StaticHtmlEmitter
 
         $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
         $fontUsage = $this->fontUsage($nodeStyleDiagnostics);
-        $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss);
+        $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss, $familyOverrides);
         $fontCss = (string) $fontResolution['css'];
         $designSystem = $this->designSystemExtractor()->extract($scenegraph);
         foreach ( $this->designSystemDiagnostics($designSystem) as $diagnostic ) {
@@ -1403,6 +1405,25 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array<string, mixed> $options
+     * @return array<string, string>
+     */
+    private function fontFamilyOverrides(array $options): array
+    {
+        $overrides = $options['font_family_overrides'] ?? array();
+        if ( ! is_array($overrides) ) {
+            return array();
+        }
+        $result = array();
+        foreach ( $overrides as $family => $css ) {
+            if ( is_string($family) && '' !== $family && is_string($css) ) {
+                $result[strtolower($family)] = $css;
+            }
+        }
+        return $result;
+    }
+
+    /**
      * @param array<string, mixed> $node
      * @param array<int, string> $styles
      * @return array<string, mixed>
@@ -1921,15 +1942,16 @@ final class StaticHtmlEmitter
         );
         $fontCss = (string) ($fontResolution['css'] ?? '');
         $fonts = array(
-            'families'      => $fontFamilies,
-            'usage'         => $fontUsage,
-            'count'         => count($fontFamilies),
-            'css_supplied'  => (bool) ($fontResolution['operator_supplied'] ?? false),
-            'materialized'  => '' !== $fontCss,
-            'missing_css'   => array_values($fontResolution['unresolved_families'] ?? array()),
-            'resolved_css'  => array_values($fontResolution['resolved_families'] ?? array()),
-            'cdn_families'  => array_values($fontResolution['cdn_families'] ?? array()),
-            'coverage'      => array_values($fontResolution['coverage'] ?? array()),
+            'families'                => $fontFamilies,
+            'usage'                   => $fontUsage,
+            'count'                   => count($fontFamilies),
+            'css_supplied'            => (bool) ($fontResolution['operator_supplied'] ?? false),
+            'materialized'            => '' !== $fontCss,
+            'missing_css'             => array_values($fontResolution['unresolved_families'] ?? array()),
+            'resolved_css'            => array_values($fontResolution['resolved_families'] ?? array()),
+            'cdn_families'            => array_values($fontResolution['cdn_families'] ?? array()),
+            'family_overrides_applied' => array_values($fontResolution['family_overrides_applied'] ?? array()),
+            'coverage'                => array_values($fontResolution['coverage'] ?? array()),
         );
 
         $links = $this->linkDiagnostics();

@@ -73,13 +73,21 @@ final class FontResolver
      *     coverage: array<int, array<string, mixed>>
      * }
      */
-    public function resolve(array $fontUsage, string $operatorFontCss = ''): array
+    public function resolve(array $fontUsage, string $operatorFontCss = '', array $familyOverrides = []): array
     {
         $operatorSupplied = '' !== trim($operatorFontCss);
         $coverage = array();
         $resolved = array();
         $unresolved = array();
         $cdnFamilies = array();
+        $familyOverridesApplied = array();
+        $familyOverridesCss = array();
+
+        // Normalize override keys to lowercase for safe lookups.
+        $normalizedOverrides = array();
+        foreach ( $familyOverrides as $overrideKey => $overrideCss ) {
+            $normalizedOverrides[strtolower((string) $overrideKey)] = (string) $overrideCss;
+        }
 
         foreach ( $fontUsage as $usage ) {
             if ( ! is_array($usage) ) {
@@ -96,6 +104,12 @@ final class FontResolver
 
             if ( $operatorSupplied ) {
                 $resolution = 'operator_supplied';
+            } elseif ( isset($normalizedOverrides[$key]) ) {
+                $resolution = 'operator_supplied_family';
+                if ( ! isset($familyOverridesCss[$key]) ) {
+                    $familyOverridesCss[$key] = $normalizedOverrides[$key];
+                    $familyOverridesApplied[] = $family;
+                }
             } elseif ( isset(self::WEB_SAFE[$key]) ) {
                 $resolution = 'web_safe';
             } elseif ( isset(self::googleFonts()[$key]) ) {
@@ -128,15 +142,29 @@ final class FontResolver
             $coverage[] = $entry;
         }
 
-        $css = $operatorSupplied ? trim($operatorFontCss) : $this->cdnImportCss($cdnFamilies);
+        if ( $operatorSupplied ) {
+            $css = trim($operatorFontCss);
+        } else {
+            $parts = array();
+            $cdnCss = $this->cdnImportCss($cdnFamilies);
+            if ( '' !== $cdnCss ) {
+                $parts[] = $cdnCss;
+            }
+            ksort($familyOverridesCss, SORT_NATURAL | SORT_FLAG_CASE);
+            foreach ( $familyOverridesCss as $overrideCss ) {
+                $parts[] = $overrideCss;
+            }
+            $css = implode("\n", $parts);
+        }
 
         return array(
-            'css'                 => $css,
-            'operator_supplied'   => $operatorSupplied,
-            'resolved_families'   => array_values(array_unique($resolved)),
-            'unresolved_families' => array_values(array_unique($unresolved)),
-            'cdn_families'        => array_keys($cdnFamilies),
-            'coverage'            => $coverage,
+            'css'                      => $css,
+            'operator_supplied'        => $operatorSupplied,
+            'resolved_families'        => array_values(array_unique($resolved)),
+            'unresolved_families'      => array_values(array_unique($unresolved)),
+            'cdn_families'             => array_keys($cdnFamilies),
+            'family_overrides_applied' => array_values(array_unique($familyOverridesApplied)),
+            'coverage'                 => $coverage,
         );
     }
 
