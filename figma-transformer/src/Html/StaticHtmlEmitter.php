@@ -241,6 +241,7 @@ final class StaticHtmlEmitter
         $pages = array();
         $renderedNodes = array();
         $seenPaths = array();
+        $mediaBlocks = array();
         $plannedPages = $this->plannedPages($pagePlan);
 
         foreach ( $plannedPages as $index => $page ) {
@@ -284,6 +285,11 @@ final class StaticHtmlEmitter
                 'content'   => $this->htmlDocument($this->sanitizeText($pageName), $this->stylesheetHref($path), $body),
             );
             $renderedNodes[] = $frameNode;
+
+            foreach ( $this->breakpointMediaBlocks($page, $frameNode, $nodeMap) as $mediaBlock ) {
+                $mediaBlocks[] = $mediaBlock;
+            }
+
             $pages[] = array(
                 'frame_id'   => $frameId,
                 'name'       => $pageName,
@@ -326,6 +332,11 @@ final class StaticHtmlEmitter
         $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss);
         $fontCss = (string) $fontResolution['css'];
         $css = ('' !== $fontCss ? $fontCss . "\n" : '') . implode("\n", array_values(array_unique($cssRules))) . "\n";
+        if ( ! empty($mediaBlocks) ) {
+            // Responsive overrides cascade AFTER the widest-first base rules so
+            // narrower breakpoints win at their own viewport width.
+            $css .= implode("\n", $mediaBlocks) . "\n";
+        }
         $files[] = array(
             'path'      => 'style.css',
             'role'      => 'stylesheet',
@@ -372,6 +383,150 @@ final class StaticHtmlEmitter
                 'page_count'  => count($pages),
             ),
         );
+    }
+
+    /**
+     * Build the `@media (max-width: …)` CSS blocks for one responsive page.
+     *
+     * The primary (widest) variant frame is already rendered as the base layout
+     * by {@see emitSite}. For every narrower breakpoint variant this walks the
+     * variant frame, computes per-node style declarations with the same
+     * machinery the base used, maps each variant node onto its base counterpart
+     * by structural position, and emits only the declarations that DIFFER from
+     * the base inside a `max-width` media block keyed on the variant viewport.
+     *
+     * Single-variant pages return an empty list, so they render exactly as
+     * before with no `@media` output.
+     *
+     * @param array<string, mixed>                $page     Planned page (carries `variants`).
+     * @param array<string, mixed>                $baseNode Primary variant frame node.
+     * @param array<string, array<string, mixed>> $nodeMap  Id => node lookup.
+     * @return array<int, string>
+     */
+    private function breakpointMediaBlocks(array $page, array $baseNode, array $nodeMap): array
+    {
+        $variants = is_array($page['variants'] ?? null) ? array_values($page['variants']) : array();
+        if ( count($variants) < 2 ) {
+            return array();
+        }
+
+        $baseStyles = array();
+        $this->collectVariantNodeStyles($baseNode, 0, null, 'r', $baseStyles);
+
+        $blocks = array();
+        // Variants are ordered widest-first, so iterating in order emits the
+        // narrower breakpoints later in the cascade — exactly the precedence
+        // overlapping `max-width` queries need.
+        foreach ( $variants as $variant ) {
+            if ( ! is_array($variant) || true === ($variant['primary'] ?? false) ) {
+                continue;
+            }
+
+            $variantId = isset($variant['frame_id']) && is_scalar($variant['frame_id']) ? (string) $variant['frame_id'] : '';
+            $viewportWidth = $variant['viewport_width'] ?? null;
+            if ( '' === $variantId || ! isset($nodeMap[$variantId]) || ! is_numeric($viewportWidth) ) {
+                continue;
+            }
+
+            $variantStyles = array();
+            $this->collectVariantNodeStyles($nodeMap[$variantId], 0, null, 'r', $variantStyles);
+
+            $rules = $this->breakpointDiffRules($baseStyles, $variantStyles);
+            if ( empty($rules) ) {
+                continue;
+            }
+
+            $blocks[] = '@media (max-width:' . $this->number((float) $viewportWidth) . 'px){'
+                . "\n" . implode("\n", $rules) . "\n}";
+        }
+
+        return $blocks;
+    }
+
+    /**
+     * Walk a variant frame and record each node's emitted class name and ordered
+     * style declarations, keyed by a deterministic structural path. The
+     * traversal mirrors {@see emitNode} (same child skipping and the same
+     * BOOLEAN_OPERATION vector short-circuit) so a node at a given position
+     * always resolves to the same key across breakpoint variants — that key is
+     * what lets base and narrower styles be diffed without re-deriving layout.
+     *
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $map  pathKey => array{class: string, styles: array<int, string>}
+     */
+    private function collectVariantNodeStyles(array $node, int $depth, ?array $parentNode, string $pathKey, array &$map): void
+    {
+        $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
+        $name = (string) ($node['name'] ?? '');
+        $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
+        $className = 'figma-node-' . $this->slug($id . '-' . $name);
+
+        $map[$pathKey] = array(
+            'class'  => $className,
+            'styles' => $this->styleDeclarations($node, $type, $parentNode),
+        );
+
+        $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
+        if ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) {
+            return;
+        }
+
+        $childOrdinal = 0;
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) || $this->isFullyClippedDecorativeChild($child, $node) ) {
+                continue;
+            }
+
+            $childType = strtoupper((string) ($child['type'] ?? 'FRAME'));
+            $childKey = $pathKey . '/' . $childOrdinal . ':' . $childType;
+            $this->collectVariantNodeStyles($child, $depth + 1, $node, $childKey, $map);
+            ++$childOrdinal;
+        }
+    }
+
+    /**
+     * Diff a narrower variant's per-node styles against the base styles, keeping
+     * only declarations whose value changed (or that the base lacked). Rules are
+     * keyed on the BASE class name so the overrides land on the already-rendered
+     * elements, and are emitted in base-traversal order for deterministic output.
+     *
+     * @param array<string, array<string, mixed>> $baseStyles
+     * @param array<string, array<string, mixed>> $variantStyles
+     * @return array<int, string>
+     */
+    private function breakpointDiffRules(array $baseStyles, array $variantStyles): array
+    {
+        $rules = array();
+        foreach ( $baseStyles as $pathKey => $base ) {
+            if ( ! isset($variantStyles[$pathKey]) ) {
+                continue;
+            }
+
+            $baseMap = $this->styleDeclarationMap(is_array($base['styles'] ?? null) ? $base['styles'] : array());
+            $variantDeclarations = is_array($variantStyles[$pathKey]['styles'] ?? null) ? $variantStyles[$pathKey]['styles'] : array();
+
+            $changed = array();
+            foreach ( $variantDeclarations as $declaration ) {
+                $parts = explode(':', (string) $declaration, 2);
+                if ( 2 !== count($parts) ) {
+                    continue;
+                }
+
+                $property = trim($parts[0]);
+                $value = trim($parts[1]);
+                if ( ! array_key_exists($property, $baseMap) || $baseMap[$property] !== $value ) {
+                    $changed[] = $property . ':' . $value;
+                }
+            }
+
+            if ( empty($changed) ) {
+                continue;
+            }
+
+            $rules[] = '.' . (string) $base['class'] . '{' . implode(';', $changed) . '}';
+        }
+
+        return $rules;
     }
 
     private function htmlDocument(string $title, string $stylesheetHref, string $body): string
