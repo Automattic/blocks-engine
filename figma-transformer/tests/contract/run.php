@@ -5579,6 +5579,53 @@ $assert('ready_for_dev' === ($inspectorCandidates['frame:build']['dev_status'] ?
 $assert(! array_key_exists('dev_status', $inspectorCandidates['frame:plain'] ?? array()), 'inspector-omits-dev-status-on-unmarked-candidate');
 $assert('dev_status' === matrix_selection_source(array_values($inspectorCandidates)), 'inspector-candidates-drive-dev-status-selection');
 
+// INSPECT: candidates must surface role + page_type so the matrix frame-selector
+// can exclude design-system frames and prefer real pages by WP template type.
+// Same plumbing pattern as dev_status (#283): the classifier runs on each
+// candidate at inspect time so the selector sees role/page_type without needing
+// to re-run classification downstream.
+$inspectorRoleSource = array(
+    'name'  => 'Inspector Role Classification',
+    'nodes' => array(
+        array(
+            'id'       => 'canvas:rc',
+            'type'     => 'CANVAS',
+            'name'     => 'Pages',
+            'children' => array(
+                array('id' => 'frame:sg', 'type' => 'FRAME', 'name' => 'Style Guide', 'width' => 1440, 'height' => 2000, 'children' => array(
+                    array('id' => 'sg:text', 'type' => 'TEXT', 'name' => 'Colors', 'characters' => 'Brand Colors'),
+                )),
+                array('id' => 'frame:home', 'type' => 'FRAME', 'name' => 'Home Page', 'width' => 1440, 'height' => 1600, 'children' => array(
+                    array('id' => 'home:text', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Welcome'),
+                )),
+                array('id' => 'frame:post', 'type' => 'FRAME', 'name' => 'Blog Post', 'width' => 1440, 'height' => 2400, 'children' => array(
+                    array('id' => 'post:text', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'A Post'),
+                )),
+            ),
+        ),
+    ),
+);
+$inspectorRoleResult = ( new Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameInspector() )->inspect($inspectorRoleSource);
+$inspectorRoleCandidates = array();
+foreach ( ( is_array($inspectorRoleResult['candidates'] ?? null) ? $inspectorRoleResult['candidates'] : array() ) as $rc ) {
+    if ( is_array($rc) && isset($rc['id']) ) {
+        $inspectorRoleCandidates[(string) $rc['id']] = $rc;
+    }
+}
+// Design-system frames carry role=design_system and no page_type.
+$assert(ScenegraphFrameClassifier::ROLE_DESIGN_SYSTEM === ($inspectorRoleCandidates['frame:sg']['role'] ?? null), 'inspector-surfaces-design-system-role');
+$assert(! array_key_exists('page_type', $inspectorRoleCandidates['frame:sg'] ?? array()), 'inspector-omits-page-type-on-design-system');
+// Real page frames carry role=page and the correct WP-template page_type.
+$assert(ScenegraphFrameClassifier::ROLE_PAGE === ($inspectorRoleCandidates['frame:home']['role'] ?? null), 'inspector-surfaces-page-role-on-home');
+$assert(ScenegraphFrameClassifier::PAGE_TYPE_FRONT_PAGE === ($inspectorRoleCandidates['frame:home']['page_type'] ?? null), 'inspector-surfaces-front-page-type-on-home');
+$assert(ScenegraphFrameClassifier::PAGE_TYPE_SINGLE === ($inspectorRoleCandidates['frame:post']['page_type'] ?? null), 'inspector-surfaces-single-type-on-blog-post');
+// Matrix selector must exclude design-system candidates before page selection.
+$inspectorRoleCandidateList = array_values($inspectorRoleCandidates);
+$matrixRoleIds = matrix_select_frame_ids(array('candidates' => $inspectorRoleCandidateList), 5);
+$assert(! in_array('frame:sg', $matrixRoleIds, true), 'matrix-excludes-design-system-from-selection');
+$assert(in_array('frame:home', $matrixRoleIds, true), 'matrix-selects-home-page-candidate');
+$assert(in_array('frame:post', $matrixRoleIds, true), 'matrix-selects-blog-post-candidate');
+
 // FRAME ROLE CLASSIFICATION (#247): top-level frames are classified into roles
 // before any pixels are emitted. A "Style Guide" frame is a design_system frame
 // (EXCLUDED from page selection); real pages each carry a WP-template-aligned
