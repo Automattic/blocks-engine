@@ -313,6 +313,16 @@ $assert('1,0,0' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0
 $assert('preserve_runtime_island' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['suggested_generic_repair_class'] ?? ''), 'runtime island exposes generic repair class metadata');
 $assert($runtimeCanvasResult['source_reports']['runtime_islands'] === ($runtimeCanvasResult['source_reports']['conversion_report']['runtime_islands'] ?? array()), 'conversion report projects runtime islands');
 
+// Measurement wiring (#497): the core/html canvas fallback carries the subtree
+// classifier verdict so the corpus surfaces which raw-HTML dumps the classifier
+// believes should have been native blocks. Measurement only — block output is
+// unchanged (the canvas still falls back to a runtime island, not a block).
+$canvasFallbackClassification = $runtimeCanvasResult['fallbacks'][0]['classification'] ?? array();
+$assert('custom_application' === ($canvasFallbackClassification['bucket'] ?? ''), 'core/html canvas fallback carries subtree classifier bucket verdict');
+$assert(is_float($canvasFallbackClassification['confidence'] ?? null) && ($canvasFallbackClassification['confidence'] ?? 0.0) > 0.0, 'core/html canvas fallback carries classifier confidence');
+$assert(in_array('canvas', $canvasFallbackClassification['signals']['flags'] ?? array(), true), 'core/html canvas fallback exposes top classifier signals');
+$assert(array() === ($runtimeCanvasResult['blocks'] ?? array()), 'classifier measurement wiring leaves canvas block output unchanged');
+
 $invalidStatus = $result;
 $invalidStatus['status'] = 'ok';
 $assertInvalidCanonicalEnvelope($invalidStatus, 'unsupported status', 'canonical validation rejects unsupported status values');

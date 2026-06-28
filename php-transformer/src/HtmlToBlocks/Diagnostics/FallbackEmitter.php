@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\ClassificationContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SubtreeClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -63,6 +65,8 @@ final class FallbackEmitter
      */
     private array $runtimeCanvasSelectors = array();
 
+    private readonly SubtreeClassifier $classifier;
+
     /**
      * @param Closure(DOMElement): array<string, mixed> $sourceContextResolver
      *        Resolves the shared `sourceContext` enrichment for an element. The
@@ -74,6 +78,7 @@ final class FallbackEmitter
         private readonly Runtime $runtime,
         private readonly Closure $sourceContextResolver
     ) {
+        $this->classifier = new SubtreeClassifier();
     }
 
     /**
@@ -110,6 +115,7 @@ final class FallbackEmitter
             'selector'        => $this->elementSelector($element),
             'attributes'      => $this->safeSvgAttributes($element),
             'context'         => $this->sourceContext($element),
+            'classification'  => $this->classifyFallbackSubtree($element),
             'events'          => $this->eventMetadata($element),
             'text_length'     => strlen(trim($element->textContent ?? '')),
             'child_count'     => $this->childElementCount($element),
@@ -148,6 +154,7 @@ final class FallbackEmitter
             'selector'        => $this->elementSelector($element),
             'attributes'      => $this->safeCanvasAttributes($element),
             'context'         => $this->sourceContext($element),
+            'classification'  => $this->classifyFallbackSubtree($element),
             'events'                 => $this->eventMetadata($element),
             'script_dependency_hint' => '' !== $id
                 ? 'Scripts may target #' . $id . ' and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.'
@@ -184,6 +191,7 @@ final class FallbackEmitter
             'selector'        => $this->elementSelector($element),
             'attributes'      => $this->safeScriptAttributes($element),
             'context'         => $this->sourceContext($element),
+            'classification'  => $this->classifyFallbackSubtree($element),
             'events'          => $this->eventMetadata($element),
             'script_role'        => $scriptRole,
             'script_source_kind' => '' !== trim($this->attr($element, 'src')) ? 'external' : 'inline',
@@ -268,6 +276,7 @@ final class FallbackEmitter
             'selector'        => $this->elementSelector($element),
             'attributes'      => $attributes,
             'context'         => $this->sourceContext($element),
+            'classification'  => $this->classifyFallbackSubtree($element),
             'template_role'   => $this->templateRole($element),
             'text_length'     => strlen(trim($element->textContent ?? '')),
             'child_count'     => $this->childElementCount($element),
@@ -372,6 +381,128 @@ final class FallbackEmitter
     private function sourceContext(DOMElement $element): array
     {
         return ( $this->sourceContextResolver )($element);
+    }
+
+    /**
+     * Project the structural subtree-classifier verdict for a subtree that fell
+     * back to raw `core/html`. This is MEASUREMENT-ONLY diagnostic metadata
+     * (issue #497): it surfaces which raw-HTML fallbacks the classifier believes
+     * should have become native blocks, across the whole corpus. It does NOT
+     * change routing or block output — the verdict is attached to the existing
+     * fallback diagnostic and nothing else consumes it yet.
+     *
+     * Guarded to the core/html fallback path: it only runs when a fallback
+     * diagnostic is actually being emitted, never per converted element.
+     *
+     * @return array{bucket: string, confidence: float, signals: array<string, mixed>}
+     */
+    public function classifyFallbackSubtree(DOMElement $element): array
+    {
+        $result = $this->classifier->classify($element, $this->classificationContext($element));
+
+        return array(
+            'bucket'     => $result->bucket(),
+            'confidence' => $result->confidence(),
+            'signals'    => $this->topClassificationSignals($result->signals()),
+        );
+    }
+
+    private function classificationContext(DOMElement $element): ClassificationContext
+    {
+        return new ClassificationContext(
+            $this->subtreeInlineCss($element),
+            $this->subtreeJsText($element)
+        );
+    }
+
+    /**
+     * Inline CSS declared on the subtree (`style` attributes), which is the CSS
+     * association cheaply available at the fallback emission point.
+     */
+    private function subtreeInlineCss(DOMElement $element): string
+    {
+        $parts = array();
+        foreach ( $this->subtreeElements($element) as $node ) {
+            $style = trim($this->attr($node, 'style'));
+            if ( '' !== $style ) {
+                $parts[] = $style;
+            }
+        }
+
+        return implode("\n", $parts);
+    }
+
+    /**
+     * JavaScript associated with the subtree: inline `<script>` bodies plus
+     * inline `on*` event-handler attribute source within the subtree.
+     */
+    private function subtreeJsText(DOMElement $element): string
+    {
+        $parts = array();
+        foreach ( $this->subtreeElements($element) as $node ) {
+            if ( 'script' === strtolower($node->tagName) && '' === trim($this->attr($node, 'src')) ) {
+                $body = trim($node->textContent ?? '');
+                if ( '' !== $body ) {
+                    $parts[] = $body;
+                }
+            }
+            foreach ( $node->attributes ?? array() as $attribute ) {
+                $name = strtolower($attribute->nodeName);
+                if ( str_starts_with($name, 'on') && strlen($name) > 2 ) {
+                    $value = trim($attribute->nodeValue ?? '');
+                    if ( '' !== $value ) {
+                        $parts[] = $value;
+                    }
+                }
+            }
+        }
+
+        return implode("\n", $parts);
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function subtreeElements(DOMElement $element): array
+    {
+        $out = array( $element );
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement ) {
+                $out[] = $descendant;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Condense the raw classifier signals to the diagnostic-relevant top signals:
+     * the active boolean flags, the positive structural counts, and the per-bucket
+     * scores that drove the verdict.
+     *
+     * @param array<string, mixed> $signals
+     * @return array<string, mixed>
+     */
+    private function topClassificationSignals(array $signals): array
+    {
+        $flags  = array();
+        $counts = array();
+        foreach ( $signals as $name => $value ) {
+            if ( 'scores' === $name ) {
+                continue;
+            }
+            if ( true === $value ) {
+                $flags[] = $name;
+            } elseif ( is_int($value) && $value > 0 ) {
+                $counts[$name] = $value;
+            }
+        }
+
+        return array_filter(array(
+            'flags'  => $flags,
+            'counts' => $counts,
+            'scores' => is_array($signals['scores'] ?? null) ? $signals['scores'] : array(),
+        ), static fn (mixed $value): bool => array() !== $value);
     }
 
     private function runtimeIslandSelector(DOMElement $element): string
