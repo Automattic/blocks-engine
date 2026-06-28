@@ -497,6 +497,11 @@ final class ScenegraphNormalizer
             $node['figma_effects'] = $effects;
         }
 
+        $link = $this->normalizeLink($node, $type);
+        if ( ! empty($link) ) {
+            $node['figma_link'] = $link;
+        }
+
         foreach ( array('children', 'nodes') as $childrenKey ) {
             if ( ! is_array($node[$childrenKey] ?? null) ) {
                 continue;
@@ -922,7 +927,7 @@ final class ScenegraphNormalizer
         $resolved['type'] = 'INSTANCE';
         $resolved['name'] = (string) ($instance['name'] ?? $resolved['name'] ?? '');
 
-        foreach ( array('box', 'figma_box', 'layout', 'figma_paints', 'figma_effects', 'figma_vector_paths', 'componentProperties', 'fillPaints', 'effects', 'styleIdForFill', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd') as $key ) {
+        foreach ( array('box', 'figma_box', 'layout', 'figma_paints', 'figma_effects', 'figma_link', 'figma_vector_paths', 'componentProperties', 'fillPaints', 'effects', 'styleIdForFill', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd') as $key ) {
             if ( array_key_exists($key, $instance) ) {
                 $resolved[$key] = $instance[$key];
             }
@@ -1678,6 +1683,172 @@ final class ScenegraphNormalizer
         }
 
         return $segments;
+    }
+
+    /**
+     * Capture Figma hyperlink and prototype navigation data so the emitter can produce real anchors.
+     *
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function normalizeLink(array $node, string $type): array
+    {
+        if ( 'TEXT' === $type ) {
+            if ( array_key_exists('hyperlink', $node) ) {
+                $link = $this->normalizeHyperlinkValue($node['hyperlink']);
+                if ( null !== $link ) {
+                    $link['source'] = 'hyperlink';
+                    return $link;
+                }
+            }
+
+            $segmentLink = $this->normalizeSegmentHyperlink($node);
+            if ( null !== $segmentLink ) {
+                return $segmentLink;
+            }
+        } elseif ( array_key_exists('hyperlink', $node) ) {
+            $link = $this->normalizeHyperlinkValue($node['hyperlink']);
+            if ( null !== $link ) {
+                $link['source'] = 'hyperlink';
+                return $link;
+            }
+        }
+
+        $reactionLink = $this->normalizeReactionLink($node);
+        if ( null !== $reactionLink ) {
+            return $reactionLink;
+        }
+
+        return array();
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function normalizeHyperlinkValue(mixed $hyperlink): ?array
+    {
+        if ( is_string($hyperlink) && '' !== trim($hyperlink) ) {
+            return array('type' => 'url', 'url' => trim($hyperlink));
+        }
+
+        if ( ! is_array($hyperlink) ) {
+            return null;
+        }
+
+        $type = strtoupper((string) ($hyperlink['type'] ?? ''));
+        $url = $this->readString($hyperlink, array('url', 'href'));
+        $nodeId = $this->readString($hyperlink, array('nodeID', 'nodeId', 'node_id'))
+            ?? $this->readGuidId($hyperlink['nodeID'] ?? ($hyperlink['nodeId'] ?? null));
+
+        if ( 'URL' === $type && null !== $url ) {
+            return array('type' => 'url', 'url' => $url);
+        }
+        if ( 'NODE' === $type && null !== $nodeId ) {
+            return array('type' => 'node', 'target_node_id' => $nodeId);
+        }
+        if ( null !== $url ) {
+            return array('type' => 'url', 'url' => $url);
+        }
+        if ( null !== $nodeId ) {
+            return array('type' => 'node', 'target_node_id' => $nodeId);
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>|null
+     */
+    private function normalizeSegmentHyperlink(array $node): ?array
+    {
+        foreach ( array('styledTextSegments', 'segments') as $key ) {
+            if ( ! is_array($node[$key] ?? null) ) {
+                continue;
+            }
+
+            foreach ( $node[$key] as $segment ) {
+                if ( ! is_array($segment) || ! array_key_exists('hyperlink', $segment) ) {
+                    continue;
+                }
+
+                $link = $this->normalizeHyperlinkValue($segment['hyperlink']);
+                if ( null !== $link ) {
+                    $link['source'] = 'segment';
+                    $link['partial'] = true;
+                    return $link;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>|null
+     */
+    private function normalizeReactionLink(array $node): ?array
+    {
+        foreach ( is_array($node['reactions'] ?? null) ? $node['reactions'] : array() as $reaction ) {
+            if ( ! is_array($reaction) ) {
+                continue;
+            }
+
+            $actions = is_array($reaction['actions'] ?? null)
+                ? $reaction['actions']
+                : (is_array($reaction['action'] ?? null) ? array($reaction['action']) : array());
+            foreach ( $actions as $action ) {
+                if ( ! is_array($action) ) {
+                    continue;
+                }
+
+                $link = $this->normalizeActionLink($action);
+                if ( null !== $link ) {
+                    $link['source'] = 'reaction';
+                    return $link;
+                }
+            }
+        }
+
+        $transition = $this->readString($node, array('transitionNodeID', 'transitionNodeId'))
+            ?? $this->readGuidId($node['transitionNodeID'] ?? null);
+        if ( null !== $transition && '' !== $transition ) {
+            return array('type' => 'node', 'target_node_id' => $transition, 'source' => 'transition');
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $action
+     * @return array<string, mixed>|null
+     */
+    private function normalizeActionLink(array $action): ?array
+    {
+        $type = strtoupper((string) ($action['type'] ?? ''));
+        $url = $this->readString($action, array('url', 'href'));
+        if ( 'URL' === $type && null !== $url ) {
+            return array('type' => 'url', 'url' => $url);
+        }
+
+        $destination = $this->readString($action, array('destinationId', 'navigationDestinationId', 'transitionNodeID'))
+            ?? $this->readGuidId($action['destinationId'] ?? null);
+        $navigation = strtoupper((string) ($action['navigation'] ?? ''));
+        $navigatesToNode = 'NODE' === $type
+            || in_array($navigation, array('NAVIGATE', 'OVERLAY', 'SWAP', 'SCROLL_TO'), true);
+        if ( $navigatesToNode && null !== $destination && '' !== $destination ) {
+            return array('type' => 'node', 'target_node_id' => $destination);
+        }
+
+        if ( null !== $url ) {
+            return array('type' => 'url', 'url' => $url);
+        }
+        if ( null !== $destination && '' !== $destination ) {
+            return array('type' => 'node', 'target_node_id' => $destination);
+        }
+
+        return null;
     }
 
     /**
