@@ -3,11 +3,20 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
+
 /**
  * @internal Block construction is owned by HtmlTransformer.
  */
 final class BlockFactory
 {
+    private ?StyleAttributeMapper $styleMapper = null;
+
+    private function styleMapper(): StyleAttributeMapper
+    {
+        return $this->styleMapper ??= new StyleAttributeMapper();
+    }
+
     /**
      * @param array<string, mixed> $attrs
      * @param array<int, array<string, mixed>> $innerBlocks
@@ -102,9 +111,10 @@ final class BlockFactory
         }
 
         if ( 'core/icon' === $name ) {
+            $support = $this->styleSupport($attrs['style'] ?? null);
             $iconAttrs = array(
-                'class'       => $this->mergeClassNames('wp-block-icon', (string) ($attrs['className'] ?? '')),
-                'style'       => (string) ($attrs['style'] ?? ''),
+                'class'       => $this->mergeClassNames('wp-block-icon', $support['classes'], (string) ($attrs['className'] ?? '')),
+                'style'       => $support['style'],
                 'aria-label'  => (string) ($attrs['label'] ?? ''),
                 'aria-hidden' => ! empty($attrs['ariaHidden']) ? 'true' : '',
             );
@@ -499,12 +509,33 @@ final class BlockFactory
      */
     private function blockSupportAttrs(array $attrs, string $baseClass = ''): string
     {
-        $classes = $this->mergeClassNames($baseClass, (string) ($attrs['className'] ?? ''));
+        $support = $this->styleSupport($attrs['style'] ?? null);
+        $classes = $this->mergeClassNames($baseClass, $support['classes'], (string) ($attrs['className'] ?? ''));
         return $this->htmlAttrs(array(
             'id'    => (string) ($attrs['anchor'] ?? ''),
             'class' => $classes,
-            'style' => (string) ($attrs['style'] ?? ''),
+            'style' => $support['style'],
         ));
+    }
+
+    /**
+     * Serialize the canonical block `style` OBJECT into the has-* support classes
+     * and inline CSS string WordPress emits in `save()`. A legacy raw `style`
+     * string is passed through unchanged for backward compatibility.
+     *
+     * @param mixed $style
+     * @return array{classes: string, style: string}
+     */
+    private function styleSupport(mixed $style): array
+    {
+        if ( is_array($style) ) {
+            return $this->styleMapper()->serialize($style);
+        }
+
+        return array(
+            'classes' => '',
+            'style'   => is_string($style) ? $style : '',
+        );
     }
 
     /**

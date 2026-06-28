@@ -2056,6 +2056,110 @@ if ( ! str_contains($result['serialized_blocks'], '<!-- wp:heading {"content":"H
     exit(1);
 }
 
+// Canonical block style attributes (#261 / #259): core blocks must carry a
+// structured `style` OBJECT (style.typography/color/spacing/border) plus the
+// `layout` attribute, never a raw inline `style` STRING. Anything unmappable to
+// a block support rides on `className`, and responsive/JS-revealed base hidden
+// states (display:none) are never frozen onto content-bearing elements.
+$canonicalStyleResult = ( new HtmlTransformer() )->transform(
+    '<main>'
+    . '<h2 class="eyebrow" style="font-size:2rem;color:#c0392b;font-weight:700">Styled heading</h2>'
+    . '<p class="lede" style="color:#222;line-height:1.6">Styled paragraph</p>'
+    . '<div class="hero" style="display:flex;gap:1rem;padding:2rem;background:#101010;color:#fff;position:fixed;inset:0;overflow:hidden">'
+    . '<h3>Hero heading</h3><p>Hero content</p></div>'
+    . '<nav class="main-nav" style="display:none;gap:1.6rem"><a href="/a">Home</a></nav>'
+    . '</main>'
+)->toArray();
+
+$collectStyleViolations = static function (array $blocks) use (&$collectStyleViolations): array {
+    $violations = array();
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        $style = $block['attrs']['style'] ?? null;
+        if ( is_string($style) ) {
+            $violations[] = ($block['blockName'] ?? '?') . ' => ' . $style;
+        }
+        $violations = array_merge($violations, $collectStyleViolations($block['innerBlocks'] ?? array()));
+    }
+    return $violations;
+};
+
+$findBlock = static function (array $blocks, string $name) use (&$findBlock): ?array {
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        if ( ($block['blockName'] ?? '') === $name ) {
+            return $block;
+        }
+        $found = $findBlock($block['innerBlocks'] ?? array(), $name);
+        if ( null !== $found ) {
+            return $found;
+        }
+    }
+    return null;
+};
+
+// Guard: no emitted core block carries a raw string `style` attribute.
+$styleViolations = $collectStyleViolations($canonicalStyleResult['blocks']);
+$assert(array() === $styleViolations, 'core blocks must never emit a raw style string', implode('; ', $styleViolations));
+$assert(! str_contains($canonicalStyleResult['serialized_blocks'], 'style="display:'), 'serialized blocks must not carry a raw display style', $canonicalStyleResult['serialized_blocks']);
+
+// Positive: a styled heading maps to canonical typography + color.
+$heading = $findBlock($canonicalStyleResult['blocks'], 'core/heading');
+$assert(is_array($heading), 'styled heading block is emitted');
+$assert(is_array($heading['attrs']['style'] ?? null), 'heading style is a canonical object');
+assertSame('2rem', $heading['attrs']['style']['typography']['fontSize'] ?? null, 'heading font-size maps to style.typography.fontSize');
+assertSame('700', $heading['attrs']['style']['typography']['fontWeight'] ?? null, 'heading font-weight maps to style.typography.fontWeight');
+assertSame('#c0392b', $heading['attrs']['style']['color']['text'] ?? null, 'heading color maps to style.color.text');
+
+// Positive: a styled paragraph maps to canonical color.
+$paragraph = $findBlock($canonicalStyleResult['blocks'], 'core/paragraph');
+$assert(is_array($paragraph), 'styled paragraph block is emitted');
+$assert(is_array($paragraph['attrs']['style'] ?? null), 'paragraph style is a canonical object');
+assertSame('#222', $paragraph['attrs']['style']['color']['text'] ?? null, 'paragraph color maps to style.color.text');
+
+// Positive + negative: display:flex maps to layout; unmappable props (position,
+// inset, overflow) drop to className instead of a raw style string; the mappable
+// color/padding still ride canonically.
+$findBlockByClass = static function (array $blocks, string $class) use (&$findBlockByClass): ?array {
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        $classes = preg_split('/\s+/', (string) ($block['attrs']['className'] ?? '')) ?: array();
+        if ( in_array($class, $classes, true) ) {
+            return $block;
+        }
+        $found = $findBlockByClass($block['innerBlocks'] ?? array(), $class);
+        if ( null !== $found ) {
+            return $found;
+        }
+    }
+    return null;
+};
+
+$hero = $findBlockByClass($canonicalStyleResult['blocks'], 'hero');
+$assert(is_array($hero), 'styled container block is emitted');
+assertSame('flex', $hero['attrs']['layout']['type'] ?? null, 'display:flex maps to the layout attribute');
+$assert(! is_string($hero['attrs']['style'] ?? null), 'container style is never a raw string');
+assertSame('#fff', $hero['attrs']['style']['color']['text'] ?? null, 'container color maps to style.color.text');
+$assert(str_contains((string) ($hero['attrs']['className'] ?? ''), 'hero'), 'container className is preserved for unmappable CSS');
+
+// Hidden-state safety (#259): a base display:none on content-bearing nav is not
+// frozen; it is normalized away and surfaced as a frozen_hidden_state finding.
+$nav = $findBlock($canonicalStyleResult['blocks'], 'core/navigation');
+$assert(is_array($nav), 'navigation block is emitted');
+$assert(! is_string($nav['attrs']['style'] ?? null), 'navigation style is never a raw string');
+$navStyle = $nav['attrs']['style'] ?? array();
+$assert(! (is_array($navStyle) && isset($navStyle['display'])), 'navigation must not freeze display:none');
+$frozen = $canonicalStyleResult['source_reports']['html']['frozen_hidden_state'] ?? array();
+$assert(is_array($frozen) && array() !== $frozen, 'frozen hidden state finding is surfaced for the hidden nav');
+
+fwrite(STDOUT, "Canonical block style attributes contract passed.\n");
+
 fwrite(STDOUT, "HTML-to-blocks contract passed.\n");
 
 $bridge = new FormatBridge();

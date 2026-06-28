@@ -19,12 +19,13 @@ final class ButtonsPattern
     /**
      * @param callable(DOMElement): array<string, mixed>|null $fileBlockFromAnchor
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
+     * @param callable(DOMElement): string $resolvedStyle
      * @param callable(DOMElement): string $innerHtml
      * @param callable(DOMElement, string): string $attr
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>|null
      */
-    public function matchAnchor(DOMElement $anchor, callable $fileBlockFromAnchor, callable $presentationAttributes, callable $innerHtml, callable $attr, callable $createBlock): ?array
+    public function matchAnchor(DOMElement $anchor, callable $fileBlockFromAnchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $attr, callable $createBlock): ?array
     {
         $fileBlock = $fileBlockFromAnchor($anchor);
         if ( null !== $fileBlock ) {
@@ -35,20 +36,21 @@ final class ButtonsPattern
             return null;
         }
 
-        return $createBlock('core/buttons', array(), array( $this->buttonBlockFromAnchor($anchor, $presentationAttributes, $innerHtml, $attr, $createBlock) ), $anchor);
+        return $createBlock('core/buttons', array(), array( $this->buttonBlockFromAnchor($anchor, $presentationAttributes, $resolvedStyle, $innerHtml, $attr, $createBlock) ), $anchor);
     }
 
     /**
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
+     * @param callable(DOMElement): string $resolvedStyle
      * @param callable(DOMElement): string $innerHtml
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>
      */
-    public function matchButton(DOMElement $button, callable $presentationAttributes, callable $innerHtml, callable $createBlock): array
+    public function matchButton(DOMElement $button, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $createBlock): array
     {
         return $createBlock('core/buttons', array(), array(
             $createBlock('core/button', array_merge(
-                $this->buttonPresentationAttributes($button, $presentationAttributes),
+                $this->buttonPresentationAttributes($button, $presentationAttributes, $resolvedStyle),
                 $this->buttonRuntimeAttributes($button),
                 array(
                     'tagName' => 'button',
@@ -60,18 +62,19 @@ final class ButtonsPattern
 
     /**
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
+     * @param callable(DOMElement): string $resolvedStyle
      * @param callable(DOMElement): string $innerHtml
      * @param callable(DOMElement, string): string $attr
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>|null
      */
-    public function matchContainer(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $attr, callable $createBlock): ?array
+    public function matchContainer(DOMElement $element, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $attr, callable $createBlock): ?array
     {
 		$containerHasButtonSignal = $this->hasContainerButtonSignal($element) || $this->isDirectAnchorRow($element);
         $buttons = array();
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && ( $containerHasButtonSignal || $this->hasButtonSignal($child) ) ) {
-                $buttons[] = $this->buttonBlockFromAnchor($child, $presentationAttributes, $innerHtml, $attr, $createBlock);
+                $buttons[] = $this->buttonBlockFromAnchor($child, $presentationAttributes, $resolvedStyle, $innerHtml, $attr, $createBlock);
             }
         }
 
@@ -84,14 +87,15 @@ final class ButtonsPattern
 
     /**
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
+     * @param callable(DOMElement): string $resolvedStyle
      * @param callable(DOMElement): string $innerHtml
      * @param callable(DOMElement, string): string $attr
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>
      */
-    private function buttonBlockFromAnchor(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $attr, callable $createBlock): array
+    private function buttonBlockFromAnchor(DOMElement $anchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $attr, callable $createBlock): array
     {
-        return $createBlock('core/button', array_filter(array_merge($this->buttonPresentationAttributes($anchor, $presentationAttributes), array(
+        return $createBlock('core/button', array_filter(array_merge($this->buttonPresentationAttributes($anchor, $presentationAttributes, $resolvedStyle), array(
             'text' => $this->buttonText($innerHtml($anchor)),
             'url'  => $attr($anchor, 'href'),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $anchor);
@@ -106,12 +110,17 @@ final class ButtonsPattern
 
     /**
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
+     * @param callable(DOMElement): string $resolvedStyle
      * @return array<string, mixed>
      */
-    private function buttonPresentationAttributes(DOMElement $element, callable $presentationAttributes): array
+    private function buttonPresentationAttributes(DOMElement $element, callable $presentationAttributes, callable $resolvedStyle): array
     {
         $attrs = $presentationAttributes($element);
-        $resolvedStyle = (string) ($attrs['style'] ?? '');
+        // Buttons resolve styling from the raw merged CSS string, not the canonical
+        // block style object, so the (now object-shaped) presentation `style` is
+        // dropped and re-derived via ButtonStyleResolver below.
+        unset($attrs['style']);
+        $resolvedStyle = (string) $resolvedStyle($element);
         if ( $this->hasOutlineSignal($element, $resolvedStyle) ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' is-style-outline');
         }
@@ -121,7 +130,6 @@ final class ButtonsPattern
         // button renders with its source colors/border instead of the theme default.
         // A button with no paintable styling resolves to no native attributes and
         // stays a default button.
-        unset($attrs['style']);
         $native = $this->styleResolver->nativeAttributes($resolvedStyle);
         if ( array() !== $native ) {
             $attrs = array_merge($attrs, $native);

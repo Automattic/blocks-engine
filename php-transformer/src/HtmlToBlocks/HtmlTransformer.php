@@ -93,6 +93,14 @@ final class HtmlTransformer
     private array $presentationProvenance = array();
 
     /**
+     * Responsive/JS-revealed hidden base states normalized away during style
+     * resolution (#259), surfaced for diagnostics.
+     *
+     * @var array<int, array<string, mixed>>
+     */
+    private array $frozenHiddenStateFindings = array();
+
+    /**
      * @var array<int, array<string, mixed>>
      */
     private array $sourceProvenance = array();
@@ -176,6 +184,7 @@ final class HtmlTransformer
         $startedAt                = hrtime(true);
         $this->fallbackProvenance = TransformationOptions::provenance($options);
         $this->presentationProvenance = array();
+        $this->frozenHiddenStateFindings = array();
         $this->sourceProvenance = array();
         $this->structureProvenance = array();
         $this->scriptMetadata = array();
@@ -280,6 +289,7 @@ final class HtmlTransformer
             'semantic_parity' => $semanticParityReport,
             'html' => array(
                 'presentation_signals' => $this->presentationProvenance,
+                'frozen_hidden_state'  => $this->frozenHiddenStateFindings,
                 'source_provenance'    => $sourceProvenance,
                 'structure_signals'    => $this->structureProvenance,
                 'script_metadata'      => $this->scriptMetadata,
@@ -1127,6 +1137,7 @@ final class HtmlTransformer
                 $element,
                 fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
@@ -1149,6 +1160,7 @@ final class HtmlTransformer
             return $this->buttonsPattern->matchButton(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
             );
@@ -1329,6 +1341,7 @@ final class HtmlTransformer
             $buttons = $this->buttonsPattern->matchContainer(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
@@ -4425,16 +4438,10 @@ final class HtmlTransformer
         }
 
         $attrs = $this->presentationAttributes($element);
+        // The aspect ratio rides on the preserved placeholder/ratio classNames and
+        // companion-plugin CSS; a raw inline `style` string would invalidate the
+        // core/group block, so it is intentionally not emitted here (#261).
         $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-placeholder-media');
-
-        $style = trim((string) ($attrs['style'] ?? ''));
-        $ratio = $this->placeholderAspectRatio($element);
-        if ( '' !== $ratio && ! preg_match('/(?:^|;)\s*aspect-ratio\s*:/i', $style) ) {
-            $style = rtrim($style, ';') . ( '' !== $style ? ';' : '' ) . 'aspect-ratio:' . $ratio;
-        }
-        if ( '' !== $style ) {
-            $attrs['style'] = $style;
-        }
 
         $label = $this->placeholderLabel($element);
         $children = '' !== $label ? array( $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) )) ) : array();

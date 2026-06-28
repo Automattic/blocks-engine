@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "decorative-placeholder", "style": "min-height:48px" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "decorative-placeholder" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "media-shell" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/image", "attrs": { "className": "is-resized", "url": "logo.svg", "alt": "Logo", "width": "120", "height": "80" } },
     { "path": "blocks.0.innerBlocks.2", "name": "core/list" },

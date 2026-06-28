@@ -20,7 +20,7 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "hero-shell", "style": "padding: 2rem;", "layout": { "type": "constrained" } } },
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "hero-shell", "style": { "spacing": { "padding": { "top": "2rem", "right": "2rem", "bottom": "2rem", "left": "2rem" } } }, "layout": { "type": "constrained" } } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Only child", "level": 2 } }
   ],
   "expected_fallbacks": [
@@ -39,7 +39,8 @@
     { "path": "source_reports.html.presentation_signals", "assert": "count", "count": 1 },
     { "path": "source_reports.html.presentation_signals.0.selector", "assert": "equals", "value": "section:nth-of-type(1)" },
     { "path": "source_reports.html.presentation_signals.0.signals.className", "assert": "equals", "value": "hero-shell" },
-    { "path": "source_reports.html.presentation_signals.0.signals.style", "assert": "equals", "value": "padding: 2rem;" },
+    { "path": "source_reports.html.presentation_signals.0.signals.style", "assert": "equals", "value": { "spacing": { "padding": { "top": "2rem", "right": "2rem", "bottom": "2rem", "left": "2rem" } } } },
+    { "path": "source_reports.html.presentation_signals.0.source_attributes.style", "assert": "equals", "value": "padding: 2rem;" },
     { "path": "source_reports.html.presentation_signals.0.signals.layout.type", "assert": "equals", "value": "constrained" },
     { "path": "source_reports.html.presentation_signals.0.source_attributes.data-layout", "assert": "equals", "value": "constrained" },
     { "path": "source_reports.html.source_provenance", "assert": "count", "count": 2 },
