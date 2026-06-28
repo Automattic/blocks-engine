@@ -266,7 +266,7 @@ final class StyleAttributeMapper
         }
 
         $consumed['background'] = true;
-        return $this->cssColor(preg_split('/\s+/', $value)[0] ?? '');
+        return $this->cssColor(CssValueSplitter::splitTopLevelWhitespace($value)[0] ?? '');
     }
 
     /**
@@ -277,7 +277,7 @@ final class StyleAttributeMapper
     {
         foreach ( array( 'background', 'background-image' ) as $name ) {
             $value = trim((string) ($declarations[ $name ] ?? ''));
-            if ( '' !== $value && preg_match('/\bgradient\s*\(/i', $value) ) {
+            if ( '' !== $value && preg_match('/\bgradient\s*\(/i', $value) && CssValueSplitter::hasBalancedParens($value) ) {
                 $consumed[ $name ] = true;
                 return $value;
             }
@@ -298,7 +298,7 @@ final class StyleAttributeMapper
         $shorthand = trim((string) ($declarations[ $property ] ?? ''));
         if ( '' !== $shorthand ) {
             $consumed[ $property ] = true;
-            $parts = preg_split('/\s+/', $shorthand) ?: array();
+            $parts = CssValueSplitter::splitTopLevelWhitespace($shorthand);
             $count = count($parts);
             if ( 1 === $count ) {
                 $sides = array( 'top' => $parts[0], 'right' => $parts[0], 'bottom' => $parts[0], 'left' => $parts[0] );
@@ -377,7 +377,7 @@ final class StyleAttributeMapper
         }
 
         $parsed = array();
-        foreach ( preg_split('/\s+/', $value) ?: array() as $token ) {
+        foreach ( CssValueSplitter::splitTopLevelWhitespace($value) as $token ) {
             $lower = strtolower($token);
             if ( in_array($lower, array( 'none', 'hidden', 'solid', 'dashed', 'dotted', 'double', 'groove', 'ridge', 'inset', 'outset' ), true) ) {
                 $parsed['style'] = $lower;
@@ -413,6 +413,20 @@ final class StyleAttributeMapper
         if ( preg_match('/^#[0-9a-f]{3,8}$/i', $value) ) {
             return $value;
         }
+
+        // Functional color notation must be syntactically complete: a truncated
+        // value such as `rgba(251,` (produced by a non-paren-aware split) still
+        // matches the `rgb(`/`var(` prefix but is invalid CSS. WordPress drops
+        // the inline style for it while keeping the has-* support class, so the
+        // saved markup diverges from the block attributes ("unexpected or invalid
+        // content"). Require balanced parentheses and a closing `)` so only
+        // values WordPress will actually render are stored.
+        if ( str_contains($value, '(') ) {
+            if ( ! str_ends_with($value, ')') || ! CssValueSplitter::hasBalancedParens($value) ) {
+                return '';
+            }
+        }
+
         if ( preg_match('/^(?:rgb|rgba|hsl|hsla)\s*\(/i', $value) ) {
             return $value;
         }
