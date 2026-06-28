@@ -53,7 +53,34 @@ final class FontMaterializationPlanBuilder
         );
         $roles = $this->fontRolesFromCss($css);
 
+        // The base/body `font-family` is the document's foundational typography
+        // and must survive into the materialized output even when it is declared
+        // only in an inline `<style>` block (no external stylesheet, no linked
+        // web-font). Carry that base font into the plan so the generated base
+        // typography keeps the source's body face. Heading-only inline fonts are
+        // deliberately NOT materialized here: a custom heading face with no
+        // loaded web-font cannot render, so it stays a reported drop.
+        $inlineBody = (string) ($this->fontRolesFromCss($this->styleBlockCss($html))['body'] ?? '');
+        if ( '' !== $inlineBody ) {
+            $fontUsage[] = array('family' => $inlineBody, 'weights' => array(400));
+            if ( '' === (string) ($roles['body'] ?? '') ) {
+                $roles['body'] = $inlineBody;
+            }
+        }
+
         return $this->googleFonts($fontUsage, $roles);
+    }
+
+    /**
+     * Concatenate the CSS inside every `<style>` block of an HTML document.
+     */
+    private function styleBlockCss(string $html): string
+    {
+        if ( '' === trim($html) || ! preg_match_all('/<style\b[^>]*>(.*?)<\/style>/is', $html, $matches) ) {
+            return '';
+        }
+
+        return implode("\n", $matches[1]);
     }
 
     /**
