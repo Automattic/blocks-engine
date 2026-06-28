@@ -169,6 +169,10 @@ final class ConversionReportProjection
                 ),
                 static fn (mixed $value): bool => null !== $value && '' !== $value
             );
+            // Stamp the canonical classification triplet so the compact
+            // conversion-report fallback projection clusters by root cause too;
+            // values carried from the source fallback are honored, not overwritten.
+            $diagnostics[count($diagnostics) - 1] = ConversionFindingContract::withClassification($diagnostics[count($diagnostics) - 1]);
         }
 
         return $diagnostics;

@@ -615,7 +615,10 @@ final class SemanticParityReporter
             $finding['observed_block'] = $this->observedBlockForFinding($finding, $sourceProvenance);
         }
 
-        return $finding;
+        // Fill the remaining canonical classification fields (pattern_family /
+        // repair_bucket) so each parity finding routes to a concrete repair lane;
+        // the reason_code set above is honored and not overwritten.
+        return ConversionFindingContract::withClassification($finding);
     }
 
     /**

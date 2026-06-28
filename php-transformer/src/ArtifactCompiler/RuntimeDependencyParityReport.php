@@ -117,12 +117,21 @@ final class RuntimeDependencyParityReport
             $findings[] = $this->withSupersededDisposition($finding, $superseded);
         }
 
+        // Stamp the canonical classification triplet so each runtime-dependency
+        // finding carries a reason_code and pattern_family alongside the
+        // repair_bucket it already sets, clustering by root cause downstream. The
+        // contract honors the producer's specific repair_bucket values.
+        $findings = array_map(
+            static fn (array $finding): array => ConversionFindingContract::withClassification($finding),
+            $this->dedupeRows($findings)
+        );
+
         return array_filter(array(
             'schema'         => self::SCHEMA,
             'finding_schema' => ConversionFindingContract::SCHEMA,
             'status'         => array() === $findings ? 'pass' : 'warning',
             'dependencies'   => $this->dedupeRows($dependencies),
-            'findings'       => $this->dedupeRows($findings),
+            'findings'       => $findings,
         ), static fn (mixed $value): bool => array() !== $value);
     }
 
