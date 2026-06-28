@@ -2986,11 +2986,25 @@ final class HtmlTransformer
      */
     private function inlineSvgBlockFromElement(DOMElement $element): ?array
     {
-        if ( ! $this->isSafeSvgContent($this->outerHtml($element)) ) {
+        // Only preserve when there is actual artwork to keep. An SVG whose only
+        // content is unsafe (e.g. a lone <script>) has nothing left to render
+        // once sanitized, so it defers to the bounded fallback diagnostic.
+        if ( ! $this->svgHasDrawableContent($element) ) {
             return null;
         }
 
-        $html = $this->safeFallbackHtml($element);
+        // Preserve the artwork: sanitize the SVG in place — stripping only the
+        // genuinely-unsafe parts (script/style/foreignObject elements, event
+        // handlers, javascript: URLs) — instead of dropping the entire graphic
+        // the moment one unsafe attribute or element appears. The shape and
+        // structure markup (svg/path/circle/rect/g/text/...) is kept so the
+        // image renders, rather than collapsing to an empty block.
+        $html = $this->sanitizeInlineSvgMarkup($element);
+
+        // Safety gate: only emit raw inline SVG once the sanitized markup is
+        // provably free of script/event-handler/javascript: vectors and still
+        // contains an <svg>. If sanitization could not fully clean it, defer to
+        // the bounded fallback metadata path rather than emit unsafe markup.
         if ( ! $this->isSafeSvgContent($html) ) {
             return null;
         }
@@ -2998,9 +3012,10 @@ final class HtmlTransformer
         // Keep illustrative/decorative inline SVG inline as a core/html block.
         // Externalizing to an `assets/*.svg` file + core/image would be lost in
         // WordPress, which blocks SVG uploads by default. The markup is already
-        // safe-sanitized above (scripts, event handlers, javascript: URLs
-        // stripped via safeFallbackHtml + verified by isSafeSvgContent), and the
-        // original outer SVG preserves viewBox/role/aria-label/class.
+        // safe-sanitized above (scripts, event handlers, foreignObject, and
+        // javascript: URLs stripped via sanitizeInlineSvgMarkup + verified by
+        // isSafeSvgContent), and the original outer SVG preserves
+        // viewBox/role/aria-label/class.
         return $this->createBlock('core/html', array( 'content' => $this->restoreSvgAttributeCasing($html) ), array(), $element);
     }
 

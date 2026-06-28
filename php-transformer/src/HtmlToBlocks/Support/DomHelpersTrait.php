@@ -357,6 +357,68 @@ trait DomHelpersTrait
     }
 
     /**
+     * Whether an inline SVG carries any drawable artwork worth preserving.
+     *
+     * Returns true when the SVG has at least one shape/structure element
+     * (path/circle/rect/text/g/...) outside of any foreignObject subtree.
+     * Elements that carry no visual artwork on their own — script/style/
+     * foreignObject (all stripped during sanitization) and the metadata-only
+     * title/desc/metadata — do not count. An SVG whose only content is unsafe
+     * has nothing left to render once sanitized, so callers fall back to the
+     * bounded diagnostic instead of emitting an empty graphic.
+     */
+    private function svgHasDrawableContent(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $tag = strtolower($child->tagName);
+            if ( in_array($tag, array( 'script', 'style', 'foreignobject', 'title', 'desc', 'metadata' ), true) ) {
+                continue;
+            }
+            if ( $this->hasAncestorTag($child, array( 'foreignobject' )) ) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Sanitize inline SVG markup for safe inline preservation.
+     *
+     * Strips only the genuinely-unsafe parts of an inline SVG — `<script>` /
+     * `<style>` elements, `<foreignObject>` (which can embed arbitrary HTML and
+     * scripts), event-handler attributes, and `javascript:` URLs — while keeping
+     * the SVG shape and structure markup (`svg`/`path`/`circle`/`rect`/`g`/
+     * `text`/`polygon`/...) intact so the artwork still renders. This preserves
+     * the graphic rather than dropping the whole SVG when a single unsafe
+     * attribute or element is present.
+     */
+    private function sanitizeInlineSvgMarkup(DOMElement $element): string
+    {
+        // safeFallbackHtml() already removes <script>/<style> elements, on*
+        // handlers, javascript: in href/src/xlink:href, and srcdoc.
+        $html = $this->safeFallbackHtml($element);
+
+        // foreignObject can carry arbitrary embedded HTML (iframes, objects,
+        // embeds) that shape markup never needs; drop it entirely (DOMDocument
+        // lowercases the tag name when serializing parsed HTML).
+        $html = preg_replace('@<foreignobject\b[^>]*>.*?</foreignobject>@si', '', $html) ?? $html;
+        $html = preg_replace('@<foreignobject\b[^>]*/?>@si', '', $html) ?? $html;
+
+        // Neutralize any residual javascript: carried in remaining attributes
+        // (e.g. a style attribute), dropping the whole attribute so the shape
+        // it belongs to survives.
+        $html = preg_replace('/\s+[a-zA-Z_:][\w:.-]*\s*=\s*("[^"]*javascript:[^"]*"|\'[^\']*javascript:[^\']*\'|[^\s>]*javascript:[^\s>]*)/i', '', $html) ?? $html;
+
+        return trim($html);
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $rows
      * @return array<int, array<string, mixed>>
      */
