@@ -10,18 +10,23 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Scenegraph;
 final class ScenegraphPagePlanner
 {
     /**
-     * Node-count ceiling for planning-time responsive detection.
+     * Frame-candidate ceiling for planning-time responsive detection.
      *
-     * Detection re-inspects the source, which rebuilds a full
-     * {@see ScenegraphIndex} over the entire scenegraph. On very large designs
-     * (e.g. the 293MB "WP.Cloud 2.0" .fig) that second full index OOMs in
-     * ScenegraphIndex::build(). Above this ceiling the planner skips the
-     * full-node inspection and degrades to one-page-per-frame, emitting a
+     * Responsive grouping is a frame-level question: it only needs the small
+     * set of page-candidate FRAMEs the planner already holds in memory (name,
+     * dimensions, device hint, ancestor ids) — NOT an index of every
+     * descendant node. Detection therefore runs over that frame set without
+     * rebuilding a second whole-scenegraph {@see ScenegraphIndex}, so TOTAL
+     * node count no longer drives detection memory and grouping stays ON for
+     * large designs (e.g. the 293MB "WP.Cloud 2.0" .fig) instead of degrading
+     * to one-page-per-frame. The only remaining bound guards the genuinely
+     * pathological case of an absurd number of frame candidates, where the
+     * O(frames^2) sibling scan would dominate; above it the planner emits a
      * {@see ScenegraphPagePlanner::plan()} `responsive_detection_bounded`
-     * diagnostic so callers learn WHY grouping was limited. Overridable via the
-     * `responsive_detection_node_limit` plan option.
+     * diagnostic and degrades to one-page-per-frame. Overridable via the
+     * `responsive_detection_frame_limit` plan option.
      */
-    private const RESPONSIVE_DETECTION_NODE_LIMIT = 25000;
+    private const RESPONSIVE_DETECTION_FRAME_LIMIT = 5000;
 
     /**
      * Minimum absolute width delta (px) for a sibling-group to count as a real
@@ -161,15 +166,15 @@ final class ScenegraphPagePlanner
             }
         }
 
-        $detectionResult = $this->detectResponsive($source, count($nodes), $options);
+        $detectionResult = $this->detectResponsive($candidates, $nodes, $parentIndex, $options);
         $detectionById = $detectionResult['detection'];
         if ( $detectionResult['bounded'] ) {
             $diagnostics[] = array(
-                'severity'   => 'info',
-                'code'       => 'responsive_detection_bounded',
-                'message'    => 'Responsive sibling detection was skipped because the scenegraph exceeded the planning node limit; emitting one page per frame.',
-                'node_count' => $detectionResult['node_count'],
-                'node_limit' => $detectionResult['node_limit'],
+                'severity'              => 'info',
+                'code'                  => 'responsive_detection_bounded',
+                'message'               => 'Responsive sibling detection was skipped because the design has an unusually large number of frame candidates; emitting one page per frame.',
+                'frame_candidate_count' => $detectionResult['frame_candidate_count'],
+                'frame_candidate_limit' => $detectionResult['frame_candidate_limit'],
             );
         }
 
@@ -256,72 +261,90 @@ final class ScenegraphPagePlanner
     }
 
     /**
-     * Resolve responsive detection, bounding it against scenegraph size.
+     * Resolve responsive detection, bounding it against the NUMBER OF FRAME
+     * CANDIDATES — not total node count.
      *
-     * Detection re-inspects the source, which forces a second full
-     * {@see ScenegraphIndex} build. On unbounded scenegraphs that second index
-     * OOMs (ScenegraphIndex::build, observed on the 293MB "WP.Cloud 2.0" .fig).
-     * When the already-built node count exceeds the configured ceiling the
-     * inspection is SKIPPED entirely — no second index is built — and detection
-     * falls back to empty, which the page loop renders as one-page-per-frame.
-     * The `bounded` flag lets {@see ScenegraphPagePlanner::plan()} surface a
-     * `responsive_detection_bounded` diagnostic instead of dying silently.
+     * The prior implementation re-inspected the source, forcing a SECOND full
+     * {@see ScenegraphIndex} build over every node; on the 293MB "WP.Cloud 2.0"
+     * .fig that second index OOMed, so #265 skipped detection above a
+     * 25k-node ceiling and responsive grouping silently switched off at scale.
+     * Detection only needs frame-level data (name, width, height, device hint,
+     * ancestor ids), all of which the planner already holds in memory after its
+     * single index build, so it now runs regardless of total node count. The
+     * only remaining bound guards the genuinely pathological case of an absurd
+     * number of frame candidates; the `bounded` flag lets
+     * {@see ScenegraphPagePlanner::plan()} surface a
+     * `responsive_detection_bounded` diagnostic.
      *
-     * @param array<string, mixed> $source
-     * @param array<string, mixed> $options
-     * @return array{detection: array<string, array<string, mixed>>, bounded: bool, node_count: int, node_limit: int}
+     * @param array<string, array<string, mixed>> $candidates   FRAME candidates the planner tracks.
+     * @param array<string, array<string, mixed>> $nodes        Already-built node map (for ancestor lookup).
+     * @param array<string, string|null>          $parentIndex  Already-built parent index.
+     * @param array<string, mixed>                $options
+     * @return array{detection: array<string, array<string, mixed>>, bounded: bool, frame_candidate_count: int, frame_candidate_limit: int}
      */
-    private function detectResponsive(array $source, int $nodeCount, array $options): array
+    private function detectResponsive(array $candidates, array $nodes, array $parentIndex, array $options): array
     {
-        $limit = isset($options['responsive_detection_node_limit']) && is_numeric($options['responsive_detection_node_limit'])
-            ? max(1, (int) $options['responsive_detection_node_limit'])
-            : self::RESPONSIVE_DETECTION_NODE_LIMIT;
+        $limit = isset($options['responsive_detection_frame_limit']) && is_numeric($options['responsive_detection_frame_limit'])
+            ? max(1, (int) $options['responsive_detection_frame_limit'])
+            : self::RESPONSIVE_DETECTION_FRAME_LIMIT;
+        $frameCount = count($candidates);
 
-        if ( $nodeCount > $limit ) {
+        if ( $frameCount > $limit ) {
             return array(
-                'detection'  => array(),
-                'bounded'    => true,
-                'node_count' => $nodeCount,
-                'node_limit' => $limit,
+                'detection'             => array(),
+                'bounded'               => true,
+                'frame_candidate_count' => $frameCount,
+                'frame_candidate_limit' => $limit,
             );
         }
 
         return array(
-            'detection'  => $this->detectionById($source, $nodeCount),
-            'bounded'    => false,
-            'node_count' => $nodeCount,
-            'node_limit' => $limit,
+            'detection'             => $this->detectionById($candidates, $nodes, $parentIndex),
+            'bounded'               => false,
+            'frame_candidate_count' => $frameCount,
+            'frame_candidate_limit' => $limit,
         );
     }
 
     /**
-     * Consume the frame inspector's detection report keyed by frame id.
+     * Build the frame-level detection report (device_hint / sibling_group_key /
+     * responsive_siblings) WITHOUT building a second scenegraph index.
      *
-     * Detection (device_hint / sibling_group_key / responsive_siblings) lives in
-     * {@see ScenegraphFrameInspector}; the planner reuses it rather than
-     * re-deriving responsive relationships. The inspection limit is widened so
-     * every candidate's detection survives slicing. Callers must gate this
-     * behind {@see ScenegraphPagePlanner::detectResponsive()} so it never runs
-     * over an unbounded scenegraph.
+     * The planner already holds every FRAME candidate's dimensions plus the
+     * node/parent indexes in memory, so it extracts only the minimal
+     * frame-level records the detection heuristics need (name, dimensions,
+     * page/section/parent ids) and hands them to
+     * {@see ScenegraphFrameInspector::detectResponsiveFrames()}. No descendant
+     * node index is materialized for detection — the question is answered from
+     * frame-level data alone, which is what keeps grouping memory-safe at
+     * scale.
      *
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, string|null>          $parentIndex
      * @return array<string, array<string, mixed>>
      */
-    private function detectionById(array $source, int $nodeCount): array
+    private function detectionById(array $candidates, array $nodes, array $parentIndex): array
     {
-        $inspection = $this->frameInspector->inspect($source, array('frame_inspection_limit' => max(1, $nodeCount)));
-        $candidates = is_array($inspection['candidates'] ?? null) ? $inspection['candidates'] : array();
-        $detection = array();
-        foreach ( $candidates as $candidate ) {
-            if ( ! is_array($candidate) ) {
-                continue;
-            }
-            $id = isset($candidate['id']) && is_scalar($candidate['id']) ? (string) $candidate['id'] : '';
-            if ( '' !== $id ) {
-                $detection[$id] = $candidate;
-            }
+        $frames = array();
+        foreach ( $candidates as $id => $candidate ) {
+            $id = (string) $id;
+            $node = is_array($candidate['node'] ?? null) ? $candidate['node'] : array();
+            $page = $this->nearestAncestor($id, array('CANVAS'), $nodes, $parentIndex);
+            $section = $this->nearestAncestor($id, array('SECTION'), $nodes, $parentIndex);
+            $parentId = $parentIndex[$id] ?? null;
+            $frames[] = array(
+                'id'         => $id,
+                'name'       => (string) ($node['name'] ?? ''),
+                'width'      => $candidate['dimensions']['width'] ?? null,
+                'height'     => $candidate['dimensions']['height'] ?? null,
+                'page_id'    => $page['id'] ?? null,
+                'section_id' => $section['id'] ?? null,
+                'parent_id'  => is_string($parentId) ? $parentId : null,
+            );
         }
 
-        return $detection;
+        return $this->frameInspector->detectResponsiveFrames($frames);
     }
 
     /**

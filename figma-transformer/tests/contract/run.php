@@ -1966,21 +1966,122 @@ $assert('desktop' === ($duplicateDraftDiagnostic['device_hint'] ?? null), 'page-
 $assert(4 === count($duplicateDraftDiagnostic['frame_ids'] ?? array()), 'page-plan-duplicate-drafts-diagnostic-frame-count');
 $assert(null === $planDiagnosticByCode($duplicateDraftPlan, 'responsive_group_formed'), 'page-plan-duplicate-drafts-not-grouped');
 
-// (c) MEMORY SAFETY: when the scenegraph exceeds the responsive-detection node
-// limit, detection is skipped (no second full index build), the transform
-// COMPLETES, a responsive_detection_bounded diagnostic is emitted, and frames
-// fall back to one-page-per-frame instead of collapsing.
+// (c) FRAME-CANDIDATE BOUND: detection now scales with the number of FRAME
+// candidates, not total node count. The `responsive_detection_bounded`
+// diagnostic only fires in pathological cases (here forced via a frame-limit of
+// 1 against 4 frames). When bounded, detection is skipped — no second index is
+// built — and frames fall back to one-page-per-frame.
 $boundedPlan = ( new ScenegraphPagePlanner() )->plan(
     $responsivePagePlanSource,
-    array('include_all_pages' => true, 'responsive_detection_node_limit' => 3)
+    array('include_all_pages' => true, 'responsive_detection_frame_limit' => 1)
 );
 $boundedDiagnostic = $planDiagnosticByCode($boundedPlan, 'responsive_detection_bounded');
 $assert(null !== $boundedDiagnostic, 'page-plan-bounded-detection-diagnostic-emitted');
-$assert(3 === ($boundedDiagnostic['node_limit'] ?? null), 'page-plan-bounded-detection-node-limit');
-$assert(($boundedDiagnostic['node_count'] ?? 0) > 3, 'page-plan-bounded-detection-node-count');
+$assert(1 === ($boundedDiagnostic['frame_candidate_limit'] ?? null), 'page-plan-bounded-detection-frame-limit');
+$assert(4 === ($boundedDiagnostic['frame_candidate_count'] ?? null), 'page-plan-bounded-detection-frame-count');
 $assert(4 === ($boundedPlan['page_count'] ?? null), 'page-plan-bounded-detection-one-page-per-frame');
 $boundedHomePage = $responsivePageByFrame($boundedPlan, 'frame:home-desktop');
 $assert(null !== $boundedHomePage && false === ($boundedHomePage['responsive'] ?? null), 'page-plan-bounded-detection-no-collapse');
+
+// (c2) SCALE: a design whose descendant node count is WELL ABOVE the old 25k
+// ceiling — but with only a handful of FRAME candidates — must STILL run
+// detection and form a genuine desktop/tablet/mobile responsive group, with NO
+// `responsive_detection_bounded` skip. This proves grouping stays ON at
+// "Automattic scale" and that detection reads frame-level data, not all nodes.
+$largeDescendantCount = 26000; // > the retired RESPONSIVE_DETECTION_NODE_LIMIT of 25000.
+$bulkChildren = static function (string $prefix, int $count): array {
+    $children = array();
+    for ( $i = 0; $i < $count; $i++ ) {
+        $children[] = array(
+            'id'         => $prefix . ':text:' . $i,
+            'type'       => 'TEXT',
+            'name'       => 'Body ' . $i,
+            'characters' => 'Lorem ipsum dolor sit amet number ' . $i,
+        );
+    }
+
+    return $children;
+};
+$scaleSource = array(
+    'nodes' => array(
+        array(
+            'id'       => 'page:scale',
+            'type'     => 'CANVAS',
+            'name'     => 'Scale Pages',
+            'children' => array(
+                array(
+                    'id'       => 'section:scale',
+                    'type'     => 'SECTION',
+                    'name'     => 'Marketing',
+                    'width'    => 4000,
+                    'height'   => 40000,
+                    'children' => array(
+                        array(
+                            'id'       => 'frame:landing-desktop',
+                            'type'     => 'FRAME',
+                            'name'     => 'Landing Page Desktop',
+                            'width'    => 1440,
+                            'height'   => 9000,
+                            // This single frame alone carries more descendants
+                            // than the entire old 25k node ceiling.
+                            'children' => $bulkChildren('desktop', $largeDescendantCount),
+                        ),
+                        array(
+                            'id'       => 'frame:landing-tablet',
+                            'type'     => 'FRAME',
+                            'name'     => 'Landing Page Tablet',
+                            'width'    => 834,
+                            'height'   => 9000,
+                            'children' => array(array('id' => 'tablet:text', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Lorem')),
+                        ),
+                        array(
+                            'id'       => 'frame:landing-mobile',
+                            'type'     => 'FRAME',
+                            'name'     => 'Landing Page Mobile',
+                            'width'    => 390,
+                            'height'   => 9000,
+                            'children' => array(array('id' => 'mobile:text', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Lorem')),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+);
+$scalePlan = ( new ScenegraphPagePlanner() )->plan($scaleSource, array('include_all_pages' => true));
+$assert(null === $planDiagnosticByCode($scalePlan, 'responsive_detection_bounded'), 'page-plan-scale-detection-not-bounded');
+$assert(3 === ($scalePlan['candidate_count'] ?? null), 'page-plan-scale-three-frame-candidates');
+$assert(1 === ($scalePlan['page_count'] ?? null), 'page-plan-scale-collapses-to-one-page');
+$scaleHomePage = $responsivePageByFrame($scalePlan, 'frame:landing-desktop');
+$assert(null !== $scaleHomePage, 'page-plan-scale-primary-is-desktop');
+$assert(true === ($scaleHomePage['responsive'] ?? null), 'page-plan-scale-flagged-responsive');
+$assert(3 === ($scaleHomePage['breakpoint_count'] ?? null), 'page-plan-scale-three-breakpoints');
+// The primary frame's own subtree exceeds the retired node ceiling, proving
+// grouping is active at a scale that previously auto-disabled it.
+$assert(($scaleHomePage['node_count'] ?? 0) > 25000, 'page-plan-scale-primary-above-old-ceiling');
+$scaleGroupDiagnostic = $planDiagnosticByCode($scalePlan, 'responsive_group_formed');
+$assert(null !== $scaleGroupDiagnostic, 'page-plan-scale-group-formed');
+$assert(in_array('device_hint_diversity', $scaleGroupDiagnostic['reasons'] ?? array(), true), 'page-plan-scale-group-device-diversity');
+$assert(array('desktop', 'tablet', 'mobile')
+    === array_map(static fn (array $variant): string => (string) ($variant['device_hint'] ?? ''), $scaleHomePage['variants'] ?? array()), 'page-plan-scale-variant-device-hints');
+
+// (c3) DETECTION IS FRAME-LEVEL: the lightweight detection path produces the
+// full detection contract (device_hint / sibling_group_key /
+// responsive_siblings) from frame-level records ALONE — no source, no
+// ScenegraphIndex. This is the memory-efficient primitive the planner reuses.
+$frameLevelDetection = ( new Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameInspector() )->detectResponsiveFrames(array(
+    array('id' => 'f:desktop', 'name' => 'Pricing Desktop', 'width' => 1440.0, 'height' => 3200.0, 'page_id' => 'p:1', 'section_id' => 's:1', 'parent_id' => 's:1'),
+    array('id' => 'f:tablet', 'name' => 'Pricing Tablet', 'width' => 834.0, 'height' => 3200.0, 'page_id' => 'p:1', 'section_id' => 's:1', 'parent_id' => 's:1'),
+    array('id' => 'f:mobile', 'name' => 'Pricing Mobile', 'width' => 390.0, 'height' => 3200.0, 'page_id' => 'p:1', 'section_id' => 's:1', 'parent_id' => 's:1'),
+));
+$assert('desktop' === ($frameLevelDetection['f:desktop']['device_hint'] ?? null), 'frame-level-detection-desktop-hint');
+$assert('mobile' === ($frameLevelDetection['f:mobile']['device_hint'] ?? null), 'frame-level-detection-mobile-hint');
+$assert(isset($frameLevelDetection['f:desktop']['sibling_group_key']), 'frame-level-detection-sibling-group-key');
+$frameLevelSiblingIds = array_map(
+    static fn (array $sibling): string => (string) ($sibling['id'] ?? ''),
+    $frameLevelDetection['f:desktop']['responsive_siblings'] ?? array()
+);
+$assert(in_array('f:tablet', $frameLevelSiblingIds, true) && in_array('f:mobile', $frameLevelSiblingIds, true), 'frame-level-detection-links-siblings');
 
 $matrixWebsiteCandidate = array(
     'id'         => 'matrix:site:home',

@@ -263,6 +263,73 @@ final class ScenegraphFrameInspector
     }
 
     /**
+     * Memory-efficient responsive detection over a pre-extracted set of
+     * frame-level candidates, with NO {@see ScenegraphIndex} build.
+     *
+     * Responsive grouping is a frame-level question: it only needs the set of
+     * page-candidate FRAMEs and a few light attributes (name, width, height,
+     * device hint, and the page/section/parent ids that scope name-similarity
+     * relationships). It does NOT need an index of every descendant node. The
+     * planner already holds those frame attributes in memory after its single
+     * index build, so it hands them here instead of forcing this inspector to
+     * rebuild a second whole-scenegraph index — the build that OOMed on the
+     * 293MB "WP.Cloud 2.0" .fig and made #265 skip detection above a node
+     * ceiling. The returned detection keeps the planner's contract intact
+     * (`device_hint`, `sibling_group_key`, `responsive_siblings`) keyed by
+     * frame id, so grouping behaves identically — just without the memory cost
+     * of a full-node index.
+     *
+     * @param array<int, array{id?: string, name?: string, width?: float|null, height?: float|null, page_id?: string|null, section_id?: string|null, parent_id?: string|null}> $frames
+     * @return array<string, array<string, mixed>>
+     */
+    public function detectResponsiveFrames(array $frames): array
+    {
+        $candidates = array();
+        foreach ( $frames as $frame ) {
+            if ( ! is_array($frame) ) {
+                continue;
+            }
+
+            $id = isset($frame['id']) && is_scalar($frame['id']) ? (string) $frame['id'] : '';
+            if ( '' === $id ) {
+                continue;
+            }
+
+            $name = (string) ($frame['name'] ?? '');
+            $dimensions = array(
+                'width'  => is_numeric($frame['width'] ?? null) ? (float) $frame['width'] : null,
+                'height' => is_numeric($frame['height'] ?? null) ? (float) $frame['height'] : null,
+            );
+            $pageId = isset($frame['page_id']) && is_scalar($frame['page_id']) && '' !== (string) $frame['page_id'] ? (string) $frame['page_id'] : null;
+            $sectionId = isset($frame['section_id']) && is_scalar($frame['section_id']) && '' !== (string) $frame['section_id'] ? (string) $frame['section_id'] : null;
+            $parentId = isset($frame['parent_id']) && is_scalar($frame['parent_id']) && '' !== (string) $frame['parent_id'] ? (string) $frame['parent_id'] : null;
+
+            $candidates[$id] = array_filter(
+                array(
+                    'id'                => $id,
+                    'name'              => $name,
+                    'width'             => $dimensions['width'],
+                    'height'            => $dimensions['height'],
+                    'page'              => null !== $pageId ? array('id' => $pageId) : null,
+                    'section'           => null !== $sectionId ? array('id' => $sectionId) : null,
+                    'parent'            => null !== $parentId ? array('id' => $parentId) : null,
+                    'device_hint'       => $this->deviceHint($name, $dimensions),
+                    'sibling_group_key' => $this->siblingGroupKeyFor($name, $pageId, $sectionId),
+                ),
+                static fn (mixed $value): bool => null !== $value
+            );
+        }
+
+        $detection = array();
+        foreach ( $candidates as $id => $candidate ) {
+            $candidate['responsive_siblings'] = $this->responsiveSiblings((string) $id, $candidate, $candidates);
+            $detection[(string) $id] = $candidate;
+        }
+
+        return $detection;
+    }
+
+    /**
      * @param array<string, mixed>                 $node
      * @param array<string, array<string, mixed>> $nodes
      * @param array<string, string>               $parentIndex
@@ -271,9 +338,22 @@ final class ScenegraphFrameInspector
     {
         $page = $this->nearestAncestor($id, array('CANVAS'), $nodes, $parentIndex);
         $section = $this->nearestAncestor($id, array('SECTION'), $nodes, $parentIndex);
-        $scope = (string) (($section['id'] ?? null) ?: ($page['id'] ?? 'root'));
 
-        return $scope . ':' . $this->normalizedPageName((string) ($node['name'] ?? ''));
+        return $this->siblingGroupKeyFor((string) ($node['name'] ?? ''), $page['id'] ?? null, $section['id'] ?? null);
+    }
+
+    /**
+     * Derive a sibling-group key from frame-level data alone (name + scope
+     * ids), so both the full inspection path and the lightweight
+     * {@see ScenegraphFrameInspector::detectResponsiveFrames()} path share one
+     * normalization. Scope prefers the nearest SECTION, then the page (CANVAS),
+     * then a synthetic root.
+     */
+    private function siblingGroupKeyFor(string $name, ?string $pageId, ?string $sectionId): string
+    {
+        $scope = (string) (($sectionId ?? '') !== '' ? $sectionId : (($pageId ?? '') !== '' ? $pageId : 'root'));
+
+        return $scope . ':' . $this->normalizedPageName($name);
     }
 
     /**
