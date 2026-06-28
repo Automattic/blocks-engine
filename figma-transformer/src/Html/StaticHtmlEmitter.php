@@ -66,6 +66,23 @@ final class StaticHtmlEmitter
     private array $linkCoverage = array();
 
     /**
+     * Page-relative typographic hierarchy: rounded font-size key => heading tag
+     * (h1-h6). Populated per emitted page so the largest/boldest text becomes the
+     * top heading and smaller sizes descend.
+     *
+     * @var array<string, string>
+     */
+    private array $headingLevels = array();
+
+    /**
+     * Memoized list-item id sets keyed by container node id, so list-container
+     * (<ul>) and list-item (<li>) decisions stay consistent within a page.
+     *
+     * @var array<string, array<int, string>>
+     */
+    private array $listItemIdCache = array();
+
+    /**
      * @param array<string, mixed> $scenegraph Normalized Figma scenegraph.
      * @param array<string, mixed> $options Transformation options.
      * @return array<string, mixed>
@@ -80,6 +97,8 @@ final class StaticHtmlEmitter
         $this->linkCoverage = $this->newLinkCoverage();
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $nodes = $this->nodeList($scenegraph);
+        $this->listItemIdCache = array();
+        $this->prepareHeadingRanking($nodes);
         $diagnostics = array();
         $nodeStyleDiagnostics = array();
         $assetFiles = $this->normalizeAssets($scenegraph['assets'] ?? array(), $diagnostics);
@@ -240,6 +259,8 @@ final class StaticHtmlEmitter
             }
             $seenPaths[$path] = true;
 
+            $this->listItemIdCache = array();
+            $this->prepareHeadingRanking(array($frameNode));
             $body = $this->emitNode($frameNode, $cssRules, $diagnostics, $nodeStyleDiagnostics, 0, null);
             $files[] = array(
                 'path'      => $path,
@@ -380,7 +401,7 @@ final class StaticHtmlEmitter
         $attributeName = $this->sanitizeAttribute($name);
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
         $text = 'TEXT' === $type ? ( $this->textGlyphSvg($node) ?? $this->textContent($node) ) : $this->textContent($node);
-        $tag = $this->tagName($type, $name, $depth);
+        $tag = $this->semanticTag($node, $type, $name, $depth, $parentNode);
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
         $children = $this->nodeList($node);
         $content = $text;
@@ -432,21 +453,78 @@ final class StaticHtmlEmitter
 
         $element = sprintf("<%1\$s%2\$s>%3\$s</%1\$s>\n", $tag, $attributes, $content);
 
-        return $this->wrapWithLink($node, $element, $diagnostics);
+        return $this->wrapWithLink($node, $element, $diagnostics, $this->isButtonLike($node));
     }
 
-    private function tagName(string $type, string $name, int $depth): string
+    /**
+     * Selects a semantic HTML element for a node from its type, name, position,
+     * and content. Landmarks (header/nav/section/footer/article) come from
+     * structure and position; content tags (h1-h6/p/ul/li/button/span) come from
+     * the page-relative typographic hierarchy and node shape. Falls back to the
+     * historical name-based mapping and a generic section/div when no stronger
+     * signal exists.
+     *
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function semanticTag(array $node, string $type, string $name, int $depth, ?array $parentNode): string
     {
         $lowerName = strtolower($name);
 
         if ( 'TEXT' === $type ) {
-            if ( str_contains($lowerName, 'title') || str_contains($lowerName, 'heading') || str_contains($lowerName, 'headline') ) {
-                return 0 === $depth ? 'h1' : 'h2';
+            // A label inside a button-like control is inline phrasing content.
+            if ( null !== $parentNode && $this->isButtonLike($parentNode) ) {
+                return 'span';
+            }
+
+            $heading = $this->headingLevel($node, $lowerName, $depth);
+            if ( null !== $heading ) {
+                return $heading;
             }
 
             return 'p';
         }
 
+        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
+
+        // List items: a repeated, structurally-similar child of a list container.
+        if ( null !== $parentNode && $this->isListItemOf($node, $parentNode) ) {
+            return 'li';
+        }
+
+        // A standalone button-like control (no link) becomes a real <button>.
+        // Linked controls stay structural and gain a button class on their anchor.
+        if ( empty($node['figma_link']) && $this->isButtonLike($node) ) {
+            return 'button';
+        }
+
+        $landmark = $this->landmarkTag($node, $lowerName, $children, $depth, $parentNode);
+        if ( null !== $landmark ) {
+            return $landmark;
+        }
+
+        // A container of repeated sibling items reads as an unordered list.
+        if ( ! empty($this->listItemIds($node)) ) {
+            return 'ul';
+        }
+
+        if ( 'FRAME' === $type ) {
+            return 'section';
+        }
+
+        return 'div';
+    }
+
+    /**
+     * Maps a container to a landmark element from explicit name signals first,
+     * then position + content heuristics for generically-named regions.
+     *
+     * @param array<string, mixed> $node
+     * @param array<int, array<string, mixed>> $children
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function landmarkTag(array $node, string $lowerName, array $children, int $depth, ?array $parentNode): ?string
+    {
         if ( str_contains($lowerName, 'header') ) {
             return 'header';
         }
@@ -463,11 +541,512 @@ final class StaticHtmlEmitter
             return 'article';
         }
 
-        if ( 'FRAME' === $type ) {
-            return 'section';
+        if ( empty($children) ) {
+            return null;
         }
 
-        return 'div';
+        $linkCount = $this->linkChildCount($children);
+
+        // Top region with a logo and a cluster of links reads as a site header;
+        // a bottom region with links or legal text reads as a footer.
+        if ( $depth <= 1 && null !== $parentNode ) {
+            $region = $this->verticalRegion($node, $parentNode);
+            if ( 'top' === $region && $this->hasLogoChild($children) && ( $linkCount >= 1 || count($children) >= 2 ) ) {
+                return 'header';
+            }
+            if ( 'bottom' === $region && ( $linkCount >= 1 || $this->hasLegalText($node) ) ) {
+                return 'footer';
+            }
+        }
+
+        // A tight cluster whose children are all links reads as navigation; a
+        // region that merely contains a couple of link-bearing sub-areas does not.
+        if ( $linkCount >= 2 && $linkCount === count($children) ) {
+            return 'nav';
+        }
+
+        return null;
+    }
+
+    /**
+     * Builds the page-relative heading ranking. The most common text size is
+     * treated as body copy; distinct larger sizes are ranked descending into
+     * h1..h6 (largest/boldest first).
+     *
+     * @param array<int, mixed> $nodes
+     */
+    private function prepareHeadingRanking(array $nodes): void
+    {
+        $this->headingLevels = array();
+        $sizes = array();
+        $this->collectTextSizes($nodes, $sizes);
+        if ( empty($sizes) ) {
+            return;
+        }
+
+        $bodySize = $this->modeFontSize($sizes);
+        $headingSizes = array();
+        foreach ( $sizes as $size ) {
+            if ( $size > $bodySize ) {
+                $headingSizes[$this->sizeKey($size)] = $size;
+            }
+        }
+        if ( empty($headingSizes) ) {
+            return;
+        }
+
+        $values = array_values($headingSizes);
+        rsort($values);
+        $level = 1;
+        foreach ( $values as $size ) {
+            $this->headingLevels[$this->sizeKey($size)] = 'h' . min($level, 6);
+            $level++;
+        }
+    }
+
+    /**
+     * @param array<int, mixed> $nodes
+     * @param array<int, float> $sizes
+     */
+    private function collectTextSizes(array $nodes, array &$sizes): void
+    {
+        foreach ( $nodes as $node ) {
+            if ( ! is_array($node) ) {
+                continue;
+            }
+            if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+                $size = $this->textFontSize($node);
+                if ( null !== $size ) {
+                    $sizes[] = $size;
+                }
+            }
+            $this->collectTextSizes($this->nodeList($node), $sizes);
+        }
+    }
+
+    /**
+     * @param array<int, float> $sizes
+     */
+    private function modeFontSize(array $sizes): float
+    {
+        $counts = array();
+        foreach ( $sizes as $size ) {
+            $key = $this->sizeKey($size);
+            $counts[$key] = ($counts[$key] ?? 0) + 1;
+        }
+
+        $bestCount = -1;
+        $bestSize = 0.0;
+        foreach ( $sizes as $size ) {
+            $count = $counts[$this->sizeKey($size)];
+            if ( $count > $bestCount || ( $count === $bestCount && $size < $bestSize ) ) {
+                $bestCount = $count;
+                $bestSize = $size;
+            }
+        }
+
+        return $bestSize;
+    }
+
+    private function sizeKey(float $size): string
+    {
+        return number_format($size, 1, '.', '');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function headingLevel(array $node, string $lowerName, int $depth): ?string
+    {
+        $size = $this->textFontSize($node);
+        if ( null !== $size ) {
+            $key = $this->sizeKey($size);
+            // Long running text at a heading size still reads as a paragraph.
+            if ( isset($this->headingLevels[$key]) && $this->textWordCount($node) <= 24 ) {
+                return $this->headingLevels[$key];
+            }
+        }
+
+        // Name-based fallback preserves explicit title/heading/headline intent.
+        if ( str_contains($lowerName, 'title') || str_contains($lowerName, 'heading') || str_contains($lowerName, 'headline') ) {
+            return 0 === $depth ? 'h1' : 'h2';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function textFontSize(array $node): ?float
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        if ( isset($style['font_size']) && is_numeric($style['font_size']) ) {
+            return (float) $style['font_size'];
+        }
+        if ( isset($node['fontSize']) && is_numeric($node['fontSize']) ) {
+            return (float) $node['fontSize'];
+        }
+
+        return null;
+    }
+
+    /**
+     * Identifies a button-like control: a small container with a single text
+     * label that is filled, rounded, or named like a button.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function isButtonLike(array $node): bool
+    {
+        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+            return false;
+        }
+        if ( 1 !== $this->textDescendantCount($node) ) {
+            return false;
+        }
+
+        $width = $this->boxValue($node, 'width');
+        if ( null !== $width && $width > 480.0 ) {
+            return false;
+        }
+        $height = $this->boxValue($node, 'height');
+        if ( null !== $height && $height > 160.0 ) {
+            return false;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $nameHint = str_contains($name, 'button') || str_contains($name, 'btn') || str_contains($name, 'cta');
+
+        return $nameHint || null !== $this->backgroundColor($node) || $this->cornerRadius($node) > 0.0;
+    }
+
+    /**
+     * Returns the ids of a container's children when they form a list: at least
+     * three structurally-similar, text-bearing siblings of one type that are not
+     * a navigation/landmark cluster. Empty otherwise.
+     *
+     * @param array<string, mixed> $container
+     * @return array<int, string>
+     */
+    private function listItemIds(array $container): array
+    {
+        $id = (string) ($container['id'] ?? '');
+        if ( '' !== $id && array_key_exists($id, $this->listItemIdCache) ) {
+            return $this->listItemIdCache[$id];
+        }
+
+        $result = $this->computeListItemIds($container);
+        if ( '' !== $id ) {
+            $this->listItemIdCache[$id] = $result;
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $container
+     * @return array<int, string>
+     */
+    private function computeListItemIds(array $container): array
+    {
+        $name = strtolower((string) ($container['name'] ?? ''));
+        foreach ( array('header', 'footer', 'nav', 'menu', 'article') as $hint ) {
+            if ( str_contains($name, $hint) ) {
+                return array();
+            }
+        }
+
+        $children = array_values(array_filter($this->nodeList($container), 'is_array'));
+        if ( 3 > count($children) ) {
+            return array();
+        }
+
+        // Link-saturated clusters read as navigation, not generic content lists.
+        if ( $this->linkChildCount($children) >= count($children) ) {
+            return array();
+        }
+
+        $type = strtoupper((string) ($children[0]['type'] ?? ''));
+        $heights = array();
+        foreach ( $children as $child ) {
+            if ( strtoupper((string) ($child['type'] ?? '')) !== $type ) {
+                return array();
+            }
+            if ( ! $this->subtreeHasText($child) ) {
+                return array();
+            }
+            $height = $this->boxValue($child, 'height');
+            if ( null !== $height ) {
+                $heights[] = $height;
+            }
+        }
+
+        if ( count($heights) >= 2 ) {
+            $min = min($heights);
+            $max = max($heights);
+            if ( $min > 0.0 && ( $max / $min ) > 1.5 ) {
+                return array();
+            }
+        }
+
+        $ids = array();
+        foreach ( $children as $child ) {
+            $ids[] = (string) ($child['id'] ?? '');
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isListItemOf(array $node, array $parentNode): bool
+    {
+        $id = (string) ($node['id'] ?? '');
+        if ( '' === $id ) {
+            return false;
+        }
+
+        return in_array($id, $this->listItemIds($parentNode), true);
+    }
+
+    /**
+     * Classifies a node's vertical position among its siblings as top, bottom,
+     * or middle, using box coordinates and falling back to source order.
+     *
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function verticalRegion(array $node, array $parentNode): ?string
+    {
+        $siblings = array_values(array_filter($this->nodeList($parentNode), 'is_array'));
+        if ( 2 > count($siblings) ) {
+            return 'middle';
+        }
+
+        $thisId = (string) ($node['id'] ?? '');
+        $positions = array();
+        $haveAll = true;
+        foreach ( $siblings as $sibling ) {
+            $y = $this->boxValue($sibling, 'y');
+            if ( null === $y ) {
+                $haveAll = false;
+                break;
+            }
+            $positions[(string) ($sibling['id'] ?? '')] = $y;
+        }
+
+        if ( $haveAll && isset($positions[$thisId]) ) {
+            $y = $positions[$thisId];
+            if ( $y <= min($positions) ) {
+                return 'top';
+            }
+            if ( $y >= max($positions) ) {
+                return 'bottom';
+            }
+
+            return 'middle';
+        }
+
+        $firstId = (string) ($siblings[0]['id'] ?? '');
+        $lastId = (string) ($siblings[count($siblings) - 1]['id'] ?? '');
+        if ( $thisId === $firstId ) {
+            return 'top';
+        }
+        if ( $thisId === $lastId ) {
+            return 'bottom';
+        }
+
+        return 'middle';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function linkChildCount(array $children): int
+    {
+        $count = 0;
+        foreach ( $children as $child ) {
+            if ( is_array($child) && $this->subtreeHasLink($child) ) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function subtreeHasLink(array $node): bool
+    {
+        if ( ! empty($node['figma_link']) ) {
+            return true;
+        }
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && $this->subtreeHasLink($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function hasLogoChild(array $children): bool
+    {
+        foreach ( $children as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $name = strtolower((string) ($child['name'] ?? ''));
+            if ( str_contains($name, 'logo') || str_contains($name, 'brand') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasLegalText(array $node): bool
+    {
+        $text = strtolower($this->subtreePlainText($node));
+
+        return str_contains($text, '©') || str_contains($text, 'copyright') || str_contains($text, 'rights reserved');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function textDescendantCount(array $node): int
+    {
+        $count = 0;
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            if ( 'TEXT' === strtoupper((string) ($child['type'] ?? '')) ) {
+                $count++;
+            }
+            $count += $this->textDescendantCount($child);
+        }
+
+        return $count;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function subtreeHasText(array $node): bool
+    {
+        return '' !== trim($this->subtreePlainText($node));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function subtreePlainText(array $node): string
+    {
+        $parts = array();
+        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+            $own = $this->nodePlainText($node);
+            if ( '' !== $own ) {
+                $parts[] = $own;
+            }
+        }
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $childText = $this->subtreePlainText($child);
+            if ( '' !== $childText ) {
+                $parts[] = $childText;
+            }
+        }
+
+        return implode(' ', $parts);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodePlainText(array $node): string
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        if ( isset($text['characters']) && is_scalar($text['characters']) ) {
+            return (string) $text['characters'];
+        }
+
+        $segments = is_array($text['segments'] ?? null) ? $text['segments'] : array();
+        if ( ! empty($segments) ) {
+            $out = '';
+            foreach ( $segments as $segment ) {
+                if ( is_array($segment) && isset($segment['characters']) && is_scalar($segment['characters']) ) {
+                    $out .= (string) $segment['characters'];
+                }
+            }
+            if ( '' !== $out ) {
+                return $out;
+            }
+        }
+
+        foreach ( array('characters', 'text') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
+                return (string) $node[$key];
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function textWordCount(array $node): int
+    {
+        $words = preg_split('/\s+/', trim($this->nodePlainText($node)));
+        if ( ! is_array($words) ) {
+            return 0;
+        }
+
+        return count(array_filter($words, static fn (string $word): bool => '' !== $word));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function cornerRadius(array $node): float
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        if ( isset($box['corner_radius']) && is_numeric($box['corner_radius']) ) {
+            return (float) $box['corner_radius'];
+        }
+
+        return 0.0;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function boxValue(array $node, string $key): ?float
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        if ( isset($box[$key]) && is_numeric($box[$key]) ) {
+            return (float) $box[$key];
+        }
+        if ( isset($node[$key]) && is_numeric($node[$key]) ) {
+            return (float) $node[$key];
+        }
+
+        return null;
     }
 
     /**
@@ -818,7 +1397,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed>             $node
      * @param array<int, array<string, mixed>> $diagnostics
      */
-    private function wrapWithLink(array $node, string $element, array &$diagnostics): string
+    private function wrapWithLink(array $node, string $element, array &$diagnostics, bool $buttonLike = false): string
     {
         $link = is_array($node['figma_link'] ?? null) ? $node['figma_link'] : array();
         if ( empty($link) ) {
@@ -876,10 +1455,11 @@ final class StaticHtmlEmitter
         $this->linkCoverage['anchors_emitted']++;
 
         return sprintf(
-            "<a class=\"figma-link\" href=\"%1\$s\" data-figma-link-type=\"%2\$s\">%3\$s</a>\n",
+            "<a class=\"%4\$s\" href=\"%1\$s\" data-figma-link-type=\"%2\$s\">%3\$s</a>\n",
             $this->sanitizeAttribute($href),
             $this->sanitizeAttribute($type),
-            $element
+            $element,
+            $buttonLike ? 'figma-link button' : 'figma-link'
         );
     }
 
