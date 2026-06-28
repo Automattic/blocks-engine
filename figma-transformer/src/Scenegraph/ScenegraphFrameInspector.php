@@ -10,7 +10,8 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Scenegraph;
 final class ScenegraphFrameInspector
 {
     public function __construct(
-        private readonly ScenegraphIndex $index = new ScenegraphIndex()
+        private readonly ScenegraphIndex $index = new ScenegraphIndex(),
+        private readonly ScenegraphFrameClassifier $frameClassifier = new ScenegraphFrameClassifier()
     ) {
     }
 
@@ -43,6 +44,7 @@ final class ScenegraphFrameInspector
 
             $stats = $this->subtreeStats($id, $nodes, $childrenIndex, $statsMemo);
             $dimensions = $this->dimensions($node);
+            $classification = $this->candidateClassification($id, $node, $dimensions, $stats, $nodes, $parentIndex);
             $candidates[$id] = array_filter(
                 array(
                     'id'                    => $id,
@@ -61,6 +63,8 @@ final class ScenegraphFrameInspector
                     'device_hint'           => $this->deviceHint((string) ($node['name'] ?? ''), $dimensions),
                     'sibling_group_key'     => $this->siblingGroupKey($id, $node, $nodes, $parentIndex),
                     'dev_status'            => $this->candidateDevStatus($node),
+                    'role'                  => $classification['role'],
+                    'page_type'             => $classification['page_type'],
                 ),
                 static fn (mixed $value): bool => null !== $value
             );
@@ -101,6 +105,47 @@ final class ScenegraphFrameInspector
         $resolved = ScenegraphDevStatus::resolve($node);
 
         return is_array($resolved) ? ($resolved['normalized'] ?? null) : null;
+    }
+
+    /**
+     * Classify a candidate frame's role (design_system|page) and page_type
+     * (front_page|single|archive|page|unknown) so the matrix frame-selector can
+     * exclude design-system frames and prefer real pages by WP template type.
+     *
+     * Uses name signals and basic content metrics (text/asset counts). Content-
+     * shape signals (swatch-grid density, card-list repetition) are not computed
+     * at inspection time because the full subtree traversal is not warranted
+     * here; name signals are authoritative for well-named frames.
+     *
+     * @param array<string, mixed>                $node
+     * @param array{width:float|null,height:float|null} $dimensions
+     * @param array{nodes:int,texts:int,assets:int} $stats
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, string>               $parentIndex
+     * @return array{role:string,page_type:string|null,signals:array<int,string>,is_page:bool}
+     */
+    private function candidateClassification(
+        string $id,
+        array $node,
+        array $dimensions,
+        array $stats,
+        array $nodes,
+        array $parentIndex
+    ): array {
+        $section = $this->nearestAncestor($id, array('SECTION'), $nodes, $parentIndex);
+        $page    = $this->nearestAncestor($id, array('CANVAS'), $nodes, $parentIndex);
+
+        return $this->frameClassifier->classify(array(
+            'name'                 => (string) ($node['name'] ?? ''),
+            'width'                => $dimensions['width'] ?? null,
+            'height'               => $dimensions['height'] ?? null,
+            'text_count'           => (int) ($stats['texts'] ?? 0),
+            'asset_count'          => (int) ($stats['assets'] ?? 0),
+            'uniform_tile_count'   => 0,
+            'repeating_card_count' => 0,
+            'section_name'         => $section['name'] ?? null,
+            'page_name'            => $page['name'] ?? null,
+        ));
     }
 
     /**

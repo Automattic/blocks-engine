@@ -10,6 +10,14 @@ function matrix_select_frame_ids(array $inspection, int $maxPages): array
 {
     $candidates = is_array($inspection['candidates'] ?? null) ? $inspection['candidates'] : array();
 
+    // Exclude design-system frames (style guides, token sheets, component
+    // libraries) before any other filtering. They inform the generated
+    // design system but are never page candidates.
+    $candidates = array_values(array_filter(
+        $candidates,
+        static fn (mixed $candidate): bool => is_array($candidate) && 'design_system' !== matrix_candidate_role($candidate)
+    ));
+
     // Figma Dev Mode status (#280) is the PRIMARY signal when present: restrict
     // to ready_for_dev/completed candidates and let heuristics order them.
     if ( 'dev_status' === matrix_selection_source($candidates) ) {
@@ -137,6 +145,23 @@ function matrix_candidate_dev_status(array $candidate): ?string
 }
 
 /**
+ * Return the candidate's classifier role (design_system|page), or null when
+ * no role is present (e.g., candidates from an older inspection without role
+ * classification). The caller is responsible for the null-is-unknown fallback.
+ *
+ * @param array<string, mixed> $candidate
+ */
+function matrix_candidate_role(array $candidate): ?string
+{
+    $role = $candidate['role'] ?? null;
+    if ( in_array($role, array('design_system', 'page'), true) ) {
+        return (string) $role;
+    }
+
+    return null;
+}
+
+/**
  * @param array<string, mixed> $candidate
  */
 function matrix_candidate_rank(array $candidate): int
@@ -148,6 +173,18 @@ function matrix_candidate_rank(array $candidate): int
         $score += 1200;
     } elseif ( 'ready_for_dev' === $devStatus ) {
         $score += 800;
+    }
+
+    // Page-type classification (#295): prefer real pages with known WP template
+    // types. front_page first (it's the entry point), then single/archive/page,
+    // and unknown last. This breaks dev-status ties when multiple dev-marked
+    // frames compete (e.g., "Home Page – Desktop" beats "Blog Post – Desktop"
+    // within the same ready_for_dev band).
+    $pageType = (string) ($candidate['page_type'] ?? '');
+    if ( 'front_page' === $pageType ) {
+        $score += 300;
+    } elseif ( in_array($pageType, array('single', 'archive', 'page'), true) ) {
+        $score += 120;
     }
 
     $name = strtolower((string) ($candidate['name'] ?? ''));
@@ -274,11 +311,21 @@ function matrix_is_page_like_candidate(array $candidate): bool
     if ( 'FRAME' !== $type ) {
         return false;
     }
-    if ( 1 === preg_match('/\b(style guide|style tile|template|preview|core blocks|component|footer|header|menu)\b/', $name) ) {
+    // Role classification (#295): design_system frames are excluded upstream in
+    // matrix_select_frame_ids(); guard here too so this function is safe to call
+    // in isolation. When role is absent (older inspection), fall through to name
+    // heuristics.
+    if ( 'design_system' === matrix_candidate_role($candidate) ) {
         return false;
     }
-    if ( 1 === preg_match('/\b(style guide|style tile|style tiles|presentation|template|templates|components)\b/', $pageName) ) {
-        return false;
+    // Fallback name-based exclusion for frames without role classification.
+    if ( null === matrix_candidate_role($candidate) ) {
+        if ( 1 === preg_match('/\b(style guide|style tile|template|preview|core blocks|component|footer|header|menu)\b/', $name) ) {
+            return false;
+        }
+        if ( 1 === preg_match('/\b(style guide|style tile|style tiles|presentation|template|templates|components)\b/', $pageName) ) {
+            return false;
+        }
     }
 
     return $width >= 900.0 && $height >= 500.0 && $textCount > 0 && in_array($parentType, array('CANVAS', 'SECTION'), true);
