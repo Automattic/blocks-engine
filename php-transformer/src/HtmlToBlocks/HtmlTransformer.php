@@ -197,6 +197,21 @@ final class HtmlTransformer
      */
     private array $runtimeCanvasSelectors = array();
 
+    /**
+     * Source DOM selectors (id/class) the transformer intentionally removed
+     * because the element was superseded by a native block's own behavior — e.g.
+     * a redundant JS hamburger menu-toggle (and the menu/overlay it controlled)
+     * dropped because the navigation became a core/navigation with its own
+     * responsive overlay. Surfaced under `source_reports.superseded_selectors`
+     * so the runtime-dependency parity report can reclassify a "missing DOM
+     * target" finding for these selectors as an acceptable, superseded loss
+     * rather than a materialization bug (a preserved site script may still
+     * reference the removed selector, which is expected, not broken).
+     *
+     * @var array<string, bool>
+     */
+    private array $supersededRuntimeSelectors = array();
+
     private int $nextSourceProvenanceId = 1;
 
     public function __construct(private readonly Runtime $runtime = new Runtime())
@@ -249,6 +264,7 @@ final class HtmlTransformer
         $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
         $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
+        $this->supersededRuntimeSelectors = array();
         $this->fallbackEmitter->configure($this->fallbackProvenance, $this->runtimeScriptMetadata, $this->runtimeCanvasSelectors);
         $this->nextSourceProvenanceId = 1;
         $provenance               = array(
@@ -316,6 +332,7 @@ final class HtmlTransformer
 
         $fallbacks   = array();
         $interactionCandidates = $this->interactionCandidates($body);
+        $this->collectSupersededNavToggleSelectors($body);
         $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
@@ -339,6 +356,7 @@ final class HtmlTransformer
             'runtime_islands' => $this->runtimeIslands,
             'generated_blocks' => $this->generatedBlocks,
             'interaction_candidates' => $interactionCandidates,
+            'superseded_selectors' => array_keys($this->supersededRuntimeSelectors),
             'wp_block_validity' => $blockValidityReport,
             'semantic_parity' => $semanticParityReport,
             'html' => array(
@@ -672,6 +690,69 @@ final class HtmlTransformer
         }
 
         return $this->hasAssociatedNavigationMenu($element);
+    }
+
+    /**
+     * Authoritatively record, in a single deterministic pass over the source
+     * document, the selectors made redundant by every hamburger menu-toggle the
+     * transformer treats as superseded by native navigation. A redundant
+     * menu-toggle is always dropped from the output — whether by the element
+     * converter, the navigation pattern's chrome handling, or the buttons
+     * container — so scanning the source by the same `isRedundantMenuToggleControl`
+     * predicate captures the superseded selectors independently of which drop
+     * path executed, with no per-path bookkeeping.
+     */
+    private function collectSupersededNavToggleSelectors(DOMElement $root): void
+    {
+        foreach ( $root->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && $this->isRedundantMenuToggleControl($element) ) {
+                $this->recordSupersededNavToggleSelectors($element);
+            }
+        }
+    }
+
+    /**
+     * Record the source selectors made redundant when a hamburger menu-toggle is
+     * dropped in favor of the native navigation overlay: the toggle's own id and
+     * class selectors, plus the id/class selectors of the menu/overlay it
+     * controlled via `aria-controls`. A preserved site script may still reference
+     * these selectors (e.g. `.nav-toggle`, `#nav-mobile`); the runtime-dependency
+     * parity report uses this set to mark a resulting "missing DOM target"
+     * finding as a superseded, acceptable loss rather than a materialization bug.
+     * Only selectors of menu-toggles the transformer actually removed are
+     * recorded, so genuinely-broken targets stay flagged.
+     */
+    private function recordSupersededNavToggleSelectors(DOMElement $toggle): void
+    {
+        $this->recordSupersededSelectorsForElement($toggle);
+
+        foreach ( preg_split('/\s+/', trim($this->attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
+            $controlledId = ltrim(trim($controlledId), '#');
+            if ( '' === $controlledId ) {
+                continue;
+            }
+
+            $this->supersededRuntimeSelectors['#' . $controlledId] = true;
+
+            $target = $this->elementWithId($toggle, $controlledId);
+            if ( $target instanceof DOMElement && ! $target->isSameNode($toggle) ) {
+                $this->recordSupersededSelectorsForElement($target);
+            }
+        }
+    }
+
+    private function recordSupersededSelectorsForElement(DOMElement $element): void
+    {
+        $id = trim($this->attr($element, 'id'));
+        if ( '' !== $id ) {
+            $this->supersededRuntimeSelectors['#' . $id] = true;
+        }
+
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+            if ( '' !== $class ) {
+                $this->supersededRuntimeSelectors['.' . $class] = true;
+            }
+        }
     }
 
     private function isHamburgerMenuToggleControl(DOMElement $element): bool

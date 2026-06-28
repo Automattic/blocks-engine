@@ -81,7 +81,10 @@ final class ArtifactCompiler
         if ( array() !== $companionPluginPayload ) {
             $sourceReports['companion_plugin_payload'] = $companionPluginPayload;
         }
-        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates']);
+        if ( array() !== $entryBlocks['superseded_selectors'] ) {
+            $sourceReports['superseded_selectors'] = $entryBlocks['superseded_selectors'];
+        }
+        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors']);
         if ( array() !== $entryBlocks['runtime_islands'] ) {
             $sourceReports['runtime_islands'] = $entryBlocks['runtime_islands'];
             $runtimeIslandPackage = ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath);
@@ -138,7 +141,7 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>}
      */
     private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = ''): array
     {
@@ -153,12 +156,13 @@ final class ArtifactCompiler
             'runtime_islands'   => $result['runtime_islands'],
             'generated_blocks'  => $result['generated_blocks'],
             'interaction_candidates' => $result['interaction_candidates'],
+            'superseded_selectors' => $result['superseded_selectors'],
         );
     }
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>}
      */
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = ''): array
     {
@@ -172,6 +176,7 @@ final class ArtifactCompiler
                 'runtime_islands'   => array(),
                 'generated_blocks'  => array(),
                 'interaction_candidates' => array(),
+                'superseded_selectors' => array(),
             );
         }
 
@@ -185,6 +190,7 @@ final class ArtifactCompiler
                 'runtime_islands'   => array(),
                 'generated_blocks'  => array(),
                 'interaction_candidates' => array(),
+                'superseded_selectors' => array(),
             );
         }
 
@@ -208,6 +214,10 @@ final class ArtifactCompiler
             'runtime_islands'   => is_array($result['source_reports']['runtime_islands'] ?? null) ? $result['source_reports']['runtime_islands'] : array(),
             'generated_blocks'  => is_array($result['source_reports']['generated_blocks'] ?? null) ? $result['source_reports']['generated_blocks'] : array(),
             'interaction_candidates' => is_array($result['source_reports']['interaction_candidates'] ?? null) ? $result['source_reports']['interaction_candidates'] : array(),
+            'superseded_selectors' => array_values(array_filter(
+                is_array($result['source_reports']['superseded_selectors'] ?? null) ? $result['source_reports']['superseded_selectors'] : array(),
+                static fn (mixed $selector): bool => is_string($selector) && '' !== $selector
+            )),
         );
     }
 
