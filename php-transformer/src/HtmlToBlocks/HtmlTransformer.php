@@ -422,36 +422,6 @@ final class HtmlTransformer
     }
 
     /**
-     * @param array<int, string> $tagNames
-     */
-    private function hasAncestorTag(DOMElement $element, array $tagNames): bool
-    {
-        for ( $node = $element->parentNode; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
-            if ( in_array(strtolower($node->tagName), $tagNames, true) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-    private function hasSourceNavigationSignal(DOMElement $element): bool
-    {
-        if ( 'navigation' === strtolower($this->attr($element, 'role')) ) {
-            return true;
-        }
-
-        foreach ( array( 'class', 'id' ) as $attribute ) {
-            foreach ( preg_split('/[^a-z0-9]+/', strtolower($this->attr($element, $attribute))) ?: array() as $token ) {
-                if ( in_array($token, array( 'nav', 'navbar', 'navigation', 'menu', 'links' ), true) ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    /**
      * @param array<int, array<string, mixed>> $blocks
      * @param array<string, bool> $seen
      * @return array<int, array<string, mixed>>
@@ -3031,22 +3001,6 @@ final class HtmlTransformer
         $this->fallbackEmitter->recordRuntimeIsland($element, $kind, $reason, $runtimeRequirement, $metadata, $this->runtimeIslands);
     }
 
-    private function runtimeIslandSelector(DOMElement $element): string
-    {
-        $id = trim($this->attr($element, 'id'));
-        if ( '' !== $id ) {
-            return '#' . $id;
-        }
-
-        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
-            if ( '' !== $class ) {
-                return '.' . $class;
-            }
-        }
-
-        return $this->elementSelector($element);
-    }
-
     /**
      * @return array<int, array<string, mixed>>
      */
@@ -3090,26 +3044,6 @@ final class HtmlTransformer
         $namespace = is_scalar($options['generated_block_namespace'] ?? null) ? trim((string) $options['generated_block_namespace']) : '';
 
         return '' !== $namespace ? $namespace : 'custom';
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array<string, mixed>>
-     */
-    private function dedupeArrayRows(array $rows): array
-    {
-        $seen = array();
-        $deduped = array();
-        foreach ( $rows as $row ) {
-            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
-            if ( ! is_string($key) || isset($seen[$key]) ) {
-                continue;
-            }
-            $seen[$key] = true;
-            $deduped[] = $row;
-        }
-
-        return $deduped;
     }
 
     /**
@@ -4153,16 +4087,6 @@ final class HtmlTransformer
         return (bool) preg_match('/(?:^|[\s_-])(?:nav|navbar|navigation|menu|links)(?:$|[\s_-])/', $name);
     }
 
-    private function safeNavigationUrl(string $url): string
-    {
-        $url = trim($url);
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
-            return '';
-        }
-
-        return $url;
-    }
-
     private function hasDirectChildElement(DOMElement $element, string $tagName): bool
     {
         foreach ( $element->childNodes as $child ) {
@@ -4684,11 +4608,6 @@ final class HtmlTransformer
         return $this->safeImageUrl($url);
     }
 
-    private function isSafeSvgContent(string $content): bool
-    {
-        return '' !== trim($content) && preg_match('/<svg(?:\s|>)/i', $content) && ! preg_match('/<\s*script\b|\son[a-z]+\s*=|javascript\s*:/i', $content);
-    }
-
     /**
      * @return array<string, string>
      */
@@ -4787,33 +4706,6 @@ final class HtmlTransformer
         }
 
         return $html;
-    }
-
-    /**
-     * @param array<string, string> $attrs
-     */
-    /**
-     * @return array<int, array<string, string>>
-     */
-    private function eventMetadata(DOMElement $element): array
-    {
-        $events = array();
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            if ( preg_match('/^on([a-z]+)$/i', $name, $matches) ) {
-                $events[] = array(
-                    'type'      => strtolower($matches[1]),
-                    'attribute' => strtolower($name),
-                );
-            }
-            if ( preg_match('/^data-(?:action|on|event)$/i', $name) && '' !== trim($value) ) {
-                $events[] = array(
-                    'type'      => 'declared',
-                    'attribute' => $name,
-                );
-            }
-        }
-
-        return $events;
     }
 
 }
