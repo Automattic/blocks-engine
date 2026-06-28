@@ -11,11 +11,19 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmit
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SemanticParityReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MathPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ParameterTablePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMediaPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -70,9 +78,25 @@ final class HtmlTransformer
 
     private readonly ButtonsPattern $buttonsPattern;
 
+    private readonly CodeWindowPattern $codeWindowPattern;
+
+    private readonly ColumnsPattern $columnsPattern;
+
     private readonly DetailsPattern $detailsPattern;
 
+    private readonly GalleryPattern $galleryPattern;
+
     private readonly LogoPattern $logoPattern;
+
+    private readonly MathPattern $mathPattern;
+
+    private readonly ParameterTablePattern $parameterTablePattern;
+
+    private readonly PlaceholderMediaPattern $placeholderMediaPattern;
+
+    private readonly QuotePattern $quotePattern;
+
+    private readonly SpacerPattern $spacerPattern;
 
     private readonly PatternRecognizerRegistry $patternRecognizers;
 
@@ -179,8 +203,16 @@ final class HtmlTransformer
     {
         $this->blockFactory      = new BlockFactory();
         $this->buttonsPattern    = new ButtonsPattern();
+        $this->codeWindowPattern = new CodeWindowPattern();
+        $this->columnsPattern    = new ColumnsPattern();
         $this->detailsPattern    = new DetailsPattern();
+        $this->galleryPattern    = new GalleryPattern();
         $this->logoPattern       = new LogoPattern();
+        $this->mathPattern       = new MathPattern();
+        $this->parameterTablePattern = new ParameterTablePattern();
+        $this->placeholderMediaPattern = new PlaceholderMediaPattern();
+        $this->quotePattern      = new QuotePattern();
+        $this->spacerPattern     = new SpacerPattern();
         $this->patternRecognizers = new PatternRecognizerRegistry(array(
             new AccordionPattern(),
             new NavigationPattern(),
@@ -842,7 +874,15 @@ final class HtmlTransformer
             return null;
         }
 
-        $mathBlock = $this->mathBlockFromElement($element);
+        $mathBlock = $this->mathPattern->match(
+            $element,
+            fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
+            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
+            fn (string $text): string => $this->runtime->escapeHtml($text),
+            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+        );
         if ( null !== $mathBlock ) {
             return $mathBlock;
         }
@@ -881,7 +921,12 @@ final class HtmlTransformer
             return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
         }
 
-        $placeholderMedia = $this->placeholderMediaBlockFromElement($element);
+        $placeholderMedia = $this->placeholderMediaPattern->match(
+            $element,
+            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+            fn (string $value): string => $this->runtime->escapeHtml($value),
+            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+        );
         if ( null !== $placeholderMedia ) {
             return $placeholderMedia;
         }
@@ -940,28 +985,17 @@ final class HtmlTransformer
         }
 
         if ( 'blockquote' === $tagName ) {
-            $citation = $this->citationFromElement($element);
-            $value = $this->innerHtmlWithoutTags($element, array( 'cite', 'footer' ));
-            if ( '' === trim($this->runtime->stripAllTags($value)) ) {
-                return null;
-            }
-
-            if ( $this->hasClass($element, 'wp-block-pullquote') ) {
-                return $this->createBlock('core/pullquote', array_filter(array_merge($this->presentationAttributes($element), array(
-                    'value'    => $value,
-                    'citation' => $citation,
-                )), static fn ($value): bool => '' !== $value), array(), $element);
-            }
-
-            $innerBlocks = $this->phrasingQuoteChildren($element, $value);
-            if ( array() === $innerBlocks ) {
-                $innerBlocks = $this->convertChildrenWithoutTags($element, $fallbacks, array( 'cite', 'footer' ));
-            }
-            if ( array() === $innerBlocks ) {
-                $innerBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $value ));
-            }
-
-            return $this->createBlock('core/quote', array_filter(array_merge($this->presentationAttributes($element), array( 'citation' => $citation )), static fn ($value): bool => '' !== $value), $innerBlocks, $element);
+            return $this->quotePattern->matchBlockquote(
+                $element,
+                $fallbacks,
+                fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement),
+                fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags),
+                fn (string $html): string => $this->runtime->stripAllTags($html),
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags),
+                fn (string $inlineTagName): bool => $this->isInlineContentElement($inlineTagName),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
         }
 
         if ( 'address' === $tagName ) {
@@ -974,12 +1008,27 @@ final class HtmlTransformer
         }
 
         if ( 'figure' === $tagName ) {
-            $gallery = $this->galleryBlockFromElement($element, $fallbacks);
+            $gallery = $this->galleryPattern->match(
+                $element,
+                fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
+                fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
+                fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure),
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
             if ( null !== $gallery ) {
                 return $gallery;
             }
 
-            $codeWindow = $this->codeWindowBlockFromElement($element, $fallbacks);
+            $codeWindow = $this->codeWindowPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode),
+                fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
             if ( null !== $codeWindow ) {
                 return $codeWindow;
             }
@@ -1009,7 +1058,18 @@ final class HtmlTransformer
 
             $blockquote = $this->firstChildElement($element, 'blockquote');
             if ( $blockquote instanceof DOMElement ) {
-                return $this->convertFigureBlockquote($element, $blockquote, $fallbacks);
+                return $this->quotePattern->matchFigureBlockquote(
+                    $element,
+                    $blockquote,
+                    $fallbacks,
+                    fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement),
+                    fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                    fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags),
+                    fn (string $html): string => $this->runtime->stripAllTags($html),
+                    fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                    fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags),
+                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+                );
             }
 
             return $this->convertFigureGeneric($element, $fallbacks);
@@ -1090,7 +1150,12 @@ final class HtmlTransformer
             return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
         }
 
-        $parameterTable = $this->parameterTableBlockFromElement($element);
+        $parameterTable = $this->parameterTablePattern->match(
+            $element,
+            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+        );
         if ( null !== $parameterTable ) {
             return $parameterTable;
         }
@@ -1308,7 +1373,14 @@ final class HtmlTransformer
                 return $logo;
             }
 
-            $spacer = $this->spacerBlockFromElement($element);
+            $spacer = $this->spacerPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): int => $this->childElementCount($sourceElement),
+                fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
+                fn (DOMElement $sourceElement, string $className): bool => $this->hasClass($sourceElement, $className),
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
             if ( null !== $spacer ) {
                 return $spacer;
             }
@@ -1325,17 +1397,39 @@ final class HtmlTransformer
                 }
             }
 
-            $columns = $this->columnsBlockFromElement($element, $fallbacks);
+            $columns = $this->columnsPattern->match(
+                $element,
+                $fallbacks,
+                fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
+                fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): ?array => $this->convertElement($sourceElement, $sourceFallbacks, $captureUnsupported),
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
             if ( null !== $columns ) {
                 return $columns;
             }
 
-            $gallery = $this->galleryBlockFromElement($element, $fallbacks);
+            $gallery = $this->galleryPattern->match(
+                $element,
+                fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
+                fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
+                fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure),
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
             if ( null !== $gallery ) {
                 return $gallery;
             }
 
-            $codeWindow = $this->codeWindowBlockFromElement($element, $fallbacks);
+            $codeWindow = $this->codeWindowPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode),
+                fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
             if ( null !== $codeWindow ) {
                 return $codeWindow;
             }
@@ -1899,33 +1993,6 @@ final class HtmlTransformer
         }
 
         return $nonAnchorText;
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function phrasingQuoteChildren(DOMElement $element, string $value): array
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType ) {
-                continue;
-            }
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            $tagName = strtolower($child->tagName);
-            if ( in_array($tagName, array( 'cite', 'footer' ), true) ) {
-                continue;
-            }
-            if ( 'br' === $tagName || $this->isInlineContentElement($tagName) ) {
-                continue;
-            }
-
-            return array();
-        }
-
-        return array( $this->createBlock('core/paragraph', array( 'content' => $value )) );
     }
 
     private function dynamicTextContent(DOMElement $element): ?string
@@ -2590,37 +2657,6 @@ final class HtmlTransformer
     }
 
     /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function convertFigureBlockquote(DOMElement $figure, DOMElement $blockquote, array &$fallbacks): ?array
-    {
-        $citation = $this->citationFromElement($blockquote);
-        $caption = $this->firstChildElement($figure, 'figcaption');
-        if ( '' === $citation && $caption instanceof DOMElement ) {
-            $citation = $this->innerHtml($caption);
-        }
-
-        $value = $this->innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' ));
-        if ( '' === trim($this->runtime->stripAllTags($value)) ) {
-            return null;
-        }
-
-        $attrs = array_filter(array_merge($this->presentationAttributes($figure), array( 'citation' => $citation )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value);
-
-        if ( $this->hasClass($figure, 'wp-block-pullquote') || $this->hasClass($blockquote, 'wp-block-pullquote') ) {
-            return $this->createBlock('core/pullquote', array_merge($attrs, array( 'value' => $value )), array(), $figure);
-        }
-
-        $innerBlocks = $this->convertChildrenWithoutTags($blockquote, $fallbacks, array( 'cite', 'footer' ));
-        if ( array() === $innerBlocks ) {
-            $innerBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $value ));
-        }
-
-        return $this->createBlock('core/quote', $attrs, $innerBlocks, $figure);
-    }
-
-    /**
      * @param array<int, string> $excludedTags
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<int, array<string, mixed>>
@@ -2707,53 +2743,6 @@ final class HtmlTransformer
             );
         }
         return $cells;
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function parameterTableBlockFromElement(DOMElement $element): ?array
-    {
-        if ( ! $this->hasClass($element, 'param-table') ) {
-            return null;
-        }
-
-        $rows = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement || ! $this->hasClass($child, 'param-row') ) {
-                return null;
-            }
-
-            $name = $this->firstDirectChildWithClass($child, 'param-name');
-            $type = $this->firstDirectChildWithClass($child, 'param-type');
-            $desc = $this->firstDirectChildWithClass($child, 'param-desc');
-            if ( ! $name instanceof DOMElement || ! $type instanceof DOMElement || ! $desc instanceof DOMElement ) {
-                return null;
-            }
-
-            $rows[] = array( 'cells' => array(
-                array( 'content' => $this->innerHtml($name), 'tag' => 'td' ),
-                array( 'content' => $this->innerHtml($type), 'tag' => 'td' ),
-                array( 'content' => $this->innerHtml($desc), 'tag' => 'td' ),
-            ) );
-        }
-
-        if ( array() === $rows ) {
-            return null;
-        }
-
-        return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), array(
-            'head' => array( array( 'cells' => array(
-                array( 'content' => 'Parameter', 'tag' => 'th' ),
-                array( 'content' => 'Type', 'tag' => 'th' ),
-                array( 'content' => 'Description', 'tag' => 'th' ),
-            ) ) ),
-            'body' => $rows,
-        )), array(), $element);
     }
 
     /**
@@ -3228,73 +3217,6 @@ final class HtmlTransformer
         ))));
 
         return (bool) preg_match('/(?:^|[\s_-])(?:image|photo|picture)(?:$|[\s_-])/', $context);
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function mathBlockFromElement(DOMElement $element): ?array
-    {
-        if ( ! $this->isMathElement($element) ) {
-            return null;
-        }
-
-        $tagName = strtolower($element->tagName);
-        $content = 'math' === $tagName ? $this->safeFallbackHtml($element) : $this->mathExpressionContent($element);
-        if ( '' === trim($content) ) {
-            return null;
-        }
-
-        return $this->createBlock('core/math', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
-    }
-
-    private function isMathElement(DOMElement $element): bool
-    {
-        if ( 'math' === strtolower($element->tagName) ) {
-            return true;
-        }
-
-        if ( $this->hasMathSignal($element) ) {
-            return true;
-        }
-
-        return in_array(strtolower($element->tagName), array( 'div', 'p', 'span' ), true) && $this->isTeXDelimitedText(trim($element->textContent ?? ''));
-    }
-
-    private function hasMathSignal(DOMElement $element): bool
-    {
-        $signals = strtolower(trim(implode(' ', array(
-            $this->attr($element, 'class'),
-            $this->attr($element, 'id'),
-            $this->attr($element, 'data-math'),
-            $this->attr($element, 'data-latex'),
-            $this->attr($element, 'data-tex'),
-        ))));
-
-        return (bool) preg_match('/(?:^|[\s_-])(?:math|latex|tex|katex|mathjax)(?:$|[\s_-])/', $signals);
-    }
-
-    private function mathExpressionContent(DOMElement $element): string
-    {
-        $html = $this->innerHtml($element);
-        if ( '' !== trim($html) && ! preg_match('/<(?:script|style)\b/i', $html) ) {
-            return $html;
-        }
-
-        return $this->runtime->escapeHtml(trim($element->textContent ?? ''));
-    }
-
-    private function isTeXDelimitedText(string $text): bool
-    {
-        if ( str_starts_with($text, '$$') && str_ends_with($text, '$$') && 4 < strlen($text) ) {
-            return true;
-        }
-        if ( str_starts_with($text, '$') && str_ends_with($text, '$') && 2 < strlen($text) && ! str_starts_with($text, '$$') ) {
-            return true;
-        }
-
-        return ( str_starts_with($text, '\\(') && str_ends_with($text, '\\)') && 4 < strlen($text) )
-            || ( str_starts_with($text, '\\[') && str_ends_with($text, '\\]') && 4 < strlen($text) );
     }
 
     private function isPassiveSvgMarkup(DOMElement $element): bool
@@ -4009,83 +3931,6 @@ final class HtmlTransformer
     }
 
     /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function galleryBlockFromElement(DOMElement $element, array &$fallbacks): ?array
-    {
-        $images = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement ) {
-                return null;
-            }
-
-            $tagName = strtolower($child->tagName);
-            if ( 'figcaption' === $tagName ) {
-                continue;
-            }
-
-            if ( 'figure' === $tagName ) {
-                $linkedMedia = $this->figureLinkedMediaAnchor($child);
-                if ( $linkedMedia instanceof DOMElement ) {
-                    $linkedPicture = $this->firstChildElement($linkedMedia, 'picture');
-                    if ( $linkedPicture instanceof DOMElement ) {
-                        $images[] = $this->convertPictureElement($linkedPicture, $child, $linkedMedia);
-                        continue;
-                    }
-
-                    $linkedImage = $this->firstChildElement($linkedMedia, 'img');
-                    if ( $linkedImage instanceof DOMElement ) {
-                        $images[] = $this->convertImageElement($linkedImage, $child, null, $linkedMedia);
-                        continue;
-                    }
-                }
-
-                $image = $this->firstChildElement($child, 'img');
-                if ( $image instanceof DOMElement ) {
-                    $images[] = $this->convertImageElement($image, $child);
-                    continue;
-                }
-
-                $picture = $this->firstChildElement($child, 'picture');
-                if ( $picture instanceof DOMElement ) {
-                    $images[] = $this->convertPictureElement($picture, $child);
-                    continue;
-                }
-            }
-
-            if ( 'img' === $tagName ) {
-                $images[] = $this->convertImageElement($child);
-                continue;
-            }
-
-            if ( 'picture' === $tagName ) {
-                $images[] = $this->convertPictureElement($child);
-                continue;
-            }
-
-            return null;
-        }
-
-        $images = array_values(array_filter($images));
-        if ( count($images) < 2 ) {
-            return null;
-        }
-
-        $attrs = $this->presentationAttributes($element);
-        $caption = $this->firstChildElement($element, 'figcaption');
-        if ( $caption instanceof DOMElement ) {
-            $attrs['caption'] = $this->innerHtml($caption);
-        }
-
-        return $this->createBlock('core/gallery', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $images, $element);
-    }
-
-    /**
      * @return array<string, mixed>|null
      */
     private function backgroundImageBlockFromElement(DOMElement $element): ?array
@@ -4229,100 +4074,6 @@ final class HtmlTransformer
     }
 
     /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function columnsBlockFromElement(DOMElement $element, array &$fallbacks): ?array
-    {
-        if ( ! $this->looksLikeColumnsContainer($element) ) {
-            return null;
-        }
-
-		$elementChildren = array();
-		foreach ( $element->childNodes as $child ) {
-			if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-				continue;
-            }
-
-            if ( ! $child instanceof DOMElement ) {
-                return null;
-            }
-			$elementChildren[] = $child;
-		}
-
-		if ( count($elementChildren) < 2 ) {
-			return null;
-		}
-
-		$columns = array();
-		$columnFallbacks = array();
-		foreach ( $elementChildren as $child ) {
-			$children = $this->isColumnWrapperElement($child)
-				? $this->convertChildren($child, $columnFallbacks, true)
-				: array_filter(array( $this->convertElement($child, $columnFallbacks, true) ));
-			$columns[] = $this->createBlock('core/column', $this->presentationAttributes($child), $children, $child);
-		}
-		array_push($fallbacks, ...$columnFallbacks);
-
-		return $this->createBlock('core/columns', $this->presentationAttributes($element), $columns, $element);
-	}
-
-    private function isColumnWrapperElement(DOMElement $element): bool
-    {
-        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true);
-    }
-
-    private function looksLikeColumnsContainer(DOMElement $element): bool
-    {
-        if ( $this->hasClass($element, 'wp-block-columns') ) {
-            return true;
-        }
-
-        $className = strtolower($this->attr($element, 'class'));
-        $style = strtolower($this->attr($element, 'style'));
-
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style) && $this->hasDirectChildElement($element, 'svg') ) {
-            return false;
-        }
-
-        return (bool) preg_match('/(?:^|[\s_-])columns?(?:$|[\s_-])/', $className)
-            || ( $this->looksLikeSplitLayout($element) && 1 < $this->directElementChildCount($element) )
-            || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element) )
-            || preg_match('/(?:^|;)\s*(?:display\s*:\s*(?:inline-)?flex|grid-template-columns\s*:)/', $style);
-    }
-
-    private function looksLikeSplitLayout(DOMElement $element): bool
-    {
-        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id')));
-
-        return (bool) preg_match('/(?:^|[\s_-])(?:split|two[\s_-]?col|media[\s_-]?text|text[\s_-]?media|feature[\s_-]?row|hero[\s_-]?(?:inner|grid|content|layout)|content[\s_-]?grid)(?:$|[\s_-])/', $name);
-    }
-
-    private function looksLikeDocumentationLayout(DOMElement $element): bool
-    {
-        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id')));
-        return (bool) preg_match('/(?:^|[\s_-])(?:docs?|documentation|article|content)(?:[\s_-]+(?:layout|shell|page|with[\s_-]+sidebar)|$)|(?:^|[\s_-])sidebar[\s_-]+layout(?:$|[\s_-])/', $name);
-    }
-
-    private function hasSidebarAndContentChildren(DOMElement $element): bool
-    {
-        $hasSidebar = false;
-        $hasContent = false;
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            $name = strtolower(trim($child->tagName . ' ' . $this->attr($child, 'class') . ' ' . $this->attr($child, 'id') . ' ' . $this->attr($child, 'role')));
-            $hasSidebar = $hasSidebar || (bool) preg_match('/(?:^|[\s_-])(?:aside|sidebar|toc|table[\s_-]+of[\s_-]+contents)(?:$|[\s_-])/', $name);
-            $hasContent = $hasContent || in_array(strtolower($child->tagName), array( 'article', 'main', 'section' ), true)
-                || (bool) preg_match('/(?:^|[\s_-])(?:main|content|article|docs?[\s_-]+content|documentation[\s_-]+content)(?:$|[\s_-])/', $name);
-        }
-
-        return $hasSidebar && $hasContent;
-    }
-
-    /**
      * @return array<string, mixed>|null
      */
     private function navigationSectionBlockFromElement(DOMElement $element): ?array
@@ -4412,17 +4163,6 @@ final class HtmlTransformer
         return $url;
     }
 
-    private function firstDirectChildWithClass(DOMElement $element, string $className): ?DOMElement
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->hasClass($child, $className) ) {
-                return $child;
-            }
-        }
-
-        return null;
-    }
-
     private function hasDirectChildElement(DOMElement $element, string $tagName): bool
     {
         foreach ( $element->childNodes as $child ) {
@@ -4432,109 +4172,6 @@ final class HtmlTransformer
         }
 
         return false;
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function spacerBlockFromElement(DOMElement $element): ?array
-    {
-        if ( '' !== trim($element->textContent ?? '') || 0 !== $this->childElementCount($element) ) {
-            return null;
-        }
-
-        $height = $this->spacerHeightFromStyle($this->attr($element, 'style'));
-        if ( '' === $height ) {
-            return null;
-        }
-
-        if ( ! $this->hasClass($element, 'wp-block-spacer') && ! $this->hasClass($element, 'spacer') ) {
-            return null;
-        }
-
-        $attrs = $this->presentationAttributes($element);
-        $attrs['height'] = $height;
-        unset($attrs['style']);
-
-        return $this->createBlock('core/spacer', $attrs, array(), $element);
-    }
-
-    private function spacerHeightFromStyle(string $style): string
-    {
-        if ( ! preg_match('/(?:^|;)\s*height\s*:\s*([^;]+)/i', $style, $matches) ) {
-            return '';
-        }
-
-        $height = trim($matches[1]);
-        if ( '' === $height || preg_match('/[{}]/', $height) || strlen($height) > 80 ) {
-            return '';
-        }
-
-        return $height;
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function placeholderMediaBlockFromElement(DOMElement $element): ?array
-    {
-        if ( ! $this->isPlaceholderMediaElement($element) ) {
-            return null;
-        }
-
-        $attrs = $this->presentationAttributes($element);
-        // The aspect ratio rides on the preserved placeholder/ratio classNames and
-        // companion-plugin CSS; a raw inline `style` string would invalidate the
-        // core/group block, so it is intentionally not emitted here (#261).
-        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-placeholder-media');
-
-        $label = $this->placeholderLabel($element);
-        $children = '' !== $label ? array( $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) )) ) : array();
-
-        return $this->createBlock('core/group', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $element);
-    }
-
-    private function isPlaceholderMediaElement(DOMElement $element): bool
-    {
-        $className = strtolower($this->attr($element, 'class'));
-        if ( ! preg_match('/(?:^|\s)(?:ph|placeholder|media-placeholder|image-placeholder|video-placeholder)(?:\s|$)/', $className) && ! preg_match('/(?:^|\s)ratio-[0-9]+(?:x|:|-)[0-9]+(?:\s|$)/', $className) ) {
-            return false;
-        }
-
-        return '' !== $this->placeholderAspectRatio($element)
-            || preg_match('/(?:^|;)\s*aspect-ratio\s*:/i', $this->attr($element, 'style'))
-            || preg_match('/(?:^|\s)(?:media|image|video|thumb|thumbnail|poster|avatar)(?:\s|$)/', $className);
-    }
-
-    private function placeholderAspectRatio(DOMElement $element): string
-    {
-        if ( preg_match('/(?:^|;)\s*aspect-ratio\s*:\s*([0-9.]+\s*\/\s*[0-9.]+|[0-9.]+)\s*(?:;|$)/i', $this->attr($element, 'style'), $styleMatch) ) {
-            return preg_replace('/\s+/', '', $styleMatch[1]) ?? '';
-        }
-
-        $className = strtolower($this->attr($element, 'class'));
-        if ( preg_match('/(?:^|\s)ratio-([0-9]+)(?:x|:|-)([0-9]+)(?:\s|$)/', $className, $classMatch) ) {
-            return $classMatch[1] . '/' . $classMatch[2];
-        }
-
-        return '';
-    }
-
-    private function placeholderLabel(DOMElement $element): string
-    {
-        foreach ( $element->getElementsByTagName('span') as $span ) {
-            if ( ! $span instanceof DOMElement ) {
-                continue;
-            }
-
-            $className = strtolower($this->attr($span, 'class'));
-            if ( preg_match('/(?:^|\s)(?:label|caption|placeholder-label)(?:\s|$)/', $className) ) {
-                return trim(preg_replace('/\s+/', ' ', $span->textContent ?? '') ?? '');
-            }
-        }
-
-        $directText = trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
-        return strlen($directText) <= 80 ? $directText : '';
     }
 
     private function convertMediaElement(DOMElement $element): ?array
@@ -4792,20 +4429,40 @@ final class HtmlTransformer
             return 'https://vimeo.com/' . $matches[1];
         }
 
+        if ( str_ends_with($host, 'dailymotion.com') && preg_match('~^/embed/video/([^/?#]+)~', $path, $matches) ) {
+            return 'https://www.dailymotion.com/video/' . $matches[1];
+        }
+
+        if ( 'open.spotify.com' === $host && preg_match('~^/embed/((?:track|album|playlist|episode|show|artist)/[^/?#]+)~', $path, $matches) ) {
+            return 'https://open.spotify.com/' . $matches[1];
+        }
+
         return $url;
     }
 
     private function embedProviderSlug(string $url): string
     {
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+        $path = (string) parse_url($url, PHP_URL_PATH);
         if ( str_ends_with($host, 'youtube.com') || str_ends_with($host, 'youtube-nocookie.com') || 'youtu.be' === $host ) {
             return 'youtube';
         }
         if ( str_ends_with($host, 'vimeo.com') ) {
             return 'vimeo';
         }
+        if ( str_ends_with($host, 'dailymotion.com') && preg_match('~^/embed/video/[^/?#]+~', $path) ) {
+            return 'dailymotion';
+        }
+        if ( 'open.spotify.com' === $host && preg_match('~^/embed/(?:track|album|playlist|episode|show|artist)/[^/?#]+~', $path) ) {
+            return 'spotify';
+        }
 
         return '';
+    }
+
+    private function embedTypeForSlug(string $slug): string
+    {
+        return 'spotify' === $slug ? 'rich' : 'video';
     }
 
     /**
@@ -4835,7 +4492,7 @@ final class HtmlTransformer
         if ( '' !== $providerNameSlug ) {
             return $this->createBlock('core/embed', array_filter(array_merge($this->presentationAttributes($iframe), array(
                 'url'              => $this->canonicalEmbedUrl($url),
-                'type'             => 'video',
+                'type'             => $this->embedTypeForSlug($providerNameSlug),
                 'providerNameSlug' => $providerNameSlug,
             )), static fn ($value): bool => '' !== $value), array(), $iframe);
         }
@@ -5103,59 +4760,6 @@ final class HtmlTransformer
         }
 
         return $code->textContent ?? '';
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function codeWindowBlockFromElement(DOMElement $element, array &$fallbacks): ?array
-    {
-        $pre = $this->firstChildElement($element, 'pre');
-        if ( ! $pre instanceof DOMElement ) {
-            return null;
-        }
-
-        $code = $this->firstChildElement($pre, 'code');
-        if ( ! $code instanceof DOMElement ) {
-            return null;
-        }
-
-        $label = $this->codeWindowLabel($element, $pre);
-        if ( '' === $label && ! $this->hasClass($element, 'code-window') && ! $this->hasClass($element, 'code-frame') ) {
-            return null;
-        }
-
-        $children = array();
-        if ( '' !== $label ) {
-            $children[] = $this->createBlock('core/paragraph', array( 'content' => $label ));
-        }
-        $children[] = $this->createBlock('core/code', array_merge($this->codePresentationAttributes($pre, $code), array( 'content' => $this->codeContent($code) )), array(), $pre);
-
-        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
-    }
-
-    private function codeWindowLabel(DOMElement $element, DOMElement $pre): string
-    {
-        foreach ( array( 'data-label', 'data-title', 'data-filename', 'aria-label' ) as $attribute ) {
-            $value = trim($this->attr($element, $attribute));
-            if ( '' !== $value ) {
-                return htmlspecialchars($value, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            }
-        }
-
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || $child->isSameNode($pre) ) {
-                continue;
-            }
-
-            $tagName = strtolower($child->tagName);
-            if ( 'figcaption' === $tagName || 'header' === $tagName || $this->hasClass($child, 'code-label') || $this->hasClass($child, 'filename') || $this->hasClass($child, 'window-title') ) {
-                return $this->innerHtml($child);
-            }
-        }
-
-        return '';
     }
 
     private function sanitizedSyntaxHtml(DOMElement $element): string

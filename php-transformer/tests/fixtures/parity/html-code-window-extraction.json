@@ -1,0 +1,46 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-code-window-extraction",
+  "description": "Converts code-window figure/div chrome (figcaption labels, data-* labels, bare class triggers, and syntax-highlighted spans) into core/group wrapping a label paragraph plus core/code.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-code-window-extraction.json",
+    "notes": "Product-neutral fixture locking CodeWindowPattern output shape across the figure and div/section call sites."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><figure class=\"code-window\"><figcaption>theme.json</figcaption><pre><code class=\"language-json\">{&quot;version&quot;:2}</code></pre></figure><div class=\"code-frame\" data-filename=\"functions.php\"><pre><code class=\"language-php\">&lt;?php add_action();</code></pre></div><figure class=\"code-window\"><pre><code class=\"language-bash\">npm run build</code></pre></figure><div class=\"code-window\"><pre><code>plain <span class=\"tok\">token</span> end</code></pre></div></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "code-window" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "theme.json" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/code", "attrs": { "className": "language-json", "content": "{\"version\":2}" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "code-frame" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "functions.php" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/code", "attrs": { "className": "language-php", "content": "<?php add_action();" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/group", "attrs": { "className": "code-window" } },
+    { "path": "blocks.0.innerBlocks.2.innerBlocks.0", "name": "core/code", "attrs": { "className": "language-bash", "content": "npm run build" } },
+    { "path": "blocks.0.innerBlocks.3", "name": "core/group", "attrs": { "className": "code-window" } },
+    { "path": "blocks.0.innerBlocks.3.innerBlocks.0", "name": "core/code", "attrs": { "content": "plain <span class=\"tok\">token</span> end" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 4 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.2.innerBlocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks.3.innerBlocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "theme.json" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "functions.php" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<span class=\"tok\">token</span>" }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-columns-recognizer-child-fallback",
+  "description": "Class-named columns container preserves per-child recursion and bubbles an unsupported column child fallback up to the top-level fallback list, proving the ColumnsPattern recognizer reproduces the legacy columnsBlockFromElement &$fallbacks accumulation byte-for-byte.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-columns-recognizer-child-fallback.json",
+    "notes": "Locks the columns recognizer extraction: convertChildren on a wrapper column (heading + paragraph), convertElement returning null for an unsupported <object> child (empty column), and array_push fallback accumulation surfacing one html_unsupported_element fallback."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Covers current PHP transformer columns recognizer behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"columns\"><div class=\"col\"><h2>Plans</h2><p>Choose a tier.</p></div><div class=\"col\"><object data=\"/pricing.pdf\" type=\"application/pdf\"></object></div></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/columns", "attrs": { "className": "columns" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "col" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Plans", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Choose a tier." } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/column", "attrs": { "className": "col" } }
+  ],
+  "expected_fallbacks": [
+    { "reason": "unsupported_element", "diagnostic_code": "html_unsupported_element", "tag": "object" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "metrics.block_count", "assert": "equals", "value": 5 },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 0 },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "source_reports.conversion_report.metrics.fallback_count", "assert": "equals", "value": 1 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"columns\"}" }
+  ]
+}

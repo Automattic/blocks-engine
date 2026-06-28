@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-embed-iframe-deterministic-providers",
+  "description": "Converts iframe embeds whose public canonical URL is deterministically rebuildable from the iframe src (dailymotion video, spotify track) to core/embed, and preserves non-derivable/unsafe iframes as sanitized fallback metadata.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-embed-iframe-deterministic-providers.json",
+    "notes": "Product-neutral coverage for the widened deterministic embed-provider lookup table (dailymotion + spotify)."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<iframe src=\"https://www.dailymotion.com/embed/video/x7tgad0\"></iframe><iframe src=\"https://open.spotify.com/embed/track/4iV5W9uYEdYUVa79Axb7Rh\"></iframe><iframe src=\"about:blank\" srcdoc=\"<script>alert(1)</script><p>Inline</p>\" onload=\"alert(1)\"></iframe>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/embed", "attrs": { "url": "https://www.dailymotion.com/video/x7tgad0", "type": "video", "providerNameSlug": "dailymotion" } },
+    { "path": "blocks.1", "name": "core/embed", "attrs": { "url": "https://open.spotify.com/track/4iV5W9uYEdYUVa79Axb7Rh", "type": "rich", "providerNameSlug": "spotify" } }
+  ],
+  "expected_fallbacks": [
+    { "type": "html", "reason": "iframe_embed_fallback", "tag": "iframe", "selector": "iframe:nth-of-type(3)" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-embed is-type-video is-provider-dailymotion wp-block-embed-dailymotion\"><div class=\"wp-block-embed__wrapper\">https://www.dailymotion.com/video/x7tgad0</div></figure>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-embed is-type-rich is-provider-spotify wp-block-embed-spotify\"><div class=\"wp-block-embed__wrapper\">https://open.spotify.com/track/4iV5W9uYEdYUVa79Axb7Rh</div></figure>" },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.html", "assert": "not_contains", "value": "srcdoc" },
+    { "path": "fallbacks.0.html", "assert": "not_contains", "value": "onload" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+  ]
+}
