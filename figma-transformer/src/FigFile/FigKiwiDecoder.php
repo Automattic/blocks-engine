@@ -384,7 +384,7 @@ final class FigKiwiDecoder
                 'useAbsoluteBounds', 'cornerRadius', 'rectangleTopLeftCornerRadius',
                 'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius',
                 'rectangleBottomRightCornerRadius', 'fillPaints', 'strokePaints', 'backgroundPaints',
-                'fillGeometry', 'strokeGeometry', 'vectorData', 'key', 'componentKey',
+                'fillGeometry', 'strokeGeometry', 'vectorData', 'booleanOperation', 'key', 'componentKey',
                 'componentOrStateGroupKey', 'originComponentKey', 'componentId', 'mainComponentId',
                 'mainComponent', 'component', 'symbolData', 'derivedSymbolData', 'guidPath',
                 'fontSize', 'fontName', 'textData', 'lineHeight', 'letterSpacing',

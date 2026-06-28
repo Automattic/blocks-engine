@@ -1239,6 +1239,129 @@ $assert(2 === ($vectorNetworkDiagnostic['context']['affected_node_count'] ?? nul
 $assert(array('vector:data-malformed', 'vector:data-painted-fallback') === ($vectorNetworkDiagnostic['context']['sample_node_ids'] ?? null), 'vector-network-diagnostic-sample-nodes');
 $assert(array('1') === ($vectorNetworkDiagnostic['context']['sample_blob_refs'] ?? null), 'vector-network-diagnostic-sample-blob-refs');
 
+// General vectorNetwork decode: 3 vertices, 3 segments (one carrying bezier
+// tangents), one NONZERO region. Stride is 24 bytes (tangent-bearing), so the
+// blob is rejected by the legacy exact-match decoders and handled by the new
+// general decoder, emitting a real cubic-curve path rather than a placeholder.
+$curvedNetworkVertices = array(array(0.0, 0.0), array(10.0, 0.0), array(10.0, 10.0));
+$curvedNetworkSegments = array(
+    array('start' => 0, 'end' => 1, 'ts' => array(0.0, 0.0), 'te' => array(0.0, 0.0)),
+    array('start' => 1, 'end' => 2, 'ts' => array(2.0, 0.0), 'te' => array(0.0, -2.0)),
+    array('start' => 2, 'end' => 0, 'ts' => array(0.0, 0.0), 'te' => array(0.0, 0.0)),
+);
+$curvedNetworkEntries = array(array(0, 0), array(1, 0), array(2, 0));
+$curvedNetworkBlob = pack('V3', count($curvedNetworkVertices), count($curvedNetworkSegments), 1);
+foreach ( $curvedNetworkVertices as $point ) {
+    $curvedNetworkBlob .= pack('V', 0) . pack('g', $point[0]) . pack('g', $point[1]) . pack('V2', 0, 0);
+}
+foreach ( $curvedNetworkSegments as $segment ) {
+    $curvedNetworkBlob .= pack('V', $segment['start']) . pack('g', $segment['ts'][0]) . pack('g', $segment['ts'][1])
+        . pack('V', $segment['end']) . pack('g', $segment['te'][0]) . pack('g', $segment['te'][1]);
+}
+$curvedNetworkBlob .= pack('V3', count($curvedNetworkEntries), 0, 0);
+foreach ( $curvedNetworkEntries as $entry ) {
+    $curvedNetworkBlob .= pack('V2', $entry[0], $entry[1]);
+}
+
+$curvedNetworkResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Curved Vector Network Fixture',
+    'blobs' => array(array('bytes' => $curvedNetworkBlob)),
+    'nodes' => array(
+        array(
+            'id'         => 'vector:curved-network',
+            'type'       => 'VECTOR',
+            'name'       => 'Curved Network',
+            'width'      => 10,
+            'height'     => 10,
+            'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.1, 'g' => 0.2, 'b' => 0.3))),
+            'vectorData' => array('vectorNetworkBlob' => 0),
+        ),
+    ),
+));
+$curvedNetworkHtml = $fileContent($curvedNetworkResult, 'index.html');
+$curvedNetworkVectors = $curvedNetworkResult['source_reports']['figma']['html']['transform_diagnostics']['vectors'] ?? array();
+$curvedNetworkSummary = $curvedNetworkResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['summary'] ?? array();
+$assert(str_contains($curvedNetworkHtml, 'data-figma-node-id="vector:curved-network"') && str_contains($curvedNetworkHtml, 'data-figma-vector="true"'), 'curved-network-renders-svg');
+$assert(str_contains($curvedNetworkHtml, 'd="M0 0L10 0C12 0 10 8 10 10L0 0Z"'), 'curved-network-renders-cubic-path');
+$assert(! str_contains($curvedNetworkHtml, 'data-figma-unsupported-vector="true"'), 'curved-network-not-placeholder');
+$assert(1 === (int) ($curvedNetworkVectors['rendered_paths'] ?? 0), 'curved-network-counted-rendered');
+$assert(0 === (int) ($curvedNetworkVectors['placeholders'] ?? 0), 'curved-network-no-placeholder-count');
+$assert(1 === (int) ($curvedNetworkVectors['vector_network_decoded'] ?? 0), 'curved-network-network-decoded-count');
+$assert(1 === (int) ($curvedNetworkVectors['decode_coverage']['vector_network_decoded'] ?? 0), 'curved-network-coverage-network-decoded');
+$assert(1 === (int) ($curvedNetworkSummary['vector_network_decoded'] ?? 0), 'curved-network-summary-network-decoded');
+// Summary rollup reflects rendered vectors instead of only externalized SVG files.
+$assert(1 === (int) ($curvedNetworkSummary['generated_svg_count'] ?? -1), 'curved-network-summary-generated-svg-count');
+$assert(1 === (int) ($curvedNetworkSummary['vector_decoded_to_svg'] ?? -1), 'curved-network-summary-decoded-to-svg');
+$assert(0 === (int) ($curvedNetworkSummary['externalized_svg_asset_count'] ?? -1), 'curved-network-summary-externalized-count');
+
+// Boolean operation: compose two child vector paths into one SVG. The default
+// (UNION) overlays both child paths; the parent is no longer a placeholder.
+$booleanOperationResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Boolean Operation Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'bool:union',
+            'type'     => 'BOOLEAN_OPERATION',
+            'name'     => 'Union Icon',
+            'width'    => 20,
+            'height'   => 20,
+            'children' => array(
+                array(
+                    'id'         => 'bool:child-a',
+                    'type'       => 'VECTOR',
+                    'name'       => 'A',
+                    'width'      => 10,
+                    'height'     => 10,
+                    'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0, 'b' => 0))),
+                    'pathData'   => 'M0 0L10 0L10 10L0 10Z',
+                ),
+                array(
+                    'id'         => 'bool:child-b',
+                    'type'       => 'VECTOR',
+                    'name'       => 'B',
+                    'width'      => 10,
+                    'height'     => 10,
+                    'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 1))),
+                    'pathData'   => 'M5 5L15 5L15 15L5 15Z',
+                ),
+            ),
+        ),
+    ),
+));
+$booleanOperationHtml = $fileContent($booleanOperationResult, 'index.html');
+$booleanOperationVectors = $booleanOperationResult['source_reports']['figma']['html']['transform_diagnostics']['vectors'] ?? array();
+$assert(str_contains($booleanOperationHtml, 'data-figma-boolean-operation="union"'), 'boolean-operation-marks-union');
+$assert(str_contains($booleanOperationHtml, 'd="M0 0L10 0 10 10 0 10Z" fill="#ff0000"'), 'boolean-operation-includes-child-a-path');
+$assert(str_contains($booleanOperationHtml, 'd="M5 5L15 5 15 15 5 15Z" fill="#0000ff"'), 'boolean-operation-includes-child-b-path');
+$assert(! str_contains($booleanOperationHtml, 'data-figma-unsupported-vector="true"'), 'boolean-operation-not-placeholder');
+$assert(1 === (int) ($booleanOperationVectors['boolean_operations_composed'] ?? 0), 'boolean-operation-composed-count');
+$assert(1 === (int) ($booleanOperationVectors['rendered_paths'] ?? 0), 'boolean-operation-rendered-count');
+$assert(0 === (int) ($booleanOperationVectors['placeholders'] ?? 0), 'boolean-operation-no-placeholder');
+
+// Boolean SUBTRACT over children sharing the operation origin approximates
+// hole-cutting with a single fill-rule:evenodd path.
+$booleanSubtractResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Boolean Subtract Fixture',
+    'nodes' => array(
+        array(
+            'id'              => 'bool:subtract',
+            'type'            => 'BOOLEAN_OPERATION',
+            'name'            => 'Subtract Icon',
+            'width'           => 20,
+            'height'          => 20,
+            'booleanOperation' => 'SUBTRACT',
+            'fillPaints'      => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0))),
+            'children'        => array(
+                array('id' => 'bool:outer', 'type' => 'VECTOR', 'name' => 'Outer', 'width' => 20, 'height' => 20, 'pathData' => 'M0 0L20 0L20 20L0 20Z'),
+                array('id' => 'bool:inner', 'type' => 'VECTOR', 'name' => 'Inner', 'width' => 10, 'height' => 10, 'pathData' => 'M5 5L15 5L15 15L5 15Z'),
+            ),
+        ),
+    ),
+));
+$booleanSubtractHtml = $fileContent($booleanSubtractResult, 'index.html');
+$assert(str_contains($booleanSubtractHtml, 'data-figma-boolean-operation="subtract"'), 'boolean-subtract-marks-subtract');
+$assert(str_contains($booleanSubtractHtml, 'd="M5 5L15 5 15 15 5 15Z M0 0L20 0 20 20 0 20Z" fill="#000000" fill-rule="evenodd"'), 'boolean-subtract-evenodd-composite');
+
 $multiPageVectorPlaceholderResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Multi Page Vector Placeholder Fixture',
     'nodes' => array(

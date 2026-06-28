@@ -957,12 +957,14 @@ final class StaticHtmlEmitter
             'missing_assets'  => array(),
         );
         $vectors = array(
-            'nodes'                    => 0,
-            'rendered_paths'           => 0,
-            'rendered_asset_fallbacks' => 0,
-            'placeholders'             => 0,
-            'placeholder_reasons'      => array(),
-            'placeholder_nodes'        => array(),
+            'nodes'                       => 0,
+            'rendered_paths'              => 0,
+            'rendered_asset_fallbacks'    => 0,
+            'vector_network_decoded'      => 0,
+            'boolean_operations_composed' => 0,
+            'placeholders'                => 0,
+            'placeholder_reasons'         => array(),
+            'placeholder_nodes'           => array(),
         );
         $layout = array(
             'large_negative_left_count' => preg_match_all('/left:-[0-9]{3,}/', $css),
@@ -1142,9 +1144,12 @@ final class StaticHtmlEmitter
                 'vector_image_fallbacks' => (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
                 'vector_nodes' => (int) ($vectors['nodes'] ?? 0),
                 'vector_decoded_to_svg' => (int) ($vectors['rendered_paths'] ?? 0),
+                'vector_network_decoded' => (int) ($vectors['vector_network_decoded'] ?? 0),
+                'boolean_operations_composed' => (int) ($vectors['boolean_operations_composed'] ?? 0),
                 'vector_decode_coverage_ratio' => (float) ($vectors['decode_coverage']['coverage_ratio'] ?? 0.0),
                 'vector_placeholder_reason_categories' => is_array($vectors['decode_coverage']['placeholder_reason_categories'] ?? null) ? $vectors['decode_coverage']['placeholder_reason_categories'] : array(),
-                'generated_svg_count' => (int) ($generatedSvgAssets['count'] ?? 0),
+                'generated_svg_count' => (int) ($vectors['rendered_paths'] ?? 0),
+                'externalized_svg_asset_count' => (int) ($generatedSvgAssets['count'] ?? 0),
                 'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
                 'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
@@ -1243,6 +1248,8 @@ final class StaticHtmlEmitter
         $nodes = (int) ($vectors['nodes'] ?? 0);
         $decoded = (int) ($vectors['rendered_paths'] ?? 0);
         $assetFallbacks = (int) ($vectors['rendered_asset_fallbacks'] ?? 0);
+        $networkDecoded = (int) ($vectors['vector_network_decoded'] ?? 0);
+        $booleanComposed = (int) ($vectors['boolean_operations_composed'] ?? 0);
         $placeholders = (int) ($vectors['placeholders'] ?? 0);
         $reasons = is_array($vectors['placeholder_reasons'] ?? null) ? $vectors['placeholder_reasons'] : array();
 
@@ -1268,6 +1275,8 @@ final class StaticHtmlEmitter
             'schema'                     => 'blocks-engine/figma-transformer/vector-decode-coverage/v1',
             'vector_nodes'               => $nodes,
             'decoded_to_svg'             => $decoded,
+            'vector_network_decoded'     => $networkDecoded,
+            'boolean_operations_composed' => $booleanComposed,
             'asset_fallbacks'            => $assetFallbacks,
             'placeholders'               => $placeholders,
             'coverage_ratio'             => $nodes > 0 ? round($decoded / $nodes, 3) : 0.0,
@@ -1418,10 +1427,19 @@ final class StaticHtmlEmitter
         }
 
         $type = strtoupper((string) ($node['type'] ?? ''));
+        $booleanComposedChildren = false;
         if ( $this->isUnsupportedVectorType($type) ) {
             ++$vectors['nodes'];
-            if ( null !== $this->supportedVectorSvg($node, $type, $parentNode) ) {
+            $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
+            if ( null !== $vectorSvg ) {
                 ++$vectors['rendered_paths'];
+                if ( $this->vectorPathsIncludeNetworkSource($node) ) {
+                    ++$vectors['vector_network_decoded'];
+                }
+                if ( 'BOOLEAN_OPERATION' === $type && ! empty($this->nodeList($node)) ) {
+                    ++$vectors['boolean_operations_composed'];
+                    $booleanComposedChildren = true;
+                }
             } elseif ( null !== $this->nodeAssetPath($node) ) {
                 ++$vectors['rendered_asset_fallbacks'];
             } else {
@@ -1433,6 +1451,13 @@ final class StaticHtmlEmitter
             }
         }
 
+        // A composed boolean operation folds its child geometry into one SVG, so
+        // the children are not emitted separately; mirror that here to keep the
+        // vector counts aligned with what is actually rendered.
+        if ( $booleanComposedChildren ) {
+            return;
+        }
+
         foreach ( $this->nodeList($node) as $child ) {
             if ( is_array($child) ) {
                 if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
@@ -1441,6 +1466,28 @@ final class StaticHtmlEmitter
                 $this->collectTransformDiagnostics($child, $image, $vectors, $layout, $node);
             }
         }
+    }
+
+    /**
+     * Whether a node's decoded vector geometry originates from a raw Figma
+     * vectorNetwork blob, used to credit network-decode coverage distinctly
+     * from ready-made path/command-blob geometry.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function vectorPathsIncludeNetworkSource(array $node): bool
+    {
+        if ( ! is_array($node['figma_vector_paths'] ?? null) ) {
+            return false;
+        }
+
+        foreach ( $node['figma_vector_paths'] as $path ) {
+            if ( is_array($path) && str_starts_with((string) ($path['source'] ?? ''), 'vectorData.vectorNetworkBlob') ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -3496,6 +3543,13 @@ final class StaticHtmlEmitter
             return null;
         }
 
+        if ( 'BOOLEAN_OPERATION' === $type && ! $this->hasExplicitVectorSource($node) && ! empty($this->nodeList($node)) ) {
+            $composed = $this->booleanOperationSvg($node, $parentNode);
+            if ( null !== $composed ) {
+                return $composed;
+            }
+        }
+
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $width = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width']) : 0.0;
         $height = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height']) : 0.0;
@@ -3654,6 +3708,29 @@ final class StaticHtmlEmitter
      */
     private function vectorPathElements(array $node): array
     {
+        $paint = $this->svgPaintAttributes($node);
+        $elements = array();
+        foreach ( $this->nodeVectorPathData($node) as $path ) {
+            $attributes = $paint;
+            if ( null !== ($path['windingRule'] ?? null) ) {
+                $attributes[] = 'fill-rule="' . $path['windingRule'] . '"';
+            }
+            $elements[] = '<path d="' . $this->sanitizeAttribute($path['d']) . '" ' . implode(' ', $attributes) . '/>';
+        }
+
+        return $elements;
+    }
+
+    /**
+     * Extract validated SVG path data and winding rule from a node's vector
+     * geometry sources, independent of paint, so the same geometry can drive
+     * inline `<path>` emission and boolean-operation composition.
+     *
+     * @param array<string, mixed> $node
+     * @return array<int, array{d: string, windingRule: string|null}>
+     */
+    private function nodeVectorPathData(array $node): array
+    {
         $rawPaths = array();
         if ( is_array($node['figma_vector_paths'] ?? null) ) {
             $rawPaths = array_merge($rawPaths, $node['figma_vector_paths']);
@@ -3669,7 +3746,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        $elements = array();
+        $paths = array();
         foreach ( $rawPaths as $rawPath ) {
             $path = is_array($rawPath) ? (string) ($rawPath['data'] ?? $rawPath['pathData'] ?? $rawPath['path'] ?? $rawPath['d'] ?? '') : (string) $rawPath;
             $path = $this->safeSvgPathData($path, $this->svgPathDataByteLimit($rawPath));
@@ -3677,18 +3754,186 @@ final class StaticHtmlEmitter
                 continue;
             }
 
-            $paint = $this->svgPaintAttributes($node);
+            $rule = null;
             if ( is_array($rawPath) && isset($rawPath['windingRule']) && is_scalar($rawPath['windingRule']) ) {
-                $rule = strtolower((string) $rawPath['windingRule']);
-                if ( in_array($rule, array('evenodd', 'nonzero'), true) ) {
-                    $paint[] = 'fill-rule="' . $rule . '"';
+                $candidate = strtolower((string) $rawPath['windingRule']);
+                if ( in_array($candidate, array('evenodd', 'nonzero'), true) ) {
+                    $rule = $candidate;
                 }
             }
 
-            $elements[] = '<path d="' . $this->sanitizeAttribute($path) . '" ' . implode(' ', $paint) . '/>';
+            $paths[] = array('d' => $path, 'windingRule' => $rule);
         }
 
-        return $elements;
+        return $paths;
+    }
+
+    /**
+     * Compose a BOOLEAN_OPERATION node from its child vector geometry.
+     *
+     * True path-boolean evaluation is out of scope in pure PHP, so this emits
+     * the child vector paths together inside one `<svg>`. For UNION (the common
+     * icon case) overlaying the child paths is visually correct. For
+     * SUBTRACT/INTERSECT/EXCLUDE the combined child geometry is rendered as one
+     * `fill-rule:evenodd` path when the children share the operation origin,
+     * which approximates hole-cutting; otherwise it falls back to the overlay.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function booleanOperationSvg(array $node, ?array $parentNode): ?string
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width']) : 0.0;
+        $height = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height']) : 0.0;
+        if ( $width <= 0 || $height <= 0 ) {
+            return null;
+        }
+
+        $children = $this->booleanOperationChildVectors($node);
+        if ( empty($children) ) {
+            return null;
+        }
+
+        $operation = strtoupper(trim((string) ($node['booleanOperation'] ?? 'UNION')));
+        $body = null;
+        if ( in_array($operation, array('SUBTRACT', 'INTERSECT', 'EXCLUDE'), true) ) {
+            $body = $this->booleanEvenOddBody($node, $children);
+        }
+        if ( null === $body ) {
+            $body = $this->booleanUnionBody($children);
+        }
+        if ( '' === $body ) {
+            return null;
+        }
+
+        $attributes = array(
+            'xmlns="http://www.w3.org/2000/svg"',
+            'viewBox="0 0 ' . $this->number($width) . ' ' . $this->number($height) . '"',
+            'width="100%"',
+            'height="100%"',
+            'role="img"',
+            'aria-label="' . $this->sanitizeAttribute((string) ($node['name'] ?? $operation)) . '"',
+            'data-figma-vector="true"',
+            'data-figma-boolean-operation="' . $this->sanitizeAttribute(strtolower($operation)) . '"',
+        );
+
+        return '<svg ' . implode(' ', $attributes) . '>' . $body . '</svg>';
+    }
+
+    /**
+     * Collect renderable vector geometry from a boolean node's descendants,
+     * translated into the boolean node's local coordinate space.
+     *
+     * @param array<string, mixed> $node
+     * @return array<int, array{paths: array<int, array{d: string, windingRule: string|null}>, paint: array<int, string>, dx: float, dy: float}>
+     */
+    private function booleanOperationChildVectors(array $node): array
+    {
+        $originBox = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : (is_array($node['box'] ?? null) ? $node['box'] : array());
+        $originX = isset($originBox['x']) && is_numeric($originBox['x']) ? (float) $originBox['x'] : 0.0;
+        $originY = isset($originBox['y']) && is_numeric($originBox['y']) ? (float) $originBox['y'] : 0.0;
+
+        $collected = array();
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) ) {
+                $this->collectBooleanChildVectors($child, $originX, $originY, $collected);
+            }
+        }
+
+        return $collected;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, array<string, mixed>> $collected
+     */
+    private function collectBooleanChildVectors(array $node, float $originX, float $originY, array &$collected): void
+    {
+        $paths = $this->nodeVectorPathData($node);
+        if ( ! empty($paths) ) {
+            $box = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : (is_array($node['box'] ?? null) ? $node['box'] : array());
+            $dx = isset($box['x']) && is_numeric($box['x']) ? (float) $box['x'] - $originX : 0.0;
+            $dy = isset($box['y']) && is_numeric($box['y']) ? (float) $box['y'] - $originY : 0.0;
+            $collected[] = array(
+                'paths' => $paths,
+                'paint' => $this->svgPaintAttributes($node),
+                'dx'    => $dx,
+                'dy'    => $dy,
+            );
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) ) {
+                $this->collectBooleanChildVectors($child, $originX, $originY, $collected);
+            }
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function booleanUnionBody(array $children): string
+    {
+        $body = '';
+        foreach ( $children as $child ) {
+            $paint = is_array($child['paint'] ?? null) && ! empty($child['paint']) ? $child['paint'] : array('fill="currentColor"');
+            $elements = '';
+            foreach ( is_array($child['paths'] ?? null) ? $child['paths'] : array() as $path ) {
+                $attributes = $paint;
+                if ( null !== ($path['windingRule'] ?? null) ) {
+                    $attributes[] = 'fill-rule="' . $path['windingRule'] . '"';
+                }
+                $elements .= '<path d="' . $this->sanitizeAttribute((string) $path['d']) . '" ' . implode(' ', $attributes) . '/>';
+            }
+            if ( '' === $elements ) {
+                continue;
+            }
+
+            $dx = (float) ($child['dx'] ?? 0.0);
+            $dy = (float) ($child['dy'] ?? 0.0);
+            if ( abs($dx) >= 0.0001 || abs($dy) >= 0.0001 ) {
+                $body .= '<g transform="translate(' . $this->number($dx) . ' ' . $this->number($dy) . ')">' . $elements . '</g>';
+            } else {
+                $body .= $elements;
+            }
+        }
+
+        return $body;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function booleanEvenOddBody(array $node, array $children): ?string
+    {
+        $combined = array();
+        foreach ( $children as $child ) {
+            $dx = (float) ($child['dx'] ?? 0.0);
+            $dy = (float) ($child['dy'] ?? 0.0);
+            if ( abs($dx) >= 0.0001 || abs($dy) >= 0.0001 ) {
+                return null;
+            }
+            foreach ( is_array($child['paths'] ?? null) ? $child['paths'] : array() as $path ) {
+                $combined[] = (string) $path['d'];
+            }
+        }
+        if ( empty($combined) ) {
+            return null;
+        }
+
+        $paint = $this->svgPaintAttributes($node);
+        if ( ( 'fill="none"' === ($paint[0] ?? '') ) && ! $this->hasSvgStroke($paint) ) {
+            foreach ( $children as $child ) {
+                if ( ! empty($child['paint']) && 'fill="none"' !== ($child['paint'][0] ?? '') ) {
+                    $paint = $child['paint'];
+                    break;
+                }
+            }
+        }
+
+        $paint[] = 'fill-rule="evenodd"';
+        return '<path d="' . $this->sanitizeAttribute(implode(' ', $combined)) . '" ' . implode(' ', $paint) . '/>';
     }
 
     /**
