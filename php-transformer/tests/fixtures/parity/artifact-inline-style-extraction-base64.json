@@ -1,0 +1,43 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-inline-style-extraction-base64",
+  "description": "Extracts inline stylesheet rules from base64-encoded full HTML documents into materializable CSS assets, matching the real import CLI which transmits file payloads as content_base64.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-inline-style-extraction-base64.json",
+    "notes": "Real import-theme CLI payloads carry HTML as content_base64; inline <style> extraction must decode the payload before scanning so it does not regress to an empty stylesheet."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream artifact primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "files": [
+        {
+          "path": "index.html",
+          "content_base64": "PCFkb2N0eXBlIGh0bWw+PGh0bWw+PGhlYWQ+PHRpdGxlPlN0eWxlZCBQb3J0Zm9saW88L3RpdGxlPjxzdHlsZT46cm9vdHstLWFjY2VudDojYzRhMzVhOy0taW5rOiMxYTFhMWF9Ym9keXtiYWNrZ3JvdW5kOiNmYWY3ZjA7Y29sb3I6dmFyKC0taW5rKX0uaGVyb3ttaW4taGVpZ2h0OjEwMHZoO2NvbG9yOnZhcigtLWFjY2VudCl9LmNhcmR7Ym9yZGVyOjFweCBzb2xpZCB2YXIoLS1hY2NlbnQpO3BhZGRpbmc6MnJlbX0ud29yay1ncmlke2Rpc3BsYXk6Z3JpZDtncmlkLXRlbXBsYXRlLWNvbHVtbnM6cmVwZWF0KDMsMWZyKX08L3N0eWxlPjwvaGVhZD48Ym9keT48bWFpbj48c2VjdGlvbiBjbGFzcz0iaGVybyI+PGgxPlN0eWxlZCBQb3J0Zm9saW88L2gxPjxwPlZpc3VhbCBjbGFzc2VzIG5lZWQgdGhlaXIgc3R5bGVzaGVldC48L3A+PC9zZWN0aW9uPjxzZWN0aW9uIGNsYXNzPSJ3b3JrLWdyaWQiPjxhcnRpY2xlIGNsYXNzPSJjYXJkIj48aDI+Q2FzZSBTdHVkeTwvaDI+PC9hcnRpY2xlPjwvc2VjdGlvbj48L21haW4+PC9ib2R5PjwvaHRtbD4=",
+          "kind": "html"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "assets", "assert": "count", "count": 1 },
+    { "path": "assets.0.path", "assert": "equals", "value": "index.inline.css" },
+    { "path": "assets.0.kind", "assert": "equals", "value": "css" },
+    { "path": "assets.0.role", "assert": "equals", "value": "stylesheet" },
+    { "path": "assets.0.content", "assert": "contains", "value": ":root{--accent:#c4a35a" },
+    { "path": "assets.0.content", "assert": "contains", "value": "body{background:#faf7f0;color:var(--ink)}" },
+    { "path": "assets.0.content", "assert": "contains", "value": ".card{border:1px solid var(--accent)" },
+    { "path": "source_reports.artifact.files_by_source.inline-style", "assert": "equals", "value": 1 },
+    { "path": "source_reports.artifact.files_by_intent.style", "assert": "equals", "value": 1 },
+    { "path": "source_reports.compiled_site.theme.stylesheets.0", "assert": "equals", "value": "index.inline.css" },
+    { "path": "source_reports.materialization_plan.assets.0.target_path", "assert": "equals", "value": "index.inline.css" },
+    { "path": "source_reports.materialization_plan.assets.0.content", "assert": "contains", "value": ":root{--accent:#c4a35a" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Styled Portfolio" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "hero" }
+  ]
+}
