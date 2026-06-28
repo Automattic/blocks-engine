@@ -47,7 +47,8 @@ final class ScenegraphNormalizer
         }
 
         $renderIds = $topLevelIds;
-        if ( null !== $selectedFrameId && 1 === count($topLevelIds) && $selectedFrameId !== $topLevelIds[0] ) {
+        $renderDocument = ! empty($options['render_document']);
+        if ( ! $renderDocument && null !== $selectedFrameId && 1 === count($topLevelIds) && $selectedFrameId !== $topLevelIds[0] ) {
             $renderIds = array($selectedFrameId);
         }
         $renderNodes = array();
