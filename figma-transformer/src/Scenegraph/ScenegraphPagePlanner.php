@@ -10,11 +10,60 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Scenegraph;
 final class ScenegraphPagePlanner
 {
     public function __construct(
-        private readonly ScenegraphIndex $index = new ScenegraphIndex()
+        private readonly ScenegraphIndex $index = new ScenegraphIndex(),
+        private readonly ScenegraphFrameInspector $frameInspector = new ScenegraphFrameInspector()
     ) {
     }
 
     /**
+     * Build deterministic page plans, collapsing responsive sibling-groups.
+     *
+     * When {@see ScenegraphFrameInspector} reports that several FRAME nodes
+     * represent the same page at different widths (a responsive sibling-group),
+     * those frames collapse into a SINGLE page plan that carries an ordered list
+     * of breakpoint variants instead of emitting one page per frame. Frames with
+     * no detected siblings still produce one single-variant page each, so the
+     * top-level page fields stay backward compatible. If the inspector cannot
+     * determine a group, the planner falls back to one-page-per-frame.
+     *
+     * Each entry in the returned `pages` list has this shape (the contract the
+     * downstream `@media`-aware emitter consumes):
+     *
+     *     array(
+     *         // Primary (widest/desktop) variant drives these page-level fields.
+     *         'frame_id'              => string,   // primary variant frame id
+     *         'name'                  => string,
+     *         'slug'                  => string,   // deduped, derived from primary
+     *         'path'                  => string,   // index.html for the entrypoint
+     *         'entrypoint'            => bool,
+     *         'figma_page_id'         => string|null,
+     *         'figma_page_name'       => string|null,
+     *         'section_id'            => string|null,
+     *         'section_name'          => string|null,
+     *         'width'                 => float|null, // primary variant width
+     *         'height'                => float|null, // primary variant height
+     *         'node_count'            => int,
+     *         'text_count'            => int,
+     *         'asset_reference_count' => int,
+     *         // Responsive grouping contract.
+     *         'responsive'            => bool, // true when more than one variant
+     *         'breakpoint_count'      => int,  // count($variants)
+     *         'variants'              => array<int, array{
+     *             frame_id: string,
+     *             name: string,
+     *             slug: string,           // identity for the variant frame
+     *             device_hint: string,    // desktop|tablet|mobile|unknown
+     *             viewport_width: float|null,
+     *             viewport_height: float|null,
+     *             primary: bool,          // true for the widest/desktop variant
+     *             order: int,             // 0-based, widest first
+     *         }>,
+     *         'diagnostics'           => array<int, array<string, mixed>>,
+     *     )
+     *
+     * Variants are ordered widest-first (desktop, tablet, mobile, unknown), so
+     * `variants[0]` is always the primary that drives the page slug/identity.
+     *
      * @param array<string, mixed> $source Decoded Figma scenegraph source array.
      * @param array<string, mixed> $options Page planning options.
      * @return array<string, mixed>
@@ -86,22 +135,39 @@ final class ScenegraphPagePlanner
             }
         }
 
+        $detectionById = $this->detectionById($source, count($nodes));
+        $responsiveGroups = $this->responsiveGroups($candidates, $detectionById);
+
         $slugs = array();
         $pages = array();
-        foreach ( $selectedIds as $position => $id ) {
-            $candidate = $candidates[$id];
+        $consumed = array();
+        $emittedPosition = 0;
+        foreach ( $selectedIds as $id ) {
+            if ( isset($consumed[$id]) ) {
+                continue;
+            }
+
+            $members = $responsiveGroups[$id] ?? array($id);
+            foreach ( $members as $memberId ) {
+                $consumed[$memberId] = true;
+            }
+
+            $primaryId = $members[0];
+            $candidate = $candidates[$primaryId];
             $node = $candidate['node'];
-            $page = $this->nearestAncestor($id, array('CANVAS'), $nodes, $parentIndex);
-            $section = $this->nearestAncestor($id, array('SECTION'), $nodes, $parentIndex);
-            $name = (string) ($node['name'] ?? $id);
-            $slug = $this->dedupeSlug($this->configuredSlug($id, $slugMap) ?? $this->slugify($name), $slugs);
+            $page = $this->nearestAncestor($primaryId, array('CANVAS'), $nodes, $parentIndex);
+            $section = $this->nearestAncestor($primaryId, array('SECTION'), $nodes, $parentIndex);
+            $name = (string) ($node['name'] ?? $primaryId);
+            $slug = $this->dedupeSlug($this->configuredSlug($primaryId, $slugMap) ?? $this->slugify($name), $slugs);
+            $entrypoint = null !== $entryFrameId ? in_array($entryFrameId, $members, true) : 0 === $emittedPosition;
+            $variants = $this->breakpointVariants($members, $primaryId, $candidates, $detectionById);
 
             $pages[] = array(
-                'frame_id'              => $id,
+                'frame_id'              => $primaryId,
                 'name'                  => $name,
                 'slug'                  => $slug,
-                'path'                  => (null !== $entryFrameId ? $id === $entryFrameId : 0 === $position) ? 'index.html' : $slug . '.html',
-                'entrypoint'            => null !== $entryFrameId ? $id === $entryFrameId : 0 === $position,
+                'path'                  => $entrypoint ? 'index.html' : $slug . '.html',
+                'entrypoint'            => $entrypoint,
                 'figma_page_id'         => $page['id'] ?? null,
                 'figma_page_name'       => $page['name'] ?? null,
                 'section_id'            => $section['id'] ?? null,
@@ -111,8 +177,12 @@ final class ScenegraphPagePlanner
                 'node_count'            => $candidate['stats']['nodes'],
                 'text_count'            => $candidate['stats']['texts'],
                 'asset_reference_count' => $candidate['stats']['assets'],
-                'diagnostics'           => $this->pageDiagnostics($id, $node, $candidate['dimensions'], $explicitSelected),
+                'responsive'            => count($members) > 1,
+                'breakpoint_count'      => count($members),
+                'variants'              => $variants,
+                'diagnostics'           => $this->pageDiagnostics($primaryId, $node, $candidate['dimensions'], $explicitSelected),
             );
+            ++$emittedPosition;
         }
 
         return array(
@@ -142,6 +212,157 @@ final class ScenegraphPagePlanner
         }
 
         return array_values(array_unique(array_filter($ids, static fn (string $id): bool => '' !== $id)));
+    }
+
+    /**
+     * Consume the frame inspector's detection report keyed by frame id.
+     *
+     * Detection (device_hint / sibling_group_key / responsive_siblings) lives in
+     * {@see ScenegraphFrameInspector}; the planner reuses it rather than
+     * re-deriving responsive relationships. The inspection limit is widened so
+     * every candidate's detection survives slicing.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function detectionById(array $source, int $nodeCount): array
+    {
+        $inspection = $this->frameInspector->inspect($source, array('frame_inspection_limit' => max(1, $nodeCount)));
+        $candidates = is_array($inspection['candidates'] ?? null) ? $inspection['candidates'] : array();
+        $detection = array();
+        foreach ( $candidates as $candidate ) {
+            if ( ! is_array($candidate) ) {
+                continue;
+            }
+            $id = isset($candidate['id']) && is_scalar($candidate['id']) ? (string) $candidate['id'] : '';
+            if ( '' !== $id ) {
+                $detection[$id] = $candidate;
+            }
+        }
+
+        return $detection;
+    }
+
+    /**
+     * Cluster FRAME candidates into responsive sibling-groups.
+     *
+     * Builds connected components over the inspector's `responsive_siblings`
+     * edges (restricted to FRAME ids the planner tracks). Returns a map from
+     * every member frame id to its full, ordered variant list so the page loop
+     * can look up the group from whichever member was selected first.
+     *
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array<string, mixed>> $detectionById
+     * @return array<string, array<int, string>>
+     */
+    private function responsiveGroups(array $candidates, array $detectionById): array
+    {
+        $parent = array();
+        foreach ( array_keys($candidates) as $id ) {
+            $parent[(string) $id] = (string) $id;
+        }
+
+        $find = static function (string $node) use (&$parent): string {
+            while ( $parent[$node] !== $node ) {
+                $parent[$node] = $parent[$parent[$node]];
+                $node = $parent[$node];
+            }
+
+            return $node;
+        };
+
+        foreach ( array_keys($candidates) as $id ) {
+            $id = (string) $id;
+            $siblings = is_array($detectionById[$id]['responsive_siblings'] ?? null) ? $detectionById[$id]['responsive_siblings'] : array();
+            foreach ( $siblings as $sibling ) {
+                $siblingId = is_array($sibling) && isset($sibling['id']) && is_scalar($sibling['id']) ? (string) $sibling['id'] : '';
+                if ( '' !== $siblingId && isset($parent[$siblingId]) ) {
+                    $parent[$find($id)] = $find($siblingId);
+                }
+            }
+        }
+
+        $components = array();
+        foreach ( array_keys($candidates) as $id ) {
+            $components[$find((string) $id)][] = (string) $id;
+        }
+
+        $groups = array();
+        foreach ( $components as $members ) {
+            $ordered = $this->orderVariantIds($members, $candidates, $detectionById);
+            foreach ( $ordered as $memberId ) {
+                $groups[$memberId] = $ordered;
+            }
+        }
+
+        return $groups;
+    }
+
+    /**
+     * Order group members widest-first so the primary variant sorts first.
+     *
+     * @param array<int, string>                  $ids
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array<string, mixed>> $detectionById
+     * @return array<int, string>
+     */
+    private function orderVariantIds(array $ids, array $candidates, array $detectionById): array
+    {
+        usort(
+            $ids,
+            function (string $left, string $right) use ($candidates, $detectionById): int {
+                $leftWidth = (float) ($candidates[$left]['dimensions']['width'] ?? 0);
+                $rightWidth = (float) ($candidates[$right]['dimensions']['width'] ?? 0);
+                if ( $leftWidth !== $rightWidth ) {
+                    return $rightWidth <=> $leftWidth;
+                }
+
+                $leftRank = $this->deviceRank((string) ($detectionById[$left]['device_hint'] ?? 'unknown'));
+                $rightRank = $this->deviceRank((string) ($detectionById[$right]['device_hint'] ?? 'unknown'));
+
+                return $leftRank <=> $rightRank ?: strcmp($left, $right);
+            }
+        );
+
+        return array_values($ids);
+    }
+
+    private function deviceRank(string $deviceHint): int
+    {
+        return match ( $deviceHint ) {
+            'desktop' => 0,
+            'tablet'  => 1,
+            'mobile'  => 2,
+            default   => 3,
+        };
+    }
+
+    /**
+     * Build the ordered breakpoint-variant list for one page plan.
+     *
+     * @param array<int, string>                  $members Ordered frame ids (widest first).
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array<string, mixed>> $detectionById
+     * @return array<int, array<string, mixed>>
+     */
+    private function breakpointVariants(array $members, string $primaryId, array $candidates, array $detectionById): array
+    {
+        $variants = array();
+        foreach ( $members as $order => $memberId ) {
+            $candidate = $candidates[$memberId];
+            $name = (string) ($candidate['node']['name'] ?? $memberId);
+            $variants[] = array(
+                'frame_id'        => $memberId,
+                'name'            => $name,
+                'slug'            => $this->slugify($name),
+                'device_hint'     => (string) ($detectionById[$memberId]['device_hint'] ?? 'unknown'),
+                'viewport_width'  => $candidate['dimensions']['width'],
+                'viewport_height' => $candidate['dimensions']['height'],
+                'primary'         => $memberId === $primaryId,
+                'order'           => $order,
+            );
+        }
+
+        return $variants;
     }
 
     /**

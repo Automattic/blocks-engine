@@ -18,6 +18,7 @@ use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiDecoder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiParser;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\VisualAttributionReportBuilder;
+use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphPagePlanner;
 
 $failures = array();
 
@@ -1738,6 +1739,97 @@ $assert(1 === ($frameInspectionHome['asset_reference_count'] ?? null), 'frame-in
 $assert('desktop' === ($frameInspectionHome['device_hint'] ?? null), 'frame-inspection-desktop-device-hint');
 $assert('frame:home-mobile' === ($frameInspectionHome['responsive_siblings'][0]['id'] ?? null), 'frame-inspection-responsive-sibling-id');
 $assert('mobile' === ($frameInspectionHome['responsive_siblings'][0]['device_hint'] ?? null), 'frame-inspection-responsive-sibling-device-hint');
+
+$responsivePagePlanSource = array(
+    'nodes' => array(
+        array(
+            'id'       => 'page:responsive',
+            'type'     => 'CANVAS',
+            'name'     => 'Responsive Pages',
+            'children' => array(
+                array(
+                    'id'       => 'section:responsive',
+                    'type'     => 'SECTION',
+                    'name'     => 'Marketing',
+                    'width'    => 4000,
+                    'height'   => 5000,
+                    'children' => array(
+                        array(
+                            'id'       => 'frame:home-desktop',
+                            'type'     => 'FRAME',
+                            'name'     => 'Home Page Desktop',
+                            'width'    => 1440,
+                            'height'   => 3200,
+                            'children' => array(
+                                array('id' => 'text:home-desktop', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Welcome'),
+                            ),
+                        ),
+                        array(
+                            'id'       => 'frame:home-tablet',
+                            'type'     => 'FRAME',
+                            'name'     => 'Home Page Tablet',
+                            'width'    => 834,
+                            'height'   => 3200,
+                            'children' => array(
+                                array('id' => 'text:home-tablet', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Welcome'),
+                            ),
+                        ),
+                        array(
+                            'id'       => 'frame:home-mobile',
+                            'type'     => 'FRAME',
+                            'name'     => 'Home Page Mobile',
+                            'width'    => 390,
+                            'height'   => 3200,
+                            'children' => array(
+                                array('id' => 'text:home-mobile', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Welcome'),
+                            ),
+                        ),
+                        array(
+                            'id'       => 'frame:about-desktop',
+                            'type'     => 'FRAME',
+                            'name'     => 'About Page',
+                            'width'    => 1440,
+                            'height'   => 3000,
+                            'children' => array(
+                                array('id' => 'text:about', 'type' => 'TEXT', 'name' => 'About', 'characters' => 'About us'),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+);
+$responsivePagePlan = ( new ScenegraphPagePlanner() )->plan($responsivePagePlanSource, array('include_all_pages' => true));
+$responsivePageByFrame = static function (array $plan, string $frameId): ?array {
+    foreach ( $plan['pages'] ?? array() as $page ) {
+        if ( is_array($page) && $frameId === ($page['frame_id'] ?? null) ) {
+            return $page;
+        }
+    }
+
+    return null;
+};
+$responsiveHomePage = $responsivePageByFrame($responsivePagePlan, 'frame:home-desktop');
+$responsiveAboutPage = $responsivePageByFrame($responsivePagePlan, 'frame:about-desktop');
+$assert(4 === ($responsivePagePlan['candidate_count'] ?? null), 'page-plan-responsive-candidate-count');
+$assert(2 === ($responsivePagePlan['page_count'] ?? null), 'page-plan-responsive-collapses-to-two-pages');
+$assert(null !== $responsiveHomePage, 'page-plan-responsive-home-primary-is-desktop');
+$assert(true === ($responsiveHomePage['responsive'] ?? null), 'page-plan-responsive-home-flagged-responsive');
+$assert(3 === ($responsiveHomePage['breakpoint_count'] ?? null), 'page-plan-responsive-home-three-breakpoints');
+$assert('home-page-desktop' === ($responsiveHomePage['slug'] ?? null), 'page-plan-responsive-primary-drives-slug');
+$assert(array('frame:home-desktop', 'frame:home-tablet', 'frame:home-mobile')
+    === array_map(static fn (array $variant): string => (string) ($variant['frame_id'] ?? ''), $responsiveHomePage['variants'] ?? array()), 'page-plan-responsive-variants-ordered-widest-first');
+$assert(array('desktop', 'tablet', 'mobile')
+    === array_map(static fn (array $variant): string => (string) ($variant['device_hint'] ?? ''), $responsiveHomePage['variants'] ?? array()), 'page-plan-responsive-variant-device-hints');
+$assert(true === ($responsiveHomePage['variants'][0]['primary'] ?? null)
+    && false === ($responsiveHomePage['variants'][1]['primary'] ?? null)
+    && false === ($responsiveHomePage['variants'][2]['primary'] ?? null), 'page-plan-responsive-only-widest-is-primary');
+$assert(1440.0 === ($responsiveHomePage['variants'][0]['viewport_width'] ?? null)
+    && 390.0 === ($responsiveHomePage['variants'][2]['viewport_width'] ?? null), 'page-plan-responsive-variant-viewport-widths');
+$assert(null !== $responsiveAboutPage, 'page-plan-responsive-about-stays-its-own-page');
+$assert(false === ($responsiveAboutPage['responsive'] ?? null) && 1 === ($responsiveAboutPage['breakpoint_count'] ?? null), 'page-plan-non-responsive-frame-single-variant');
+$assert(1 === count($responsiveAboutPage['variants'] ?? array()) && 'frame:about-desktop' === ($responsiveAboutPage['variants'][0]['frame_id'] ?? null), 'page-plan-non-responsive-frame-self-variant');
 
 $matrixWebsiteCandidate = array(
     'id'         => 'matrix:site:home',
