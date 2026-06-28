@@ -401,6 +401,11 @@ final class FigmaTransformer
             return $this->transformScenegraphPages($scenegraph, $options);
         }
 
+        $responsiveVariants = $this->responsivePageVariants($options);
+        if ( null !== $responsiveVariants ) {
+            return $this->transformResponsivePage($scenegraph, $responsiveVariants, $options);
+        }
+
         $startedAt = microtime(true);
         $normalized = $this->scenegraphNormalizer->normalize($scenegraph, $options);
         $artifact    = $this->htmlEmitter->emit($normalized, $options);
@@ -428,6 +433,109 @@ final class FigmaTransformer
                 'asset_reference_count'  => count($normalized['asset_references'] ?? array()),
                 'asset_count'            => $artifact['metrics']['asset_count'] ?? 0,
                 'file_count'             => count($artifact['files']),
+                'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
+            )
+        );
+    }
+
+    /**
+     * Extract a usable responsive variant list (two or more breakpoint frames)
+     * from the per-page options the multi-page loop forwards. Returns null when
+     * the page is a single-frame (non-responsive) page so the caller keeps the
+     * existing one-frame {@see StaticHtmlEmitter::emit()} path untouched.
+     *
+     * @param array<string, mixed> $options
+     * @return array<int, array<string, mixed>>|null
+     */
+    private function responsivePageVariants(array $options): ?array
+    {
+        if ( ! is_array($options['responsive_variants'] ?? null) ) {
+            return null;
+        }
+
+        $variants = array_values(array_filter(
+            $options['responsive_variants'],
+            static fn (mixed $variant): bool => is_array($variant)
+                && isset($variant['frame_id'])
+                && is_scalar($variant['frame_id'])
+                && '' !== (string) $variant['frame_id']
+        ));
+
+        return count($variants) > 1 ? $variants : null;
+    }
+
+    /**
+     * Emit one responsive page (desktop + mobile/tablet breakpoint variants)
+     * through {@see StaticHtmlEmitter::emitSite()} so the primary (widest)
+     * variant renders as the base layout and narrower variants emit
+     * `@media (max-width: …)` overrides. This is the live wiring point that
+     * turns a planner-detected responsive variant-group into ONE `@media`-aware
+     * page instead of one page per frame (#247).
+     *
+     * The full scenegraph is normalized (no `frame_id` limit) so every variant
+     * frame stays in the emitter's node map; emitSite then walks only the page's
+     * variant frames. The result envelope mirrors {@see emit()} so the
+     * multi-page loop aggregates it identically to a single-frame page.
+     *
+     * @param array<string, mixed>             $scenegraph
+     * @param array<int, array<string, mixed>> $variants Ordered breakpoint variants (widest first).
+     * @param array<string, mixed>             $options
+     */
+    private function transformResponsivePage(array $scenegraph, array $variants, array $options): FigmaTransformResult
+    {
+        $startedAt = microtime(true);
+
+        $primaryFrameId = (string) ($variants[0]['frame_id'] ?? '');
+        $pageName = isset($options['page_name']) && is_scalar($options['page_name']) ? (string) $options['page_name'] : '';
+
+        // Normalize the FULL scenegraph (drop the single-frame selection) so
+        // every variant frame is present in the emitter node map.
+        $normalizeOptions = $options;
+        unset($normalizeOptions['frame_id'], $normalizeOptions['responsive_variants'], $normalizeOptions['page_name']);
+        $normalized = $this->scenegraphNormalizer->normalize($scenegraph, $normalizeOptions);
+
+        $pagePlan = array(
+            'pages' => array(
+                array(
+                    'frame_id'   => $primaryFrameId,
+                    'name'       => '' !== $pageName ? $pageName : ($normalized['name'] ?? $primaryFrameId),
+                    'path'       => 'index.html',
+                    'entrypoint' => true,
+                    'responsive' => true,
+                    'variants'   => $variants,
+                ),
+            ),
+        );
+
+        $emitOptions = $options;
+        unset($emitOptions['responsive_variants'], $emitOptions['frame_id'], $emitOptions['page_name']);
+
+        $artifact    = $this->htmlEmitter->emitSite($normalized, $pagePlan, $emitOptions);
+        $artifact    = $this->withLayoutMismatchReport($artifact, $options);
+        $artifact    = $this->withRenderStyleMismatchReport($artifact, $options);
+        $diagnostics = array_merge($normalized['diagnostics'] ?? array(), $artifact['diagnostics']);
+        $parity      = $this->parityReportBuilder->build($options['parity'] ?? array());
+
+        return FigmaTransformResult::create(
+            $artifact['status'],
+            $diagnostics,
+            $artifact['files'],
+            $artifact['assets'],
+            array(
+                'figma' => array(
+                    'scenegraph' => $normalized['source_report'],
+                    'html'       => $artifact['source_report'],
+                ),
+                'compiled_site' => $this->compiledSiteSourceReport($artifact),
+            ),
+            $parity,
+            array(
+                'node_count'             => $artifact['metrics']['node_count'] ?? 0,
+                'text_node_count'        => count($normalized['text_inventory'] ?? array()),
+                'asset_reference_count'  => count($normalized['asset_references'] ?? array()),
+                'asset_count'            => $artifact['metrics']['asset_count'] ?? 0,
+                'file_count'             => count($artifact['files']),
+                'breakpoint_count'       => count($variants),
                 'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
             )
         );
@@ -483,8 +591,21 @@ final class FigmaTransformer
             $pageOptions['layout_mismatch_options']['page_path'] = $path;
             $pageOptions['render_style_mismatch_options'] = is_array($pageOptions['render_style_mismatch_options'] ?? null) ? $pageOptions['render_style_mismatch_options'] : array();
             $pageOptions['render_style_mismatch_options']['page_path'] = $path;
-            unset($pageOptions['multi_page'], $pageOptions['include_all_pages'], $pageOptions['frame_ids'], $pageOptions['entry_frame_id'], $pageOptions['max_pages'], $pageOptions['frame_slug_map']);
+            unset($pageOptions['multi_page'], $pageOptions['include_all_pages'], $pageOptions['frame_ids'], $pageOptions['entry_frame_id'], $pageOptions['max_pages'], $pageOptions['frame_slug_map'], $pageOptions['responsive_variants'], $pageOptions['page_name']);
             $pageOptions['link_target_paths'] = $linkTargetPaths;
+
+            // When the planner collapsed responsive sibling frames into this one
+            // page (#251), forward the ordered breakpoint variants so the live
+            // transform emits ONE `@media`-aware page (primary base layout +
+            // narrower `max-width` overrides) instead of just the primary frame.
+            // Single-variant pages carry no `responsive_variants`, so they keep
+            // the existing one-frame emission path unchanged.
+            $pageVariants = is_array($page['variants'] ?? null) ? array_values($page['variants']) : array();
+            if ( true === ($page['responsive'] ?? false) && count($pageVariants) > 1 ) {
+                $pageOptions['responsive_variants'] = $pageVariants;
+                $pageOptions['page_name'] = (string) ($page['name'] ?? $frameId);
+            }
+
             $pageResult = $this->transformScenegraph($scenegraph, $pageOptions)->toArray();
             $pageDiagnostics = is_array($pageResult['diagnostics'] ?? null) ? $pageResult['diagnostics'] : array();
             $diagnostics = array_merge($diagnostics, $pageDiagnostics);
@@ -1266,31 +1387,93 @@ final class FigmaTransformer
     }
 
     /**
+     * Merge per-page CSS chunks into one deduplicated stylesheet.
+     *
+     * CSS is tokenized at TOP-LEVEL statement boundaries (tracking brace depth)
+     * rather than per line, so block at-rules — most importantly the responsive
+     * `@media (max-width: …)` blocks emitted for a collapsed responsive page —
+     * stay ATOMIC and are not shattered into stray `{`/`}`/inner-rule lines that
+     * line-level deduping would corrupt. `@import` (and the leading font-source
+     * comment) float to the top to stay valid after concatenation; plain
+     * top-level rules dedupe; `@media` (and other block at-rules) preserve their
+     * widest-first emission order and follow the base rules so narrower
+     * breakpoints still win the cascade at their own viewport width.
+     *
      * @param array<int, string> $chunks
      */
     private function mergeCssChunks(array $chunks): string
     {
         $imports = array();
         $rules = array();
+        $atBlocks = array();
         foreach ( $chunks as $chunk ) {
-            foreach ( explode("\n", $chunk) as $line ) {
-                $line = trim($line);
-                if ( '' === $line ) {
+            foreach ( $this->splitCssStatements($chunk) as $statement ) {
+                $statement = trim($statement);
+                if ( '' === $statement ) {
                     continue;
                 }
                 // `@import` (and any leading font-source comment) must precede all
                 // other rules to stay valid after chunks are concatenated.
-                if ( str_starts_with($line, '@import') || ( str_starts_with($line, '/*') && str_contains($line, 'web fonts') ) ) {
-                    $imports[$line] = true;
+                if ( str_starts_with($statement, '@import') || ( str_starts_with($statement, '/*') && str_contains($statement, 'web fonts') ) ) {
+                    $imports[$statement] = true;
                     continue;
                 }
-                $rules[$line] = true;
+                // Block at-rules (e.g. responsive `@media` breakpoints) must stay
+                // intact and keep their emission order behind the base rules.
+                if ( str_starts_with($statement, '@media') || ( str_starts_with($statement, '@') && str_contains($statement, '{') ) ) {
+                    $atBlocks[$statement] = true;
+                    continue;
+                }
+                $rules[$statement] = true;
             }
         }
 
-        $ordered = array_merge(array_keys($imports), array_keys($rules));
+        $ordered = array_merge(array_keys($imports), array_keys($rules), array_keys($atBlocks));
 
         return implode("\n", $ordered) . (empty($ordered) ? '' : "\n");
+    }
+
+    /**
+     * Split a CSS string into top-level statements, keeping each rule or block
+     * at-rule (with its full brace-balanced body) as one element. Bare `@import`
+     * statements and standalone comments are returned as their own elements.
+     *
+     * @return array<int, string>
+     */
+    private function splitCssStatements(string $css): array
+    {
+        $statements = array();
+        $buffer = '';
+        $depth = 0;
+        $length = strlen($css);
+        for ( $i = 0; $i < $length; $i++ ) {
+            $char = $css[$i];
+            $buffer .= $char;
+            if ( '{' === $char ) {
+                ++$depth;
+                continue;
+            }
+            if ( '}' === $char ) {
+                $depth = max(0, $depth - 1);
+                if ( 0 === $depth ) {
+                    $statements[] = trim($buffer);
+                    $buffer = '';
+                }
+                continue;
+            }
+            if ( ';' === $char && 0 === $depth ) {
+                // Top-level statement with no block body (e.g. `@import …;`).
+                $statements[] = trim($buffer);
+                $buffer = '';
+            }
+        }
+
+        $trailing = trim($buffer);
+        if ( '' !== $trailing ) {
+            $statements[] = $trailing;
+        }
+
+        return array_values(array_filter($statements, static fn (string $statement): bool => '' !== $statement));
     }
 
     /**

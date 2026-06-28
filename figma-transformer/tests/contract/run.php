@@ -2469,6 +2469,116 @@ $assert(1 === ($multiPageTransformDiagnostics['layout']['render_style']['summary
 $assert(in_array('render_style_mismatch', array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), $multiPageTransformDiagnostics['artifact_quality']['signals'] ?? array()), true), 'multi-page-render-style-artifact-quality-signal');
 $assert('warn' === ($multiPageTransformDiagnostics['artifact_quality']['quality_status'] ?? null), 'multi-page-transform-diagnostics-quality-status-warn');
 
+// RESPONSIVE PAGE ASSEMBLY — LIVE WIRING (#247): a source whose section holds
+// "Home – Desktop" + "Home – Mobile" sibling frames must (1) PAIR into ONE
+// responsive page in the planner (generic name-normalization + device hint +
+// width signals, NOT hardcoded ids) and (2) flow that grouping through the LIVE
+// transform so the emitted page carries the base (desktop) layout PLUS an
+// `@media (max-width: …)` block for the mobile breakpoint. This exercises the
+// full path end-to-end (planner grouping -> transformScenegraphPages ->
+// transformResponsivePage -> StaticHtmlEmitter::emitSite -> merged style.css),
+// proving emitSite is no longer dormant in production.
+$responsiveLiveResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Responsive Live Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'page:responsive-live',
+            'type'     => 'CANVAS',
+            'name'     => 'Site',
+            'children' => array(
+                array(
+                    'id'       => 'section:responsive-live',
+                    'type'     => 'SECTION',
+                    'name'     => 'Home Section',
+                    'children' => array(
+                        array(
+                            'id'       => 'frame:home-desktop-live',
+                            'type'     => 'FRAME',
+                            'name'     => 'Home – Desktop',
+                            'width'    => 1440,
+                            'height'   => 3000,
+                            'children' => array(
+                                array('id' => 'card:home-desktop', 'type' => 'RECTANGLE', 'name' => 'Hero Card', 'width' => 1200, 'height' => 400, 'backgroundColor' => array('r' => 1.0, 'g' => 0.0, 'b' => 0.0, 'a' => 1.0)),
+                                array('id' => 'text:home-desktop', 'type' => 'TEXT', 'name' => 'Hero copy', 'characters' => 'Welcome home', 'fontSize' => 32),
+                            ),
+                        ),
+                        array(
+                            'id'       => 'frame:home-mobile-live',
+                            'type'     => 'FRAME',
+                            'name'     => 'Home – Mobile',
+                            'width'    => 390,
+                            'height'   => 3200,
+                            'children' => array(
+                                array('id' => 'card:home-mobile', 'type' => 'RECTANGLE', 'name' => 'Hero Card', 'width' => 350, 'height' => 500, 'backgroundColor' => array('r' => 0.0, 'g' => 1.0, 'b' => 0.0, 'a' => 1.0)),
+                                array('id' => 'text:home-mobile', 'type' => 'TEXT', 'name' => 'Hero copy', 'characters' => 'Welcome home', 'fontSize' => 32),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+), array(
+    'multi_page'        => true,
+    'include_all_pages' => true,
+));
+$responsiveLiveIndex = $fileContent($responsiveLiveResult, 'index.html');
+$responsiveLiveStyle = $fileContent($responsiveLiveResult, 'style.css');
+$assert(in_array($responsiveLiveResult['status'] ?? null, array('success', 'success_with_warnings'), true), 'responsive-live-transform-success');
+// Desktop + mobile siblings paired into ONE page (not two).
+$assert(1 === ($responsiveLiveResult['metrics']['page_count'] ?? null), 'responsive-live-single-page');
+$assert('' !== $responsiveLiveIndex, 'responsive-live-index-emitted');
+$assert('' !== $responsiveLiveStyle, 'responsive-live-stylesheet-emitted');
+// Base styles present (the widest/desktop variant drives the base layout).
+$assert(str_contains($responsiveLiveStyle, '.figma-root'), 'responsive-live-base-styles-present');
+$assert(str_contains($responsiveLiveStyle, 'width:1200px') || str_contains($responsiveLiveStyle, 'width:1200px;'), 'responsive-live-base-uses-desktop-width');
+// The merged stylesheet carries an `@media` block (the mobile breakpoint),
+// proving the responsive emission fired through the LIVE transform path.
+$assert(str_contains($responsiveLiveStyle, '@media'), 'responsive-live-media-block-present');
+$assert(str_contains($responsiveLiveStyle, '@media (max-width:390px)'), 'responsive-live-mobile-media-query');
+// `@media` block survived chunk merging intact (balanced braces, base before media).
+$assert(strpos($responsiveLiveStyle, '.figma-root') < strpos($responsiveLiveStyle, '@media'), 'responsive-live-base-precedes-media');
+$assert(substr_count($responsiveLiveStyle, '{') === substr_count($responsiveLiveStyle, '}'), 'responsive-live-balanced-braces');
+$responsiveLivePagePlan = $responsiveLiveResult['source_reports']['figma']['pages'] ?? array();
+$assert(true === ($responsiveLivePagePlan['pages'][0]['responsive'] ?? null), 'responsive-live-plan-flagged-responsive');
+$assert(2 === ($responsiveLivePagePlan['pages'][0]['breakpoint_count'] ?? null), 'responsive-live-plan-two-breakpoints');
+
+// SINGLE-FRAME PARITY: a source with one frame still produces ONE
+// non-responsive page with NO `@media` block (the live wiring only fires for
+// detected responsive variant-groups).
+$singleFrameLiveResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Single Frame Live Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'page:single-live',
+            'type'     => 'CANVAS',
+            'name'     => 'Site',
+            'children' => array(
+                array(
+                    'id'       => 'frame:about-live',
+                    'type'     => 'FRAME',
+                    'name'     => 'About',
+                    'width'    => 1440,
+                    'height'   => 2000,
+                    'children' => array(
+                        array('id' => 'card:about-live', 'type' => 'RECTANGLE', 'name' => 'About Card', 'width' => 1100, 'height' => 300, 'backgroundColor' => array('r' => 0.0, 'g' => 0.0, 'b' => 1.0, 'a' => 1.0)),
+                        array('id' => 'text:about-live', 'type' => 'TEXT', 'name' => 'About copy', 'characters' => 'About us', 'fontSize' => 24),
+                    ),
+                ),
+            ),
+        ),
+    ),
+), array(
+    'multi_page'        => true,
+    'include_all_pages' => true,
+));
+$singleFrameLiveStyle = $fileContent($singleFrameLiveResult, 'style.css');
+$assert(in_array($singleFrameLiveResult['status'] ?? null, array('success', 'success_with_warnings'), true), 'single-frame-live-transform-success');
+$assert(1 === ($singleFrameLiveResult['metrics']['page_count'] ?? null), 'single-frame-live-single-page');
+$assert('' !== $singleFrameLiveStyle, 'single-frame-live-stylesheet-emitted');
+$assert(! str_contains($singleFrameLiveStyle, '@media'), 'single-frame-live-no-media-block');
+$assert(false === ($singleFrameLiveResult['source_reports']['figma']['pages']['pages'][0]['responsive'] ?? true), 'single-frame-live-plan-not-responsive');
+
 $imageScaleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'   => 'Image Scale Fixture',
     'assets' => array(
