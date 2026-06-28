@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-pseudo-state-rules-not-inlined-resting",
+  "description": "Pseudo-state (:hover) and pseudo-element (::before) CSS rules describe transient/generated presentation and must never be folded into an element's RESTING inline style. A CTA matched by .cta{...} AND .cta:hover{...} renders with its resting fill (#13314f / #ffffff / 6px radius) and never the hover values (#f0ac22 / #000000 / 2px). A benefit card matched by .benefit-card{...} plus .benefit-card:hover{...} and .benefit-card::before{...} keeps its resting background (#101418) and never the hover (#1b2230) or pseudo-element (#ff0000) backgrounds. The pseudo-state declarations stay in the verbatim materialized stylesheet, where they fire on real interaction.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-pseudo-state-rules-not-inlined-resting.json",
+    "notes": "Regression for pseudo-state rules leaking into resting inline style: normalizeCssSelector stripped the pseudo and the :hover/::before rule was merged into resting style, overriding the correct resting-state class CSS. Fix excludes pseudo-carrying selectors from the inline-style resolution rule set."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New resting-state inline-style behavior (pseudo-state rules excluded) has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<!doctype html><html><head><style>.cta{background:#13314f;color:#ffffff;border-radius:6px;padding:12px 24px}.cta:hover{background:#f0ac22;color:#000000;border-radius:2px}.benefit-card{background:#101418;padding:40px 36px}.benefit-card:hover{background:#1b2230}.benefit-card::before{background:#ff0000}</style></head><body><main><a class=\"btn cta\" href=\"/buy\">Buy now</a><section class=\"benefits\"><div class=\"benefit-card\"><h3>One</h3><p>Alpha</p></div></section></main></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "btn cta" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "benefits" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "benefit-card" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"color:#ffffff;background-color:#13314f;border-radius:6px;padding-top:12px;padding-right:24px;padding-bottom:12px;padding-left:24px\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"background-color:#101418;padding-top:40px;padding-right:36px;padding-bottom:40px;padding-left:36px\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "#f0ac22" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "border-radius:2px" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "color:#000000" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "#1b2230" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "#ff0000" }
+  ]
+}
