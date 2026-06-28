@@ -18,11 +18,12 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Scenegraph;
  *     dev-handoff state keyed by node.
  *   - `NodeStatusChange` with `currentStatus` / `statusInfo`.
  *
- * The enum carries tokens `DEV_HANDOFF`, `DEVELOPMENT`, and `COMPLETED`. Those
- * are normalized onto a clean public value while the raw internal token is kept
- * for auditability. The class never invents a normalized value: when an enum
- * token is not in the known map, the raw token is carried and the normalized
- * value stays null.
+ * The `SectionStatus` enum carries tokens `NONE`, `BUILD`, and `COMPLETED`
+ * (`BUILD` is Figma's internal name for the public "Ready for dev" status).
+ * These are normalized onto a clean public value while the raw internal token
+ * is kept for auditability. The class never invents a normalized value: when an
+ * enum token is not in the known map, the raw token is carried and the
+ * normalized value stays null.
  */
 final class ScenegraphDevStatus
 {
@@ -32,20 +33,21 @@ final class ScenegraphDevStatus
     /**
      * Internal Kiwi enum tokens → normalized public dev status.
      *
-     * `COMPLETED` is the only unambiguous "done" state. The handoff/development
-     * tokens all describe a section that has been explicitly marked for dev
-     * work, which is the "Ready for dev" public state, so they normalize to
-     * {@see self::READY_FOR_DEV}. Tokens outside this map carry their raw value
-     * with a null normalized status rather than guessing.
+     * The `SectionStatus` enum has exactly three members: `NONE`, `BUILD`,
+     * `COMPLETED` (verified against real `.fig` schema + the FSE Pilot fixture
+     * decoded on the lab). Figma's internal token for the public "Ready for dev"
+     * status is `BUILD`; `COMPLETED` is "Completed"; `NONE` is unset. The
+     * public-API names (`READY_FOR_DEV`) are kept as defensive aliases for
+     * REST/plugin-sourced scenegraphs. Tokens outside this map (e.g. section
+     * TYPE values like `DEV_HANDOFF`, which are not statuses) carry their raw
+     * value with a null normalized status rather than guessing.
      *
      * @var array<string, string>
      */
     private const ENUM_MAP = array(
-        'COMPLETED'             => self::COMPLETED,
-        'DEV_HANDOFF'           => self::READY_FOR_DEV,
-        'DEVELOPMENT'           => self::READY_FOR_DEV,
-        'READY_FOR_DEV'         => self::READY_FOR_DEV,
-        'READY_FOR_DEVELOPMENT' => self::READY_FOR_DEV,
+        'BUILD'         => self::READY_FOR_DEV,
+        'COMPLETED'     => self::COMPLETED,
+        'READY_FOR_DEV' => self::READY_FOR_DEV,
     );
 
     /**
