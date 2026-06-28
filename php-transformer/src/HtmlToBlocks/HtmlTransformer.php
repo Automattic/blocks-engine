@@ -1321,11 +1321,14 @@ final class HtmlTransformer
         }
 
         if ( 'svg' === $tagName ) {
-            $iconBlock = $this->iconBlockFromSvgElement($element);
-            if ( null !== $iconBlock ) {
-                return $iconBlock;
-            }
-
+            // Imported inline SVGs are preserved faithfully as raw markup
+            // (core/html via inlineSvgBlockFromElement). They are never routed
+            // through core/icon: that block is a dynamic block keyed on a
+            // registry slug (its `icon` attribute) and discards arbitrary inline
+            // SVG markup, so render_block_core_icon() returns empty output for
+            // imported SVGs. Faithful passthrough keeps the original element,
+            // its sizing class(es), and correct-case viewBox so the
+            // materialized source CSS can size it.
             if ( $this->isSafeDecorativeSvgElement($element) ) {
                 if ( $this->hasIconLikeContext($element) ) {
                     return $this->inlineSvgBlockFromElement($element);
@@ -3003,118 +3006,6 @@ final class HtmlTransformer
     }
 
     /**
-     * @return array<string, mixed>|null
-     */
-    private function iconBlockFromSvgElement(DOMElement $element): ?array
-    {
-        if ( ! $this->isSafeSvgContent($this->outerHtml($element)) || ! $this->isPassiveSvgMarkup($element) || ! $this->isIconSvgElement($element) ) {
-            return null;
-        }
-
-        $html = $this->safeFallbackHtml($element);
-        if ( ! $this->isSafeSvgContent($html) ) {
-            return null;
-        }
-
-        $label = $this->inlineSvgAltText($element);
-        $attrs = array_filter(array_merge($this->presentationAttributes($element), array(
-            'svg'        => $html,
-            'label'      => $label,
-            'ariaHidden' => '' === $label && ( 'true' === strtolower($this->attr($element, 'aria-hidden')) || in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true) ),
-        )), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
-
-        return $this->createBlock('core/icon', $attrs, array(), $element);
-    }
-
-    private function isIconSvgElement(DOMElement $element): bool
-    {
-        if ( $this->hasLogoLikeContext($element) || $this->hasImageLikeContext($element) || ! $this->hasSimpleSvgShape($element) ) {
-            return false;
-        }
-
-        $role = strtolower(trim($this->attr($element, 'role')));
-        if ( 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) || in_array($role, array( 'presentation', 'none' ), true) || $this->hasAriaHiddenAncestor($element) ) {
-            return $this->hasIconLikeContext($element);
-        }
-
-        return 'img' === $role && '' !== $this->inlineSvgAltText($element);
-    }
-
-    private function hasAriaHiddenAncestor(DOMElement $element): bool
-    {
-        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode instanceof DOMElement ? $parent->parentNode : null ) {
-            if ( 'true' === strtolower(trim($this->attr($parent, 'aria-hidden'))) ) {
-                return true;
-            }
-            if ( in_array(strtolower($parent->tagName), array( 'body', 'main', 'article', 'section' ), true) ) {
-                return false;
-            }
-        }
-
-        return false;
-    }
-
-    private function hasSimpleSvgShape(DOMElement $element): bool
-    {
-        $shapeCount = 0;
-        foreach ( $element->getElementsByTagName('*') as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-            if ( in_array(strtolower($child->tagName), array( 'circle', 'ellipse', 'line', 'path', 'polygon', 'polyline', 'rect' ), true) ) {
-                ++$shapeCount;
-            }
-        }
-
-        return 0 < $shapeCount && $shapeCount <= 8 && $this->hasSmallSvgViewport($element);
-    }
-
-    private function hasSmallSvgViewport(DOMElement $element): bool
-    {
-        $viewBox = trim($this->attr($element, 'viewBox'));
-        if ( '' === $viewBox ) {
-            $viewBox = trim($this->attr($element, 'viewbox'));
-        }
-        if ( preg_match('/^-?\d+(?:\.\d+)?\s+-?\d+(?:\.\d+)?\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)/', $viewBox, $matches) ) {
-            return (float) $matches[1] <= 128 && (float) $matches[2] <= 128;
-        }
-
-        $width = $this->numericSvgLength($this->attr($element, 'width'));
-        $height = $this->numericSvgLength($this->attr($element, 'height'));
-        return null !== $width && null !== $height && $width <= 128 && $height <= 128;
-    }
-
-    private function numericSvgLength(string $value): ?float
-    {
-        return preg_match('/^\s*(\d+(?:\.\d+)?)(?:px)?\s*$/i', $value, $matches) ? (float) $matches[1] : null;
-    }
-
-    private function inlineSvgAltText(DOMElement $element): string
-    {
-        if ( 'true' === strtolower($this->attr($element, 'aria-hidden')) || 'presentation' === strtolower($this->attr($element, 'role')) ) {
-            return '';
-        }
-
-        $ariaLabel = trim($this->attr($element, 'aria-label'));
-        if ( '' !== $ariaLabel ) {
-            return $ariaLabel;
-        }
-
-        return $this->inlineSvgTitleText($element);
-    }
-
-    private function inlineSvgTitleText(DOMElement $element): string
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && 'title' === strtolower($child->tagName) ) {
-                return trim($child->textContent ?? '');
-            }
-        }
-
-        return '';
-    }
-
-    /**
      * @param array<int, array<string, mixed>> $fallbacks
      */
     private function captureInlineSvgFallback(DOMElement $element, array &$fallbacks): void
@@ -3284,40 +3175,6 @@ final class HtmlTransformer
         }
 
         return false;
-    }
-
-    private function hasLogoLikeContext(DOMElement $element): bool
-    {
-        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
-            $context = strtolower(trim(implode(' ', array(
-                $this->attr($current, 'class'),
-                $this->attr($current, 'id'),
-                $this->attr($current, 'aria-label'),
-                $this->attr($current, 'title'),
-            ))));
-
-            if ( preg_match('/(?:^|[\s_-])(?:brand|diagram|illustration|logo|logomark|wordmark)(?:$|[\s_-])/', $context) ) {
-                return true;
-            }
-
-            if ( in_array(strtolower($current->tagName), array( 'body', 'main', 'article', 'section' ), true) ) {
-                return false;
-            }
-        }
-
-        return false;
-    }
-
-    private function hasImageLikeContext(DOMElement $element): bool
-    {
-        $context = strtolower(trim(implode(' ', array(
-            $this->attr($element, 'class'),
-            $this->attr($element, 'id'),
-            $this->attr($element, 'aria-label'),
-            $this->attr($element, 'title'),
-        ))));
-
-        return (bool) preg_match('/(?:^|[\s_-])(?:image|photo|picture)(?:$|[\s_-])/', $context);
     }
 
     private function isPassiveSvgMarkup(DOMElement $element): bool

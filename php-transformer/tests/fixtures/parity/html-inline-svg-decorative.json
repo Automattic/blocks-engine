@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-inline-svg-decorative",
-  "description": "Consumes safe decorative inline SVG separators and converts simple accessible icon SVGs without fallback noise.",
+  "description": "Consumes safe decorative inline SVG separators and preserves simple accessible icon SVGs faithfully as core/html (verbatim svg element, class, and correct-case viewBox) without fallback noise.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-inline-svg-decorative.json",
@@ -18,13 +18,14 @@
   "expected_blocks": [
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Before", "level": 2 } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "After" } },
-    { "path": "blocks.0.innerBlocks.2", "name": "core/icon", "attrs": { "label": "Acme integration" } }
+    { "path": "blocks.0.innerBlocks.2", "name": "core/html" }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
-    { "path": "blocks.0.innerBlocks.2.attrs.svg", "assert": "contains", "value": "aria-label=\"Acme integration\"" },
+    { "path": "blocks.0.innerBlocks.2.attrs.content", "assert": "contains", "value": "<svg viewBox=\"0 0 32 32\"" },
+    { "path": "blocks.0.innerBlocks.2.attrs.content", "assert": "contains", "value": "aria-label=\"Acme integration\"" },
     { "path": "assets", "assert": "count", "count": 0 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }

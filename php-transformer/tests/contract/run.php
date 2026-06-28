@@ -568,16 +568,17 @@ $safeInlineSvgSerialized = (string) ($safeInlineSvg['serialized_blocks'] ?? '');
 $assert('success' === ($safeInlineSvg['status'] ?? ''), 'safe inline SVG does not trip strict fallback gates', (string) ($safeInlineSvg['status'] ?? ''));
 $assert(array() === ($safeInlineSvg['fallbacks'] ?? array()), 'safe decorative inline SVG is consumed instead of recorded as fallback metadata');
 $assert('core/group' === ($safeInlineSvg['blocks'][0]['blockName'] ?? ''), 'decorative inline SVG preserves its CSS-addressable wrapper when present');
-$assert('core/icon' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'icon-context decorative SVG converts to a core icon block');
-$assert(! str_contains($safeInlineSvgSerialized, '<!-- wp:html'), 'safe inline SVG conversion avoids raw HTML blocks');
+$assert('core/html' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'icon-context decorative SVG is preserved faithfully as a core/html block, not a dynamic core/icon (which discards inline SVG markup and renders empty)');
+$assert(str_contains($safeInlineSvgSerialized, '<!-- wp:html'), 'icon-context inline SVG is preserved through a faithful core/html block so the verbatim <svg> element survives rendering');
 $assert(! str_contains($safeInlineSvgSerialized, 'data:image/svg+xml,'), 'decorative inline SVG avoids image data URI noise');
-$assert(str_contains(rawurldecode($safeInlineSvgSerialized), '<svg'), 'decorative icon SVG markup is preserved in the core icon block');
+$assert(str_contains($safeInlineSvgSerialized, '<svg viewBox="0 0 16 16"'), 'decorative icon SVG markup is preserved verbatim with correct-case viewBox');
 
 $safeInlineSvgAsset = ( new HtmlTransformer() )->transform(
     '<svg role="img" aria-label="Status badge" viewBox="0 0 10 10"><title>Status badge</title><circle cx="5" cy="5" r="4"></circle></svg>'
 )->toArray();
-$assert('core/icon' === ($safeInlineSvgAsset['blocks'][0]['blockName'] ?? ''), 'simple accessible inline SVG converts to a core icon block');
-$assert('Status badge' === ($safeInlineSvgAsset['blocks'][0]['attrs']['label'] ?? ''), 'safe accessible inline SVG icon preserves accessible label');
+$safeInlineSvgAssetContent = (string) ($safeInlineSvgAsset['blocks'][0]['attrs']['content'] ?? '');
+$assert('core/html' === ($safeInlineSvgAsset['blocks'][0]['blockName'] ?? ''), 'simple accessible inline SVG is preserved faithfully as a core/html block, not a dynamic core/icon');
+$assert(str_contains($safeInlineSvgAssetContent, 'aria-label="Status badge"') && str_contains($safeInlineSvgAssetContent, 'viewBox="0 0 10 10"'), 'safe accessible inline SVG preserves its accessible label and correct-case viewBox in faithful markup');
 $assert(array() === ($safeInlineSvgAsset['assets'] ?? array()), 'safe accessible inline SVG icon does not generate an image asset');
 $assert(! str_contains((string) ($safeInlineSvgAsset['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'safe accessible inline SVG avoids data URI serialization');
 
@@ -1226,8 +1227,8 @@ $artifactNonEntryInlineSvg = $compiler->compile(
     )
 )->toArray();
 $artifactNonEntryInlineSvgPage = $artifactNonEntryInlineSvg['source_reports']['materialization_plan']['pages'][1] ?? array();
-$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), '<!-- wp:icon'), 'non-entry artifact simple icon SVG converts to a core icon block');
-$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), 'About icon'), 'non-entry artifact core icon preserves safe SVG accessible label');
+$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), '<!-- wp:html'), 'non-entry artifact simple icon SVG is preserved faithfully as a core/html block, not a dynamic core/icon');
+$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), 'aria-label="About icon"') && str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), 'viewBox="0 0 8 8"'), 'non-entry artifact faithful SVG preserves its accessible label and correct-case viewBox');
 $assert(array() === ($artifactNonEntryInlineSvg['source_reports']['materialization_plan']['assets'] ?? array()), 'non-entry artifact simple icon SVG does not materialize a generated image asset');
 $assert(1 === ($simple['source_reports']['materialization_plan']['totals']['pages'] ?? null), 'materialization plan counts pages');
 $assert('index' === ($simple['source_reports']['materialization_plan']['pages'][0]['slug'] ?? ''), 'materialization plan exposes page slug');
