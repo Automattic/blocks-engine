@@ -1,0 +1,16 @@
+{
+  "class": "ecommerce/catalog",
+  "tags": [
+    "ecommerce",
+    "ceramics",
+    "has-cart",
+    "add-to-cart",
+    "glaze-variants",
+    "filters",
+    "sorting",
+    "mini-cart",
+    "multipage",
+    "localstorage"
+  ],
+  "complexity": 3
+}

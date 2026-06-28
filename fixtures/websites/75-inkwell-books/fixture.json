@@ -1,0 +1,16 @@
+{
+  "class": "ecommerce/catalog",
+  "tags": [
+    "ecommerce",
+    "bookstore",
+    "has-cart",
+    "add-to-cart",
+    "filters",
+    "sorting",
+    "format-variants",
+    "mini-cart",
+    "multipage",
+    "localstorage"
+  ],
+  "complexity": 3
+}

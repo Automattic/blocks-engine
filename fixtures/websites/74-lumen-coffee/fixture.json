@@ -1,0 +1,16 @@
+{
+  "class": "ecommerce/catalog",
+  "tags": [
+    "ecommerce",
+    "coffee",
+    "has-cart",
+    "add-to-cart",
+    "filters",
+    "sorting",
+    "product-variants",
+    "mini-cart",
+    "multipage",
+    "localstorage"
+  ],
+  "complexity": 3
+}
