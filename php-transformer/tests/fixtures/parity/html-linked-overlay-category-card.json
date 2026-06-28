@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-linked-overlay-category-card",
-  "description": "Preserves linked overlay/category card hrefs when anchors wrap background and content regions.",
+  "description": "Whole-card overlay/category anchors wrapping background and content regions become valid core/group blocks with children preserved and no unsupported href attribute on the group (#260).",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-linked-overlay-category-card.json",
@@ -17,10 +17,10 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "category-grid", "layout": { "type": "grid" } } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "category-card overlay-card", "href": "/category/design", "ariaLabel": "Read design category" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "category-card overlay-card" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "card__bg" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "overlay" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "category-card overlay-card", "href": "/category/build" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "category-card overlay-card" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "card__bg" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/group", "attrs": { "className": "content" } }
   ],
@@ -29,9 +29,12 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "\"href\":\"/category/design\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "\"href\":\"/category/build\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Sharp Visual Systems" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Production Workflows" },
     { "path": "serialized_blocks", "assert": "contains", "value": "card__bg" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"href\":\"/category/design\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"href\":\"/category/build\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"ariaLabel\"" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
