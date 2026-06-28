@@ -45,8 +45,10 @@
       "php tests/contract/runtime-no-wordpress.php",
       "php tests/contract/runtime-wordpress-stubs.php",
       "php tests/contract/plugin-bootstrap.php",
-      "php tests/contract/run.php"
+      "php tests/contract/run.php",
+      "@test:unit"
     ],
+    "test:unit": "php tests/unit/subtree-classifier.php",
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",
     "test:migration:legacy-parity": "BLOCKS_ENGINE_PARITY_LEGACY=1 php tests/parity/run.php --migration-comparison",
