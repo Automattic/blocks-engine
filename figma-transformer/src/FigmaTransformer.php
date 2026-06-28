@@ -795,8 +795,6 @@ final class FigmaTransformer
         $vectors = array('nodes' => 0, 'rendered_paths' => 0, 'rendered_asset_fallbacks' => 0, 'placeholders' => 0, 'placeholder_nodes' => array(), 'placeholder_reasons' => array());
         $layout = array(
             'large_negative_left_count' => 0,
-            'fixed_root_width_count' => 0,
-            'fixed_root_width_nodes' => array(),
             'large_absolute_offset_count' => 0,
             'large_absolute_offset_nodes' => array(),
             'decorative_underlays' => array('count' => 0, 'nodes' => array()),
@@ -885,13 +883,7 @@ final class FigmaTransformer
 
             $pageLayout = is_array($diagnostics['layout'] ?? null) ? $diagnostics['layout'] : array();
             $layout['large_negative_left_count'] += (int) ($pageLayout['large_negative_left_count'] ?? 0);
-            $layout['fixed_root_width_count'] += (int) ($pageLayout['fixed_root_width_count'] ?? 0);
             $layout['large_absolute_offset_count'] += (int) ($pageLayout['large_absolute_offset_count'] ?? 0);
-            foreach ( is_array($pageLayout['fixed_root_width_nodes'] ?? null) ? $pageLayout['fixed_root_width_nodes'] : array() as $item ) {
-                if ( is_array($item) ) {
-                    $layout['fixed_root_width_nodes'][] = array_merge($pageContext, $item);
-                }
-            }
             foreach ( is_array($pageLayout['large_absolute_offset_nodes'] ?? null) ? $pageLayout['large_absolute_offset_nodes'] : array() as $item ) {
                 if ( is_array($item) ) {
                     $layout['large_absolute_offset_nodes'][] = array_merge($pageContext, $item);
@@ -1040,14 +1032,6 @@ final class FigmaTransformer
         if ( ! empty($layout['large_negative_left_count']) ) {
             $signals[] = array('severity' => 'warning', 'code' => 'off_canvas_left_css', 'count' => (int) $layout['large_negative_left_count']);
         }
-        if ( ! empty($layout['fixed_root_width_count']) ) {
-            $signals[] = array(
-                'severity' => 'warning',
-                'code' => 'fixed_root_width',
-                'count' => (int) $layout['fixed_root_width_count'],
-                'sample_nodes' => array_slice(is_array($layout['fixed_root_width_nodes'] ?? null) ? $layout['fixed_root_width_nodes'] : array(), 0, 10),
-            );
-        }
         if ( ! empty($layout['large_absolute_offset_count']) ) {
             $signals[] = array(
                 'severity' => 'warning',
@@ -1114,7 +1098,6 @@ final class FigmaTransformer
                 'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
                 'render_style_mismatch_count' => (int) ($layout['render_style_mismatch_count'] ?? 0),
                 'render_style_mismatch_status' => (string) ($layout['render_style_mismatch_status'] ?? 'not_run'),
-                'fixed_root_width_count' => (int) ($layout['fixed_root_width_count'] ?? 0),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
                 'layout_mismatch_count' => (int) ($layout['layout_mismatch_count'] ?? 0),

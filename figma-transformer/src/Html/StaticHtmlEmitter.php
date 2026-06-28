@@ -9,6 +9,15 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class StaticHtmlEmitter
 {
+    /**
+     * Minimum intrinsic width (px) at which a page root frame is rendered as a
+     * centered fluid container instead of a fixed canvas width. Roots at least
+     * this wide are treated as full-page desktop canvases that must fit the
+     * viewport; narrower roots are typically embedded components and keep their
+     * intrinsic size.
+     */
+    private const FLUID_ROOT_MIN_WIDTH = 1024.0;
+
     private const MAX_RAW_SVG_PATH_DATA_BYTES = 20000;
     private const MAX_DECODED_FIGMA_SVG_PATH_DATA_BYTES = 4194304;
     private const EXTERNAL_VECTOR_SVG_BYTES = 65536;
@@ -57,7 +66,7 @@ final class StaticHtmlEmitter
             'html{box-sizing:border-box}',
             '*,*::before,*::after{box-sizing:inherit}',
             'body{margin:0}',
-            '.figma-root{position:relative;min-width:100%;width:max-content}',
+            '.figma-root{position:relative;width:100%}',
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
             'img{display:block;max-width:100%;height:auto}',
             '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
@@ -165,7 +174,7 @@ final class StaticHtmlEmitter
             'html{box-sizing:border-box}',
             '*,*::before,*::after{box-sizing:inherit}',
             'body{margin:0}',
-            '.figma-root{position:relative;min-width:100%;width:max-content}',
+            '.figma-root{position:relative;width:100%}',
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
             'img{display:block;max-width:100%;height:auto}',
             '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
@@ -742,8 +751,6 @@ final class StaticHtmlEmitter
         );
         $layout = array(
             'large_negative_left_count' => preg_match_all('/left:-[0-9]{3,}/', $css),
-            'fixed_root_width_count'    => 0,
-            'fixed_root_width_nodes'    => array(),
             'large_absolute_offset_count' => 0,
             'large_absolute_offset_nodes' => array(),
             'decorative_underlays'      => array(
@@ -766,7 +773,6 @@ final class StaticHtmlEmitter
         $vectors['placeholder_nodes'] = array_values($vectors['placeholder_nodes']);
         $layout['decorative_underlays']['nodes'] = array_values($layout['decorative_underlays']['nodes']);
         $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
-        $layout['fixed_root_width_nodes'] = array_values($layout['fixed_root_width_nodes']);
         $layout['large_absolute_offset_nodes'] = array_values($layout['large_absolute_offset_nodes']);
         $layout['image_heavy_landmark_candidates'] = array_values($layout['image_heavy_landmark_candidates']);
         $generatedSvgAssets = $this->generatedSvgAssetDiagnostics($assetFiles);
@@ -839,14 +845,6 @@ final class StaticHtmlEmitter
                 'count' => (int) $layout['large_negative_left_count'],
             );
         }
-        if ( ! empty($layout['fixed_root_width_count']) ) {
-            $signals[] = array(
-                'severity' => 'warning',
-                'code' => 'fixed_root_width',
-                'count' => (int) $layout['fixed_root_width_count'],
-                'sample_nodes' => array_slice(is_array($layout['fixed_root_width_nodes'] ?? null) ? $layout['fixed_root_width_nodes'] : array(), 0, 10),
-            );
-        }
         if ( ! empty($layout['large_absolute_offset_count']) ) {
             $signals[] = array(
                 'severity' => 'warning',
@@ -913,7 +911,6 @@ final class StaticHtmlEmitter
                 'generated_svg_count' => (int) ($generatedSvgAssets['count'] ?? 0),
                 'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
                 'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
-                'fixed_root_width_count' => (int) ($layout['fixed_root_width_count'] ?? 0),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
                 'layout_mismatch_count' => (int) ($layout['layout_mismatch_count'] ?? 0),
@@ -1090,17 +1087,6 @@ final class StaticHtmlEmitter
         ++$image['total_node_count'];
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $nodeLayout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-
-        if ( null === $parentNode && isset($box['width']) && is_numeric($box['width']) && (float) $box['width'] >= 1024.0 && 'FILL' !== strtoupper((string) ($nodeLayout['sizing_horizontal'] ?? '')) ) {
-            ++$layout['fixed_root_width_count'];
-            $layout['fixed_root_width_nodes'][] = array(
-                'node_id' => (string) ($node['id'] ?? ''),
-                'name'    => (string) ($node['name'] ?? ''),
-                'type'    => strtoupper((string) ($node['type'] ?? '')),
-                'width'   => $this->reportNumericValue($box['width'] ?? null),
-            );
-        }
 
         if ( null !== $parentNode ) {
             $offset = $this->largeAbsoluteOffsetDiagnostic($node, $parentNode);
@@ -1436,9 +1422,20 @@ final class StaticHtmlEmitter
             } elseif ( 'FILL' === $sizing ) {
                 $styles[] = $dimension . ':100%';
             } elseif ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
-                $property = $dimension;
-                $value = 'height' === $dimension && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : (float) $box[$dimension];
-                $styles[] = $property . ':' . $this->number($value) . 'px';
+                if ( 'width' === $dimension && null === $parentNode && (float) $box['width'] >= self::FLUID_ROOT_MIN_WIDTH ) {
+                    // Page root: centered fluid container. width:100% lets it shrink
+                    // below the design width without forcing horizontal scroll, while
+                    // max-width pins the intrinsic frame width so rendering stays
+                    // pixel-faithful at and above the native canvas size.
+                    $styles[] = 'width:100%';
+                    $styles[] = 'max-width:' . $this->number((float) $box['width']) . 'px';
+                    $styles[] = 'margin-left:auto';
+                    $styles[] = 'margin-right:auto';
+                } else {
+                    $property = $dimension;
+                    $value = 'height' === $dimension && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : (float) $box[$dimension];
+                    $styles[] = $property . ':' . $this->number($value) . 'px';
+                }
             }
         }
 
