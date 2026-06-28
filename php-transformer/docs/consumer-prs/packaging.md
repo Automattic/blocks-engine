@@ -21,9 +21,7 @@ These Composer package names are known public entrypoints and should keep resolv
 | Existing package | Current role | Continuity plan |
 | --- | --- | --- |
 | `chubes4/html-to-blocks-converter` | WordPress plugin and Composer package for HTML-to-block conversion. | Publish compatibility releases that keep `html_to_blocks_*` functions and plugin hooks while delegating to tagged transformer APIs. |
-| `chubes4/block-format-bridge` | WordPress plugin and Composer package for format conversion across HTML, Markdown, and blocks. | Publish compatibility releases that keep `bfb_*`, adapter, REST, CLI, ability, and report contracts while routing internals through transformer adapters. |
-| `chubes4/block-artifact-compiler` | WordPress plugin and Composer package for generated website artifact compilation. | Publish compatibility releases that keep BAC functions/classes and report fields while mapping tagged transformer envelopes to existing shapes. |
-| `chubes4/static-site-importer` | Product plugin that consumes BFB/BAC and owns WordPress import workflows. | Keep as an active product package. Adopt tagged compatibility releases first, then move product-owned adapters to direct transformer calls when parity evidence is available. |
+| `chubes4/static-site-importer` | Product plugin that consumes `php-transformer` and owns WordPress import workflows. | Keep as an active product package with product-owned adapters that call tagged transformer APIs directly. |
 
 The old names should not be archived at the transformer merge point. Archive decisions wait until tagged compatibility releases have shipped, supported product paths no longer require the old entrypoints, and issue traffic shows no active external dependency on those packages.
 
@@ -174,8 +172,6 @@ Use explicit review constraints only while PRs are draft:
 | --- | --- | --- |
 | `automattic/blocks-engine-php-transformer` | `dev-cook/php-transformer-migration-no-perma-legacy as 0.1.x-dev` | `^0.1.0` after the first transformer tag. |
 | `chubes4/html-to-blocks-converter` | `dev-cook/php-transformer-html-wrapper` for dependent wrapper/product review only. | First tagged compatibility release, expected `^0.1.0` unless maintainers choose a different existing scheme. |
-| `chubes4/block-format-bridge` | `dev-cook/php-transformer-format-wrapper` for Static Site Importer review only. | First tagged compatibility release, expected `^0.1.0` unless maintainers choose a different existing scheme. |
-| `chubes4/block-artifact-compiler` | `dev-cook/php-transformer-artifact-wrapper` for Static Site Importer review only. | First tagged compatibility release, expected `^0.1.0` unless maintainers choose a different existing scheme. |
 
 Review branches may use path repositories for local parity work and VCS repositories for CI. Merge candidates must use tags, not path repositories, unpublished branches, or inline aliases.
 
@@ -187,9 +183,7 @@ Release downstream wrappers after the transformer package has a tag that contain
 
 1. Tag `automattic/blocks-engine-php-transformer` with stable package metadata, autoloading, result envelopes, and fixture coverage.
 2. Release `chubes4/html-to-blocks-converter` as a temporary downstream wrapper over transformer HTML conversion while preserving current public helpers and plugin behavior.
-3. Release `chubes4/block-format-bridge` as a temporary downstream wrapper with transformer-backed adapters while preserving current `bfb_*` functions, format support, conversion reports, and capability metadata.
-4. Release `chubes4/block-artifact-compiler` as a temporary downstream wrapper with transformer-backed compiler behavior while preserving current public compiler functions and report fields.
-5. Update `chubes4/static-site-importer` to depend on compatibility releases first, then move product-owned adapter internals to direct transformer calls when parity evidence is available.
+3. Update `chubes4/static-site-importer` to move product-owned adapter internals to direct transformer calls when parity evidence is available.
 
 ## Archive And Thin-Shim Exit Paths
 
