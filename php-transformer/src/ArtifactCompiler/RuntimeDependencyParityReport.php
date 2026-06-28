@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use DOMDocument;
 use DOMElement;
@@ -102,10 +103,11 @@ final class RuntimeDependencyParityReport
         }
 
         return array_filter(array(
-            'schema'       => self::SCHEMA,
-            'status'       => array() === $findings ? 'pass' : 'warning',
-            'dependencies' => $this->dedupeRows($dependencies),
-            'findings'     => $this->dedupeRows($findings),
+            'schema'         => self::SCHEMA,
+            'finding_schema' => ConversionFindingContract::SCHEMA,
+            'status'         => array() === $findings ? 'pass' : 'warning',
+            'dependencies'   => $this->dedupeRows($dependencies),
+            'findings'       => $this->dedupeRows($findings),
         ), static fn (mixed $value): bool => array() !== $value);
     }
 

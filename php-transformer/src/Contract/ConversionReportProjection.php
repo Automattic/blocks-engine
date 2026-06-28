@@ -20,6 +20,7 @@ final class ConversionReportProjection
     {
         $report = array(
             'schema'                => self::SCHEMA,
+            'finding_schema'        => ConversionFindingContract::SCHEMA,
             'source_format'         => $sourceFormat,
             'source'                => self::firstString($provenance, 'source'),
             'scope'                 => self::firstString($provenance, 'scope'),
