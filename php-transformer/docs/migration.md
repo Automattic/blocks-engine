@@ -30,7 +30,7 @@ The first migration wave treats the existing open source repositories as source 
 
 | Repository | Current role | Target role |
 | --- | --- | --- |
-| `chubes4/html-to-blocks-converter` | Converts raw HTML to Gutenberg block arrays. | Compatibility package or plugin wrapper around `PhpTransformer\\HtmlToBlocks`. |
+| `chubes4/html-to-blocks-converter` | Converts raw HTML to Gutenberg block arrays. | Compatibility package or plugin wrapper around `Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer`. |
 | `chubes4/static-site-importer` | WordPress plugin product for importing static sites into pages/themes. | Product integration that consumes `php-transformer`; remains independently useful. |
 
 Move canonical library behavior into `php-transformer`; keep product behavior and existing public integration surfaces outside the package until callers migrate deliberately.

@@ -267,9 +267,9 @@ Run and compare these fixtures before changing adapter defaults:
 
 | Fixture | Test or source path | Required comparison |
 | --- | --- | --- |
-| `wordpress-is-dead` | `tests/smoke-wordpress-is-dead-fixture.php` and `tests/fixtures/wordpress-is-dead` | Legacy versus adapter import report, fallback count, generated templates/parts, navigation, CSS bridge output, visual/semantic targets. |
-| `mixed-source-site` | `tests/smoke-mixed-source-fixture.php`, `tests/smoke-mixed-source-link-rewrites.php`, and `tests/fixtures/mixed-source-site` | Source-document counts, Markdown page creation, skipped MDX diagnostics, rewritten links, conversion fragment keys. |
-| `website-artifact-bundle` | `tests/fixtures/website-artifact-bundle/artifact.json` | Canonical result envelope fields, `serialized_blocks`, assets, provenance, diagnostics, summary fields, materialized CSS/JS/file artifacts. |
+| `wordpress-is-dead` | `tests/fixtures/parity/wordpress-is-dead-hero.json` | Legacy versus adapter import report, fallback count, generated templates/parts, navigation, CSS bridge output, visual/semantic targets. |
+| `mixed-source-site` | `tests/fixtures/parity/mixed-source-markdown.json` | Source-document counts, Markdown page creation, skipped MDX diagnostics, rewritten links, conversion fragment keys. |
+| `website-artifact-bundle` | `tests/fixtures/parity/website-artifact-bundle.json` | Canonical result envelope fields, `serialized_blocks`, assets, provenance, diagnostics, summary fields, materialized CSS/JS/file artifacts. |
 
 ## Blockers To Resolve Upstream First
 

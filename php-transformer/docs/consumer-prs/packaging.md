@@ -8,11 +8,11 @@ The package name is `automattic/blocks-engine-php-transformer`.
 
 php-transformer is product-level primitive and old repos are downstream consumers.
 
-The canonical package identity is only the Composer package name, the `php-transformer/` package root, and the `Automattic\BlocksEngine\PhpTransformer\` namespace. Do not include old repository names, compatibility wrapper names, or product plugin names in package identity, package metadata, namespaces, or release labels.
+The canonical package identity is only the Composer package name, the `php-transformer` package root, and the PSR-4 namespace rooted at `src/` (for example `Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer`). Do not include old repository names, compatibility wrapper names, or product plugin names in package identity, package metadata, namespaces, or release labels.
 
-The package root is `php-transformer/` inside this repository. It should be installable as a Composer package from that directory during review and from a tagged release after merge.
+The package root is `php-transformer` inside this repository. It should be installable as a Composer package from that directory during review and from a tagged release after merge.
 
-The public namespace remains `Automattic\BlocksEngine\PhpTransformer\`. Downstream wrappers and product plugins should depend on this namespace through Composer autoloading, not by copying package files or requiring `php-transformer` to know the old repositories.
+The public namespace is the PSR-4 root mapped to `src/` (for example `Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer`). Downstream wrappers and product plugins should depend on this namespace through Composer autoloading, not by copying package files or requiring `php-transformer` to know the old repositories.
 
 ## Existing Package Name Continuity
 
@@ -85,7 +85,7 @@ After the transformer release is tagged, downstream consumers should remove cust
 }
 ```
 
-The package is rooted at `php-transformer/`; release and packaging checks should run from that directory. Do not package the full Blocks Engine repository as the Composer artifact, and do not move the transformer files into a downstream repository to make Composer resolution easier.
+The package is rooted at `php-transformer`; release and packaging checks should run from that directory. Do not package the full Blocks Engine repository as the Composer artifact, and do not move the transformer files into a downstream repository to make Composer resolution easier.
 
 Use a VCS repository when the consumer branch runs outside this machine or in CI:
 
@@ -204,7 +204,7 @@ Static Site Importer should not require unpublished wrapper branches on merge. I
 
 The PR can leave draft when the package is reviewable as a releasable Composer library.
 
-- `php-transformer/composer.json` declares the package name, PHP constraint, autoload rules, scripts, and package metadata needed by wrapper PRs.
+- `composer.json` declares the package name, PHP constraint, autoload rules, scripts, and package metadata needed by wrapper PRs.
 - The README states package boundaries, draft status, and where wrapper/product migration plans live.
 - Contract docs cover result envelopes and parity fixtures for downstream wrapper checks.
 - Packaging docs define VCS/path repository use, versioning, prefixing ownership, and release order.

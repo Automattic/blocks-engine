@@ -31,7 +31,7 @@ Run from the transformer package directory:
 composer test:packaging
 ```
 
-The test creates a throwaway Composer project under the system temp directory, configures a non-symlinked path repository that points at `php-transformer/`, requires `automattic/blocks-engine-php-transformer:*@dev`, and runs a PHP autoload smoke check against `HtmlTransformer`.
+The test creates a throwaway Composer project under the system temp directory, configures a non-symlinked path repository that points at `php-transformer`, requires `automattic/blocks-engine-php-transformer:*@dev`, and runs a PHP autoload smoke check against `HtmlTransformer`.
 
 ## Manual Clean Path Repository Install
 
