@@ -250,11 +250,12 @@ final class NavigationPattern implements PatternRecognizerInterface
             $itemAttrs['className'] = $anchorAttrs['className'];
         }
 
+        // The anchor/submenu CSS rides on the preserved classNames + companion CSS;
+        // a raw inline `style` string on the navigation-link/submenu inner markup
+        // would diverge from the block save() output, so it is not emitted (#261).
         return array_filter(array_merge($itemAttrs, $baseAttrs, array(
             'anchorClassName'  => $anchorAttrs['className'] ?? '',
-            'anchorStyle'      => $anchorAttrs['style'] ?? '',
             'submenuClassName' => $submenuAttrs['className'] ?? '',
-            'submenuStyle'     => $submenuAttrs['style'] ?? '',
         )), static fn ($value): bool => '' !== $value);
     }
 

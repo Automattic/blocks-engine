@@ -18,13 +18,14 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "site-nav" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Services", "url": "/services", "kind": "custom" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Book Now", "url": "/book", "kind": "custom", "anchorClassName": "btn btn-primary cta", "anchorStyle": "border-radius:999px;padding:12px 20px;background:#111;color:#fff" } }
+    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Book Now", "url": "/book", "kind": "custom", "anchorClassName": "btn btn-primary cta" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-navigation-item__content btn btn-primary cta\" style=\"border-radius:999px;padding:12px 20px;background:#111;color:#fff\" href=\"/book\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-navigation-item__content btn btn-primary cta\" href=\"/book\">" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "style=\"border-radius:999px;padding:12px 20px;background:#111;color:#fff\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-navigation-item__content\" href=\"/services\">" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]

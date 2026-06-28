@@ -18,7 +18,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "hero" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Atmospheric hero", "level": 1 } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "fixed grain-overlay", "style": "position:fixed;inset:0;pointer-events:none;opacity:.14;background-image:url(noise.png)" } }
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "fixed grain-overlay" } }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },

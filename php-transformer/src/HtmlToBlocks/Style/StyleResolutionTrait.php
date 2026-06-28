@@ -22,19 +22,107 @@ use DOMElement;
  */
 trait StyleResolutionTrait
 {
+    private ?StyleAttributeMapper $styleAttributeMapper = null;
+
+    private function styleAttributeMapper(): StyleAttributeMapper
+    {
+        return $this->styleAttributeMapper ??= new StyleAttributeMapper();
+    }
+
     /**
+     * Resolve an element's presentation into canonical block attributes.
+     *
+     * The merged CSS is translated into the canonical block `style` OBJECT
+     * (typography/color/spacing/border) plus the `layout` attribute. A raw inline
+     * `style` STRING is never emitted on a block: declarations that do not map to
+     * a block support are dropped and ride on the preserved `className` instead
+     * (#261). Frozen responsive/JS hidden base states are normalized away (#259).
+     *
      * @return array<string, mixed>
      */
     private function presentationAttributes(DOMElement $element): array
     {
-        $style = $this->mergedPresentationStyle($element);
+        $style        = $this->mergedPresentationStyle($element);
+        $declarations = $this->stripFrozenHiddenState($element, $this->cssDeclarations($style));
+        $mapped       = $this->styleAttributeMapper()->map($declarations);
 
         return array_filter(array(
             'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
             'className' => $this->promotedClassName($this->attr($element, 'class')),
-            'style'     => $style,
-            'layout'    => $this->layoutAttribute($element, $style),
+            'style'     => $mapped['style'],
+            'layout'    => $this->layoutAttribute($element, $this->cssDeclarationString($declarations)),
         ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+    }
+
+    /**
+     * Remove responsive/JS-revealed hidden base states (display:none /
+     * visibility:hidden / opacity:0) from content-bearing or interactive
+     * elements so they are not frozen permanently invisible (#259). Genuinely
+     * decorative / aria-hidden nodes keep their hidden declarations.
+     *
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private function stripFrozenHiddenState(DOMElement $element, array $declarations): array
+    {
+        if ( array() === $declarations || $this->isDecorativeHiddenElement($element) ) {
+            return $declarations;
+        }
+
+        $stripped = array();
+        if ( isset($declarations['display']) && 'none' === strtolower(trim($declarations['display'])) ) {
+            unset($declarations['display']);
+            $stripped[] = 'display:none';
+        }
+        if ( isset($declarations['visibility']) && 'hidden' === strtolower(trim($declarations['visibility'])) ) {
+            unset($declarations['visibility']);
+            $stripped[] = 'visibility:hidden';
+        }
+        if ( isset($declarations['opacity']) && is_numeric(trim($declarations['opacity'])) && 0.0 === (float) trim($declarations['opacity']) ) {
+            unset($declarations['opacity']);
+            $stripped[] = 'opacity:0';
+        }
+
+        if ( array() !== $stripped ) {
+            $this->frozenHiddenStateFindings[] = array(
+                'tag'          => strtolower($element->tagName),
+                'selector'     => $this->elementSelector($element),
+                'declarations' => $stripped,
+            );
+        }
+
+        return $declarations;
+    }
+
+    /**
+     * An element is treated as genuinely (decoratively) hidden when it carries
+     * no real content or interactivity, or it is explicitly aria-hidden /
+     * presentational. Such nodes may stay hidden; everything else is assumed to
+     * be a responsive/JS-revealed element captured in its base-hidden state.
+     */
+    private function isDecorativeHiddenElement(DOMElement $element): bool
+    {
+        if ( 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) ) {
+            return true;
+        }
+        if ( in_array(strtolower(trim($this->attr($element, 'role'))), array( 'presentation', 'none' ), true) ) {
+            return true;
+        }
+        if ( in_array(strtolower($element->tagName), array( 'svg', 'canvas' ), true) ) {
+            return true;
+        }
+
+        if ( '' !== trim($element->textContent ?? '') ) {
+            return false;
+        }
+
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'a', 'button', 'input', 'select', 'textarea', 'img', 'picture', 'video', 'audio', 'iframe', 'nav', 'form' ), true) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function mergedPresentationStyle(DOMElement $element): string
