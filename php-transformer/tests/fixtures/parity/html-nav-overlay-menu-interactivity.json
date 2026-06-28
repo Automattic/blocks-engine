@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nav-overlay-menu-interactivity",
+  "description": "A source navigation menu converts to a core/navigation block with real inner core/navigation-link children and an explicit overlayMenu='mobile' attribute, so the saved content declares its responsive-overlay intent. WordPress renders the responsive overlay container and enqueues the navigation/view Interactivity module from that attribute, making the mobile hamburger menu function on the rendered site instead of relying on the render-time default being applied.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nav-overlay-menu-interactivity.json",
+    "notes": "Product-neutral fixture proving native-interactivity wiring for navigation. Detection is structural (nav landmark + anchor links); the overlayMenu value is the generic core default and is not site-specific."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<nav class=\"main-nav\" aria-label=\"Primary\"><ul><li><a href=\"/\">Home</a></li><li><a href=\"/about\">About</a></li><li><a href=\"/contact\">Contact</a></li></ul></nav>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "main-nav", "overlayMenu": "mobile" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Home", "url": "/", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "About", "url": "/about", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/navigation-link", "attrs": { "label": "Contact", "url": "/contact", "kind": "custom" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.attrs.overlayMenu", "assert": "equals", "value": "mobile" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"overlayMenu\":\"mobile\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"label\":\"Home\",\"url\":\"/\",\"kind\":\"custom\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation {\"className\":\"main-nav\",\"overlayMenu\":\"mobile\"} -->" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

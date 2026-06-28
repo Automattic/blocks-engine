@@ -4220,7 +4220,11 @@ final class HtmlTransformer
                 'kind'  => 'custom',
             ), static fn ($value): bool => '' !== $value), array(), $anchor);
         }
-        $blocks[] = $this->createBlock('core/navigation', array(), $links, $element);
+        // Declare responsive-overlay intent explicitly (see NavigationPattern):
+        // `overlayMenu` => `mobile` matches the core default so WP renders the
+        // responsive overlay and enqueues the navigation view module instead of
+        // depending on the render-time default being applied.
+        $blocks[] = $this->createBlock('core/navigation', array( 'overlayMenu' => 'mobile' ), $links, $element);
 
         return $this->createBlock('core/group', $this->presentationAttributes($element), array_values(array_filter($blocks)), $element);
     }

@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-native-details-to-core-details",
+  "description": "A native HTML <details>/<summary> disclosure converts to a real core/details block: the summary text becomes the block summary attribute and the disclosure body becomes inner blocks, so the show/hide behavior is carried by the native zero-JS disclosure block instead of being emitted as raw <details> markup inside a generic group.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-native-details-to-core-details.json",
+    "notes": "Product-neutral fixture proving the native <details> path emits core/details with inner blocks. Detection is structural (native details/summary element), never a class string."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<details class=\"faq-item\"><summary>How does shipping work?</summary><p>Orders ship within two business days.</p></details>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/details", "attrs": { "summary": "How does shipping work?", "className": "faq-item" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Orders ship within two business days." } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/details" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:details" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<details class=\"wp-block-details faq-item\"><summary>How does shipping work?</summary>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
