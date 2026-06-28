@@ -771,6 +771,7 @@ final class StaticHtmlEmitter
         $image['missing_assets'] = array_values($image['missing_assets']);
         $image['image_block_nodes'] = array_values($image['image_block_nodes']);
         $vectors['placeholder_nodes'] = array_values($vectors['placeholder_nodes']);
+        $vectors['decode_coverage'] = $this->vectorDecodeCoverage($vectors);
         $layout['decorative_underlays']['nodes'] = array_values($layout['decorative_underlays']['nodes']);
         $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
         $layout['large_absolute_offset_nodes'] = array_values($layout['large_absolute_offset_nodes']);
@@ -908,6 +909,10 @@ final class StaticHtmlEmitter
                 'image_node_density' => round($imageNodeDensity, 3),
                 'total_node_count' => $totalNodeCount,
                 'vector_image_fallbacks' => (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
+                'vector_nodes' => (int) ($vectors['nodes'] ?? 0),
+                'vector_decoded_to_svg' => (int) ($vectors['rendered_paths'] ?? 0),
+                'vector_decode_coverage_ratio' => (float) ($vectors['decode_coverage']['coverage_ratio'] ?? 0.0),
+                'vector_placeholder_reason_categories' => is_array($vectors['decode_coverage']['placeholder_reason_categories'] ?? null) ? $vectors['decode_coverage']['placeholder_reason_categories'] : array(),
                 'generated_svg_count' => (int) ($generatedSvgAssets['count'] ?? 0),
                 'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
                 'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
@@ -989,6 +994,52 @@ final class StaticHtmlEmitter
         }
 
         return $count;
+    }
+
+    /**
+     * Summarize vector-decode coverage: how many vector-like nodes became real
+     * inline SVG geometry versus how many remain placeholders, with the remaining
+     * placeholders grouped into actionable reason categories.
+     *
+     * @param array<string, mixed> $vectors
+     * @return array<string, mixed>
+     */
+    private function vectorDecodeCoverage(array $vectors): array
+    {
+        $nodes = (int) ($vectors['nodes'] ?? 0);
+        $decoded = (int) ($vectors['rendered_paths'] ?? 0);
+        $assetFallbacks = (int) ($vectors['rendered_asset_fallbacks'] ?? 0);
+        $placeholders = (int) ($vectors['placeholders'] ?? 0);
+        $reasons = is_array($vectors['placeholder_reasons'] ?? null) ? $vectors['placeholder_reasons'] : array();
+
+        $categoryByReason = array(
+            'missing_vector_geometry'                => 'no_geometry_available',
+            'missing_dimensions'                     => 'no_geometry_available',
+            'unsupported_vector_network_blob'        => 'vector_network_blob_unsupported',
+            'unsupported_path_data'                  => 'path_data_unsupported',
+            'oversized_path_data'                    => 'path_data_unsupported',
+            'unsupported_vector_geometry'            => 'path_data_unsupported',
+            'unsupported_boolean_operation_children' => 'boolean_operation_unsupported',
+            'unresolved_asset_fallback'              => 'asset_unresolved',
+        );
+
+        $categories = array();
+        foreach ( $reasons as $reason => $count ) {
+            $category = $categoryByReason[(string) $reason] ?? 'other';
+            $categories[$category] = (int) ($categories[$category] ?? 0) + (int) $count;
+        }
+        ksort($categories);
+
+        return array(
+            'schema'                     => 'blocks-engine/figma-transformer/vector-decode-coverage/v1',
+            'vector_nodes'               => $nodes,
+            'decoded_to_svg'             => $decoded,
+            'asset_fallbacks'            => $assetFallbacks,
+            'placeholders'               => $placeholders,
+            'coverage_ratio'             => $nodes > 0 ? round($decoded / $nodes, 3) : 0.0,
+            'placeholder_reasons'        => $reasons,
+            'placeholder_reason_categories' => $categories,
+        );
     }
 
     /**

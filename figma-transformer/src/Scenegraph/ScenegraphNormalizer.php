@@ -1932,11 +1932,22 @@ final class ScenegraphNormalizer
             }
 
             foreach ( $node[$geometryKey] as $geometry ) {
-                if ( ! is_array($geometry) || ! isset($geometry['commandsBlob']) ) {
+                if ( ! is_array($geometry) ) {
                     continue;
                 }
 
-                $normalized = $this->normalizeVectorCommandBlob($geometry['commandsBlob'], $blobs, $nodeId, $geometryKey, $diagnostics);
+                // Prefer ready-to-use SVG path commands (Figma REST/plugin geometry
+                // shape: `{ path, windingRule }`). This emits real vectors directly,
+                // without decoding the raw Kiwi command blob.
+                $readyPath = $this->extractReadyVectorPath($geometry);
+                if ( null !== $readyPath ) {
+                    $normalized = array('data' => $readyPath, 'source' => $geometryKey . '.path');
+                } elseif ( isset($geometry['commandsBlob']) ) {
+                    $normalized = $this->normalizeVectorCommandBlob($geometry['commandsBlob'], $blobs, $nodeId, $geometryKey, $diagnostics);
+                } else {
+                    continue;
+                }
+
                 if ( null === $normalized ) {
                     continue;
                 }
@@ -1956,6 +1967,44 @@ final class ScenegraphNormalizer
         }
 
         return $paths;
+    }
+
+    /**
+     * Extract ready-to-use SVG path commands from a Figma geometry entry.
+     *
+     * Figma's REST API and plugin geometry expose `fillGeometry`/`strokeGeometry`
+     * as `{ path: "<SVG path commands>", windingRule }`. When that pre-decoded
+     * string is present we can emit it directly as an inline `<path>` rather than
+     * decoding the raw Kiwi command blob.
+     *
+     * @param array<string, mixed> $geometry
+     */
+    private function extractReadyVectorPath(array $geometry): ?string
+    {
+        foreach ( array('path', 'pathData', 'd', 'data') as $key ) {
+            if ( ! isset($geometry[$key]) || ! is_scalar($geometry[$key]) ) {
+                continue;
+            }
+
+            $candidate = trim(preg_replace('/\s+/', ' ', (string) $geometry[$key]) ?? '');
+            if ( '' === $candidate ) {
+                continue;
+            }
+
+            // Require well-formed SVG path data: a leading move command and only
+            // path-command/number characters. The emitter re-validates and
+            // byte-limits before rendering.
+            if ( 1 !== preg_match('/^[Mm][\s,]*-?\d/', $candidate) ) {
+                continue;
+            }
+            if ( 1 !== preg_match('/^[MmZzLlHhVvCcSsQqTtAa0-9,\.\-+\s]+$/', $candidate) ) {
+                continue;
+            }
+
+            return $candidate;
+        }
+
+        return null;
     }
 
     /**
