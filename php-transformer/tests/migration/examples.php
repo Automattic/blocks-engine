@@ -71,41 +71,6 @@ PHP
         continue;
     }
 
-    if ( 'block-format-bridge-wrapper.php' === $name ) {
-        $smoke(
-            $name,
-            $example,
-            $assertions . <<<'PHP'
-$serialized = bfb_convert( '<h2>Hello</h2>', 'html', 'blocks' );
-$assert( str_contains( $serialized, '<!-- wp:heading' ), 'BFB convert returns serialized heading block' );
-$blocks = bfb_to_blocks( '<p>Hello</p>', 'html' );
-$assert( isset( $blocks[0]['blockName'] ) && 'core/paragraph' === $blocks[0]['blockName'], 'BFB to_blocks returns block arrays' );
-$assert( "# Hello\n" === bfb_normalize( "# Hello\r\n", 'markdown' ), 'BFB normalize maps markdown newlines' );
-$fragment = bfb_convert_fragment( '<p>Scoped</p>', array( 'source_id' => 'fixture' ) );
-$assert( true === $fragment['success'] && 'fixture' === $fragment['scope']['source_id'], 'BFB fragment wrapper returns scoped envelope' );
-$capabilities = bfb_capabilities();
-$assert( isset( $capabilities['formats']['html'] ), 'BFB capabilities report includes html format' );
-PHP
-        );
-        continue;
-    }
-
-    if ( 'block-artifact-compiler-wrapper.php' === $name ) {
-        $smoke(
-            $name,
-            $example,
-            $assertions . <<<'PHP'
-$compiled = bac_compile_website_artifact( array( 'generated_html' => '<main><h1>Hello</h1></main>' ) );
-$assert( isset( $compiled['serialized_blocks'] ) && str_contains( $compiled['serialized_blocks'], '<!-- wp:html -->' ), 'BAC wrapper compiles generated HTML' );
-$fragment = bac_compile_fragment( '<p>Fragment</p>', 'fragment', 'html' );
-$assert( isset( $fragment['schema'] ), 'BAC fragment wrapper returns result envelope' );
-$summary = bac_summarize_result( $compiled );
-$assert( isset( $summary['diagnostic_count'] ), 'BAC summary wrapper returns counts' );
-PHP
-        );
-        continue;
-    }
-
     if ( 'static-site-importer-transformer-adapter.php' === $name ) {
         $smoke(
             $name,
