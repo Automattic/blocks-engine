@@ -45,6 +45,20 @@ final class StaticHtmlEmitter
     private bool $renderTextGlyphPaths = false;
 
     /**
+     * Resolved destination-node-id => page-path map used to turn NODE/prototype links into slug hrefs.
+     *
+     * @var array<string, string>
+     */
+    private array $linkTargetPaths = array();
+
+    /**
+     * Running link-coverage tallies populated while emitting nodes.
+     *
+     * @var array<string, mixed>
+     */
+    private array $linkCoverage = array();
+
+    /**
      * @param array<string, mixed> $scenegraph Normalized Figma scenegraph.
      * @param array<string, mixed> $options Transformation options.
      * @return array<string, mixed>
@@ -55,6 +69,8 @@ final class StaticHtmlEmitter
         $this->usedAssetPaths = array();
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
+        $this->linkTargetPaths = $this->normalizeLinkTargetPaths($options);
+        $this->linkCoverage = $this->newLinkCoverage();
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $nodes = $this->nodeList($scenegraph);
         $diagnostics = array();
@@ -69,6 +85,7 @@ final class StaticHtmlEmitter
             '.figma-root{position:relative;width:100%}',
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
             'img{display:block;max-width:100%;height:auto}',
+            'a.figma-link{display:contents;color:inherit;text-decoration:inherit}',
             '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
         );
         if ( $this->renderTextGlyphPaths ) {
@@ -164,6 +181,8 @@ final class StaticHtmlEmitter
         $this->usedAssetPaths = array();
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
+        $this->linkTargetPaths = $this->linkTargetPathsFromPagePlan($pagePlan, $options);
+        $this->linkCoverage = $this->newLinkCoverage();
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $diagnostics = array();
         $nodeStyleDiagnostics = array();
@@ -177,6 +196,7 @@ final class StaticHtmlEmitter
             '.figma-root{position:relative;width:100%}',
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
             'img{display:block;max-width:100%;height:auto}',
+            'a.figma-link{display:contents;color:inherit;text-decoration:inherit}',
             '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
         );
         if ( $this->renderTextGlyphPaths ) {
@@ -418,7 +438,9 @@ final class StaticHtmlEmitter
             $attributes .= ' role="img" aria-label="' . $this->sanitizeAttribute('' !== $name ? $name : $type) . '"';
         }
 
-        return sprintf("<%1\$s%2\$s>%3\$s</%1\$s>\n", $tag, $attributes, $content);
+        $element = sprintf("<%1\$s%2\$s>%3\$s</%1\$s>\n", $tag, $attributes, $content);
+
+        return $this->wrapWithLink($node, $element, $diagnostics);
     }
 
     private function tagName(string $type, string $name, int $depth): string
@@ -713,6 +735,176 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    private function newLinkCoverage(): array
+    {
+        return array(
+            'sources_found'      => 0,
+            'anchors_emitted'    => 0,
+            'url_links'          => 0,
+            'node_links'         => 0,
+            'unresolved'         => 0,
+            'unresolved_targets' => array(),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, string>
+     */
+    private function normalizeLinkTargetPaths(array $options): array
+    {
+        $map = array();
+        $raw = is_array($options['link_target_paths'] ?? null) ? $options['link_target_paths'] : array();
+        foreach ( $raw as $nodeId => $path ) {
+            if ( is_scalar($nodeId) && is_scalar($path) && '' !== (string) $nodeId && '' !== (string) $path ) {
+                $map[(string) $nodeId] = (string) $path;
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param array<string, mixed> $pagePlan
+     * @param array<string, mixed> $options
+     * @return array<string, string>
+     */
+    private function linkTargetPathsFromPagePlan(array $pagePlan, array $options): array
+    {
+        $map = $this->normalizeLinkTargetPaths($options);
+        foreach ( $this->plannedPages($pagePlan) as $index => $page ) {
+            if ( ! is_array($page) ) {
+                continue;
+            }
+
+            $frameId = isset($page['frame_id']) && is_scalar($page['frame_id']) ? (string) $page['frame_id'] : '';
+            if ( '' === $frameId || isset($map[$frameId]) ) {
+                continue;
+            }
+
+            $name = (string) ($page['name'] ?? $frameId);
+            $map[$frameId] = $this->pagePath($page, $name, is_int($index) ? $index : 0);
+        }
+
+        return $map;
+    }
+
+    /**
+     * Wrap an emitted element in a real anchor when the node carries Figma link data.
+     *
+     * @param array<string, mixed>             $node
+     * @param array<int, array<string, mixed>> $diagnostics
+     */
+    private function wrapWithLink(array $node, string $element, array &$diagnostics): string
+    {
+        $link = is_array($node['figma_link'] ?? null) ? $node['figma_link'] : array();
+        if ( empty($link) ) {
+            return $element;
+        }
+
+        $this->linkCoverage['sources_found']++;
+        $type = (string) ($link['type'] ?? '');
+        $nodeId = (string) ($node['id'] ?? '');
+        $targetNodeId = (string) ($link['target_node_id'] ?? '');
+        $href = null;
+        $resolved = false;
+
+        if ( 'url' === $type ) {
+            $this->linkCoverage['url_links']++;
+            $href = $this->sanitizeLinkUrl((string) ($link['url'] ?? ''));
+            $resolved = '#' !== $href;
+        } elseif ( 'node' === $type ) {
+            $this->linkCoverage['node_links']++;
+            if ( '' !== $targetNodeId && isset($this->linkTargetPaths[$targetNodeId]) ) {
+                $href = $this->linkTargetPaths[$targetNodeId];
+                $resolved = true;
+            } else {
+                $href = '#';
+            }
+        }
+
+        if ( null === $href ) {
+            return $element;
+        }
+
+        if ( ! $resolved ) {
+            $this->linkCoverage['unresolved']++;
+            if ( count($this->linkCoverage['unresolved_targets']) < 50 ) {
+                $this->linkCoverage['unresolved_targets'][] = array(
+                    'node_id'        => $nodeId,
+                    'link_type'      => $type,
+                    'target_node_id' => $targetNodeId,
+                    'source'         => (string) ($link['source'] ?? ''),
+                );
+            }
+            $diagnostics[] = array(
+                'severity' => 'info',
+                'code'     => 'link_target_unresolved',
+                'message'  => 'Figma link target could not be resolved to a generated page and was emitted as a placeholder anchor.',
+                'context'  => array(
+                    'node_id'        => $nodeId,
+                    'link_type'      => $type,
+                    'target_node_id' => $targetNodeId,
+                    'source'         => (string) ($link['source'] ?? ''),
+                ),
+            );
+        }
+
+        $this->linkCoverage['anchors_emitted']++;
+
+        return sprintf(
+            "<a class=\"figma-link\" href=\"%1\$s\" data-figma-link-type=\"%2\$s\">%3\$s</a>\n",
+            $this->sanitizeAttribute($href),
+            $this->sanitizeAttribute($type),
+            $element
+        );
+    }
+
+    private function sanitizeLinkUrl(string $url): string
+    {
+        $url = trim($url);
+        if ( '' === $url ) {
+            return '#';
+        }
+
+        if ( str_starts_with($url, '#') || str_starts_with($url, '/') || str_starts_with($url, '?') ) {
+            return $url;
+        }
+
+        if ( 1 === preg_match('/^(https?:|mailto:|tel:)/i', $url) ) {
+            return $url;
+        }
+
+        // Reject unsafe or unsupported schemes (javascript:, data:, etc.).
+        if ( 1 === preg_match('#^[a-z][a-z0-9+.\-]*:#i', $url) ) {
+            return '#';
+        }
+
+        // Schemeless relative reference (e.g. about.html, ../contact/).
+        return $url;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function linkDiagnostics(): array
+    {
+        $coverage = $this->linkCoverage;
+
+        return array(
+            'schema'             => 'blocks-engine/figma-transformer/link-coverage/v1',
+            'sources_found'      => (int) ($coverage['sources_found'] ?? 0),
+            'anchors_emitted'    => (int) ($coverage['anchors_emitted'] ?? 0),
+            'url_links'          => (int) ($coverage['url_links'] ?? 0),
+            'node_links'         => (int) ($coverage['node_links'] ?? 0),
+            'unresolved'         => (int) ($coverage['unresolved'] ?? 0),
+            'unresolved_targets' => array_values(is_array($coverage['unresolved_targets'] ?? null) ? $coverage['unresolved_targets'] : array()),
+        );
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $nodes
      * @return array<int, array<string, mixed>>
      */
@@ -790,6 +982,8 @@ final class StaticHtmlEmitter
             'missing_css'   => '' === $fontCss ? array_values(array_filter($fontFamilies, fn (string $family): bool => ! $this->isWebSafeFontFamily($family))) : array(),
         );
 
+        $links = $this->linkDiagnostics();
+
         return array(
             'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
             'selection' => $this->selectionDiagnostics($nodes),
@@ -799,7 +993,8 @@ final class StaticHtmlEmitter
             'assets' => $assets,
             'generated_svg_assets' => $generatedSvgAssets,
             'layout' => $layout,
-            'artifact_quality' => $this->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout),
+            'links' => $links,
+            'artifact_quality' => $this->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links),
             'diagnostic_codes' => $this->diagnosticCodeCounts($diagnostics),
         );
     }
@@ -811,9 +1006,10 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $assets
      * @param array<string, mixed> $generatedSvgAssets
      * @param array<string, mixed> $layout
+     * @param array<string, mixed> $links
      * @return array<string, mixed>
      */
-    private function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout): array
+    private function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array()): array
     {
         $signals = array();
 
@@ -889,6 +1085,14 @@ final class StaticHtmlEmitter
                 'bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
             );
         }
+        if ( ! empty($links['unresolved']) ) {
+            $signals[] = array(
+                'severity' => 'info',
+                'code' => 'link_target_unresolved',
+                'count' => (int) $links['unresolved'],
+                'sample_nodes' => array_slice(is_array($links['unresolved_targets'] ?? null) ? $links['unresolved_targets'] : array(), 0, 10),
+            );
+        }
 
         $failCodes = array('missing_render_assets', 'vector_placeholders');
         $failCount = count(array_filter($signals, static fn (array $signal): bool => in_array((string) ($signal['code'] ?? ''), $failCodes, true)));
@@ -920,6 +1124,9 @@ final class StaticHtmlEmitter
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
                 'layout_mismatch_count' => (int) ($layout['layout_mismatch_count'] ?? 0),
                 'layout_mismatch_status' => (string) ($layout['layout_mismatch_status'] ?? 'not_evaluated'),
+                'link_sources_found' => (int) ($links['sources_found'] ?? 0),
+                'anchors_emitted' => (int) ($links['anchors_emitted'] ?? 0),
+                'link_targets_unresolved' => (int) ($links['unresolved'] ?? 0),
             ),
         );
     }

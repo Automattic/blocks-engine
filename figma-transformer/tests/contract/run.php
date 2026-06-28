@@ -4735,6 +4735,121 @@ $assert(! str_contains($derivedSymbolInstanceHtml, '<g transform="scale'), 'deri
 $assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-2-derived-label{width:90px;height:24px;position:absolute;left:12px;top:6px'), 'derived-symbol-instance-label-size-position');
 $assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-3-derived-icon{width:10px;height:10px;position:absolute;left:110px;top:10px'), 'derived-symbol-instance-icon-size-position');
 
+// Real anchor tags: a TEXT node carrying a URL hyperlink emits a real <a href>.
+$urlLinkResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Url Link Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'link:1',
+            'type'     => 'FRAME',
+            'name'     => 'Footer',
+            'width'    => 1200,
+            'height'   => 200,
+            'children' => array(
+                array(
+                    'id'         => 'link:2',
+                    'type'       => 'TEXT',
+                    'name'       => 'External link',
+                    'characters' => 'Visit Automattic',
+                    'hyperlink'  => array('type' => 'URL', 'url' => 'https://automattic.com/about'),
+                ),
+            ),
+        ),
+    ),
+));
+$urlLinkHtml = $fileContent($urlLinkResult, 'index.html');
+$urlLinkCss = $fileContent($urlLinkResult, 'style.css');
+$urlLinks = $urlLinkResult['source_reports']['figma']['html']['transform_diagnostics']['links'] ?? array();
+$assert(str_contains($urlLinkHtml, '<a class="figma-link" href="https://automattic.com/about" data-figma-link-type="url">'), 'url-hyperlink-emits-anchor');
+$assert(str_contains($urlLinkHtml, '<a class="figma-link" href="https://automattic.com/about" data-figma-link-type="url"><p class="figma-node-link-2-external-link"'), 'url-hyperlink-wraps-element-transparently');
+$assert(str_contains($urlLinkCss, 'a.figma-link{display:contents'), 'figma-link-display-contents-rule');
+$assert(1 === ($urlLinks['sources_found'] ?? null) && 1 === ($urlLinks['anchors_emitted'] ?? null) && 1 === ($urlLinks['url_links'] ?? null) && 0 === ($urlLinks['unresolved'] ?? null), 'url-hyperlink-link-coverage');
+
+// Real anchor tags: a NODE/prototype link resolving to a planned frame emits the slug href.
+$navScenegraph = array(
+    'name'  => 'Nav Link Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'nav:home',
+            'type'     => 'FRAME',
+            'name'     => 'Home',
+            'width'    => 1280,
+            'height'   => 900,
+            'children' => array(
+                array(
+                    'id'         => 'nav:home-link',
+                    'type'       => 'TEXT',
+                    'name'       => 'About nav item',
+                    'characters' => 'About',
+                    'hyperlink'  => array('type' => 'NODE', 'nodeID' => 'nav:about'),
+                ),
+                array(
+                    'id'         => 'nav:proto-link',
+                    'type'       => 'FRAME',
+                    'name'       => 'CTA button',
+                    'width'      => 160,
+                    'height'     => 48,
+                    'reactions'  => array(
+                        array(
+                            'trigger' => array('type' => 'ON_CLICK'),
+                            'action'  => array('type' => 'NODE', 'navigation' => 'NAVIGATE', 'destinationId' => 'nav:about'),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array(
+            'id'       => 'nav:about',
+            'type'     => 'FRAME',
+            'name'     => 'About',
+            'width'    => 1280,
+            'height'   => 900,
+            'children' => array(
+                array('id' => 'nav:about-title', 'type' => 'TEXT', 'name' => 'About title', 'characters' => 'About us'),
+            ),
+        ),
+    ),
+);
+$navResult = blocks_engine_figma_transformer_transform_scenegraph($navScenegraph, array('include_all_pages' => true, 'entry_frame_id' => 'nav:home'));
+$navHomeHtml = $fileContent($navResult, 'index.html');
+$assert(str_contains($navHomeHtml, '<a class="figma-link" href="about.html" data-figma-link-type="node">'), 'node-hyperlink-resolves-to-slug');
+$assert(2 === substr_count($navHomeHtml, 'href="about.html"'), 'node-and-prototype-links-both-resolve');
+
+// Real anchor tags: an unresolved NODE link is counted in the diagnostic and emitted as a placeholder anchor.
+$unresolvedResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Unresolved Link Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'dead:1',
+            'type'     => 'FRAME',
+            'name'     => 'Nav',
+            'width'    => 1200,
+            'height'   => 120,
+            'children' => array(
+                array(
+                    'id'         => 'dead:2',
+                    'type'       => 'TEXT',
+                    'name'       => 'Broken link',
+                    'characters' => 'Missing page',
+                    'hyperlink'  => array('type' => 'NODE', 'nodeID' => 'does:not:exist'),
+                ),
+            ),
+        ),
+    ),
+));
+$unresolvedHtml = $fileContent($unresolvedResult, 'index.html');
+$unresolvedLinks = $unresolvedResult['source_reports']['figma']['html']['transform_diagnostics']['links'] ?? array();
+$unresolvedSignalCodes = $artifactQualitySignalCodes($unresolvedResult);
+$unresolvedDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $unresolvedResult['diagnostics'] ?? array()
+);
+$assert(str_contains($unresolvedHtml, '<a class="figma-link" href="#" data-figma-link-type="node">'), 'unresolved-node-link-emits-placeholder-anchor');
+$assert(1 === ($unresolvedLinks['unresolved'] ?? null) && 1 === ($unresolvedLinks['node_links'] ?? null), 'unresolved-link-counted-in-coverage');
+$assert('does:not:exist' === ($unresolvedLinks['unresolved_targets'][0]['target_node_id'] ?? null), 'unresolved-link-records-target-node-id');
+$assert(in_array('link_target_unresolved', $unresolvedSignalCodes, true), 'unresolved-link-artifact-quality-signal');
+$assert(in_array('link_target_unresolved', $unresolvedDiagnosticCodes, true), 'unresolved-link-diagnostic-code');
+
 blocks_engine_figma_transformer_run_fixture_matrix_contract($assert);
 
 if ( ! empty($failures) ) {

@@ -463,6 +463,7 @@ final class FigmaTransformer
         $nodeCount = 0;
         $textNodeCount = 0;
         $assetReferenceCount = 0;
+        $linkTargetPaths = $this->linkTargetPathsFromPages($pages);
 
         foreach ( $pages as $page ) {
             if ( ! is_array($page) ) {
@@ -482,6 +483,7 @@ final class FigmaTransformer
             $pageOptions['render_style_mismatch_options'] = is_array($pageOptions['render_style_mismatch_options'] ?? null) ? $pageOptions['render_style_mismatch_options'] : array();
             $pageOptions['render_style_mismatch_options']['page_path'] = $path;
             unset($pageOptions['multi_page'], $pageOptions['include_all_pages'], $pageOptions['frame_ids'], $pageOptions['entry_frame_id'], $pageOptions['max_pages'], $pageOptions['frame_slug_map']);
+            $pageOptions['link_target_paths'] = $linkTargetPaths;
             $pageResult = $this->transformScenegraph($scenegraph, $pageOptions)->toArray();
             $pageDiagnostics = is_array($pageResult['diagnostics'] ?? null) ? $pageResult['diagnostics'] : array();
             $diagnostics = array_merge($diagnostics, $pageDiagnostics);
@@ -782,6 +784,32 @@ final class FigmaTransformer
         }
 
         return $artifactQuality;
+    }
+
+    /**
+     * Map planned frame ids to their generated page paths so per-page emission can resolve NODE/prototype links to slugs.
+     *
+     * @param array<int, mixed> $pages
+     * @return array<string, string>
+     */
+    private function linkTargetPathsFromPages(array $pages): array
+    {
+        $map = array();
+        foreach ( $pages as $page ) {
+            if ( ! is_array($page) ) {
+                continue;
+            }
+
+            $frameId = isset($page['frame_id']) && is_scalar($page['frame_id']) ? (string) $page['frame_id'] : '';
+            $path = isset($page['path']) && is_scalar($page['path']) ? (string) $page['path'] : '';
+            if ( '' === $frameId || '' === $path ) {
+                continue;
+            }
+
+            $map[$frameId] = $path;
+        }
+
+        return $map;
     }
 
     /**
