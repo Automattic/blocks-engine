@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-button-label-preserves-inline-format",
+  "description": "Keeps genuine inline RichText formats (e.g. <strong>) in a button label while still unwrapping a non-format presentational <span>.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-button-label-preserves-inline-format.json",
+    "notes": "Ensures the wrapping-span unwrap is structural and never strips formats core/button's RichText supports."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This fixture covers WordPress block-validity normalization beyond the legacy converter behavior."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<a class=\"btn\" href=\"/go\"><span><strong>Go</strong> now</span></a>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "btn", "text": "<strong>Go</strong> now", "url": "/go" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-button__link wp-element-button\" href=\"/go\"><strong>Go</strong> now</a>" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

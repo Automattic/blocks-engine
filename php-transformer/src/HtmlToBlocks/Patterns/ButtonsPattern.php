@@ -105,7 +105,47 @@ final class ButtonsPattern
     {
         $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
         $html = preg_replace('/<\/?(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i', '', $html) ?? $html;
-        return trim($html);
+        return $this->unwrapPresentationalSpan(trim($html));
+    }
+
+    /**
+     * Strip a presentational <span> that wraps the entire button label.
+     *
+     * core/button stores its label as RichText, which only recognizes a fixed
+     * set of inline formats (e.g. <strong>, <em>). A bare wrapping <span> is not
+     * a format, so RichText drops it on parse: the saved markup no longer matches
+     * the re-serialized block ("unexpected or invalid content") and the label is
+     * captured as literal `<span>…</span>` markup instead of text. Removing the
+     * non-format wrapper keeps the label as valid RichText that round-trips, while
+     * genuine inline formats inside the span are preserved.
+     */
+    private function unwrapPresentationalSpan(string $html): string
+    {
+        while ( preg_match('/^<span\b[^>]*>(.*)<\/span>$/is', $html, $matches) === 1 && $this->spanWrapsEntireContent($matches[1]) ) {
+            $html = trim($matches[1]);
+        }
+
+        return $html;
+    }
+
+    /**
+     * True when the outer span's matching close is the final </span>, i.e. a
+     * single span wraps the whole label rather than two sibling spans
+     * (`<span>A</span> <span>B</span>`), which must not be unwrapped.
+     */
+    private function spanWrapsEntireContent(string $inner): bool
+    {
+        $depth = 0;
+        if ( preg_match_all('/<(\/?)span\b[^>]*>/i', $inner, $matches) ) {
+            foreach ( $matches[1] as $slash ) {
+                $depth += '' === $slash ? 1 : -1;
+                if ( $depth < 0 ) {
+                    return false;
+                }
+            }
+        }
+
+        return 0 === $depth;
     }
 
     /**
@@ -120,6 +160,10 @@ final class ButtonsPattern
         // block style object, so the (now object-shaped) presentation `style` is
         // dropped and re-derived via ButtonStyleResolver below.
         unset($attrs['style']);
+        // core/button does not support a `layout` attribute (a flex/grid layout
+        // belongs on the parent core/buttons, not each button). Emitting it here
+        // produces an unsupported attribute and invalid block markup, so drop it.
+        unset($attrs['layout']);
         $resolvedStyle = (string) $resolvedStyle($element);
         if ( $this->hasOutlineSignal($element, $resolvedStyle) ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' is-style-outline');
