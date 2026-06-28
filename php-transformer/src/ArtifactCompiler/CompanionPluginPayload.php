@@ -20,14 +20,19 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
  *   - site_name   (string)  optional human-readable name; defaults to slug.
  *   - mu_plugin   (bool)    optional; emit as a must-use loader.
  *   - blocks[]    (array)   each: name, block_json, render, view_js, assets{}.
- *   - preserved_js[] (array) each: content, handle, src, block. The JS->plugin
- *                            wire-up (SSI #488): verbatim island JS projected from
- *                            the generic runtime-island package, scoped to the
- *                            generated block that owns it.
- *   - preserved_js_deferred[] (array) each: content, handle, src, reason.
- *                            Preserve-worthy island JS with no sound generated-block
- *                            scope; surfaced (not silently dropped) because the
- *                            consumer drops unscoped entries.
+ *   - preserved_js[] (array) verbatim island JS projected from the generic
+ *                            runtime-island package (SSI #488). Two shapes:
+ *                            block-scoped entries carry content, handle, src, block
+ *                            and are enqueued via render_block when that block renders;
+ *                            site-wide entries carry content, handle, src, scope='site',
+ *                            order (no `block` key) and are enqueued for the whole site.
+ *                            Free-standing behavior islands with no generated-block
+ *                            owner take the site-wide shape so their JS lands instead
+ *                            of being parked.
+ *   - preserved_js_deferred[] (array) each: content, handle, src, reason. Island JS
+ *                            whose owning block exists but was not packaged into this
+ *                            payload (owner_block_not_packaged) — a genuine anomaly,
+ *                            surfaced rather than silently dropped or guessed.
  *
  * When the artifact carries no custom blocks (mapping still prefers
  * core/Automattic blocks with a core/html fallback, and no subtree qualified for
@@ -100,8 +105,9 @@ final class CompanionPluginPayload
         $payload = array(
             'schema' => self::SCHEMA,
             'blocks' => $blocks,
-            // Preserved island JS projected from the generic runtime-island package
-            // and scoped to its owning generated block (SSI #488).
+            // Preserved island JS projected from the generic runtime-island package:
+            // block-scoped to its owning generated block, or site-wide for free-standing
+            // behavior islands with no generated-block owner (SSI #488).
             'preserved_js' => $preserved['preserved_js'],
         );
         if ( array() !== $preserved['deferred'] ) {
@@ -128,20 +134,22 @@ final class CompanionPluginPayload
      * scaffold's preserved_js contract (issue #488), gated by the
      * preserve-vs-rebuild signal (issue #224).
      *
-     * Only islands the engine could soundly associate with a generated block are
-     * scoped and emitted: a script captured at custom-block generation carries the
-     * owning block's fully-qualified name (`owner_block`), and the consumer enqueues
-     * its JS via render_block only when that block renders. Free-standing islands
-     * (canvas, form, and standalone scripts elsewhere in the DOM) have no sound
-     * generated-block owner — the consumer drops unscoped entries — so they are
-     * surfaced as declared deferrals rather than emitted with a guessed scope or
-     * dropped silently. Telemetry/droppable and external-unmaterialized scripts
-     * carry no verbatim JS body, so they contribute neither an entry nor a deferral.
+     * An island captured at custom-block generation carries the owning block's
+     * fully-qualified name (`owner_block`). When that block ships in this payload the
+     * island is emitted block-scoped, and the consumer enqueues its JS via render_block
+     * only when that block renders. Free-standing islands (canvas, form, and standalone
+     * scripts elsewhere in the DOM) have no generated-block owner; they are promoted to
+     * site-wide entries (`scope='site'`, no `block`, deterministic `order`) so the
+     * consumer enqueues them for the whole site instead of parking the JS. The narrow
+     * anomaly where an owner_block is named but was not packaged is still deferred
+     * (owner_block_not_packaged) rather than guessed into a site-wide scope.
+     * Telemetry/droppable and external-unmaterialized scripts carry no verbatim JS body,
+     * so they contribute neither an entry nor a deferral.
      *
      * @param array<string, mixed>             $runtimeIslandPackage Generic runtime-island package.
      * @param array<int, array<string, mixed>> $blocks               Packaged companion blocks.
      * @param string                           $blockNamespace       Per-site block namespace (`ssi-<slug>`).
-     * @return array{preserved_js: array<int, array<string, string>>, deferred: array<int, array<string, string>>}
+     * @return array{preserved_js: array<int, array<string, mixed>>, deferred: array<int, array<string, string>>}
      */
     private function preservedJs(array $runtimeIslandPackage, array $blocks, string $blockNamespace): array
     {
@@ -164,7 +172,7 @@ final class CompanionPluginPayload
 
         $preserved = array();
         $deferred  = array();
-        foreach ( $islands as $island ) {
+        foreach ( $islands as $index => $island ) {
             if ( ! is_array($island) ) {
                 continue;
             }
@@ -189,14 +197,29 @@ final class CompanionPluginPayload
 
             $owner = is_scalar($island['owner_block'] ?? null) ? (string) $island['owner_block'] : '';
             if ( '' !== $owner && isset($ownedBlocks[$owner]) ) {
+                // Scoped to the owning generated block: the consumer enqueues it via
+                // render_block only when that block renders (UNCHANGED, #488).
                 $entry['block'] = $owner;
                 $preserved[]    = $entry;
                 continue;
             }
 
-            // No sound generated-block scope: surface as a declared deferral so the
-            // JS loss is visible rather than silent.
-            $entry['reason'] = '' !== $owner ? 'owner_block_not_packaged' : 'no_generated_block_owner';
+            if ( '' === $owner ) {
+                // Free-standing behavior island with no generated-block owner: promote
+                // to a site-wide preserved_js entry. The consumer enqueues these for
+                // the whole site rather than gating on a block, so the JS lands instead
+                // of being parked. Islands arrive ordered, so the package index gives a
+                // deterministic enqueue order. No `block` key by contract.
+                $entry['scope'] = 'site';
+                $entry['order'] = (int) $index;
+                $preserved[]    = $entry;
+                continue;
+            }
+
+            // The owning block exists but was not packaged into this payload — a
+            // genuine anomaly. Keep deferring (rather than guessing a site-wide scope)
+            // so the loss is visible for follow-up.
+            $entry['reason'] = 'owner_block_not_packaged';
             $deferred[]      = $entry;
         }
 

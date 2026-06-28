@@ -1830,9 +1830,10 @@ $assert(! isset($companionBlock['assets']['block.json']), 'block.json is not dup
 // Preserved island JS producer (issue #488): verbatim behavior JS captured at
 // custom-block generation is projected into preserved_js, scoped to the block
 // that owns it (the consumer enqueues it via render_block only when that block
-// renders). A free-standing script island with no sound generated-block owner is
-// surfaced as a declared deferral — never silently dropped or scoped by guess —
-// and telemetry JS is dropped entirely (preserve-vs-rebuild, issue #224).
+// renders). A free-standing script island with no generated-block owner is
+// promoted to a site-wide preserved_js entry (scope='site', no `block`) so its JS
+// lands instead of being parked, and telemetry JS is dropped entirely
+// (preserve-vs-rebuild, issue #224).
 $companionJs = $compiler->compile(
     array(
         'site'  => array( 'name' => 'Acme Co', 'slug' => 'acme' ),
@@ -1855,18 +1856,88 @@ $companionJsPayload = $companionJs['source_reports']['companion_plugin_payload']
 $preservedJs       = $companionJsPayload['preserved_js'] ?? array();
 $generatedName     = (string) ($companionJsPayload['blocks'][0]['name'] ?? '');
 $assert('' !== $generatedName, 'companion JS fixture generates a custom block to scope island JS against');
-$assert(1 === count($preservedJs), 'preserved_js carries exactly the one scoped island entry');
-$scopedIsland = $preservedJs[0] ?? array();
+$assert(2 === count($preservedJs), 'preserved_js carries the scoped owner island and the promoted site-wide island');
+
+// The owned island stays block-scoped (UNCHANGED, #488): carries a `block` key and
+// no `scope` key.
+$scopedIsland = null;
+$siteWideIsland = null;
+foreach ( $preservedJs as $islandEntry ) {
+    if ( isset($islandEntry['block']) ) {
+        $scopedIsland = $islandEntry;
+    } elseif ( 'site' === ($islandEntry['scope'] ?? '') ) {
+        $siteWideIsland = $islandEntry;
+    }
+}
+$assert(is_array($scopedIsland), 'preserved_js still carries a block-scoped island entry');
+$assert(! array_key_exists('scope', $scopedIsland), 'block-scoped island carries no scope key (scoped path unchanged)');
 $assert('ssi-acme/' . $generatedName === ($scopedIsland['block'] ?? ''), 'preserved island JS is scoped to its owning generated block');
 $assert(str_contains((string) ($scopedIsland['content'] ?? ''), 'window.__pricing'), 'preserved island entry carries the verbatim inline JS body');
 $assert(str_starts_with((string) ($scopedIsland['handle'] ?? ''), 'runtime-island-'), 'preserved island entry derives a stable generic handle');
 $assert('islands/' . ($scopedIsland['handle'] ?? '') . '.js' === ($scopedIsland['src'] ?? ''), 'preserved island entry points at a per-handle island file');
-$deferredJs = $companionJsPayload['preserved_js_deferred'] ?? array();
-$assert(1 === count($deferredJs), 'a free-standing script island with no generated-block owner is deferred, not dropped');
-$assert('no_generated_block_owner' === ($deferredJs[0]['reason'] ?? ''), 'deferred island records why it could not be scoped');
-$assert(str_contains((string) ($deferredJs[0]['content'] ?? ''), '__standalone'), 'deferred island still carries its verbatim JS for the scoping follow-up');
+
+// The free-standing standalone island is now promoted to a site-wide preserved_js
+// entry (the producer half of site-wide companion JS): scope='site', no `block`
+// key, carries the verbatim JS, a stable handle/src, and a deterministic order.
+$assert(is_array($siteWideIsland), 'free-standing standalone island is promoted to a site-wide preserved_js entry');
+$assert('site' === ($siteWideIsland['scope'] ?? ''), 'promoted free-standing island declares site scope');
+$assert(! array_key_exists('block', $siteWideIsland), 'site-wide island carries no block key by contract');
+$assert(str_contains((string) ($siteWideIsland['content'] ?? ''), '__standalone'), 'site-wide island carries its verbatim standalone JS body');
+$assert(str_starts_with((string) ($siteWideIsland['handle'] ?? ''), 'runtime-island-'), 'site-wide island derives a stable generic handle');
+$assert('islands/' . ($siteWideIsland['handle'] ?? '') . '.js' === ($siteWideIsland['src'] ?? ''), 'site-wide island points at a per-handle island file');
+$assert(is_int($siteWideIsland['order'] ?? null), 'site-wide island carries a deterministic integer order');
+
+// With the standalone island promoted and no owner_block_not_packaged anomaly, the
+// payload defers nothing.
+$assert(! array_key_exists('preserved_js_deferred', $companionJsPayload), 'no deferral list when every preserve-worthy island is emitted');
 $companionJsBlob = json_encode($companionJsPayload, JSON_UNESCAPED_SLASHES);
 $assert(is_string($companionJsBlob) && ! str_contains($companionJsBlob, 'gtag'), 'telemetry island JS is dropped, never carried into the payload');
+
+// owner_block_not_packaged anomaly (a named owner block that did not ship in this
+// payload) is still deferred — never promoted to a site-wide scope by guess. Built
+// directly against the producer since the compiler path does not naturally orphan a
+// named owner. A sibling no-owner island in the same package proves the site-wide
+// promotion and the deferral coexist.
+$companionDirectPayload = ( new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CompanionPluginPayload() )->fromBlockTypes(
+    array(),
+    array(),
+    array( 'site' => array( 'slug' => 'acme', 'name' => 'Acme Co' ) ),
+    array(
+        array(
+            'name'       => 'pricing',
+            'block_json' => array( 'apiVersion' => 3, 'name' => 'ssi-acme/pricing', 'render' => 'file:./render.php' ),
+            'render'     => '<?php echo "pricing";',
+        ),
+    ),
+    array(
+        'islands' => array(
+            array(
+                'disposition' => 'preserve',
+                'js_handling' => 'preserve_verbatim',
+                'handle_hint' => 'runtime-island-orphan',
+                'owner_block' => 'ssi-acme/missing',
+                'scripts'     => array( array( 'content' => 'window.__orphan=1;' ) ),
+            ),
+            array(
+                'disposition' => 'preserve',
+                'js_handling' => 'preserve_verbatim',
+                'handle_hint' => 'runtime-island-floating',
+                'owner_block' => '',
+                'scripts'     => array( array( 'content' => 'window.__floating=1;' ) ),
+            ),
+        ),
+    )
+);
+$directPreservedJs = $companionDirectPayload['preserved_js'] ?? array();
+$directDeferred    = $companionDirectPayload['preserved_js_deferred'] ?? array();
+$assert(1 === count($directPreservedJs), 'no-owner island promotes to a single site-wide entry alongside the deferred anomaly');
+$assert('site' === ($directPreservedJs[0]['scope'] ?? ''), 'no-owner island promotes to a site-wide entry');
+$assert(! array_key_exists('block', $directPreservedJs[0]), 'promoted site-wide entry carries no block key');
+$assert(str_contains((string) ($directPreservedJs[0]['content'] ?? ''), '__floating'), 'promoted site-wide entry carries the no-owner JS');
+$assert(1 === count($directDeferred), 'owner_block_not_packaged island is still deferred, not promoted');
+$assert('owner_block_not_packaged' === ($directDeferred[0]['reason'] ?? ''), 'orphaned owner island defers with the owner_block_not_packaged reason');
+$assert(! array_key_exists('scope', $directDeferred[0]), 'owner_block_not_packaged deferral is not given a site-wide scope');
+$assert(str_contains((string) ($directDeferred[0]['content'] ?? ''), '__orphan'), 'owner_block_not_packaged deferral still carries its verbatim JS');
 
 $companionNoSite = $compiler->compile(
     array(
