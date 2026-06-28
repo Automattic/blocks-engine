@@ -176,11 +176,23 @@ final class FallbackEmitter
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
         $scriptRole = $this->scriptRole($element);
-        $this->recordRuntimeIsland($element, 'script', 'script_requires_runtime', 'client_script_execution', array(
+        $scriptSourceKind = '' !== trim($this->attr($element, 'src')) ? 'external' : 'inline';
+        $scriptIslandMetadata = array(
             'attributes'         => $this->safeScriptAttributes($element),
             'script_role'        => $scriptRole,
-            'script_source_kind' => '' !== trim($this->attr($element, 'src')) ? 'external' : 'inline',
-        ), $runtimeIslands);
+            'script_source_kind' => $scriptSourceKind,
+        );
+        if ( 'inline' === $scriptSourceKind ) {
+            // safeFallbackHtml() strips <script> bodies from source_snippet for
+            // safety, so an inline script island would otherwise carry no JS.
+            // Preserve the verbatim inline body (bounded) so a downstream
+            // consumer can carry the script forward (issue #224: verbatim JS on
+            // verbatim island markup).
+            $scriptIslandMetadata['script_body']    = $boundedBody['text'];
+            $scriptIslandMetadata['body_bytes']     = $boundedBody['bytes'];
+            $scriptIslandMetadata['body_truncated'] = $boundedBody['truncated'];
+        }
+        $this->recordRuntimeIsland($element, 'script', 'script_requires_runtime', 'client_script_execution', $scriptIslandMetadata, $runtimeIslands);
         $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'html',
             'reason'          => 'script_requires_runtime',

@@ -1844,6 +1844,97 @@ $companionAbsent = $compiler->compile(
 )->toArray();
 $assert(! array_key_exists('companion_plugin_payload', $companionAbsent['source_reports']), 'companion_plugin_payload is absent when no generated blocks exist');
 
+// Runtime-island package producer (issue #491 slice 2): preserved runtime
+// islands are packaged into a generic, product-neutral envelope a downstream
+// materializer maps to its own runtime. The package names no host product.
+$runtimeIslandPackageBuilder = new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeIslandPackageBuilder();
+$assert('blocks-engine/php-transformer/runtime-island-package/v1' === \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeIslandPackageBuilder::SCHEMA, 'runtime-island package uses a generic, product-neutral schema');
+$assert(! str_contains(strtolower(\Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeIslandPackageBuilder::SCHEMA), 'static-site') && ! str_contains(strtolower(\Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeIslandPackageBuilder::SCHEMA), 'companion'), 'runtime-island package schema carries no consumer/product name');
+$assert(array() === $runtimeIslandPackageBuilder->fromRuntimeIslands(array()), 'runtime-island package is empty when there are no islands');
+
+$runtimeIslandFixture = json_decode((string) file_get_contents(dirname(__DIR__) . '/fixtures/contract/runtime-island-package.json'), true);
+$assert('blocks-engine/php-transformer/runtime-island-package-fixture/v1' === ($runtimeIslandFixture['schema'] ?? ''), 'runtime-island package fixture exposes its schema');
+
+$findIslandByKind = static function (array $package, string $kind): array {
+    foreach ( $package['islands'] ?? array() as $island ) {
+        if ( ($island['kind'] ?? '') === $kind ) {
+            return $island;
+        }
+    }
+    return array();
+};
+$findIslandByScriptRole = static function (array $package, string $role, string $kind = ''): array {
+    foreach ( $package['islands'] ?? array() as $island ) {
+        if ( '' !== $kind && ($island['kind'] ?? '') !== $kind ) {
+            continue;
+        }
+        foreach ( $island['scripts'] ?? array() as $script ) {
+            if ( ($script['role'] ?? '') === $role ) {
+                return $island;
+            }
+        }
+    }
+    return array();
+};
+
+foreach ( $runtimeIslandFixture['cases'] as $runtimeIslandCase ) {
+    $caseName = (string) ($runtimeIslandCase['name'] ?? '');
+    $compiled = $compiler->compile($runtimeIslandCase['artifact'])->toArray();
+    $package = $compiled['source_reports']['runtime_island_package'] ?? array();
+    $assert(is_array($package) && array() !== $package, 'runtime-island package is produced for fixture case ' . $caseName);
+    $assert('blocks-engine/php-transformer/runtime-island-package/v1' === ($package['schema'] ?? ''), 'runtime-island package stamps the generic schema for case ' . $caseName);
+
+    $expect = $runtimeIslandCase['expect_island'];
+    if ( isset($expect['select_by_role']) ) {
+        $island = $findIslandByScriptRole($package, (string) $expect['select_by_role'], (string) ($expect['kind'] ?? ''));
+    } else {
+        $island = $findIslandByKind($package, (string) ($expect['select_by_kind'] ?? $expect['kind']));
+    }
+    $assert(array() !== $island, 'runtime-island package exposes the expected island for case ' . $caseName);
+    $assert(($expect['kind'] ?? null) === ($island['kind'] ?? ''), 'island kind matches for case ' . $caseName);
+    $assert(($expect['disposition'] ?? null) === ($island['disposition'] ?? ''), 'island disposition matches for case ' . $caseName);
+    $assert(($expect['js_handling'] ?? null) === ($island['js_handling'] ?? ''), 'island js_handling matches for case ' . $caseName);
+    $assert(($expect['markup_fidelity'] ?? null) === ($island['markup_fidelity'] ?? ''), 'island markup is tagged verbatim for case ' . $caseName);
+    $assert(isset($island['id']) && str_starts_with((string) $island['id'], 'island_'), 'island exposes a stable id for case ' . $caseName);
+    $assert(isset($island['handle_hint']) && str_starts_with((string) $island['handle_hint'], 'runtime-island-'), 'island exposes a generic enqueue handle hint for case ' . $caseName);
+
+    if ( isset($expect['markup_contains']) ) {
+        $assert(str_contains((string) ($island['markup'] ?? ''), (string) $expect['markup_contains']), 'island carries verbatim markup for case ' . $caseName);
+    }
+
+    if ( isset($expect['script_source_kind']) ) {
+        $script = $island['scripts'][0] ?? array();
+        $assert(($expect['script_source_kind'] ?? null) === ($script['source_kind'] ?? ''), 'island script source kind matches for case ' . $caseName);
+        $assert(($expect['script_role'] ?? null) === ($script['role'] ?? ''), 'island script role classification matches for case ' . $caseName);
+        if ( isset($expect['content_contains']) ) {
+            $assert(str_contains((string) ($script['content'] ?? ''), (string) $expect['content_contains']), 'island preserves verbatim inline JS for case ' . $caseName);
+        }
+        if ( array_key_exists('materialized', $expect) ) {
+            $assert(($expect['materialized']) === ($script['materialized'] ?? null), 'island external script materialization flag matches for case ' . $caseName);
+        }
+        if ( true === ($expect['droppable'] ?? null) ) {
+            $assert(true === ($script['droppable'] ?? null), 'telemetry island script is marked droppable for case ' . $caseName);
+        }
+        if ( false === ($expect['droppable'] ?? null) ) {
+            $assert(! array_key_exists('droppable', $script), 'first-party island script is not marked droppable for case ' . $caseName);
+        }
+    }
+
+    if ( isset($expect['has_external_script']) ) {
+        $externalScripts = array_values(array_filter($island['scripts'] ?? array(), static fn (array $s): bool => 'external' === ($s['source_kind'] ?? '')));
+        $inlineScripts = array_values(array_filter($island['scripts'] ?? array(), static fn (array $s): bool => 'inline' === ($s['source_kind'] ?? '')));
+        $assert(array() !== $externalScripts, 'island carries an external script for case ' . $caseName);
+        $assert(array() !== $inlineScripts, 'island carries an inline script for case ' . $caseName);
+        $external = $externalScripts[0];
+        if ( true === ($expect['external_materialized'] ?? null) ) {
+            $assert(true === ($external['materialized'] ?? null), 'island external script is materialized for case ' . $caseName);
+            $assert(str_contains((string) ($external['content'] ?? ''), (string) ($expect['external_content_contains'] ?? '')), 'island external script carries materialized content for case ' . $caseName);
+        }
+        $firstParty = array_values(array_filter($island['scripts'] ?? array(), static fn (array $s): bool => 'first_party' === ($s['role'] ?? '')));
+        $assert(count($firstParty) >= (int) ($expect['first_party_scripts_min'] ?? 0), 'island carries the expected first-party scripts for case ' . $caseName);
+    }
+}
+
 $normalized = $compiler->compile(
     array(
         'entry'   => 'public/index.html',
