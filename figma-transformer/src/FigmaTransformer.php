@@ -821,7 +821,7 @@ final class FigmaTransformer
     private function mergePageTransformDiagnostics(array $pageReports, array $assetReport): array
     {
         $images = array('paint_refs' => 0, 'node_refs' => 0, 'resolved_assets' => 0, 'image_block_count' => 0, 'total_node_count' => 0, 'image_block_nodes' => array(), 'missing_assets' => array());
-        $vectors = array('nodes' => 0, 'rendered_paths' => 0, 'rendered_asset_fallbacks' => 0, 'placeholders' => 0, 'placeholder_nodes' => array(), 'placeholder_reasons' => array());
+        $vectors = array('nodes' => 0, 'rendered_paths' => 0, 'rendered_asset_fallbacks' => 0, 'vector_network_decoded' => 0, 'boolean_operations_composed' => 0, 'placeholders' => 0, 'placeholder_nodes' => array(), 'placeholder_reasons' => array());
         $layout = array(
             'large_negative_left_count' => 0,
             'large_absolute_offset_count' => 0,
@@ -890,7 +890,7 @@ final class FigmaTransformer
             }
 
             $pageVectors = is_array($diagnostics['vectors'] ?? null) ? $diagnostics['vectors'] : array();
-            foreach ( array('nodes', 'rendered_paths', 'rendered_asset_fallbacks', 'placeholders') as $key ) {
+            foreach ( array('nodes', 'rendered_paths', 'rendered_asset_fallbacks', 'vector_network_decoded', 'boolean_operations_composed', 'placeholders') as $key ) {
                 $vectors[$key] += (int) ($pageVectors[$key] ?? 0);
             }
             foreach ( is_array($pageVectors['placeholder_nodes'] ?? null) ? $pageVectors['placeholder_nodes'] : array() as $item ) {
@@ -1124,7 +1124,13 @@ final class FigmaTransformer
                 'image_node_density' => round($imageNodeDensity, 3),
                 'total_node_count' => $totalNodeCount,
                 'vector_image_fallbacks' => (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
-                'generated_svg_count' => (int) ($generatedSvgAssets['count'] ?? 0),
+                'vector_nodes' => (int) ($vectors['nodes'] ?? 0),
+                'vector_decoded_to_svg' => (int) ($vectors['rendered_paths'] ?? 0),
+                'vector_network_decoded' => (int) ($vectors['vector_network_decoded'] ?? 0),
+                'boolean_operations_composed' => (int) ($vectors['boolean_operations_composed'] ?? 0),
+                'vector_decode_coverage_ratio' => (int) ($vectors['nodes'] ?? 0) > 0 ? round((int) ($vectors['rendered_paths'] ?? 0) / (int) $vectors['nodes'], 3) : 0.0,
+                'generated_svg_count' => (int) ($vectors['rendered_paths'] ?? 0),
+                'externalized_svg_asset_count' => (int) ($generatedSvgAssets['count'] ?? 0),
                 'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
                 'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
                 'render_style_mismatch_count' => (int) ($layout['render_style_mismatch_count'] ?? 0),
