@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-gallery-figure-and-div-recognizer",
+  "description": "Exercises both gallery call sites: a figure wrapping multiple direct images and a div of figure children, proving GalleryPattern extraction is byte-identical to galleryBlockFromElement.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-gallery-figure-and-div-recognizer.json",
+    "notes": "Covers convertElement figure branch and div/section-like branch, both delegating to GalleryPattern."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<figure class=\"photo-strip\"><img src=\"https://example.com/a.jpg\" alt=\"A\"><img src=\"https://example.com/b.jpg\" alt=\"B\"><figcaption>Strip caption</figcaption></figure><div class=\"media-grid\" data-layout=\"grid\"><figure><img src=\"https://example.com/c.jpg\" alt=\"C\"></figure><figure class=\"tile\"><img src=\"https://example.com/d.jpg\" alt=\"D\" width=\"400\" height=\"300\"><figcaption>D caption</figcaption></figure></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/gallery", "attrs": { "className": "photo-strip", "caption": "Strip caption" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "url": "https://example.com/a.jpg", "alt": "A" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/image", "attrs": { "url": "https://example.com/b.jpg", "alt": "B" } },
+    { "path": "blocks.1", "name": "core/gallery", "attrs": { "className": "media-grid", "layout": { "type": "grid" } } },
+    { "path": "blocks.1.innerBlocks.0", "name": "core/image", "attrs": { "url": "https://example.com/c.jpg", "alt": "C" } },
+    { "path": "blocks.1.innerBlocks.1", "name": "core/image", "attrs": { "className": "tile is-resized", "url": "https://example.com/d.jpg", "alt": "D", "width": "400", "height": "300", "caption": "D caption" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:gallery {\"className\":\"photo-strip\",\"caption\":\"Strip caption\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:gallery {\"className\":\"media-grid\",\"layout\":{\"type\":\"grid\"}} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figcaption class=\"blocks-gallery-caption wp-element-caption\">Strip caption</figcaption>" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

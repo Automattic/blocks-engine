@@ -1,0 +1,38 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-math-recognizer",
+  "description": "Recognizes math constructs ahead of heading/paragraph dispatch: katex/mathjax-signalled elements, bare TeX-delimited text in div/p/span, inline \\(...\\) spans, and native <math> elements (rendered via safe fallback HTML), while leaving ordinary paragraphs as core/paragraph. Pins behavior-byte-identical output for the MathPattern recognizer extraction.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-math-recognizer.json",
+    "notes": "Generic fixture proving the MathPattern recognizer reproduces the prior inline math helper cluster exactly."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<p class=\"katex\">$$E=mc^2$$</p><p>$$a^2+b^2=c^2$$</p><span class=\"math-inline\">\\(x+y\\)</span><math display=\"block\"><mrow><mi>x</mi></mrow></math><p>Just a normal paragraph.</p>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/math", "attrs": { "className": "katex", "content": "$$E=mc^2$$" } },
+    { "path": "blocks.1", "name": "core/math", "attrs": { "content": "$$a^2+b^2=c^2$$" } },
+    { "path": "blocks.2", "name": "core/math", "attrs": { "className": "math-inline", "content": "\\(x+y\\)" } },
+    { "path": "blocks.3", "name": "core/math", "attrs": { "content": "<math display=\"block\"><mrow><mi>x</mi></mrow></math>" } },
+    { "path": "blocks.4", "name": "core/paragraph", "attrs": { "content": "Just a normal paragraph." } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks", "assert": "count", "count": 5 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp:math {\"className\":\"katex\",\"content\":\"$$E=mc^2$$\"}" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-math katex\">$$E=mc^2$$</div>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-math\">$$a^2+b^2=c^2$$</div>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-math math-inline\">\\(x+y\\)</div>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-math\"><math display=\"block\"><mrow><mi>x</mi></mrow></math></div>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp:paragraph {\"content\":\"Just a normal paragraph.\"}" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:html" }
+  ]
+}
