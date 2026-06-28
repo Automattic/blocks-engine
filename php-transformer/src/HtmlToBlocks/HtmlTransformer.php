@@ -125,6 +125,16 @@ final class HtmlTransformer
     private array $frozenHiddenStateFindings = array();
 
     /**
+     * Whole-element link wrappers (an <a> wrapping block-level content) whose
+     * link was dropped because the resulting core/group has no native link
+     * attribute (#260). Surfaced for diagnostics so navigation loss is
+     * detectable rather than emitted as an unsupported attribute.
+     *
+     * @var array<int, array<string, mixed>>
+     */
+    private array $droppedLinkWrapperFindings = array();
+
+    /**
      * @var array<int, array<string, mixed>>
      */
     private array $sourceProvenance = array();
@@ -265,6 +275,7 @@ final class HtmlTransformer
         $this->fallbackProvenance = TransformationOptions::provenance($options);
         $this->presentationProvenance = array();
         $this->frozenHiddenStateFindings = array();
+        $this->droppedLinkWrapperFindings = array();
         $this->sourceProvenance = array();
         $this->structureProvenance = array();
         $this->scriptMetadata = array();
@@ -378,6 +389,7 @@ final class HtmlTransformer
             'html' => array(
                 'presentation_signals' => $this->presentationProvenance,
                 'frozen_hidden_state'  => $this->frozenHiddenStateFindings,
+                'dropped_link_wrappers' => $this->droppedLinkWrapperFindings,
                 'source_provenance'    => $sourceProvenance,
                 'structure_signals'    => $this->structureProvenance,
                 'script_metadata'      => $this->scriptMetadata,
@@ -1303,7 +1315,13 @@ final class HtmlTransformer
             if ( $this->hasBlockContentChildren($element) ) {
                 $children = $this->convertChildren($element, $fallbacks, true);
                 if ( array() !== $children ) {
-                    return $this->createBlock('core/group', array_merge($this->presentationAttributes($element), $this->cardLinkAttributes($element)), $children, $element);
+                    // core/group has no native link attribute, so the wrapping
+                    // anchor's href/target/rel cannot live on the group without
+                    // becoming an unsupported attribute WordPress silently drops
+                    // (#260). Preserve the children as a valid group and surface
+                    // the dropped link wrapper for diagnostics instead.
+                    $this->recordDroppedLinkWrapper($element);
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
                 }
             }
 
@@ -4356,6 +4374,28 @@ final class HtmlTransformer
             'rel'       => $this->attr($anchor, 'rel'),
             'ariaLabel' => $this->attr($anchor, 'aria-label'),
         ), static fn (string $value): bool => '' !== trim($value));
+    }
+
+    /**
+     * Record a content-wrapping anchor whose link was dropped because the
+     * resulting core/group exposes no native link attribute (#260). The link
+     * details are captured for diagnostics so the navigation loss is detectable
+     * rather than silently emitted as an unsupported attribute on the group.
+     */
+    private function recordDroppedLinkWrapper(DOMElement $anchor): void
+    {
+        $link = $this->cardLinkAttributes($anchor);
+        if ( array() === $link ) {
+            return;
+        }
+
+        $this->droppedLinkWrapperFindings[] = array_merge(
+            array(
+                'tag'      => strtolower($anchor->tagName),
+                'selector' => $this->elementSelector($anchor),
+            ),
+            $link
+        );
     }
 
     /**
