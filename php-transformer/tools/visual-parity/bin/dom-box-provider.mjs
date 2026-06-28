@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
 const DEFAULT_VIEWPORT = { width: 1440, height: 900, device_scale_factor: 1 };
+const DEFAULT_NODE_ID_ATTR = 'data-figma-node-id';
+const DEFAULT_NODE_NAME_ATTRS = ['data-figma-node-name', 'data-figma-name'];
+const ATTRIBUTE_NAME_PATTERN = /^[A-Za-z_:][-A-Za-z0-9_:.]*$/;
 const PLAYWRIGHT_SETUP_HELP = 'Install DOM capture dependencies with: npm ci --prefix php-transformer/tools/visual-parity && npm --prefix php-transformer/tools/visual-parity run install:browsers';
 const COMPUTED_STYLE_PROPERTIES = [
   'font-family',
@@ -57,9 +60,12 @@ async function main() {
     return;
   }
 
+  const cli = parseCliArgs(process.argv.slice(2));
   const baseUrl = requiredEnv('HOMEBOY_DOM_BOX_BASE_URL').replace(/\/+$/, '');
   const pagePaths = parsePagePaths(requiredEnv('HOMEBOY_DOM_BOX_PAGE_PATHS_JSON'));
   const textSampleLimit = parseTextSampleLimit(process.env.HOMEBOY_DOM_BOX_TEXT_SAMPLE_LIMIT ?? '160');
+  const nodeIdAttr = resolveNodeIdAttr(cli);
+  const nodeNameAttrs = resolveNodeNameAttrs(cli);
   const { chromium } = await loadPlaywright();
 
   let browser;
@@ -83,7 +89,7 @@ async function main() {
         page_path: pagePath,
         page_url: page.url(),
         viewport: DEFAULT_VIEWPORT,
-        elements: await extractElements(page, pagePath, textSampleLimit),
+        elements: await extractElements(page, pagePath, textSampleLimit, nodeIdAttr, nodeNameAttrs),
       });
       await page.close();
     }
@@ -146,12 +152,68 @@ function parseTextSampleLimit(raw) {
   return value;
 }
 
-function printHelp() {
-  process.stdout.write(`Capture DOM boxes for Homeboy artifact-origin dom-boxes.\n\nEnvironment:\n  HOMEBOY_DOM_BOX_BASE_URL             Static artifact origin base URL.\n  HOMEBOY_DOM_BOX_PAGE_PATHS_JSON      JSON array of page paths to capture.\n  HOMEBOY_DOM_BOX_TEXT_SAMPLE_LIMIT    Optional positive integer, default 160.\n\nOutput:\n  JSON browser payload on stdout for Homeboy to shape as homeboy/static-artifact-dom-boxes/v1.\n`);
+function parseCliArgs(argv) {
+  const parsed = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (!arg.startsWith('--')) {
+      continue;
+    }
+
+    const [rawKey, inlineValue] = arg.slice(2).split('=', 2);
+    if (inlineValue !== undefined) {
+      parsed[rawKey] = inlineValue;
+      continue;
+    }
+
+    const next = argv[index + 1];
+    if (next !== undefined && !next.startsWith('--')) {
+      parsed[rawKey] = next;
+      index += 1;
+    } else {
+      parsed[rawKey] = 'true';
+    }
+  }
+  return parsed;
 }
 
-async function extractElements(page, pagePath, textSampleLimit) {
-  return page.evaluate(({ pagePath: currentPagePath, limit, computedStyleProperties }) => {
+function validateAttributeName(name, source) {
+  const trimmed = String(name).trim();
+  if (!ATTRIBUTE_NAME_PATTERN.test(trimmed)) {
+    throw new Error(`${source} must be a valid HTML attribute name, received: ${JSON.stringify(name)}`);
+  }
+  return trimmed;
+}
+
+function resolveNodeIdAttr(cli) {
+  const raw = cli['node-id-attr'] ?? process.env.HOMEBOY_DOM_BOX_NODE_ID_ATTR ?? DEFAULT_NODE_ID_ATTR;
+  return validateAttributeName(raw, '--node-id-attr / HOMEBOY_DOM_BOX_NODE_ID_ATTR');
+}
+
+function resolveNodeNameAttrs(cli) {
+  const raw = cli['node-name-attr'] ?? process.env.HOMEBOY_DOM_BOX_NODE_NAME_ATTR;
+  const configured = raw === undefined
+    ? DEFAULT_NODE_NAME_ATTRS
+    : String(raw).split(',').map((value) => value.trim()).filter((value) => value !== '');
+
+  if (configured.length === 0) {
+    throw new Error('--node-name-attr / HOMEBOY_DOM_BOX_NODE_NAME_ATTR must list at least one attribute name.');
+  }
+
+  const names = configured.map((value) => validateAttributeName(value, '--node-name-attr / HOMEBOY_DOM_BOX_NODE_NAME_ATTR'));
+  // aria-label is a standard accessibility attribute, kept as a generic final fallback for node naming.
+  if (!names.includes('aria-label')) {
+    names.push('aria-label');
+  }
+  return names;
+}
+
+function printHelp() {
+  process.stdout.write(`Capture DOM boxes for Homeboy artifact-origin dom-boxes.\n\nNode identity is keyed off a configurable attribute so the tool is product-neutral.\nThe figma-transformer's data-figma-* attributes remain the backward-compatible default.\n\nEnvironment:\n  HOMEBOY_DOM_BOX_BASE_URL             Static artifact origin base URL.\n  HOMEBOY_DOM_BOX_PAGE_PATHS_JSON      JSON array of page paths to capture.\n  HOMEBOY_DOM_BOX_TEXT_SAMPLE_LIMIT    Optional positive integer, default 160.\n  HOMEBOY_DOM_BOX_NODE_ID_ATTR         Node identity attribute, default ${DEFAULT_NODE_ID_ATTR}.\n  HOMEBOY_DOM_BOX_NODE_NAME_ATTR       Comma-separated node name attributes, default ${DEFAULT_NODE_NAME_ATTRS.join(',')} (aria-label is always a final fallback).\n\nFlags (override the matching environment variable):\n  --node-id-attr=<attr>                Node identity attribute used for enumeration, selectors, and id reads.\n  --node-name-attr=<attr>[,<attr>...]  Node name attributes, tried in order before aria-label.\n\nOutput:\n  JSON browser payload on stdout for Homeboy to shape as homeboy/static-artifact-dom-boxes/v1.\n`);
+}
+
+async function extractElements(page, pagePath, textSampleLimit, nodeIdAttr, nodeNameAttrs) {
+  return page.evaluate(({ pagePath: currentPagePath, limit, computedStyleProperties, nodeIdAttr: idAttr, nodeNameAttrs: nameAttrs }) => {
     function normalizeText(value) {
       return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
     }
@@ -162,7 +224,17 @@ async function extractElements(page, pagePath, textSampleLimit) {
 
     function selectorFor(element, nodeId) {
       const tag = element.tagName.toLowerCase();
-      return `${tag}[data-figma-node-id="${String(nodeId).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
+      return `${tag}[${idAttr}="${String(nodeId).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
+    }
+
+    function readNodeName(element) {
+      for (const attr of nameAttrs) {
+        const value = element.getAttribute(attr);
+        if (value) {
+          return value;
+        }
+      }
+      return null;
     }
 
     function serializeComputedStyle(element) {
@@ -260,10 +332,10 @@ async function extractElements(page, pagePath, textSampleLimit) {
       };
     }
 
-    return Array.from(document.querySelectorAll('[data-figma-node-id]')).map((element) => {
+    return Array.from(document.querySelectorAll(`[${idAttr}]`)).map((element) => {
       const rect = element.getBoundingClientRect();
-      const nodeId = element.getAttribute('data-figma-node-id') || '';
-      const nodeName = element.getAttribute('data-figma-node-name') || element.getAttribute('data-figma-name') || element.getAttribute('aria-label') || null;
+      const nodeId = element.getAttribute(idAttr) || '';
+      const nodeName = readNodeName(element);
       const computedStyle = serializeComputedStyle(element);
       const textSample = normalizeText(element.textContent);
       const textLength = fullTextLength(element.textContent);
@@ -285,5 +357,7 @@ async function extractElements(page, pagePath, textSampleLimit) {
     pagePath,
     limit: textSampleLimit,
     computedStyleProperties: COMPUTED_STYLE_PROPERTIES,
+    nodeIdAttr,
+    nodeNameAttrs,
   });
 }
