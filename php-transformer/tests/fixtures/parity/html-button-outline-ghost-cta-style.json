@@ -22,8 +22,8 @@
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button is-style-outline\">" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link has-text-color has-border-color wp-element-button cta ghost-link is-style-outline\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button cta ghost-link is-style-outline\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link has-text-color has-border-color wp-element-button\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "style=\"color:#135e96;border-color:currentColor;border-width:2px;border-style:solid;border-radius:8px;padding-top:12px;padding-right:24px;padding-bottom:12px;padding-left:24px;font-weight:600;text-transform:none\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "background-color" }
   ]
