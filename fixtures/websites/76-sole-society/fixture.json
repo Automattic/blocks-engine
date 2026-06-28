@@ -1,0 +1,17 @@
+{
+  "class": "ecommerce/catalog",
+  "tags": [
+    "ecommerce",
+    "sneakers",
+    "has-cart",
+    "add-to-cart",
+    "size-selector",
+    "filters",
+    "sorting",
+    "mini-cart",
+    "multipage",
+    "localstorage",
+    "marquee"
+  ],
+  "complexity": 3
+}
