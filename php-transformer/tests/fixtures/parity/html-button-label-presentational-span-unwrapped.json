@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-button-label-presentational-span-unwrapped",
+  "description": "Unwraps a single presentational <span> wrapping a button label so core/button stores valid RichText text and drops the unsupported flex layout attribute.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-button-label-presentational-span-unwrapped.json",
+    "notes": "Covers buttons whose anchor wraps the label in a non-format <span> and carries display:flex, which previously yielded text=\"<span>…</span>\" plus an unsupported layout attribute."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This fixture covers WordPress block-validity normalization beyond the legacy converter behavior."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<a class=\"btn\" href=\"/listen\" style=\"display:flex\"><span>Listen Now</span></a>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "btn", "text": "Listen Now", "url": "/listen" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-button__link wp-element-button\" href=\"/listen\">Listen Now</a>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<span>Listen Now</span>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"layout\"" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
