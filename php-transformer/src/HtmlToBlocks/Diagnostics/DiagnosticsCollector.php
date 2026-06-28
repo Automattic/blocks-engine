@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 /**
@@ -143,6 +144,14 @@ final class DiagnosticsCollector
             );
         }
 
-        return $diagnostics;
+        // Stamp the canonical classification triplet on every flat diagnostic so
+        // the projection's block-validity and semantic-parity findings (which
+        // otherwise carry no repair/family signal) and the carried-through
+        // fallback/runtime-island findings all cluster by root cause downstream
+        // instead of falling into a generic catch-all.
+        return array_map(
+            static fn (array $finding): array => ConversionFindingContract::withClassification($finding),
+            $diagnostics
+        );
     }
 }

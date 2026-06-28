@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
+
 final class FallbackDiagnostic
 {
     /**
@@ -35,7 +37,11 @@ final class FallbackDiagnostic
             'suggested_generic_repair_class' => self::genericRepairClass($fields, $patternFamily),
         ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
 
-        return array_merge($metadata, $fields);
+        // Stamp the canonical classification triplet (reason_code / repair_bucket
+        // / pattern_family) so every fallback/runtime-island finding clusters by
+        // root cause downstream. The contract honors the richer pattern_family and
+        // suggested_repair_class computed above and only fills what is missing.
+        return ConversionFindingContract::withClassification(array_merge($metadata, $fields));
     }
 
     /**

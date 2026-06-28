@@ -96,6 +96,87 @@ $assertThrows(
     'finding with a numeric observed_block is rejected'
 );
 
+// --- Canonical classification derivation -----------------------------------
+
+// The fallback emitter's richer, tag-aware classification is authoritative and
+// is never overwritten; only the canonical reason_code is filled from the code.
+$svgClassified = ConversionFindingContract::withClassification(array(
+    'diagnostic_code'        => 'html_unsafe_inline_svg',
+    'pattern_family'         => 'inline_svg',
+    'suggested_repair_class' => 'materialize_static_asset',
+));
+$assert('html_unsafe_inline_svg' === ($svgClassified['reason_code'] ?? null), 'reason_code is derived from diagnostic_code');
+$assert('inline_svg' === ($svgClassified['pattern_family'] ?? null), 'existing pattern_family is honored, not overwritten');
+$assert('materialize_static_asset' === ($svgClassified['repair_bucket'] ?? null), 'repair_bucket is derived from the producer suggested_repair_class');
+
+// A block-validity finding carries no repair/family signal of its own; the
+// contract derives a concrete, non-generic triplet from its stable identifier.
+$validityClassified = ConversionFindingContract::withClassification(array(
+    'code'       => 'wp_block_validity_warning',
+    'severity'   => 'warning',
+    'block_name' => 'core/group',
+));
+$assert('wp_block_validity_warning' === ($validityClassified['reason_code'] ?? null), 'block-validity reason_code is the stable identifier');
+$assert('block_serialization' === ($validityClassified['pattern_family'] ?? null), 'block-validity pattern_family is derived structurally');
+$assert('block_serialization_validity_repair' === ($validityClassified['repair_bucket'] ?? null), 'block-validity repair_bucket is concrete');
+
+// A semantic-parity finding clusters under a structural sub-family.
+$navClassified = ConversionFindingContract::withClassification(array(
+    'code' => 'html_semantic_parity_navigation_menu_missing',
+));
+$assert('navigation_menu' === ($navClassified['pattern_family'] ?? null), 'semantic-parity navigation pattern_family is derived from the structural concept');
+$assert('semantic_structure_parity_restoration' === ($navClassified['repair_bucket'] ?? null), 'semantic-parity repair_bucket routes to the parity lane');
+
+// The runtime canvas signal drives the canvas family/bucket without overwriting
+// an existing specific repair_bucket.
+$canvasClassified = ConversionFindingContract::withClassification(array(
+    'code'          => 'runtime_dependency_target_missing',
+    'canvas_api'    => true,
+    'repair_bucket' => 'runtime_canvas_target_preservation',
+));
+$assert('runtime_canvas' === ($canvasClassified['pattern_family'] ?? null), 'canvas_api signal drives the runtime_canvas family');
+$assert('runtime_canvas_target_preservation' === ($canvasClassified['repair_bucket'] ?? null), 'existing specific repair_bucket is honored');
+
+// classify() never folds per-instance noise (selectors/classes/urls) into the
+// clustering keys, so two same-root findings on different elements cluster.
+$a = ConversionFindingContract::classify(array('code' => 'runtime_dependency_target_missing', 'selector' => '#alpha'));
+$b = ConversionFindingContract::classify(array('code' => 'runtime_dependency_target_missing', 'selector' => '.beta-widget'));
+$assert($a === $b, 'same-root findings cluster identically regardless of per-instance selector');
+
+// --- Walk every finding the transformer actually emits ----------------------
+
+/**
+ * The generic catch-all reason codes/buckets a downstream classifier would
+ * collapse into a single "needs triage" family. The point of this PR is that
+ * the transformer no longer emits findings that land here for the common loss
+ * types, so the specificity walk treats these as failures.
+ */
+$genericSentinels = array('', 'generic_finding_family', 'unknown', 'finding', 'unclassified', 'generic', 'review_generic_mapping', 'html_fallback');
+
+/**
+ * Assert every finding in a list carries a concrete, non-generic classification
+ * triplet (reason_code / repair_bucket / pattern_family). This is the guard that
+ * keeps the transformer's findings swarmable: a missing or generic value here is
+ * exactly what previously bucketed 143/173 corpus findings as generic.
+ *
+ * @param array<int, array<string, mixed>> $findings
+ */
+$assertClassified = static function (array $findings, string $context) use ($assert, $genericSentinels): void {
+    foreach ( array_values($findings) as $index => $finding ) {
+        if ( ! is_array($finding) ) {
+            continue;
+        }
+        foreach ( ConversionFindingContract::CLASSIFICATION_FIELDS as $field ) {
+            $value = $finding[$field] ?? '';
+            $assert(
+                is_string($value) && '' !== trim($value) && ! in_array($value, $genericSentinels, true),
+                "{$context}.{$index}: finding carries a specific, non-generic {$field}",
+                sprintf('code=%s %s=%s', ConversionFindingContract::findingCode($finding), $field, var_export($value, true))
+            );
+        }
+    }
+};
+
 // --- Walk every finding the transformer actually emits ----------------------
 
 /**
@@ -106,17 +187,19 @@ $assertThrows(
  *
  * @param array<string, mixed> $result
  */
-$walk = static function (array $result, string $context) use ($assert): int {
+$walk = static function (array $result, string $context) use ($assert, $assertClassified): int {
     $count = 0;
 
     $diagnostics = $result['diagnostics'] ?? array();
     $assert(is_array($diagnostics), "{$context}: diagnostics is an array");
     ConversionFindingContract::assertFindings(array_values($diagnostics), "{$context} diagnostics");
+    $assertClassified(array_values($diagnostics), "{$context} diagnostics");
     $count += count($diagnostics);
 
     $fallbacks = $result['fallbacks'] ?? array();
     $assert(is_array($fallbacks), "{$context}: fallbacks is an array");
     ConversionFindingContract::assertFindings(array_values($fallbacks), "{$context} fallbacks");
+    $assertClassified(array_values($fallbacks), "{$context} fallbacks");
     $count += count($fallbacks);
 
     $sourceReports = is_array($result['source_reports'] ?? null) ? $result['source_reports'] : array();
@@ -138,6 +221,7 @@ $walk = static function (array $result, string $context) use ($assert): int {
         $findings = $report['findings'] ?? array();
         $assert(is_array($findings), "{$context}: {$name} findings is an array");
         ConversionFindingContract::assertFindings(array_values($findings), "{$context} {$name} findings");
+        $assertClassified(array_values($findings), "{$context} {$name} findings");
         $count += count($findings);
     }
 
@@ -151,6 +235,7 @@ $walk = static function (array $result, string $context) use ($assert): int {
         $fallbackDiagnostics = $conversionReport['fallback_diagnostics'] ?? array();
         $assert(is_array($fallbackDiagnostics), "{$context}: conversion report fallback_diagnostics is an array");
         ConversionFindingContract::assertFindings(array_values($fallbackDiagnostics), "{$context} conversion report fallback_diagnostics");
+        $assertClassified(array_values($fallbackDiagnostics), "{$context} conversion report fallback_diagnostics");
         $count += count($fallbackDiagnostics);
     }
 
