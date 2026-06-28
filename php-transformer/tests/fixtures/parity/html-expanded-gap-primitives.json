@@ -39,18 +39,22 @@
     { "path": "blocks.0.innerBlocks.6.innerBlocks.1", "name": "core/code", "attrs": { "className": "language-php", "content": "<?php add_action();" } }
   ],
   "expected_fallbacks": [
+    { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" },
     { "type": "html", "reason": "script_requires_runtime", "tag": "script", "diagnostic_code": "html_script_fallback" }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 7 },
-    { "path": "fallbacks", "assert": "count", "count": 1 },
-    { "path": "fallbacks.0.attributes.src", "assert": "equals", "value": "/widget.js" },
-    { "path": "fallbacks.0.context.parent_tag", "assert": "equals", "value": "section" },
-    { "path": "fallbacks.0.html", "assert": "equals", "value": "" },
-    { "path": "fallbacks.0.body", "assert": "equals", "value": "hydrate()" },
-    { "path": "fallbacks.0.body_truncated", "assert": "equals", "value": false },
+    { "path": "fallbacks", "assert": "count", "count": 2 },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
+    { "path": "fallbacks.0.form.action", "assert": "equals", "value": "/signup" },
+    { "path": "fallbacks.0.control_count", "assert": "equals", "value": 2 },
+    { "path": "fallbacks.1.attributes.src", "assert": "equals", "value": "/widget.js" },
+    { "path": "fallbacks.1.context.parent_tag", "assert": "equals", "value": "section" },
+    { "path": "fallbacks.1.html", "assert": "equals", "value": "" },
+    { "path": "fallbacks.1.body", "assert": "equals", "value": "hydrate()" },
+    { "path": "fallbacks.1.body_truncated", "assert": "equals", "value": false },
     { "path": "source_reports.runtime_islands", "assert": "count", "count": 2 },
     { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "form" },
     { "path": "source_reports.runtime_islands.0.preservation_reason", "assert": "equals", "value": "form_requires_runtime" },
@@ -63,9 +67,10 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "<li>Parent<!-- wp:list -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "theme.json" },
     { "path": "serialized_blocks", "assert": "contains", "value": "functions.php" },
-    { "path": "diagnostics.1.code", "assert": "equals", "value": "html_script_fallback" },
-    { "path": "diagnostics.2.code", "assert": "equals", "value": "preserved_runtime_island" },
-    { "path": "diagnostics.2.kind", "assert": "equals", "value": "form" },
-    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+    { "path": "diagnostics.1.code", "assert": "equals", "value": "html_form_fallback" },
+    { "path": "diagnostics.2.code", "assert": "equals", "value": "html_script_fallback" },
+    { "path": "diagnostics.3.code", "assert": "equals", "value": "preserved_runtime_island" },
+    { "path": "diagnostics.3.kind", "assert": "equals", "value": "form" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 2 }
   ]
 }

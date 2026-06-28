@@ -1,0 +1,44 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-actionless-contact-form-materializable",
+  "description": "Surfaces a standard data-entry contact form with no action/method/script as a materializable form finding instead of flattening it to prose.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-actionless-contact-form-materializable.json",
+    "notes": "Static exports and design mockups often omit the form action because submission is wired downstream; the form must still be detectable as a form so a consumer can map it onto a working form provider."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><form class=\"contact-form\"><label for=\"name\">Full Name</label><input type=\"text\" id=\"name\" name=\"name\" placeholder=\"Your name\" required><label for=\"email\">Email Address</label><input type=\"email\" id=\"email\" name=\"email\" placeholder=\"your@email.com\" required><label for=\"subject\">Subject</label><select id=\"subject\" name=\"subject\"><option>Distillery visit</option><option>Wholesale</option><option>Bespoke</option></select><label for=\"message\">Message</label><textarea id=\"message\" name=\"message\" placeholder=\"Your message\" required></textarea><button type=\"submit\">Send Message</button></form></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" }
+  ],
+  "expected_fallbacks": [
+    { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
+    { "path": "fallbacks.0.control_count", "assert": "equals", "value": 5 },
+    { "path": "fallbacks.0.controls.0.tag", "assert": "equals", "value": "input" },
+    { "path": "fallbacks.0.controls.0.type", "assert": "equals", "value": "text" },
+    { "path": "fallbacks.0.controls.0.name", "assert": "equals", "value": "name" },
+    { "path": "fallbacks.0.controls.0.required", "assert": "equals", "value": true },
+    { "path": "fallbacks.0.controls.1.type", "assert": "equals", "value": "email" },
+    { "path": "fallbacks.0.controls.2.tag", "assert": "equals", "value": "select" },
+    { "path": "fallbacks.0.controls.2.options.0.label", "assert": "equals", "value": "Distillery visit" },
+    { "path": "fallbacks.0.controls.3.tag", "assert": "equals", "value": "textarea" },
+    { "path": "fallbacks.0.controls.4.type", "assert": "equals", "value": "submit" },
+    { "path": "source_reports.runtime_islands", "assert": "count", "count": 1 },
+    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "form" },
+    { "path": "source_reports.runtime_islands.0.control_count", "assert": "equals", "value": 5 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Full Name: Your name (required)" }
+  ]
+}

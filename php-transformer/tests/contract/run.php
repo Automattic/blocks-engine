@@ -385,8 +385,12 @@ $formFallback = ( new HtmlTransformer() )->transform(
 )->toArray();
 $formRuntimeIsland = $formFallback['source_reports']['runtime_islands'][0] ?? array();
 $formFallbackBlocks = $formFallback['blocks'][0]['innerBlocks'] ?? array();
-$assert(array() === ($formFallback['fallbacks'] ?? array()), 'readable runtime form converts without unsupported fallback diagnostics');
-$assert(array() === ($formFallback['source_reports']['conversion_report']['fallback_diagnostics'] ?? array()), 'readable runtime form is not projected as a fallback diagnostic');
+$formFallbackDiagnostic = $formFallback['fallbacks'][0] ?? array();
+$assert(1 === count($formFallback['fallbacks'] ?? array()), 'data-entry runtime form surfaces a materializable form fallback finding');
+$assert('html_form_fallback' === ($formFallbackDiagnostic['diagnostic_code'] ?? ''), 'data-entry runtime form fallback carries the form diagnostic code');
+$assert('email' === ($formFallbackDiagnostic['controls'][0]['name'] ?? ''), 'data-entry runtime form fallback carries generic control metadata');
+$assert('/contact' === ($formFallbackDiagnostic['form']['action'] ?? ''), 'data-entry runtime form fallback carries form action metadata');
+$assertNormalizedFallbackDiagnostic($formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array(), 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
 $assert('core/group' === ($formFallback['blocks'][0]['blockName'] ?? ''), 'runtime form materializes readable control blocks');
 $assert('core/paragraph' === ($formFallbackBlocks[0]['blockName'] ?? ''), 'runtime form exposes readable input text');
 $assert('core/group' === ($formFallbackBlocks[1]['blockName'] ?? ''), 'runtime form exposes readable select options');
