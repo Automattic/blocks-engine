@@ -4027,6 +4027,89 @@ $assert(null !== $frameStyleDiagnostic, 'node-style-diagnostics-frame-node-prese
 $assert('rgba(51,102,153,0.5)' === ($frameStyleDiagnostic['expected']['background'] ?? null), 'node-style-diagnostics-expected-background');
 $assert('rgba(51,102,153,0.5)' === ($frameStyleDiagnostic['emitted']['background'] ?? null), 'node-style-diagnostics-emitted-background');
 
+// Inline character-level style overrides (characterStyleOverrides + styleOverrideTable).
+//
+// The Figma API encodes per-character style overrides as a parallel array of integer
+// IDs (`characterStyleOverrides`) and a lookup table (`styleOverrideTable`). When
+// characters share the same override ID they collapse into one run. The normalizer
+// converts these into the same `segments` contract used by `styledTextSegments` so
+// the emitter can wrap differing characters in minimal `<span style="...">` tags.
+$inlineTextStyleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Inline Text Style Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'its:1',
+            'type'     => 'FRAME',
+            'name'     => 'Inline text frame',
+            'width'    => 1200,
+            'height'   => 400,
+            'children' => array(
+                // All overrides are 0 — no inline spans expected.
+                array(
+                    'id'                      => 'its:2',
+                    'type'                    => 'TEXT',
+                    'name'                    => 'Single style text',
+                    'characters'              => 'Plain text node',
+                    'style'                   => array(
+                        'fontFamily' => 'Inter',
+                        'fontWeight' => 400,
+                        'fontSize'   => 16,
+                        'fills'      => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                    ),
+                    // 15 characters all mapping to base style.
+                    'characterStyleOverrides' => array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                    'styleOverrideTable'      => array(
+                        '1' => array('fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 1, 'a' => 1)))),
+                    ),
+                ),
+                // "Hello blue " (11 chars) in base black, "world" (5 chars) in blue.
+                array(
+                    'id'                      => 'its:3',
+                    'type'                    => 'TEXT',
+                    'name'                    => 'Two color text',
+                    'characters'              => 'Hello blue world',
+                    'style'                   => array(
+                        'fontFamily' => 'Inter',
+                        'fontWeight' => 400,
+                        'fontSize'   => 16,
+                        'fills'      => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                    ),
+                    'characterStyleOverrides' => array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1),
+                    'styleOverrideTable'      => array(
+                        '1' => array('fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 1, 'a' => 1)))),
+                    ),
+                ),
+                // "Bold" (4 chars) at weight 700, " plain text" (11 chars) at base weight 400.
+                array(
+                    'id'                      => 'its:4',
+                    'type'                    => 'TEXT',
+                    'name'                    => 'Mixed weight text',
+                    'characters'              => 'Bold plain text',
+                    'style'                   => array(
+                        'fontFamily' => 'Inter',
+                        'fontWeight' => 400,
+                        'fontSize'   => 16,
+                    ),
+                    'characterStyleOverrides' => array(1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                    'styleOverrideTable'      => array(
+                        '1' => array('fontWeight' => 700),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$inlineTextStyleHtml = $fileContent($inlineTextStyleResult, 'index.html');
+
+// Single-style: all overrides resolve to 0 so no <span> wrapper is emitted.
+$assert(str_contains($inlineTextStyleHtml, '>Plain text node</p>'), 'inline-style-single-style-no-span');
+
+// Two-color: only the "world" run differs in fill color — it gets a color span.
+$assert(str_contains($inlineTextStyleHtml, 'Hello blue <span style="color:#0000ff">world</span>'), 'inline-style-two-color-spans');
+
+// Mixed-weight: only "Bold" differs in font-weight — it gets a font-weight span.
+$assert(str_contains($inlineTextStyleHtml, '<span style="font-weight:700">Bold</span> plain text'), 'inline-style-mixed-weight-spans');
+
 // Font embedding: a known web font (Inter) resolves to a weight-aware Google Fonts
 // @font-face import, while an unknown family (Skolar Latin) stays actionable. This
 // mirrors the David Perell .fig matrix where Inter + Skolar Latin rendered in a

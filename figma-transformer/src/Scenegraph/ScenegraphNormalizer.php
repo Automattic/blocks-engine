@@ -1660,7 +1660,8 @@ final class ScenegraphNormalizer
         }
 
         if ( ! is_array($rawSegments) ) {
-            return array();
+            // Fall back to character-level override encoding when no segment list is present.
+            return $this->normalizeCharacterStyleOverrideSegments($node);
         }
 
         foreach ( $rawSegments as $segment ) {
@@ -1692,6 +1693,184 @@ final class ScenegraphNormalizer
         }
 
         return $segments;
+    }
+
+    /**
+     * Converts the character-level Figma override encoding into the same segment
+     * format produced by {@see normalizeStyledTextSegments}.
+     *
+     * Figma REST API and .fig files expose per-character style overrides via two
+     * parallel fields:
+     *   - `characterStyleOverrides` — one integer per character; 0 = base style,
+     *     N = an entry in `styleOverrideTable`.
+     *   - `styleOverrideTable` — map from string key (the N above) to a Figma
+     *     style object carrying only the overriding properties.
+     *
+     * Adjacent characters sharing the same override ID are collapsed into a single
+     * run. For each non-base run the override style is compared against the
+     * resolved base style, and only the differing properties (color, font-weight,
+     * etc.) are stored in the segment's `style` key so the emitter emits minimal
+     * `<span>` wrappers.
+     *
+     * @param array<string, mixed> $node
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeCharacterStyleOverrideSegments(array $node): array
+    {
+        $overrides = is_array($node['characterStyleOverrides'] ?? null) ? array_values($node['characterStyleOverrides']) : array();
+        $overrideTable = is_array($node['styleOverrideTable'] ?? null) ? $node['styleOverrideTable'] : array();
+
+        if ( empty($overrides) || empty($overrideTable) ) {
+            return array();
+        }
+
+        // If all override IDs are 0, the entire text uses the base style — no spans needed.
+        $hasNonZero = false;
+        foreach ( $overrides as $id ) {
+            if ( 0 !== (int) $id ) {
+                $hasNonZero = true;
+                break;
+            }
+        }
+        if ( ! $hasNonZero ) {
+            return array();
+        }
+
+        // Resolve the characters string.
+        $characters = '';
+        foreach ( array('characters', 'text') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
+                $characters = (string) $node[$key];
+                break;
+            }
+        }
+        if ( '' === $characters ) {
+            return array();
+        }
+
+        // Build the normalized base style so override deltas can be diffed against it.
+        $baseStyleSource = is_array($node['style'] ?? null) ? $node['style'] : array();
+        $baseStyle = $this->normalizeTextStyle($baseStyleSource);
+        $rootStyle = $this->normalizeTextStyle($node);
+        foreach ( $rootStyle as $key => $value ) {
+            if ( ! array_key_exists($key, $baseStyle) ) {
+                $baseStyle[$key] = $value;
+            }
+        }
+        // Extract text fill color from the base node's fills when not already in style.
+        if ( ! isset($baseStyle['color']) ) {
+            $baseFills = is_array($baseStyleSource['fills'] ?? null)
+                ? $baseStyleSource['fills']
+                : ( is_array($node['fills'] ?? null) ? $node['fills'] : array() );
+            $fillColor = $this->solidFillColor($baseFills);
+            if ( null !== $fillColor ) {
+                $baseStyle['color'] = $fillColor;
+            }
+        }
+
+        // Split into Unicode codepoints (mirrors the approach used elsewhere in this class).
+        $chars = preg_split('//u', $characters, -1, PREG_SPLIT_NO_EMPTY);
+        if ( ! is_array($chars) ) {
+            return array();
+        }
+        $charCount = count($chars);
+
+        // Collapse adjacent characters with the same override ID into runs.
+        $runs = array();
+        $runChars = '';
+        $runId = null;
+
+        for ( $i = 0; $i < $charCount; $i++ ) {
+            $id = isset($overrides[$i]) ? (int) $overrides[$i] : 0;
+            if ( null !== $runId && $id !== $runId ) {
+                $runs[] = array('characters' => $runChars, 'override_id' => $runId);
+                $runChars = '';
+            }
+            $runChars .= $chars[$i];
+            $runId = $id;
+        }
+        if ( '' !== $runChars && null !== $runId ) {
+            $runs[] = array('characters' => $runChars, 'override_id' => $runId);
+        }
+
+        if ( empty($runs) ) {
+            return array();
+        }
+
+        $segments = array();
+        foreach ( $runs as $run ) {
+            $overrideId = (int) $run['override_id'];
+            $segment = array('characters' => $run['characters']);
+
+            if ( 0 !== $overrideId ) {
+                $rawOverride = is_array($overrideTable[(string) $overrideId] ?? null)
+                    ? $overrideTable[(string) $overrideId]
+                    : array();
+
+                if ( ! empty($rawOverride) ) {
+                    $overrideStyle = $this->normalizeTextStyle($rawOverride);
+
+                    // Figma REST API encodes text color as fills in override entries.
+                    if ( ! isset($overrideStyle['color']) ) {
+                        $overrideFills = is_array($rawOverride['fills'] ?? null) ? $rawOverride['fills'] : array();
+                        $fillColor = $this->solidFillColor($overrideFills);
+                        if ( null !== $fillColor ) {
+                            $overrideStyle['color'] = $fillColor;
+                        }
+                    }
+
+                    // Keep only properties that differ from the base style.
+                    $delta = array();
+                    foreach ( $overrideStyle as $key => $value ) {
+                        if ( ! array_key_exists($key, $baseStyle) || $baseStyle[$key] !== $value ) {
+                            $delta[$key] = $value;
+                        }
+                    }
+
+                    if ( ! empty($delta) ) {
+                        $segment['style'] = $delta;
+                    }
+                }
+            }
+
+            $segments[] = $segment;
+        }
+
+        return $segments;
+    }
+
+    /**
+     * Extracts the CSS color from the first visible SOLID fill in a paint list.
+     *
+     * Returns the normalized RGBA array used by the rest of the normalizer, or
+     * null when no usable solid fill is found.
+     *
+     * @param array<int, mixed> $fills
+     * @return array{r: float, g: float, b: float, a?: float}|null
+     */
+    private function solidFillColor(array $fills): ?array
+    {
+        foreach ( $fills as $fill ) {
+            if ( ! is_array($fill) ) {
+                continue;
+            }
+            $type = strtoupper((string) ($fill['type'] ?? 'SOLID'));
+            if ( 'SOLID' !== $type ) {
+                continue;
+            }
+            $color = $this->normalizeColor($fill['color'] ?? null);
+            if ( null === $color ) {
+                continue;
+            }
+            $opacity = isset($fill['opacity']) && is_numeric($fill['opacity']) ? (float) $fill['opacity'] : 1.0;
+            if ( $opacity < 1.0 ) {
+                $color['a'] = $opacity * ($color['a'] ?? 1.0);
+            }
+
+            return $color;
+        }
+
+        return null;
     }
 
     /**
