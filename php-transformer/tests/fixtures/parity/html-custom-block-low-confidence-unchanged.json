@@ -1,0 +1,26 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-custom-block-low-confidence-unchanged",
+  "description": "A custom-element subtree with weak/ambiguous structural signals does NOT clear the conservative custom_block gate (classifier returns unknown), so behavior is unchanged: no block is generated and the existing core/html-equivalent unsupported_element fallback diagnostic is still emitted. When in doubt, fall back (issue #497).",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-custom-block-low-confidence-unchanged.json",
+    "notes": "Negative control: a single inline child carries no custom_block signal, so generation must not trigger."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Negative control for new producer-link behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<my-widget><span>hello there</span></my-widget>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 0 },
+    { "path": "source_reports.generated_blocks", "assert": "count", "count": 0 },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_unsupported_element" },
+    { "path": "fallbacks.0.classification.bucket", "assert": "equals", "value": "unknown" }
+  ]
+}

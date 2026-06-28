@@ -121,6 +121,24 @@ final class HtmlTransformer
     private array $runtimeIslands = array();
 
     /**
+     * Generated dynamic custom-block definitions produced at `core/html`
+     * fallback decisions (issue #497). Surfaced under
+     * `source_reports.generated_blocks` and packaged into the companion-plugin
+     * payload by the ArtifactCompiler.
+     *
+     * @var array<int, array<string, mixed>>
+     */
+    private array $generatedBlocks = array();
+
+    /**
+     * Block namespace for generated custom-block references. The ArtifactCompiler
+     * sets this to the per-site companion-plugin namespace (`ssi-<site_slug>`) so
+     * emitted references match the blocks SSI registers; standalone transforms
+     * fall back to a generic namespace.
+     */
+    private string $generatedBlockNamespace = 'custom';
+
+    /**
      * @var array<int, array<string, mixed>>
      */
     private array $runtimeScriptMetadata = array();
@@ -189,6 +207,9 @@ final class HtmlTransformer
         $this->structureProvenance = array();
         $this->scriptMetadata = array();
         $this->runtimeIslands = array();
+        $this->generatedBlocks = array();
+        $this->generatedBlockNamespace = $this->generatedBlockNamespaceFromOptions($options);
+        $this->fallbackEmitter->resetGeneratedBlocks();
         $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->generatedAssets = array();
@@ -284,6 +305,7 @@ final class HtmlTransformer
             'native_target_blocks' => $nativeTargetBlocks,
             'available_core_blocks' => $nativeTargetBlocks,
             'runtime_islands' => $this->runtimeIslands,
+            'generated_blocks' => $this->generatedBlocks,
             'interaction_candidates' => $interactionCandidates,
             'wp_block_validity' => $blockValidityReport,
             'semantic_parity' => $semanticParityReport,
@@ -1385,6 +1407,16 @@ final class HtmlTransformer
         }
 
         if ( $captureUnsupported ) {
+            // Producer link (issue #497): this is a core/html fallback decision —
+            // the element mapped to nothing native/Automattic. If the structural
+            // classifier identifies it as a high-confidence custom_block, generate
+            // a dynamic block and emit a self-closing reference instead of raw
+            // core/html. Otherwise keep the existing fallback diagnostic.
+            $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks, $this->generatedBlockNamespace);
+            if ( null !== $generated ) {
+                return $this->createBlock($generated['blockName'], $generated['attrs'], array(), $element);
+            }
+
             $fallback = array(
                 'type'            => 'unsupported_element',
                 'reason'          => 'unsupported_element',
@@ -3056,6 +3088,19 @@ final class HtmlTransformer
         }
 
         return $this->dedupeArrayRows($metadata);
+    }
+
+    /**
+     * Resolve the generated custom-block namespace from transform options,
+     * defaulting to a generic namespace for standalone transforms.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function generatedBlockNamespaceFromOptions(array $options): string
+    {
+        $namespace = is_scalar($options['generated_block_namespace'] ?? null) ? trim((string) $options['generated_block_namespace']) : '';
+
+        return '' !== $namespace ? $namespace : 'custom';
     }
 
     /**
