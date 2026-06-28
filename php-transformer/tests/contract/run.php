@@ -1642,6 +1642,33 @@ $materializedTypographyFindings = array_filter(
 );
 $assert(array() === $materializedTypographyFindings, 'materialized web-font produces no typography parity finding');
 
+// Negative: the base/body font-family is the document's foundational typography
+// and must survive into materialized output even when declared only in an inline
+// <style> block (no link, no static css). It is carried into the base typography
+// the transformer emits, so it must NOT surface a typography_font_family_dropped:body finding.
+$inlineBodyFontResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><head><style>body{font-family:"Brand Sans",sans-serif}</style></head><body><main><h1>Heading</h1><p>Copy</p></main></body></html>',
+    array()
+)->toArray();
+$inlineBodyDropped = $findingsByCode($semanticFindings($inlineBodyFontResult), 'typography_font_family_dropped');
+$assert(array() === $inlineBodyDropped, 'inline <style> base/body font-family is materialized and not reported dropped');
+$inlineBodyPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
+    '<head><style>body{font-family:"Brand Sans",sans-serif}</style></head>',
+    ''
+);
+$assert('Brand Sans' === ($inlineBodyPlan['roles']['body'] ?? null), 'inline <style> base/body font-family flows into materialized body role');
+$assert('Brand Sans' === ($inlineBodyPlan['fonts'][0]['family'] ?? null), 'inline <style> base/body font-family is preserved in materialized fonts');
+
+// Positive: a heading-only font in an inline <style> block (no body declaration)
+// still requires a loaded web-font to render, so it remains a reported drop.
+$inlineHeadingOnlyResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><head><style>h1,h2{font-family:"Display Custom",sans-serif}</style></head><body><main><h1>Heading</h1></main></body></html>',
+    array()
+)->toArray();
+$inlineHeadingOnlyDropped = $findingsByCode($semanticFindings($inlineHeadingOnlyResult), 'typography_font_family_dropped');
+$assert(array() !== $inlineHeadingOnlyDropped, 'inline <style> heading-only font without a loaded web-font is still reported dropped');
+$assert('heading' === ($inlineHeadingOnlyDropped[0]['font_role'] ?? null), 'inline <style> heading-only drop carries the heading role');
+
 // Enrichment: every semantic-parity finding (landmark/navigation) carries source_snippet, observed_block, and reason_code.
 $underSpecifiedResult = ( new HtmlTransformer() )->transform(
     '<body><header><nav><span>Menu</span></nav></header><main><p>Copy</p></main></body>',
