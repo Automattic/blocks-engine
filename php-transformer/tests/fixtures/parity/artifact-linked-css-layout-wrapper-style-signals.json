@@ -33,8 +33,10 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "hero-grid" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"hero-grid\",\"layout\":{\"type\":\"grid\"}} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "shift-card" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"shift-card\",\"layout\":{\"type\":\"grid\"}} -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"services-cards\",\"layout\":{\"type\":\"flex\"}} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"shift-card\",\"layout\":{\"type\":\"grid\"},\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<section class=\"wp-block-group shift-card\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"services-cards\",\"layout\":{\"type\":\"flex\"},\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<section class=\"wp-block-group services-cards\">" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }

@@ -10,6 +10,15 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapp
  */
 final class BlockFactory
 {
+    /**
+     * Semantic container tags `core/group` may render as its wrapper element.
+     * `div` is the canonical default; the rest mirror the semantic HTML5
+     * landmarks core's group block exposes via its `tagName` attribute.
+     *
+     * @var array<int, string>
+     */
+    private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main' );
+
     private ?StyleAttributeMapper $styleMapper = null;
 
     private function styleMapper(): StyleAttributeMapper
@@ -271,10 +280,22 @@ final class BlockFactory
         }
 
         if ( 'core/group' === $name ) {
-            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-group') . '>', 'closing' => '</div>' );
+            $tag = $this->groupTagName($attrs['tagName'] ?? null);
+            return array( 'opening' => '<' . $tag . $this->blockSupportAttrs($attrs, 'wp-block-group') . '>', 'closing' => '</' . $tag . '>' );
         }
 
         return '';
+    }
+
+    /**
+     * Resolve the wrapper tag for a `core/group`. Core's group `save()` renders
+     * `<TagName>` from the `tagName` attribute, defaulting to `div`. Only the
+     * semantic container tags core treats as group wrappers are honored; any
+     * other value falls back to `div` so output never diverges from `save()`.
+     */
+    private function groupTagName(mixed $tagName): string
+    {
+        return is_string($tagName) && in_array($tagName, self::GROUP_TAG_NAMES, true) ? $tagName : 'div';
     }
 
     /**

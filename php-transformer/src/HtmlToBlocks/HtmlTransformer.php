@@ -1659,12 +1659,40 @@ final class HtmlTransformer
             $this->sourceProvenance[$provenanceId] = $this->sourceProvenanceEntry($name, $sourceElement);
         }
 
+        if ( 'core/group' === $name && $sourceElement instanceof DOMElement && ! isset($attrs['tagName']) ) {
+            $semanticTag = $this->semanticGroupTagName($sourceElement);
+            if ( null !== $semanticTag ) {
+                $attrs['tagName'] = $semanticTag;
+            }
+        }
+
         $block = $this->blockFactory->create($name, $attrs, $innerBlocks);
         if ( isset($provenanceId) ) {
             $block['_source_provenance_id'] = $provenanceId;
         }
 
         return $block;
+    }
+
+    /**
+     * Semantic HTML5 container tags core's `core/group` block can render as its
+     * wrapper via the `tagName` attribute. A source `<header>`/`<section>`/etc.
+     * collapsed to a group keeps its real tag so tag-qualified source CSS
+     * (`header { ... }`, `section { ... }`) still matches the rendered output.
+     *
+     * `figure` is intentionally excluded — it has its own conversion path and is
+     * not a core/group wrapper option. Nav link lists are handled separately by
+     * the navigation path and never reach here.
+     *
+     * @var array<int, string>
+     */
+    private const SEMANTIC_GROUP_TAGS = array( 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main' );
+
+    private function semanticGroupTagName(DOMElement $element): ?string
+    {
+        $tag = strtolower($element->tagName);
+
+        return in_array($tag, self::SEMANTIC_GROUP_TAGS, true) ? $tag : null;
     }
 
     /**

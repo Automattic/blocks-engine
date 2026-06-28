@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-semantic-container-tagname",
+  "description": "A semantic container element collapsed to core/group keeps its real tag via the native tagName attribute, so the rendered wrapper is <header> (not <div>) and tag-qualified source CSS like header{...} still matches.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-semantic-container-tagname.json",
+    "notes": "Product-neutral coverage for core/group tagName fidelity on semantic HTML5 landmarks."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header class=\"site-header\"><h2>Brand</h2><p>Tagline copy.</p></header>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header", "tagName": "header" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"site-header\",\"tagName\":\"header\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<header class=\"wp-block-group site-header\">" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<div class=\"wp-block-group site-header\">" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" }
+  ]
+}
