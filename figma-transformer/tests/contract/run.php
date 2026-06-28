@@ -190,7 +190,7 @@ $assert(str_contains($html, '<h2 class="figma-node-1-2-hero-title"'), 'title-emi
 $assert(str_contains($html, '<div class="figma-node-1-3-cards-group"'), 'group-emits-div');
 $assert(! str_contains($html, '<FRAME') && ! str_contains($html, '<GROUP') && ! str_contains($html, '<TEXT') && ! str_contains($html, '<RECTANGLE'), 'html-avoids-custom-tags');
 $assert(! str_contains($html, 'cdn.example.com') && ! str_contains($css, 'cdn.example.com'), 'html-css-avoid-external-cdn');
-$assert(str_contains($css, '.figma-node-1-1-hero-section{width:1200px;height:600px;background:#ffffff;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding-top:40px;padding-right:32px;padding-bottom:40px;padding-left:32px;gap:24px}'), 'css-frame-layout-style');
+$assert(str_contains($css, '.figma-node-1-1-hero-section{width:100%;max-width:1200px;margin-left:auto;margin-right:auto;height:600px;background:#ffffff;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding-top:40px;padding-right:32px;padding-bottom:40px;padding-left:32px;gap:24px}'), 'css-frame-layout-style');
 $assert(str_contains($css, '.figma-node-1-2-hero-title{font-size:48px;font-weight:700;color:#1a334d;flex-shrink:0}'), 'css-text-style');
 $assert(str_contains($css, '.figma-node-1-4-hero-image-rectangle{width:320px;height:180px;position:absolute;left:10px;top:20px;background:#ff0000;background-image:url("assets/hero-image.svg")'), 'css-rectangle-asset-style');
 $assert(str_contains($css, '.figma-node-1-5-nested-image-paint{') && str_contains($css, 'background-image:url("assets/fixture-photo.jpg")'), 'css-nested-image-hash-asset-style');
@@ -237,7 +237,9 @@ $assert(str_contains((string) file_get_contents($cliOutputRoot . '/artifact/styl
 $assert(str_contains($html, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"'), 'html-vector-blob-svg');
 $assert(str_contains($html, 'd="M0 0L10 0 10 10Z"'), 'html-vector-blob-path');
 $assert(str_contains($css, 'body{margin:0}'), 'css-static-page-body-shell');
-$assert(str_contains($css, '.figma-root{position:relative;min-width:100%;width:max-content}'), 'css-static-page-root-shell');
+$assert(str_contains($css, '.figma-root{position:relative;width:100%}'), 'css-static-page-root-shell');
+$assert(! str_contains($css, 'width:max-content'), 'css-static-page-root-shell-not-fixed-canvas');
+$assert(str_contains($css, '.figma-node-1-1-hero-section{width:100%;max-width:1200px;margin-left:auto;margin-right:auto;'), 'css-page-root-frame-is-centered-fluid');
 $assert(! str_contains($css, 'overflow-x:hidden'), 'css-preserves-horizontal-scroll');
 $assert(! str_contains($css, 'order:'), 'css-avoids-source-order');
 $assert(! str_contains($css, 'font-family:Inter') && ! str_contains($css, 'body{margin:0;background') && ! str_contains($css, 'body{margin:0;color'), 'css-avoids-hardcoded-theme-style');
@@ -311,14 +313,14 @@ $qualityDiagnosticsResult = blocks_engine_figma_transformer_transform_scenegraph
     ),
 ));
 $qualitySignalCodes = $artifactQualitySignalCodes($qualityDiagnosticsResult);
-$assert(in_array('fixed_root_width', $qualitySignalCodes, true), 'quality-diagnostics-fixed-root-width');
+$assert(! in_array('fixed_root_width', $qualitySignalCodes, true), 'quality-diagnostics-fixed-root-width-retired');
+$qualityCss = $fileContent($qualityDiagnosticsResult, 'style.css');
+$assert(str_contains($qualityCss, '.figma-node-quality-root-desktop-fixed-root{width:100%;max-width:1440px;margin-left:auto;margin-right:auto;'), 'quality-diagnostics-root-renders-fluid');
 $assert(in_array('large_absolute_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-absolute-offsets');
 $assert(in_array('image_heavy_landmark_candidate', $qualitySignalCodes, true), 'quality-diagnostics-image-heavy-landmark');
 $assert(in_array('excessive_image_blocks', $qualitySignalCodes, true), 'quality-diagnostics-excessive-image-blocks');
 $assert(in_array('excessive_vector_image_fallbacks', $qualitySignalCodes, true), 'quality-diagnostics-excessive-vector-fallbacks');
-$fixedRootWidthSignal = $artifactQualitySignal($qualityDiagnosticsResult, 'fixed_root_width');
 $largeOffsetSignal = $artifactQualitySignal($qualityDiagnosticsResult, 'large_absolute_offsets');
-$assert('quality:root' === ($fixedRootWidthSignal['sample_nodes'][0]['node_id'] ?? null), 'quality-diagnostics-fixed-root-width-sample-node');
 $assert('quality:offcanvas' === ($largeOffsetSignal['sample_nodes'][0]['node_id'] ?? null), 'quality-diagnostics-large-absolute-offset-sample-node');
 $assert('quality:root' === ($largeOffsetSignal['sample_nodes'][0]['parent_id'] ?? null), 'quality-diagnostics-large-absolute-offset-sample-parent');
 $assert('needs_review' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['status'] ?? null), 'quality-diagnostics-status-needs-review');
@@ -469,8 +471,8 @@ $offsetPageCss = $fileContent($offsetPageResult, 'style.css');
 $assert('success' === ($offsetPageResult['status'] ?? null), 'offset-page-transform-success');
 $assert(str_contains($offsetPageHtml, 'Selected page content'), 'offset-page-selected-content-rendered');
 $assert(! str_contains($offsetPageHtml, 'Off Canvas One') && ! str_contains($offsetPageHtml, 'Off Canvas Two'), 'offset-page-off-canvas-siblings-omitted');
-$assert(str_contains($offsetPageCss, '.figma-root{position:relative;min-width:100%;width:max-content}'), 'offset-page-root-expands-to-frame-width');
-$assert(str_contains($offsetPageCss, '.figma-node-frame-selected-selected-website-page{width:1440px;height:900px;position:relative}'), 'offset-page-root-keeps-frame-width');
+$assert(str_contains($offsetPageCss, '.figma-root{position:relative;width:100%}'), 'offset-page-root-shell-is-fluid');
+$assert(str_contains($offsetPageCss, '.figma-node-frame-selected-selected-website-page{width:100%;max-width:1440px;margin-left:auto;margin-right:auto;height:900px;position:relative}'), 'offset-page-root-renders-fluid-centered');
 $assert(str_contains($offsetPageCss, '.figma-node-frame-selected-card-hero-card{width:320px;height:160px;position:absolute;left:40px;top:40px}'), 'offset-page-child-rebased-position');
 $assert(! str_contains($offsetPageCss, 'left:3497px') && ! str_contains($offsetPageCss, 'left:3537px') && ! str_contains($offsetPageCss, 'left:4680px'), 'offset-page-avoids-board-left-values');
 
@@ -3182,7 +3184,7 @@ $fixedRootFlexResult = blocks_engine_figma_transformer_transform_scenegraph(arra
     ),
 ));
 $fixedRootFlexCss = $fileContent($fixedRootFlexResult, 'style.css');
-$assert(str_contains($fixedRootFlexCss, '.figma-node-fixed-root-flex-fixed-root-flex{width:1280px;height:100px;display:flex;flex-direction:column}'), 'fixed-root-flex-emits-fixed-height');
+$assert(str_contains($fixedRootFlexCss, '.figma-node-fixed-root-flex-fixed-root-flex{width:100%;max-width:1280px;margin-left:auto;margin-right:auto;height:100px;display:flex;flex-direction:column}'), 'fixed-root-flex-emits-fixed-height');
 $assert(! str_contains($fixedRootFlexCss, '.figma-node-fixed-root-flex-fixed-root-flex{width:1280px;min-height:100px'), 'fixed-root-flex-does-not-emit-min-height');
 
 $fixedPaddingClampResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -3206,7 +3208,7 @@ $fixedPaddingClampResult = blocks_engine_figma_transformer_transform_scenegraph(
 ));
 $fixedPaddingClampCss = $fileContent($fixedPaddingClampResult, 'style.css');
 $fixedPaddingClampCopy = $findVisualNode($fixedPaddingClampResult, 'padding:copy');
-$assert(str_contains($fixedPaddingClampCss, '.figma-node-padding-frame-impossible-fixed-padding{width:1280px;height:100px;display:flex;flex-direction:column;padding-top:50px;padding-bottom:50px}'), 'fixed-padding-clamped-css');
+$assert(str_contains($fixedPaddingClampCss, '.figma-node-padding-frame-impossible-fixed-padding{width:100%;max-width:1280px;margin-left:auto;margin-right:auto;height:100px;display:flex;flex-direction:column;padding-top:50px;padding-bottom:50px}'), 'fixed-padding-clamped-css');
 $assert(50.0 === ($fixedPaddingClampCopy['rect']['y'] ?? null), 'fixed-padding-clamped-visual-map');
 
 $stylePaintResult = blocks_engine_figma_transformer_transform_scenegraph(array(
