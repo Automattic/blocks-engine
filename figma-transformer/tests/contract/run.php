@@ -946,6 +946,51 @@ $assert('oversized_path_data' === ($largeRawPlaceholder['reason'] ?? null), 'lar
 $assert(array('pathData') === ($largeRawPlaceholder['source_fields'] ?? null), 'large-raw-vector-placeholder-source-field');
 $assert(1 === ($largeDecodedVectorDiagnostics['placeholder_reasons']['oversized_path_data'] ?? null), 'large-raw-vector-placeholder-reason-count');
 
+// Figma REST/plugin geometry shape: fillGeometry/strokeGeometry carry ready-to-use
+// SVG path strings. They must emit real inline <svg><path> (not placeholders) and be
+// counted by the vector-decode-coverage diagnostic.
+$readyGeometryVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Ready Geometry Vector Fixture',
+    'nodes' => array(
+        array(
+            'id'           => 'vector:ready-fill-geometry',
+            'type'         => 'VECTOR',
+            'name'         => 'Brand Logo',
+            'width'        => 24,
+            'height'       => 24,
+            'fillPaints'   => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0))),
+            'fillGeometry' => array(
+                array('path' => 'M 0 0 L 24 0 L 24 24 L 0 24 Z', 'windingRule' => 'NONZERO'),
+            ),
+        ),
+        array(
+            'id'     => 'vector:no-geometry',
+            'type'   => 'VECTOR',
+            'name'   => 'Geometryless Mark',
+            'width'  => 24,
+            'height' => 24,
+        ),
+    ),
+));
+$readyGeometryVectorHtml = $fileContent($readyGeometryVectorResult, 'index.html');
+$readyGeometryVectors = $readyGeometryVectorResult['source_reports']['figma']['html']['transform_diagnostics']['vectors'] ?? array();
+$readyGeometryCoverage = $readyGeometryVectors['decode_coverage'] ?? array();
+$readyGeometryNode = null;
+foreach ( $readyGeometryVectors['placeholder_nodes'] ?? array() as $placeholderNode ) {
+    if ( is_array($placeholderNode) && 'vector:ready-fill-geometry' === ($placeholderNode['node_id'] ?? null) ) {
+        $readyGeometryNode = $placeholderNode;
+        break;
+    }
+}
+$assert(str_contains($readyGeometryVectorHtml, 'data-figma-node-id="vector:ready-fill-geometry"') && str_contains($readyGeometryVectorHtml, 'data-figma-vector="true"'), 'ready-fill-geometry-renders-inline-svg');
+$assert(str_contains($readyGeometryVectorHtml, '<path d="M0 0L24 0 24 24 0 24Z"') && str_contains($readyGeometryVectorHtml, 'fill-rule="nonzero"'), 'ready-fill-geometry-emits-path');
+$assert(null === $readyGeometryNode, 'ready-fill-geometry-is-not-a-placeholder');
+$assert(2 === (int) ($readyGeometryCoverage['vector_nodes'] ?? 0), 'ready-geometry-decode-coverage-node-count');
+$assert(1 === (int) ($readyGeometryCoverage['decoded_to_svg'] ?? 0), 'ready-geometry-decode-coverage-decoded-count');
+$assert(1 === (int) ($readyGeometryCoverage['placeholders'] ?? 0), 'ready-geometry-decode-coverage-placeholder-count');
+$assert(0.5 === ($readyGeometryCoverage['coverage_ratio'] ?? null), 'ready-geometry-decode-coverage-ratio');
+$assert(1 === (int) ($readyGeometryCoverage['placeholder_reason_categories']['no_geometry_available'] ?? 0), 'ready-geometry-decode-coverage-no-geometry-category');
+
 $externalizedVectorPath = 'M 0.0000 0.0000' . str_repeat(' L 10.000001 10.000001', 12000) . ' Z';
 $externalizedEquivalentVectorPath = 'M0,0' . str_repeat('L10,10', 12000) . 'Z';
 $externalizedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
