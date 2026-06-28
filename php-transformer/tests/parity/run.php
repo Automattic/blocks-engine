@@ -415,8 +415,6 @@ function legacyRepoForOperation(string $operation): string
 {
     return match ( $operation ) {
         'html_transformer.transform' => 'html-to-blocks-converter',
-        'format_bridge.normalize' => 'block-format-bridge',
-        'artifact_compiler.compile' => 'block-artifact-compiler',
         default => '',
     };
 }
@@ -425,8 +423,6 @@ function legacyCallableForOperation(string $operation): string
 {
     return match ( $operation ) {
         'html_transformer.transform' => 'html_to_blocks_convert',
-        'format_bridge.normalize' => 'bfb_normalize',
-        'artifact_compiler.compile' => 'bac_compile_website_artifact',
         default => '',
     };
 }
@@ -434,7 +430,7 @@ function legacyCallableForOperation(string $operation): string
 function legacyBootstrapForRepo(string $repo): string
 {
     return match ( $repo ) {
-        'html-to-blocks-converter', 'block-format-bridge', 'block-artifact-compiler' => 'library.php',
+        'html-to-blocks-converter' => 'library.php',
         default => '',
     };
 }
