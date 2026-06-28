@@ -489,9 +489,14 @@ final class FigmaTransformer
         $pageName = isset($options['page_name']) && is_scalar($options['page_name']) ? (string) $options['page_name'] : '';
 
         // Normalize the FULL scenegraph (drop the single-frame selection) so
-        // every variant frame is present in the emitter node map.
+        // every variant frame is present in the emitter node map. render_document
+        // prevents the normalizer from auto-selecting a single frame when no
+        // frame_id is passed — the full document render tree is needed so that
+        // appendNodeMap can overwrite the flat node_map's stale embedded children
+        // with refreshed, instance-resolved versions for all variant frames.
         $normalizeOptions = $options;
         unset($normalizeOptions['frame_id'], $normalizeOptions['responsive_variants'], $normalizeOptions['page_name']);
+        $normalizeOptions['render_document'] = true;
         $normalized = $this->scenegraphNormalizer->normalize($scenegraph, $normalizeOptions);
 
         $pagePlan = array(
