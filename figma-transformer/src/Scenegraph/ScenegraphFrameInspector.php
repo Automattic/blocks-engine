@@ -60,6 +60,7 @@ final class ScenegraphFrameInspector
                     'score'                 => $this->score($type, $dimensions, $stats),
                     'device_hint'           => $this->deviceHint((string) ($node['name'] ?? ''), $dimensions),
                     'sibling_group_key'     => $this->siblingGroupKey($id, $node, $nodes, $parentIndex),
+                    'dev_status'            => $this->candidateDevStatus($node),
                 ),
                 static fn (mixed $value): bool => null !== $value
             );
@@ -86,6 +87,20 @@ final class ScenegraphFrameInspector
             'candidates'      => array_slice($candidates, 0, $limit),
             'diagnostics'     => is_array($index['diagnostics'] ?? null) ? $index['diagnostics'] : array(),
         );
+    }
+
+    /**
+     * Resolve a candidate frame's own normalized dev status (ready_for_dev|
+     * completed), so the matrix frame-selector can prefer dev-marked frames.
+     * Returns null when the node carries no dev status.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function candidateDevStatus(array $node): ?string
+    {
+        $resolved = ScenegraphDevStatus::resolve($node);
+
+        return is_array($resolved) ? ($resolved['normalized'] ?? null) : null;
     }
 
     /**

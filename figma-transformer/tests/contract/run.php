@@ -5304,6 +5304,35 @@ $assert('heuristic' === matrix_selection_source(array(
     array('id' => 'h:home', 'name' => 'Home', 'type' => 'FRAME', 'score' => 100, 'parent' => array('type' => 'CANVAS'), 'page' => array('name' => 'Pages')),
 )), 'matrix-reports-heuristic-source-without-dev-status');
 
+// INSPECT: candidates must surface the frame's own dev_status so the matrix
+// frame-selector (which keys on $candidate['dev_status']) can prefer dev-marked
+// frames. Without this the inspector handed the selector statusless candidates,
+// so selection_source stayed 'heuristic' even when the file had dev statuses.
+$inspectorDevStatusSource = array(
+    'name'  => 'Inspector Dev Status',
+    'nodes' => array(
+        array(
+            'id'       => 'canvas:1',
+            'type'     => 'CANVAS',
+            'name'     => 'Page 1',
+            'children' => array(
+                array('id' => 'frame:build', 'type' => 'FRAME', 'name' => 'Marked Home', 'width' => 1440, 'height' => 1400, 'sectionStatus' => 'BUILD', 'children' => array()),
+                array('id' => 'frame:plain', 'type' => 'FRAME', 'name' => 'Plain Page', 'width' => 1440, 'height' => 1200, 'children' => array()),
+            ),
+        ),
+    ),
+);
+$inspectorDevStatusResult = ( new Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameInspector() )->inspect($inspectorDevStatusSource);
+$inspectorCandidates = array();
+foreach ( ( is_array($inspectorDevStatusResult['candidates'] ?? null) ? $inspectorDevStatusResult['candidates'] : array() ) as $inspectorCandidate ) {
+    if ( is_array($inspectorCandidate) && isset($inspectorCandidate['id']) ) {
+        $inspectorCandidates[(string) $inspectorCandidate['id']] = $inspectorCandidate;
+    }
+}
+$assert('ready_for_dev' === ($inspectorCandidates['frame:build']['dev_status'] ?? null), 'inspector-surfaces-dev-status-on-candidate');
+$assert(! array_key_exists('dev_status', $inspectorCandidates['frame:plain'] ?? array()), 'inspector-omits-dev-status-on-unmarked-candidate');
+$assert('dev_status' === matrix_selection_source(array_values($inspectorCandidates)), 'inspector-candidates-drive-dev-status-selection');
+
 blocks_engine_figma_transformer_run_fixture_matrix_contract($assert);
 
 if ( ! empty($failures) ) {
