@@ -2697,15 +2697,42 @@ final class HtmlTransformer
             return null;
         }
 
-        $attrs = array_filter(array_merge($this->presentationAttributes($element), array(
-            'url'    => $this->materializeInlineSvgAsset($html, $element),
-            'alt'    => $this->inlineSvgAltText($element),
-            'title'  => $this->inlineSvgTitleText($element),
-            'width'  => $this->attr($element, 'width'),
-            'height' => $this->attr($element, 'height'),
-        )), static fn ($value): bool => '' !== $value);
+        // Keep illustrative/decorative inline SVG inline as a core/html block.
+        // Externalizing to an `assets/*.svg` file + core/image would be lost in
+        // WordPress, which blocks SVG uploads by default. The markup is already
+        // safe-sanitized above (scripts, event handlers, javascript: URLs
+        // stripped via safeFallbackHtml + verified by isSafeSvgContent), and the
+        // original outer SVG preserves viewBox/role/aria-label/class.
+        return $this->createBlock('core/html', array( 'content' => $this->restoreSvgAttributeCasing($html) ), array(), $element);
+    }
 
-        return $this->createBlock('core/image', $attrs, array(), $element);
+    /**
+     * Restore the canonical camelCase casing of SVG attribute names that the
+     * HTML parser lowercases (e.g. `viewbox` -> `viewBox`). SVG attribute names
+     * are case-sensitive, so a lowercased `viewbox` is ignored by browsers and
+     * the inline SVG would not scale to its viewport.
+     */
+    private function restoreSvgAttributeCasing(string $html): string
+    {
+        static $camelCaseAttributes = array(
+            'viewBox', 'preserveAspectRatio', 'baseProfile', 'attributeName', 'attributeType',
+            'repeatCount', 'repeatDur', 'calcMode', 'keyPoints', 'keySplines', 'keyTimes',
+            'gradientUnits', 'gradientTransform', 'spreadMethod', 'patternUnits',
+            'patternContentUnits', 'patternTransform', 'clipPath', 'clipPathUnits',
+            'maskUnits', 'maskContentUnits', 'markerWidth', 'markerHeight', 'markerUnits',
+            'refX', 'refY', 'stdDeviation', 'stitchTiles', 'surfaceScale', 'specularConstant',
+            'specularExponent', 'diffuseConstant', 'kernelMatrix', 'kernelUnitLength',
+            'numOctaves', 'baseFrequency', 'tableValues', 'targetX', 'targetY',
+            'lengthAdjust', 'textLength', 'startOffset', 'pathLength', 'filterUnits',
+            'primitiveUnits', 'edgeMode', 'limitingConeAngle', 'pointsAtX', 'pointsAtY',
+            'pointsAtZ', 'systemLanguage',
+        );
+
+        foreach ( $camelCaseAttributes as $attribute ) {
+            $html = preg_replace('/(\s)' . preg_quote($attribute, '/') . '(\s*=)/i', '$1' . $attribute . '$2', $html) ?? $html;
+        }
+
+        return $html;
     }
 
     /**
@@ -2793,39 +2820,6 @@ final class HtmlTransformer
     private function numericSvgLength(string $value): ?float
     {
         return preg_match('/^\s*(\d+(?:\.\d+)?)(?:px)?\s*$/i', $value, $matches) ? (float) $matches[1] : null;
-    }
-
-    private function materializeInlineSvgAsset(string $html, DOMElement $element): string
-    {
-        $hash = hash('sha256', $html);
-        $path = 'assets/inline-svg-' . substr($hash, 0, 16) . '.svg';
-
-        if ( ! isset($this->generatedAssets[$path]) ) {
-            $this->generatedAssets[$path] = array(
-                'source'           => 'html-inline-svg',
-                'path'             => $path,
-                'target_path'      => $path,
-                'kind'             => 'image',
-                'role'             => 'image',
-                'media_type'       => 'image/svg+xml',
-                'mime_type'        => 'image/svg+xml',
-                'bytes'            => strlen($html),
-                'binary'           => false,
-                'encoding'         => 'text',
-                'content_encoding' => 'text',
-                'content'          => $html,
-                'hash'             => $hash,
-                'references'       => array(
-                    array_filter(array(
-                        'selector'  => $this->elementSelector($element),
-                        'element'   => 'svg',
-                        'attribute' => 'generated-inline-svg',
-                    )),
-                ),
-            );
-        }
-
-        return $path;
     }
 
     private function inlineSvgAltText(DOMElement $element): string
