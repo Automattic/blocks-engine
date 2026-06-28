@@ -2001,6 +2001,132 @@ $assert(null !== $responsiveAboutPage, 'page-plan-responsive-about-stays-its-own
 $assert(false === ($responsiveAboutPage['responsive'] ?? null) && 1 === ($responsiveAboutPage['breakpoint_count'] ?? null), 'page-plan-non-responsive-frame-single-variant');
 $assert(1 === count($responsiveAboutPage['variants'] ?? array()) && 'frame:about-desktop' === ($responsiveAboutPage['variants'][0]['frame_id'] ?? null), 'page-plan-non-responsive-frame-self-variant');
 
+// RESPONSIVE EMISSION (#247 item 2): StaticHtmlEmitter::emitSite consumes a
+// page plan's `variants[]` and renders the primary (widest) variant as the base
+// layout, then emits `@media (max-width: …)` blocks carrying ONLY the per-node
+// style declarations that differ at each narrower breakpoint. A single-variant
+// page emits no `@media` at all. Variant frames are matched onto the base frame
+// by structural position so the overrides key on the base class names.
+$responsiveEmitFrame = static function (string $id, string $name, float $width, float $height, array $children): array {
+    return array(
+        'id'         => $id,
+        'type'       => 'FRAME',
+        'name'       => $name,
+        'box'        => array('width' => $width, 'height' => $height),
+        'background' => '#ffffff',
+        'children'   => $children,
+    );
+};
+$responsiveEmitCard = static function (string $id, string $name, float $width, float $height, string $background): array {
+    return array(
+        'id'         => $id,
+        'type'       => 'RECTANGLE',
+        'name'       => $name,
+        'box'        => array('width' => $width, 'height' => $height),
+        'background' => $background,
+    );
+};
+$responsiveEmitScenegraph = array(
+    'name'  => 'Responsive Emission Site',
+    'nodes' => array(
+        $responsiveEmitFrame('frame:home-desktop', 'Home Desktop', 1440.0, 3000.0, array(
+            $responsiveEmitCard('card:desktop', 'Hero Card', 1200.0, 400.0, '#ff0000'),
+        )),
+        $responsiveEmitFrame('frame:home-tablet', 'Home Tablet', 834.0, 3000.0, array(
+            $responsiveEmitCard('card:tablet', 'Hero Card', 700.0, 400.0, '#ff0000'),
+        )),
+        $responsiveEmitFrame('frame:home-mobile', 'Home Mobile', 390.0, 3200.0, array(
+            $responsiveEmitCard('card:mobile', 'Hero Card', 350.0, 500.0, '#00ff00'),
+        )),
+        $responsiveEmitFrame('frame:about', 'About', 1440.0, 2000.0, array(
+            $responsiveEmitCard('card:about', 'About Card', 1100.0, 300.0, '#0000ff'),
+        )),
+    ),
+);
+$responsiveEmitPagePlan = array(
+    'pages' => array(
+        array(
+            'frame_id'         => 'frame:home-desktop',
+            'name'             => 'Home',
+            'path'             => 'index.html',
+            'entrypoint'       => true,
+            'responsive'       => true,
+            'breakpoint_count' => 3,
+            'variants'         => array(
+                array('frame_id' => 'frame:home-desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true, 'order' => 0),
+                array('frame_id' => 'frame:home-tablet', 'device_hint' => 'tablet', 'viewport_width' => 834.0, 'primary' => false, 'order' => 1),
+                array('frame_id' => 'frame:home-mobile', 'device_hint' => 'mobile', 'viewport_width' => 390.0, 'primary' => false, 'order' => 2),
+            ),
+        ),
+        array(
+            'frame_id'         => 'frame:about',
+            'name'             => 'About',
+            'path'             => 'about.html',
+            'entrypoint'       => false,
+            'responsive'       => false,
+            'breakpoint_count' => 1,
+            'variants'         => array(
+                array('frame_id' => 'frame:about', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true, 'order' => 0),
+            ),
+        ),
+    ),
+);
+$responsiveEmitResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveEmitScenegraph, $responsiveEmitPagePlan);
+$responsiveEmitCss = '';
+foreach ( $responsiveEmitResult['files'] ?? array() as $responsiveEmitFile ) {
+    if ( is_array($responsiveEmitFile) && 'style.css' === ($responsiveEmitFile['path'] ?? null) ) {
+        $responsiveEmitCss = (string) ($responsiveEmitFile['content'] ?? '');
+    }
+}
+$assert('success' === ($responsiveEmitResult['status'] ?? null), 'responsive-emit-status-success');
+$assert('' !== $responsiveEmitCss, 'responsive-emit-stylesheet-present');
+// Two narrower breakpoints => exactly two media blocks at the variant widths.
+$assert(2 === substr_count($responsiveEmitCss, '@media'), 'responsive-emit-two-media-blocks');
+$assert(str_contains($responsiveEmitCss, '@media (max-width:834px){'), 'responsive-emit-tablet-media-query');
+$assert(str_contains($responsiveEmitCss, '@media (max-width:390px){'), 'responsive-emit-mobile-media-query');
+// Base layout uses the primary (desktop) variant styles, emitted before media.
+$responsiveEmitBasePos = strpos($responsiveEmitCss, '.figma-node-card-desktop-hero-card{width:1200px;height:400px;background:#ff0000}');
+$assert(false !== $responsiveEmitBasePos, 'responsive-emit-base-uses-primary-variant');
+$responsiveEmitFirstMediaPos = strpos($responsiveEmitCss, '@media');
+$assert(false !== $responsiveEmitFirstMediaPos && $responsiveEmitBasePos < $responsiveEmitFirstMediaPos, 'responsive-emit-base-precedes-media');
+// Narrower-wins cascade: tablet block precedes mobile block.
+$assert(strpos($responsiveEmitCss, '@media (max-width:834px)') < strpos($responsiveEmitCss, '@media (max-width:390px)'), 'responsive-emit-cascade-widest-first');
+// Media blocks override on the BASE class names, carrying only changed props.
+$responsiveEmitTabletBlock = substr($responsiveEmitCss, strpos($responsiveEmitCss, '@media (max-width:834px)'), strpos($responsiveEmitCss, '@media (max-width:390px)') - strpos($responsiveEmitCss, '@media (max-width:834px)'));
+$assert(str_contains($responsiveEmitTabletBlock, '.figma-node-card-desktop-hero-card{width:700px}'), 'responsive-emit-tablet-card-width-diff-only');
+$assert(! str_contains($responsiveEmitTabletBlock, 'background:'), 'responsive-emit-tablet-omits-unchanged-background');
+$responsiveEmitMobileBlock = substr($responsiveEmitCss, strpos($responsiveEmitCss, '@media (max-width:390px)'));
+$assert(str_contains($responsiveEmitMobileBlock, '.figma-node-card-desktop-hero-card{width:350px;height:500px;background:#00ff00}'), 'responsive-emit-mobile-card-diffs-width-height-background');
+// The single-variant About page contributes NO media override for its nodes.
+$assert(0 === preg_match('/@media[^@]*figma-node-card-about/s', $responsiveEmitCss), 'responsive-emit-single-variant-page-no-media');
+
+// SINGLE-VARIANT PAGE PARITY: a page plan with only primary variants emits the
+// SAME CSS as today — zero `@media` queries.
+$singleVariantPagePlan = array(
+    'pages' => array(
+        array(
+            'frame_id'         => 'frame:about',
+            'name'             => 'About',
+            'path'             => 'index.html',
+            'entrypoint'       => true,
+            'responsive'       => false,
+            'breakpoint_count' => 1,
+            'variants'         => array(
+                array('frame_id' => 'frame:about', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true, 'order' => 0),
+            ),
+        ),
+    ),
+);
+$singleVariantResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveEmitScenegraph, $singleVariantPagePlan);
+$singleVariantCss = '';
+foreach ( $singleVariantResult['files'] ?? array() as $singleVariantFile ) {
+    if ( is_array($singleVariantFile) && 'style.css' === ($singleVariantFile['path'] ?? null) ) {
+        $singleVariantCss = (string) ($singleVariantFile['content'] ?? '');
+    }
+}
+$assert('' !== $singleVariantCss, 'responsive-emit-single-variant-stylesheet-present');
+$assert(! str_contains($singleVariantCss, '@media'), 'responsive-emit-single-variant-no-media-query');
+
 $planDiagnosticByCode = static function (array $plan, string $code): ?array {
     foreach ( $plan['diagnostics'] ?? array() as $diagnostic ) {
         if ( is_array($diagnostic) && $code === ($diagnostic['code'] ?? null) ) {
