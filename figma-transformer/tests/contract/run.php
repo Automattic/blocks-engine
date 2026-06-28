@@ -1831,6 +1831,110 @@ $assert(null !== $responsiveAboutPage, 'page-plan-responsive-about-stays-its-own
 $assert(false === ($responsiveAboutPage['responsive'] ?? null) && 1 === ($responsiveAboutPage['breakpoint_count'] ?? null), 'page-plan-non-responsive-frame-single-variant');
 $assert(1 === count($responsiveAboutPage['variants'] ?? array()) && 'frame:about-desktop' === ($responsiveAboutPage['variants'][0]['frame_id'] ?? null), 'page-plan-non-responsive-frame-self-variant');
 
+$planDiagnosticByCode = static function (array $plan, string $code): ?array {
+    foreach ( $plan['diagnostics'] ?? array() as $diagnostic ) {
+        if ( is_array($diagnostic) && $code === ($diagnostic['code'] ?? null) ) {
+            return $diagnostic;
+        }
+    }
+
+    return null;
+};
+
+// (b) A genuine desktop/tablet/mobile group STILL collapses AND records its
+// grouping rationale (distinct device hints).
+$responsiveGroupDiagnostic = $planDiagnosticByCode($responsivePagePlan, 'responsive_group_formed');
+$assert(null !== $responsiveGroupDiagnostic, 'page-plan-responsive-group-rationale-emitted');
+$assert(in_array('device_hint_diversity', $responsiveGroupDiagnostic['reasons'] ?? array(), true), 'page-plan-responsive-group-rationale-device-diversity');
+$assert('frame:home-desktop' === ($responsiveGroupDiagnostic['primary_frame_id'] ?? null), 'page-plan-responsive-group-rationale-primary');
+
+// (a) FALSE-POSITIVE GUARD: four same-name, same-device-hint (desktop),
+// same-width (1440) frames differing only in height are duplicate/iteration
+// drafts (the real "For Hosts" data finding), NOT responsive breakpoints. They
+// must stay as separate pages and surface a duplicate_draft_frames diagnostic.
+$duplicateDraftSource = array(
+    'nodes' => array(
+        array(
+            'id'       => 'page:hosts',
+            'type'     => 'CANVAS',
+            'name'     => 'Hosts Pages',
+            'children' => array(
+                array(
+                    'id'       => 'section:hosts',
+                    'type'     => 'SECTION',
+                    'name'     => 'Marketing',
+                    'width'    => 4000,
+                    'height'   => 40000,
+                    'children' => array(
+                        array(
+                            'id'       => 'frame:hosts-a',
+                            'type'     => 'FRAME',
+                            'name'     => 'For Hosts',
+                            'width'    => 1440,
+                            'height'   => 9777,
+                            'children' => array(array('id' => 'text:hosts-a', 'type' => 'TEXT', 'name' => 'Headline', 'characters' => 'For Hosts')),
+                        ),
+                        array(
+                            'id'       => 'frame:hosts-b',
+                            'type'     => 'FRAME',
+                            'name'     => 'For Hosts',
+                            'width'    => 1440,
+                            'height'   => 8613,
+                            'children' => array(array('id' => 'text:hosts-b', 'type' => 'TEXT', 'name' => 'Headline', 'characters' => 'For Hosts')),
+                        ),
+                        array(
+                            'id'       => 'frame:hosts-c',
+                            'type'     => 'FRAME',
+                            'name'     => 'For Hosts',
+                            'width'    => 1440,
+                            'height'   => 9188,
+                            'children' => array(array('id' => 'text:hosts-c', 'type' => 'TEXT', 'name' => 'Headline', 'characters' => 'For Hosts')),
+                        ),
+                        array(
+                            'id'       => 'frame:hosts-d',
+                            'type'     => 'FRAME',
+                            'name'     => 'For Hosts',
+                            'width'    => 1440,
+                            'height'   => 9000,
+                            'children' => array(array('id' => 'text:hosts-d', 'type' => 'TEXT', 'name' => 'Headline', 'characters' => 'For Hosts')),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+);
+$duplicateDraftPlan = ( new ScenegraphPagePlanner() )->plan($duplicateDraftSource, array('include_all_pages' => true));
+$assert(4 === ($duplicateDraftPlan['page_count'] ?? null), 'page-plan-duplicate-drafts-stay-separate-pages');
+$duplicateDraftResponsive = false;
+foreach ( $duplicateDraftPlan['pages'] ?? array() as $duplicatePage ) {
+    if ( is_array($duplicatePage) && true === ($duplicatePage['responsive'] ?? null) ) {
+        $duplicateDraftResponsive = true;
+    }
+}
+$assert(false === $duplicateDraftResponsive, 'page-plan-duplicate-drafts-not-responsive');
+$duplicateDraftDiagnostic = $planDiagnosticByCode($duplicateDraftPlan, 'duplicate_draft_frames');
+$assert(null !== $duplicateDraftDiagnostic, 'page-plan-duplicate-drafts-diagnostic-emitted');
+$assert('desktop' === ($duplicateDraftDiagnostic['device_hint'] ?? null), 'page-plan-duplicate-drafts-diagnostic-device-hint');
+$assert(4 === count($duplicateDraftDiagnostic['frame_ids'] ?? array()), 'page-plan-duplicate-drafts-diagnostic-frame-count');
+$assert(null === $planDiagnosticByCode($duplicateDraftPlan, 'responsive_group_formed'), 'page-plan-duplicate-drafts-not-grouped');
+
+// (c) MEMORY SAFETY: when the scenegraph exceeds the responsive-detection node
+// limit, detection is skipped (no second full index build), the transform
+// COMPLETES, a responsive_detection_bounded diagnostic is emitted, and frames
+// fall back to one-page-per-frame instead of collapsing.
+$boundedPlan = ( new ScenegraphPagePlanner() )->plan(
+    $responsivePagePlanSource,
+    array('include_all_pages' => true, 'responsive_detection_node_limit' => 3)
+);
+$boundedDiagnostic = $planDiagnosticByCode($boundedPlan, 'responsive_detection_bounded');
+$assert(null !== $boundedDiagnostic, 'page-plan-bounded-detection-diagnostic-emitted');
+$assert(3 === ($boundedDiagnostic['node_limit'] ?? null), 'page-plan-bounded-detection-node-limit');
+$assert(($boundedDiagnostic['node_count'] ?? 0) > 3, 'page-plan-bounded-detection-node-count');
+$assert(4 === ($boundedPlan['page_count'] ?? null), 'page-plan-bounded-detection-one-page-per-frame');
+$boundedHomePage = $responsivePageByFrame($boundedPlan, 'frame:home-desktop');
+$assert(null !== $boundedHomePage && false === ($boundedHomePage['responsive'] ?? null), 'page-plan-bounded-detection-no-collapse');
+
 $matrixWebsiteCandidate = array(
     'id'         => 'matrix:site:home',
     'type'       => 'FRAME',

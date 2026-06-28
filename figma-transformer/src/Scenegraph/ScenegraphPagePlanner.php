@@ -9,6 +9,32 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Scenegraph;
  */
 final class ScenegraphPagePlanner
 {
+    /**
+     * Node-count ceiling for planning-time responsive detection.
+     *
+     * Detection re-inspects the source, which rebuilds a full
+     * {@see ScenegraphIndex} over the entire scenegraph. On very large designs
+     * (e.g. the 293MB "WP.Cloud 2.0" .fig) that second full index OOMs in
+     * ScenegraphIndex::build(). Above this ceiling the planner skips the
+     * full-node inspection and degrades to one-page-per-frame, emitting a
+     * {@see ScenegraphPagePlanner::plan()} `responsive_detection_bounded`
+     * diagnostic so callers learn WHY grouping was limited. Overridable via the
+     * `responsive_detection_node_limit` plan option.
+     */
+    private const RESPONSIVE_DETECTION_NODE_LIMIT = 25000;
+
+    /**
+     * Minimum absolute width delta (px) for a sibling-group to count as a real
+     * responsive breakpoint spread rather than same-width duplicate drafts.
+     */
+    private const RESPONSIVE_WIDTH_MATERIAL_PX = 200.0;
+
+    /**
+     * Minimum relative width spread (max-min / max) for a responsive group when
+     * device hints alone do not distinguish the members.
+     */
+    private const RESPONSIVE_WIDTH_MATERIAL_RATIO = 0.2;
+
     public function __construct(
         private readonly ScenegraphIndex $index = new ScenegraphIndex(),
         private readonly ScenegraphFrameInspector $frameInspector = new ScenegraphFrameInspector()
@@ -135,8 +161,23 @@ final class ScenegraphPagePlanner
             }
         }
 
-        $detectionById = $this->detectionById($source, count($nodes));
-        $responsiveGroups = $this->responsiveGroups($candidates, $detectionById);
+        $detectionResult = $this->detectResponsive($source, count($nodes), $options);
+        $detectionById = $detectionResult['detection'];
+        if ( $detectionResult['bounded'] ) {
+            $diagnostics[] = array(
+                'severity'   => 'info',
+                'code'       => 'responsive_detection_bounded',
+                'message'    => 'Responsive sibling detection was skipped because the scenegraph exceeded the planning node limit; emitting one page per frame.',
+                'node_count' => $detectionResult['node_count'],
+                'node_limit' => $detectionResult['node_limit'],
+            );
+        }
+
+        $grouping = $this->responsiveGroups($candidates, $detectionById);
+        $responsiveGroups = $grouping['groups'];
+        foreach ( $grouping['diagnostics'] as $groupDiagnostic ) {
+            $diagnostics[] = $groupDiagnostic;
+        }
 
         $slugs = array();
         $pages = array();
@@ -215,12 +256,53 @@ final class ScenegraphPagePlanner
     }
 
     /**
+     * Resolve responsive detection, bounding it against scenegraph size.
+     *
+     * Detection re-inspects the source, which forces a second full
+     * {@see ScenegraphIndex} build. On unbounded scenegraphs that second index
+     * OOMs (ScenegraphIndex::build, observed on the 293MB "WP.Cloud 2.0" .fig).
+     * When the already-built node count exceeds the configured ceiling the
+     * inspection is SKIPPED entirely — no second index is built — and detection
+     * falls back to empty, which the page loop renders as one-page-per-frame.
+     * The `bounded` flag lets {@see ScenegraphPagePlanner::plan()} surface a
+     * `responsive_detection_bounded` diagnostic instead of dying silently.
+     *
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $options
+     * @return array{detection: array<string, array<string, mixed>>, bounded: bool, node_count: int, node_limit: int}
+     */
+    private function detectResponsive(array $source, int $nodeCount, array $options): array
+    {
+        $limit = isset($options['responsive_detection_node_limit']) && is_numeric($options['responsive_detection_node_limit'])
+            ? max(1, (int) $options['responsive_detection_node_limit'])
+            : self::RESPONSIVE_DETECTION_NODE_LIMIT;
+
+        if ( $nodeCount > $limit ) {
+            return array(
+                'detection'  => array(),
+                'bounded'    => true,
+                'node_count' => $nodeCount,
+                'node_limit' => $limit,
+            );
+        }
+
+        return array(
+            'detection'  => $this->detectionById($source, $nodeCount),
+            'bounded'    => false,
+            'node_count' => $nodeCount,
+            'node_limit' => $limit,
+        );
+    }
+
+    /**
      * Consume the frame inspector's detection report keyed by frame id.
      *
      * Detection (device_hint / sibling_group_key / responsive_siblings) lives in
      * {@see ScenegraphFrameInspector}; the planner reuses it rather than
      * re-deriving responsive relationships. The inspection limit is widened so
-     * every candidate's detection survives slicing.
+     * every candidate's detection survives slicing. Callers must gate this
+     * behind {@see ScenegraphPagePlanner::detectResponsive()} so it never runs
+     * over an unbounded scenegraph.
      *
      * @return array<string, array<string, mixed>>
      */
@@ -246,13 +328,21 @@ final class ScenegraphPagePlanner
      * Cluster FRAME candidates into responsive sibling-groups.
      *
      * Builds connected components over the inspector's `responsive_siblings`
-     * edges (restricted to FRAME ids the planner tracks). Returns a map from
-     * every member frame id to its full, ordered variant list so the page loop
-     * can look up the group from whichever member was selected first.
+     * edges (restricted to FRAME ids the planner tracks), then GUARDS each
+     * multi-member component: a real responsive group must have distinct device
+     * hints OR a material width spread. Same-name + same-device-hint + ~same
+     * width siblings are duplicate/iteration drafts (e.g. the "For Hosts" frame
+     * that grouped 4 desktop-1440 drafts differing only in height) — they stay
+     * as separate pages and surface a `duplicate_draft_frames` diagnostic rather
+     * than collapsing into bogus breakpoint variants.
+     *
+     * Returns a map from every grouped member frame id to its full, ordered
+     * variant list (so the page loop can look up the group from whichever member
+     * was selected first) plus the grouping-rationale / rejection diagnostics.
      *
      * @param array<string, array<string, mixed>> $candidates
      * @param array<string, array<string, mixed>> $detectionById
-     * @return array<string, array<int, string>>
+     * @return array{groups: array<string, array<int, string>>, diagnostics: array<int, array<string, mixed>>}
      */
     private function responsiveGroups(array $candidates, array $detectionById): array
     {
@@ -287,14 +377,125 @@ final class ScenegraphPagePlanner
         }
 
         $groups = array();
+        $diagnostics = array();
         foreach ( $components as $members ) {
+            if ( count($members) < 2 ) {
+                continue;
+            }
+
             $ordered = $this->orderVariantIds($members, $candidates, $detectionById);
-            foreach ( $ordered as $memberId ) {
-                $groups[$memberId] = $ordered;
+            $assessment = $this->assessResponsiveGroup($ordered, $candidates, $detectionById);
+
+            if ( $assessment['is_responsive'] ) {
+                foreach ( $ordered as $memberId ) {
+                    $groups[$memberId] = $ordered;
+                }
+                $diagnostics[] = array(
+                    'severity'              => 'info',
+                    'code'                  => 'responsive_group_formed',
+                    'message'               => 'Collapsed frames into one responsive page.',
+                    'primary_frame_id'      => $ordered[0],
+                    'frame_ids'             => $ordered,
+                    'reasons'               => $assessment['reasons'],
+                    'device_hints'          => $assessment['device_hints'],
+                    'distinct_device_hints' => $assessment['distinct_hint_count'],
+                    'width_spread_px'       => $assessment['width_spread_px'],
+                );
+                continue;
+            }
+
+            // Duplicate/iteration drafts: keep them as separate pages (omitted
+            // from the group map so the page loop falls back to one-per-frame).
+            $canonicalId = $this->canonicalDraftId($ordered, $candidates);
+            $diagnostics[] = array(
+                'severity'           => 'warning',
+                'code'               => 'duplicate_draft_frames',
+                'message'            => 'Frames share a name, device hint, and width; treated as duplicate drafts rather than responsive breakpoints.',
+                'canonical_frame_id' => $canonicalId,
+                'draft_frame_ids'    => array_values(array_filter($ordered, static fn (string $id): bool => $id !== $canonicalId)),
+                'frame_ids'          => $ordered,
+                'device_hint'        => $assessment['device_hints'][0] ?? 'unknown',
+                'width'              => (float) ($candidates[$canonicalId]['dimensions']['width'] ?? 0),
+            );
+        }
+
+        return array('groups' => $groups, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * Decide whether an ordered sibling cluster is a genuine responsive group.
+     *
+     * A cluster qualifies when it has at least two distinct (non-unknown) device
+     * hints OR a material width spread (both an absolute and a relative
+     * threshold), which separates real breakpoints from same-width duplicate
+     * drafts. The rationale is returned so the caller can emit it as a
+     * diagnostic.
+     *
+     * @param array<int, string>                  $members Ordered frame ids (widest first).
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array<string, mixed>> $detectionById
+     * @return array{is_responsive: bool, reasons: array<int, string>, device_hints: array<int, string>, distinct_hint_count: int, width_spread_px: float, width_spread_ratio: float}
+     */
+    private function assessResponsiveGroup(array $members, array $candidates, array $detectionById): array
+    {
+        $hints = array();
+        $widths = array();
+        foreach ( $members as $id ) {
+            $hints[] = (string) ($detectionById[$id]['device_hint'] ?? 'unknown');
+            $width = $candidates[$id]['dimensions']['width'] ?? null;
+            if ( is_numeric($width) ) {
+                $widths[] = (float) $width;
             }
         }
 
-        return $groups;
+        $distinctKnownHints = array_values(array_unique(array_filter(
+            $hints,
+            static fn (string $hint): bool => 'unknown' !== $hint
+        )));
+        $distinctHintCount = count($distinctKnownHints);
+
+        $minWidth = array() === $widths ? 0.0 : min($widths);
+        $maxWidth = array() === $widths ? 0.0 : max($widths);
+        $spread = $maxWidth - $minWidth;
+        $ratio = $maxWidth > 0.0 ? $spread / $maxWidth : 0.0;
+
+        $reasons = array();
+        if ( $distinctHintCount >= 2 ) {
+            $reasons[] = 'device_hint_diversity';
+        }
+        if ( $spread >= self::RESPONSIVE_WIDTH_MATERIAL_PX && $ratio >= self::RESPONSIVE_WIDTH_MATERIAL_RATIO ) {
+            $reasons[] = 'width_spread';
+        }
+
+        return array(
+            'is_responsive'       => array() !== $reasons,
+            'reasons'             => $reasons,
+            'device_hints'        => $hints,
+            'distinct_hint_count' => $distinctHintCount,
+            'width_spread_px'     => $spread,
+            'width_spread_ratio'  => $ratio,
+        );
+    }
+
+    /**
+     * Pick the canonical frame from a duplicate-draft cluster (highest score,
+     * then deterministic id tiebreak) for the diagnostic record.
+     *
+     * @param array<int, string>                  $members
+     * @param array<string, array<string, mixed>> $candidates
+     */
+    private function canonicalDraftId(array $members, array $candidates): string
+    {
+        $canonical = $members[0];
+        foreach ( $members as $id ) {
+            $score = (int) ($candidates[$id]['score'] ?? 0);
+            $bestScore = (int) ($candidates[$canonical]['score'] ?? 0);
+            if ( $score > $bestScore || ( $score === $bestScore && strcmp($id, $canonical) < 0 ) ) {
+                $canonical = $id;
+            }
+        }
+
+        return $canonical;
     }
 
     /**
