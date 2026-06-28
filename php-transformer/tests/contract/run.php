@@ -279,6 +279,33 @@ $assert(true === ($detailsAccordionItems[0]['attrs']['openByDefault'] ?? null), 
 $assert('Can I reschedule?' === ($detailsAccordionItems[0]['innerBlocks'][0]['attrs']['title'] ?? null), 'details summary text maps to accordion heading');
 $assert('Yes, with notice.' === ($detailsAccordionItems[0]['innerBlocks'][1]['innerBlocks'][0]['attrs']['content'] ?? null), 'details body text maps to accordion panel');
 
+// A single disclosure widget (toggle control + collapsible region) carries no
+// faq/accordion class, only the structural WAI-ARIA disclosure shape, and is
+// converted to a native zero-JS core/details block instead of leaking a dead
+// toggle button and an always-visible panel.
+$disclosureResult = ( new HtmlTransformer() )->transform('<div><button aria-expanded="false" aria-controls="answer-1">What is your refund policy?</button><div id="answer-1" hidden><p>Full refund within 30 days.</p></div></div>')->toArray();
+$disclosureBlock = $disclosureResult['blocks'][0] ?? array();
+$assert('core/details' === ($disclosureBlock['blockName'] ?? null), 'a single aria disclosure widget converts to core/details');
+$assert('What is your refund policy?' === ($disclosureBlock['attrs']['summary'] ?? null), 'disclosure toggle text maps to the details summary');
+$assert('Full refund within 30 days.' === ($disclosureBlock['innerBlocks'][0]['attrs']['content'] ?? null), 'disclosure panel content is preserved inside core/details');
+$assert(str_contains((string) ($disclosureResult['serialized_blocks'] ?? ''), '<!-- wp:details'), 'disclosure conversion serializes a native details block comment');
+
+// A heading-wrapped toggle (button nested inside the header) is recognized by
+// the same structural signal.
+$headingDisclosureResult = ( new HtmlTransformer() )->transform('<div class="item"><h3><button aria-expanded="false" aria-controls="panel-1">Shipping times?</button></h3><div id="panel-1" role="region"><p>Ships in 2 days.</p></div></div>')->toArray();
+$assert('core/details' === (($headingDisclosureResult['blocks'][0] ?? array())['blockName'] ?? null), 'a heading-wrapped disclosure toggle converts to core/details');
+$assert('Shipping times?' === (($headingDisclosureResult['blocks'][0] ?? array())['attrs']['summary'] ?? null), 'heading-wrapped disclosure toggle text maps to the details summary');
+
+// Negative guard: a plain heading followed by text is NOT a disclosure (no
+// toggle control, aria-expanded, or aria-controls) and must stay as a heading +
+// paragraph rather than being forced into core/details.
+$plainResult = ( new HtmlTransformer() )->transform('<div><h3>About us</h3><p>We are a company.</p></div>')->toArray();
+$plainBlock = $plainResult['blocks'][0] ?? array();
+$assert('core/details' !== ($plainBlock['blockName'] ?? null), 'a plain heading followed by text is not converted to core/details');
+$plainInner = $plainBlock['innerBlocks'] ?? array();
+$assert('core/heading' === ($plainInner[0]['blockName'] ?? null), 'plain heading remains a core/heading');
+$assert('core/paragraph' === ($plainInner[1]['blockName'] ?? null), 'plain body text remains a core/paragraph');
+
 $fixture = file_get_contents(dirname(__DIR__) . '/fixtures/simple-html.html');
 $result  = ( new HtmlTransformer() )->transform($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><canvas>Fallback</canvas>")->toArray();
 

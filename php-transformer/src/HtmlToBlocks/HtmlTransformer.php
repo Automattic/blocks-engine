@@ -1367,6 +1367,19 @@ final class HtmlTransformer
                 }
             }
 
+            if ( in_array($tagName, array( 'div', 'section', 'article' ), true) ) {
+                $disclosure = $this->detailsPattern->matchDisclosure(
+                    $element,
+                    fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
+                    fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                    fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+                );
+                if ( null !== $disclosure ) {
+                    return $disclosure;
+                }
+            }
+
             $columns = $this->columnsPattern->match(
                 $element,
                 $fallbacks,
