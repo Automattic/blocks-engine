@@ -12,7 +12,7 @@ if ( is_readable($autoload) ) {
 
 $path = $argv[1] ?? '';
 if ( '' === $path || '--help' === $path || '-h' === $path ) {
-    fwrite(STDERR, "Usage: figma-transformer <path-to-fig-or-scenegraph-json> [--inspect-frames[=<limit>]] [--multi-page] [--frame-ids=<id,id>] [--entry-frame-id=<id>] [--max-pages=<count>] [--output-dir=<dir>] [--omit-asset-content] [--max-nodes=<count>] [--max-kiwi-message-decode-bytes=<bytes>] [--zstd-command=<path>] [--frame-id=<id>] [--font-css=<css>] [--font-css-file=<path>] [--render-text-glyph-paths] [--parity-status=<status>] [--parity-report-path=<path>] [--parity-source-screenshot-url=<url>] [--parity-source-screenshot-path=<path>] [--parity-generated-screenshot-artifact=<artifact>] [--parity-diff-image-artifact=<artifact>] [--parity-pixel-mismatch-count=<count>] [--parity-pixel-mismatch-ratio=<ratio>] [--parity-threshold=<ratio>] [--parity-viewport=<width>x<height>] [--parity-dom-boxes-path=<path>] [--parity-layout-report-path=<path>] [--parity-render-evidence-path=<path>] [--parity-layout-mismatch-count=<count>]\n");
+    fwrite(STDERR, "Usage: figma-transformer <path-to-fig-or-scenegraph-json> [--inspect-frames[=<limit>]] [--multi-page] [--frame-ids=<id,id>] [--entry-frame-id=<id>] [--max-pages=<count>] [--output-dir=<dir>] [--omit-asset-content] [--max-nodes=<count>] [--max-kiwi-message-decode-bytes=<bytes>] [--zstd-command=<path>] [--frame-id=<id>] [--font-css=<css>] [--font-css-file=<path>] [--font-family-css=<family>:<css>] [--font-family-css-file=<family>:<path>] [--render-text-glyph-paths] [--parity-status=<status>] [--parity-report-path=<path>] [--parity-source-screenshot-url=<url>] [--parity-source-screenshot-path=<path>] [--parity-generated-screenshot-artifact=<artifact>] [--parity-diff-image-artifact=<artifact>] [--parity-pixel-mismatch-count=<count>] [--parity-pixel-mismatch-ratio=<ratio>] [--parity-threshold=<ratio>] [--parity-viewport=<width>x<height>] [--parity-dom-boxes-path=<path>] [--parity-layout-report-path=<path>] [--parity-render-evidence-path=<path>] [--parity-layout-mismatch-count=<count>]\n");
     exit(1);
 }
 
@@ -101,6 +101,33 @@ foreach ( array_slice($argv, 2) as $argument ) {
         $fontCss = is_readable($value) ? file_get_contents($value) : false;
         if ( false !== $fontCss ) {
             $options['font_css'] = $fontCss;
+        }
+        continue;
+    }
+
+    if ( 'font-family-css' === $name ) {
+        $colonPos = strpos($value, ':');
+        if ( false !== $colonPos ) {
+            $familyName = strtolower(trim(substr($value, 0, $colonPos)));
+            $familyCss = trim(substr($value, $colonPos + 1));
+            if ( '' !== $familyName && '' !== $familyCss ) {
+                $options['font_family_overrides'][$familyName] = $familyCss;
+            }
+        }
+        continue;
+    }
+
+    if ( 'font-family-css-file' === $name ) {
+        $colonPos = strpos($value, ':');
+        if ( false !== $colonPos ) {
+            $familyName = strtolower(trim(substr($value, 0, $colonPos)));
+            $filePath = trim(substr($value, $colonPos + 1));
+            if ( '' !== $familyName && '' !== $filePath ) {
+                $familyCss = is_readable($filePath) ? file_get_contents($filePath) : false;
+                if ( false !== $familyCss ) {
+                    $options['font_family_overrides'][$familyName] = $familyCss;
+                }
+            }
         }
         continue;
     }

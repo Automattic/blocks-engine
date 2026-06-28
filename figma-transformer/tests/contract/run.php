@@ -6360,6 +6360,64 @@ $assert(0 === ($plainCoverage['frame_count'] ?? -1), 'design-system-plain-site-z
 $designSystemRerun = blocks_engine_figma_transformer_transform_scenegraph($designSystemScenegraph);
 $assert($designSystemCss === $fileContent($designSystemRerun, 'style.css'), 'design-system-css-deterministic');
 
+// PER-FAMILY FONT OVERRIDES — verify that $familyOverrides fills in gaps
+// without displacing the GF auto-import for other families. The design uses
+// two font families: Inter (resolvable via Google Fonts CDN) and Brand Sans
+// (not in GF, supplied via font_family_overrides). Expectations:
+//   1. Emitted CSS contains the GF @import for Inter.
+//   2. Emitted CSS contains the operator-supplied Brand Sans CSS.
+//   3. family_overrides_applied in transform_diagnostics.fonts = ['Brand Sans'].
+//   4. Inter is not in missing_css (unresolved_families).
+//   5. Brand Sans is not in missing_css (unresolved_families).
+$fontFamilyOverridesResult = blocks_engine_figma_transformer_transform_scenegraph(
+    array(
+        'name'  => 'Per-Family Font Override Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'pffo:frame',
+                'type'     => 'FRAME',
+                'name'     => 'Hero',
+                'width'    => 1200,
+                'height'   => 600,
+                'children' => array(
+                    array(
+                        'id'         => 'pffo:text-inter',
+                        'type'       => 'TEXT',
+                        'name'       => 'Inter Heading',
+                        'characters' => 'Hello World',
+                        'fontName'   => array('family' => 'Inter', 'style' => 'Regular'),
+                        'fontSize'   => 32,
+                        'fontWeight' => 400,
+                    ),
+                    array(
+                        'id'         => 'pffo:text-brand',
+                        'type'       => 'TEXT',
+                        'name'       => 'Brand Heading',
+                        'characters' => 'Brand Copy',
+                        'fontName'   => array('family' => 'Brand Sans', 'style' => 'Regular'),
+                        'fontSize'   => 24,
+                        'fontWeight' => 400,
+                    ),
+                ),
+            ),
+        ),
+    ),
+    array(
+        'font_family_overrides' => array(
+            'brand sans' => "@import url('https://api.fontshare.com/v2/css?f[]=brand-sans@400&display=swap');",
+        ),
+    )
+);
+$fontFamilyOverridesCss = $fileContent($fontFamilyOverridesResult, 'style.css');
+$fontFamilyOverridesFonts = $fontFamilyOverridesResult['source_reports']['figma']['html']['transform_diagnostics']['fonts'] ?? array();
+$assert('success' === ($fontFamilyOverridesResult['status'] ?? null), 'per-family-override-transform-success');
+$assert(str_contains($fontFamilyOverridesCss, 'fonts.googleapis.com'), 'per-family-override-css-contains-gf-import');
+$assert(str_contains($fontFamilyOverridesCss, 'Inter'), 'per-family-override-css-gf-import-includes-inter');
+$assert(str_contains($fontFamilyOverridesCss, "api.fontshare.com"), 'per-family-override-css-contains-operator-css');
+$assert(array('Brand Sans') === ($fontFamilyOverridesFonts['family_overrides_applied'] ?? null), 'per-family-override-family-overrides-applied');
+$assert(! in_array('Inter', $fontFamilyOverridesFonts['missing_css'] ?? array(), true), 'per-family-override-inter-not-unresolved');
+$assert(! in_array('Brand Sans', $fontFamilyOverridesFonts['missing_css'] ?? array(), true), 'per-family-override-brand-sans-not-unresolved');
+
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
     exit(1);
