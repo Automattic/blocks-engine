@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<section class=\"hero-shell\" style=\"padding: 2rem;\" data-layout=\"constrained\" onclick=\"alert(1)\"><h2>Only child</h2></section><svg class=\"badge\"><script>alert(1)</script><circle cx=\"1\" cy=\"1\" r=\"1\"></circle></svg>",
+    "content": "<section class=\"hero-shell\" style=\"padding: 2rem;\" data-layout=\"constrained\" onclick=\"alert(1)\"><h2>Only child</h2></section><svg class=\"badge\"><script>alert(1)</script></svg>",
     "options": {
       "source": "fixture:html-provenance-wrapper-safety",
       "source_scope": "parity"

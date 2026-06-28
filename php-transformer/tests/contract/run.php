@@ -604,7 +604,11 @@ $assert('core/math' === ($texClassBlocks[1]['blockName'] ?? ''), 'TeX-delimited 
 $assert(str_contains((string) ($texClassBlocks[1]['attrs']['content'] ?? ''), 'a^2 + b^2 = c^2'), 'TeX-delimited math preserves expression content');
 
 $unsafeInlineSvg = ( new HtmlTransformer() )->transform('<main><svg onload="alert(1)"><path d="M0 0h1v1z"></path></svg></main>')->toArray();
-$assert('html_unsafe_inline_svg' === ($unsafeInlineSvg['fallbacks'][0]['diagnostic_code'] ?? ''), 'unsafe inline SVG remains a fallback diagnostic');
+$unsafeInlineSvgContent = (string) ($unsafeInlineSvg['blocks'][0]['attrs']['content'] ?? '');
+$assert('core/html' === ($unsafeInlineSvg['blocks'][0]['blockName'] ?? ''), 'unsafe inline SVG is sanitized and preserved as a core/html block instead of being dropped');
+$assert(array() === ($unsafeInlineSvg['fallbacks'] ?? array()), 'inline SVG with stripped unsafe parts keeps its artwork and emits no fallback diagnostic');
+$assert(str_contains($unsafeInlineSvgContent, '<svg') && str_contains($unsafeInlineSvgContent, '<path'), 'sanitized inline SVG keeps its shape markup');
+$assert(! str_contains($unsafeInlineSvgContent, 'onload'), 'sanitized inline SVG strips event-handler attributes while keeping the shapes');
 
 $asideContainer = ( new HtmlTransformer() )->transform(
     '<main><aside class="sidebar"><h2>Docs</h2><nav><a href="/start">Start</a><a href="/api">API</a></nav></aside><section><h1>Content</h1></section></main>',
@@ -1076,12 +1080,12 @@ $assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), '
 $unsafeDecorativeSvg = ( new HtmlTransformer() )->transform(
     '<main><svg aria-hidden="true" viewBox="0 0 10 10"><script>alert(1)</script><circle onclick="alert(1)" cx="5" cy="5" r="5"></circle></svg></main>'
 )->toArray();
-$unsafeDecorativeDiagnostics = $unsafeDecorativeSvg['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
-$unsafeDecorativeDiagnostic = $unsafeDecorativeDiagnostics[0] ?? array();
-$assert(array() === ($unsafeDecorativeSvg['blocks'] ?? array()), 'unsafe decorative inline SVG does not materialize as a block');
-$assertNormalizedFallbackDiagnostic($unsafeDecorativeDiagnostic, 'html_unsafe_inline_svg', 'warning', 'sanitization_review', 'image_asset');
-$assert(! str_contains((string) ($unsafeDecorativeDiagnostic['html'] ?? ''), '<script'), 'unsafe inline SVG fallback metadata strips scripts');
-$assert(! str_contains((string) ($unsafeDecorativeDiagnostic['html'] ?? ''), 'onclick='), 'unsafe inline SVG fallback metadata strips event attributes');
+$unsafeDecorativeContent = (string) ($unsafeDecorativeSvg['blocks'][0]['attrs']['content'] ?? '');
+$assert('core/html' === ($unsafeDecorativeSvg['blocks'][0]['blockName'] ?? ''), 'unsafe decorative inline SVG is sanitized and preserved as a core/html block rather than dropped');
+$assert(array() === ($unsafeDecorativeSvg['source_reports']['conversion_report']['fallback_diagnostics'] ?? array()), 'sanitized decorative inline SVG keeps its artwork and emits no fallback diagnostic');
+$assert(str_contains($unsafeDecorativeContent, '<circle'), 'unsafe decorative inline SVG keeps its shape markup after sanitization');
+$assert(! str_contains($unsafeDecorativeContent, '<script'), 'unsafe decorative inline SVG strips scripts while keeping the shapes');
+$assert(! str_contains($unsafeDecorativeContent, 'onclick'), 'unsafe decorative inline SVG strips event-handler attributes while keeping the shapes');
 
 $interactions = ( new HtmlTransformer() )->transform(
     '<main><button aria-controls="panel" aria-expanded="false" data-action="toggle">Toggle</button><section id="panel">Panel</section><div role="tablist"><button role="tab" aria-controls="tab-one">One</button></div><div id="tab-one">Tab one</div><dialog id="signup">Join</dialog><div class="hero-carousel"><button class="carousel-next">Next</button></div></main>'
