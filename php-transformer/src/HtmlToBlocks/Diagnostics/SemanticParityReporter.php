@@ -139,20 +139,6 @@ final class SemanticParityReporter
     }
 
     /**
-     * @param array<int, string> $tagNames
-     */
-    private function hasAncestorTag(DOMElement $element, array $tagNames): bool
-    {
-        for ( $node = $element->parentNode; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
-            if ( in_array(strtolower($node->tagName), $tagNames, true) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
      * @param array<int, array<string, mixed>> $blocks
      * @param array<int, array<string, mixed>> $sourceProvenance
      * @param array{counts: array<string, int>, selectors: array<string, array<int, string>>} $sourceLandmarks
@@ -365,23 +351,6 @@ final class SemanticParityReporter
         }
 
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:hamburger|menu|toggle)(?:[^a-z0-9]|$)/', strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-label')));
-    }
-
-    private function hasSourceNavigationSignal(DOMElement $element): bool
-    {
-        if ( 'navigation' === strtolower($this->attr($element, 'role')) ) {
-            return true;
-        }
-
-        foreach ( array( 'class', 'id' ) as $attribute ) {
-            foreach ( preg_split('/[^a-z0-9]+/', strtolower($this->attr($element, $attribute))) ?: array() as $token ) {
-                if ( in_array($token, array( 'nav', 'navbar', 'navigation', 'menu', 'links' ), true) ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     /**
@@ -840,18 +809,4 @@ final class SemanticParityReporter
         return implode('|', $parts);
     }
 
-    /**
-     * Sanitize a navigation URL, dropping control characters and javascript:
-     * schemes. Copied from HtmlTransformer (which retains it for non-parity
-     * callers) so the parity reporter has no dependency on transformer state.
-     */
-    private function safeNavigationUrl(string $url): string
-    {
-        $url = trim($url);
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
-            return '';
-        }
-
-        return $url;
-    }
 }

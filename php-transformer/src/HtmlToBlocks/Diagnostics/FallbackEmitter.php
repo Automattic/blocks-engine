@@ -708,42 +708,6 @@ final class FallbackEmitter
         ), static fn (mixed $value): bool => array() !== $value);
     }
 
-    private function runtimeIslandSelector(DOMElement $element): string
-    {
-        $id = trim($this->attr($element, 'id'));
-        if ( '' !== $id ) {
-            return '#' . $id;
-        }
-
-        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
-            if ( '' !== $class ) {
-                return '.' . $class;
-            }
-        }
-
-        return $this->elementSelector($element);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array<string, mixed>>
-     */
-    private function dedupeArrayRows(array $rows): array
-    {
-        $seen = array();
-        $deduped = array();
-        foreach ( $rows as $row ) {
-            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
-            if ( ! is_string($key) || isset($seen[$key]) ) {
-                continue;
-            }
-            $seen[$key] = true;
-            $deduped[] = $row;
-        }
-
-        return $deduped;
-    }
-
     private function templateRequiresRuntimePreservation(DOMElement $element): bool
     {
         foreach ( $this->htmlAttributes($element) as $name => $value ) {
@@ -897,32 +861,4 @@ final class FallbackEmitter
         return $attributes;
     }
 
-    /**
-     * @return array<int, array<string, string>>
-     */
-    private function eventMetadata(DOMElement $element): array
-    {
-        $events = array();
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            if ( preg_match('/^on([a-z]+)$/i', $name, $matches) ) {
-                $events[] = array(
-                    'type'      => strtolower($matches[1]),
-                    'attribute' => strtolower($name),
-                );
-            }
-            if ( preg_match('/^data-(?:action|on|event)$/i', $name) && '' !== trim($value) ) {
-                $events[] = array(
-                    'type'      => 'declared',
-                    'attribute' => $name,
-                );
-            }
-        }
-
-        return $events;
-    }
-
-    private function isSafeSvgContent(string $content): bool
-    {
-        return '' !== trim($content) && preg_match('/<svg(?:\s|>)/i', $content) && ! preg_match('/<\s*script\b|\son[a-z]+\s*=|javascript\s*:/i', $content);
-    }
 }
