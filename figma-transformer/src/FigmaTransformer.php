@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\FigmaTransformer\Contract\FigmaTransformResult;
 use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\LayoutMismatchReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\RenderStyleMismatchReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader;
+use Automattic\BlocksEngine\FigmaTransformer\Html\FontResolver;
 use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameInspector;
@@ -859,7 +860,6 @@ final class FigmaTransformer
         );
         $fontFamilies = array();
         $fontUsage = array();
-        $missingCss = array();
         $fontCssSupplied = false;
         $fontMaterialized = false;
         $diagnosticCodes = array();
@@ -905,7 +905,6 @@ final class FigmaTransformer
             $pageFonts = is_array($diagnostics['fonts'] ?? null) ? $diagnostics['fonts'] : array();
             $fontFamilies = $this->mergeFontFamilies($fontFamilies, is_array($pageFonts['families'] ?? null) ? $pageFonts['families'] : array());
             $fontUsage = $this->mergeFontUsage($fontUsage, is_array($pageFonts['usage'] ?? null) ? $pageFonts['usage'] : array());
-            $missingCss = $this->mergeFontFamilies($missingCss, is_array($pageFonts['missing_css'] ?? null) ? $pageFonts['missing_css'] : array());
             $fontCssSupplied = $fontCssSupplied || true === ($pageFonts['css_supplied'] ?? false);
             $fontMaterialized = $fontMaterialized || true === ($pageFonts['materialized'] ?? false);
 
@@ -1000,13 +999,17 @@ final class FigmaTransformer
             $layout['render_style_mismatch_status'] = 'not_run';
         }
         ksort($diagnosticCodes);
+        $fontResolution = ( new FontResolver() )->resolve($fontUsage, $fontCssSupplied ? 'operator-supplied' : '');
         $fonts = array(
             'families' => $fontFamilies,
             'usage' => $fontUsage,
             'count' => count($fontFamilies),
             'css_supplied' => $fontCssSupplied,
             'materialized' => $fontMaterialized,
-            'missing_css' => $missingCss,
+            'missing_css' => $fontResolution['unresolved_families'],
+            'resolved_css' => $fontResolution['resolved_families'],
+            'cdn_families' => $fontResolution['cdn_families'],
+            'coverage' => $fontResolution['coverage'],
         );
         $assets = array(
             'emitted_files' => count($assetReport),
@@ -1261,17 +1264,27 @@ final class FigmaTransformer
      */
     private function mergeCssChunks(array $chunks): string
     {
+        $imports = array();
         $rules = array();
         foreach ( $chunks as $chunk ) {
             foreach ( explode("\n", $chunk) as $line ) {
                 $line = trim($line);
-                if ( '' !== $line ) {
-                    $rules[$line] = true;
+                if ( '' === $line ) {
+                    continue;
                 }
+                // `@import` (and any leading font-source comment) must precede all
+                // other rules to stay valid after chunks are concatenated.
+                if ( str_starts_with($line, '@import') || ( str_starts_with($line, '/*') && str_contains($line, 'web fonts') ) ) {
+                    $imports[$line] = true;
+                    continue;
+                }
+                $rules[$line] = true;
             }
         }
 
-        return implode("\n", array_keys($rules)) . (empty($rules) ? '' : "\n");
+        $ordered = array_merge(array_keys($imports), array_keys($rules));
+
+        return implode("\n", $ordered) . (empty($ordered) ? '' : "\n");
     }
 
     /**
