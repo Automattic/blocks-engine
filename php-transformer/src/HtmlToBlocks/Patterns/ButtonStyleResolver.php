@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
+
 /**
  * Translates a button's resolved CSS declarations (from inline style plus the
  * `<style>`/linked CSS rules the transformer already matches to the element)
@@ -14,15 +16,33 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
  * rather than a non-canonical inline style string that WordPress drops on
  * block recovery.
  *
- * The translation is theme-independent and keys only off the resolved
- * declarations:
+ * The generic CSS -> canonical-attribute parsing (color / typography / spacing /
+ * border, including border-shorthand splitting and CSS-color validation) is
+ * delegated to the shared {@see StyleAttributeMapper} (#261) so buttons reuse the
+ * exact mechanic every other block uses. This class keeps ONLY the button-specific
+ * presentation policy layered on top of that shared mechanic, keyed off the
+ * resolved declarations:
  *  - Filled buttons get style.color.background + style.color.text (+ border radius).
- *  - Outline/ghost buttons (transparent background) get style.border.* + style.color.text
- *    and never a background.
+ *  - Outline/ghost buttons (transparent/absent background) get style.border.* +
+ *    style.color.text and never a background or gradient fill.
+ *  - Buttons carry padding but not margin (inter-button spacing rides on the
+ *    parent core/buttons block gap), plus a curated typography subset.
  * A button whose resolved CSS carries no paintable colors/border stays default.
  */
 final class ButtonStyleResolver
 {
+    /**
+     * Typography supports projected onto buttons, in canonical emission order.
+     */
+    private const BUTTON_TYPOGRAPHY = array( 'fontSize', 'fontWeight', 'lineHeight', 'textTransform' );
+
+    private readonly StyleAttributeMapper $mapper;
+
+    public function __construct(?StyleAttributeMapper $mapper = null)
+    {
+        $this->mapper = $mapper ?? new StyleAttributeMapper();
+    }
+
     /**
      * Build native core/button style attributes from a resolved CSS string.
      *
@@ -37,10 +57,14 @@ final class ButtonStyleResolver
             return array();
         }
 
-        $style = array();
+        $mapped = $this->mapper->map($declarations)['style'];
+        $style  = array();
 
-        $background = $this->backgroundColor($declarations);
-        $text       = $this->color($declarations['color'] ?? '');
+        // Button color policy: paintable fill + text only, never a gradient. Emit
+        // background before text to match the native core/button attribute shape.
+        $color      = is_array($mapped['color'] ?? null) ? $mapped['color'] : array();
+        $background = (string) ($color['background'] ?? '');
+        $text       = (string) ($color['text'] ?? '');
         if ( '' !== $background ) {
             $style['color']['background'] = $background;
         }
@@ -48,17 +72,20 @@ final class ButtonStyleResolver
             $style['color']['text'] = $text;
         }
 
-        $border = $this->border($declarations);
+        $border = is_array($mapped['border'] ?? null) ? $mapped['border'] : array();
         if ( array() !== $border ) {
             $style['border'] = $border;
         }
 
-        $padding = $this->padding($declarations);
+        // Buttons carry padding but not margin.
+        $padding = ( is_array($mapped['spacing'] ?? null) && is_array($mapped['spacing']['padding'] ?? null) )
+            ? $mapped['spacing']['padding']
+            : array();
         if ( array() !== $padding ) {
             $style['spacing']['padding'] = $padding;
         }
 
-        $typography = $this->typography($declarations);
+        $typography = $this->buttonTypography(is_array($mapped['typography'] ?? null) ? $mapped['typography'] : array());
         if ( array() !== $typography ) {
             $style['typography'] = $typography;
         }
@@ -71,183 +98,28 @@ final class ButtonStyleResolver
     }
 
     /**
-     * Resolve the background color, ignoring transparent/none/gradient/image
-     * backgrounds so outline/ghost buttons never receive a paintable fill.
+     * Project the shared typography attributes onto the button-supported subset,
+     * preserving the canonical emission order.
      *
-     * @param array<string, string> $declarations
-     */
-    private function backgroundColor(array $declarations): string
-    {
-        $value = trim((string) ($declarations['background-color'] ?? ''));
-        if ( '' === $value ) {
-            // `background` shorthand: only treat it as a fill when it is a bare color.
-            $value = trim((string) ($declarations['background'] ?? ''));
-            if ( '' === $value || preg_match('/\b(?:url\s*\(|gradient\s*\()/i', $value) ) {
-                return '';
-            }
-            // Take the first token of the shorthand as the candidate color.
-            $value = preg_split('/\s+/', $value)[0] ?? '';
-        }
-
-        return $this->color($value);
-    }
-
-    /**
-     * @param array<string, string> $declarations
+     * @param array<string, string> $typography
      * @return array<string, string>
      */
-    private function border(array $declarations): array
+    private function buttonTypography(array $typography): array
     {
-        $border = array();
-
-        // Longhand declarations win over the shorthand.
-        $shorthand = $this->parseBorderShorthand((string) ($declarations['border'] ?? ''));
-
-        $width = trim((string) ($declarations['border-width'] ?? $shorthand['width'] ?? ''));
-        $style = strtolower(trim((string) ($declarations['border-style'] ?? $shorthand['style'] ?? '')));
-        $color = $this->color((string) ($declarations['border-color'] ?? $shorthand['color'] ?? ''));
-
-        // `border: 0` / `border: none` means no border at all.
-        $noBorder = 'none' === $style || ( '' !== $width && (float) $width === 0.0 && '' === $color && '' === $style );
-        if ( ! $noBorder ) {
-            if ( '' !== $width && (float) $width !== 0.0 ) {
-                $border['width'] = $width;
-            }
-            if ( '' !== $style && 'none' !== $style ) {
-                $border['style'] = $style;
-            }
-            if ( '' !== $color ) {
-                $border['color'] = $color;
-            }
-        }
-
-        $radius = trim((string) ($declarations['border-radius'] ?? ''));
-        if ( '' !== $radius ) {
-            $border['radius'] = $radius;
-        }
-
-        return $border;
-    }
-
-    /**
-     * @return array{width?: string, style?: string, color?: string}
-     */
-    private function parseBorderShorthand(string $value): array
-    {
-        $value = trim($value);
-        if ( '' === $value ) {
-            return array();
-        }
-
-        $parsed = array();
-        foreach ( preg_split('/\s+/', $value) ?: array() as $token ) {
-            $lower = strtolower($token);
-            if ( in_array($lower, array( 'none', 'hidden', 'solid', 'dashed', 'dotted', 'double', 'groove', 'ridge', 'inset', 'outset' ), true) ) {
-                $parsed['style'] = $lower;
-                continue;
-            }
-            if ( preg_match('/^[0-9.]+(?:px|em|rem|%|pt|vw|vh)?$/i', $token) || in_array($lower, array( 'thin', 'medium', 'thick' ), true) ) {
-                $parsed['width'] = $token;
-                continue;
-            }
-            if ( '' !== $this->color($token) ) {
-                $parsed['color'] = $token;
-            }
-        }
-
-        return $parsed;
-    }
-
-    /**
-     * @param array<string, string> $declarations
-     * @return array<string, string>
-     */
-    private function padding(array $declarations): array
-    {
-        $shorthand = trim((string) ($declarations['padding'] ?? ''));
-        $sides = array( 'top' => '', 'right' => '', 'bottom' => '', 'left' => '' );
-
-        if ( '' !== $shorthand ) {
-            $parts = preg_split('/\s+/', $shorthand) ?: array();
-            $count = count($parts);
-            if ( 1 === $count ) {
-                $sides = array( 'top' => $parts[0], 'right' => $parts[0], 'bottom' => $parts[0], 'left' => $parts[0] );
-            } elseif ( 2 === $count ) {
-                $sides = array( 'top' => $parts[0], 'right' => $parts[1], 'bottom' => $parts[0], 'left' => $parts[1] );
-            } elseif ( 3 === $count ) {
-                $sides = array( 'top' => $parts[0], 'right' => $parts[1], 'bottom' => $parts[2], 'left' => $parts[1] );
-            } elseif ( $count >= 4 ) {
-                $sides = array( 'top' => $parts[0], 'right' => $parts[1], 'bottom' => $parts[2], 'left' => $parts[3] );
-            }
-        }
-
-        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
-            $longhand = trim((string) ($declarations[ 'padding-' . $side ] ?? ''));
-            if ( '' !== $longhand ) {
-                $sides[ $side ] = $longhand;
-            }
-        }
-
-        return array_filter($sides, static fn (string $value): bool => '' !== trim($value));
-    }
-
-    /**
-     * @param array<string, string> $declarations
-     * @return array<string, string>
-     */
-    private function typography(array $declarations): array
-    {
-        $typography = array();
-        $map = array(
-            'font-size'      => 'fontSize',
-            'font-weight'    => 'fontWeight',
-            'line-height'    => 'lineHeight',
-            'text-transform' => 'textTransform',
-        );
-
-        foreach ( $map as $cssName => $attrName ) {
-            $value = trim((string) ($declarations[ $cssName ] ?? ''));
+        $selected = array();
+        foreach ( self::BUTTON_TYPOGRAPHY as $key ) {
+            $value = trim((string) ($typography[ $key ] ?? ''));
             if ( '' !== $value ) {
-                $typography[ $attrName ] = $value;
+                $selected[ $key ] = $value;
             }
         }
 
-        return $typography;
+        return $selected;
     }
 
     /**
-     * Return the value when it is a usable CSS color, otherwise an empty string.
-     */
-    private function color(string $value): string
-    {
-        $value = trim($value);
-        if ( '' === $value ) {
-            return '';
-        }
-
-        $lower = strtolower($value);
-        if ( in_array($lower, array( 'transparent', 'none', 'inherit', 'initial', 'unset', 'revert', 'auto' ), true) ) {
-            return '';
-        }
-
-        if ( preg_match('/^#[0-9a-f]{3,8}$/i', $value) ) {
-            return $value;
-        }
-        if ( preg_match('/^(?:rgb|rgba|hsl|hsla)\s*\(/i', $value) ) {
-            return $value;
-        }
-        if ( 'currentcolor' === $lower ) {
-            return 'currentColor';
-        }
-        // Named colors (e.g. white, navy). Reject anything with whitespace/symbols.
-        if ( preg_match('/^[a-z]+$/', $lower) ) {
-            return $value;
-        }
-
-        return '';
-    }
-
-    /**
+     * Parse a resolved CSS string into a declaration map for the shared mapper.
+     *
      * @return array<string, string>
      */
     private function declarations(string $style): array
