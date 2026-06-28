@@ -9,6 +9,7 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const outputDir = path.join(root, 'tmp');
 const output = path.join(outputDir, 'visual-parity-smoke.json');
 const domFixture = path.join(outputDir, 'dom-box.html');
+const domFixtureGeneric = path.join(outputDir, 'dom-box-generic.html');
 const missingPlaywrightDir = path.join(tmpdir(), `blocks-engine-dom-provider-missing-playwright-${process.pid}`);
 const missingPlaywrightProvider = path.join(missingPlaywrightDir, 'dom-box-provider.mjs');
 
@@ -56,10 +57,18 @@ await writeFile(domFixture, `<!doctype html><html><head><style>
     height: 24px;
   }
 </style></head><body><main class="hero" data-figma-node-id="12:34" data-figma-node-name="Hero">Hello world <img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='3'%3E%3C/svg%3E"></main></body></html>`);
+await writeFile(domFixtureGeneric, `<!doctype html><html><head><style>
+  .hero { color: rgb(12, 34, 56); font-size: 20px; width: 120px; height: 24px; }
+</style></head><body><main class="hero" data-node-id="n-1" data-node-name="Generic Hero">Hello generic</main></body></html>`);
 const server = createServer(async (request, response) => {
   if (request.url === '/dom-box.html') {
     response.writeHead(200, { 'content-type': 'text/html' });
     response.end(await readFile(domFixture));
+    return;
+  }
+  if (request.url === '/dom-box-generic.html') {
+    response.writeHead(200, { 'content-type': 'text/html' });
+    response.end(await readFile(domFixtureGeneric));
     return;
   }
   response.writeHead(404, { 'content-type': 'application/json' });
@@ -80,6 +89,7 @@ try {
   assert(domReport.entrypoints.length === 1, 'DOM provider captures one entrypoint');
   assert(domReport.entrypoints[0].elements[0].node_id === '12:34', 'DOM provider captures node id');
   assert(domReport.entrypoints[0].elements[0].node_name === 'Hero', 'DOM provider captures node name');
+  assert(domReport.entrypoints[0].elements[0].selector === 'main[data-figma-node-id="12:34"]', 'DOM provider keys selector off default figma attribute');
   assert(domReport.entrypoints[0].elements[0].text_sample === 'Hello world', 'DOM provider captures text sample');
   assert(domReport.entrypoints[0].elements[0].page_path === '/dom-box.html', 'DOM provider adds page path to elements');
   assert(domReport.entrypoints[0].elements[0].computed_style['font-size'] === '20px', 'DOM provider captures computed font size');
@@ -95,6 +105,31 @@ try {
   assert(domReport.entrypoints[0].elements[0].asset_state.descendants[0].complete === true, 'DOM provider captures image complete state');
   assert(domReport.entrypoints[0].elements[0].visibility.visible === true, 'DOM provider captures visible state');
   assert(domReport.entrypoints[0].elements[0].visibility.clipped === true, 'DOM provider captures clipped-ish overflow state');
+
+  const genericEnvReport = await runJson(process.execPath, [path.join(root, 'bin/dom-box-provider.mjs')], root, {
+    ...process.env,
+    HOMEBOY_DOM_BOX_BASE_URL: `http://127.0.0.1:${address.port}`,
+    HOMEBOY_DOM_BOX_PAGE_PATHS_JSON: JSON.stringify(['/dom-box-generic.html']),
+    HOMEBOY_DOM_BOX_NODE_ID_ATTR: 'data-node-id',
+    HOMEBOY_DOM_BOX_NODE_NAME_ATTR: 'data-node-name',
+  });
+  assert(genericEnvReport.entrypoints[0].elements.length === 1, 'DOM provider enumerates by configured generic attribute (env)');
+  assert(genericEnvReport.entrypoints[0].elements[0].node_id === 'n-1', 'DOM provider reads node id from configured generic attribute (env)');
+  assert(genericEnvReport.entrypoints[0].elements[0].node_name === 'Generic Hero', 'DOM provider reads node name from configured generic attribute (env)');
+  assert(genericEnvReport.entrypoints[0].elements[0].selector === 'main[data-node-id="n-1"]', 'DOM provider keys selector off configured generic attribute (env)');
+
+  const genericFlagReport = await runJson(process.execPath, [
+    path.join(root, 'bin/dom-box-provider.mjs'),
+    '--node-id-attr=data-node-id',
+    '--node-name-attr=data-node-name',
+  ], root, {
+    ...process.env,
+    HOMEBOY_DOM_BOX_BASE_URL: `http://127.0.0.1:${address.port}`,
+    HOMEBOY_DOM_BOX_PAGE_PATHS_JSON: JSON.stringify(['/dom-box-generic.html']),
+  });
+  assert(genericFlagReport.entrypoints[0].elements[0].node_id === 'n-1', 'DOM provider reads node id from configured generic attribute (flag)');
+  assert(genericFlagReport.entrypoints[0].elements[0].node_name === 'Generic Hero', 'DOM provider reads node name from configured generic attribute (flag)');
+  assert(genericFlagReport.entrypoints[0].elements[0].selector === 'main[data-node-id="n-1"]', 'DOM provider keys selector off configured generic attribute (flag)');
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }
@@ -111,6 +146,7 @@ assert(missingPlaywright.stderr.includes('install:browsers'), 'DOM provider sugg
 
 await rm(output, { force: true });
 await rm(domFixture, { force: true });
+await rm(domFixtureGeneric, { force: true });
 await rm(missingPlaywrightDir, { recursive: true, force: true });
 console.log('Visual parity smoke test passed.');
 
