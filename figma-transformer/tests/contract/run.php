@@ -5591,6 +5591,105 @@ $assert(str_contains($semanticHtml, '<ul class="figma-node-body-cards-feature-ca
 $assert(str_contains($semanticHtml, '<li class="figma-node-card-1-card-one"'), 'semantic-repeated-item-emits-list-item');
 $assert(str_contains($semanticHtml, '<button class="figma-node-body-cta-get-started"'), 'semantic-button-like-node-emits-button');
 $assert(! str_contains($semanticHtml, '<div class="figma-node-region-top-top-bar"'), 'semantic-header-not-generic-div');
+// The middle content band (not a header/nav/footer landmark) is the genuine
+// top-level region and reads as the page's single <section>; the deeply nested
+// card/cta frames inside it do NOT each become their own <section>.
+$assert(str_contains($semanticHtml, '<section class="figma-node-region-body-content"'), 'semantic-top-level-band-emits-section');
+$assert(1 === substr_count($semanticHtml, '<section'), 'semantic-page-has-single-section');
+
+// Section refinement (#247 / #288 follow-up): a page with a few genuine
+// top-level bands wrapped around many deeply-nested containers (rows, columns,
+// cards, wrappers) emits <section> only for the top-level bands. Nested
+// structural frames stay <div>, so the page has single-digit sections rather
+// than one per container (the real FSE fixture over-emitted 347 <section>s).
+$buildNestedContainer = static function (string $idPrefix, int $depth) use (&$buildNestedContainer): array {
+    $node = array(
+        'id'     => $idPrefix,
+        'type'   => 'FRAME',
+        'name'   => 'Wrapper ' . $idPrefix,
+        'x'      => 0,
+        'y'      => 0,
+        'width'  => 1000,
+        'height' => 400,
+    );
+    if ( $depth > 0 ) {
+        $node['children'] = array(
+            $buildNestedContainer($idPrefix . '-row', $depth - 1),
+            $buildNestedContainer($idPrefix . '-col', $depth - 1),
+        );
+    } else {
+        $node['children'] = array(
+            array('id' => $idPrefix . '-t', 'type' => 'TEXT', 'name' => 'Copy ' . $idPrefix, 'characters' => 'Some descriptive body copy for the band.', 'fontSize' => 16),
+        );
+    }
+
+    return $node;
+};
+// Distinct top-level bands (different heading copy, different child shape and
+// nesting depth) so they read as separate content regions, not as repeated
+// list items. Each carries a deep wrapper tree of nested frames.
+$makeBand = static function (string $id, string $name, float $y, int $wrapDepth, int $headingSize, string $body, float $height = 800.0) use ($buildNestedContainer): array {
+    return array(
+        'id'       => $id,
+        'type'     => 'FRAME',
+        'name'     => $name,
+        'x'        => 0,
+        'y'        => $y,
+        'width'    => 1200,
+        'height'   => $height,
+        'children' => array(
+            // A heading run plus a deeply-nested wrapper tree per band. Each
+            // wrapper subtree contains many nested frames that, under the old
+            // "every FRAME is a <section>" rule, each became a <section>.
+            array('id' => $id . '-head', 'type' => 'TEXT', 'name' => $name . ' Heading', 'characters' => $name, 'fontSize' => $headingSize, 'fontWeight' => 700),
+            array('id' => $id . '-sub', 'type' => 'TEXT', 'name' => $name . ' Sub', 'characters' => $body, 'fontSize' => 18),
+            $buildNestedContainer($id . '-wrap', $wrapDepth),
+        ),
+    );
+};
+$nestingResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Section Refinement Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'sr:root',
+            'type'     => 'FRAME',
+            'name'     => 'Page Root',
+            'x'        => 0,
+            'y'        => 0,
+            'width'    => 1200,
+            'height'   => 4000,
+            'children' => array(
+                // Distinct heights so the bands read as separate regions, not a
+                // repeated card list, while each nests a deep wrapper subtree.
+                $makeBand('sr:band-1', 'Overview Band', 0.0, 4, 40, 'A broad introduction to what this page is about.', 600.0),
+                $makeBand('sr:band-2', 'Features Band', 700.0, 3, 34, 'The key capabilities, grouped for scanning.', 1000.0),
+                $makeBand('sr:band-3', 'Pricing Band', 1800.0, 2, 30, 'Plans and prices laid out side by side.', 1400.0),
+            ),
+        ),
+    ),
+));
+$nestingHtml = $fileContent($nestingResult, 'index.html');
+$assert('success' === ($nestingResult['status'] ?? null), 'section-refinement-transform-success');
+$nestingSectionCount = substr_count($nestingHtml, '<section');
+// Exactly the three top-level bands are sections; the dozens of nested wrapper
+// frames are not. A small, hand-authored-looking count, not hundreds.
+$assert(3 === $nestingSectionCount, 'section-refinement-only-top-level-bands-are-sections');
+$assert(str_contains($nestingHtml, '<section class="figma-node-sr-band-1-overview-band"'), 'section-refinement-band-1-is-section');
+$assert(str_contains($nestingHtml, '<section class="figma-node-sr-band-3-pricing-band"'), 'section-refinement-band-3-is-section');
+// Nested structural wrappers (depth >= 2) default to <div>, never <section>.
+$assert(str_contains($nestingHtml, '<div class="figma-node-sr-band-1-wrap-wrapper-sr-band-1-wrap'), 'section-refinement-nested-wrapper-is-div');
+$assert(! str_contains($nestingHtml, '<section class="figma-node-sr-band-1-wrap'), 'section-refinement-no-nested-section');
+// A page whose top-level bands are emitted as root-level nodes (no single page
+// wrapper) still gets each band as a <section> via the depth-0 path.
+$rootLevelBandsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Root Level Bands Fixture',
+    'nodes' => array(
+        $makeBand('rl:band-1', 'Intro Band', 0.0, 3, 40, 'The opening statement for the whole page.', 700.0),
+        $makeBand('rl:band-2', 'Detail Band', 900.0, 2, 30, 'Deeper detail in its own distinct region.', 1200.0),
+    ),
+));
+$rootLevelHtml = $fileContent($rootLevelBandsResult, 'index.html');
+$assert(2 === substr_count($rootLevelHtml, '<section'), 'section-refinement-root-level-bands-are-sections');
 
 blocks_engine_figma_transformer_run_fixture_matrix_contract($assert);
 

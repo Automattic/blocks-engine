@@ -83,6 +83,15 @@ final class StaticHtmlEmitter
     private array $listItemIdCache = array();
 
     /**
+     * Tree depth at which a frame can read as a top-level <section> for the page
+     * being emitted. When the page is a single wrapping frame, its bands sit one
+     * level down (depth 1); when bands are emitted as sibling root nodes, they
+     * sit at the root (depth 0). Set per emitted page; everything deeper than
+     * this is nested structure and stays a <div>.
+     */
+    private int $sectionDepth = 0;
+
+    /**
      * Maps each per-node CSS class (the `figma-node-*` hook) to a human-readable
      * base name derived from the node's name/role. Used to mint shared,
      * authored-looking class names when several nodes share identical styles.
@@ -112,6 +121,8 @@ final class StaticHtmlEmitter
         $diagnostics = array();
         $nodeStyleDiagnostics = array();
         $assetFiles = $this->normalizeAssets($scenegraph['assets'] ?? array(), $diagnostics);
+
+        $this->sectionDepth = $this->sectionDepthFor($nodes);
 
         $body = '';
         $cssRules = array(
@@ -277,6 +288,9 @@ final class StaticHtmlEmitter
 
             $this->listItemIdCache = array();
             $this->prepareHeadingRanking(array($frameNode));
+            // A planned page is a single wrapping frame; its bands are its
+            // direct children one level down.
+            $this->sectionDepth = 1;
             $body = $this->emitNode($frameNode, $cssRules, $diagnostics, $nodeStyleDiagnostics, 0, null);
             $files[] = array(
                 'path'      => $path,
@@ -300,6 +314,7 @@ final class StaticHtmlEmitter
         }
 
         if ( empty($files) ) {
+            $this->sectionDepth = $this->sectionDepthFor($this->nodeList($scenegraph));
             foreach ( $this->nodeList($scenegraph) as $node ) {
                 if ( ! is_array($node) ) {
                     continue;
@@ -690,11 +705,97 @@ final class StaticHtmlEmitter
             return 'ul';
         }
 
-        if ( 'FRAME' === $type ) {
+        // A <section> is reserved for genuine top-level content regions — the
+        // page bands a hand-author would wrap in <section>. Every other frame
+        // (nested wrappers, rows, columns, cards, decorative groups) stays a
+        // <div>, so a typical page emits a handful of sections, not hundreds.
+        if ( 'FRAME' === $type && $this->isTopLevelSection($node, $depth, $parentNode, $children) ) {
             return 'section';
         }
 
         return 'div';
+    }
+
+    /**
+     * Decides whether a frame is a genuine top-level content region worthy of a
+     * <section>, rather than a nested structural container. The signals are
+     * generic and position/size/content based — no file-specific names:
+     *
+     *  - Position: a top-level page band — exactly one level below the page
+     *    root ({@see $sectionDepth}), so only the bands a hand-author wraps in
+     *    <section> qualify, never the structure nested inside them.
+     *  - Size: spans most of the page width, like a full-width content band.
+     *  - Significance: holds meaningful mixed content (multiple text runs, or
+     *    sub-regions), not a thin wrapper around a single element.
+     *
+     * Deeper frames — rows, columns, cards, wrappers, and decorative groups —
+     * are never sections; they stay <div>. That is what keeps a page to a
+     * handful of sections instead of hundreds.
+     *
+     * @param array<string, mixed>             $node
+     * @param array<string, mixed>|null        $parentNode
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function isTopLevelSection(array $node, int $depth, ?array $parentNode, array $children): bool
+    {
+        // Only the page's top-level bands qualify: the single level directly
+        // below the page root. Anything deeper is nested structure (a <div>).
+        if ( $depth !== $this->sectionDepth ) {
+            return false;
+        }
+
+        // A band needs real content, not an empty or single-element wrapper:
+        // either several text runs, or more than one structural sub-region.
+        $textRuns = $this->textDescendantCount($node);
+        if ( $textRuns < 2 && count($children) < 2 ) {
+            return false;
+        }
+
+        // A band spans most of the page: its width is a large fraction of the
+        // wrapping page frame's width. Narrow columns and side rails stay <div>.
+        // Root-level bands (depth 0) have no parent frame to measure against;
+        // their content significance alone settles it.
+        if ( null !== $parentNode ) {
+            $width = $this->boxValue($node, 'width');
+            $parentWidth = $this->boxValue($parentNode, 'width');
+            if ( null !== $width && null !== $parentWidth && $parentWidth > 0.0 ) {
+                return ( $width / $parentWidth ) >= 0.6;
+            }
+        }
+
+        // Without reliable geometry, fall back to the content signal alone: a
+        // top-level band carrying meaningful mixed content reads as a section.
+        return true;
+    }
+
+    /**
+     * Determines the tree depth at which top-level page bands live for a set of
+     * root nodes. When the page is a single frame that wraps several band
+     * frames, the bands are its direct children (depth 1). When the bands are
+     * emitted as sibling root nodes — or when the single root frame is itself a
+     * content region rather than a wrapper — the bands sit at the root (depth 0).
+     *
+     * @param array<int, mixed> $rootNodes
+     */
+    private function sectionDepthFor(array $rootNodes): int
+    {
+        $frames = array_values(array_filter(
+            $rootNodes,
+            static fn ($node): bool => is_array($node) && 'FRAME' === strtoupper((string) ($node['type'] ?? ''))
+        ));
+
+        // A single root frame is a page wrapper only when it groups several band
+        // frames of its own. Otherwise it is itself a content region.
+        if ( 1 === count($frames) ) {
+            $childFrames = array_filter(
+                $this->nodeList($frames[0]),
+                static fn ($child): bool => is_array($child) && 'FRAME' === strtoupper((string) ($child['type'] ?? ''))
+            );
+
+            return count($childFrames) >= 2 ? 1 : 0;
+        }
+
+        return 0;
     }
 
     /**
