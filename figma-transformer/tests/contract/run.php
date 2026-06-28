@@ -5171,7 +5171,7 @@ $devStatusSource = array(
                     'id'            => 'section:ready',
                     'type'          => 'SECTION',
                     'name'          => 'Ready section',
-                    'sectionStatus' => 'DEV_HANDOFF',
+                    'sectionStatus' => 'BUILD',
                     'children'      => array(
                         array(
                             'id'       => 'frame:ready-home',
@@ -5220,7 +5220,7 @@ $devStatusSource = array(
 $devStatusNormalized = $devStatusNormalizer->normalize($devStatusSource);
 $devStatusNodeMap = is_array($devStatusNormalized['node_map'] ?? null) ? $devStatusNormalized['node_map'] : array();
 $assert('ready_for_dev' === ($devStatusNodeMap['section:ready']['dev_status'] ?? null), 'dev-status-normalizes-ready-for-dev');
-$assert('DEV_HANDOFF' === ($devStatusNodeMap['section:ready']['dev_status_raw'] ?? null), 'dev-status-carries-raw-handoff-token');
+$assert('BUILD' === ($devStatusNodeMap['section:ready']['dev_status_raw'] ?? null), 'dev-status-carries-raw-build-token');
 $assert('completed' === ($devStatusNodeMap['section:done']['dev_status'] ?? null), 'dev-status-normalizes-completed');
 $assert('COMPLETED' === ($devStatusNodeMap['section:done']['dev_status_raw'] ?? null), 'dev-status-carries-raw-completed-token');
 $assert(! array_key_exists('dev_status', $devStatusNodeMap['frame:wip'] ?? array()), 'dev-status-absent-on-unmarked-frame');
@@ -5442,11 +5442,11 @@ function blocks_engine_figma_transformer_kiwi_message_fixture(): string
 function blocks_engine_figma_transformer_kiwi_dev_status_schema_fixture(): string
 {
     return blocks_engine_figma_transformer_wire_varint(3)
-        // def0: ENUM SectionStatusType { DEV_HANDOFF = 1, COMPLETED = 2 }
-        . blocks_engine_figma_transformer_kiwi_string('SectionStatusType')
+        // def0: ENUM SectionStatus { BUILD = 1, COMPLETED = 2 } (real Figma enum; BUILD = "Ready for dev")
+        . blocks_engine_figma_transformer_kiwi_string('SectionStatus')
         . chr(0)
         . blocks_engine_figma_transformer_wire_varint(2)
-        . blocks_engine_figma_transformer_kiwi_schema_field('DEV_HANDOFF', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('BUILD', 0, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('COMPLETED', 0, false, 2)
         // def1: MESSAGE NodeChange { type, name, sectionStatus }
         . blocks_engine_figma_transformer_kiwi_string('NodeChange')
