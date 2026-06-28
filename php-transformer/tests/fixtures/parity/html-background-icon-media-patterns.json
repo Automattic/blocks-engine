@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-background-icon-media-patterns",
-  "description": "Converts generic background-image heroes and icon-like SVG card media into core media/icon blocks without fallbacks.",
+  "description": "Converts generic background-image heroes into core media blocks and preserves icon-like SVG card media faithfully as core/html (verbatim svg with correct-case viewBox), without fallbacks.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-background-icon-media-patterns.json",
@@ -21,7 +21,7 @@
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Care that meets you", "level": 1 } },
     { "path": "blocks.1", "name": "core/group", "attrs": { "className": "feature-card" } },
     { "path": "blocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "feature-icon" } },
-    { "path": "blocks.1.innerBlocks.0.innerBlocks.0", "name": "core/icon" },
+    { "path": "blocks.1.innerBlocks.0.innerBlocks.0", "name": "core/html" },
     { "path": "blocks.1.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Fast booking", "level": 3 } }
   ],
   "expected_fallbacks": [],
@@ -30,7 +30,8 @@
     { "path": "blocks", "assert": "count", "count": 2 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:icon" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html" },
+    { "path": "blocks.1.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<svg viewBox=\"0 0 24 24\"" },
     { "path": "source_reports.conversion_report.metrics.fallback_count", "assert": "equals", "value": 0 }
   ]
 }
