@@ -4076,6 +4076,63 @@ $assert(str_starts_with($fontOverrideCss, '@font-face{font-family:"Inter";src:ur
 $assert(! str_contains($fontOverrideCss, 'fonts.googleapis.com'), 'font-embedding-operator-override-skips-cdn');
 $assert(true === ($fontOverrideFonts['css_supplied'] ?? null) && array() === ($fontOverrideFonts['missing_css'] ?? null), 'font-embedding-operator-override-clears-missing');
 
+// Barlow variant resolver: Barlow Condensed and Barlow Semi Condensed are distinct
+// Google Fonts families (not axis parameters) and must emit separate CDN family specs.
+$barlowVariantsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Barlow Variants Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'bv:1',
+            'type'     => 'FRAME',
+            'name'     => 'Barlow frame',
+            'children' => array(
+                array('id' => 'bv:2', 'type' => 'TEXT', 'name' => 'Barlow heading', 'characters' => 'Barlow heading', 'fontName' => array('family' => 'Barlow', 'style' => 'Bold'), 'fontSize' => 32),
+                array('id' => 'bv:3', 'type' => 'TEXT', 'name' => 'Barlow Condensed text', 'characters' => 'Condensed', 'fontName' => array('family' => 'Barlow Condensed', 'style' => 'Regular'), 'fontSize' => 16),
+                array('id' => 'bv:4', 'type' => 'TEXT', 'name' => 'Barlow Semi Condensed text', 'characters' => 'Semi condensed', 'fontName' => array('family' => 'Barlow Semi Condensed', 'style' => 'Medium'), 'fontSize' => 16, 'style' => array('fontWeight' => 500)),
+            ),
+        ),
+    ),
+));
+$barlowVariantsCss = $fileContent($barlowVariantsResult, 'style.css');
+$barlowVariantsFonts = $barlowVariantsResult['source_reports']['figma']['html']['transform_diagnostics']['fonts'] ?? array();
+$barlowVariantsCoverage = array();
+foreach ( is_array($barlowVariantsFonts['coverage'] ?? null) ? $barlowVariantsFonts['coverage'] : array() as $coverageEntry ) {
+    $barlowVariantsCoverage[(string) ($coverageEntry['family'] ?? '')] = $coverageEntry;
+}
+$assert(str_contains($barlowVariantsCss, 'family=Barlow+Condensed'), 'barlow-condensed-cdn-import');
+$assert(str_contains($barlowVariantsCss, 'family=Barlow+Semi+Condensed'), 'barlow-semi-condensed-cdn-import');
+$assert('cdn_google_fonts' === ($barlowVariantsCoverage['Barlow']['resolution'] ?? null), 'barlow-resolved-via-cdn');
+$assert('cdn_google_fonts' === ($barlowVariantsCoverage['Barlow Condensed']['resolution'] ?? null), 'barlow-condensed-resolved-via-cdn');
+$assert('cdn_google_fonts' === ($barlowVariantsCoverage['Barlow Semi Condensed']['resolution'] ?? null), 'barlow-semi-condensed-resolved-via-cdn');
+$assert(false === ($barlowVariantsCoverage['Barlow Condensed']['needs_operator_font'] ?? null), 'barlow-condensed-no-operator-font-needed');
+$assert(false === ($barlowVariantsCoverage['Barlow Semi Condensed']['needs_operator_font'] ?? null), 'barlow-semi-condensed-no-operator-font-needed');
+$assert(array() === ($barlowVariantsFonts['missing_css'] ?? null), 'barlow-variants-all-resolved');
+
+// Syne and Cabinet Grotesk: families audited as commonly used in Figma designs and
+// newly added to the resolver. Verify both resolve to CDN without operator CSS needed.
+$syneResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Syne Cabinet Grotesk Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'sc:1',
+            'type'     => 'FRAME',
+            'name'     => 'Design frame',
+            'children' => array(
+                array('id' => 'sc:2', 'type' => 'TEXT', 'name' => 'Syne text', 'characters' => 'Syne heading', 'fontName' => array('family' => 'Syne', 'style' => 'Bold'), 'fontSize' => 40),
+                array('id' => 'sc:3', 'type' => 'TEXT', 'name' => 'Cabinet Grotesk text', 'characters' => 'Cabinet body', 'fontName' => array('family' => 'Cabinet Grotesk', 'style' => 'Regular'), 'fontSize' => 16),
+            ),
+        ),
+    ),
+));
+$syneFonts = $syneResult['source_reports']['figma']['html']['transform_diagnostics']['fonts'] ?? array();
+$syneCoverage = array();
+foreach ( is_array($syneFonts['coverage'] ?? null) ? $syneFonts['coverage'] : array() as $coverageEntry ) {
+    $syneCoverage[(string) ($coverageEntry['family'] ?? '')] = $coverageEntry;
+}
+$assert(array() === ($syneFonts['missing_css'] ?? null), 'syne-cabinet-grotesk-all-resolved');
+$assert('cdn_google_fonts' === ($syneCoverage['Syne']['resolution'] ?? null), 'syne-resolved-via-cdn');
+$assert('cdn_google_fonts' === ($syneCoverage['Cabinet Grotesk']['resolution'] ?? null), 'cabinet-grotesk-resolved-via-cdn');
+
 $assetReferenceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'   => 'Asset Reference Fixture',
     'assets' => array(
