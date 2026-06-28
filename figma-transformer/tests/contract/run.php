@@ -5661,6 +5661,136 @@ $authoredCssRerunResult = blocks_engine_figma_transformer_transform_scenegraph($
 $assert($authoredCss === $fileContent($authoredCssRerunResult, 'style.css'), 'authored-css-stylesheet-deterministic');
 $assert($authoredHtml === $fileContent($authoredCssRerunResult, 'index.html'), 'authored-css-html-deterministic');
 
+// Design system: a "Style Guide" frame is the SOURCE of the design system. Its
+// color swatches become `:root` custom properties, its distinct text styles
+// become a reusable type scale, consistent spacing becomes spacing tokens, and a
+// coverage diagnostic counts what was extracted. The frame feeds global CSS — it
+// is not rendered as the design itself.
+$designSystemScenegraph = array(
+    'name'  => 'Design System Fixture',
+    'nodes' => array(
+        array(
+            'id'         => 'ds:guide',
+            'type'       => 'FRAME',
+            'name'       => 'Style Guide',
+            'width'      => 1200,
+            'height'     => 800,
+            'layoutMode' => 'VERTICAL',
+            'itemSpacing' => 24,
+            'paddingTop'  => 32,
+            'paddingLeft' => 32,
+            'children'   => array(
+                array(
+                    'id'         => 'ds:swatch-primary',
+                    'type'       => 'RECTANGLE',
+                    'name'       => 'Primary',
+                    'width'      => 80,
+                    'height'     => 80,
+                    'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.2, 'g' => 0.4, 'b' => 0.8))),
+                ),
+                array(
+                    'id'         => 'ds:swatch-accent',
+                    'type'       => 'RECTANGLE',
+                    'name'       => 'Accent',
+                    'width'      => 80,
+                    'height'     => 80,
+                    'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.9, 'g' => 0.3, 'b' => 0.2))),
+                ),
+                array(
+                    'id'       => 'ds:type-heading',
+                    'type'     => 'TEXT',
+                    'name'     => 'Heading',
+                    'text'     => 'Heading specimen',
+                    'fontSize' => 48,
+                    'style'    => array('fontFamily' => 'Inter', 'fontSize' => 48, 'fontWeight' => 700, 'lineHeightPx' => 56),
+                ),
+                array(
+                    'id'       => 'ds:type-body',
+                    'type'     => 'TEXT',
+                    'name'     => 'Body',
+                    'text'     => 'Body specimen',
+                    'fontSize' => 16,
+                    'style'    => array('fontFamily' => 'Inter', 'fontSize' => 16, 'fontWeight' => 400, 'lineHeightPx' => 24),
+                ),
+            ),
+        ),
+    ),
+);
+$designSystemResult = blocks_engine_figma_transformer_transform_scenegraph($designSystemScenegraph);
+$designSystemCss = $fileContent($designSystemResult, 'style.css');
+
+// Colors become `:root` custom properties, named from swatch labels.
+$assert(str_contains($designSystemCss, ':root{'), 'design-system-root-block-emitted');
+$assert(str_contains($designSystemCss, '--color-primary:#3366cc'), 'design-system-primary-color-token');
+$assert(str_contains($designSystemCss, '--color-accent:#e64d33'), 'design-system-accent-color-token');
+
+// Typography becomes custom properties plus a reusable type-scale class set.
+$assert(str_contains($designSystemCss, '--font-size-heading-1:48px'), 'design-system-heading-font-size-token');
+$assert(str_contains($designSystemCss, '--font-size-body:16px'), 'design-system-body-font-size-token');
+$assert(str_contains($designSystemCss, '.type-heading-1{'), 'design-system-heading-type-class');
+$assert(str_contains($designSystemCss, '.type-body{'), 'design-system-body-type-class');
+$assert(str_contains($designSystemCss, 'font-size:var(--font-size-heading-1)'), 'design-system-type-class-references-token');
+$assert(str_contains($designSystemCss, 'line-height:56px'), 'design-system-type-class-carries-line-height');
+
+// Consistent spacing becomes a spacing token.
+$assert(str_contains($designSystemCss, '--space-1:32px'), 'design-system-spacing-token');
+
+// The `:root` block leads the stylesheet, before the per-node page rules.
+$rootPos = strpos($designSystemCss, ':root{');
+$nodePos = strpos($designSystemCss, '.figma-node-');
+$assert(false !== $rootPos && false !== $nodePos && $rootPos < $nodePos, 'design-system-root-precedes-page-rules');
+
+// The coverage diagnostic counts the extracted tokens.
+$designSystemReport = is_array($designSystemResult['source_reports']['figma']['html']['design_system'] ?? null)
+    ? $designSystemResult['source_reports']['figma']['html']['design_system']
+    : array();
+$designSystemCoverage = is_array($designSystemReport['coverage'] ?? null) ? $designSystemReport['coverage'] : array();
+$assert(1 === ($designSystemCoverage['frame_count'] ?? 0), 'design-system-coverage-frame-count');
+$assert(2 === ($designSystemCoverage['color_tokens'] ?? 0), 'design-system-coverage-color-count');
+$assert(2 === ($designSystemCoverage['type_tokens'] ?? 0), 'design-system-coverage-type-count');
+$assert(($designSystemCoverage['spacing_tokens'] ?? 0) >= 1, 'design-system-coverage-spacing-count');
+
+// A matching coverage diagnostic is surfaced for operators.
+$designSystemDiagnostic = null;
+foreach ( (is_array($designSystemResult['diagnostics'] ?? null) ? $designSystemResult['diagnostics'] : array()) as $diagnostic ) {
+    if ( is_array($diagnostic) && 'design_system_extracted' === ($diagnostic['code'] ?? '') ) {
+        $designSystemDiagnostic = $diagnostic;
+        break;
+    }
+}
+$assert(null !== $designSystemDiagnostic, 'design-system-coverage-diagnostic-emitted');
+$assert(null !== $designSystemDiagnostic && 2 === ($designSystemDiagnostic['color_tokens'] ?? 0), 'design-system-diagnostic-color-count');
+
+// A plain site without a style-guide frame extracts no design system, so the
+// `:root` token block never pollutes ordinary pages.
+$plainSiteScenegraph = array(
+    'name'  => 'Plain Site Fixture',
+    'nodes' => array(
+        array(
+            'id'         => 'plain:hero',
+            'type'       => 'FRAME',
+            'name'       => 'Hero Section',
+            'width'      => 1200,
+            'height'     => 400,
+            'layoutMode' => 'VERTICAL',
+            'children'   => array(
+                array('id' => 'plain:title', 'type' => 'TEXT', 'name' => 'Title', 'text' => 'Welcome', 'fontSize' => 40, 'style' => array('fontSize' => 40)),
+            ),
+        ),
+    ),
+);
+$plainSiteResult = blocks_engine_figma_transformer_transform_scenegraph($plainSiteScenegraph);
+$plainSiteCss = $fileContent($plainSiteResult, 'style.css');
+$assert(! str_contains($plainSiteCss, ':root{'), 'design-system-absent-for-plain-site');
+$plainCoverage = is_array($plainSiteResult['source_reports']['figma']['html']['design_system']['coverage'] ?? null)
+    ? $plainSiteResult['source_reports']['figma']['html']['design_system']['coverage']
+    : array();
+$assert(0 === ($plainCoverage['frame_count'] ?? -1), 'design-system-plain-site-zero-frames');
+
+// Determinism: re-running yields byte-identical design-system CSS.
+$designSystemRerun = blocks_engine_figma_transformer_transform_scenegraph($designSystemScenegraph);
+$assert($designSystemCss === $fileContent($designSystemRerun, 'style.css'), 'design-system-css-deterministic');
+
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
     exit(1);
