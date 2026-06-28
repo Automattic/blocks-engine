@@ -1,0 +1,37 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-standalone-input-runtime-island-preserved",
+  "description": "Preserves a standalone non-readable form-control input (a hidden file picker) as a bounded runtime island with an acceptable runtime_island_preserved loss class instead of an unsupported_element_loss fallback.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-standalone-input-runtime-island-preserved.json",
+    "notes": "Mirrors the corpus JSON-import file inputs in 58-infinite-whiteboard, 59-spreadsheet, 60-node-editor, 64-kanban-board, 67-dataviz-studio, and 68-drum-machine, which previously produced unsupported_input (html_unsupported_element) findings."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<input type=\"file\" id=\"import-file\" accept=\"application/json,.json\" hidden>"
+  },
+  "expected_blocks": [],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 0 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.html.runtime_islands", "assert": "count", "count": 1 },
+    { "path": "source_reports.html.runtime_islands.0.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.html.runtime_islands.0.tag", "assert": "equals", "value": "input" },
+    { "path": "source_reports.html.runtime_islands.0.selector", "assert": "equals", "value": "#import-file" },
+    { "path": "source_reports.html.runtime_islands.0.preservation_reason", "assert": "equals", "value": "form_control_requires_runtime" },
+    { "path": "source_reports.html.runtime_islands.0.source_snippet", "assert": "contains", "value": "<input type=\"file\" id=\"import-file\"" },
+    { "path": "diagnostics.1.code", "assert": "equals", "value": "preserved_runtime_island" },
+    { "path": "diagnostics.1.loss_class", "assert": "equals", "value": "runtime_island_preserved" },
+    { "path": "diagnostics.1.conversion_classification", "assert": "equals", "value": "runtime_island_preserved" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<input" }
+  ]
+}
