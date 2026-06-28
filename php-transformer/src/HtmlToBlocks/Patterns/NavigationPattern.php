@@ -33,7 +33,15 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        return $createBlock('core/navigation', $presentationAttributes($element), $links, $element);
+        // Declare responsive-overlay intent explicitly so the saved block carries
+        // its interactive behavior in the content itself rather than relying on
+        // WordPress applying the block.json `overlayMenu` default at render time.
+        // `mobile` matches the core default: WP renders the responsive overlay
+        // container and enqueues the `navigation/view` Interactivity module so the
+        // hamburger menu functions on the rendered site (#native-interactivity).
+        return $createBlock('core/navigation', array_merge($presentationAttributes($element), array(
+            'overlayMenu' => 'mobile',
+        )), $links, $element);
     }
 
     private function safeNavigationUrl(string $url): string
