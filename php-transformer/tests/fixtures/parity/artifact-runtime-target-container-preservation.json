@@ -30,7 +30,7 @@
     }
   },
   "expect": [
-    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "status", "assert": "equals", "value": "success_with_warnings" },
     { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
     { "path": "source_reports.runtime_dependency_parity.dependencies", "assert": "count", "count": 17 },
     { "path": "serialized_blocks", "assert": "contains", "value": "reveal" },

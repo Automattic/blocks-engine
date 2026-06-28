@@ -20,11 +20,23 @@
     { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "newsletter" } }
   ],
-  "expected_fallbacks": [],
+  "expected_fallbacks": [
+    { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" },
+    { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" }
+  ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
-    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "fallbacks", "assert": "count", "count": 2 },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
+    { "path": "fallbacks.0.form.action", "assert": "equals", "value": "/contact" },
+    { "path": "fallbacks.0.control_count", "assert": "equals", "value": 4 },
+    { "path": "fallbacks.0.controls.0.name", "assert": "equals", "value": "name" },
+    { "path": "fallbacks.0.controls.0.required", "assert": "equals", "value": true },
+    { "path": "fallbacks.0.controls.2.tag", "assert": "equals", "value": "textarea" },
+    { "path": "fallbacks.1.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
+    { "path": "fallbacks.1.form.action", "assert": "equals", "value": "/newsletter" },
+    { "path": "fallbacks.1.control_count", "assert": "equals", "value": 2 },
     { "path": "source_reports.runtime_islands", "assert": "count", "count": 2 },
     { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "form" },
     { "path": "source_reports.runtime_islands.0.form.action", "assert": "equals", "value": "/contact" },
@@ -38,6 +50,6 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "Email: you@example.com" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Subscribe" },
     { "path": "coverage.0.block_count", "assert": "equals", "value": 1 },
-    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 2 }
   ]
 }

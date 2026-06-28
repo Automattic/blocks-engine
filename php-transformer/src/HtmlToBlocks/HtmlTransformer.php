@@ -1412,34 +1412,40 @@ final class HtmlTransformer
                 'required_scripts' => $this->requiredScriptsForElement($element),
             ));
 
-            if ( null !== $readableFormBlock ) {
-                return $readableFormBlock;
+            // Surface a form fallback finding so a downstream consumer can map the
+            // preserved control structure onto a working form provider. This fires
+            // when the form has no readable representation (legacy behavior) and
+            // also when the form collects user input, so a standard data-entry
+            // <form> that still renders as readable fallback content is detectable
+            // as a materializable form rather than silently flattened into prose.
+            // Carrying the generic control list (tag/type/name/required/options)
+            // keeps the transformer free of any provider or plugin knowledge.
+            if ( null === $readableFormBlock || $this->formHasDataEntryControls($element) ) {
+                $fallbacks[] = FallbackDiagnostic::build(array(
+                    'type'            => 'html',
+                    'reason'          => 'form_requires_runtime',
+                    'diagnostic_code' => 'html_form_fallback',
+                    'message'         => 'Form HTML requires runtime behavior and was preserved as safe fallback metadata.',
+                    'source_format'   => 'html',
+                    'tag'             => $tagName,
+                    'selector'        => $this->elementSelector($element),
+                    'attributes'      => $this->htmlAttributes($element),
+                    'form'            => $this->formMetadata($element),
+                    'context'         => $this->sourceContext($element),
+                    'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
+                    'events'          => $this->eventMetadata($element),
+                    'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
+                    'controls'        => $controls,
+                    'control_count'   => count($controls),
+                    'text_length'     => strlen(trim($element->textContent ?? '')),
+                    'child_count'     => $this->childElementCount($element),
+                    'html'            => $boundedHtml['html'],
+                    'html_bytes'      => $boundedHtml['bytes'],
+                    'html_truncated'  => $boundedHtml['truncated'],
+                ), $this->fallbackProvenance);
             }
 
-            $fallbacks[] = FallbackDiagnostic::build(array(
-                'type'            => 'html',
-                'reason'          => 'form_requires_runtime',
-                'diagnostic_code' => 'html_form_fallback',
-                'message'         => 'Form HTML requires runtime behavior and was preserved as safe fallback metadata.',
-                'source_format'   => 'html',
-                'tag'             => $tagName,
-                'selector'        => $this->elementSelector($element),
-                'attributes'      => $this->htmlAttributes($element),
-                'form'            => $this->formMetadata($element),
-                'context'         => $this->sourceContext($element),
-                'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
-                'events'          => $this->eventMetadata($element),
-                'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
-                'controls'        => $controls,
-                'control_count'   => count($controls),
-                'text_length'     => strlen(trim($element->textContent ?? '')),
-                'child_count'     => $this->childElementCount($element),
-                'html'            => $boundedHtml['html'],
-                'html_bytes'      => $boundedHtml['bytes'],
-                'html_truncated'  => $boundedHtml['truncated'],
-            ), $this->fallbackProvenance);
-
-            return null;
+            return $readableFormBlock;
         }
 
         if ( 'nav' === $tagName ) {
@@ -3630,7 +3636,57 @@ final class HtmlTransformer
     {
         return 0 < $form->getElementsByTagName('script')->length
             || array() !== $this->eventMetadata($form)
-            || array() !== $this->formMetadata($form);
+            || array() !== $this->formMetadata($form)
+            || $this->formHasDataEntryControls($form);
+    }
+
+    /**
+     * Whether a form collects user input through at least one data-entry control.
+     *
+     * A <form> that gathers data (text/email/select/textarea and similar) needs a
+     * real form runtime to submit, validate, and notify — even when it declares no
+     * action/method/script/event handler (common in static exports and design
+     * mockups where submission is wired downstream). Such a form must be preserved
+     * as a runtime island carrying its control structure rather than flattened to
+     * readable prose, so a consumer can materialize it into a working form. Keying
+     * off the control structure keeps this generic: no provider, plugin, or site
+     * knowledge leaks into the transformer.
+     */
+    private function formHasDataEntryControls(DOMElement $form): bool
+    {
+        foreach ( $this->formControlElements($form) as $control ) {
+            if ( $this->isDataEntryControl($control) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a control collects user input (as opposed to a submit/reset/button,
+     * hidden state, file upload, or image button).
+     *
+     * The excluded set mirrors the controls a form provider cannot map to a data
+     * field, so a form whose only controls are non-data-entry stays a readable
+     * fallback instead of becoming an empty preserved island.
+     */
+    private function isDataEntryControl(DOMElement $control): bool
+    {
+        $tagName = strtolower($control->tagName);
+        if ( in_array($tagName, array( 'select', 'textarea' ), true) ) {
+            return true;
+        }
+
+        if ( 'input' !== $tagName ) {
+            return false;
+        }
+
+        return ! in_array(
+            $this->formControlType($control),
+            array( 'submit', 'reset', 'button', 'image', 'hidden', 'file' ),
+            true
+        );
     }
 
     private function isReadableFormControl(DOMElement $control): bool
