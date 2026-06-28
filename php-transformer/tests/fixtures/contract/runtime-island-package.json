@@ -1,0 +1,68 @@
+{
+  "schema": "blocks-engine/php-transformer/runtime-island-package-fixture/v1",
+  "cases": [
+    {
+      "name": "first-party-inline-script-island",
+      "artifact": {
+        "entrypoint": "index.html",
+        "files": {
+          "index.html": "<main><div id=\"app\">Interactive app</div><script>document.getElementById(\"app\").addEventListener(\"click\", function () { window.toggleApp(); });</script></main>"
+        }
+      },
+      "expect_island": {
+        "kind": "script",
+        "select_by_role": "first_party",
+        "disposition": "preserve",
+        "js_handling": "preserve_verbatim",
+        "markup_fidelity": "verbatim",
+        "script_source_kind": "inline",
+        "script_role": "first_party",
+        "content_contains": "window.toggleApp()",
+        "droppable": false
+      }
+    },
+    {
+      "name": "telemetry-external-script-dropped",
+      "artifact": {
+        "entrypoint": "index.html",
+        "files": {
+          "index.html": "<main><h1>Home</h1><script src=\"https://www.googletagmanager.com/gtag/js?id=GA123\"></script></main>"
+        }
+      },
+      "expect_island": {
+        "kind": "script",
+        "select_by_role": "telemetry",
+        "disposition": "drop",
+        "js_handling": "drop",
+        "markup_fidelity": "verbatim",
+        "script_source_kind": "external",
+        "script_role": "telemetry",
+        "materialized": false,
+        "droppable": true
+      }
+    },
+    {
+      "name": "canvas-island-external-and-inline-scripts",
+      "artifact": {
+        "entrypoint": "index.html",
+        "files": {
+          "index.html": "<main><canvas id=\"chart\" class=\"chart\">fallback</canvas><script src=\"js/chart.js\"></script><script>const ctx = document.getElementById(\"chart\").getContext(\"2d\"); ctx.fillRect(0, 0, 10, 10);</script></main>",
+          "js/chart.js": "const c = document.getElementById(\"chart\").getContext(\"2d\"); c.strokeRect(0, 0, 5, 5);"
+        }
+      },
+      "expect_island": {
+        "kind": "canvas",
+        "select_by_kind": "canvas",
+        "disposition": "preserve",
+        "js_handling": "preserve_verbatim",
+        "markup_fidelity": "verbatim",
+        "markup_contains": "<canvas id=\"chart\"",
+        "has_external_script": true,
+        "external_materialized": true,
+        "external_content_contains": "strokeRect",
+        "has_inline_script": true,
+        "first_party_scripts_min": 2
+      }
+    }
+  ]
+}

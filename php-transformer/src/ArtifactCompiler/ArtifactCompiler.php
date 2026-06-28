@@ -83,6 +83,10 @@ final class ArtifactCompiler
         $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates']);
         if ( array() !== $entryBlocks['runtime_islands'] ) {
             $sourceReports['runtime_islands'] = $entryBlocks['runtime_islands'];
+            $runtimeIslandPackage = ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath);
+            if ( array() !== $runtimeIslandPackage ) {
+                $sourceReports['runtime_island_package'] = $runtimeIslandPackage;
+            }
         }
         $provenance = array(
             array(
