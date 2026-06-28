@@ -51,6 +51,13 @@ final class StaticHtmlEmitter
         return $this->fontResolver ??= new FontResolver();
     }
 
+    private ?DesignSystemExtractor $designSystemExtractor = null;
+
+    private function designSystemExtractor(): DesignSystemExtractor
+    {
+        return $this->designSystemExtractor ??= new DesignSystemExtractor();
+    }
+
     /**
      * Resolved destination-node-id => page-path map used to turn NODE/prototype links into slug hrefs.
      *
@@ -158,7 +165,14 @@ final class StaticHtmlEmitter
         $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss);
         $fontCss = (string) $fontResolution['css'];
 
-        $css = ('' !== $fontCss ? $fontCss . "\n" : '') . implode("\n", $cssRules) . "\n";
+        $designSystem = $this->designSystemExtractor()->extract($scenegraph);
+        foreach ( $this->designSystemDiagnostics($designSystem) as $diagnostic ) {
+            $diagnostics[] = $diagnostic;
+        }
+
+        $css = ('' !== $fontCss ? $fontCss . "\n" : '')
+            . ('' !== $designSystem['css'] ? $designSystem['css'] : '')
+            . implode("\n", $cssRules) . "\n";
         $files = array(
             array(
                 'path'      => 'index.html',
@@ -204,6 +218,10 @@ final class StaticHtmlEmitter
                 'font_usage'                   => $fontUsage,
                 'font_css_supplied'            => (bool) $fontResolution['operator_supplied'],
                 'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
+                'design_system'                => array(
+                    'coverage'    => $designSystem['coverage'],
+                    'frame_names' => $designSystem['frame_names'],
+                ),
                 'transform_diagnostics'        => $transformDiagnostics,
             ),
             'metrics'       => array(
@@ -346,7 +364,13 @@ final class StaticHtmlEmitter
         $fontUsage = $this->fontUsage($nodeStyleDiagnostics);
         $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss);
         $fontCss = (string) $fontResolution['css'];
-        $css = ('' !== $fontCss ? $fontCss . "\n" : '') . implode("\n", array_values(array_unique($cssRules))) . "\n";
+        $designSystem = $this->designSystemExtractor()->extract($scenegraph);
+        foreach ( $this->designSystemDiagnostics($designSystem) as $diagnostic ) {
+            $diagnostics[] = $diagnostic;
+        }
+        $css = ('' !== $fontCss ? $fontCss . "\n" : '')
+            . ('' !== $designSystem['css'] ? $designSystem['css'] : '')
+            . implode("\n", array_values(array_unique($cssRules))) . "\n";
         if ( ! empty($mediaBlocks) ) {
             // Responsive overrides cascade AFTER the widest-first base rules so
             // narrower breakpoints win at their own viewport width.
@@ -390,6 +414,10 @@ final class StaticHtmlEmitter
                 'font_usage'                   => $fontUsage,
                 'font_css_supplied'            => (bool) $fontResolution['operator_supplied'],
                 'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
+                'design_system'                => array(
+                    'coverage'    => $designSystem['coverage'],
+                    'frame_names' => $designSystem['frame_names'],
+                ),
                 'transform_diagnostics'        => $transformDiagnostics,
             ),
             'metrics'       => array(
@@ -1330,6 +1358,36 @@ final class StaticHtmlEmitter
         }
 
         return null;
+    }
+
+    /**
+     * Build the design-system coverage diagnostic: an informational record of
+     * how many color/type/spacing tokens were extracted from how many detected
+     * style-guide frames. Returns an empty list when no design-system frame was
+     * detected, so files without one stay silent.
+     *
+     * @param array{css: string, coverage: array<string, int>, frame_names: array<int, string>} $designSystem
+     * @return array<int, array<string, mixed>>
+     */
+    private function designSystemDiagnostics(array $designSystem): array
+    {
+        $coverage = is_array($designSystem['coverage'] ?? null) ? $designSystem['coverage'] : array();
+        if ( (int) ($coverage['frame_count'] ?? 0) < 1 ) {
+            return array();
+        }
+
+        return array(
+            array(
+                'severity'       => 'info',
+                'code'           => 'design_system_extracted',
+                'message'        => 'Extracted a global design system from detected style-guide frames.',
+                'frame_count'    => (int) ($coverage['frame_count'] ?? 0),
+                'color_tokens'   => (int) ($coverage['color_tokens'] ?? 0),
+                'type_tokens'    => (int) ($coverage['type_tokens'] ?? 0),
+                'spacing_tokens' => (int) ($coverage['spacing_tokens'] ?? 0),
+                'frame_names'    => is_array($designSystem['frame_names'] ?? null) ? $designSystem['frame_names'] : array(),
+            ),
+        );
     }
 
     /**
