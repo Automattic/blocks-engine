@@ -1106,49 +1106,33 @@ $geometrylessVectorDiagnosticCodes = array_map(
 $assert(str_contains($geometrylessVectorHtml, 'data-figma-node-id="vector:geometryless"') && str_contains($geometrylessVectorHtml, '<rect x="0" y="0" width="16" height="8" fill="#336699"/>'), 'geometryless-vector-renders-inherited-color-bounds');
 $assert(! in_array('unsupported_vector_node_placeholder', $geometrylessVectorDiagnosticCodes, true), 'geometryless-vector-no-placeholder-diagnostic');
 
-$simpleRectNetworkPrefix = hex2bin('0400000004000000000000000000000000000000000000000000000000008043');
-$simpleRectNetworkBlob = str_pad(false === $simpleRectNetworkPrefix ? '' : $simpleRectNetworkPrefix, 172, "\0");
-$singleLoopNetworkBlob = static function (array $points, array $segments, array $regionEntries, ?int $regionSegmentCount = null): string {
-    $vertexCount = count($points);
-    $segmentCount = count($segments);
-    $blob = pack('V3', $vertexCount, $segmentCount, 1) . str_repeat("\0", ( $vertexCount * 20 ) + ( $segmentCount * 16 ) + 12 + ( $vertexCount * 8 ));
-    foreach ( $points as $index => $point ) {
-        $blob = substr_replace($blob, pack('g', $point[0]) . pack('g', $point[1]), 12 + ( $index * 20 ) + 4, 8);
-    }
-
-    $segmentOffset = 12 + ( $vertexCount * 20 );
-    foreach ( $segments as $index => $segment ) {
-        $blob = substr_replace($blob, pack('V2', $segment[0], $segment[1]), $segmentOffset + ( $index * 16 ), 8);
-    }
-
-    $regionOffset = $segmentOffset + ( $segmentCount * 16 );
-    $blob = substr_replace($blob, pack('V3', $regionSegmentCount ?? count($regionEntries), 0, 0), $regionOffset, 12);
-    foreach ( $regionEntries as $index => $entry ) {
-        $blob = substr_replace($blob, pack('V2', $entry[0], $entry[1]), $regionOffset + 12 + ( $index * 8 ), 8);
-    }
-
-    return $blob;
-};
-$closedRectNetworkBlob = pack('V3', 4, 4, 1) . str_repeat("\0", 188);
-foreach ( array(array(0.0, 0.0), array(12.0, 0.0), array(12.0, 6.0), array(0.0, 6.0)) as $index => $point ) {
-    $offset = 12 + ( $index * 20 ) + 4;
-    $closedRectNetworkBlob = substr_replace($closedRectNetworkBlob, pack('g', $point[0]) . pack('g', $point[1]), $offset, 8);
-}
-$nonRectNetworkBlob = pack('V3', 4, 4, 1) . str_repeat("\0", 188);
-foreach ( array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)) as $index => $point ) {
-    $offset = 12 + ( $index * 20 ) + 4;
-    $nonRectNetworkBlob = substr_replace($nonRectNetworkBlob, pack('g', $point[0]) . pack('g', $point[1]), $offset, 8);
-}
+// Schema-driven vectorNetwork decode (#247): the vectorNetwork geometry is
+// carried through the REAL Kiwi decoder + scenegraph field policy (a second
+// decode pass over the blob bytes) and converted to an SVG path — no hand-rolled
+// byte layout. A real Kiwi vectorNetwork rect (4 vertices, 4 straight segments,
+// one NONZERO region) decodes into an inline <svg><path>.
+$vectorNetworkSchema = (new FigKiwiDecoder())->decodeSchema(blocks_engine_figma_transformer_kiwi_vector_network_schema_bytes())['schema'];
+$rectNetworkBlob = blocks_engine_figma_transformer_kiwi_vector_network_message(
+    array(array(0.0, 0.0), array(12.0, 0.0), array(12.0, 6.0), array(0.0, 6.0)),
+    array(
+        array('start' => 0, 'end' => 1, 'ts' => array(0.0, 0.0), 'te' => array(0.0, 0.0)),
+        array('start' => 1, 'end' => 2, 'ts' => array(0.0, 0.0), 'te' => array(0.0, 0.0)),
+        array('start' => 2, 'end' => 3, 'ts' => array(0.0, 0.0), 'te' => array(0.0, 0.0)),
+        array('start' => 3, 'end' => 0, 'ts' => array(0.0, 0.0), 'te' => array(0.0, 0.0)),
+    ),
+    array(array('winding' => 0, 'loops' => array(array(0, 1, 2, 3))))
+);
 $vectorDataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Vector Data Fixture',
-    'blobs' => array(array('bytes' => $vectorCommandBlob), array('bytes' => "\xff"), array('bytes' => $simpleRectNetworkBlob), array('bytes' => $closedRectNetworkBlob), array('bytes' => $nonRectNetworkBlob)),
+    'figma_kiwi_schema' => $vectorNetworkSchema,
+    'blobs' => array(array('bytes' => $rectNetworkBlob), array('bytes' => "\xff")),
     'nodes' => array(
         array(
-            'id'         => 'vector:data',
+            'id'         => 'vector:kiwi-network',
             'type'       => 'VECTOR',
-            'name'       => 'Vector Data Path',
-            'width'      => 10,
-            'height'     => 10,
+            'name'       => 'Kiwi Network Path',
+            'width'      => 12,
+            'height'     => 6,
             'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0, 'b' => 0))),
             'vectorData' => array('vectorNetworkBlob' => 0),
         ),
@@ -1169,36 +1153,10 @@ $vectorDataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
             'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 1))),
             'vectorData' => array('vectorNetworkBlob' => 1),
         ),
-        array(
-            'id'         => 'vector:data-simple-rect-network',
-            'type'       => 'VECTOR',
-            'name'       => 'Simple Rect Network',
-            'width'      => 12,
-            'height'     => 6,
-            'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0.5, 'b' => 1))),
-            'vectorData' => array('vectorNetworkBlob' => 2),
-        ),
-        array(
-            'id'         => 'vector:data-closed-rect-network',
-            'type'       => 'VECTOR',
-            'name'       => 'Closed Rect Network',
-            'width'      => 12,
-            'height'     => 6,
-            'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.2, 'g' => 0.4, 'b' => 0.6))),
-            'vectorData' => array('vectorNetworkBlob' => 3),
-        ),
-        array(
-            'id'         => 'vector:data-non-rect-network',
-            'type'       => 'VECTOR',
-            'name'       => 'Non Rect Network',
-            'width'      => 12,
-            'height'     => 6,
-            'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.6, 'g' => 0.4, 'b' => 0.2))),
-            'vectorData' => array('vectorNetworkBlob' => 4),
-        ),
     ),
 ));
 $vectorDataHtml = $fileContent($vectorDataResult, 'index.html');
+$vectorDataVectors = $vectorDataResult['source_reports']['figma']['html']['transform_diagnostics']['vectors'] ?? array();
 $vectorNetworkDiagnostic = null;
 foreach ( $vectorDataResult['diagnostics'] ?? array() as $diagnostic ) {
     if ( is_array($diagnostic) && 'unsupported_vector_network_blob' === ($diagnostic['code'] ?? null) ) {
@@ -1210,17 +1168,15 @@ $vectorDataDiagnosticCodes = array_map(
     static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
     $vectorDataResult['diagnostics'] ?? array()
 );
-$assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data"') && str_contains($vectorDataHtml, 'data-figma-vector="true"'), 'vector-data-renders-svg');
-$assert(str_contains($vectorDataHtml, 'd="M0 0L10 0 10 10Z"'), 'vector-data-renders-command-blob-path');
+$assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:kiwi-network"') && str_contains($vectorDataHtml, 'data-figma-vector="true"'), 'vector-data-renders-svg');
+$assert(str_contains($vectorDataHtml, 'd="M0 0L12 0 12 6 0 6 0 0Z"') && str_contains($vectorDataHtml, 'fill="#ff0000"'), 'vector-data-kiwi-network-renders-path');
+$assert(1 === (int) ($vectorDataVectors['vector_network_decoded'] ?? 0), 'vector-data-kiwi-network-decoded-count');
 $assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-painted-fallback"') && str_contains($vectorDataHtml, '<rect x="0" y="0" width="12" height="6" fill="#0000ff"/>'), 'vector-data-painted-network-fallback-rect');
-$assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-simple-rect-network"') && str_contains($vectorDataHtml, 'd="M0 0L12 0 12 6 0 6Z"') && str_contains($vectorDataHtml, 'fill="#0080ff"'), 'vector-data-simple-rect-network-renders-bounded-path');
-$assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-closed-rect-network"') && str_contains($vectorDataHtml, 'd="M0 0L12 0 12 6 0 6Z"') && str_contains($vectorDataHtml, 'fill="#336699"'), 'vector-data-closed-rect-network-renders-bounded-path');
-$assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-non-rect-network"') && str_contains($vectorDataHtml, 'data-figma-unsupported-vector="true"'), 'vector-data-non-rect-network-keeps-placeholder');
+$assert(str_contains($vectorDataHtml, 'data-figma-node-id="vector:data-malformed"') && str_contains($vectorDataHtml, 'data-figma-unsupported-vector="true"'), 'vector-data-malformed-keeps-placeholder');
 $assert(in_array('unsupported_vector_network_blob', $vectorDataDiagnosticCodes, true), 'vector-data-malformed-network-diagnostic');
 $assert(1 === ($vectorNetworkDiagnostic['context']['byte_length'] ?? null) && 'ff' === ($vectorNetworkDiagnostic['context']['signature_hex'] ?? null), 'vector-network-diagnostic-context');
-$vectorDataPlaceholderDiagnostics = $vectorDataResult['source_reports']['figma']['html']['transform_diagnostics']['vectors'] ?? array();
 $malformedNetworkPlaceholder = null;
-foreach ( $vectorDataPlaceholderDiagnostics['placeholder_nodes'] ?? array() as $placeholderNode ) {
+foreach ( $vectorDataVectors['placeholder_nodes'] ?? array() as $placeholderNode ) {
     if ( is_array($placeholderNode) && 'vector:data-malformed' === ($placeholderNode['node_id'] ?? null) ) {
         $malformedNetworkPlaceholder = $placeholderNode;
         break;
@@ -1228,43 +1184,35 @@ foreach ( $vectorDataPlaceholderDiagnostics['placeholder_nodes'] ?? array() as $
 }
 $assert('unsupported_vector_network_blob' === ($malformedNetworkPlaceholder['reason'] ?? null), 'vector-network-placeholder-reason');
 $assert(array('vectorData.vectorNetworkBlob') === ($malformedNetworkPlaceholder['source_fields'] ?? null), 'vector-network-placeholder-source-field');
-$assert(1 === ($vectorDataPlaceholderDiagnostics['placeholder_reasons']['unsupported_vector_network_blob'] ?? null), 'vector-network-placeholder-reason-count');
+$assert(1 === ($vectorDataVectors['placeholder_reasons']['unsupported_vector_network_blob'] ?? null), 'vector-network-placeholder-reason-count');
 $vectorNetworkDiagnostics = array_values(array_filter(
     $vectorDataResult['diagnostics'] ?? array(),
     static fn (array $diagnostic): bool => 'unsupported_vector_network_blob' === ($diagnostic['code'] ?? null)
 ));
-$assert(2 === count($vectorNetworkDiagnostics), 'vector-network-repeated-diagnostics-compacted');
+$assert(1 === count($vectorNetworkDiagnostics), 'vector-network-repeated-diagnostics-compacted');
 $assert(2 === ($vectorNetworkDiagnostic['context']['occurrence_count'] ?? null), 'vector-network-diagnostic-occurrence-count');
 $assert(2 === ($vectorNetworkDiagnostic['context']['affected_node_count'] ?? null), 'vector-network-diagnostic-affected-node-count');
 $assert(array('vector:data-malformed', 'vector:data-painted-fallback') === ($vectorNetworkDiagnostic['context']['sample_node_ids'] ?? null), 'vector-network-diagnostic-sample-nodes');
 $assert(array('1') === ($vectorNetworkDiagnostic['context']['sample_blob_refs'] ?? null), 'vector-network-diagnostic-sample-blob-refs');
 
-// General vectorNetwork decode: 3 vertices, 3 segments (one carrying bezier
-// tangents), one NONZERO region. Stride is 24 bytes (tangent-bearing), so the
-// blob is rejected by the legacy exact-match decoders and handled by the new
-// general decoder, emitting a real cubic-curve path rather than a placeholder.
-$curvedNetworkVertices = array(array(0.0, 0.0), array(10.0, 0.0), array(10.0, 10.0));
-$curvedNetworkSegments = array(
-    array('start' => 0, 'end' => 1, 'ts' => array(0.0, 0.0), 'te' => array(0.0, 0.0)),
-    array('start' => 1, 'end' => 2, 'ts' => array(2.0, 0.0), 'te' => array(0.0, -2.0)),
-    array('start' => 2, 'end' => 0, 'ts' => array(0.0, 0.0), 'te' => array(0.0, 0.0)),
+// Curved vectorNetwork decode through the REAL Kiwi decoder: 3 vertices, 3
+// segments (one carrying bezier tangents), one NONZERO region. The blob is a
+// Kiwi-encoded VectorNetwork message decoded via the schema-driven field policy,
+// emitting a real cubic-curve path rather than a placeholder.
+$curvedNetworkSchema = (new FigKiwiDecoder())->decodeSchema(blocks_engine_figma_transformer_kiwi_vector_network_schema_bytes())['schema'];
+$curvedNetworkBlob = blocks_engine_figma_transformer_kiwi_vector_network_message(
+    array(array(0.0, 0.0), array(10.0, 0.0), array(10.0, 10.0)),
+    array(
+        array('start' => 0, 'end' => 1, 'ts' => array(0.0, 0.0), 'te' => array(0.0, 0.0)),
+        array('start' => 1, 'end' => 2, 'ts' => array(2.0, 0.0), 'te' => array(0.0, -2.0)),
+        array('start' => 2, 'end' => 0, 'ts' => array(0.0, 0.0), 'te' => array(0.0, 0.0)),
+    ),
+    array(array('winding' => 0, 'loops' => array(array(0, 1, 2))))
 );
-$curvedNetworkEntries = array(array(0, 0), array(1, 0), array(2, 0));
-$curvedNetworkBlob = pack('V3', count($curvedNetworkVertices), count($curvedNetworkSegments), 1);
-foreach ( $curvedNetworkVertices as $point ) {
-    $curvedNetworkBlob .= pack('V', 0) . pack('g', $point[0]) . pack('g', $point[1]) . pack('V2', 0, 0);
-}
-foreach ( $curvedNetworkSegments as $segment ) {
-    $curvedNetworkBlob .= pack('V', $segment['start']) . pack('g', $segment['ts'][0]) . pack('g', $segment['ts'][1])
-        . pack('V', $segment['end']) . pack('g', $segment['te'][0]) . pack('g', $segment['te'][1]);
-}
-$curvedNetworkBlob .= pack('V3', count($curvedNetworkEntries), 0, 0);
-foreach ( $curvedNetworkEntries as $entry ) {
-    $curvedNetworkBlob .= pack('V2', $entry[0], $entry[1]);
-}
 
 $curvedNetworkResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Curved Vector Network Fixture',
+    'figma_kiwi_schema' => $curvedNetworkSchema,
     'blobs' => array(array('bytes' => $curvedNetworkBlob)),
     'nodes' => array(
         array(
@@ -1293,6 +1241,23 @@ $assert(1 === (int) ($curvedNetworkSummary['vector_network_decoded'] ?? 0), 'cur
 $assert(1 === (int) ($curvedNetworkSummary['generated_svg_count'] ?? -1), 'curved-network-summary-generated-svg-count');
 $assert(1 === (int) ($curvedNetworkSummary['vector_decoded_to_svg'] ?? -1), 'curved-network-summary-decoded-to-svg');
 $assert(0 === (int) ($curvedNetworkSummary['externalized_svg_asset_count'] ?? -1), 'curved-network-summary-externalized-count');
+
+// DECODE: the default scenegraph field policy carries the vectorNetwork
+// structure (vertices/segments/regions) through the REAL generic Kiwi decoder,
+// exactly mirroring how dev-status rides the policy (#281). No explicit policy is
+// passed, so this proves defaultScenegraphFieldPolicy() whitelists the geometry.
+$vectorNetworkDecoder = new FigKiwiDecoder();
+$vectorNetworkDecodeSchema = $vectorNetworkDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_vector_network_schema_bytes());
+$vectorNetworkDecoded = $vectorNetworkDecoder->decodeMessageSelective(
+    $curvedNetworkBlob,
+    $vectorNetworkDecodeSchema['schema'] ?? array(),
+    'VectorNetwork'
+);
+$vectorNetworkDecodedMessage = $vectorNetworkDecoded['message'] ?? array();
+$assert(3 === count($vectorNetworkDecodedMessage['vertices'] ?? array()), 'vector-network-field-policy-carries-vertices');
+$assert(3 === count($vectorNetworkDecodedMessage['segments'] ?? array()), 'vector-network-field-policy-carries-segments');
+$assert(array('x' => 2.0, 'y' => 0.0) === ($vectorNetworkDecodedMessage['segments'][1]['tangentStart'] ?? null), 'vector-network-field-policy-carries-segment-tangent');
+$assert(array(0, 1, 2) === ($vectorNetworkDecodedMessage['regions'][0]['loops'][0]['segments'] ?? null), 'vector-network-field-policy-carries-region-loop');
 
 // Boolean operation: compose two child vector paths into one SVG. The default
 // (UNION) overlays both child paths; the parent is no longer a placeholder.
@@ -1385,60 +1350,11 @@ $multiPageVectorPlaceholderResult = blocks_engine_figma_transformer_transform_sc
 $multiPageVectorPlaceholderDiagnostics = $multiPageVectorPlaceholderResult['source_reports']['figma']['html']['transform_diagnostics']['vectors'] ?? array();
 $assert(1 === ($multiPageVectorPlaceholderDiagnostics['placeholder_reasons']['oversized_path_data'] ?? null), 'multi-page-vector-placeholder-reason-aggregated');
 
-$nonRectVectorNetworkDiagnostic = null;
-foreach ( $vectorNetworkDiagnostics as $diagnostic ) {
-    if ( array(4, 4, 1) === ($diagnostic['context']['network_counts'] ?? null) ) {
-        $nonRectVectorNetworkDiagnostic = $diagnostic;
-        break;
-    }
-}
-$assert(true === ($nonRectVectorNetworkDiagnostic['context']['single_region_loop_candidate'] ?? null), 'vector-network-single-region-candidate-diagnostic');
-$assert(array('vertex_stride' => 20, 'segment_stride' => 16, 'region_bytes' => 44) === ($nonRectVectorNetworkDiagnostic['context']['candidate_layout'] ?? null), 'vector-network-candidate-layout-diagnostic');
-$assert(array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)) === ($nonRectVectorNetworkDiagnostic['context']['candidate_vertex_points_sample'] ?? null), 'vector-network-candidate-point-sample');
-$assert('Decode only after segment endpoints and region winding/order are validated as one closed non-branching loop.' === ($nonRectVectorNetworkDiagnostic['context']['candidate_decoder_requirement'] ?? null), 'vector-network-candidate-requirement');
+// Single-region candidate-layout diagnostics were tied to the removed synthetic
+// byte-parser (#247); schema-driven decode supersedes them.
 
-$loopDecoderResult = blocks_engine_figma_transformer_transform_scenegraph(array(
-    'name'  => 'Vector Network Loop Decoder Fixture',
-    'blobs' => array(
-        array('bytes' => $singleLoopNetworkBlob(
-            array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)),
-            array(array(0, 1), array(1, 2), array(2, 3), array(3, 0)),
-            array(array(0, 0), array(1, 0), array(2, 0), array(3, 0))
-        )),
-        array('bytes' => $singleLoopNetworkBlob(
-            array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)),
-            array(array(0, 1), array(1, 2), array(1, 3), array(3, 0)),
-            array(array(0, 0), array(1, 0), array(2, 0), array(3, 0))
-        )),
-        array('bytes' => $singleLoopNetworkBlob(
-            array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)),
-            array(array(0, 1), array(1, 2), array(2, 3), array(3, 0)),
-            array(array(0, 0), array(1, 0), array(2, 0), array(3, 1))
-        )),
-        array('bytes' => $singleLoopNetworkBlob(
-            array(array(0.0, 0.0), array(12.0, 0.0), array(8.0, 6.0), array(0.0, 6.0)),
-            array(array(0, 1), array(1, 2), array(2, 3), array(3, 0)),
-            array(array(0, 0), array(1, 0), array(2, 0), array(3, 0)),
-            3
-        )),
-    ),
-    'nodes' => array(
-        array('id' => 'vector:loop-supported', 'type' => 'VECTOR', 'name' => 'Supported Loop', 'width' => 12, 'height' => 6, 'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.1, 'g' => 0.2, 'b' => 0.3))), 'vectorData' => array('vectorNetworkBlob' => 0)),
-        array('id' => 'vector:loop-branch', 'type' => 'VECTOR', 'name' => 'Branched Loop', 'width' => 12, 'height' => 6, 'vectorData' => array('vectorNetworkBlob' => 1)),
-        array('id' => 'vector:loop-open-order', 'type' => 'VECTOR', 'name' => 'Open Region Order', 'width' => 12, 'height' => 6, 'vectorData' => array('vectorNetworkBlob' => 2)),
-        array('id' => 'vector:loop-malformed-region', 'type' => 'VECTOR', 'name' => 'Malformed Region', 'width' => 12, 'height' => 6, 'vectorData' => array('vectorNetworkBlob' => 3)),
-    ),
-));
-$loopDecoderHtml = $fileContent($loopDecoderResult, 'index.html');
-$loopDecoderDiagnosticCodes = array_map(
-    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
-    $loopDecoderResult['diagnostics'] ?? array()
-);
-$assert(str_contains($loopDecoderHtml, 'data-figma-node-id="vector:loop-supported"') && str_contains($loopDecoderHtml, 'd="M0 0L12 0 8 6 0 6Z"') && str_contains($loopDecoderHtml, 'fill="#1a334d"'), 'vector-network-single-loop-renders-path');
-$assert(str_contains($loopDecoderHtml, 'data-figma-node-id="vector:loop-branch"') && str_contains($loopDecoderHtml, 'data-figma-unsupported-vector="true"'), 'vector-network-branch-keeps-placeholder');
-$assert(str_contains($loopDecoderHtml, 'data-figma-node-id="vector:loop-open-order"') && str_contains($loopDecoderHtml, 'data-figma-unsupported-vector="true"'), 'vector-network-open-order-keeps-placeholder');
-$assert(str_contains($loopDecoderHtml, 'data-figma-node-id="vector:loop-malformed-region"') && str_contains($loopDecoderHtml, 'data-figma-unsupported-vector="true"'), 'vector-network-malformed-region-keeps-placeholder');
-$assert(in_array('unsupported_vector_network_blob', $loopDecoderDiagnosticCodes, true), 'vector-network-unsupported-loop-topology-diagnostic');
+// Synthetic single-loop byte-layout decoder tests were removed with the
+// hand-rolled parser (#247); the Kiwi-message decode is covered above.
 
 $zeroHeightSeparatorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Zero Height Separator Fixture',
@@ -1499,38 +1415,8 @@ $assert(str_contains($nearZeroContainerCss, '.figma-node-near-zero-container-dec
 $assert(! str_contains($nearZeroContainerCss, '.figma-node-near-zero-container-decorative-zero-height-wrapper{width:600px;height:0px;position:relative;transform:'), 'near-zero-container-suppresses-transform-bounds-inflation');
 $assert(str_contains($nearZeroContainerCss, '.figma-node-near-zero-child-decorative-child{width:600px;height:320px;position:absolute;flex-shrink:0}'), 'near-zero-container-keeps-child-rendering');
 
-$agenticChevronLeftPrefix = hex2bin('0600000006000000010000000000000000000041000080410000000000000000');
-$agenticChevronRightPrefix = hex2bin('06000000060000000100000000000000f4fdb43f0000804100000000be9f1641');
-$agenticChevronWrongCountsPrefix = hex2bin('0600000005000000010000000000000000000041000080410000000000000000');
-$agenticChevronUnknownPrefix = hex2bin('060000000600000001000000ffffffff00000041000080410000000000000000');
-$agenticChevronResult = blocks_engine_figma_transformer_transform_scenegraph(array(
-    'name'  => 'Agentic Chevron Fixture',
-    'blobs' => array(
-        array('bytes' => str_pad(false === $agenticChevronLeftPrefix ? '' : $agenticChevronLeftPrefix, 288, "\0")),
-        array('bytes' => str_pad(false === $agenticChevronRightPrefix ? '' : $agenticChevronRightPrefix, 288, "\0")),
-        array('bytes' => str_pad(false === $agenticChevronLeftPrefix ? '' : $agenticChevronLeftPrefix, 287, "\0")),
-        array('bytes' => str_pad(false === $agenticChevronWrongCountsPrefix ? '' : $agenticChevronWrongCountsPrefix, 288, "\0")),
-        array('bytes' => str_pad(false === $agenticChevronUnknownPrefix ? '' : $agenticChevronUnknownPrefix, 288, "\0")),
-    ),
-    'nodes' => array(
-        array('id' => 'chevron:left', 'type' => 'VECTOR', 'name' => 'Gridicon / gridicons-chevron-left', 'width' => 10.414, 'height' => 17, 'vectorData' => array('vectorNetworkBlob' => 0)),
-        array('id' => 'chevron:right', 'type' => 'VECTOR', 'name' => 'Gridicon / gridicons-chevron-right', 'width' => 10.414, 'height' => 17, 'vectorData' => array('vectorNetworkBlob' => 1)),
-        array('id' => 'chevron:bad-length', 'type' => 'VECTOR', 'name' => 'Bad chevron length', 'width' => 10, 'height' => 10, 'vectorData' => array('vectorNetworkBlob' => 2)),
-        array('id' => 'chevron:bad-counts', 'type' => 'VECTOR', 'name' => 'Bad chevron counts', 'width' => 10, 'height' => 10, 'vectorData' => array('vectorNetworkBlob' => 3)),
-        array('id' => 'chevron:unknown-signature', 'type' => 'VECTOR', 'name' => 'Unknown chevron signature', 'width' => 10, 'height' => 10, 'vectorData' => array('vectorNetworkBlob' => 4)),
-    ),
-));
-$agenticChevronHtml = $fileContent($agenticChevronResult, 'index.html');
-$agenticChevronDiagnosticCodes = array_map(
-    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
-    $agenticChevronResult['diagnostics'] ?? array()
-);
-$assert(str_contains($agenticChevronHtml, 'data-figma-node-id="chevron:left"') && str_contains($agenticChevronHtml, 'M8 16L0 8 8 0 9.414 1.414 2.828 8 9.414 14.586 8 16Z'), 'agentic-chevron-left-renders');
-$assert(str_contains($agenticChevronHtml, 'data-figma-node-id="chevron:right"') && str_contains($agenticChevronHtml, 'M1.414 16L9.414 8 1.414 0 0 1.414 6.586 8 0 14.586 1.414 16Z'), 'agentic-chevron-right-renders');
-$assert(str_contains($agenticChevronHtml, 'data-figma-node-id="chevron:bad-length"') && str_contains($agenticChevronHtml, 'data-figma-unsupported-vector="true"'), 'agentic-chevron-bad-length-placeholder');
-$assert(str_contains($agenticChevronHtml, 'data-figma-node-id="chevron:bad-counts"') && str_contains($agenticChevronHtml, 'data-figma-unsupported-vector="true"'), 'agentic-chevron-bad-counts-placeholder');
-$assert(str_contains($agenticChevronHtml, 'data-figma-node-id="chevron:unknown-signature"') && str_contains($agenticChevronHtml, 'data-figma-unsupported-vector="true"'), 'agentic-chevron-unknown-signature-placeholder');
-$assert(in_array('unsupported_vector_network_blob', $agenticChevronDiagnosticCodes, true), 'agentic-chevron-guarded-failures-diagnosed');
+// Hardcoded chevron-signature decoders were removed with the synthetic
+// byte-parser (#247).
 
 $vectorChildFallbackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Vector Child Fallback Fixture',
@@ -4653,7 +4539,17 @@ $assert(str_contains($instanceVectorChildrenCss, '.figma-node-icon-two-icon-vect
 
 $instanceSimpleNetworkVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Instance Simple Network Vector Fixture',
-    'blobs' => array(array('bytes' => $simpleRectNetworkBlob)),
+    'figma_kiwi_schema' => (new FigKiwiDecoder())->decodeSchema(blocks_engine_figma_transformer_kiwi_vector_network_schema_bytes())['schema'],
+    'blobs' => array(array('bytes' => blocks_engine_figma_transformer_kiwi_vector_network_message(
+        array(array(0.0, 0.0), array(12.0, 0.0), array(12.0, 6.0), array(0.0, 6.0)),
+        array(
+            array('start' => 0, 'end' => 1, 'ts' => array(0.0, 0.0), 'te' => array(0.0, 0.0)),
+            array('start' => 1, 'end' => 2, 'ts' => array(0.0, 0.0), 'te' => array(0.0, 0.0)),
+            array('start' => 2, 'end' => 3, 'ts' => array(0.0, 0.0), 'te' => array(0.0, 0.0)),
+            array('start' => 3, 'end' => 0, 'ts' => array(0.0, 0.0), 'te' => array(0.0, 0.0)),
+        ),
+        array(array('winding' => 0, 'loops' => array(array(0, 1, 2, 3))))
+    ))),
     'nodes' => array(
         array(
             'id'       => 'simple-network-icon:component',
@@ -4685,7 +4581,7 @@ $instanceSimpleNetworkVectorDiagnosticCodes = array_map(
     $instanceSimpleNetworkVectorResult['diagnostics'] ?? array()
 );
 $assert(str_contains($instanceSimpleNetworkVectorHtml, 'data-figma-node-id="simple-network-icon:instance/simple-network-icon:vector"'), 'instance-simple-network-vector-child-id-namespaced');
-$assert(str_contains($instanceSimpleNetworkVectorHtml, 'd="M0 0L12 0 12 6 0 6Z"') && str_contains($instanceSimpleNetworkVectorHtml, 'fill="#0080ff"'), 'instance-simple-network-vector-renders-size-derived-path');
+$assert(str_contains($instanceSimpleNetworkVectorHtml, 'd="M0 0L12 0 12 6 0 6 0 0Z"') && str_contains($instanceSimpleNetworkVectorHtml, 'fill="#0080ff"'), 'instance-simple-network-vector-renders-size-derived-path');
 $assert(! in_array('unsupported_vector_node_placeholder', $instanceSimpleNetworkVectorDiagnosticCodes, true), 'instance-simple-network-vector-no-placeholder-diagnostic');
 $assert(! in_array('unsupported_vector_network_blob', $instanceSimpleNetworkVectorDiagnosticCodes, true), 'instance-simple-network-vector-no-network-diagnostic');
 
@@ -5589,3 +5485,94 @@ function blocks_engine_figma_transformer_zstd_fixture_payload(): string
 
     return "\x28\xb5\x2f\xfd" . 'synthetic-zstd-frame';
 }
+
+/**
+ * Kiwi varfloat encoder matching FigKiwiByteReader::readVarFloat (the rotated
+ * 32-bit representation Figma uses). 0.0 collapses to a single zero byte.
+ */
+function blocks_engine_figma_transformer_kiwi_varfloat(float $value): string
+{
+    if ( 0.0 === $value ) {
+        return chr(0);
+    }
+
+    $ieee = unpack('V', pack('f', $value))[1];
+    $rotated = ( (($ieee << 9) & 0xffffffff) | (($ieee >> 23) & 0x1ff) ) & 0xffffffff;
+    return pack('V', $rotated);
+}
+
+/**
+ * Kiwi schema (five STRUCT defs) describing a Figma vectorNetwork: vertices
+ * {x, y}, segments {start, tangentStart, end, tangentEnd}, and regions
+ * {windingRule, loops}, where each loop is a list of segment indices. This is the
+ * schema-defined structure the REAL decoder carries through the field policy
+ * before it is converted to an SVG path (#247).
+ */
+function blocks_engine_figma_transformer_kiwi_vector_network_schema_bytes(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(5)
+        // def0: STRUCT VectorVertex { float x, float y }
+        . blocks_engine_figma_transformer_kiwi_string('VectorVertex') . chr(1) . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('x', ~4, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('y', ~4, false, 2)
+        // def1: STRUCT VectorSegment { uint start, VectorVertex tangentStart, uint end, VectorVertex tangentEnd }
+        . blocks_engine_figma_transformer_kiwi_string('VectorSegment') . chr(1) . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('start', ~3, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('tangentStart', 0, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('end', ~3, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('tangentEnd', 0, false, 4)
+        // def2: STRUCT VectorRegionLoop { uint[] segments }
+        . blocks_engine_figma_transformer_kiwi_string('VectorRegionLoop') . chr(1) . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('segments', ~3, true, 1)
+        // def3: STRUCT VectorRegion { uint windingRule, VectorRegionLoop[] loops }
+        . blocks_engine_figma_transformer_kiwi_string('VectorRegion') . chr(1) . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('windingRule', ~3, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('loops', 2, true, 2)
+        // def4: STRUCT VectorNetwork { VectorVertex[] vertices, VectorSegment[] segments, VectorRegion[] regions }
+        . blocks_engine_figma_transformer_kiwi_string('VectorNetwork') . chr(1) . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('vertices', 0, true, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('segments', 1, true, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('regions', 3, true, 3);
+}
+
+/**
+ * Encode a Kiwi vectorNetwork message for
+ * {@see blocks_engine_figma_transformer_kiwi_vector_network_schema_bytes()}.
+ *
+ * @param array<int, array{0: float, 1: float}>                                                     $vertices
+ * @param array<int, array{start: int, end: int, ts: array{0: float, 1: float}, te: array{0: float, 1: float}}> $segments
+ * @param array<int, array{winding?: int, loops: array<int, array<int, int>>}>                      $regions
+ */
+function blocks_engine_figma_transformer_kiwi_vector_network_message(array $vertices, array $segments, array $regions): string
+{
+    $point = static fn (array $p): string => blocks_engine_figma_transformer_kiwi_varfloat((float) $p[0]) . blocks_engine_figma_transformer_kiwi_varfloat((float) $p[1]);
+
+    $bytes = blocks_engine_figma_transformer_wire_varint(count($vertices));
+    foreach ( $vertices as $vertex ) {
+        $bytes .= $point($vertex);
+    }
+
+    $bytes .= blocks_engine_figma_transformer_wire_varint(count($segments));
+    foreach ( $segments as $segment ) {
+        $bytes .= blocks_engine_figma_transformer_wire_varint((int) $segment['start'])
+            . $point($segment['ts'])
+            . blocks_engine_figma_transformer_wire_varint((int) $segment['end'])
+            . $point($segment['te']);
+    }
+
+    $bytes .= blocks_engine_figma_transformer_wire_varint(count($regions));
+    foreach ( $regions as $region ) {
+        $bytes .= blocks_engine_figma_transformer_wire_varint((int) ($region['winding'] ?? 0));
+        $loops = $region['loops'] ?? array();
+        $bytes .= blocks_engine_figma_transformer_wire_varint(count($loops));
+        foreach ( $loops as $loop ) {
+            $bytes .= blocks_engine_figma_transformer_wire_varint(count($loop));
+            foreach ( $loop as $segmentIndex ) {
+                $bytes .= blocks_engine_figma_transformer_wire_varint((int) $segmentIndex);
+            }
+        }
+    }
+
+    return $bytes;
+}
+

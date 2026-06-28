@@ -121,6 +121,12 @@ final class FigKiwiParser
         }
 
         $canvas['chunks'] = $chunks;
+        if ( null !== $kiwiSchema ) {
+            // Retain the decoded Kiwi schema so downstream consumers can run a
+            // second decode pass (e.g. vectorNetwork blobs) through the real
+            // schema-driven decoder rather than guessing a byte layout.
+            $canvas['kiwi_schema'] = $kiwiSchema;
+        }
 
         return array(
             'canvas'      => $canvas,

@@ -420,6 +420,18 @@ final class FigKiwiDecoder
             'Path' => array('commandsBlob', 'windingRule', 'styleID'),
             'VectorPath' => array('commandsBlob', 'windingRule', 'styleID'),
             'VectorData' => array('vectorNetworkBlob', 'vectorNetwork'),
+            // Vector geometry (#247). The vectorNetwork structure is carried
+            // through the REAL Kiwi decoder — either inline on VectorData or via a
+            // second decode pass over the vectorNetworkBlob bytes — and converted
+            // to an SVG path. `vertices`/`segments`/`regions` describe the network;
+            // segment tangents reuse the whitelisted `Vector` {x,y} type. Over-
+            // listing plausible inner field names is safe: unknown fields are
+            // skipped, not mis-read.
+            'VectorNetwork' => array('vertices', 'segments', 'regions', 'vertexCount', 'segmentCount', 'regionCount'),
+            'VectorVertex' => array('x', 'y', 'styleID'),
+            'VectorSegment' => array('start', 'end', 'tangentStart', 'tangentEnd', 'startPoint', 'endPoint'),
+            'VectorRegion' => array('windingRule', 'loops', 'fillStyleID'),
+            'VectorRegionLoop' => array('segments', 'indices', 'segmentIndices'),
             'SymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
             'DerivedSymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
             'GUIDPath' => array('guids'),

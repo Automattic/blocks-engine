@@ -4,13 +4,24 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\FigmaTransformer\Scenegraph;
 
+use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiDecoder;
+
 /**
  * Normalizes decoded Figma scenegraph payloads into a deterministic transformer contract.
  */
 final class ScenegraphNormalizer
 {
+    /**
+     * Schema-driven Kiwi decoder used to decode vectorNetwork blobs as real Kiwi
+     * sub-messages (set per transform from the source payload's schema).
+     *
+     * @var array<string, mixed>|null
+     */
+    private ?array $kiwiSchema = null;
+
     public function __construct(
-        private readonly ScenegraphIndex $index = new ScenegraphIndex()
+        private readonly ScenegraphIndex $index = new ScenegraphIndex(),
+        private readonly FigKiwiDecoder $kiwiDecoder = new FigKiwiDecoder()
     ) {
     }
 
@@ -24,6 +35,7 @@ final class ScenegraphNormalizer
         $index       = $this->index->build($source);
         $diagnostics = $index['diagnostics'];
         $blobs       = is_array($source['blobs'] ?? null) ? $source['blobs'] : array();
+        $this->kiwiSchema = is_array($source['figma_kiwi_schema'] ?? null) ? $source['figma_kiwi_schema'] : null;
         if ( isset($options['max_nodes']) && is_numeric($options['max_nodes']) && (int) $options['max_nodes'] > 0 && count($index['nodes']) > (int) $options['max_nodes'] ) {
             $preferredRootId = isset($options['frame_id']) && is_scalar($options['frame_id']) ? (string) $options['frame_id'] : null;
             $index = $this->limitIndexNodes($index, (int) $options['max_nodes'], $diagnostics, $preferredRootId);
@@ -2138,6 +2150,15 @@ final class ScenegraphNormalizer
             }
         }
 
+        // An inline, structured vectorNetwork carried through the main Kiwi field
+        // policy converts directly without a second decode pass.
+        if ( empty($paths) && is_array($node['vectorData']['vectorNetwork'] ?? null) ) {
+            $path = $this->vectorNetworkStructureToPath($node['vectorData']['vectorNetwork']);
+            if ( null !== $path ) {
+                $paths[] = array('data' => $path['data'], 'source' => 'vectorData.vectorNetwork', 'windingRule' => $path['windingRule']);
+            }
+        }
+
         if ( empty($paths) && isset($node['vectorData']['vectorNetworkBlob']) ) {
             $normalized = $this->normalizeVectorNetworkBlob($node['vectorData']['vectorNetworkBlob'], $node, $blobs, $nodeId, $diagnostics);
             if ( null !== $normalized ) {
@@ -2206,16 +2227,11 @@ final class ScenegraphNormalizer
 
         $path = $this->decodeVectorCommandBlob($bytes);
         if ( null === $path ) {
-            $isVectorNetworkBlob = 'vectorData.vectorNetworkBlob' === $source;
-            $context = array('node_id' => $nodeId, 'geometry' => $source);
-            if ( $isVectorNetworkBlob ) {
-                $context += $this->vectorNetworkBlobDiagnosticContext($blobReference, $bytes);
-            }
             $diagnostics[] = array(
                 'severity' => 'warning',
-                'code'     => $isVectorNetworkBlob ? 'unsupported_vector_network_blob' : 'unsupported_vector_command_blob',
-                'message'  => $isVectorNetworkBlob ? 'Unsupported Figma vector network blob was omitted from SVG output.' : 'Unsupported Figma vector command blob was omitted from SVG output.',
-                'context'  => $context,
+                'code'     => 'unsupported_vector_command_blob',
+                'message'  => 'Unsupported Figma vector command blob was omitted from SVG output.',
+                'context'  => array('node_id' => $nodeId, 'geometry' => $source),
             );
             return null;
         }
@@ -2224,6 +2240,14 @@ final class ScenegraphNormalizer
     }
 
     /**
+     * Decode a Figma vectorNetwork blob through the real schema-driven Kiwi
+     * decoder — the same machinery that carries the scenegraph — and convert the
+     * decoded vertices/segments/regions into an SVG path. The blob is a
+     * Kiwi-encoded message of the schema-defined VectorNetwork structure, so it is
+     * decoded with a second pass through {@see FigKiwiDecoder} rather than a
+     * hand-rolled byte layout. When no schema is available, or the bytes do not
+     * decode to usable geometry, the node falls back to a diagnosed placeholder.
+     *
      * @param array<int|string, mixed>         $blobs
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<string, mixed>|null
@@ -2241,35 +2265,11 @@ final class ScenegraphNormalizer
             return null;
         }
 
-        $path = $this->decodeSimpleChevronVectorNetworkBlob($bytes);
-        if ( null !== $path ) {
-            return array('data' => $path, 'source' => 'vectorData.vectorNetworkBlob', 'windingRule' => 'NONZERO');
-        }
-
-        $path = $this->decodeSingleClosedLoopVectorNetworkBlob($bytes);
-        if ( null !== $path ) {
-            return array('data' => $path, 'source' => 'vectorData.vectorNetworkBlob.singleClosedLoop', 'windingRule' => 'NONZERO');
-        }
-
-        $path = $this->decodeSimpleRectVectorNetworkBlob($bytes, $node);
-        if ( null !== $path ) {
-            return array('data' => $path, 'source' => 'vectorData.vectorNetworkBlob.simpleRectFallback', 'windingRule' => 'NONZERO');
-        }
-
-        $path = $this->decodeClosedRectVectorNetworkBlob($bytes);
-        if ( null !== $path ) {
-            return array('data' => $path, 'source' => 'vectorData.vectorNetworkBlob.closedRectFallback', 'windingRule' => 'NONZERO');
-        }
-
-        $general = $this->decodeGeneralVectorNetworkBlob($bytes);
-        if ( null !== $general ) {
-            return $general;
-        }
-
-        if ( ! $this->looksLikeVectorNetworkBlob($bytes) ) {
-            $path = $this->decodeVectorCommandBlob($bytes);
+        $structure = $this->decodeVectorNetworkMessage($bytes);
+        if ( null !== $structure ) {
+            $path = $this->vectorNetworkStructureToPath($structure);
             if ( null !== $path ) {
-                return array('data' => $path, 'source' => 'vectorData.vectorNetworkBlob');
+                return array('data' => $path['data'], 'source' => 'vectorData.vectorNetworkBlob', 'windingRule' => $path['windingRule']);
             }
         }
 
@@ -2283,57 +2283,29 @@ final class ScenegraphNormalizer
     }
 
     /**
-     * General-purpose Figma vectorNetwork blob decoder.
-     *
-     * Parses the raw vectorNetwork buffer — a 12-byte header
-     * (vertexCount, segmentCount, regionCount), a vertex table (x/y at a
-     * 20-byte stride), a segment table (start/end vertex index, with optional
-     * cubic-bezier tangents), and a per-region list of directed segment loops —
-     * into one SVG path made of one subpath per region. Straight segments emit
-     * `L`; segments carrying non-zero tangents emit a cubic `C` using
-     * `vertex + tangent` control points. The region winding rule is carried so
-     * the emitter can map NONZERO/EVENODD onto `fill-rule`.
-     *
-     * The segment stride is auto-detected (24 bytes when tangents are present,
-     * 16 bytes when they are not) by requiring a fully consistent parse: every
-     * vertex/segment index must be in range, each region must form a continuous
-     * closed loop, and the region table must consume the buffer exactly. A wrong
-     * stride guess fails these checks and is rejected rather than emitted as
-     * garbage geometry.
+     * Decode raw vectorNetwork blob bytes as a Kiwi message through the real
+     * decoder + scenegraph field policy. Figma stores the vector geometry as a
+     * Kiwi-encoded sub-message, so this runs a second decode pass keyed by the
+     * schema-defined VectorNetwork structure instead of guessing a byte layout.
      *
      * @return array<string, mixed>|null
      */
-    private function decodeGeneralVectorNetworkBlob(string $bytes): ?array
+    private function decodeVectorNetworkMessage(string $bytes): ?array
     {
-        $counts = $this->vectorNetworkCounts($bytes);
-        if ( null === $counts ) {
+        if ( null === $this->kiwiSchema ) {
             return null;
         }
 
-        [$vertexCount, $segmentCount, $regionCount] = $counts;
-        if ( $vertexCount < 2 || $vertexCount > 20000 || $segmentCount < 1 || $segmentCount > 40000 || $regionCount < 1 || $regionCount > 20000 ) {
-            return null;
-        }
-
-        $vertexBytes = $vertexCount * 20;
-        if ( strlen($bytes) < 12 + $vertexBytes ) {
-            return null;
-        }
-
-        $vertices = array();
-        for ( $index = 0; $index < $vertexCount; $index++ ) {
-            $point = $this->readFloatPair($bytes, 12 + ( $index * 20 ) + 4);
-            if ( null === $point || ! is_finite($point[0]) || ! is_finite($point[1]) ) {
-                return null;
+        foreach ( array('VectorNetwork', 'VectorData') as $rootType ) {
+            $result = $this->kiwiDecoder->decodeMessageSelective($bytes, $this->kiwiSchema, $rootType);
+            $message = is_array($result['message'] ?? null) ? $result['message'] : null;
+            if ( null === $message ) {
+                continue;
             }
-            $vertices[] = $point;
-        }
 
-        $segmentOffset = 12 + $vertexBytes;
-        foreach ( array(24, 16) as $stride ) {
-            $decoded = $this->decodeVectorNetworkWithSegmentStride($bytes, $vertices, $segmentOffset, $segmentCount, $regionCount, $stride);
-            if ( null !== $decoded ) {
-                return $decoded;
+            $structure = $this->extractVectorNetworkStructure($message);
+            if ( null !== $structure ) {
+                return $structure;
             }
         }
 
@@ -2341,126 +2313,247 @@ final class ScenegraphNormalizer
     }
 
     /**
-     * @param array<int, array{0: float, 1: float}> $vertices
+     * Locate the decoded `{vertices, segments, regions}` structure within a
+     * decoded Kiwi message, accepting either a VectorNetwork message directly or a
+     * wrapper that nests it under a `vectorNetwork`/`vectorData` field.
+     *
+     * @param array<string, mixed> $message
      * @return array<string, mixed>|null
      */
-    private function decodeVectorNetworkWithSegmentStride(string $bytes, array $vertices, int $segmentOffset, int $segmentCount, int $regionCount, int $stride): ?array
+    private function extractVectorNetworkStructure(array $message): ?array
     {
-        $vertexCount = count($vertices);
-        $regionOffset = $segmentOffset + ( $segmentCount * $stride );
-        if ( strlen($bytes) < $regionOffset ) {
-            return null;
+        if ( is_array($message['vertices'] ?? null) && is_array($message['segments'] ?? null) ) {
+            return $message;
         }
 
-        $segments = array();
-        for ( $index = 0; $index < $segmentCount; $index++ ) {
-            $base = $segmentOffset + ( $index * $stride );
-            $start = $this->readUint32($bytes, $base);
-            if ( 24 === $stride ) {
-                $tangentStart = $this->readFloatPair($bytes, $base + 4);
-                $end = $this->readUint32($bytes, $base + 12);
-                $tangentEnd = $this->readFloatPair($bytes, $base + 16);
-            } else {
-                $tangentStart = array(0.0, 0.0);
-                $end = $this->readUint32($bytes, $base + 4);
-                $tangentEnd = array(0.0, 0.0);
-            }
-
-            if ( null === $start || null === $end || null === $tangentStart || null === $tangentEnd ) {
-                return null;
-            }
-            if ( $start < 0 || $start >= $vertexCount || $end < 0 || $end >= $vertexCount || $start === $end ) {
-                return null;
-            }
-            if ( ! is_finite($tangentStart[0]) || ! is_finite($tangentStart[1]) || ! is_finite($tangentEnd[0]) || ! is_finite($tangentEnd[1]) ) {
-                return null;
-            }
-
-            $segments[] = array('start' => $start, 'end' => $end, 'tangentStart' => $tangentStart, 'tangentEnd' => $tangentEnd);
-        }
-
-        $offset = $regionOffset;
-        $subpaths = array();
-        $windingRule = 'NONZERO';
-        for ( $region = 0; $region < $regionCount; $region++ ) {
-            $entryCount = $this->readUint32($bytes, $offset);
-            $rule = $this->readUint32($bytes, $offset + 4);
-            $reserved = $this->readUint32($bytes, $offset + 8);
-            if ( null === $entryCount || null === $rule || null === $reserved ) {
-                return null;
-            }
-            if ( $entryCount < 1 || $entryCount > $segmentCount || ( 0 !== $rule && 1 !== $rule ) ) {
-                return null;
-            }
-            $offset += 12;
-            if ( strlen($bytes) < $offset + ( $entryCount * 8 ) ) {
-                return null;
-            }
-
-            $entries = array();
-            for ( $entry = 0; $entry < $entryCount; $entry++ ) {
-                $segmentIndex = $this->readUint32($bytes, $offset);
-                $direction = $this->readUint32($bytes, $offset + 4);
-                $offset += 8;
-                if ( null === $segmentIndex || null === $direction || $segmentIndex < 0 || $segmentIndex >= $segmentCount || ( 0 !== $direction && 1 !== $direction ) ) {
-                    return null;
+        foreach ( array('vectorNetwork', 'vectorData', 'network') as $key ) {
+            if ( is_array($message[$key] ?? null) ) {
+                $nested = $this->extractVectorNetworkStructure($message[$key]);
+                if ( null !== $nested ) {
+                    return $nested;
                 }
-                $entries[] = array($segmentIndex, $direction);
-            }
-
-            $subpath = $this->vectorNetworkRegionSubpath($vertices, $segments, $entries);
-            if ( null === $subpath ) {
-                return null;
-            }
-            $subpaths[] = $subpath;
-            if ( 1 === $rule ) {
-                $windingRule = 'EVENODD';
             }
         }
 
-        if ( $offset !== strlen($bytes) || empty($subpaths) ) {
-            return null;
-        }
-
-        return array(
-            'data'        => implode(' ', $subpaths),
-            'source'      => 'vectorData.vectorNetworkBlob.network',
-            'windingRule' => $windingRule,
-        );
+        return null;
     }
 
     /**
-     * Trace one region's directed segment list into a single closed SVG subpath.
+     * Convert a decoded Kiwi vectorNetwork structure into a single SVG path.
      *
-     * @param array<int, array{0: float, 1: float}>                                          $vertices
-     * @param array<int, array{start: int, end: int, tangentStart: array{0: float, 1: float}, tangentEnd: array{0: float, 1: float}}> $segments
-     * @param array<int, array{0: int, 1: int}>                                              $entries
+     * Each region contributes one closed subpath per loop: straight segments emit
+     * `L`, segments carrying non-zero bezier tangents emit a cubic `C` from
+     * `vertex + tangent` control points, and each loop is closed with `Z`. The
+     * region winding rule maps onto `fill-rule` (NONZERO/EVENODD).
+     *
+     * @param array<string, mixed> $network
+     * @return array{data: string, windingRule: string}|null
      */
-    private function vectorNetworkRegionSubpath(array $vertices, array $segments, array $entries): ?string
+    private function vectorNetworkStructureToPath(array $network): ?array
     {
-        $first = null;
-        $cursor = null;
-        $parts = array();
+        $vertices = $this->vectorNetworkVertices($network['vertices'] ?? null);
+        $segments = $this->vectorNetworkSegments($network['segments'] ?? null);
+        if ( count($vertices) < 2 || empty($segments) ) {
+            return null;
+        }
 
-        foreach ( $entries as $entry ) {
-            [$segmentIndex, $direction] = $entry;
-            $segment = $segments[$segmentIndex];
-            $start = $segment['start'];
-            $end = $segment['end'];
-            $tangentStart = $segment['tangentStart'];
-            $tangentEnd = $segment['tangentEnd'];
-            if ( 1 === $direction ) {
-                [$start, $end] = array($end, $start);
-                [$tangentStart, $tangentEnd] = array($tangentEnd, $tangentStart);
+        $subpaths = array();
+        $windingRule = 'NONZERO';
+        $regions = is_array($network['regions'] ?? null) ? $network['regions'] : array();
+
+        if ( ! empty($regions) ) {
+            foreach ( $regions as $region ) {
+                if ( ! is_array($region) ) {
+                    continue;
+                }
+                if ( $this->vectorNetworkWindingEvenOdd($region['windingRule'] ?? null) ) {
+                    $windingRule = 'EVENODD';
+                }
+                foreach ( $this->vectorNetworkRegionLoops($region) as $loop ) {
+                    $subpath = $this->vectorNetworkLoopSubpath($vertices, $segments, $loop);
+                    if ( null === $subpath ) {
+                        return null;
+                    }
+                    $subpaths[] = $subpath;
+                }
+            }
+        } else {
+            // No explicit regions: trace the segment list as one chained loop.
+            $subpath = $this->vectorNetworkLoopSubpath($vertices, $segments, array_keys($segments));
+            if ( null !== $subpath ) {
+                $subpaths[] = $subpath;
+            }
+        }
+
+        if ( empty($subpaths) ) {
+            return null;
+        }
+
+        return array('data' => implode(' ', $subpaths), 'windingRule' => $windingRule);
+    }
+
+    /**
+     * @param mixed $rawVertices
+     * @return array<int, array{0: float, 1: float}>
+     */
+    private function vectorNetworkVertices(mixed $rawVertices): array
+    {
+        if ( ! is_array($rawVertices) ) {
+            return array();
+        }
+
+        $vertices = array();
+        foreach ( $rawVertices as $vertex ) {
+            if ( ! is_array($vertex) || ! isset($vertex['x'], $vertex['y']) || ! is_numeric($vertex['x']) || ! is_numeric($vertex['y']) ) {
+                return array();
+            }
+            $x = (float) $vertex['x'];
+            $y = (float) $vertex['y'];
+            if ( ! is_finite($x) || ! is_finite($y) ) {
+                return array();
+            }
+            $vertices[] = array($x, $y);
+        }
+
+        return $vertices;
+    }
+
+    /**
+     * @param mixed $rawSegments
+     * @return array<int, array{start: int, end: int, tangentStart: array{0: float, 1: float}, tangentEnd: array{0: float, 1: float}}>
+     */
+    private function vectorNetworkSegments(mixed $rawSegments): array
+    {
+        if ( ! is_array($rawSegments) ) {
+            return array();
+        }
+
+        $segments = array();
+        foreach ( $rawSegments as $segment ) {
+            if ( ! is_array($segment) || ! isset($segment['start'], $segment['end']) || ! is_numeric($segment['start']) || ! is_numeric($segment['end']) ) {
+                return array();
+            }
+            $segments[] = array(
+                'start'        => (int) $segment['start'],
+                'end'          => (int) $segment['end'],
+                'tangentStart' => $this->vectorNetworkTangent($segment['tangentStart'] ?? null),
+                'tangentEnd'   => $this->vectorNetworkTangent($segment['tangentEnd'] ?? null),
+            );
+        }
+
+        return $segments;
+    }
+
+    /**
+     * @param mixed $tangent
+     * @return array{0: float, 1: float}
+     */
+    private function vectorNetworkTangent(mixed $tangent): array
+    {
+        if ( is_array($tangent) && isset($tangent['x'], $tangent['y']) && is_numeric($tangent['x']) && is_numeric($tangent['y']) ) {
+            $x = (float) $tangent['x'];
+            $y = (float) $tangent['y'];
+            if ( is_finite($x) && is_finite($y) ) {
+                return array($x, $y);
+            }
+        }
+
+        return array(0.0, 0.0);
+    }
+
+    /**
+     * @param array<string, mixed> $region
+     * @return array<int, array<int, int>>
+     */
+    private function vectorNetworkRegionLoops(array $region): array
+    {
+        $rawLoops = $region['loops'] ?? null;
+        if ( ! is_array($rawLoops) ) {
+            return array();
+        }
+
+        $loops = array();
+        foreach ( $rawLoops as $loop ) {
+            $indices = $this->vectorNetworkLoopIndices($loop);
+            if ( ! empty($indices) ) {
+                $loops[] = $indices;
+            }
+        }
+
+        return $loops;
+    }
+
+    /**
+     * A loop is a list of segment indices, expressed either as a bare integer
+     * array or as a message wrapping the indices under a `segments`/`indices`
+     * field.
+     *
+     * @param mixed $loop
+     * @return array<int, int>
+     */
+    private function vectorNetworkLoopIndices(mixed $loop): array
+    {
+        if ( is_array($loop) ) {
+            foreach ( array('segments', 'indices', 'segmentIndices') as $key ) {
+                if ( is_array($loop[$key] ?? null) ) {
+                    $loop = $loop[$key];
+                    break;
+                }
+            }
+        }
+
+        if ( ! is_array($loop) ) {
+            return array();
+        }
+
+        $indices = array();
+        foreach ( $loop as $index ) {
+            if ( ! is_numeric($index) ) {
+                return array();
+            }
+            $indices[] = (int) $index;
+        }
+
+        return $indices;
+    }
+
+    private function vectorNetworkWindingEvenOdd(mixed $windingRule): bool
+    {
+        if ( is_string($windingRule) ) {
+            $token = strtoupper($windingRule);
+            return 'EVENODD' === $token || 'ODD' === $token || 'EVEN_ODD' === $token;
+        }
+
+        return is_numeric($windingRule) && 1 === (int) $windingRule;
+    }
+
+    /**
+     * Trace one region loop (an ordered list of segment indices) into a single
+     * closed SVG subpath, orienting each segment so the loop chains continuously.
+     *
+     * @param array<int, array{0: float, 1: float}>                                                                                     $vertices
+     * @param array<int, array{start: int, end: int, tangentStart: array{0: float, 1: float}, tangentEnd: array{0: float, 1: float}}> $segments
+     * @param array<int, int>                                                                                                          $loop
+     */
+    private function vectorNetworkLoopSubpath(array $vertices, array $segments, array $loop): ?string
+    {
+        $oriented = $this->orientVectorNetworkLoop($segments, array_values($loop));
+        if ( null === $oriented ) {
+            return null;
+        }
+
+        $parts = array();
+        $first = null;
+        foreach ( $oriented as $step ) {
+            [$start, $end, $tangentStart, $tangentEnd] = $step;
+            if ( ! isset($vertices[$start], $vertices[$end]) ) {
+                return null;
             }
 
             if ( null === $first ) {
                 $first = $start;
-                $cursor = $start;
-                $point = $vertices[$start];
-                $parts[] = 'M ' . $this->svgNumber($point[0]) . ' ' . $this->svgNumber($point[1]);
-            } elseif ( $start !== $cursor ) {
-                return null;
+                $from = $vertices[$start];
+                $parts[] = 'M ' . $this->svgNumber($from[0]) . ' ' . $this->svgNumber($from[1]);
             }
 
             $from = $vertices[$start];
@@ -2473,286 +2566,66 @@ final class ScenegraphNormalizer
             } else {
                 $parts[] = 'L ' . $this->svgNumber($to[0]) . ' ' . $this->svgNumber($to[1]);
             }
+        }
+
+        if ( count($parts) < 2 ) {
+            return null;
+        }
+
+        return implode(' ', $parts) . ' Z';
+    }
+
+    /**
+     * Resolve the traversal direction of every segment in a loop so the loop
+     * forms a continuous chain (each segment starts where the previous ended).
+     *
+     * @param array<int, array{start: int, end: int, tangentStart: array{0: float, 1: float}, tangentEnd: array{0: float, 1: float}}> $segments
+     * @param array<int, int>                                                                                                          $loop
+     * @return array<int, array{0: int, 1: int, 2: array{0: float, 1: float}, 3: array{0: float, 1: float}}>|null
+     */
+    private function orientVectorNetworkLoop(array $segments, array $loop): ?array
+    {
+        $oriented = array();
+        $cursor = null;
+        $count = count($loop);
+
+        foreach ( $loop as $segmentIndex ) {
+            if ( ! isset($segments[$segmentIndex]) ) {
+                return null;
+            }
+            $segment = $segments[$segmentIndex];
+            $start = $segment['start'];
+            $end = $segment['end'];
+            $tangentStart = $segment['tangentStart'];
+            $tangentEnd = $segment['tangentEnd'];
+
+            if ( null === $cursor ) {
+                // Orient the first segment so it exits toward the next segment.
+                if ( $count > 1 ) {
+                    $next = $segments[$loop[1]] ?? null;
+                    if ( ! is_array($next) ) {
+                        return null;
+                    }
+                    $nextVertices = array($next['start'], $next['end']);
+                    if ( in_array($start, $nextVertices, true) && ! in_array($end, $nextVertices, true) ) {
+                        [$start, $end] = array($end, $start);
+                        [$tangentStart, $tangentEnd] = array($tangentEnd, $tangentStart);
+                    } elseif ( ! in_array($end, $nextVertices, true) ) {
+                        return null;
+                    }
+                }
+            } elseif ( $end === $cursor && $start !== $cursor ) {
+                [$start, $end] = array($end, $start);
+                [$tangentStart, $tangentEnd] = array($tangentEnd, $tangentStart);
+            } elseif ( $start !== $cursor ) {
+                return null;
+            }
+
+            $oriented[] = array($start, $end, $tangentStart, $tangentEnd);
             $cursor = $end;
         }
 
-        if ( null === $first || count($parts) < 3 || $cursor !== $first ) {
-            return null;
-        }
-
-        return implode(' ', $parts) . ' Z';
-    }
-
-    private function decodeSimpleChevronVectorNetworkBlob(string $bytes): ?string
-    {
-        if ( 288 !== strlen($bytes) ) {
-            return null;
-        }
-
-        $counts = $this->vectorNetworkCounts($bytes);
-        if ( array(6, 6, 1) !== $counts ) {
-            return null;
-        }
-
-        $signature = bin2hex(substr($bytes, 0, 32));
-        return match ( $signature ) {
-            '0600000006000000010000000000000000000041000080410000000000000000' => 'M 8 16 L 0 8 L 8 0 L 9.414 1.414 L 2.828 8 L 9.414 14.586 L 8 16 Z',
-            '06000000060000000100000000000000f4fdb43f0000804100000000be9f1641' => 'M 1.414 16 L 9.414 8 L 1.414 0 L 0 1.414 L 6.586 8 L 0 14.586 L 1.414 16 Z',
-            default => null,
-        };
-    }
-
-    /**
-     * Small icon vectors can arrive as a 4-vertex, 4-segment network
-     * without decodable command geometry. Keep this guard exact until the broader
-     * vector-network format is understood.
-     *
-     * @param array<string, mixed> $node
-     */
-    private function decodeSimpleRectVectorNetworkBlob(string $bytes, array $node): ?string
-    {
-        if ( 172 !== strlen($bytes) ) {
-            return null;
-        }
-
-        if ( array(4, 4, 0) !== $this->vectorNetworkCounts($bytes) ) {
-            return null;
-        }
-
-        $signature = bin2hex(substr($bytes, 0, 32));
-        if ( '0400000004000000000000000000000000000000000000000000000000008043' !== $signature ) {
-            return null;
-        }
-
-        $width = $this->rawNodeDimension($node, 'width');
-        $height = $this->rawNodeDimension($node, 'height');
-        if ( $width <= 0.0 || $height <= 0.0 ) {
-            return null;
-        }
-
-        return 'M 0 0 L ' . $this->svgNumber($width) . ' 0 L ' . $this->svgNumber($width) . ' ' . $this->svgNumber($height) . ' L 0 ' . $this->svgNumber($height) . ' Z';
-    }
-
-    private function decodeClosedRectVectorNetworkBlob(string $bytes): ?string
-    {
-        if ( 200 !== strlen($bytes) ) {
-            return null;
-        }
-
-        if ( array(4, 4, 1) !== $this->vectorNetworkCounts($bytes) ) {
-            return null;
-        }
-
-        $points = $this->closedRectVectorNetworkPoints($bytes);
-        if ( null === $points ) {
-            return null;
-        }
-
-        $xs = array_values(array_unique(array_map(static fn (array $point): string => sprintf('%.6F', $point[0]), $points)));
-        $ys = array_values(array_unique(array_map(static fn (array $point): string => sprintf('%.6F', $point[1]), $points)));
-        if ( 2 !== count($xs) || 2 !== count($ys) ) {
-            return null;
-        }
-
-        $minX = min(array_map('floatval', $xs));
-        $maxX = max(array_map('floatval', $xs));
-        $minY = min(array_map('floatval', $ys));
-        $maxY = max(array_map('floatval', $ys));
-        if ( $maxX <= $minX || $maxY <= $minY ) {
-            return null;
-        }
-
-        return 'M ' . $this->svgNumber($minX) . ' ' . $this->svgNumber($minY)
-            . ' L ' . $this->svgNumber($maxX) . ' ' . $this->svgNumber($minY)
-            . ' L ' . $this->svgNumber($maxX) . ' ' . $this->svgNumber($maxY)
-            . ' L ' . $this->svgNumber($minX) . ' ' . $this->svgNumber($maxY)
-            . ' Z';
-    }
-
-    private function decodeSingleClosedLoopVectorNetworkBlob(string $bytes): ?string
-    {
-        $counts = $this->vectorNetworkCounts($bytes);
-        if ( null === $counts ) {
-            return null;
-        }
-
-        [$vertexCount, $segmentCount, $regionCount] = $counts;
-        if ( $vertexCount < 3 || $vertexCount > 32 || $vertexCount !== $segmentCount || 1 !== $regionCount ) {
-            return null;
-        }
-
-        if ( strlen($bytes) !== 24 + ( $vertexCount * 44 ) ) {
-            return null;
-        }
-
-        $vertices = array();
-        for ( $index = 0; $index < $vertexCount; $index++ ) {
-            $vertexOffset = 12 + ( $index * 20 );
-            if ( ! $this->bytesAreZero($bytes, $vertexOffset, 4) || ! $this->bytesAreZero($bytes, $vertexOffset + 12, 8) ) {
-                return null;
-            }
-
-            $point = $this->readFloatPair($bytes, $vertexOffset + 4);
-            if ( null === $point || ! is_finite($point[0]) || ! is_finite($point[1]) ) {
-                return null;
-            }
-            $vertices[] = $point;
-        }
-
-        $segments = array();
-        $degree = array_fill(0, $vertexCount, 0);
-        $segmentOffset = 12 + ( $vertexCount * 20 );
-        for ( $index = 0; $index < $segmentCount; $index++ ) {
-            $currentSegmentOffset = $segmentOffset + ( $index * 16 );
-            if ( ! $this->bytesAreZero($bytes, $currentSegmentOffset + 8, 8) ) {
-                return null;
-            }
-
-            $start = $this->readUint32($bytes, $currentSegmentOffset);
-            $end = $this->readUint32($bytes, $currentSegmentOffset + 4);
-            if ( null === $start || null === $end || $start < 0 || $start >= $vertexCount || $end < 0 || $end >= $vertexCount || $start === $end ) {
-                return null;
-            }
-            $segments[] = array($start, $end);
-            $degree[$start]++;
-            $degree[$end]++;
-        }
-
-        foreach ( $degree as $vertexDegree ) {
-            if ( 2 !== $vertexDegree ) {
-                return null;
-            }
-        }
-
-        $regionOffset = $segmentOffset + ( $segmentCount * 16 );
-        $regionSegmentCount = $this->readUint32($bytes, $regionOffset);
-        if ( $segmentCount !== $regionSegmentCount || ! $this->bytesAreZero($bytes, $regionOffset + 4, 8) ) {
-            return null;
-        }
-
-        $orderedVertexIndexes = array();
-        $usedSegments = array();
-        for ( $index = 0; $index < $segmentCount; $index++ ) {
-            $entryOffset = $regionOffset + 12 + ( $index * 8 );
-            $segmentIndex = $this->readUint32($bytes, $entryOffset);
-            $direction = $this->readUint32($bytes, $entryOffset + 4);
-            if ( null === $segmentIndex || null === $direction || $segmentIndex < 0 || $segmentIndex >= $segmentCount || isset($usedSegments[$segmentIndex]) || ( 0 !== $direction && 1 !== $direction ) ) {
-                return null;
-            }
-
-            $usedSegments[$segmentIndex] = true;
-            [$start, $end] = $segments[$segmentIndex];
-            if ( 1 === $direction ) {
-                [$start, $end] = array($end, $start);
-            }
-
-            if ( 0 === $index ) {
-                $orderedVertexIndexes[] = $start;
-                $orderedVertexIndexes[] = $end;
-                continue;
-            }
-
-            if ( $orderedVertexIndexes[count($orderedVertexIndexes) - 1] !== $start ) {
-                return null;
-            }
-            $orderedVertexIndexes[] = $end;
-        }
-
-        if ( count($orderedVertexIndexes) !== $vertexCount + 1 || $orderedVertexIndexes[0] !== $orderedVertexIndexes[count($orderedVertexIndexes) - 1] || count(array_unique(array_slice($orderedVertexIndexes, 0, -1))) !== $vertexCount ) {
-            return null;
-        }
-
-        $windingArea = 0.0;
-        for ( $index = 0; $index < $vertexCount; $index++ ) {
-            $current = $vertices[$orderedVertexIndexes[$index]];
-            $next = $vertices[$orderedVertexIndexes[$index + 1]];
-            $windingArea += ( $current[0] * $next[1] ) - ( $next[0] * $current[1] );
-        }
-        if ( abs($windingArea) < 0.000001 ) {
-            return null;
-        }
-
-        $parts = array();
-        foreach ( array_slice($orderedVertexIndexes, 0, -1) as $index => $vertexIndex ) {
-            $point = $vertices[$vertexIndex];
-            $parts[] = ( 0 === $index ? 'M ' : 'L ' ) . $this->svgNumber($point[0]) . ' ' . $this->svgNumber($point[1]);
-        }
-
-        return implode(' ', $parts) . ' Z';
-    }
-
-    /**
-     * @return array<int, array{0: float, 1: float}>|null
-     */
-    private function closedRectVectorNetworkPoints(string $bytes): ?array
-    {
-        $points = array();
-        for ( $index = 0; $index < 4; $index++ ) {
-            $offset = 12 + ( $index * 20 );
-            $point = $this->readFloatPair($bytes, $offset + 4);
-            if ( null === $point || ! is_finite($point[0]) || ! is_finite($point[1]) ) {
-                return null;
-            }
-            $points[] = $point;
-        }
-
-        return $points;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function rawNodeDimension(array $node, string $dimension): float
-    {
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        if ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
-            return (float) $box[$dimension];
-        }
-
-        if ( isset($node[$dimension]) && is_numeric($node[$dimension]) ) {
-            return (float) $node[$dimension];
-        }
-
-        $sizeKey = 'width' === $dimension ? 'x' : 'y';
-        if ( is_array($node['size'] ?? null) && isset($node['size'][$sizeKey]) && is_numeric($node['size'][$sizeKey]) ) {
-            return (float) $node['size'][$sizeKey];
-        }
-
-        foreach ( array('absoluteBoundingBox', 'absoluteRenderBounds') as $boundsKey ) {
-            if ( is_array($node[$boundsKey] ?? null) && isset($node[$boundsKey][$dimension]) && is_numeric($node[$boundsKey][$dimension]) ) {
-                return (float) $node[$boundsKey][$dimension];
-            }
-        }
-
-        return 0.0;
-    }
-
-    private function looksLikeVectorNetworkBlob(string $bytes): bool
-    {
-        $counts = $this->vectorNetworkCounts($bytes);
-        if ( null === $counts ) {
-            return false;
-        }
-
-        [$vertexCount, $segmentCount, $regionCount] = $counts;
-        if ( $vertexCount < 1 || $vertexCount > 100000 || $segmentCount < 0 || $segmentCount > 200000 || $regionCount < 0 || $regionCount > 100000 ) {
-            return false;
-        }
-
-        return $regionCount <= max(1, $segmentCount) && $segmentCount <= max(4, $vertexCount * 8);
-    }
-
-    /**
-     * @return array{0:int,1:int,2:int}|null
-     */
-    private function vectorNetworkCounts(string $bytes): ?array
-    {
-        if ( strlen($bytes) < 12 ) {
-            return null;
-        }
-
-        $counts = unpack('V3', substr($bytes, 0, 12));
-        return false === $counts ? null : array_values(array_map('intval', $counts));
+        return $oriented;
     }
 
     /**
@@ -2760,65 +2633,11 @@ final class ScenegraphNormalizer
      */
     private function vectorNetworkBlobDiagnosticContext(mixed $blobReference, string $bytes): array
     {
-        $context = array(
+        return array(
             'blob_ref'      => is_scalar($blobReference) ? (string) $blobReference : null,
             'byte_length'   => strlen($bytes),
             'signature_hex' => bin2hex(substr($bytes, 0, 32)),
         );
-
-        $counts = $this->vectorNetworkCounts($bytes);
-        if ( null !== $counts ) {
-            $context['network_counts'] = $counts;
-            $context += $this->vectorNetworkSingleRegionCandidateContext($bytes, $counts);
-        }
-
-        return $context;
-    }
-
-    /**
-     * @param array{0:int,1:int,2:int} $counts
-     * @return array<string, mixed>
-     */
-    private function vectorNetworkSingleRegionCandidateContext(string $bytes, array $counts): array
-    {
-        [$vertexCount, $segmentCount, $regionCount] = $counts;
-        if ( $vertexCount < 3 || $vertexCount > 32 || $vertexCount !== $segmentCount || 1 !== $regionCount ) {
-            return array();
-        }
-
-        $expectedLength = 24 + ( $vertexCount * 44 );
-        if ( strlen($bytes) !== $expectedLength ) {
-            return array();
-        }
-
-        return array(
-            'single_region_loop_candidate' => true,
-            'candidate_layout' => array(
-                'vertex_stride' => 20,
-                'segment_stride' => 16,
-                'region_bytes'  => 12 + ( $vertexCount * 8 ),
-            ),
-            'candidate_vertex_points_sample' => $this->vectorNetworkVertexPointSample($bytes, $vertexCount),
-            'candidate_decoder_requirement' => 'Decode only after segment endpoints and region winding/order are validated as one closed non-branching loop.',
-        );
-    }
-
-    /**
-     * @return array<int, array{0: float, 1: float}>
-     */
-    private function vectorNetworkVertexPointSample(string $bytes, int $vertexCount): array
-    {
-        $points = array();
-        $limit = min($vertexCount, 8);
-        for ( $index = 0; $index < $limit; $index++ ) {
-            $point = $this->readFloatPair($bytes, 12 + ( $index * 20 ) + 4);
-            if ( null === $point || ! is_finite($point[0]) || ! is_finite($point[1]) ) {
-                return array();
-            }
-            $points[] = array($point[0], $point[1]);
-        }
-
-        return $points;
     }
 
     /**
@@ -2925,25 +2744,6 @@ final class ScenegraphNormalizer
         }
 
         return array((float) $x[1], (float) $y[1]);
-    }
-
-    private function bytesAreZero(string $bytes, int $offset, int $length): bool
-    {
-        if ( strlen($bytes) < $offset + $length ) {
-            return false;
-        }
-
-        return str_repeat("\0", $length) === substr($bytes, $offset, $length);
-    }
-
-    private function readUint32(string $bytes, int $offset): ?int
-    {
-        if ( strlen($bytes) < $offset + 4 ) {
-            return null;
-        }
-
-        $value = unpack('V', substr($bytes, $offset, 4));
-        return false === $value ? null : (int) $value[1];
     }
 
     private function svgNumber(float $value): string

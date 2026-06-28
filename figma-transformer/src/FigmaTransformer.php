@@ -117,6 +117,12 @@ final class FigmaTransformer
         $scenegraphCandidate = $this->decodedScenegraphCandidate($archive);
         if ( null !== $scenegraphCandidate ) {
             $scenegraph = $this->withArchiveAssets($scenegraphCandidate['payload'], $archive['assets']);
+            $kiwiSchema = $archive['archive']['canvas']['kiwi_schema'] ?? null;
+            if ( is_array($kiwiSchema) ) {
+                // Carry the decoded Kiwi schema to the normalizer so vectorNetwork
+                // blobs decode through the real schema-driven decoder (#247).
+                $scenegraph['figma_kiwi_schema'] = $kiwiSchema;
+            }
             $scenegraphResult = $this->transformScenegraph($scenegraph, $options)->toArray();
             $scenegraphStatus = (string) ($scenegraphResult['status'] ?? 'success_with_warnings');
             if ( 'success' === $scenegraphStatus && ! empty($diagnostics) ) {

@@ -1482,7 +1482,7 @@ final class StaticHtmlEmitter
         }
 
         foreach ( $node['figma_vector_paths'] as $path ) {
-            if ( is_array($path) && str_starts_with((string) ($path['source'] ?? ''), 'vectorData.vectorNetworkBlob') ) {
+            if ( is_array($path) && str_starts_with((string) ($path['source'] ?? ''), 'vectorData.vectorNetwork') ) {
                 return true;
             }
         }
