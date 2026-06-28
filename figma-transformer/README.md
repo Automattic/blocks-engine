@@ -141,6 +141,20 @@ Parity report statuses:
 
 Parity runners can attach evidence through the `parity` transform option or the CLI metadata flags. The contract accepts source screenshot URL/path metadata, generated screenshot artifact metadata, diff image artifact metadata, pixel mismatch count/ratio, threshold, viewport, and frame id. The transformer stores those references; it does not fetch, render, compare, or commit screenshot files.
 
+### Per-breakpoint parity
+
+Responsiveness is unfalsifiable when parity is measured at a single width. A runner can supply a `breakpoints` list so one transform records parity for several viewports at once. Each entry uses the same evidence vocabulary as the single-viewport fields — its own viewport (width/height), frame id, source/generated/diff artifact references, pixel mismatch count/ratio, threshold, and status — and is normalized into the same `source` / `generated` / `diff` / `diff_summary` / `metrics` shape inside `breakpoints[]`.
+
+The envelope derives an `aggregate_status` roll-up from the per-breakpoint statuses:
+
+- `pass` only when **every** breakpoint passes.
+- `fail` when **any** breakpoint fails.
+- `not_run` when no breakpoint has run.
+- `pending` when some breakpoints have run but others are still `pending`/`not_run`.
+- `compared` when comparisons completed without a pass/fail verdict.
+
+The list is additive: the top-level single-viewport fields (`status`, `source`, `generated`, `diff`, `viewport`, `metrics`, ...) remain unchanged and authoritative for legacy consumers. When no `breakpoints` are supplied, `breakpoints` is an empty list and `aggregate_status` mirrors the top-level `status`, so existing single-viewport callers are unaffected. The schema string stays `blocks-engine/figma-transformer/parity-report/v1`; the new fields extend the envelope additively rather than bumping the version.
+
 ```php
 $result = blocks_engine_figma_transformer_transform_scenegraph($scenegraph, array(
     'frame_id' => '1:1',
@@ -159,6 +173,45 @@ $result = blocks_engine_figma_transformer_transform_scenegraph($scenegraph, arra
         ),
     ),
 ));
+```
+
+Multi-breakpoint evidence adds a `breakpoints` list; the aggregate roll-up below is `pass` only because both entries pass:
+
+```php
+$result = blocks_engine_figma_transformer_transform_scenegraph($scenegraph, array(
+    'frame_id' => '1:1',
+    'parity' => array(
+        'status' => 'pass',
+        'breakpoints' => array(
+            array(
+                'status' => 'pass',
+                'frame_id' => '1:1',
+                'source_screenshot_url' => 'https://artifacts.example.test/mobile-source.png',
+                'generated_screenshot_url' => 'https://artifacts.example.test/mobile-generated.png',
+                'diff_image_url' => 'https://artifacts.example.test/mobile-diff.png',
+                'pixel_mismatch_count' => 8,
+                'pixel_mismatch_ratio' => 0.004,
+                'threshold' => 0.01,
+                'viewport' => array(
+                    'width' => 375,
+                    'height' => 812,
+                ),
+            ),
+            array(
+                'status' => 'pass',
+                'frame_id' => '1:1',
+                'pixel_mismatch_count' => 12,
+                'pixel_mismatch_ratio' => 0.006,
+                'threshold' => 0.01,
+                'viewport' => array(
+                    'width' => 1200,
+                    'height' => 800,
+                ),
+            ),
+        ),
+    ),
+));
+// $result['parity']['aggregate_status'] === 'pass'
 ```
 
 ```sh

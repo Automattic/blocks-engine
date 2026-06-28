@@ -2445,6 +2445,82 @@ $assert(false === ($failingParity['diff_summary']['passed'] ?? null), 'parity-fa
 $assert('not_run' === ($notRunParity['status'] ?? null), 'parity-not-run-status');
 $assert('pending' === ($unknownParity['status'] ?? null), 'parity-unknown-status-falls-back-to-pending');
 
+// Single-viewport input remains backward compatible: no breakpoints list, aggregate mirrors status.
+$assert(array() === ($comparedParity['breakpoints'] ?? null), 'parity-single-viewport-no-breakpoints');
+$assert('compared' === ($comparedParity['aggregate_status'] ?? null), 'parity-single-viewport-aggregate-mirrors-status');
+$assert('not_run' === ($notRunParity['aggregate_status'] ?? null), 'parity-not-run-aggregate-mirrors-status');
+
+// Multi-breakpoint envelope: each entry is normalized and rolled up into aggregate_status.
+$multiBreakpointPass = $parityBuilder->build(array(
+    'status'   => 'pass',
+    'frame_id' => '10:0',
+    'breakpoints' => array(
+        array(
+            'status'   => 'pass',
+            'frame_id' => '10:1',
+            'source_screenshot_url'    => 'https://artifacts.example.test/mobile-source.png',
+            'generated_screenshot_url' => 'https://artifacts.example.test/mobile-generated.png',
+            'diff_image_url'           => 'https://artifacts.example.test/mobile-diff.png',
+            'pixel_mismatch_count'     => 8,
+            'pixel_mismatch_ratio'     => 0.004,
+            'threshold'                => 0.01,
+            'viewport'                 => array('width' => 375, 'height' => 812),
+        ),
+        array(
+            'status'   => 'pass',
+            'frame_id' => '10:2',
+            'pixel_mismatch_count' => 12,
+            'pixel_mismatch_ratio' => 0.006,
+            'threshold'            => 0.01,
+            'viewport'             => array('width' => 1200, 'height' => 800),
+        ),
+    ),
+));
+$multiBreakpointFail = $parityBuilder->build(array(
+    'status' => 'compared',
+    'breakpoints' => array(
+        array(
+            'status'               => 'pass',
+            'pixel_mismatch_ratio' => 0.004,
+            'threshold'            => 0.01,
+            'viewport'             => array('width' => 375, 'height' => 812),
+        ),
+        array(
+            'status'               => 'fail',
+            'pixel_mismatch_ratio' => 0.08,
+            'threshold'            => 0.01,
+            'viewport'             => array('width' => 1200, 'height' => 800),
+        ),
+    ),
+));
+$multiBreakpointPending = $parityBuilder->build(array(
+    'status' => 'pending',
+    'breakpoints' => array(
+        array(
+            'status'               => 'pass',
+            'pixel_mismatch_ratio' => 0.004,
+            'threshold'            => 0.01,
+            'viewport'             => array('width' => 375, 'height' => 812),
+        ),
+        array(
+            'status'   => 'not_run',
+            'viewport' => array('width' => 1200, 'height' => 800),
+        ),
+    ),
+));
+
+$assert(2 === count($multiBreakpointPass['breakpoints'] ?? array()), 'parity-breakpoints-count');
+$assert(375 === ($multiBreakpointPass['breakpoints'][0]['viewport']['width'] ?? null), 'parity-breakpoint-viewport-width');
+$assert('10:1' === ($multiBreakpointPass['breakpoints'][0]['frame_id'] ?? null), 'parity-breakpoint-frame-id');
+$assert('https://artifacts.example.test/mobile-source.png' === ($multiBreakpointPass['breakpoints'][0]['source']['screenshot_url'] ?? null), 'parity-breakpoint-source-url');
+$assert('https://artifacts.example.test/mobile-diff.png' === ($multiBreakpointPass['breakpoints'][0]['diff']['image_url'] ?? null), 'parity-breakpoint-diff-url');
+$assert(8 === ($multiBreakpointPass['breakpoints'][0]['metrics']['pixel_mismatch_count'] ?? null), 'parity-breakpoint-pixel-count');
+$assert(true === ($multiBreakpointPass['breakpoints'][0]['diff_summary']['passed'] ?? null), 'parity-breakpoint-passed-threshold');
+$assert('pass' === ($multiBreakpointPass['breakpoints'][1]['status'] ?? null), 'parity-breakpoint-second-pass');
+$assert('pass' === ($multiBreakpointPass['aggregate_status'] ?? null), 'parity-aggregate-all-pass');
+$assert('fail' === ($multiBreakpointFail['aggregate_status'] ?? null), 'parity-aggregate-any-fail');
+$assert('pending' === ($multiBreakpointPending['aggregate_status'] ?? null), 'parity-aggregate-partial-not-run-pending');
+
 if ( function_exists('imagecreatetruecolor') && function_exists('imagepng') ) {
     $sourceImagePath = tempnam(sys_get_temp_dir(), 'figma-source-') . '.png';
     $generatedImagePath = tempnam(sys_get_temp_dir(), 'figma-generated-') . '.png';
