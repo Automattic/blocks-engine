@@ -1,0 +1,38 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-accordion-widget-no-behavior-loss",
+  "description": "Converts a JS-driven multi-item accordion (ul > li with button[aria-expanded] toggles and collapsible regions) into the native core/accordion block, carrying open state via openByDefault, with no interactive-control behavior-loss fallback for the folded toggles and no leftover dead toggle markup.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-accordion-widget-no-behavior-loss.json",
+    "notes": "Product-neutral fixture proving accordion fold-in suppresses the now-redundant behavior-loss diagnostic. The toggle behavior is carried natively (zero preserved JS)."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<ul class=\"accordion\"><li class=\"item\"><button class=\"q\" aria-expanded=\"false\" aria-controls=\"p1\">First question?</button><div id=\"p1\" role=\"region\"><p>First answer.</p></div></li><li class=\"item\"><button class=\"q\" aria-expanded=\"true\" aria-controls=\"p2\">Second question?</button><div id=\"p2\" role=\"region\"><p>Second answer.</p></div></li></ul>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/accordion", "attrs": { "className": "accordion" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/accordion-item", "attrs": { "className": "item" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/accordion-heading", "attrs": { "title": "First question?", "level": 3 } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/accordion-panel" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "First answer." } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/accordion-item", "attrs": { "className": "item", "openByDefault": true } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/accordion-heading", "attrs": { "title": "Second question?", "level": 3 } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:accordion" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:accordion-item" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "aria-expanded" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

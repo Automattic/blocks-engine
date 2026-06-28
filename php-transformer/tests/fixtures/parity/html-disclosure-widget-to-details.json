@@ -1,0 +1,39 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-disclosure-widget-to-details",
+  "description": "Converts a JS-driven sibling disclosure widget (div + button[aria-expanded][aria-controls] + collapsible panel) into a sequence of native zero-JS core/details blocks, with no interactive-control behavior-loss fallback and no leftover dead toggle markup.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-disclosure-widget-to-details.json",
+    "notes": "Product-neutral fixture covering the generic AI-generated FAQ/disclosure shape. Detection is structural (aria-expanded/aria-controls + control/panel pairing), never a class string."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"qa\"><div class=\"item\"><button class=\"q\" aria-expanded=\"false\" aria-controls=\"a1\">Question one?</button><div id=\"a1\" class=\"panel\"><p>Answer one.</p></div></div><div class=\"item\"><button class=\"q\" aria-expanded=\"false\" aria-controls=\"a2\">Question two?</button><div id=\"a2\" class=\"panel\"><p>Answer two.</p></div></div></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "qa" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/details", "attrs": { "summary": "Question one?", "className": "item" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Answer one." } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/details", "attrs": { "summary": "Question two?", "className": "item" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Answer two." } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<details class=\"wp-block-details item\"><summary>Question one?</summary>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<details class=\"wp-block-details item\"><summary>Question two?</summary>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "aria-expanded" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<button" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
