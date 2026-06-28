@@ -547,7 +547,11 @@ $assert(! str_contains((string) ($safeInlineSvgAsset['serialized_blocks'] ?? '')
 $complexSvgAsset = ( new HtmlTransformer() )->transform(
     '<svg role="img" aria-label="Site illustration" viewBox="0 0 400 200"><title>Site illustration</title><path d="M0 0h400v200H0z"></path></svg>'
 )->toArray();
-$assert('core/image' === ($complexSvgAsset['blocks'][0]['blockName'] ?? ''), 'large accessible inline SVG stays on the existing image asset path');
+$complexSvgContent = (string) ($complexSvgAsset['blocks'][0]['attrs']['content'] ?? '');
+$assert('core/html' === ($complexSvgAsset['blocks'][0]['blockName'] ?? ''), 'large illustrative inline SVG is preserved inline as a core/html block (WordPress blocks SVG uploads, so an externalized .svg asset would not render)');
+$assert(array() === ($complexSvgAsset['assets'] ?? array()), 'inline illustrative SVG is not externalized to a generated .svg image asset');
+$assert(str_contains($complexSvgContent, '<svg') && str_contains($complexSvgContent, 'viewBox="0 0 400 200"'), 'inline illustrative SVG preserves its viewBox casing so it scales correctly');
+$assert(str_contains($complexSvgContent, 'role="img"') && str_contains($complexSvgContent, 'aria-label="Site illustration"'), 'inline illustrative SVG preserves accessibility attributes');
 
 $mathMlResult = ( new HtmlTransformer() )->transform('<main><math><mi>x</mi><mo>=</mo><mn>2</mn></math></main>')->toArray();
 $mathMlBlock = $mathMlResult['blocks'][0] ?? array();
@@ -872,7 +876,7 @@ $preservedRuntimeDiagnostics = array_values(array_filter($normalizedFallbacks['d
 $assert(1 <= count($preservedRuntimeDiagnostics), 'runtime script fallback emits preserved_runtime_island diagnostics');
 $assert('runtime_island_preserved' === ($preservedRuntimeDiagnostics[0]['diagnostic_class'] ?? ''), 'preserved_runtime_island diagnostic exposes runtime-island diagnostic class');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallback'] ?? array(), 'html_iframe_embed_fallback', 'warning', 'third_party_embed_runtime', 'embed');
-$assert(! isset($diagnosticsByCode['html_inline_svg_fallback']), 'safe inline SVGs convert to image blocks instead of fallback diagnostics');
+$assert(! isset($diagnosticsByCode['html_inline_svg_fallback']), 'safe inline SVGs convert to inline core/html blocks instead of fallback diagnostics');
 $assert(! isset($diagnosticsByCode['html_canvas_runtime_fallback']), 'non-runtime canvas does not emit runtime canvas fallback diagnostics');
 
 $safeProviderIframe = ( new HtmlTransformer() )->transform(
@@ -1027,7 +1031,8 @@ $safeDecorativeDiagnostics = $safeDecorativeSvg['source_reports']['conversion_re
 $assert(array() === $safeDecorativeDiagnostics, 'safe decorative inline SVGs do not emit fallback diagnostics');
 $assert(1 <= ($safeDecorativeSvg['metrics']['block_count'] ?? 0), 'safe decorative inline SVG wrappers still materialize when they carry presentation signals');
 $assert(! str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'safe decorative inline SVGs do not serialize as image data URIs');
-$assert(! str_contains(rawurldecode((string) ($safeDecorativeSvg['serialized_blocks'] ?? '')), '<svg'), 'safe decorative inline SVG markup is omitted');
+$assert(str_contains(rawurldecode((string) ($safeDecorativeSvg['serialized_blocks'] ?? '')), '<svg'), 'safe logo-like inline SVG markup is preserved inline instead of externalized to a blocked .svg asset');
+$assert(array() === ($safeDecorativeSvg['assets'] ?? array()), 'safe decorative inline SVG does not generate an external .svg image asset');
 $assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'site-logo'), 'safe logo-like inline SVG context preserves its wrapper class');
 
 $unsafeDecorativeSvg = ( new HtmlTransformer() )->transform(
@@ -1167,12 +1172,11 @@ $artifactInlineSvg = $compiler->compile(
         'generated_html' => '<svg role="img" aria-label="Inline logo" viewBox="0 0 12 12"><title>Inline logo</title><path d="M0 0h12v12H0z"></path></svg>',
     )
 )->toArray();
-$artifactInlineSvgPath = (string) ($artifactInlineSvg['blocks'][0]['attrs']['url'] ?? '');
-$artifactInlineSvgAsset = $artifactInlineSvg['source_reports']['materialization_plan']['assets'][0] ?? array();
-$assert(str_starts_with($artifactInlineSvgPath, 'assets/inline-svg-'), 'artifact safe inline SVG block references a generated SVG asset');
-$assert($artifactInlineSvgPath === ($artifactInlineSvgAsset['path'] ?? ''), 'artifact materialization plan includes generated inline SVG asset path');
-$assert('image/svg+xml' === ($artifactInlineSvgAsset['mime_type'] ?? ''), 'artifact generated inline SVG asset has SVG MIME type');
-$assert(str_contains((string) ($artifactInlineSvgAsset['content'] ?? ''), 'aria-label="Inline logo"'), 'artifact generated inline SVG asset preserves sanitized SVG content');
+$artifactInlineSvgContent = (string) ($artifactInlineSvg['blocks'][0]['attrs']['content'] ?? '');
+$artifactInlineSvgAssets = $artifactInlineSvg['source_reports']['materialization_plan']['assets'] ?? array();
+$assert('core/html' === ($artifactInlineSvg['blocks'][0]['blockName'] ?? ''), 'artifact safe inline SVG is preserved inline as a core/html block (WordPress blocks SVG uploads, so an externalized .svg asset would not render)');
+$assert(array() === $artifactInlineSvgAssets, 'artifact safe inline SVG is not externalized to a generated .svg image asset');
+$assert(str_contains($artifactInlineSvgContent, 'aria-label="Inline logo"'), 'artifact inline SVG block preserves sanitized SVG content');
 $assert(! str_contains((string) ($artifactInlineSvg['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'artifact safe inline SVG avoids data URI serialization');
 
 $artifactNonEntryInlineSvg = $compiler->compile(

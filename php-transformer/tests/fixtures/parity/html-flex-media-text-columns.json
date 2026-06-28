@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-flex-media-text-columns",
-  "description": "Converts two-child flex media/text rows with direct SVG children as flex groups without unsupported primitive fallbacks.",
+  "description": "Converts two-child flex media/text rows with direct illustrative SVG children as flex groups, preserving the SVG inline as a core/html block (WordPress blocks SVG uploads, so an externalized .svg asset would not render).",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-flex-media-text-columns.json",
@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "layout": { "type": "flex" } } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "alt": "Paw width diagram" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/html" },
     { "path": "blocks.0.innerBlocks.1", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Paw Width", "level": 3 } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Measure the widest point while standing." } }
@@ -28,8 +28,9 @@
     { "path": "metrics.block_count", "assert": "equals", "value": 5 },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/inline-svg-" },
-    { "path": "assets.0.content", "assert": "contains", "value": "WIDTH" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<svg viewBox=\"0 0 20 20\"" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "WIDTH" },
+    { "path": "assets", "assert": "count", "count": 0 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "source_reports.conversion_report.metrics.fallback_count", "assert": "equals", "value": 0 }
   ]
