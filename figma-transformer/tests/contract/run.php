@@ -18,6 +18,7 @@ use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiDecoder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiParser;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\VisualAttributionReportBuilder;
+use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameClassifier;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphPagePlanner;
 
 $failures = array();
@@ -5467,6 +5468,176 @@ foreach ( ( is_array($inspectorDevStatusResult['candidates'] ?? null) ? $inspect
 $assert('ready_for_dev' === ($inspectorCandidates['frame:build']['dev_status'] ?? null), 'inspector-surfaces-dev-status-on-candidate');
 $assert(! array_key_exists('dev_status', $inspectorCandidates['frame:plain'] ?? array()), 'inspector-omits-dev-status-on-unmarked-candidate');
 $assert('dev_status' === matrix_selection_source(array_values($inspectorCandidates)), 'inspector-candidates-drive-dev-status-selection');
+
+// FRAME ROLE CLASSIFICATION (#247): top-level frames are classified into roles
+// before any pixels are emitted. A "Style Guide" frame is a design_system frame
+// (EXCLUDED from page selection); real pages each carry a WP-template-aligned
+// page_type derived from name first, then content shape.
+$classificationSource = array(
+    'name'  => 'Classification Site',
+    'nodes' => array(
+        array(
+            'id'       => 'canvas:cls',
+            'type'     => 'CANVAS',
+            'name'     => 'Pages',
+            'children' => array(
+                // Style guide: name-driven design_system, excluded from pages.
+                array(
+                    'id'       => 'frame:styleguide',
+                    'type'     => 'FRAME',
+                    'name'     => 'Style Guide',
+                    'width'    => 1440,
+                    'height'   => 2000,
+                    'children' => array(
+                        array('id' => 'sg:text', 'type' => 'TEXT', 'name' => 'Colors', 'characters' => 'Brand Colors'),
+                    ),
+                ),
+                // Homepage → front_page.
+                array(
+                    'id'       => 'frame:homepage',
+                    'type'     => 'FRAME',
+                    'name'     => 'Homepage',
+                    'width'    => 1440,
+                    'height'   => 1600,
+                    'children' => array(
+                        array('id' => 'hp:text', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Welcome Home'),
+                    ),
+                ),
+                // Blog Post → single.
+                array(
+                    'id'       => 'frame:blogpost',
+                    'type'     => 'FRAME',
+                    'name'     => 'Blog Post',
+                    'width'    => 1440,
+                    'height'   => 2400,
+                    'children' => array(
+                        array('id' => 'bp:text', 'type' => 'TEXT', 'name' => 'Article Title', 'characters' => 'A Long Read'),
+                    ),
+                ),
+                // Archive → archive.
+                array(
+                    'id'       => 'frame:archive',
+                    'type'     => 'FRAME',
+                    'name'     => 'Archive',
+                    'width'    => 1440,
+                    'height'   => 1800,
+                    'children' => array(
+                        array('id' => 'ar:text', 'type' => 'TEXT', 'name' => 'Latest Posts', 'characters' => 'Latest Posts'),
+                    ),
+                ),
+                // About → generic page.
+                array(
+                    'id'       => 'frame:about',
+                    'type'     => 'FRAME',
+                    'name'     => 'About',
+                    'width'    => 1440,
+                    'height'   => 1500,
+                    'children' => array(
+                        array('id' => 'ab:text', 'type' => 'TEXT', 'name' => 'About copy', 'characters' => 'About us'),
+                    ),
+                ),
+            ),
+        ),
+    ),
+);
+$classificationPlan = ( new ScenegraphPagePlanner() )->plan($classificationSource, array('include_all_pages' => true));
+$classificationPages = is_array($classificationPlan['pages'] ?? null) ? $classificationPlan['pages'] : array();
+$classificationByFrame = array();
+foreach ( $classificationPages as $classificationPage ) {
+    if ( is_array($classificationPage) && isset($classificationPage['frame_id']) ) {
+        $classificationByFrame[(string) $classificationPage['frame_id']] = $classificationPage;
+    }
+}
+$classificationFrameIds = array_keys($classificationByFrame);
+
+$assert(! in_array('frame:styleguide', $classificationFrameIds, true), 'classification-style-guide-excluded-from-pages');
+$assert(isset($classificationByFrame['frame:homepage']), 'classification-homepage-selected-as-page');
+$assert(ScenegraphFrameClassifier::ROLE_PAGE === ($classificationByFrame['frame:homepage']['role'] ?? null), 'classification-homepage-role-page');
+$assert(ScenegraphFrameClassifier::PAGE_TYPE_FRONT_PAGE === ($classificationByFrame['frame:homepage']['page_type'] ?? null), 'classification-homepage-front-page');
+$assert(ScenegraphFrameClassifier::PAGE_TYPE_SINGLE === ($classificationByFrame['frame:blogpost']['page_type'] ?? null), 'classification-blog-post-single');
+$assert(ScenegraphFrameClassifier::PAGE_TYPE_ARCHIVE === ($classificationByFrame['frame:archive']['page_type'] ?? null), 'classification-archive-archive');
+$assert(ScenegraphFrameClassifier::PAGE_TYPE_PAGE === ($classificationByFrame['frame:about']['page_type'] ?? null), 'classification-about-generic-page');
+$assert(is_array($classificationByFrame['frame:homepage']['classification_signals'] ?? null) && in_array('name:front_page', $classificationByFrame['frame:homepage']['classification_signals'], true), 'classification-homepage-signal-explained');
+
+// COVERAGE: the page plan reports per-role and per-page-type counts, names the
+// excluded design-system frame, and the diagnostic explains the exclusion.
+$classificationCoverage = is_array($classificationPlan['classification_coverage'] ?? null) ? $classificationPlan['classification_coverage'] : array();
+$assert('blocks-engine/figma-transformer/frame-classification/v1' === ($classificationCoverage['schema'] ?? null), 'classification-coverage-schema');
+$assert(1 === ($classificationCoverage['roles'][ScenegraphFrameClassifier::ROLE_DESIGN_SYSTEM] ?? null), 'classification-coverage-counts-design-system');
+$assert(4 === ($classificationCoverage['roles'][ScenegraphFrameClassifier::ROLE_PAGE] ?? null), 'classification-coverage-counts-pages');
+$assert(1 === ($classificationCoverage['page_types'][ScenegraphFrameClassifier::PAGE_TYPE_FRONT_PAGE] ?? null), 'classification-coverage-counts-front-page');
+$assert(1 === ($classificationCoverage['page_types'][ScenegraphFrameClassifier::PAGE_TYPE_SINGLE] ?? null), 'classification-coverage-counts-single');
+$assert(1 === ($classificationCoverage['page_types'][ScenegraphFrameClassifier::PAGE_TYPE_ARCHIVE] ?? null), 'classification-coverage-counts-archive');
+$assert(1 === ($classificationCoverage['page_types'][ScenegraphFrameClassifier::PAGE_TYPE_PAGE] ?? null), 'classification-coverage-counts-page');
+$assert(in_array('frame:styleguide', $classificationCoverage['excluded_design_system_frame_ids'] ?? array(), true), 'classification-coverage-names-excluded-frame');
+$classificationDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    is_array($classificationPlan['diagnostics'] ?? null) ? $classificationPlan['diagnostics'] : array()
+);
+$assert(in_array('figma_frame_classification_coverage', $classificationDiagnosticCodes, true), 'classification-coverage-diagnostic-emitted');
+
+// CONTENT-SHAPE: classification is generic — a design-system frame with a
+// GENERIC name still classifies as design_system from a swatch grid, and an
+// unnamed list-of-cards page classifies as archive from its repeating structure.
+$contentShapeSwatch = array();
+for ( $swatchIndex = 0; $swatchIndex < 8; ++$swatchIndex ) {
+    $contentShapeSwatch[] = array('id' => 'swatch:' . $swatchIndex, 'type' => 'RECTANGLE', 'name' => 'Swatch ' . $swatchIndex, 'width' => 80, 'height' => 80);
+}
+$contentShapeCards = array();
+for ( $cardIndex = 0; $cardIndex < 4; ++$cardIndex ) {
+    $contentShapeCards[] = array(
+        'id'       => 'card:' . $cardIndex,
+        'type'     => 'FRAME',
+        'name'     => 'Card ' . $cardIndex,
+        'width'    => 360,
+        'height'   => 420,
+        'children' => array(
+            array('id' => 'card-img:' . $cardIndex, 'type' => 'RECTANGLE', 'name' => 'Thumb', 'width' => 360, 'height' => 200, 'fills' => array(array('type' => 'IMAGE', 'imageRef' => 'hash:' . $cardIndex))),
+            array('id' => 'card-title:' . $cardIndex, 'type' => 'TEXT', 'name' => 'Card Title', 'characters' => 'Post ' . $cardIndex),
+        ),
+    );
+}
+$contentShapeSource = array(
+    'name'  => 'Content Shape Site',
+    'nodes' => array(
+        array(
+            'id'       => 'canvas:shape',
+            'type'     => 'CANVAS',
+            'name'     => 'Pages',
+            'children' => array(
+                array(
+                    'id'       => 'frame:palette',
+                    'type'     => 'FRAME',
+                    'name'     => 'Foundations',
+                    'width'    => 1440,
+                    'height'   => 1600,
+                    'children' => $contentShapeSwatch,
+                ),
+                array(
+                    'id'       => 'frame:list',
+                    'type'     => 'FRAME',
+                    'name'     => 'Updates',
+                    'width'    => 1440,
+                    'height'   => 1800,
+                    'children' => $contentShapeCards,
+                ),
+            ),
+        ),
+    ),
+);
+$contentShapePlan = ( new ScenegraphPagePlanner() )->plan($contentShapeSource, array('include_all_pages' => true));
+$contentShapePages = is_array($contentShapePlan['pages'] ?? null) ? $contentShapePlan['pages'] : array();
+$contentShapeByFrame = array();
+foreach ( $contentShapePages as $contentShapePage ) {
+    if ( is_array($contentShapePage) && isset($contentShapePage['frame_id']) ) {
+        $contentShapeByFrame[(string) $contentShapePage['frame_id']] = $contentShapePage;
+    }
+}
+$assert(! isset($contentShapeByFrame['frame:palette']), 'classification-content-swatch-grid-excluded');
+$contentShapeCoverage = is_array($contentShapePlan['classification_coverage'] ?? null) ? $contentShapePlan['classification_coverage'] : array();
+$assert(in_array('frame:palette', $contentShapeCoverage['excluded_design_system_frame_ids'] ?? array(), true), 'classification-content-swatch-grid-design-system');
+$assert(ScenegraphFrameClassifier::PAGE_TYPE_ARCHIVE === ($contentShapeByFrame['frame:list']['page_type'] ?? null), 'classification-content-card-list-archive');
+$assert(in_array('content:card_list', $contentShapeByFrame['frame:list']['classification_signals'] ?? array(), true), 'classification-content-card-list-signal');
 
 // Semantic HTML5 elements: a generically-named page structure maps to landmarks
 // (header/nav/main/section/footer), a font-size hierarchy maps to h1/h2, repeated

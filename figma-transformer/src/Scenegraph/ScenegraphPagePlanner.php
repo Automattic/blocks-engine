@@ -42,7 +42,8 @@ final class ScenegraphPagePlanner
 
     public function __construct(
         private readonly ScenegraphIndex $index = new ScenegraphIndex(),
-        private readonly ScenegraphFrameInspector $frameInspector = new ScenegraphFrameInspector()
+        private readonly ScenegraphFrameInspector $frameInspector = new ScenegraphFrameInspector(),
+        private readonly ScenegraphFrameClassifier $frameClassifier = new ScenegraphFrameClassifier()
     ) {
     }
 
@@ -67,6 +68,16 @@ final class ScenegraphPagePlanner
      *         'slug'                  => string,   // deduped, derived from primary
      *         'path'                  => string,   // index.html for the entrypoint
      *         'entrypoint'            => bool,
+     *         // Frame role classification (#247). Only ROLE_PAGE frames are
+     *         // selected as pages; design_system frames are excluded upstream.
+     *         'role'                  => string,   // ScenegraphFrameClassifier::ROLE_PAGE
+     *         'page_type'             => string,   // front_page|single|archive|page|unknown
+     *                                              //   (maps to the WP template hierarchy:
+     *                                              //    front_page→front-page.php,
+     *                                              //    single→single.php,
+     *                                              //    archive→archive.php/index.php,
+     *                                              //    page→page.php, unknown→fallback)
+     *         'classification_signals' => array<int, string>, // why this page_type was chosen
      *         'figma_page_id'         => string|null,
      *         'figma_page_name'       => string|null,
      *         'section_id'            => string|null,
@@ -130,6 +141,28 @@ final class ScenegraphPagePlanner
             );
         }
 
+        // Frame role classification (#247): decide WHAT each top-level frame IS
+        // before any pixels are emitted. Design-system / style-guide frames are
+        // excluded from page selection; real pages carry a WP-template-aligned
+        // page_type. Classification runs over the frame-level signals already in
+        // memory, so it adds no extra scenegraph traversal.
+        $classifications = array();
+        foreach ( $candidates as $candidateId => $candidate ) {
+            $classifications[(string) $candidateId] = $this->classifyCandidate(
+                (string) $candidateId,
+                $candidate,
+                $nodes,
+                $childrenIndex,
+                $parentIndex
+            );
+        }
+        $designSystemIds = array();
+        foreach ( $classifications as $candidateId => $classification ) {
+            if ( ScenegraphFrameClassifier::ROLE_DESIGN_SYSTEM === ($classification['role'] ?? '') ) {
+                $designSystemIds[(string) $candidateId] = true;
+            }
+        }
+
         // Figma Dev Mode status (#280): when ANY node in the file carries a
         // normalized dev status, it becomes the PRIMARY frame-selection signal.
         $nodeDevStatus = $this->resolveNodeDevStatus($nodes);
@@ -158,14 +191,16 @@ final class ScenegraphPagePlanner
             // Prefer ready_for_dev/completed frames (and frames under a marked
             // section); skip WIP/unmarked frames. Heuristics stay as the order
             // within the marked set and as the fallback when no frame qualifies.
+            // Design-system frames never become pages even when dev-marked.
             $selectionSource = 'dev_status';
-            $markedCandidates = array_intersect_key($candidates, $frameDevStatus);
+            $markedCandidates = array_diff_key(array_intersect_key($candidates, $frameDevStatus), $designSystemIds);
             $selectedIds = $this->rankedCandidateIdsByDevStatus($markedCandidates, $frameDevStatus);
             if ( ! $includeAllPages ) {
                 $selectedIds = array_slice($selectedIds, 0, 1);
             }
         } else {
-            $selectedIds = $this->rankedCandidateIds($candidates);
+            $selectableCandidates = array_diff_key($candidates, $designSystemIds);
+            $selectedIds = $this->rankedCandidateIds($selectableCandidates);
             if ( ! $includeAllPages ) {
                 $selectedIds = array_slice($selectedIds, 0, 1);
             }
@@ -224,6 +259,7 @@ final class ScenegraphPagePlanner
             $slug = $this->dedupeSlug($this->configuredSlug($primaryId, $slugMap) ?? $this->slugify($name), $slugs);
             $entrypoint = null !== $entryFrameId ? in_array($entryFrameId, $members, true) : 0 === $emittedPosition;
             $variants = $this->breakpointVariants($members, $primaryId, $candidates, $detectionById);
+            $classification = $classifications[$primaryId] ?? $this->classifyCandidate($primaryId, $candidate, $nodes, $childrenIndex, $parentIndex);
 
             $pages[] = array(
                 'frame_id'              => $primaryId,
@@ -231,6 +267,9 @@ final class ScenegraphPagePlanner
                 'slug'                  => $slug,
                 'path'                  => $entrypoint ? 'index.html' : $slug . '.html',
                 'entrypoint'            => $entrypoint,
+                'role'                  => $classification['role'],
+                'page_type'             => $classification['page_type'] ?? ScenegraphFrameClassifier::PAGE_TYPE_UNKNOWN,
+                'classification_signals' => $classification['signals'],
                 'figma_page_id'         => $page['id'] ?? null,
                 'figma_page_name'       => $page['name'] ?? null,
                 'section_id'            => $section['id'] ?? null,
@@ -246,6 +285,26 @@ final class ScenegraphPagePlanner
                 'diagnostics'           => $this->pageDiagnostics($primaryId, $node, $candidate['dimensions'], $explicitSelected),
             );
             ++$emittedPosition;
+        }
+
+        $classificationCoverage = $this->classificationCoverage($candidates, $classifications, $pages);
+        // The full coverage report is always available via the
+        // `classification_coverage` plan key. Emit it as a diagnostic only when
+        // it carries actionable signal — a design-system frame was excluded from
+        // pages, or a selected page fell to an `unknown` page type — so files
+        // whose every frame classifies cleanly keep an empty diagnostics list
+        // (and a clean `success` transform status).
+        $excludedDesignSystem = (int) ($classificationCoverage['excluded_design_system_count'] ?? 0);
+        $unknownPageTypes = (int) ($classificationCoverage['page_types'][ScenegraphFrameClassifier::PAGE_TYPE_UNKNOWN] ?? 0);
+        if ( $excludedDesignSystem > 0 || $unknownPageTypes > 0 ) {
+            $diagnostics[] = array(
+                'severity' => $unknownPageTypes > 0 ? 'warning' : 'info',
+                'code'     => 'figma_frame_classification_coverage',
+                'message'  => $excludedDesignSystem > 0
+                    ? 'Excluded design-system frames from page selection; see coverage for role/page-type breakdown.'
+                    : 'Some selected pages fell to an unknown page type; see coverage for the breakdown.',
+                'coverage' => $classificationCoverage,
+            );
         }
 
         $devStatusCoverage = $this->devStatusCoverage($nodes, $frameDevStatus, $selectionSource, $fileHasDevStatus);
@@ -265,13 +324,195 @@ final class ScenegraphPagePlanner
         }
 
         return array(
-            'schema'              => 'blocks-engine/figma-transformer/page-plan/v1',
-            'page_count'          => count($pages),
-            'candidate_count'     => count($candidates),
-            'pages'               => $pages,
-            'selection_source'    => $selectionSource,
-            'dev_status_coverage' => $devStatusCoverage,
-            'diagnostics'         => $diagnostics,
+            'schema'                  => 'blocks-engine/figma-transformer/page-plan/v1',
+            'page_count'              => count($pages),
+            'candidate_count'         => count($candidates),
+            'pages'                   => $pages,
+            'selection_source'        => $selectionSource,
+            'dev_status_coverage'     => $devStatusCoverage,
+            'classification_coverage' => $classificationCoverage,
+            'diagnostics'             => $diagnostics,
+        );
+    }
+
+    /**
+     * Classify a single FRAME candidate into a role + page type via
+     * {@see ScenegraphFrameClassifier}, gathering the content-shape signals
+     * (swatch/specimen tiles, repeating post cards) from the already-built
+     * node/children indexes so no extra scenegraph traversal is required.
+     *
+     * @param array<string, mixed>                $candidate
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, array<int, string>>   $childrenIndex
+     * @param array<string, string|null>          $parentIndex
+     * @return array{role: string, page_type: string|null, signals: array<int, string>, is_page: bool}
+     */
+    private function classifyCandidate(string $id, array $candidate, array $nodes, array $childrenIndex, array $parentIndex): array
+    {
+        $node = is_array($candidate['node'] ?? null) ? $candidate['node'] : array();
+        $stats = is_array($candidate['stats'] ?? null) ? $candidate['stats'] : array();
+        $dimensions = is_array($candidate['dimensions'] ?? null) ? $candidate['dimensions'] : array();
+        $section = $this->nearestAncestor($id, array('SECTION'), $nodes, $parentIndex);
+        $page = $this->nearestAncestor($id, array('CANVAS'), $nodes, $parentIndex);
+        $contentShape = $this->contentShapeSignals($id, $nodes, $childrenIndex);
+
+        return $this->frameClassifier->classify(array(
+            'name'                 => (string) ($node['name'] ?? ''),
+            'width'                => $dimensions['width'] ?? null,
+            'height'               => $dimensions['height'] ?? null,
+            'text_count'           => (int) ($stats['texts'] ?? 0),
+            'asset_count'          => (int) ($stats['assets'] ?? 0),
+            'uniform_tile_count'   => $contentShape['uniform_tile_count'],
+            'repeating_card_count' => $contentShape['repeating_card_count'],
+            'section_name'         => $section['name'] ?? null,
+            'page_name'            => $page['name'] ?? null,
+        ));
+    }
+
+    /**
+     * Derive content-shape signals from a frame's descendant structure:
+     *
+     *   - uniform_tile_count: the largest group of near-uniform, small sibling
+     *     containers sharing one parent (a swatch/type-specimen grid tell).
+     *   - repeating_card_count: the largest group of structurally-similar sibling
+     *     subtrees sharing one parent (a list-of-post-cards / archive tell).
+     *
+     * Both are computed by scanning every node in the frame's subtree once and,
+     * for each parent, bucketing its direct children by a coarse shape signature
+     * (child count + presence of a TEXT/IMAGE descendant). The largest matching
+     * bucket per category wins. This stays frame-local and deterministic.
+     *
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, array<int, string>>   $childrenIndex
+     * @return array{uniform_tile_count: int, repeating_card_count: int}
+     */
+    private function contentShapeSignals(string $rootId, array $nodes, array $childrenIndex): array
+    {
+        $uniformTiles = 0;
+        $repeatingCards = 0;
+
+        $stack = array($rootId);
+        $guard = 0;
+        while ( array() !== $stack && $guard < 200000 ) {
+            ++$guard;
+            $parentId = (string) array_pop($stack);
+            $childIds = is_array($childrenIndex[$parentId] ?? null) ? $childrenIndex[$parentId] : array();
+
+            $tileBuckets = array();
+            $cardBuckets = array();
+            foreach ( $childIds as $childId ) {
+                if ( ! is_string($childId) ) {
+                    continue;
+                }
+                $stack[] = $childId;
+
+                $childNode = is_array($nodes[$childId] ?? null) ? $nodes[$childId] : array();
+                $type = strtoupper((string) ($childNode['type'] ?? ''));
+                if ( ! in_array($type, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'RECTANGLE', 'ELLIPSE'), true) ) {
+                    continue;
+                }
+
+                $grandChildren = is_array($childrenIndex[$childId] ?? null) ? $childrenIndex[$childId] : array();
+                $grandCount = count($grandChildren);
+                $dimensions = $this->dimensions($childNode);
+                $width = (float) ($dimensions['width'] ?? 0);
+                $height = (float) ($dimensions['height'] ?? 0);
+                $area = $width * $height;
+
+                if ( $grandCount <= 2 && $area > 0 && $area <= 90000 ) {
+                    // Small, leaf-like tile (swatch / specimen chip).
+                    $tileKey = $this->dimensionBucketKey($width, $height);
+                    $tileBuckets[$tileKey] = ($tileBuckets[$tileKey] ?? 0) + 1;
+                }
+
+                if ( $grandCount >= 2 ) {
+                    // Composite container (a card with media + text). Signature
+                    // groups by child count so a repeating card layout clusters.
+                    $cardKey = $type . ':' . min(12, $grandCount);
+                    $cardBuckets[$cardKey] = ($cardBuckets[$cardKey] ?? 0) + 1;
+                }
+            }
+
+            $uniformTiles = max($uniformTiles, array() === $tileBuckets ? 0 : max($tileBuckets));
+            $repeatingCards = max($repeatingCards, array() === $cardBuckets ? 0 : max($cardBuckets));
+        }
+
+        return array(
+            'uniform_tile_count'   => $uniformTiles,
+            'repeating_card_count' => $repeatingCards,
+        );
+    }
+
+    private function dimensionBucketKey(float $width, float $height): string
+    {
+        // Bucket to the nearest 16px so near-uniform swatches cluster together
+        // while genuinely different shapes stay apart.
+        $bucket = static fn (float $value): int => (int) round($value / 16.0);
+
+        return $bucket($width) . 'x' . $bucket($height);
+    }
+
+    /**
+     * Build the classification coverage report: per-role and per-page-type
+     * counts plus, for every selected page, the signals that drove its
+     * classification — the diagnostic that explains WHY each frame landed where
+     * it did.
+     *
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array<string, mixed>> $classifications
+     * @param array<int, array<string, mixed>>    $pages
+     * @return array<string, mixed>
+     */
+    private function classificationCoverage(array $candidates, array $classifications, array $pages): array
+    {
+        $roles = array(
+            ScenegraphFrameClassifier::ROLE_DESIGN_SYSTEM => 0,
+            ScenegraphFrameClassifier::ROLE_PAGE          => 0,
+        );
+        $pageTypes = array(
+            ScenegraphFrameClassifier::PAGE_TYPE_FRONT_PAGE => 0,
+            ScenegraphFrameClassifier::PAGE_TYPE_SINGLE     => 0,
+            ScenegraphFrameClassifier::PAGE_TYPE_ARCHIVE    => 0,
+            ScenegraphFrameClassifier::PAGE_TYPE_PAGE       => 0,
+            ScenegraphFrameClassifier::PAGE_TYPE_UNKNOWN    => 0,
+        );
+        $excludedDesignSystemFrameIds = array();
+
+        foreach ( $classifications as $candidateId => $classification ) {
+            $role = (string) ($classification['role'] ?? ScenegraphFrameClassifier::ROLE_PAGE);
+            $roles[$role] = ($roles[$role] ?? 0) + 1;
+            if ( ScenegraphFrameClassifier::ROLE_DESIGN_SYSTEM === $role ) {
+                $excludedDesignSystemFrameIds[] = (string) $candidateId;
+            }
+        }
+
+        $selectedSignals = array();
+        foreach ( $pages as $page ) {
+            if ( ! is_array($page) ) {
+                continue;
+            }
+            $pageType = (string) ($page['page_type'] ?? ScenegraphFrameClassifier::PAGE_TYPE_UNKNOWN);
+            $pageTypes[$pageType] = ($pageTypes[$pageType] ?? 0) + 1;
+            $selectedSignals[] = array(
+                'frame_id'  => (string) ($page['frame_id'] ?? ''),
+                'name'      => (string) ($page['name'] ?? ''),
+                'role'      => (string) ($page['role'] ?? ScenegraphFrameClassifier::ROLE_PAGE),
+                'page_type' => $pageType,
+                'signals'   => is_array($page['classification_signals'] ?? null) ? $page['classification_signals'] : array(),
+            );
+        }
+
+        sort($excludedDesignSystemFrameIds);
+
+        return array(
+            'schema'                          => 'blocks-engine/figma-transformer/frame-classification/v1',
+            'candidate_count'                 => count($candidates),
+            'classified_count'                => count($classifications),
+            'roles'                           => $roles,
+            'page_types'                      => $pageTypes,
+            'excluded_design_system_count'    => count($excludedDesignSystemFrameIds),
+            'excluded_design_system_frame_ids' => $excludedDesignSystemFrameIds,
+            'selected_page_classifications'   => $selectedSignals,
         );
     }
 
