@@ -1,0 +1,11 @@
+{
+  "class": "app/dashboard",
+  "tags": [
+    "map",
+    "explorer",
+    "interactive",
+    "app",
+    "data-viz"
+  ],
+  "complexity": 4
+}

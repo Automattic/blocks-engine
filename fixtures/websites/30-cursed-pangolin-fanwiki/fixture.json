@@ -1,0 +1,11 @@
+{
+  "class": "docs/blog",
+  "tags": [
+    "wiki",
+    "fan-wiki",
+    "experimental",
+    "has-form",
+    "multipage"
+  ],
+  "complexity": 2
+}

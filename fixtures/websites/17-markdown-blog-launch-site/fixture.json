@@ -1,0 +1,12 @@
+{
+  "class": "docs/blog",
+  "tags": [
+    "blog",
+    "markdown",
+    "food",
+    "has-form",
+    "has-nav",
+    "multipage"
+  ],
+  "complexity": 2
+}
