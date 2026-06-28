@@ -1506,7 +1506,7 @@ final class HtmlTransformer
             // classifier identifies it as a high-confidence custom_block, generate
             // a dynamic block and emit a self-closing reference instead of raw
             // core/html. Otherwise keep the existing fallback diagnostic.
-            $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks, $this->generatedBlockNamespace);
+            $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks, $this->runtimeIslands, $this->generatedBlockNamespace);
             if ( null !== $generated ) {
                 return $this->createBlock($generated['blockName'], $generated['attrs'], array(), $element);
             }

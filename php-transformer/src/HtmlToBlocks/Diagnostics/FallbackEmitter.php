@@ -126,9 +126,10 @@ final class FallbackEmitter
      * existing fallback behavior whenever the conservative gate is not met.
      *
      * @param array<int, array<string, mixed>> $generatedBlocks Accumulator of generated block-type definitions.
+     * @param array<int, array<string, mixed>> $runtimeIslands  Accumulator of preserved runtime islands.
      * @return array{blockName: string, attrs: array<string, mixed>}|null
      */
-    public function maybeGenerateCustomBlock(DOMElement $element, array &$generatedBlocks, string $namespace): ?array
+    public function maybeGenerateCustomBlock(DOMElement $element, array &$generatedBlocks, array &$runtimeIslands, string $namespace): ?array
     {
         $result = $this->classifier->classify($element, $this->classificationContext($element));
         if ( ! $result->is(SubtreeClassifier::BUCKET_CUSTOM_BLOCK) ) {
@@ -168,10 +169,72 @@ final class FallbackEmitter
             );
         }
 
+        $ownerBlock = $namespace . '/' . $localName;
+        $this->recordGeneratedBlockScriptIslands($element, $ownerBlock, $runtimeIslands);
+
         return array(
-            'blockName' => $namespace . '/' . $localName,
+            'blockName' => $ownerBlock,
             'attrs'     => $this->blockGenerator->referenceAttributes($content),
         );
+    }
+
+    /**
+     * Record the runtime behavior scripts that live inside a subtree being turned
+     * into a generated custom block, each scoped to that block via `owner_block`.
+     *
+     * The generated block consumes its source subtree wholesale — the caller
+     * emits a single self-closing reference and never recurses — and
+     * {@see sanitizeHtmlString()} strips `<script>` bodies from the captured
+     * content, so any behavior script inside the subtree would otherwise be lost.
+     * Recording it as a script runtime island carrying the owning block's
+     * fully-qualified name is the one sound island->generated-block association
+     * point (issue #488): the block name is known here and the script lives
+     * literally inside that block's subtree, so a downstream materializer can
+     * carry the verbatim JS forward and enqueue it only when the block renders.
+     * Telemetry/analytics scripts are still classified and dropped downstream by
+     * the runtime-island package builder (issue #224); only executable runtime
+     * scripts are captured here (data/JSON-LD scripts carry no behavior).
+     *
+     * @param array<int, array<string, mixed>> $runtimeIslands
+     */
+    private function recordGeneratedBlockScriptIslands(DOMElement $element, string $ownerBlock, array &$runtimeIslands): void
+    {
+        foreach ( $this->subtreeElements($element) as $node ) {
+            if ( 'script' !== strtolower($node->tagName) || 'runtime' !== $this->scriptRole($node) ) {
+                continue;
+            }
+            $metadata                = $this->scriptIslandMetadata($node);
+            $metadata['owner_block'] = $ownerBlock;
+            $this->recordRuntimeIsland($node, 'script', 'script_requires_runtime', 'client_script_execution', $metadata, $runtimeIslands);
+        }
+    }
+
+    /**
+     * Build the runtime-island metadata for a `<script>` element: its safe
+     * attributes (external src), role, source kind, and — for an inline script —
+     * the verbatim inline body (bounded). safeFallbackHtml() strips `<script>`
+     * bodies from the island source_snippet for safety, so the inline body is
+     * preserved here so a downstream consumer can carry the script forward verbatim
+     * (issue #224: verbatim JS on verbatim island markup).
+     *
+     * @return array<string, mixed>
+     */
+    private function scriptIslandMetadata(DOMElement $element): array
+    {
+        $scriptSourceKind = '' !== trim($this->attr($element, 'src')) ? 'external' : 'inline';
+        $metadata         = array(
+            'attributes'         => $this->safeScriptAttributes($element),
+            'script_role'        => $this->scriptRole($element),
+            'script_source_kind' => $scriptSourceKind,
+        );
+        if ( 'inline' === $scriptSourceKind ) {
+            $boundedBody                    = $this->boundedFallbackText(trim($element->textContent ?? ''));
+            $metadata['script_body']        = $boundedBody['text'];
+            $metadata['body_bytes']         = $boundedBody['bytes'];
+            $metadata['body_truncated']     = $boundedBody['truncated'];
+        }
+
+        return $metadata;
     }
 
     /**
@@ -367,23 +430,7 @@ final class FallbackEmitter
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
         $scriptRole = $this->scriptRole($element);
-        $scriptSourceKind = '' !== trim($this->attr($element, 'src')) ? 'external' : 'inline';
-        $scriptIslandMetadata = array(
-            'attributes'         => $this->safeScriptAttributes($element),
-            'script_role'        => $scriptRole,
-            'script_source_kind' => $scriptSourceKind,
-        );
-        if ( 'inline' === $scriptSourceKind ) {
-            // safeFallbackHtml() strips <script> bodies from source_snippet for
-            // safety, so an inline script island would otherwise carry no JS.
-            // Preserve the verbatim inline body (bounded) so a downstream
-            // consumer can carry the script forward (issue #224: verbatim JS on
-            // verbatim island markup).
-            $scriptIslandMetadata['script_body']    = $boundedBody['text'];
-            $scriptIslandMetadata['body_bytes']     = $boundedBody['bytes'];
-            $scriptIslandMetadata['body_truncated'] = $boundedBody['truncated'];
-        }
-        $this->recordRuntimeIsland($element, 'script', 'script_requires_runtime', 'client_script_execution', $scriptIslandMetadata, $runtimeIslands);
+        $this->recordRuntimeIsland($element, 'script', 'script_requires_runtime', 'client_script_execution', $this->scriptIslandMetadata($element), $runtimeIslands);
         $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'html',
             'reason'          => 'script_requires_runtime',

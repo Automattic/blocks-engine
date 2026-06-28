@@ -1813,7 +1813,8 @@ $assert(is_array($companionPayload), 'companion_plugin_payload is emitted when a
 $assert('static-site-importer/companion-plugin/v1' === ($companionPayload['schema'] ?? ''), 'companion payload stamps the shared consumer schema');
 $assert('acme' === ($companionPayload['site_slug'] ?? ''), 'companion payload derives site_slug from the artifact');
 $assert('Acme Co' === ($companionPayload['site_name'] ?? ''), 'companion payload derives site_name from the artifact');
-$assert(array() === ($companionPayload['preserved_js'] ?? null), 'companion payload exposes an empty preserved_js slot');
+$assert(array() === ($companionPayload['preserved_js'] ?? null), 'companion payload preserved_js is empty when the artifact carries no preserved island JS');
+$assert(! array_key_exists('preserved_js_deferred', $companionPayload), 'no deferral list when there is no preserved island JS');
 $assert(1 === count($companionPayload['blocks'] ?? array()), 'companion payload carries one block');
 $companionBlock = $companionPayload['blocks'][0] ?? array();
 $assert('hero' === ($companionBlock['name'] ?? ''), 'companion block name is the local slug for SSI namespacing');
@@ -1825,6 +1826,47 @@ $assert(isset($companionBlock['assets']['index.js']), 'companion block carries e
 $assert(! isset($companionBlock['assets']['render.php']), 'render is not duplicated into the assets map');
 $assert(! isset($companionBlock['assets']['view.js']), 'view JS is not duplicated into the assets map');
 $assert(! isset($companionBlock['assets']['block.json']), 'block.json is not duplicated into the assets map');
+
+// Preserved island JS producer (issue #488): verbatim behavior JS captured at
+// custom-block generation is projected into preserved_js, scoped to the block
+// that owns it (the consumer enqueues it via render_block only when that block
+// renders). A free-standing script island with no sound generated-block owner is
+// surfaced as a declared deferral — never silently dropped or scoped by guess —
+// and telemetry JS is dropped entirely (preserve-vs-rebuild, issue #224).
+$companionJs = $compiler->compile(
+    array(
+        'site'  => array( 'name' => 'Acme Co', 'slug' => 'acme' ),
+        'files' => array(
+            'index.html' =>
+                '<main>'
+                . '<my-pricing>'
+                . '<div class="tier"><h3>Basic</h3><p>$9</p></div>'
+                . '<div class="tier"><h3>Pro</h3><p>$19</p></div>'
+                . '<div class="tier"><h3>Max</h3><p>$49</p></div>'
+                . '<script>window.__pricing=function(){return 42;};</script>'
+                . '</my-pricing>'
+                . '<script>document.addEventListener("DOMContentLoaded",function(){window.__standalone=1;});</script>'
+                . '<script src="https://www.googletagmanager.com/gtag/js?id=GA"></script>'
+                . '</main>',
+        ),
+    )
+)->toArray();
+$companionJsPayload = $companionJs['source_reports']['companion_plugin_payload'] ?? array();
+$preservedJs       = $companionJsPayload['preserved_js'] ?? array();
+$generatedName     = (string) ($companionJsPayload['blocks'][0]['name'] ?? '');
+$assert('' !== $generatedName, 'companion JS fixture generates a custom block to scope island JS against');
+$assert(1 === count($preservedJs), 'preserved_js carries exactly the one scoped island entry');
+$scopedIsland = $preservedJs[0] ?? array();
+$assert('ssi-acme/' . $generatedName === ($scopedIsland['block'] ?? ''), 'preserved island JS is scoped to its owning generated block');
+$assert(str_contains((string) ($scopedIsland['content'] ?? ''), 'window.__pricing'), 'preserved island entry carries the verbatim inline JS body');
+$assert(str_starts_with((string) ($scopedIsland['handle'] ?? ''), 'runtime-island-'), 'preserved island entry derives a stable generic handle');
+$assert('islands/' . ($scopedIsland['handle'] ?? '') . '.js' === ($scopedIsland['src'] ?? ''), 'preserved island entry points at a per-handle island file');
+$deferredJs = $companionJsPayload['preserved_js_deferred'] ?? array();
+$assert(1 === count($deferredJs), 'a free-standing script island with no generated-block owner is deferred, not dropped');
+$assert('no_generated_block_owner' === ($deferredJs[0]['reason'] ?? ''), 'deferred island records why it could not be scoped');
+$assert(str_contains((string) ($deferredJs[0]['content'] ?? ''), '__standalone'), 'deferred island still carries its verbatim JS for the scoping follow-up');
+$companionJsBlob = json_encode($companionJsPayload, JSON_UNESCAPED_SLASHES);
+$assert(is_string($companionJsBlob) && ! str_contains($companionJsBlob, 'gtag'), 'telemetry island JS is dropped, never carried into the payload');
 
 $companionNoSite = $compiler->compile(
     array(

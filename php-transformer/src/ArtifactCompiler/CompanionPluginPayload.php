@@ -20,8 +20,14 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
  *   - site_name   (string)  optional human-readable name; defaults to slug.
  *   - mu_plugin   (bool)    optional; emit as a must-use loader.
  *   - blocks[]    (array)   each: name, block_json, render, view_js, assets{}.
- *   - preserved_js[] (array) each: content, handle, src, block. Slot for the
- *                            JS->plugin wire-up (SSI #488); empty for now.
+ *   - preserved_js[] (array) each: content, handle, src, block. The JS->plugin
+ *                            wire-up (SSI #488): verbatim island JS projected from
+ *                            the generic runtime-island package, scoped to the
+ *                            generated block that owns it.
+ *   - preserved_js_deferred[] (array) each: content, handle, src, reason.
+ *                            Preserve-worthy island JS with no sound generated-block
+ *                            scope; surfaced (not silently dropped) because the
+ *                            consumer drops unscoped entries.
  *
  * When the artifact carries no custom blocks (mapping still prefers
  * core/Automattic blocks with a core/html fallback, and no subtree qualified for
@@ -48,9 +54,10 @@ final class CompanionPluginPayload
      * @param array<int, array<string, mixed>> $files           Normalized artifact files (carry content).
      * @param array<string, mixed>             $artifact        Raw artifact envelope (for site identity).
      * @param array<int, array<string, mixed>> $generatedBlocks Dynamic blocks generated at core/html fallbacks (issue #497).
+     * @param array<string, mixed>             $runtimeIslandPackage Generic runtime-island package feed (issue #488).
      * @return array<string, mixed> Empty array when there are no generated blocks.
      */
-    public function fromBlockTypes(array $blockTypes, array $files, array $artifact, array $generatedBlocks = array()): array
+    public function fromBlockTypes(array $blockTypes, array $files, array $artifact, array $generatedBlocks = array(), array $runtimeIslandPackage = array()): array
     {
         $blocks = array();
         $seenNames = array();
@@ -88,13 +95,18 @@ final class CompanionPluginPayload
             return array();
         }
 
+        $preserved = $this->preservedJs($runtimeIslandPackage, $blocks, $this->blockNamespace($artifact));
+
         $payload = array(
             'schema' => self::SCHEMA,
             'blocks' => $blocks,
-            // Slot for preserved island JS. Populated by the JS->plugin wire-up
-            // (SSI #488); empty here so the producer seam exists today.
-            'preserved_js' => array(),
+            // Preserved island JS projected from the generic runtime-island package
+            // and scoped to its owning generated block (SSI #488).
+            'preserved_js' => $preserved['preserved_js'],
         );
+        if ( array() !== $preserved['deferred'] ) {
+            $payload['preserved_js_deferred'] = $preserved['deferred'];
+        }
 
         $siteSlug = $this->siteSlug($artifact);
         if ( '' !== $siteSlug ) {
@@ -109,6 +121,109 @@ final class CompanionPluginPayload
         }
 
         return $payload;
+    }
+
+    /**
+     * Project preserved island JS from the generic runtime-island package into the
+     * scaffold's preserved_js contract (issue #488), gated by the
+     * preserve-vs-rebuild signal (issue #224).
+     *
+     * Only islands the engine could soundly associate with a generated block are
+     * scoped and emitted: a script captured at custom-block generation carries the
+     * owning block's fully-qualified name (`owner_block`), and the consumer enqueues
+     * its JS via render_block only when that block renders. Free-standing islands
+     * (canvas, form, and standalone scripts elsewhere in the DOM) have no sound
+     * generated-block owner — the consumer drops unscoped entries — so they are
+     * surfaced as declared deferrals rather than emitted with a guessed scope or
+     * dropped silently. Telemetry/droppable and external-unmaterialized scripts
+     * carry no verbatim JS body, so they contribute neither an entry nor a deferral.
+     *
+     * @param array<string, mixed>             $runtimeIslandPackage Generic runtime-island package.
+     * @param array<int, array<string, mixed>> $blocks               Packaged companion blocks.
+     * @param string                           $blockNamespace       Per-site block namespace (`ssi-<slug>`).
+     * @return array{preserved_js: array<int, array<string, string>>, deferred: array<int, array<string, string>>}
+     */
+    private function preservedJs(array $runtimeIslandPackage, array $blocks, string $blockNamespace): array
+    {
+        $islands = is_array($runtimeIslandPackage['islands'] ?? null) ? $runtimeIslandPackage['islands'] : array();
+        if ( array() === $islands ) {
+            return array( 'preserved_js' => array(), 'deferred' => array() );
+        }
+
+        // Fully-qualified names of the generated blocks this payload actually
+        // packages, so an island scope is only honored when its owning block ships.
+        $ownedBlocks = array();
+        if ( '' !== $blockNamespace ) {
+            foreach ( $blocks as $block ) {
+                $name = (string) ($block['name'] ?? '');
+                if ( '' !== $name ) {
+                    $ownedBlocks[$blockNamespace . '/' . $name] = true;
+                }
+            }
+        }
+
+        $preserved = array();
+        $deferred  = array();
+        foreach ( $islands as $island ) {
+            if ( ! is_array($island) ) {
+                continue;
+            }
+            // Preserve-vs-rebuild gate (#224): only verbatim-preserve islands carry JS.
+            if ( 'preserve' !== ($island['disposition'] ?? '') || 'preserve_verbatim' !== ($island['js_handling'] ?? '') ) {
+                continue;
+            }
+            $content = $this->islandScriptContent($island);
+            $handle  = is_scalar($island['handle_hint'] ?? null) ? (string) $island['handle_hint'] : '';
+            if ( '' === $content || '' === $handle ) {
+                // Nothing carryable (telemetry-only or external-unmaterialized) or
+                // no stable handle: the consumer requires both, so emit neither an
+                // entry nor a deferral.
+                continue;
+            }
+
+            $entry = array(
+                'content' => $content,
+                'handle'  => $handle,
+                'src'     => 'islands/' . $handle . '.js',
+            );
+
+            $owner = is_scalar($island['owner_block'] ?? null) ? (string) $island['owner_block'] : '';
+            if ( '' !== $owner && isset($ownedBlocks[$owner]) ) {
+                $entry['block'] = $owner;
+                $preserved[]    = $entry;
+                continue;
+            }
+
+            // No sound generated-block scope: surface as a declared deferral so the
+            // JS loss is visible rather than silent.
+            $entry['reason'] = '' !== $owner ? 'owner_block_not_packaged' : 'no_generated_block_owner';
+            $deferred[]      = $entry;
+        }
+
+        return array( 'preserved_js' => $preserved, 'deferred' => $deferred );
+    }
+
+    /**
+     * The first preserve-worthy verbatim JS body carried by an island's scripts:
+     * an inline body or materialized external content. Telemetry/droppable scripts
+     * and external-but-unmaterialized scripts contribute no carryable content.
+     *
+     * @param array<string, mixed> $island One runtime-island-package island.
+     */
+    private function islandScriptContent(array $island): string
+    {
+        $scripts = is_array($island['scripts'] ?? null) ? $island['scripts'] : array();
+        foreach ( $scripts as $script ) {
+            if ( ! is_array($script) || ! empty($script['droppable']) || 'telemetry' === ($script['role'] ?? '') ) {
+                continue;
+            }
+            $content = is_scalar($script['content'] ?? null) ? (string) $script['content'] : '';
+            if ( '' !== trim($content) ) {
+                return $content;
+            }
+        }
+
+        return '';
     }
 
     /**

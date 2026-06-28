@@ -136,6 +136,11 @@ final class RuntimeIslandPackageBuilder
             'disposition'         => $disposition,
             'js_handling'         => 'drop' === $disposition ? 'drop' : 'preserve_verbatim',
             'handle_hint'         => $this->handleHint($kind, $selector, $markup),
+            // Generic association: the generated block this island lives inside,
+            // when the transformer recorded one (a script captured at custom-block
+            // generation, issue #488). Product-neutral — it is a generated-block
+            // reference, not a host-product name. Absent for free-standing islands.
+            'owner_block'         => is_scalar($runtimeIsland['owner_block'] ?? null) ? (string) $runtimeIsland['owner_block'] : '',
             'attributes'          => is_array($runtimeIsland['attributes'] ?? null) ? $runtimeIsland['attributes'] : array(),
             'scripts'             => $scripts,
         );
