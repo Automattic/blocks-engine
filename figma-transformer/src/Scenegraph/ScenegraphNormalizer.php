@@ -502,6 +502,14 @@ final class ScenegraphNormalizer
             $node['figma_link'] = $link;
         }
 
+        $devStatus = ScenegraphDevStatus::resolve($node);
+        if ( null !== $devStatus ) {
+            // Clean public value (ready_for_dev|completed|null) plus the raw
+            // internal token for auditability (#280).
+            $node['dev_status']     = $devStatus['normalized'];
+            $node['dev_status_raw'] = $devStatus['raw'];
+        }
+
         foreach ( array('children', 'nodes') as $childrenKey ) {
             if ( ! is_array($node[$childrenKey] ?? null) ) {
                 continue;

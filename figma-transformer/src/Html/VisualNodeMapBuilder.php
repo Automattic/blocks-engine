@@ -85,6 +85,8 @@ final class VisualNodeMapBuilder
                 ),
                 'image' => null === $imagePaint ? null : $this->visualImageMetadata($imagePaint),
                 'text' => empty($text) ? null : $this->visualTextMetadata($text),
+                // Figma Dev Mode status (#280) surfaced for the diagnostics map.
+                'dev_status' => isset($node['dev_status']) && is_string($node['dev_status']) ? $node['dev_status'] : null,
             );
             if ( null !== $visibleRect && $visibleRect !== $nodeRect ) {
                 $entry['visible_rect'] = $visibleRect;
