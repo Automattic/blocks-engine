@@ -13,16 +13,30 @@ final class RuntimeDependencyParityReport
     public const SCHEMA = 'blocks-engine/php-transformer/runtime-dependency-parity/v1';
 
     /**
+     * Acceptable disposition for a missing-DOM-target finding whose selector the
+     * transformer intentionally removed because a native block now provides the
+     * behavior — the parity loss is expected and editable, not a bug.
+     */
+    public const DISPOSITION_SUPERSEDED = 'superseded_by_native_interactivity';
+
+    /**
      * @param array<int, array<string, mixed>> $files
      * @param array<int, array<string, mixed>> $runtimeIslands
      * @param array<int, array<string, mixed>> $assetReferences
      * @param array<int, array<string, mixed>> $interactionCandidates
+     * @param array<int, string> $supersededSelectors Source id/class selectors
+     *        the transformer intentionally removed because a native block now
+     *        provides the behavior (e.g. a hamburger menu-toggle and the overlay
+     *        it controlled, dropped in favor of core/navigation's own responsive
+     *        overlay). A missing-target finding for one of these is reclassified
+     *        as an acceptable, superseded loss rather than a materialization bug.
      * @return array<string, mixed>
      */
-    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = '', array $runtimeIslands = array(), array $assetReferences = array(), array $interactionCandidates = array()): array
+    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = '', array $runtimeIslands = array(), array $assetReferences = array(), array $interactionCandidates = array(), array $supersededSelectors = array()): array
     {
         $sourceTargets = $this->sourceTargets($sourceHtml, $sourcePath);
         $generatedTargets = $this->withRuntimeIslandTargets($this->htmlTargets($generatedHtml), $runtimeIslands);
+        $superseded = $this->normalizeSupersededSelectors($supersededSelectors);
         $dependencies = array();
         $findings = array();
         $flaggedSelectors = array();
@@ -91,6 +105,7 @@ final class RuntimeDependencyParityReport
                     'materialization_hint' => $canvasApi ? 'preserve_canvas_id_class_and_markup_for_runtime_mapping' : 'preserve_id_class_or_wrapper_markup_required_by_first_party_script',
                     'message'           => sprintf('Script %s references %s, but the generated block markup does not expose that DOM target.', $scriptPath, $selector),
                 ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+                $findings[count($findings) - 1] = $this->withSupersededDisposition($findings[count($findings) - 1], $superseded);
             }
         }
 
@@ -99,7 +114,7 @@ final class RuntimeDependencyParityReport
         }
 
         foreach ( $this->scriptTargetParityFindings($files, $interactionCandidates, $sourceTargets, $generatedTargets, $sourcePath, $flaggedSelectors) as $finding ) {
-            $findings[] = $finding;
+            $findings[] = $this->withSupersededDisposition($finding, $superseded);
         }
 
         return array_filter(array(
@@ -317,6 +332,66 @@ final class RuntimeDependencyParityReport
         }
 
         return '';
+    }
+
+    /**
+     * Normalize the transformer-recorded superseded selectors into a lookup set
+     * keyed by clean `#id` / `.class` selector. Other selector shapes are
+     * ignored because the parity report only checks id/class presence.
+     *
+     * @param array<int, string> $selectors
+     * @return array<string, bool>
+     */
+    private function normalizeSupersededSelectors(array $selectors): array
+    {
+        $normalized = array();
+        foreach ( $selectors as $selector ) {
+            if ( ! is_string($selector) ) {
+                continue;
+            }
+            $selector = $this->normalizedTargetSelector($selector);
+            if ( '' !== $selector ) {
+                $normalized[$selector] = true;
+            }
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * Reclassify a missing-DOM-target finding as an acceptable, superseded loss
+     * when its selector is one the transformer intentionally removed in favor of
+     * a native block's behavior (e.g. a hamburger menu-toggle and the overlay it
+     * controlled, dropped because the navigation became a core/navigation with
+     * its own responsive overlay). The finding is kept for transparency but its
+     * severity is lowered and an acceptable disposition is attached, so a
+     * preserved site script still referencing the removed selector is recorded
+     * as an expected, editable approximation rather than a materialization bug.
+     * Findings for selectors NOT in the superseded set are returned unchanged,
+     * so genuinely-broken targets stay flagged.
+     *
+     * @param array<string, mixed> $finding
+     * @param array<string, bool> $superseded
+     * @return array<string, mixed>
+     */
+    private function withSupersededDisposition(array $finding, array $superseded): array
+    {
+        $selector = $this->normalizedTargetSelector((string) ($finding['selector'] ?? ''));
+        if ( '' === $selector || ! isset($superseded[$selector]) ) {
+            return $finding;
+        }
+
+        return array_merge($finding, array(
+            'severity'             => 'info',
+            'disposition'          => self::DISPOSITION_SUPERSEDED,
+            'loss_class'           => 'editable_approximation',
+            'recoverability'       => 'acceptable_loss',
+            'repair_bucket'        => 'runtime_behavior_superseded_by_native_block',
+            'suggested_primitive'  => 'native_navigation_overlay',
+            'actionability'        => 'no_action_native_navigation_overlay_supersedes_the_removed_menu_toggle',
+            'materialization_hint' => 'none_native_block_provides_the_responsive_navigation_overlay',
+            'message'              => sprintf('Script references %s, which the transformer intentionally removed because the navigation became a core/navigation with its own responsive overlay; the missing target is an expected, editable approximation, not a materialization bug.', $selector),
+        ));
     }
 
     /**
