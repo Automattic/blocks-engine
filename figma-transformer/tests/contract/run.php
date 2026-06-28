@@ -4191,8 +4191,10 @@ $assert(false === ($barlowVariantsCoverage['Barlow Condensed']['needs_operator_f
 $assert(false === ($barlowVariantsCoverage['Barlow Semi Condensed']['needs_operator_font'] ?? null), 'barlow-semi-condensed-no-operator-font-needed');
 $assert(array() === ($barlowVariantsFonts['missing_css'] ?? null), 'barlow-variants-all-resolved');
 
-// Syne and Cabinet Grotesk: families audited as commonly used in Figma designs and
-// newly added to the resolver. Verify both resolve to CDN without operator CSS needed.
+// Syne: a Google Fonts family that resolves via CDN.
+// Cabinet Grotesk: a Fontshare-only font not present in the Google Fonts metadata
+// endpoint — it appears as unresolved (needs_operator_font: true) when no operator
+// font_css is supplied.
 $syneResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Syne Cabinet Grotesk Fixture',
     'nodes' => array(
@@ -4212,9 +4214,9 @@ $syneCoverage = array();
 foreach ( is_array($syneFonts['coverage'] ?? null) ? $syneFonts['coverage'] : array() as $coverageEntry ) {
     $syneCoverage[(string) ($coverageEntry['family'] ?? '')] = $coverageEntry;
 }
-$assert(array() === ($syneFonts['missing_css'] ?? null), 'syne-cabinet-grotesk-all-resolved');
 $assert('cdn_google_fonts' === ($syneCoverage['Syne']['resolution'] ?? null), 'syne-resolved-via-cdn');
-$assert('cdn_google_fonts' === ($syneCoverage['Cabinet Grotesk']['resolution'] ?? null), 'cabinet-grotesk-resolved-via-cdn');
+$assert('unresolved' === ($syneCoverage['Cabinet Grotesk']['resolution'] ?? null), 'cabinet-grotesk-not-on-google-fonts');
+$assert(true === ($syneCoverage['Cabinet Grotesk']['needs_operator_font'] ?? null), 'cabinet-grotesk-needs-operator-font');
 
 $assetReferenceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'   => 'Asset Reference Fixture',
