@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-style-function-values-var-gradient-preserved",
+  "description": "Keeps a var() custom-property color and a multi-stop linear-gradient (with a nested rgba()) whole through paren-aware value parsing, emitting a valid block whose has-background class matches the rendered gradient style.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-style-function-values-var-gradient-preserved.json",
+    "notes": "Generic CSS-syntax coverage: var() defaults and gradient color stops carry commas/spaces that are not top-level delimiters."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New paren-aware CSS value parsing behavior has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section style=\"color: var(--accent, #c4a35a); background: linear-gradient(90deg, rgba(0,0,0,.5), #fff)\"><h2>Grad</h2></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "style": { "color": { "text": "var(--accent, #c4a35a)", "gradient": "linear-gradient(90deg, rgba(0,0,0,.5), #fff)" } }, "tagName": "section" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"text\":\"var(--accent, #c4a35a)\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"gradient\":\"linear-gradient(90deg, rgba(0,0,0,.5), #fff)\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "background:linear-gradient(90deg, rgba(0,0,0,.5), #fff)" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group has-text-color has-background\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"text\":\"var(--accent,\"" }
+  ]
+}

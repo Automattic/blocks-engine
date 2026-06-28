@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-style-function-values-rgba-clamp-preserved",
+  "description": "Parses CSS values with parenthesis-depth awareness so an rgba() background and a clamp()-led box shorthand keep their internal commas/spaces, and the resulting block stays valid (has-* class only with a matching renderable style).",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-style-function-values-rgba-clamp-preserved.json",
+    "notes": "Generic CSS-syntax coverage: functional notation (rgba/clamp) must not be split mid-function by the declaration/value/shorthand parsers."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New paren-aware CSS value parsing behavior has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section style=\"background: rgba(251, 247, 241, .95); padding: clamp(3.5rem, 8vw, 6.5rem) 0; color: rgb(20, 20, 20)\"><h2>Hello</h2><p>World</p></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "style": { "color": { "text": "rgb(20, 20, 20)", "background": "rgba(251, 247, 241, .95)" }, "spacing": { "padding": { "top": "clamp(3.5rem, 8vw, 6.5rem)", "right": "0", "bottom": "clamp(3.5rem, 8vw, 6.5rem)", "left": "0" } } }, "tagName": "section" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"background\":\"rgba(251, 247, 241, .95)\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"top\":\"clamp(3.5rem, 8vw, 6.5rem)\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "background-color:rgba(251, 247, 241, .95)" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "padding-top:clamp(3.5rem, 8vw, 6.5rem)" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group has-text-color has-background\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"background\":\"rgba(251,\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "background-color:rgba(251,;" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "padding-right:8vw" }
+  ]
+}
