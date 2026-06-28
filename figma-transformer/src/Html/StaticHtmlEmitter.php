@@ -44,6 +44,13 @@ final class StaticHtmlEmitter
 
     private bool $renderTextGlyphPaths = false;
 
+    private ?FontResolver $fontResolver = null;
+
+    private function fontResolver(): FontResolver
+    {
+        return $this->fontResolver ??= new FontResolver();
+    }
+
     /**
      * Resolved destination-node-id => page-path map used to turn NODE/prototype links into slug hrefs.
      *
@@ -91,7 +98,7 @@ final class StaticHtmlEmitter
         if ( $this->renderTextGlyphPaths ) {
             $cssRules[] = '.figma-text-glyphs{display:block;width:100%;height:100%;overflow:visible}';
         }
-        $fontCss = $this->fontCss($options);
+        $operatorFontCss = $this->fontCss($options);
 
         foreach ( $nodes as $node ) {
             if ( ! is_array($node) ) {
@@ -101,6 +108,11 @@ final class StaticHtmlEmitter
         }
 
         $assetFiles = array_merge($this->referencedAssetFiles($assetFiles), array_values($this->generatedAssetFiles));
+
+        $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
+        $fontUsage = $this->fontUsage($nodeStyleDiagnostics);
+        $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss);
+        $fontCss = (string) $fontResolution['css'];
 
         $css = ('' !== $fontCss ? $fontCss . "\n" : '') . implode("\n", $cssRules) . "\n";
         $files = array(
@@ -125,21 +137,9 @@ final class StaticHtmlEmitter
         $files = $this->withInlineCssFiles($files, $css);
 
         $visualNodeMap = $this->visualNodeMap($nodes);
-        $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
-        $fontUsage = $this->fontUsage($nodeStyleDiagnostics);
-        $transformDiagnostics = $this->transformDiagnostics($nodes, $assetFiles, $fontFamilies, $fontUsage, $fontCss, $css, $diagnostics);
-        if ( '' === $fontCss ) {
-            foreach ( $fontFamilies as $fontFamily ) {
-                if ( $this->isWebSafeFontFamily($fontFamily) ) {
-                    continue;
-                }
-                $diagnostics[] = array(
-                    'severity' => 'info',
-                    'code' => 'font_css_missing_for_source_font',
-                    'message' => 'Source font family was emitted without supplied font CSS; browser font fallback may reduce visual parity.',
-                    'context' => array('font_family' => $fontFamily),
-                );
-            }
+        $transformDiagnostics = $this->transformDiagnostics($nodes, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics);
+        foreach ( $this->unresolvedSourceFontDiagnostics($fontResolution) as $diagnostic ) {
+            $diagnostics[] = $diagnostic;
         }
 
         return array(
@@ -158,7 +158,7 @@ final class StaticHtmlEmitter
                 'visual_node_map'              => $visualNodeMap,
                 'font_families'                => $fontFamilies,
                 'font_usage'                   => $fontUsage,
-                'font_css_supplied'            => '' !== $fontCss,
+                'font_css_supplied'            => (bool) $fontResolution['operator_supplied'],
                 'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
                 'transform_diagnostics'        => $transformDiagnostics,
             ),
@@ -202,7 +202,7 @@ final class StaticHtmlEmitter
         if ( $this->renderTextGlyphPaths ) {
             $cssRules[] = '.figma-text-glyphs{display:block;width:100%;height:100%;overflow:visible}';
         }
-        $fontCss = $this->fontCss($options);
+        $operatorFontCss = $this->fontCss($options);
         $files = array();
         $pages = array();
         $renderedNodes = array();
@@ -274,6 +274,10 @@ final class StaticHtmlEmitter
         }
 
         $assetFiles = array_merge($this->referencedAssetFiles($assetFiles), array_values($this->generatedAssetFiles));
+        $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
+        $fontUsage = $this->fontUsage($nodeStyleDiagnostics);
+        $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss);
+        $fontCss = (string) $fontResolution['css'];
         $css = ('' !== $fontCss ? $fontCss . "\n" : '') . implode("\n", array_values(array_unique($cssRules))) . "\n";
         $files[] = array(
             'path'      => 'style.css',
@@ -289,21 +293,9 @@ final class StaticHtmlEmitter
         $files = $this->withInlineCssFiles($files, $css);
 
         $visualNodeMap = $this->visualNodeMap($renderedNodes);
-        $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
-        $fontUsage = $this->fontUsage($nodeStyleDiagnostics);
-        $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $assetFiles, $fontFamilies, $fontUsage, $fontCss, $css, $diagnostics);
-        if ( '' === $fontCss ) {
-            foreach ( $fontFamilies as $fontFamily ) {
-                if ( $this->isWebSafeFontFamily($fontFamily) ) {
-                    continue;
-                }
-                $diagnostics[] = array(
-                    'severity' => 'info',
-                    'code' => 'font_css_missing_for_source_font',
-                    'message' => 'Source font family was emitted without supplied font CSS; browser font fallback may reduce visual parity.',
-                    'context' => array('font_family' => $fontFamily),
-                );
-            }
+        $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics);
+        foreach ( $this->unresolvedSourceFontDiagnostics($fontResolution) as $diagnostic ) {
+            $diagnostics[] = $diagnostic;
         }
 
         return array(
@@ -323,7 +315,7 @@ final class StaticHtmlEmitter
                 'visual_node_map'              => $visualNodeMap,
                 'font_families'                => $fontFamilies,
                 'font_usage'                   => $fontUsage,
-                'font_css_supplied'            => '' !== $fontCss,
+                'font_css_supplied'            => (bool) $fontResolution['operator_supplied'],
                 'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
                 'transform_diagnostics'        => $transformDiagnostics,
             ),
@@ -647,8 +639,8 @@ final class StaticHtmlEmitter
         $families = array();
         foreach ( $nodeStyleDiagnostics as $diagnostic ) {
             $family = $diagnostic['expected']['font_family'] ?? null;
-            if ( is_scalar($family) && '' !== (string) $family ) {
-                $families[] = trim((string) $family, '"');
+            if ( is_scalar($family) && '' !== $this->primaryFontFamily((string) $family) ) {
+                $families[] = $this->primaryFontFamily((string) $family);
             }
         }
 
@@ -669,7 +661,7 @@ final class StaticHtmlEmitter
                 continue;
             }
 
-            $family = trim((string) $expected['font_family'], " \t\n\r\0\x0B\"");
+            $family = $this->primaryFontFamily((string) $expected['font_family']);
             if ( '' === $family ) {
                 continue;
             }
@@ -729,9 +721,38 @@ final class StaticHtmlEmitter
         return preg_match('/^-?\d+(?:\.\d+)?px$/', $value) ? (float) substr($value, 0, -2) : 0.0;
     }
 
-    private function isWebSafeFontFamily(string $family): bool
+    /**
+     * Extract the primary family from a (possibly multi-value) font-family
+     * declaration, dropping the generic fallback so font detection keys on the
+     * source family.
+     */
+    private function primaryFontFamily(string $value): string
     {
-        return in_array(strtolower($family), array('arial', 'georgia', 'helvetica', 'serif', 'sans-serif', 'times new roman', 'verdana'), true);
+        $first = explode(',', $value, 2)[0];
+
+        return trim($first, " \t\n\r\0\x0B\"'");
+    }
+
+    /**
+     * Build one info diagnostic per unresolved source font family so operators
+     * know exactly which families still need a supplied font.
+     *
+     * @param array<string, mixed> $fontResolution
+     * @return array<int, array<string, mixed>>
+     */
+    private function unresolvedSourceFontDiagnostics(array $fontResolution): array
+    {
+        $diagnostics = array();
+        foreach ( array_values($fontResolution['unresolved_families'] ?? array()) as $fontFamily ) {
+            $diagnostics[] = array(
+                'severity' => 'info',
+                'code' => 'font_css_missing_for_source_font',
+                'message' => 'Source font family could not be resolved to embedded or CDN font CSS; supply font_css to restore visual parity.',
+                'context' => array('font_family' => (string) $fontFamily),
+            );
+        }
+
+        return $diagnostics;
     }
 
     /**
@@ -919,10 +940,12 @@ final class StaticHtmlEmitter
      * @param array<int, array<string, mixed>> $nodes
      * @param array<int, array<string, mixed>> $assetFiles
      * @param array<int, string> $fontFamilies
+     * @param array<int, array<string, mixed>> $fontUsage
+     * @param array<string, mixed> $fontResolution
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<string, mixed>
      */
-    private function transformDiagnostics(array $nodes, array $assetFiles, array $fontFamilies, array $fontUsage, string $fontCss, string $css, array $diagnostics): array
+    private function transformDiagnostics(array $nodes, array $assetFiles, array $fontFamilies, array $fontUsage, array $fontResolution, string $css, array $diagnostics): array
     {
         $image = array(
             'paint_refs'      => 0,
@@ -973,13 +996,17 @@ final class StaticHtmlEmitter
             'emitted_files' => count($assetFiles),
             'paths'         => array_values(array_map(static fn (array $file): string => (string) ($file['path'] ?? ''), $assetFiles)),
         );
+        $fontCss = (string) ($fontResolution['css'] ?? '');
         $fonts = array(
             'families'      => $fontFamilies,
             'usage'         => $fontUsage,
             'count'         => count($fontFamilies),
-            'css_supplied'  => '' !== $fontCss,
+            'css_supplied'  => (bool) ($fontResolution['operator_supplied'] ?? false),
             'materialized'  => '' !== $fontCss,
-            'missing_css'   => '' === $fontCss ? array_values(array_filter($fontFamilies, fn (string $family): bool => ! $this->isWebSafeFontFamily($family))) : array(),
+            'missing_css'   => array_values($fontResolution['unresolved_families'] ?? array()),
+            'resolved_css'  => array_values($fontResolution['resolved_families'] ?? array()),
+            'cdn_families'  => array_values($fontResolution['cdn_families'] ?? array()),
+            'coverage'      => array_values($fontResolution['coverage'] ?? array()),
         );
 
         $links = $this->linkDiagnostics();
@@ -2827,7 +2854,7 @@ final class StaticHtmlEmitter
         $styles = array();
 
         if ( isset($style['font_family']) && is_scalar($style['font_family']) ) {
-            $styles[] = 'font-family:' . $this->cssString((string) $style['font_family']);
+            $styles[] = 'font-family:' . $this->fontResolver()->fallbackStack((string) $style['font_family']);
         }
 
         if ( isset($style['font_size']) && is_numeric($style['font_size']) ) {

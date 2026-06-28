@@ -3492,11 +3492,11 @@ $metadataDiagnosticCodes = array_map(
 $assert(str_contains($metadataHtml, '<span style="font-weight:400">Hello </span><span style="font-weight:700;text-decoration:underline">World</span>'), 'styled-text-segments-emit');
 $assert(str_contains($metadataCss, 'p,h1,h2,h3,h4,h5,h6{margin:0}'), 'text-elements-reset-default-margins');
 $assert(str_contains($metadataCss, '.figma-node-4-1-metadata-frame{position:relative;background:rgba(51,102,153,0.5);opacity:0.75;border-radius:12px;border:2px solid #000000;box-shadow:0px 0px 0px 0px rgba(0,0,0,0.25)}'), 'normalized-frame-paint-box-style');
-$assert(str_contains($metadataCss, '.figma-node-4-2-mixed-text{position:absolute;font-family:"Example Sans";font-size:20px;font-weight:600;line-height:125%;letter-spacing:0.5px;color:rgba(255,128,0,0.8);text-align:center;vertical-align:top;text-decoration:underline}'), 'normalized-text-style');
+$assert(str_contains($metadataCss, '.figma-node-4-2-mixed-text{position:absolute;font-family:"Example Sans", sans-serif;font-size:20px;font-weight:600;line-height:125%;letter-spacing:0.5px;color:rgba(255,128,0,0.8);text-align:center;vertical-align:top;text-decoration:underline}'), 'normalized-text-style');
 $assert(str_contains($metadataCss, '.figma-node-4-3-uneven-radius{position:absolute;border-top-left-radius:4px;border-top-right-radius:8px;border-bottom-right-radius:12px;border-bottom-left-radius:16px}'), 'individual-radius-style');
-$assert(str_contains($metadataCss, '.figma-node-4-4-raw-line-height-text{position:absolute;font-family:"Example Sans";font-size:18px;font-weight:600;line-height:1.15}'), 'font-style-weight-and-raw-line-height');
-$assert(str_contains($metadataCss, '.figma-node-4-5-wp-cloud-text-metrics{position:absolute;font-family:"DM Sans";font-size:80px;font-weight:700;line-height:1.05;letter-spacing:-0.02em}'), 'wp-cloud-text-metrics-style');
-$assert(str_contains($metadataCss, '.figma-node-4-6-zero-line-height-text{position:absolute;font-family:"Example Sans";font-size:16px;font-weight:400}') && ! str_contains($metadataCss, 'line-height:0'), 'zero-line-height-omitted');
+$assert(str_contains($metadataCss, '.figma-node-4-4-raw-line-height-text{position:absolute;font-family:"Example Sans", sans-serif;font-size:18px;font-weight:600;line-height:1.15}'), 'font-style-weight-and-raw-line-height');
+$assert(str_contains($metadataCss, '.figma-node-4-5-wp-cloud-text-metrics{position:absolute;font-family:"DM Sans", sans-serif;font-size:80px;font-weight:700;line-height:1.05;letter-spacing:-0.02em}'), 'wp-cloud-text-metrics-style');
+$assert(str_contains($metadataCss, '.figma-node-4-6-zero-line-height-text{position:absolute;font-family:"Example Sans", sans-serif;font-size:16px;font-weight:400}') && ! str_contains($metadataCss, 'line-height:0'), 'zero-line-height-omitted');
 $assert(in_array('unsupported_figma_paint_type', $metadataDiagnosticCodes, true), 'unsupported-paint-diagnostic');
 $assert(! in_array('unsupported_figma_effect_type', $metadataDiagnosticCodes, true), 'supported-effect-no-diagnostic');
 $assert(in_array('font_css_missing_for_source_font', $metadataDiagnosticCodes, true), 'missing-font-css-diagnostic');
@@ -3515,13 +3515,28 @@ $assert(true === ($metadataWithFontCssResult['source_reports']['figma']['html'][
 $metadataTransformDiagnostics = $metadataResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
 $metadataWithFontCssTransformDiagnostics = $metadataWithFontCssResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
 $assert(array('DM Sans', 'Example Sans') === ($metadataTransformDiagnostics['fonts']['families'] ?? null), 'transform-diagnostics-font-families');
-$assert(false === ($metadataTransformDiagnostics['fonts']['materialized'] ?? null), 'transform-diagnostics-font-not-materialized-without-css');
-$assert(array('DM Sans', 'Example Sans') === ($metadataTransformDiagnostics['fonts']['missing_css'] ?? null), 'transform-diagnostics-font-missing-css');
+// DM Sans is a known Google Fonts family so it resolves to a CDN @font-face import,
+// while the fictional "Example Sans" stays unresolved and actionable for an operator.
+$assert(true === ($metadataTransformDiagnostics['fonts']['materialized'] ?? null), 'transform-diagnostics-font-materialized-via-cdn');
+$assert(str_contains($metadataCss, "@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@700&display=swap');"), 'cdn-font-import-emitted');
+$assert(str_starts_with(ltrim($metadataCss), '/*') || str_starts_with($metadataCss, '@import'), 'cdn-font-import-hoisted-to-top');
+$assert(array('Example Sans') === ($metadataTransformDiagnostics['fonts']['missing_css'] ?? null), 'transform-diagnostics-font-missing-css');
+$assert(array('DM Sans') === ($metadataTransformDiagnostics['fonts']['resolved_css'] ?? null), 'transform-diagnostics-font-resolved-css');
+$assert(array('DM Sans') === ($metadataTransformDiagnostics['fonts']['cdn_families'] ?? null), 'transform-diagnostics-font-cdn-families');
+$fontCoverage = $metadataTransformDiagnostics['fonts']['coverage'] ?? array();
+$coverageByFamily = array();
+foreach ( is_array($fontCoverage) ? $fontCoverage : array() as $coverageEntry ) {
+    $coverageByFamily[(string) ($coverageEntry['family'] ?? '')] = $coverageEntry;
+}
+$assert('cdn_google_fonts' === ($coverageByFamily['DM Sans']['resolution'] ?? null) && true === ($coverageByFamily['DM Sans']['resolved'] ?? null), 'font-coverage-dm-sans-resolved-via-cdn');
+$assert(false === ($coverageByFamily['DM Sans']['needs_operator_font'] ?? null) && str_contains((string) ($coverageByFamily['DM Sans']['source_url'] ?? ''), 'fonts.googleapis.com'), 'font-coverage-dm-sans-cdn-source-url');
+$assert('unresolved' === ($coverageByFamily['Example Sans']['resolution'] ?? null) && true === ($coverageByFamily['Example Sans']['needs_operator_font'] ?? null), 'font-coverage-example-sans-needs-operator-font');
+$assert('"Example Sans", sans-serif' === ($coverageByFamily['Example Sans']['fallback_stack'] ?? null), 'font-coverage-example-sans-fallback-stack');
 $missingFontCssSignal = $artifactQualitySignal($metadataResult, 'font_css_missing');
 $assert('warning' === ($missingFontCssSignal['severity'] ?? null), 'font-css-missing-quality-warning');
 $assert('needs_review' === ($metadataTransformDiagnostics['artifact_quality']['status'] ?? null), 'font-css-missing-quality-needs-review');
 $assert('warn' === ($metadataTransformDiagnostics['artifact_quality']['quality_status'] ?? null), 'font-css-missing-quality-status-warn');
-$assert(2 === ($missingFontCssSignal['count'] ?? null), 'font-css-missing-quality-count');
+$assert(1 === ($missingFontCssSignal['count'] ?? null), 'font-css-missing-quality-count');
 $assert(! in_array('font_css_missing', $artifactQualitySignalCodes($metadataWithFontCssResult), true), 'font-css-supplied-suppresses-quality-warning');
 $assert(true === ($metadataWithFontCssTransformDiagnostics['fonts']['materialized'] ?? null), 'transform-diagnostics-font-materialized-with-css');
 $styleDiagnostics = $metadataResult['source_reports']['figma']['html']['node_style_diagnostics'] ?? array();
@@ -3536,8 +3551,8 @@ foreach ( $styleDiagnostics as $styleDiagnostic ) {
     }
 }
 $assert(null !== $mixedTextStyleDiagnostic, 'node-style-diagnostics-text-node-present');
-$assert('"Example Sans"' === ($mixedTextStyleDiagnostic['expected']['font_family'] ?? null), 'node-style-diagnostics-expected-font-family');
-$assert('"Example Sans"' === ($mixedTextStyleDiagnostic['emitted']['font_family'] ?? null), 'node-style-diagnostics-emitted-font-family');
+$assert('"Example Sans", sans-serif' === ($mixedTextStyleDiagnostic['expected']['font_family'] ?? null), 'node-style-diagnostics-expected-font-family');
+$assert('"Example Sans", sans-serif' === ($mixedTextStyleDiagnostic['emitted']['font_family'] ?? null), 'node-style-diagnostics-emitted-font-family');
 $assert('20px' === ($mixedTextStyleDiagnostic['expected']['font_size'] ?? null), 'node-style-diagnostics-expected-font-size');
 $assert('20px' === ($mixedTextStyleDiagnostic['emitted']['font_size'] ?? null), 'node-style-diagnostics-emitted-font-size');
 $assert('rgba(255,128,0,0.8)' === ($mixedTextStyleDiagnostic['expected']['text_color'] ?? null), 'node-style-diagnostics-expected-text-color');
@@ -3545,6 +3560,55 @@ $assert('rgba(255,128,0,0.8)' === ($mixedTextStyleDiagnostic['emitted']['text_co
 $assert(null !== $frameStyleDiagnostic, 'node-style-diagnostics-frame-node-present');
 $assert('rgba(51,102,153,0.5)' === ($frameStyleDiagnostic['expected']['background'] ?? null), 'node-style-diagnostics-expected-background');
 $assert('rgba(51,102,153,0.5)' === ($frameStyleDiagnostic['emitted']['background'] ?? null), 'node-style-diagnostics-emitted-background');
+
+// Font embedding: a known web font (Inter) resolves to a weight-aware Google Fonts
+// @font-face import, while an unknown family (Skolar Latin) stays actionable. This
+// mirrors the David Perell .fig matrix where Inter + Skolar Latin rendered in a
+// fallback system font because no font CSS was emitted.
+$fontEmbeddingResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Font Embedding Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'fe:1',
+            'type'     => 'FRAME',
+            'name'     => 'Typography frame',
+            'children' => array(
+                array('id' => 'fe:2', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Bold heading', 'fontName' => array('family' => 'Inter', 'style' => 'Bold'), 'fontSize' => 48),
+                array('id' => 'fe:3', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Regular body copy', 'fontName' => array('family' => 'Inter', 'style' => 'Regular'), 'fontSize' => 18),
+                array('id' => 'fe:4', 'type' => 'TEXT', 'name' => 'Serif accent', 'characters' => 'Serif accent', 'fontName' => array('family' => 'Skolar Latin', 'style' => 'Medium'), 'fontSize' => 24, 'style' => array('fontWeight' => 500)),
+            ),
+        ),
+    ),
+));
+$fontEmbeddingCss = $fileContent($fontEmbeddingResult, 'style.css');
+$fontEmbeddingDiagnostics = $fontEmbeddingResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+$fontEmbeddingFonts = $fontEmbeddingDiagnostics['fonts'] ?? array();
+$fontEmbeddingCodes = array_map(static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), $fontEmbeddingResult['diagnostics'] ?? array());
+$fontEmbeddingCoverage = array();
+foreach ( is_array($fontEmbeddingFonts['coverage'] ?? null) ? $fontEmbeddingFonts['coverage'] : array() as $coverageEntry ) {
+    $fontEmbeddingCoverage[(string) ($coverageEntry['family'] ?? '')] = $coverageEntry;
+}
+$assert(str_contains($fontEmbeddingCss, "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');"), 'font-embedding-inter-cdn-import');
+$assert(str_contains($fontEmbeddingCss, 'font-family:"Inter", sans-serif'), 'font-embedding-inter-fallback-stack');
+$assert(str_contains($fontEmbeddingCss, 'font-family:"Skolar Latin", sans-serif'), 'font-embedding-skolar-fallback-stack');
+$assert(true === ($fontEmbeddingFonts['materialized'] ?? null), 'font-embedding-materialized');
+$assert(false === ($fontEmbeddingFonts['css_supplied'] ?? null), 'font-embedding-not-operator-supplied');
+$assert(array('Inter') === ($fontEmbeddingFonts['resolved_css'] ?? null), 'font-embedding-inter-resolved');
+$assert(array('Skolar Latin') === ($fontEmbeddingFonts['missing_css'] ?? null), 'font-embedding-skolar-unresolved');
+$assert('cdn_google_fonts' === ($fontEmbeddingCoverage['Inter']['resolution'] ?? null) && array(400, 700) === ($fontEmbeddingCoverage['Inter']['weights'] ?? null), 'font-embedding-inter-coverage-weights');
+$assert(true === ($fontEmbeddingCoverage['Skolar Latin']['needs_operator_font'] ?? null), 'font-embedding-skolar-needs-operator-font');
+$assert(in_array('font_css_missing_for_source_font', $fontEmbeddingCodes, true) && 1 === count(array_filter($fontEmbeddingCodes, static fn (string $code): bool => 'font_css_missing_for_source_font' === $code)), 'font-embedding-single-unresolved-diagnostic');
+$fontOverrideResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Font Override Fixture',
+    'nodes' => array(
+        array('id' => 'fo:1', 'type' => 'TEXT', 'name' => 'Override text', 'characters' => 'Override', 'fontName' => array('family' => 'Inter', 'style' => 'Regular'), 'fontSize' => 20),
+    ),
+), array('font_css' => '@font-face{font-family:"Inter";src:url("assets/inter.woff2") format("woff2")}'));
+$fontOverrideCss = $fileContent($fontOverrideResult, 'style.css');
+$fontOverrideFonts = $fontOverrideResult['source_reports']['figma']['html']['transform_diagnostics']['fonts'] ?? array();
+$assert(str_starts_with($fontOverrideCss, '@font-face{font-family:"Inter";src:url("assets/inter.woff2") format("woff2")}'), 'font-embedding-operator-override-passthrough');
+$assert(! str_contains($fontOverrideCss, 'fonts.googleapis.com'), 'font-embedding-operator-override-skips-cdn');
+$assert(true === ($fontOverrideFonts['css_supplied'] ?? null) && array() === ($fontOverrideFonts['missing_css'] ?? null), 'font-embedding-operator-override-clears-missing');
 
 $assetReferenceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'   => 'Asset Reference Fixture',
