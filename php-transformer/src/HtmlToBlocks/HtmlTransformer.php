@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DiagnosticsCollector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SemanticParityReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
@@ -76,6 +77,8 @@ final class HtmlTransformer
     private readonly DiagnosticsCollector $diagnosticsCollector;
 
     private readonly SemanticParityReporter $semanticParityReporter;
+
+    private readonly FallbackEmitter $fallbackEmitter;
 
     /**
      * @var array<string, string>
@@ -156,6 +159,10 @@ final class HtmlTransformer
         ));
         $this->diagnosticsCollector = new DiagnosticsCollector();
         $this->semanticParityReporter = new SemanticParityReporter($this->runtime);
+        $this->fallbackEmitter = new FallbackEmitter(
+            $this->runtime,
+            fn (DOMElement $element): array => $this->sourceContext($element)
+        );
     }
 
     /**
@@ -178,6 +185,7 @@ final class HtmlTransformer
         $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
         $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
+        $this->fallbackEmitter->configure($this->fallbackProvenance, $this->runtimeScriptMetadata, $this->runtimeCanvasSelectors);
         $this->nextSourceProvenanceId = 1;
         $provenance               = array(
             array_merge(array(
@@ -3159,27 +3167,7 @@ final class HtmlTransformer
      */
     private function captureInlineSvgFallback(DOMElement $element, array &$fallbacks): void
     {
-        $rawHtml = $this->outerHtml($element);
-        $safe = $this->isSafeSvgContent($rawHtml);
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-
-        $fallbacks[] = FallbackDiagnostic::build(array(
-            'type'            => 'inline_svg',
-            'reason'          => $safe ? 'inline_svg_fallback' : 'unsafe_inline_svg',
-            'diagnostic_code' => $safe ? 'html_inline_svg_fallback' : 'html_unsafe_inline_svg',
-            'message'         => $safe ? 'Inline SVG was preserved as sanitized bounded fallback metadata.' : 'Inline SVG contains scriptable content and was preserved only as sanitized bounded fallback metadata.',
-            'source_format'   => 'html',
-            'tag'             => 'svg',
-            'selector'        => $this->elementSelector($element),
-            'attributes'      => $this->safeSvgAttributes($element),
-            'context'         => $this->sourceContext($element),
-            'events'          => $this->eventMetadata($element),
-            'text_length'     => strlen(trim($element->textContent ?? '')),
-            'child_count'     => $this->childElementCount($element),
-            'html'            => $boundedHtml['html'],
-            'html_bytes'      => $boundedHtml['bytes'],
-            'html_truncated'  => $boundedHtml['truncated'],
-        ), $this->fallbackProvenance);
+        $this->fallbackEmitter->captureInlineSvgFallback($element, $fallbacks);
     }
 
     /**
@@ -3187,55 +3175,12 @@ final class HtmlTransformer
      */
     private function captureCanvasFallback(DOMElement $element, array &$fallbacks): void
     {
-        if ( ! $this->isRuntimeCanvasTarget($element) ) {
-            return;
-        }
-
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-        $id = trim($this->attr($element, 'id'));
-        $this->recordRuntimeIsland($element, 'canvas', 'canvas_requires_runtime', 'canvas_element_and_client_script_execution', array(
-            'script_dependency_hint' => '' !== $id
-                ? 'Scripts may target #' . $id . ' and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.'
-                : 'Scripts may target this canvas by selector and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.',
-            'required_scripts' => $this->requiredScriptsForElement($element),
-        ));
-
-        $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
-            'type'            => 'html',
-            'reason'          => 'canvas_requires_runtime',
-            'diagnostic_code' => 'html_canvas_runtime_fallback',
-            'message'         => 'Canvas HTML requires a native canvas element and client script runtime; core blocks cannot preserve it without raw HTML.',
-            'source_format'   => 'html',
-            'tag'             => 'canvas',
-            'selector'        => $this->elementSelector($element),
-            'attributes'      => $this->safeCanvasAttributes($element),
-            'context'         => $this->sourceContext($element),
-            'events'                 => $this->eventMetadata($element),
-            'script_dependency_hint' => '' !== $id
-                ? 'Scripts may target #' . $id . ' and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.'
-                : 'Scripts may target this canvas by selector and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.',
-            'text_length'            => strlen(trim($element->textContent ?? '')),
-            'child_count'            => $this->childElementCount($element),
-            'html'                   => $boundedHtml['html'],
-            'html_bytes'             => $boundedHtml['bytes'],
-            'html_truncated'         => $boundedHtml['truncated'],
-        ), static fn (mixed $value): bool => '' !== $value && array() !== $value), $this->fallbackProvenance);
+        $this->fallbackEmitter->captureCanvasFallback($element, $fallbacks, $this->runtimeIslands);
     }
 
     private function isRuntimeCanvasTarget(DOMElement $element): bool
     {
-        $id = trim($this->attr($element, 'id'));
-        if ( '' !== $id && isset($this->runtimeCanvasSelectors['#' . $id]) ) {
-            return true;
-        }
-
-        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
-            if ( '' !== $class && isset($this->runtimeCanvasSelectors['.' . $class]) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->fallbackEmitter->isRuntimeCanvasTarget($element);
     }
 
     /**
@@ -3268,40 +3213,7 @@ final class HtmlTransformer
      */
     private function recordRuntimeIsland(DOMElement $element, string $kind, string $reason, string $runtimeRequirement, array $metadata = array()): void
     {
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-        $island = FallbackDiagnostic::withGenericFindingMetadata(array_filter(array_merge(array(
-            'kind'                => $kind,
-            'selector'            => $this->runtimeIslandSelector($element),
-            'tag'                 => strtolower($element->tagName),
-            'diagnostic_code'     => 'preserved_runtime_island',
-            'preservation_reason' => $reason,
-            'runtime_requirement' => $runtimeRequirement,
-            'source_snippet'      => $boundedHtml['html'],
-            'source_bytes'        => $boundedHtml['bytes'],
-            'source_truncated'    => $boundedHtml['truncated'],
-            'attributes'          => $this->htmlAttributes($element),
-            'context'             => $this->sourceContext($element),
-            'required_assets'     => array(),
-            'required_scripts'    => array(),
-        ), $metadata), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value));
-
-        $key = json_encode(array(
-            'kind'     => $island['kind'] ?? '',
-            'selector' => $island['selector'] ?? '',
-            'snippet'  => $island['source_snippet'] ?? '',
-        ), JSON_UNESCAPED_SLASHES);
-        foreach ( $this->runtimeIslands as $existing ) {
-            $existingKey = json_encode(array(
-                'kind'     => $existing['kind'] ?? '',
-                'selector' => $existing['selector'] ?? '',
-                'snippet'  => $existing['source_snippet'] ?? '',
-            ), JSON_UNESCAPED_SLASHES);
-            if ( $key === $existingKey ) {
-                return;
-            }
-        }
-
-        $this->runtimeIslands[] = $island;
+        $this->fallbackEmitter->recordRuntimeIsland($element, $kind, $reason, $runtimeRequirement, $metadata, $this->runtimeIslands);
     }
 
     private function runtimeIslandSelector(DOMElement $element): string
@@ -3325,27 +3237,7 @@ final class HtmlTransformer
      */
     private function requiredScriptsForElement(DOMElement $element): array
     {
-        $scripts = $this->runtimeScriptMetadata;
-
-        $owner = $element->ownerDocument;
-        if ( ! $owner instanceof DOMDocument ) {
-            return $scripts;
-        }
-
-        foreach ( $owner->getElementsByTagName('script') as $script ) {
-            if ( ! $script instanceof DOMElement || 'runtime' !== $this->scriptRole($script) ) {
-                continue;
-            }
-
-            $scripts[] = array_filter(array(
-                'selector'           => $this->elementSelector($script),
-                'attributes'         => $this->safeScriptAttributes($script),
-                'script_role'        => 'runtime',
-                'script_source_kind' => '' !== trim($this->attr($script, 'src')) ? 'external' : 'inline',
-            ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
-        }
-
-        return $this->dedupeArrayRows($scripts);
+        return $this->fallbackEmitter->requiredScriptsForElement($element);
     }
 
     /**
@@ -3413,69 +3305,12 @@ final class HtmlTransformer
      */
     private function captureScriptFallback(DOMElement $element, array &$fallbacks): void
     {
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-        $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
-        $scriptRole = $this->scriptRole($element);
-        $this->recordRuntimeIsland($element, 'script', 'script_requires_runtime', 'client_script_execution', array(
-            'attributes'         => $this->safeScriptAttributes($element),
-            'script_role'        => $scriptRole,
-            'script_source_kind' => '' !== trim($this->attr($element, 'src')) ? 'external' : 'inline',
-        ));
-        $fallbacks[] = FallbackDiagnostic::build(array(
-            'type'            => 'html',
-            'reason'          => 'script_requires_runtime',
-            'diagnostic_code' => 'html_script_fallback',
-            'message'         => 'Script HTML requires runtime behavior and was preserved as scoped safe fallback metadata.',
-            'source_format'   => 'html',
-            'tag'             => 'script',
-            'selector'        => $this->elementSelector($element),
-            'attributes'      => $this->safeScriptAttributes($element),
-            'context'         => $this->sourceContext($element),
-            'events'          => $this->eventMetadata($element),
-            'script_role'        => $scriptRole,
-            'script_source_kind' => '' !== trim($this->attr($element, 'src')) ? 'external' : 'inline',
-            'text_length'     => strlen(trim($element->textContent ?? '')),
-            'child_count'     => $this->childElementCount($element),
-            'html'            => $boundedHtml['html'],
-            'html_bytes'      => $boundedHtml['bytes'],
-            'html_truncated'  => $boundedHtml['truncated'],
-            'body'            => $boundedBody['text'],
-            'body_bytes'      => $boundedBody['bytes'],
-            'body_truncated'  => $boundedBody['truncated'],
-        ), $this->fallbackProvenance);
+        $this->fallbackEmitter->captureScriptFallback($element, $fallbacks, $this->runtimeIslands);
     }
 
     private function captureStaticScriptMetadata(DOMElement $element): bool
     {
-        if ( '' !== trim($this->attr($element, 'src')) ) {
-            return false;
-        }
-
-        $scriptRole = $this->scriptRole($element);
-        if ( 'data' !== $scriptRole ) {
-            $scriptRole = $this->staticScriptMetadataRole($element);
-        }
-        if ( null === $scriptRole ) {
-            return false;
-        }
-
-        $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
-        $this->scriptMetadata[] = array(
-            'type'               => 'script_metadata',
-            'reason'             => 'script_static_metadata',
-            'source_format'      => 'html',
-            'tag'                => 'script',
-            'selector'           => $this->elementSelector($element),
-            'attributes'         => $this->safeScriptAttributes($element),
-            'context'            => $this->sourceContext($element),
-            'script_role'        => $scriptRole,
-            'script_source_kind' => 'inline',
-            'body'               => $boundedBody['text'],
-            'body_bytes'         => $boundedBody['bytes'],
-            'body_truncated'     => $boundedBody['truncated'],
-        );
-
-        return true;
+        return $this->fallbackEmitter->captureStaticScriptMetadata($element, $this->scriptMetadata);
     }
 
     /**
@@ -3483,197 +3318,7 @@ final class HtmlTransformer
      */
     private function captureTemplateFallback(DOMElement $element, array &$fallbacks): void
     {
-        $runtimeTemplate = $this->templateRequiresRuntimePreservation($element);
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-        $boundedBody = $this->boundedFallbackHtml($this->innerHtml($element));
-        $attributes = $this->safeTemplateAttributes($element);
-
-        if ( $runtimeTemplate ) {
-            $this->recordRuntimeIsland($element, 'template', 'template_requires_runtime', 'client_template_instantiation', array(
-                'attributes'      => $attributes,
-                'template_role'   => $this->templateRole($element),
-                'template_body'   => $boundedBody['html'],
-                'body_bytes'      => $boundedBody['bytes'],
-                'body_truncated'  => $boundedBody['truncated'],
-                'required_scripts' => $this->requiredScriptsForElement($element),
-            ));
-        }
-
-        $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
-            'type'            => 'html',
-            'reason'          => $runtimeTemplate ? 'template_requires_runtime' : 'template_static_metadata',
-            'diagnostic_code' => $runtimeTemplate ? 'html_template_runtime_fallback' : 'html_template_metadata',
-            'message'         => $runtimeTemplate
-                ? 'HTML template content is inert until client runtime instantiates it and was preserved as bounded runtime metadata.'
-                : 'HTML template content is inert and was preserved as bounded metadata without visual output.',
-            'source_format'   => 'html',
-            'tag'             => 'template',
-            'selector'        => $this->elementSelector($element),
-            'attributes'      => $attributes,
-            'context'         => $this->sourceContext($element),
-            'template_role'   => $this->templateRole($element),
-            'text_length'     => strlen(trim($element->textContent ?? '')),
-            'child_count'     => $this->childElementCount($element),
-            'html'            => $boundedHtml['html'],
-            'html_bytes'      => $boundedHtml['bytes'],
-            'html_truncated'  => $boundedHtml['truncated'],
-            'body'            => $boundedBody['html'],
-            'body_bytes'      => $boundedBody['bytes'],
-            'body_truncated'  => $boundedBody['truncated'],
-        ), static fn (mixed $value): bool => '' !== $value && array() !== $value), $this->fallbackProvenance);
-    }
-
-    private function templateRequiresRuntimePreservation(DOMElement $element): bool
-    {
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            $normalizedName = strtolower($name);
-            if ( 'id' === $normalizedName || str_starts_with($normalizedName, 'data-') || preg_match('/^(?:x-|v-|ng-|:|@)/', $normalizedName) ) {
-                return true;
-            }
-            if ( preg_match('/\b(?:template|runtime|component|partial|slot|content)\b/i', $value) ) {
-                return true;
-            }
-        }
-
-        $body = $this->innerHtml($element);
-        return preg_match('/<\s*(?:script|canvas|iframe|form|input|select|textarea|button)\b/i', $body) === 1
-            || preg_match('/\{\{|\$\{|<\s*slot\b/i', $body) === 1;
-    }
-
-    private function templateRole(DOMElement $element): string
-    {
-        if ( '' !== trim($this->attr($element, 'id')) ) {
-            return 'addressable_template';
-        }
-
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            if ( str_starts_with(strtolower($name), 'data-') && '' !== trim($value) ) {
-                return 'data_template';
-            }
-        }
-
-        return $this->templateRequiresRuntimePreservation($element) ? 'runtime_template' : 'static_template_metadata';
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function safeTemplateAttributes(DOMElement $element): array
-    {
-        $safe = array();
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            if ( preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:/i', $value) ) {
-                continue;
-            }
-            $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
-        }
-
-        return $safe;
-    }
-
-    private function scriptRole(DOMElement $element): string
-    {
-        $type = strtolower(trim($this->attr($element, 'type')));
-        if ( '' === $type || in_array($type, array( 'text/javascript', 'application/javascript', 'module' ), true) ) {
-            return 'runtime';
-        }
-
-        if ( str_starts_with($type, 'application/ld+json') || in_array($type, array( 'application/json', 'importmap', 'speculationrules' ), true) ) {
-            return 'data';
-        }
-
-        if ( str_starts_with($type, 'text/') && ! in_array($type, array( 'text/javascript', 'text/ecmascript' ), true) ) {
-            return 'data';
-        }
-
-        return 'runtime';
-    }
-
-    private function staticScriptMetadataRole(DOMElement $element): ?string
-    {
-        $body = trim($element->textContent ?? '');
-        if ( '' === $body || $this->scriptBodyHasExecutableRuntimeSignals($body) ) {
-            return null;
-        }
-
-        $type = strtolower(trim($this->attr($element, 'type')));
-        if ( 'module' === $type && $this->scriptBodyContainsOnlyStaticImports($body) ) {
-            return 'static_import';
-        }
-
-        if ( $this->scriptBodyContainsOnlyStaticConfig($body) ) {
-            return 'static_config';
-        }
-
-        return null;
-    }
-
-    private function scriptBodyHasExecutableRuntimeSignals(string $body): bool
-    {
-        return 1 === preg_match('/\b(?:document|location|navigator|history|customElements)\b|\b(?:addEventListener|removeEventListener|querySelector|getElementById|appendChild|insertBefore|replaceChild|removeChild|classList|innerHTML|outerHTML|fetch|XMLHttpRequest|setTimeout|setInterval|requestAnimationFrame|import\s*\()\b|\b(?:function|class|new)\b|=>/', $body);
-    }
-
-    private function scriptBodyContainsOnlyStaticImports(string $body): bool
-    {
-        $withoutImports = preg_replace('/^\s*import\s+(?:(?:[\s\S]*?\s+from\s+)?[\'\"][^\'\"]+[\'\"]|[\'\"][^\'\"]+[\'\"])\s*;?\s*/m', '', $body);
-
-        return is_string($withoutImports) && '' === trim($withoutImports);
-    }
-
-    private function scriptBodyContainsOnlyStaticConfig(string $body): bool
-    {
-        $statementPattern = '(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*(?:\{[\s\S]*?\}|\[[\s\S]*?\]|[\'\"][\s\S]*?[\'\"]|[0-9.]+|true|false|null)\s*;?';
-        $globalConfigPattern = '(?:window|globalThis)\.[A-Za-z_$][A-Za-z0-9_$.]*(?:CONFIG|Config|config|SETTINGS|Settings|settings|DATA|Data|data|PROPS|Props|props)[A-Za-z0-9_$.]*\s*=\s*(?:\{[\s\S]*?\}|\[[\s\S]*?\]|[\'\"][\s\S]*?[\'\"]|[0-9.]+|true|false|null)\s*;?';
-
-        return 1 === preg_match('/^\s*(?:' . $statementPattern . '|' . $globalConfigPattern . ')+\s*$/', $body);
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function safeScriptAttributes(DOMElement $element): array
-    {
-        $safe = array();
-        $allowed = array_flip(array( 'async', 'class', 'defer', 'id', 'src', 'type' ));
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            if ( isset($allowed[$name]) && ! preg_match('/javascript\s*:/i', $value) ) {
-                $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
-            }
-        }
-
-        return $safe;
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function safeCanvasAttributes(DOMElement $element): array
-    {
-        $safe = array();
-        $allowed = array_flip(array( 'aria-label', 'class', 'height', 'id', 'role', 'style', 'title', 'width' ));
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            if ( isset($allowed[$name]) ) {
-                $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
-            }
-        }
-
-        return $safe;
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function safeSvgAttributes(DOMElement $element): array
-    {
-        $attributes = array();
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            if ( preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:/i', $value) ) {
-                continue;
-            }
-            $attributes[$name] = strlen($value) > 200 ? substr($value, 0, 200) . '...' : $value;
-        }
-
-        return $attributes;
+        $this->fallbackEmitter->captureTemplateFallback($element, $fallbacks, $this->runtimeIslands);
     }
 
     private function isSafeDecorativeSvgElement(DOMElement $element): bool
