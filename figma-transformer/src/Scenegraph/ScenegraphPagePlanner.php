@@ -130,8 +130,15 @@ final class ScenegraphPagePlanner
             );
         }
 
+        // Figma Dev Mode status (#280): when ANY node in the file carries a
+        // normalized dev status, it becomes the PRIMARY frame-selection signal.
+        $nodeDevStatus = $this->resolveNodeDevStatus($nodes);
+        $frameDevStatus = $this->resolveFrameDevStatus($candidates, $nodeDevStatus, $parentIndex);
+        $fileHasDevStatus = array() !== $nodeDevStatus;
+
         $selectedIds = array();
         $explicitSelected = false;
+        $selectionSource = 'heuristic';
         if ( ! empty($explicitFrameIds) ) {
             $explicitSelected = true;
             foreach ( $explicitFrameIds as $id ) {
@@ -146,6 +153,16 @@ final class ScenegraphPagePlanner
                     'message'  => 'Skipped a requested frame because it was not found as a FRAME node.',
                     'frame_id' => $id,
                 );
+            }
+        } elseif ( $fileHasDevStatus && array() !== $frameDevStatus ) {
+            // Prefer ready_for_dev/completed frames (and frames under a marked
+            // section); skip WIP/unmarked frames. Heuristics stay as the order
+            // within the marked set and as the fallback when no frame qualifies.
+            $selectionSource = 'dev_status';
+            $markedCandidates = array_intersect_key($candidates, $frameDevStatus);
+            $selectedIds = $this->rankedCandidateIdsByDevStatus($markedCandidates, $frameDevStatus);
+            if ( ! $includeAllPages ) {
+                $selectedIds = array_slice($selectedIds, 0, 1);
             }
         } else {
             $selectedIds = $this->rankedCandidateIds($candidates);
@@ -231,12 +248,193 @@ final class ScenegraphPagePlanner
             ++$emittedPosition;
         }
 
+        $devStatusCoverage = $this->devStatusCoverage($nodes, $frameDevStatus, $selectionSource, $fileHasDevStatus);
+        // Emit the coverage as a diagnostic only when a dev-status signal is
+        // actually present, so files without dev-status keep a clean (empty)
+        // diagnostics list. The coverage report is always available via the
+        // `dev_status_coverage` plan key regardless.
+        if ( $fileHasDevStatus ) {
+            $diagnostics[] = array(
+                'severity' => 'info',
+                'code'     => 'figma_dev_status_coverage',
+                'message'  => 'dev_status' === $selectionSource
+                    ? 'Frame selection was driven by Figma dev-status.'
+                    : 'Dev-status present but no FRAME qualified; heuristics drove selection.',
+                'coverage' => $devStatusCoverage,
+            );
+        }
+
         return array(
-            'schema'          => 'blocks-engine/figma-transformer/page-plan/v1',
-            'page_count'      => count($pages),
-            'candidate_count' => count($candidates),
-            'pages'           => $pages,
-            'diagnostics'     => $diagnostics,
+            'schema'              => 'blocks-engine/figma-transformer/page-plan/v1',
+            'page_count'          => count($pages),
+            'candidate_count'     => count($candidates),
+            'pages'               => $pages,
+            'selection_source'    => $selectionSource,
+            'dev_status_coverage' => $devStatusCoverage,
+            'diagnostics'         => $diagnostics,
+        );
+    }
+
+    /**
+     * Resolve normalized dev status (ready_for_dev|completed) for every node
+     * that carries one. Nodes without a status, or with an unmapped raw token,
+     * are omitted so they never count as a selection signal.
+     *
+     * @param array<string, array<string, mixed>> $nodes
+     * @return array<string, string> node id => normalized status
+     */
+    private function resolveNodeDevStatus(array $nodes): array
+    {
+        $statusById = array();
+        foreach ( $nodes as $id => $node ) {
+            if ( ! is_string($id) || ! is_array($node) ) {
+                continue;
+            }
+
+            $resolved = ScenegraphDevStatus::resolve($node);
+            if ( null !== $resolved && null !== $resolved['normalized'] ) {
+                $statusById[$id] = $resolved['normalized'];
+            }
+        }
+
+        return $statusById;
+    }
+
+    /**
+     * Map each FRAME candidate to its effective dev status: the frame's own
+     * normalized status, or the nearest ancestor (e.g. its SECTION) that carries
+     * one. Frames with no marked status anywhere in their ancestry are omitted.
+     *
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, string>               $nodeDevStatus
+     * @param array<string, string|null>          $parentIndex
+     * @return array<string, string> frame id => normalized status
+     */
+    private function resolveFrameDevStatus(array $candidates, array $nodeDevStatus, array $parentIndex): array
+    {
+        if ( array() === $nodeDevStatus ) {
+            return array();
+        }
+
+        $frameStatus = array();
+        foreach ( array_keys($candidates) as $frameId ) {
+            $frameId = (string) $frameId;
+            $cursor = $frameId;
+            $guard = 0;
+            while ( is_string($cursor) && '' !== $cursor && $guard < 4096 ) {
+                if ( isset($nodeDevStatus[$cursor]) ) {
+                    $frameStatus[$frameId] = $nodeDevStatus[$cursor];
+                    break;
+                }
+                $cursor = $parentIndex[$cursor] ?? null;
+                ++$guard;
+            }
+        }
+
+        return $frameStatus;
+    }
+
+    /**
+     * Rank dev-status-marked FRAME candidates: completed first, then
+     * ready_for_dev, with the existing heuristic score as the tiebreak so order
+     * within a status band stays deterministic and backward compatible.
+     *
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, string>               $statusById
+     * @return array<int, string>
+     */
+    private function rankedCandidateIdsByDevStatus(array $candidates, array $statusById): array
+    {
+        uasort(
+            $candidates,
+            function (array $left, array $right) use ($statusById): int {
+                $leftRank = $this->devStatusRank((string) ($statusById[(string) ($left['id'] ?? '')] ?? ''));
+                $rightRank = $this->devStatusRank((string) ($statusById[(string) ($right['id'] ?? '')] ?? ''));
+                if ( $leftRank !== $rightRank ) {
+                    return $leftRank <=> $rightRank;
+                }
+
+                return $right['score'] <=> $left['score']
+                    ?: strcmp((string) ($left['id'] ?? ''), (string) ($right['id'] ?? ''));
+            }
+        );
+
+        $ids = array_keys($candidates);
+        $nonWrapperIds = array_values(array_filter(
+            $ids,
+            fn (string $id): bool => ! $this->isWrapperName((string) ($candidates[$id]['node']['name'] ?? ''))
+        ));
+
+        return empty($nonWrapperIds) ? $ids : $nonWrapperIds;
+    }
+
+    private function devStatusRank(string $status): int
+    {
+        return match ( $status ) {
+            ScenegraphDevStatus::COMPLETED     => 0,
+            ScenegraphDevStatus::READY_FOR_DEV => 1,
+            default                            => 2,
+        };
+    }
+
+    /**
+     * Build the dev-status coverage diagnostic: per-status counts for SECTION
+     * and FRAME nodes, raw-token tallies, and the signal that drove selection.
+     *
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, string>               $frameDevStatus
+     * @return array<string, mixed>
+     */
+    private function devStatusCoverage(array $nodes, array $frameDevStatus, string $selectionSource, bool $fileHasDevStatus): array
+    {
+        $sections = array('ready_for_dev' => 0, 'completed' => 0, 'unmapped' => 0);
+        $frames = array('ready_for_dev' => 0, 'completed' => 0, 'unmapped' => 0);
+        $rawTokens = array();
+        $nodesWithRawStatus = 0;
+
+        foreach ( $nodes as $node ) {
+            if ( ! is_array($node) ) {
+                continue;
+            }
+
+            $resolved = ScenegraphDevStatus::resolve($node);
+            if ( null === $resolved ) {
+                continue;
+            }
+
+            ++$nodesWithRawStatus;
+            $rawKey = $resolved['raw'];
+            $rawTokens[$rawKey] = ($rawTokens[$rawKey] ?? 0) + 1;
+
+            $bucket = match ( $resolved['normalized'] ) {
+                ScenegraphDevStatus::READY_FOR_DEV => 'ready_for_dev',
+                ScenegraphDevStatus::COMPLETED     => 'completed',
+                default                            => 'unmapped',
+            };
+
+            $type = strtoupper((string) ($node['type'] ?? ''));
+            if ( 'SECTION' === $type ) {
+                ++$sections[$bucket];
+            } elseif ( 'FRAME' === $type ) {
+                ++$frames[$bucket];
+            }
+        }
+
+        $frameEffective = array('ready_for_dev' => 0, 'completed' => 0);
+        foreach ( $frameDevStatus as $status ) {
+            if ( isset($frameEffective[$status]) ) {
+                ++$frameEffective[$status];
+            }
+        }
+
+        return array(
+            'selection_source'        => $selectionSource,
+            'file_has_dev_status'     => $fileHasDevStatus,
+            'nodes_with_raw_status'   => $nodesWithRawStatus,
+            'sections'                => $sections,
+            'frames'                  => $frames,
+            'frames_effective'        => $frameEffective,
+            'raw_tokens'              => $rawTokens,
         );
     }
 

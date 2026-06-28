@@ -9,6 +9,16 @@ declare(strict_types=1);
 function matrix_select_frame_ids(array $inspection, int $maxPages): array
 {
     $candidates = is_array($inspection['candidates'] ?? null) ? $inspection['candidates'] : array();
+
+    // Figma Dev Mode status (#280) is the PRIMARY signal when present: restrict
+    // to ready_for_dev/completed candidates and let heuristics order them.
+    if ( 'dev_status' === matrix_selection_source($candidates) ) {
+        $candidates = array_values(array_filter(
+            $candidates,
+            static fn (mixed $candidate): bool => is_array($candidate) && null !== matrix_candidate_dev_status($candidate)
+        ));
+    }
+
     usort($candidates, static fn (mixed $a, mixed $b): int => matrix_candidate_rank(is_array($b) ? $b : array()) <=> matrix_candidate_rank(is_array($a) ? $a : array()));
 
     $selected = array();
@@ -97,11 +107,49 @@ function matrix_order_selected_frame_ids(array $selected, array $candidates): ar
 }
 
 /**
+ * Determine which signal drives matrix selection: 'dev_status' when any
+ * candidate carries a normalized Figma dev status, otherwise 'heuristic'.
+ *
+ * @param array<int, mixed> $candidates
+ */
+function matrix_selection_source(array $candidates): string
+{
+    foreach ( $candidates as $candidate ) {
+        if ( is_array($candidate) && null !== matrix_candidate_dev_status($candidate) ) {
+            return 'dev_status';
+        }
+    }
+
+    return 'heuristic';
+}
+
+/**
+ * @param array<string, mixed> $candidate
+ */
+function matrix_candidate_dev_status(array $candidate): ?string
+{
+    $status = $candidate['dev_status'] ?? null;
+    if ( in_array($status, array('ready_for_dev', 'completed'), true) ) {
+        return (string) $status;
+    }
+
+    return null;
+}
+
+/**
  * @param array<string, mixed> $candidate
  */
 function matrix_candidate_rank(array $candidate): int
 {
     $score = isset($candidate['score']) && is_numeric($candidate['score']) ? (int) $candidate['score'] : 0;
+
+    $devStatus = matrix_candidate_dev_status($candidate);
+    if ( 'completed' === $devStatus ) {
+        $score += 1200;
+    } elseif ( 'ready_for_dev' === $devStatus ) {
+        $score += 800;
+    }
+
     $name = strtolower((string) ($candidate['name'] ?? ''));
     $pageName = strtolower((string) ($candidate['page']['name'] ?? ''));
     $type = strtoupper((string) ($candidate['type'] ?? ''));

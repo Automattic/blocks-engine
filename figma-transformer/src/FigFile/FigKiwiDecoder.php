@@ -378,8 +378,15 @@ final class FigKiwiDecoder
     private function defaultScenegraphFieldPolicy(): array
     {
         return array(
-            'Message' => array('type', 'nodeChanges', 'blobs', 'blobBaseIndex', 'fileVersion'),
+            // `handoffStatus`/`sectionStatus` may also surface at the file root
+            // as a handoff map, so they are whitelisted on the root Message too.
+            'Message' => array('type', 'nodeChanges', 'blobs', 'blobBaseIndex', 'fileVersion', 'sectionStatus', 'handoffStatus'),
             'NodeChange' => array(
+                // Figma Dev Mode status (#280): Ready-for-dev / Completed signal.
+                // `sectionStatus`/`sectionStatusInfo` ride on SECTION nodes,
+                // `handoffStatus` carries the dev-handoff map, and
+                // `currentStatus`/`statusInfo` mirror NodeStatusChange fields.
+                'sectionStatus', 'sectionStatusInfo', 'handoffStatus', 'currentStatus', 'statusInfo', 'devStatus',
                 'guid', 'parentIndex', 'type', 'name', 'visible', 'opacity', 'size', 'transform',
                 'useAbsoluteBounds', 'cornerRadius', 'rectangleTopLeftCornerRadius',
                 'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius',
@@ -417,6 +424,14 @@ final class FigKiwiDecoder
             'DerivedSymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
             'GUIDPath' => array('guids'),
             'StyleId' => array('guid'),
+            // Dev-status structs (#280). The status enum itself decodes to its
+            // token string automatically, so only the struct/entry field names
+            // that reach it need whitelisting. Over-listing plausible inner
+            // field names is safe: unknown fields are skipped, not mis-read.
+            'SectionStatusInfo' => array('status', 'currentStatus', 'statusInfo', 'type', 'name', 'description'),
+            'HandoffStatusMap' => array('entries', 'values', 'handoffStatuses'),
+            'HandoffStatusMapEntry' => array('key', 'guid', 'nodeId', 'value', 'status', 'statusInfo', 'currentStatus'),
+            'NodeStatusChange' => array('guid', 'nodeId', 'currentStatus', 'statusInfo', 'status'),
         );
     }
 

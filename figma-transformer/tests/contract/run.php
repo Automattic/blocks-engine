@@ -5138,6 +5138,172 @@ $assert('does:not:exist' === ($unresolvedLinks['unresolved_targets'][0]['target_
 $assert(in_array('link_target_unresolved', $unresolvedSignalCodes, true), 'unresolved-link-artifact-quality-signal');
 $assert(in_array('link_target_unresolved', $unresolvedDiagnosticCodes, true), 'unresolved-link-diagnostic-code');
 
+// ---------------------------------------------------------------------------
+// Figma Dev Mode status (#280): decode -> normalize -> select -> diagnose.
+// ---------------------------------------------------------------------------
+
+// DECODE: the extended field policy carries sectionStatus through the REAL
+// generic Kiwi decoder, and the enum resolves to its token string.
+$devStatusDecoder = new FigKiwiDecoder();
+$devStatusSchema = $devStatusDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_dev_status_schema_fixture());
+$assert(null !== ($devStatusSchema['schema'] ?? null), 'dev-status-kiwi-schema-decodes');
+$devStatusMessage = $devStatusDecoder->decodeMessageSelective(
+    blocks_engine_figma_transformer_kiwi_dev_status_message_fixture(),
+    $devStatusSchema['schema'] ?? array()
+);
+$devStatusNodeChange = $devStatusMessage['message']['nodeChanges'][0] ?? array();
+$assert('DOCUMENT' === ($devStatusMessage['message']['type'] ?? null), 'dev-status-kiwi-message-root-decodes');
+$assert('SECTION' === ($devStatusNodeChange['type'] ?? null), 'dev-status-kiwi-section-node-decodes');
+$assert('COMPLETED' === ($devStatusNodeChange['sectionStatus'] ?? null), 'dev-status-field-policy-carries-section-status');
+
+// NORMALIZE: raw sectionStatus tokens map onto a clean dev_status with the raw
+// value carried for auditability.
+$devStatusNormalizer = new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer();
+$devStatusSource = array(
+    'name'  => 'Dev Status Site',
+    'nodes' => array(
+        array(
+            'id'       => 'page:dev',
+            'type'     => 'CANVAS',
+            'name'     => 'Pages',
+            'children' => array(
+                array(
+                    'id'            => 'section:ready',
+                    'type'          => 'SECTION',
+                    'name'          => 'Ready section',
+                    'sectionStatus' => 'DEV_HANDOFF',
+                    'children'      => array(
+                        array(
+                            'id'       => 'frame:ready-home',
+                            'type'     => 'FRAME',
+                            'name'     => 'Ready Home',
+                            'width'    => 1440,
+                            'height'   => 1400,
+                            'children' => array(
+                                array('id' => 'text:ready', 'type' => 'TEXT', 'name' => 'Ready title', 'characters' => 'Ready Hero'),
+                            ),
+                        ),
+                    ),
+                ),
+                array(
+                    'id'                => 'section:done',
+                    'type'              => 'SECTION',
+                    'name'              => 'Done section',
+                    'sectionStatusInfo' => array('status' => 'COMPLETED'),
+                    'children'          => array(
+                        array(
+                            'id'       => 'frame:done-about',
+                            'type'     => 'FRAME',
+                            'name'     => 'Done About',
+                            'width'    => 1440,
+                            'height'   => 1300,
+                            'children' => array(
+                                array('id' => 'text:done', 'type' => 'TEXT', 'name' => 'Done title', 'characters' => 'Done Hero'),
+                            ),
+                        ),
+                    ),
+                ),
+                array(
+                    'id'       => 'frame:wip',
+                    'type'     => 'FRAME',
+                    'name'     => 'WIP Draft',
+                    'width'    => 1440,
+                    'height'   => 1200,
+                    'children' => array(
+                        array('id' => 'text:wip', 'type' => 'TEXT', 'name' => 'WIP title', 'characters' => 'WIP Hero'),
+                    ),
+                ),
+            ),
+        ),
+    ),
+);
+$devStatusNormalized = $devStatusNormalizer->normalize($devStatusSource);
+$devStatusNodeMap = is_array($devStatusNormalized['node_map'] ?? null) ? $devStatusNormalized['node_map'] : array();
+$assert('ready_for_dev' === ($devStatusNodeMap['section:ready']['dev_status'] ?? null), 'dev-status-normalizes-ready-for-dev');
+$assert('DEV_HANDOFF' === ($devStatusNodeMap['section:ready']['dev_status_raw'] ?? null), 'dev-status-carries-raw-handoff-token');
+$assert('completed' === ($devStatusNodeMap['section:done']['dev_status'] ?? null), 'dev-status-normalizes-completed');
+$assert('COMPLETED' === ($devStatusNodeMap['section:done']['dev_status_raw'] ?? null), 'dev-status-carries-raw-completed-token');
+$assert(! array_key_exists('dev_status', $devStatusNodeMap['frame:wip'] ?? array()), 'dev-status-absent-on-unmarked-frame');
+
+// SELECT: dev-status is the PRIMARY signal — marked frames selected (completed
+// first), unmarked WIP frame skipped, and selection_source records the signal.
+$devStatusPlanner = new ScenegraphPagePlanner();
+$devStatusPlan = $devStatusPlanner->plan($devStatusSource, array('include_all_pages' => true));
+$devStatusPlanFrameIds = array_map(
+    static fn (array $page): string => (string) ($page['frame_id'] ?? ''),
+    is_array($devStatusPlan['pages'] ?? null) ? $devStatusPlan['pages'] : array()
+);
+$assert('dev_status' === ($devStatusPlan['selection_source'] ?? null), 'dev-status-drives-selection-source');
+$assert(in_array('frame:ready-home', $devStatusPlanFrameIds, true), 'dev-status-selects-ready-frame');
+$assert(in_array('frame:done-about', $devStatusPlanFrameIds, true), 'dev-status-selects-completed-frame');
+$assert(! in_array('frame:wip', $devStatusPlanFrameIds, true), 'dev-status-skips-unmarked-wip-frame');
+$assert('frame:done-about' === ($devStatusPlanFrameIds[0] ?? null), 'dev-status-completed-frame-ranks-first');
+
+// DIAGNOSE: coverage report + selection_source populated and emitted.
+$devStatusCoverage = is_array($devStatusPlan['dev_status_coverage'] ?? null) ? $devStatusPlan['dev_status_coverage'] : array();
+$assert(true === ($devStatusCoverage['file_has_dev_status'] ?? null), 'dev-status-coverage-flags-presence');
+$assert(1 === ($devStatusCoverage['sections']['ready_for_dev'] ?? null), 'dev-status-coverage-counts-ready-section');
+$assert(1 === ($devStatusCoverage['sections']['completed'] ?? null), 'dev-status-coverage-counts-completed-section');
+$assert(1 === ($devStatusCoverage['frames_effective']['ready_for_dev'] ?? null), 'dev-status-coverage-counts-ready-frame');
+$assert(1 === ($devStatusCoverage['frames_effective']['completed'] ?? null), 'dev-status-coverage-counts-completed-frame');
+$devStatusPlanDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    is_array($devStatusPlan['diagnostics'] ?? null) ? $devStatusPlan['diagnostics'] : array()
+);
+$assert(in_array('figma_dev_status_coverage', $devStatusPlanDiagnosticCodes, true), 'dev-status-coverage-diagnostic-emitted');
+
+// FALLBACK: with NO dev-status anywhere, heuristics drive selection unchanged.
+$heuristicSource = array(
+    'name'  => 'Heuristic Site',
+    'nodes' => array(
+        array(
+            'id'       => 'page:heur',
+            'type'     => 'CANVAS',
+            'name'     => 'Pages',
+            'children' => array(
+                array(
+                    'id'       => 'frame:heur-home',
+                    'type'     => 'FRAME',
+                    'name'     => 'Home',
+                    'width'    => 1440,
+                    'height'   => 1400,
+                    'children' => array(
+                        array('id' => 'text:heur', 'type' => 'TEXT', 'name' => 'Heur title', 'characters' => 'Heur Hero'),
+                    ),
+                ),
+            ),
+        ),
+    ),
+);
+$heuristicPlan = $devStatusPlanner->plan($heuristicSource, array('include_all_pages' => true));
+$heuristicFrameIds = array_map(
+    static fn (array $page): string => (string) ($page['frame_id'] ?? ''),
+    is_array($heuristicPlan['pages'] ?? null) ? $heuristicPlan['pages'] : array()
+);
+$heuristicDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    is_array($heuristicPlan['diagnostics'] ?? null) ? $heuristicPlan['diagnostics'] : array()
+);
+$assert('heuristic' === ($heuristicPlan['selection_source'] ?? null), 'no-dev-status-falls-back-to-heuristic');
+$assert(false === ($heuristicPlan['dev_status_coverage']['file_has_dev_status'] ?? null), 'no-dev-status-coverage-flags-absence');
+$assert(array('frame:heur-home') === $heuristicFrameIds, 'no-dev-status-selects-heuristic-frame');
+$assert(! in_array('figma_dev_status_coverage', $heuristicDiagnosticCodes, true), 'no-dev-status-omits-coverage-diagnostic');
+
+// MATRIX: the standalone selector reports the driving signal and prefers
+// dev-status candidates when present.
+$matrixDevStatusCandidates = array(
+    array('id' => 'm:ready', 'name' => 'Ready Home', 'type' => 'FRAME', 'score' => 100, 'width' => 1440, 'height' => 1400, 'text_count' => 4, 'dev_status' => 'ready_for_dev', 'parent' => array('type' => 'SECTION'), 'page' => array('name' => 'Pages')),
+    array('id' => 'm:done', 'name' => 'Done About', 'type' => 'FRAME', 'score' => 90, 'width' => 1440, 'height' => 1300, 'text_count' => 3, 'dev_status' => 'completed', 'parent' => array('type' => 'SECTION'), 'page' => array('name' => 'Pages')),
+    array('id' => 'm:wip', 'name' => 'WIP Draft', 'type' => 'FRAME', 'score' => 500, 'width' => 1440, 'height' => 1200, 'text_count' => 5, 'parent' => array('type' => 'CANVAS'), 'page' => array('name' => 'Pages')),
+);
+$assert('dev_status' === matrix_selection_source($matrixDevStatusCandidates), 'matrix-reports-dev-status-source');
+$matrixDevStatusSelection = matrix_select_frame_ids(array('candidates' => $matrixDevStatusCandidates), 5);
+$assert(in_array('m:done', $matrixDevStatusSelection, true) && in_array('m:ready', $matrixDevStatusSelection, true), 'matrix-selects-dev-status-frames');
+$assert(! in_array('m:wip', $matrixDevStatusSelection, true), 'matrix-skips-unmarked-frame-despite-higher-score');
+$assert('heuristic' === matrix_selection_source(array(
+    array('id' => 'h:home', 'name' => 'Home', 'type' => 'FRAME', 'score' => 100, 'parent' => array('type' => 'CANVAS'), 'page' => array('name' => 'Pages')),
+)), 'matrix-reports-heuristic-source-without-dev-status');
+
 blocks_engine_figma_transformer_run_fixture_matrix_contract($assert);
 
 if ( ! empty($failures) ) {
@@ -5265,6 +5431,55 @@ function blocks_engine_figma_transformer_kiwi_message_fixture(): string
         . blocks_engine_figma_transformer_wire_varint(2)
         . blocks_engine_figma_transformer_kiwi_string('alpha')
         . blocks_engine_figma_transformer_kiwi_string('beta')
+        . blocks_engine_figma_transformer_wire_varint(0);
+}
+
+/**
+ * Kiwi schema (version-106 shape) that defines a dev-status enum plus a
+ * NodeChange/Message pair carrying `sectionStatus`. Proves the field-policy
+ * extension (#280) reads the status through the REAL generic decoder.
+ */
+function blocks_engine_figma_transformer_kiwi_dev_status_schema_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(3)
+        // def0: ENUM SectionStatusType { DEV_HANDOFF = 1, COMPLETED = 2 }
+        . blocks_engine_figma_transformer_kiwi_string('SectionStatusType')
+        . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('DEV_HANDOFF', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('COMPLETED', 0, false, 2)
+        // def1: MESSAGE NodeChange { type, name, sectionStatus }
+        . blocks_engine_figma_transformer_kiwi_string('NodeChange')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('sectionStatus', 0, false, 3)
+        // def2: MESSAGE Message { type, nodeChanges[] }
+        . blocks_engine_figma_transformer_kiwi_string('Message')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 1, true, 2);
+}
+
+/**
+ * Kiwi message for {@see blocks_engine_figma_transformer_kiwi_dev_status_schema_fixture()}:
+ * one NodeChange of type SECTION with sectionStatus = COMPLETED (enum value 2).
+ */
+function blocks_engine_figma_transformer_kiwi_dev_status_message_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_string('DOCUMENT')
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_string('SECTION')
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('Completed Section')
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);
 }
 
