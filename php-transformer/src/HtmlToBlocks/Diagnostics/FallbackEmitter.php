@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\ClassificationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SubtreeClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -67,6 +68,27 @@ final class FallbackEmitter
 
     private readonly SubtreeClassifier $classifier;
 
+    private readonly CustomBlockGenerator $blockGenerator;
+
+    /**
+     * Minimum classifier confidence for a `custom_block` verdict to actually
+     * trigger generation. Conservative: the classifier's own MIN_SCORE/MARGIN
+     * gates already reject weak/ambiguous verdicts (capping UNKNOWN at 0.4), and
+     * this floor keeps generation to the high-confidence custom_block tail. On
+     * anything below it we keep the existing core/html fallback behavior.
+     */
+    private const GENERATION_CONFIDENCE_THRESHOLD = 0.7;
+
+    /**
+     * Per-transform dedup registry: structural signature => generated local
+     * block name. Same-shape subtrees reuse ONE generated block type (the
+     * varying content rides the per-instance reference attrs), so we never emit
+     * near-duplicate block types ("no zoo").
+     *
+     * @var array<string, string>
+     */
+    private array $generatedBlockNames = array();
+
     /**
      * @param Closure(DOMElement): array<string, mixed> $sourceContextResolver
      *        Resolves the shared `sourceContext` enrichment for an element. The
@@ -78,7 +100,176 @@ final class FallbackEmitter
         private readonly Runtime $runtime,
         private readonly Closure $sourceContextResolver
     ) {
-        $this->classifier = new SubtreeClassifier();
+        $this->classifier     = new SubtreeClassifier();
+        $this->blockGenerator = new CustomBlockGenerator();
+    }
+
+    /**
+     * Reset the per-transform custom-block dedup registry. Called once per
+     * transform so generated-block names/dedup never leak across documents.
+     */
+    public function resetGeneratedBlocks(): void
+    {
+        $this->generatedBlockNames = array();
+    }
+
+    /**
+     * Producer link of the classify -> route -> generate chain (issue #497).
+     *
+     * At a `core/html` fallback decision (a subtree that mapped to nothing
+     * native/Automattic), consult the structural classifier. When it returns
+     * `custom_block` with high confidence, generate a dynamic (PHP-only) block
+     * definition, register it on the passed-by-reference `$generatedBlocks`
+     * accumulator (deduped by structural signature), and return a self-closing
+     * block REFERENCE (block name + per-instance attrs, no innerHTML) for the
+     * caller to emit instead of raw `core/html`. Returns null to keep the
+     * existing fallback behavior whenever the conservative gate is not met.
+     *
+     * @param array<int, array<string, mixed>> $generatedBlocks Accumulator of generated block-type definitions.
+     * @return array{blockName: string, attrs: array<string, mixed>}|null
+     */
+    public function maybeGenerateCustomBlock(DOMElement $element, array &$generatedBlocks, string $namespace): ?array
+    {
+        $result = $this->classifier->classify($element, $this->classificationContext($element));
+        if ( ! $result->is(SubtreeClassifier::BUCKET_CUSTOM_BLOCK) ) {
+            return null;
+        }
+        if ( $result->confidence() < self::GENERATION_CONFIDENCE_THRESHOLD ) {
+            return null;
+        }
+
+        // Sanitize the subtree markup that becomes the editable, server-rendered
+        // content. Nothing to carry => keep the existing fallback behavior.
+        $content = $this->sanitizeHtmlString($this->innerHtml($element));
+        if ( '' === trim($content) ) {
+            return null;
+        }
+
+        $namespace = $this->sanitizeNameSegment($namespace);
+        if ( '' === $namespace ) {
+            $namespace = 'custom';
+        }
+
+        $signature = $this->structuralSignature($element);
+        if ( isset($this->generatedBlockNames[$signature]) ) {
+            // Dedup: a same-shape subtree already minted this block type; reuse
+            // it and emit only a second reference.
+            $localName = $this->generatedBlockNames[$signature];
+        } else {
+            $localName = $this->generatedBlockLocalName($result->signals(), $signature);
+            $this->generatedBlockNames[$signature] = $localName;
+            $generatedBlocks[] = array(
+                'name'       => $localName,
+                'block_json' => $this->blockGenerator->blockJson($namespace . '/' . $localName, $this->generatedBlockTitle($result->signals())),
+                'render'     => $this->blockGenerator->render(),
+                // Diagnostic-only: the structural signature that this type
+                // covers. Stripped before the payload reaches SSI.
+                'signature'  => $signature,
+            );
+        }
+
+        return array(
+            'blockName' => $namespace . '/' . $localName,
+            'attrs'     => $this->blockGenerator->referenceAttributes($content),
+        );
+    }
+
+    /**
+     * Canonical structural signature of a subtree: the tag-only DOM skeleton,
+     * ignoring text and attributes. Same shape => same signature => one block
+     * type. Depth-bounded for safety on pathological trees.
+     */
+    private function structuralSignature(DOMElement $element, int $depth = 0): string
+    {
+        $tag = strtolower($element->tagName);
+        if ( $depth >= 6 ) {
+            return $tag;
+        }
+
+        $children = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $children[] = $this->structuralSignature($child, $depth + 1);
+            }
+        }
+
+        return array() === $children ? $tag : $tag . '(' . implode(',', $children) . ')';
+    }
+
+    /**
+     * Generic, structurally-derived local block name. The stem reflects the
+     * dominant structural shape (never fixture/site strings); the short hash of
+     * the structural signature makes it unique per shape and stable across runs.
+     *
+     * @param array<string, mixed> $signals Classifier structural signals.
+     */
+    private function generatedBlockLocalName(array $signals, string $signature): string
+    {
+        return $this->generatedBlockStem($signals) . '-' . substr(hash('sha256', $signature), 0, 8);
+    }
+
+    /**
+     * @param array<string, mixed> $signals Classifier structural signals.
+     */
+    private function generatedBlockTitle(array $signals): string
+    {
+        $titles = array(
+            'gallery'    => 'Custom Gallery',
+            'collection' => 'Custom Collection',
+            'panel'      => 'Custom Panel',
+            'card'       => 'Custom Card',
+            'block'      => 'Custom Content Block',
+        );
+
+        return $titles[$this->generatedBlockStem($signals)] ?? 'Custom Content Block';
+    }
+
+    /**
+     * @param array<string, mixed> $signals Classifier structural signals.
+     */
+    private function generatedBlockStem(array $signals): string
+    {
+        if ( ! empty($signals['media_gallery']) ) {
+            return 'gallery';
+        }
+        if ( (int) ($signals['repeatable_children'] ?? 0) >= 2 ) {
+            return 'collection';
+        }
+        if ( ! empty($signals['interactive_role']) ) {
+            return 'panel';
+        }
+        if ( ! empty($signals['cohesive_content_unit']) ) {
+            return 'card';
+        }
+
+        return 'block';
+    }
+
+    /**
+     * Sanitize a raw HTML string for safe server-render storage, mirroring the
+     * stripping {@see DomHelpersTrait::safeFallbackHtml()} applies to elements
+     * (drop script/style bodies, inline event handlers, and javascript: URLs).
+     */
+    private function sanitizeHtmlString(string $html): string
+    {
+        $html = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $html) ?? '';
+        $html = preg_replace('/\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
+        $html = preg_replace('/\s+(?:href|src|xlink:href)\s*=\s*("\s*javascript:[^"]*"|\'\s*javascript:[^\']*\'|javascript:[^\s>]+)/i', '', $html) ?? '';
+        $html = preg_replace('/\s+srcdoc\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
+
+        return trim($html);
+    }
+
+    /**
+     * Lowercase, hyphen-delimited block-name segment (namespace or local stem),
+     * matching WordPress block-name constraints. Portable; WP is not loaded.
+     */
+    private function sanitizeNameSegment(string $value): string
+    {
+        $value = strtolower(trim($value));
+        $value = preg_replace('/[^a-z0-9]+/', '-', $value) ?? '';
+
+        return trim($value, '-');
     }
 
     /**

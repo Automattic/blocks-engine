@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-custom-block-generation-dedup",
+  "description": "Two structurally identical custom_block subtrees generate ONE block TYPE, reused: the output carries two self-closing references to the same generated block name (varying content travels on each reference's attrs) and source_reports.generated_blocks holds a single type definition. Structural-signature dedup means no near-duplicate block types (issue #497).",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-custom-block-generation-dedup.json",
+    "notes": "Same shape twice; the block name is derived from the structural signature so both subtrees collapse to one type."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New producer-link behavior with no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<my-pricing><div class=\"tier\"><h3>Basic</h3><p>$9</p></div><div class=\"tier\"><h3>Pro</h3><p>$19</p></div><div class=\"tier\"><h3>Max</h3><p>$49</p></div></my-pricing><my-pricing><div class=\"tier\"><h3>Team</h3><p>$99</p></div><div class=\"tier\"><h3>Scale</h3><p>$199</p></div><div class=\"tier\"><h3>Enterprise</h3><p>$499</p></div></my-pricing>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "custom/collection-623e0f92" },
+    { "path": "blocks.1", "name": "custom/collection-623e0f92" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "custom/collection-623e0f92" },
+    { "path": "blocks.1.blockName", "assert": "equals", "value": "custom/collection-623e0f92" },
+    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "<h3>Basic</h3>" },
+    { "path": "blocks.1.attrs.content", "assert": "contains", "value": "<h3>Team</h3>" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.generated_blocks", "assert": "count", "count": 1 }
+  ]
+}

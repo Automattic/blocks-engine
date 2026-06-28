@@ -37,7 +37,8 @@ final class ArtifactCompiler
         $referenceReports = $this->referenceReports($normalized['files']);
         $components = $this->detectComponents($normalized['files'], $entryPath, $documents['components']);
         $blockTypes = $this->detectBlockTypes($normalized['files'], $diagnostics);
-        $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files']);
+        $companionPluginPayloadBuilder = new CompanionPluginPayload();
+        $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
         $assets = array_merge($this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references']), $entryBlocks['assets']);
         $diagnostics = array_merge($diagnostics, $entryBlocks['diagnostics']);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
@@ -76,7 +77,7 @@ final class ArtifactCompiler
         );
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks);
         $sourceReports['materialization_plan'] = ( new MaterializationPlanBuilder() )->fromCompiledSite($sourceReports['compiled_site']);
-        $companionPluginPayload = ( new CompanionPluginPayload() )->fromBlockTypes($blockTypes, $normalized['files'], $artifact);
+        $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $entryBlocks['generated_blocks']);
         if ( array() !== $companionPluginPayload ) {
             $sourceReports['companion_plugin_payload'] = $companionPluginPayload;
         }
@@ -137,11 +138,11 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>}
      */
-    private function compileEntryBlocks(string $html, string $entryPath, array $files): array
+    private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = ''): array
     {
-        $result = $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry');
+        $result = $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry', $generatedBlockNamespace);
 
         return array(
             'blocks'            => $result['blocks'],
@@ -150,15 +151,16 @@ final class ArtifactCompiler
             'fallbacks'         => $result['fallbacks'],
             'assets'            => $result['assets'],
             'runtime_islands'   => $result['runtime_islands'],
+            'generated_blocks'  => $result['generated_blocks'],
             'interaction_candidates' => $result['interaction_candidates'],
         );
     }
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>}
      */
-    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope): array
+    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = ''): array
     {
         if ( $this->containsBlockMarkup($html) ) {
             return array(
@@ -168,6 +170,7 @@ final class ArtifactCompiler
                 'fallbacks'         => array(),
                 'assets'            => array(),
                 'runtime_islands'   => array(),
+                'generated_blocks'  => array(),
                 'interaction_candidates' => array(),
             );
         }
@@ -180,6 +183,7 @@ final class ArtifactCompiler
                 'fallbacks'         => array(),
                 'assets'            => array(),
                 'runtime_islands'   => array(),
+                'generated_blocks'  => array(),
                 'interaction_candidates' => array(),
             );
         }
@@ -192,6 +196,7 @@ final class ArtifactCompiler
             'runtime_script_metadata'   => $this->runtimeScriptMetadataForSource($html, $sourcePath, $files),
             'runtime_dom_selectors'     => $this->runtimeDomSelectors($html, $sourcePath, $files),
             'runtime_canvas_selectors' => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
+            'generated_block_namespace' => $generatedBlockNamespace,
         ))->toArray();
 
         return array(
@@ -201,6 +206,7 @@ final class ArtifactCompiler
             'fallbacks'         => is_array($result['fallbacks'] ?? null) ? $result['fallbacks'] : array(),
             'assets'            => is_array($result['assets'] ?? null) ? $result['assets'] : array(),
             'runtime_islands'   => is_array($result['source_reports']['runtime_islands'] ?? null) ? $result['source_reports']['runtime_islands'] : array(),
+            'generated_blocks'  => is_array($result['source_reports']['generated_blocks'] ?? null) ? $result['source_reports']['generated_blocks'] : array(),
             'interaction_candidates' => is_array($result['source_reports']['interaction_candidates'] ?? null) ? $result['source_reports']['interaction_candidates'] : array(),
         );
     }

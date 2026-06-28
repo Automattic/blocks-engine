@@ -23,11 +23,13 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
  *   - preserved_js[] (array) each: content, handle, src, block. Slot for the
  *                            JS->plugin wire-up (SSI #488); empty for now.
  *
- * When the artifact carries no generated custom blocks (the common case today,
- * since mapping still prefers core/Automattic blocks with a core/html
- * fallback), the payload is empty and the compiler omits it. This class does
- * not decide what becomes a custom block; it only packages blocks the artifact
- * already declares via block.json.
+ * When the artifact carries no custom blocks (mapping still prefers
+ * core/Automattic blocks with a core/html fallback, and no subtree qualified for
+ * generation), the payload is empty and the compiler omits it. This class does
+ * not decide what becomes a custom block; it packages two sources into the
+ * scaffold contract: block types the artifact already declares via block.json,
+ * and the dynamic blocks the transformer generated at core/html fallbacks
+ * (issue #497), which already arrive in the per-block shape.
  */
 final class CompanionPluginPayload
 {
@@ -42,14 +44,16 @@ final class CompanionPluginPayload
     /**
      * Build the companion-plugin payload from detected generated blocks.
      *
-     * @param array<int, array<string, mixed>> $blockTypes Block-type artifacts from detectBlockTypes().
-     * @param array<int, array<string, mixed>> $files      Normalized artifact files (carry content).
-     * @param array<string, mixed>             $artifact   Raw artifact envelope (for site identity).
+     * @param array<int, array<string, mixed>> $blockTypes      Block-type artifacts from detectBlockTypes().
+     * @param array<int, array<string, mixed>> $files           Normalized artifact files (carry content).
+     * @param array<string, mixed>             $artifact        Raw artifact envelope (for site identity).
+     * @param array<int, array<string, mixed>> $generatedBlocks Dynamic blocks generated at core/html fallbacks (issue #497).
      * @return array<string, mixed> Empty array when there are no generated blocks.
      */
-    public function fromBlockTypes(array $blockTypes, array $files, array $artifact): array
+    public function fromBlockTypes(array $blockTypes, array $files, array $artifact, array $generatedBlocks = array()): array
     {
         $blocks = array();
+        $seenNames = array();
         foreach ( $blockTypes as $blockType ) {
             if ( ! is_array($blockType) ) {
                 continue;
@@ -57,7 +61,25 @@ final class CompanionPluginPayload
             $block = $this->buildBlock($blockType, $files);
             if ( array() !== $block ) {
                 $blocks[] = $block;
+                $seenNames[(string) ($block['name'] ?? '')] = true;
             }
+        }
+
+        // Append dynamically generated custom blocks (the classify -> route ->
+        // generate producer link). These already arrive in scaffold()'s per-block
+        // shape, so they only need normalizing and name-deduping against detected
+        // block types.
+        foreach ( $generatedBlocks as $generatedBlock ) {
+            $block = $this->normalizeGeneratedBlock($generatedBlock);
+            if ( array() === $block ) {
+                continue;
+            }
+            $name = (string) $block['name'];
+            if ( isset($seenNames[$name]) ) {
+                continue;
+            }
+            $seenNames[$name] = true;
+            $blocks[] = $block;
         }
 
         if ( array() === $blocks ) {
@@ -87,6 +109,60 @@ final class CompanionPluginPayload
         }
 
         return $payload;
+    }
+
+    /**
+     * Per-site companion-plugin block namespace (`ssi-<site_slug>`), or '' when
+     * the artifact carries no resolvable site identity. The producer emits
+     * generated-block references under this namespace so they match the blocks
+     * the SSI scaffold registers.
+     *
+     * @param array<string, mixed> $artifact Raw artifact envelope.
+     */
+    public function blockNamespace(array $artifact): string
+    {
+        $slug = $this->siteSlug($artifact);
+
+        return '' === $slug ? '' : 'ssi-' . $slug;
+    }
+
+    /**
+     * Normalize a generated-block entry to scaffold()'s per-block contract.
+     * Generated blocks already declare a sanitizable name, a block_json object,
+     * and a dynamic render; producer-only diagnostic keys (e.g. signature) are
+     * dropped so only contract keys reach SSI.
+     *
+     * @param array<string, mixed> $block Generated-block entry from the transformer.
+     * @return array<string, mixed> Empty array when the entry is unusable.
+     */
+    private function normalizeGeneratedBlock(array $block): array
+    {
+        $name = is_scalar($block['name'] ?? null) ? $this->sanitizeSlug((string) $block['name']) : '';
+        if ( '' === $name ) {
+            return array();
+        }
+
+        $blockJson = is_array($block['block_json'] ?? null) ? $block['block_json'] : array();
+        if ( array() === $blockJson ) {
+            return array();
+        }
+
+        $normalized = array(
+            'name'       => $name,
+            'block_json' => $blockJson,
+        );
+
+        if ( is_scalar($block['render'] ?? null) && '' !== (string) $block['render'] ) {
+            $normalized['render'] = (string) $block['render'];
+        }
+        if ( is_scalar($block['view_js'] ?? null) && '' !== (string) $block['view_js'] ) {
+            $normalized['view_js'] = (string) $block['view_js'];
+        }
+        if ( is_array($block['assets'] ?? null) && array() !== $block['assets'] ) {
+            $normalized['assets'] = $block['assets'];
+        }
+
+        return $normalized;
     }
 
     /**
