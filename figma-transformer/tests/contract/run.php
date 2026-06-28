@@ -3433,7 +3433,12 @@ $fixedFlexResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     ),
 ));
 $fixedFlexCss = $fileContent($fixedFlexResult, 'style.css');
-$assert(str_contains($fixedFlexCss, '.figma-node-flex-child-a-fixed-child-a{width:70px;height:40px;flex-shrink:0}'), 'fixed-flex-child-does-not-shrink');
+$fixedFlexHtml = $fileContent($fixedFlexResult, 'index.html');
+// Authored CSS: the two siblings have identical styles, so the fixed (non-shrinking)
+// declarations collapse into a single shared, readably-named class referenced by both.
+$assert(str_contains($fixedFlexCss, '.fixed-child-a{width:70px;height:40px;flex-shrink:0}'), 'fixed-flex-child-does-not-shrink');
+$assert(1 === substr_count($fixedFlexCss, 'width:70px;height:40px;flex-shrink:0'), 'fixed-flex-shared-style-not-duplicated');
+$assert(str_contains($fixedFlexHtml, 'class="figma-node-flex-child-a-fixed-child-a fixed-child-a"') && str_contains($fixedFlexHtml, 'class="figma-node-flex-child-b-fixed-child-b fixed-child-a"'), 'fixed-flex-children-share-authored-class');
 
 $fixedRootFlexResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Fixed Root Flex Fixture',
@@ -4648,8 +4653,12 @@ $assert(str_contains($instanceVectorChildrenHtml, 'data-figma-node-id="icon:two/
 $assert(strpos($instanceVectorChildrenHtml, 'data-figma-node-id="icon:one/icon:vector"') !== strpos($instanceVectorChildrenHtml, 'data-figma-node-id="icon:vector"'), 'instance-vector-child-source-id-is-not-reused-by-instance-one');
 $assert(strpos($instanceVectorChildrenHtml, 'data-figma-node-id="icon:two/icon:vector"') !== strpos($instanceVectorChildrenHtml, 'data-figma-node-id="icon:vector"'), 'instance-vector-child-source-id-is-not-reused-by-instance-two');
 $assert(3 === substr_count($instanceVectorChildrenHtml, 'data-figma-vector="true"'), 'instance-vector-children-render-with-definition');
-$assert(str_contains($instanceVectorChildrenCss, '.figma-node-icon-one-icon-vector-vector{width:10px;height:10px'), 'instance-vector-css-one');
-$assert(str_contains($instanceVectorChildrenCss, '.figma-node-icon-two-icon-vector-vector{width:10px;height:10px'), 'instance-vector-css-two');
+// Authored CSS: both instance vector children share identical sizing, so they
+// reference one shared `.vector` class rather than duplicating per-node rules,
+// while each keeps its namespaced `figma-node-*` hook.
+$assert(str_contains($instanceVectorChildrenCss, '.vector{width:10px;height:10px'), 'instance-vector-css-shared-class');
+$assert(str_contains($instanceVectorChildrenHtml, 'class="figma-node-icon-one-icon-vector-vector vector"'), 'instance-vector-css-one');
+$assert(str_contains($instanceVectorChildrenHtml, 'class="figma-node-icon-two-icon-vector-vector vector"'), 'instance-vector-css-two');
 
 $instanceSimpleNetworkVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Instance Simple Network Vector Fixture',
@@ -5451,13 +5460,80 @@ $assert(str_contains($semanticHtml, '<nav class="figma-node-top-menu-primary-lin
 $assert(str_contains($semanticHtml, '<footer class="figma-node-region-bottom-bottom-bar"'), 'semantic-bottom-region-emits-footer');
 $assert(str_contains($semanticHtml, '<h1 class="figma-node-body-h1-hero"'), 'semantic-largest-text-emits-h1');
 $assert(str_contains($semanticHtml, '<h2 class="figma-node-body-h2-subhead"'), 'semantic-second-text-emits-h2');
-$assert(str_contains($semanticHtml, '<p class="figma-node-body-p1-intro"'), 'semantic-body-copy-emits-paragraph');
+$assert(str_contains($semanticHtml, '<p class="figma-node-body-p1-intro'), 'semantic-body-copy-emits-paragraph');
 $assert(str_contains($semanticHtml, '<ul class="figma-node-body-cards-feature-cards"'), 'semantic-repeated-items-emit-list');
 $assert(str_contains($semanticHtml, '<li class="figma-node-card-1-card-one"'), 'semantic-repeated-item-emits-list-item');
 $assert(str_contains($semanticHtml, '<button class="figma-node-body-cta-get-started"'), 'semantic-button-like-node-emits-button');
 $assert(! str_contains($semanticHtml, '<div class="figma-node-region-top-top-bar"'), 'semantic-header-not-generic-div');
 
 blocks_engine_figma_transformer_run_fixture_matrix_contract($assert);
+
+// Authored CSS classes: repeated per-node styles collapse into shared, readably
+// named classes (like a hand-authored site reuses `.card`), names derive from
+// node names/roles, and class names + stylesheet ordering stay deterministic.
+$authoredCssScenegraph = array(
+    'name'  => 'Authored CSS Fixture',
+    'nodes' => array(
+        array(
+            'id'         => 'authored:hero',
+            'type'       => 'FRAME',
+            'name'       => 'Hero Section',
+            'width'      => 1200,
+            'height'     => 400,
+            'layoutMode' => 'VERTICAL',
+            'children'   => array(
+                array(
+                    'id'              => 'authored:card-1',
+                    'type'            => 'FRAME',
+                    'name'            => 'Primary Card',
+                    'width'           => 300,
+                    'height'          => 200,
+                    'backgroundColor' => '#ffffff',
+                    'cornerRadius'    => 8,
+                ),
+                array(
+                    'id'              => 'authored:card-2',
+                    'type'            => 'FRAME',
+                    'name'            => 'Secondary Card',
+                    'width'           => 300,
+                    'height'          => 200,
+                    'backgroundColor' => '#ffffff',
+                    'cornerRadius'    => 8,
+                ),
+            ),
+        ),
+        array(
+            'id'              => 'authored:hero-twin',
+            'type'            => 'FRAME',
+            'name'            => 'Hero Section',
+            'width'           => 1200,
+            'height'          => 400,
+            'layoutMode'      => 'VERTICAL',
+        ),
+    ),
+);
+$authoredCssResult = blocks_engine_figma_transformer_transform_scenegraph($authoredCssScenegraph);
+$authoredCss = $fileContent($authoredCssResult, 'style.css');
+$authoredHtml = $fileContent($authoredCssResult, 'index.html');
+
+// Two cards with identical styles share ONE emitted class, not duplicated rules.
+$assert(1 === substr_count($authoredCss, 'background:#ffffff;border-radius:8px'), 'authored-css-shared-card-style-emitted-once');
+$assert(str_contains($authoredHtml, 'class="figma-node-authored-card-1-primary-card primary-card"'), 'authored-css-first-card-references-shared-class');
+$assert(str_contains($authoredHtml, 'class="figma-node-authored-card-2-secondary-card primary-card"'), 'authored-css-second-card-references-shared-class');
+$assert(str_contains($authoredCss, '.primary-card{'), 'authored-css-shared-class-readably-named');
+
+// A node named "Hero Section" yields a readable `hero-section` class (no node id).
+$assert(str_contains($authoredCss, '.hero-section{'), 'authored-css-hero-section-readable-class');
+$assert(! preg_match('/\.hero-section[^{]*authored/', $authoredCss), 'authored-css-shared-name-has-no-node-id');
+$assert(str_contains($authoredHtml, 'class="figma-node-authored-hero-hero-section hero-section"'), 'authored-css-hero-references-shared-class');
+
+// No inline style attributes leak onto emitted node elements.
+$assert(! str_contains($authoredHtml, 'data-figma-node-id="authored:hero" style='), 'authored-css-prefers-classes-over-inline-style');
+
+// Determinism: two runs produce byte-identical stylesheets and HTML.
+$authoredCssRerunResult = blocks_engine_figma_transformer_transform_scenegraph($authoredCssScenegraph);
+$assert($authoredCss === $fileContent($authoredCssRerunResult, 'style.css'), 'authored-css-stylesheet-deterministic');
+$assert($authoredHtml === $fileContent($authoredCssRerunResult, 'index.html'), 'authored-css-html-deterministic');
 
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
