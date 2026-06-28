@@ -145,6 +145,21 @@ final class HtmlTransformer
     private array $runtimeIslands = array();
 
     /**
+     * Source elements whose subtree was folded into a native zero-JS disclosure
+     * block (`core/details`) or the native `core/accordion` block. The toggle
+     * controls inside these subtrees have their show/hide behavior carried
+     * natively, so they must not be reported as interactive-control behavior
+     * loss (analogous to core/navigation fold-in).
+     *
+     * Keyed by the source element's stable node path (libxml-derived XPath),
+     * since PHP DOM hands out a fresh wrapper object per traversal and
+     * `spl_object_id()` is therefore not stable across passes.
+     *
+     * @var array<string, true>
+     */
+    private array $nativeDisclosureRootIds = array();
+
+    /**
      * Generated dynamic custom-block definitions produced at `core/html`
      * fallback decisions (issue #497). Surfaced under
      * `source_reports.generated_blocks` and packaged into the companion-plugin
@@ -254,6 +269,7 @@ final class HtmlTransformer
         $this->structureProvenance = array();
         $this->scriptMetadata = array();
         $this->runtimeIslands = array();
+        $this->nativeDisclosureRootIds = array();
         $this->generatedBlocks = array();
         $this->generatedBlockNamespace = $this->generatedBlockNamespaceFromOptions($options);
         $this->fallbackEmitter->resetGeneratedBlocks();
@@ -1014,7 +1030,7 @@ final class HtmlTransformer
         if ( 'ul' === $tagName || 'ol' === $tagName ) {
             $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext());
             if ( null !== $navigation ) {
-                return $navigation;
+                return $this->rememberAccordionDisclosureRoot($navigation, $element);
             }
 
             $items = $this->listItems($element, $fallbacks);
@@ -1408,7 +1424,7 @@ final class HtmlTransformer
         if ( 'nav' === $tagName ) {
             $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext(false));
             if ( null !== $navigation ) {
-                return $navigation;
+                return $this->rememberAccordionDisclosureRoot($navigation, $element);
             }
         }
 
@@ -1444,7 +1460,7 @@ final class HtmlTransformer
             if ( ! $this->shouldDeferNavigationPatternToChildren($element) ) {
                 $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext());
                 if ( null !== $navigation ) {
-                    return $navigation;
+                    return $this->rememberAccordionDisclosureRoot($navigation, $element);
                 }
             }
 
@@ -1457,6 +1473,8 @@ final class HtmlTransformer
                     fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
                 );
                 if ( null !== $disclosure ) {
+                    $this->nativeDisclosureRootIds[ $element->getNodePath() ?? '' ] = true;
+
                     return $disclosure;
                 }
             }
@@ -2440,6 +2458,10 @@ final class HtmlTransformer
             return false;
         }
 
+        if ( $this->isFoldedIntoNativeDisclosure($element) ) {
+            return false;
+        }
+
         if ( $this->isRuntimeDomTarget($element) ) {
             return false;
         }
@@ -2506,6 +2528,57 @@ final class HtmlTransformer
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
             if ( $this->isNavigationMenuCandidate($node) && $this->convertsToCoreNavigation($node) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Record a source element whose subtree converted to the native
+     * `core/accordion` block, so its toggle controls are not later flagged as
+     * interactive-control behavior loss. Returns the block unchanged for use as
+     * a passthrough at recognizer call sites.
+     *
+     * @param array<string, mixed> $block
+     * @return array<string, mixed>
+     */
+    private function rememberAccordionDisclosureRoot(array $block, DOMElement $element): array
+    {
+        if ( 'core/accordion' === ( $block['blockName'] ?? '' ) ) {
+            $this->nativeDisclosureRootIds[ $element->getNodePath() ?? '' ] = true;
+        }
+
+        return $block;
+    }
+
+    /**
+     * Whether the element is a disclosure toggle whose containing widget was
+     * folded into a native zero-JS `core/details` block or the native
+     * `core/accordion` block. The show/hide behavior is then carried natively
+     * (no preserved JavaScript), so flagging behavior loss would be a false
+     * positive — the same way `isFoldedIntoCoreNavigation()` excludes controls
+     * rebuilt by `core/navigation`.
+     *
+     * The toggle is recognized structurally (its `aria-expanded`/`aria-controls`
+     * disclosure state), never by class string, and only inside a subtree that
+     * actually converted to a native disclosure block.
+     */
+    private function isFoldedIntoNativeDisclosure(DOMElement $element): bool
+    {
+        if ( array() === $this->nativeDisclosureRootIds ) {
+            return false;
+        }
+
+        $hasDisclosureState = '' !== trim($this->attr($element, 'aria-expanded'))
+            || '' !== trim($this->attr($element, 'aria-controls'));
+        if ( ! $hasDisclosureState ) {
+            return false;
+        }
+
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( isset($this->nativeDisclosureRootIds[ $node->getNodePath() ?? '' ]) ) {
                 return true;
             }
         }
