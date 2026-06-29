@@ -393,15 +393,33 @@ final class MaterializationPlanBuilder
     }
 
     /**
+     * Extract navigation links from a page's block markup.
+     *
+     * The `core/navigation` family is dynamic and server-rendered: each
+     * navigation item is stored as a self-describing block comment
+     * (`<!-- wp:navigation-link {"label":"Home","url":"/"} /-->`) carrying its
+     * label and url in attributes, with no static `<nav><a>` markup. Those
+     * comments are the canonical source for the navigation menu. A static
+     * `<nav>…<a>` scan is kept as a fallback for navs that did not become a
+     * core/navigation block (e.g. preserved as a core/html runtime island).
+     *
      * @return array<int,array{href:string,label:string}>
      */
     private function anchorLinks(string $markup): array
     {
-        if ( '' === trim($markup) || ! preg_match_all('/<nav\b[^>]*>(.*?)<\/nav>/is', $markup, $navMatches) ) {
+        if ( '' === trim($markup) ) {
             return array();
         }
 
-        $links = array();
+        $links = $this->navigationBlockLinks($markup);
+        if ( array() !== $links ) {
+            return $links;
+        }
+
+        if ( ! preg_match_all('/<nav\b[^>]*>(.*?)<\/nav>/is', $markup, $navMatches) ) {
+            return array();
+        }
+
         foreach ( $navMatches[1] as $navHtml ) {
             if ( ! preg_match_all('/<a\b([^>]*)>(.*?)<\/a>/is', (string) $navHtml, $anchorMatches, PREG_SET_ORDER) ) {
                 continue;
@@ -417,6 +435,38 @@ final class MaterializationPlanBuilder
                     'label' => $label,
                 );
             }
+        }
+
+        return $links;
+    }
+
+    /**
+     * Read navigation links from the canonical `core/navigation` block comments
+     * (`navigation-link` and `navigation-submenu`), preserving document order.
+     *
+     * @return array<int,array{href:string,label:string}>
+     */
+    private function navigationBlockLinks(string $markup): array
+    {
+        if ( ! preg_match_all('/<!--\s*wp:(?:navigation-link|navigation-submenu)\s+(\{.*?\})\s*\/?-->/s', $markup, $matches) ) {
+            return array();
+        }
+
+        $links = array();
+        foreach ( $matches[1] as $json ) {
+            $attrs = json_decode((string) $json, true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+            $href = is_string($attrs['url'] ?? null) ? trim($attrs['url']) : '';
+            $label = trim(html_entity_decode(strip_tags(is_string($attrs['label'] ?? null) ? $attrs['label'] : ''), ENT_QUOTES | ENT_HTML5));
+            if ( '' === $href || '' === $label ) {
+                continue;
+            }
+            $links[] = array(
+                'href'  => $href,
+                'label' => $label,
+            );
         }
 
         return $links;

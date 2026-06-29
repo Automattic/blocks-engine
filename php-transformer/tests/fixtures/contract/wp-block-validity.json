@@ -116,10 +116,52 @@
       ],
       "expected_status": "warning",
       "expected_codes": [
+        "dynamic_block_static_markup",
+        "dynamic_block_static_markup",
         "inner_content_child_count_mismatch",
         "missing_child_placeholders",
         "serialized_block_comment_in_inner_content",
         "serialized_block_comment_in_inner_html"
+      ]
+    },
+    {
+      "name": "valid-navigation-canonical-empty-save",
+      "blocks": [
+        {
+          "blockName": "core/navigation",
+          "attrs": { "overlayMenu": "mobile" },
+          "innerBlocks": [
+            {
+              "blockName": "core/navigation-link",
+              "attrs": { "label": "Home", "url": "/", "kind": "custom" },
+              "innerBlocks": [],
+              "innerHTML": "",
+              "innerContent": [ "" ]
+            }
+          ],
+          "innerHTML": "",
+          "innerContent": [ "", null, "" ]
+        }
+      ],
+      "expected_status": "pass",
+      "expected_codes": []
+    },
+    {
+      "name": "invalid-navigation-link-static-li-markup",
+      "blocks": [
+        {
+          "blockName": "core/navigation-link",
+          "attrs": { "label": "Home", "url": "/", "kind": "custom" },
+          "innerBlocks": [],
+          "innerHTML": "<li class=\"wp-block-navigation-item wp-block-navigation-link\"><a class=\"wp-block-navigation-item__content\" href=\"/\"><span class=\"wp-block-navigation-item__label\">Home</span></a></li>",
+          "innerContent": [
+            "<li class=\"wp-block-navigation-item wp-block-navigation-link\"><a class=\"wp-block-navigation-item__content\" href=\"/\"><span class=\"wp-block-navigation-item__label\">Home</span></a></li>"
+          ]
+        }
+      ],
+      "expected_status": "warning",
+      "expected_codes": [
+        "dynamic_block_static_markup"
       ]
     }
   ]
