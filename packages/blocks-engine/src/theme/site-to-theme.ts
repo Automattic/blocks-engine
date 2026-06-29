@@ -2,16 +2,18 @@ import { basename, extname, join, resolve } from 'node:path';
 
 import { createWorker } from '../pool/pool.js';
 import { assemble } from './assemble.js';
+import type { StaticImgRef } from './assets-static.js';
 import { assets as runAssetsStage } from './assets.js';
 import { chrome } from './chrome.js';
 import { foundation } from './foundation.js';
 import { ingest } from './ingest.js';
 import { detectLayoutOffsetWrapper } from './layout-offset-wrapper.js';
+import type { SectionRenderOptions } from './native-reconstruct-types.js';
 import { reconstruct } from './reconstruct.js';
 import { extractSourceLandmarksFromHtml } from './region-census.js';
 import { reconcileRegions, type PlacedRegion, type RegionSelectionReport } from './region-audit.js';
 import { sectionExtract } from './section-extract.js';
-import { collectSourceAssets, type MediaAsset } from './source-assets.js';
+import { collectSourceAssets, type ImgAssetRef, type MediaAsset } from './source-assets.js';
 import { shouldCarrySourceCss } from './source-css-carry.js';
 import { applyHoistSwaps, hoistVariations, type HoistedVariation } from './variation-hoist.js';
 import { writeTheme } from './write-theme.js';
@@ -51,6 +53,16 @@ export async function siteToTheme(
     const baseTokens = foundation(site, options?.foundationAggregates);
     const tokens = hooks.onFoundation ? await hooks.onFoundation(baseTokens, ctx) : baseTokens;
     const chromeRes = await chrome(ctx, pool);
+    const sourceAssets = collectSourceAssets(
+      site.root,
+      site.pages.map((page) => ({ relPath: page.relPath, html: page.html }))
+    );
+    const sourceImgRefsByPage = sourceImgRefsBySlug(
+      site.pages,
+      sourceAssets.imgRewritesByPage,
+      sourceAssets.imgAssets
+    );
+    const sourceMediaUrlMapsByPage = sourceMediaUrlMapsBySlug(sourceImgRefsByPage, themeMeta.slug);
     const pages: Record<string, SectionBlocks[]> = {};
 
     for (const page of site.pages) {
@@ -63,7 +75,10 @@ export async function siteToTheme(
         pool,
         hooks,
         coverageFloor,
-        options?.renderOptions?.[page.slug]
+        pageRenderOptions(
+          options?.renderOptions?.[page.slug],
+          sourceMediaUrlMapsByPage[page.slug]
+        )
       );
     }
 
@@ -71,10 +86,6 @@ export async function siteToTheme(
     const styleBlocks =
       options?.variationHoist === false ? undefined : hoistPageStyleBlocks(site, pages, warnings);
     const assetStage = await runAssetsStage(ctx, { fetchImpl: options?.fetchImpl });
-    const sourceAssets = collectSourceAssets(
-      site.root,
-      site.pages.map((page) => ({ relPath: page.relPath, html: page.html }))
-    );
     const layoutOffsetWrapperClass = detectLayoutOffsetWrapper(
       homePage(site)?.html ?? '',
       sourceAssets.css
@@ -89,14 +100,18 @@ export async function siteToTheme(
     const sourceCssCarry = carrySourceCss
       ? prepareSourceCssCarry(sourceAssets.css, sourceAssets.mediaAssets, inventory.assets)
       : undefined;
+    const assembledAssets = mergeCarriedImgAssets(
+      sourceCssCarry?.assets ?? inventory.assets,
+      sourceAssets.imgAssets
+    );
     const assembled = assemble({
       site,
       tokens,
       pages,
       meta: themeMeta,
-      assets: sourceCssCarry?.assets ?? inventory.assets,
+      assets: assembledAssets,
       fontCss: assetStage.fontCss,
-      imgRefsByPage: assetStage.imgRefsByPage,
+      imgRefsByPage: mergeImgRefsByPage(sourceImgRefsByPage, assetStage.imgRefsByPage),
       chromeParts: chromeRes.parts,
       chromeSlugsByPage: chromeRes.slugsByPage,
       layoutOffsetWrapperClass,
@@ -129,6 +144,124 @@ export async function siteToTheme(
       await pool.stop();
     }
   }
+}
+
+function sourceImgRefsBySlug(
+  pages: Array<{ slug: string; relPath: string }>,
+  imgRewritesByPage: Record<string, ImgAssetRef[]>,
+  imgAssets: MediaAsset[]
+): Record<string, StaticImgRef[]> {
+  const sourcePathByThemeRel = new Map(
+    imgAssets.map((asset) => [asset.themeRel, asset.srcAbs])
+  );
+  const out: Record<string, StaticImgRef[]> = {};
+
+  for (const page of pages) {
+    const refs = imgRewritesByPage[page.relPath];
+    if (!refs?.length) continue;
+
+    out[page.slug] = refs.map((ref) => ({
+      ref: ref.ref,
+      themeRel: ref.themeRel,
+      sourcePath: sourcePathByThemeRel.get(ref.themeRel) ?? '',
+    }));
+  }
+
+  return out;
+}
+
+function sourceMediaUrlMapsBySlug(
+  imgRefsByPage: Record<string, StaticImgRef[]>,
+  themeSlug: string
+): Record<string, Map<string, string>> {
+  const out: Record<string, Map<string, string>> = {};
+
+  for (const [slug, refs] of Object.entries(imgRefsByPage)) {
+    const mediaUrlMap = new Map<string, string>();
+    for (const ref of refs) {
+      mediaUrlMap.set(ref.ref, themeAssetUrl(themeSlug, ref.themeRel));
+    }
+    if (mediaUrlMap.size > 0) out[slug] = mediaUrlMap;
+  }
+
+  return out;
+}
+
+function pageRenderOptions(
+  options: SectionRenderOptions | undefined,
+  sourceMediaUrlMap: Map<string, string> | undefined
+): SectionRenderOptions | undefined {
+  if (!sourceMediaUrlMap?.size) return options;
+
+  const mediaUrlMap = new Map(sourceMediaUrlMap);
+  for (const [from, to] of options?.mediaUrlMap ?? []) {
+    mediaUrlMap.set(from, to);
+  }
+
+  return {
+    ...options,
+    mediaUrlMap,
+  };
+}
+
+function mergeImgRefsByPage(
+  carriedRefsByPage: Record<string, StaticImgRef[]>,
+  staticRefsByPage: Record<string, StaticImgRef[]>
+): Record<string, StaticImgRef[]> {
+  const out: Record<string, StaticImgRef[]> = {};
+  const slugs = new Set([
+    ...Object.keys(carriedRefsByPage),
+    ...Object.keys(staticRefsByPage),
+  ]);
+
+  for (const slug of slugs) {
+    const refs = dedupeImgRefs([
+      ...(carriedRefsByPage[slug] ?? []),
+      ...(staticRefsByPage[slug] ?? []),
+    ]);
+    if (refs.length > 0) out[slug] = refs;
+  }
+
+  return out;
+}
+
+function dedupeImgRefs(refs: StaticImgRef[]): StaticImgRef[] {
+  const seen = new Set<string>();
+  const out: StaticImgRef[] = [];
+
+  for (const ref of refs) {
+    if (seen.has(ref.ref)) continue;
+    seen.add(ref.ref);
+    out.push(ref);
+  }
+
+  return out;
+}
+
+function mergeCarriedImgAssets(
+  assets: AssetFile[],
+  imgAssets: MediaAsset[]
+): AssetFile[] {
+  if (imgAssets.length === 0) return assets;
+
+  const byRelPath = new Map<string, AssetFile>();
+  const carriedSourcePaths = new Set(imgAssets.map((asset) => resolve(asset.srcAbs)));
+  for (const asset of assets) {
+    if (asset.sourcePath && carriedSourcePaths.has(resolve(asset.sourcePath))) continue;
+    byRelPath.set(asset.relPath, asset);
+  }
+  for (const imgAsset of imgAssets) {
+    byRelPath.set(imgAsset.themeRel, {
+      relPath: imgAsset.themeRel,
+      sourcePath: imgAsset.srcAbs,
+    });
+  }
+
+  return sortAssetFiles([...byRelPath.values()]);
+}
+
+function themeAssetUrl(themeSlug: string, themeRel: string): string {
+  return `/wp-content/themes/${themeSlug}/${themeRel.replace(/^\/+/, '')}`;
 }
 
 function buildRegionAuditDiagnostics(

@@ -164,6 +164,7 @@ describe('reconstruct strategy seam default path', () => {
           "Hero body copy.",
           "Native body copy.",
           "Converted copy survives intact.",
+          "Fallback body copy.",
         ],
         "expectedAssets": [
           "/wp-content/uploads/2026/hero.jpg",
@@ -172,11 +173,12 @@ describe('reconstruct strategy seam default path', () => {
           "Cover hero",
           "Native text",
           "Converted service",
+          "Lossy fallback",
         ],
         "heroIsCover": true,
         "provenanceFlags": [
           "html-to-blocks#2: converted native blocks (0 wp:html, text 100%)",
-          "html-fallback#3: structured render dropped content (1 images missing, text 100%) — emitted verbatim core/html",
+          "static#3: image not in WP library (https://cdn.example.com/lossy.jpg) — placeholder emitted",
         ],
         "sectionMarkup": [
           "<!-- wp:cover {"url":"/wp-content/uploads/2026/hero.jpg","dimRatio":40,"overlayColor":"surface-inverse","isUserOverlayColor":true,"minHeight":50,"minHeightUnit":"vw","align":"full","style":{"spacing":{"margin":{"top":"0px"}}},"layout":{"type":"constrained"}} -->
@@ -207,9 +209,19 @@ describe('reconstruct strategy seam default path', () => {
       <!-- wp:paragraph -->
       <p>Converted copy survives intact.</p>
       <!-- /wp:paragraph -->",
-          "<!-- wp:html {"metadata":{"name":"lib-coverage-island"}} -->
-      <section id="lossy" class="fallback"><h2>Lossy fallback</h2><p>Fallback body copy.</p><img src="https://cdn.example.com/lossy.jpg" alt="Fixture image"></section>
-      <!-- /wp:html -->",
+          "<!-- wp:group {"tagName":"section","align":"full","backgroundColor":"surface-inverse","textColor":"text-inverse","style":{"spacing":{"margin":{"top":"0","bottom":"0"},"padding":{"top":"var:preset|spacing|60","bottom":"var:preset|spacing|60","left":"var:preset|spacing|40","right":"var:preset|spacing|40"},"blockGap":"var:preset|spacing|40"}},"layout":{"type":"constrained","contentSize":"760px"}} -->
+      <section class="wp-block-group alignfull has-surface-inverse-background-color has-text-inverse-color has-text-color has-background" style="margin-top:0;margin-bottom:0;padding-top:var(--wp--preset--spacing--60);padding-right:var(--wp--preset--spacing--40);padding-bottom:var(--wp--preset--spacing--60);padding-left:var(--wp--preset--spacing--40)">
+      <!-- wp:heading {"textAlign":"center","level":1,"fontFamily":"display","textColor":"text-inverse"} -->
+      <h1 class="wp-block-heading has-text-align-center has-text-inverse-color has-text-color has-display-font-family">Lossy fallback</h1>
+      <!-- /wp:heading -->
+      <!-- wp:paragraph {"align":"center","textColor":"text-inverse"} -->
+      <p class="has-text-align-center has-text-inverse-color has-text-color">Fallback body copy.</p>
+      <!-- /wp:paragraph -->
+      <!-- wp:paragraph {"align":"center","textColor":"text-subtle","fontSize":"small"} -->
+      <p class="has-text-align-center has-text-subtle-color has-text-color has-small-font-size">[image unavailable — not captured]</p>
+      <!-- /wp:paragraph -->
+      </section>
+      <!-- /wp:group -->",
         ],
       }
     `);

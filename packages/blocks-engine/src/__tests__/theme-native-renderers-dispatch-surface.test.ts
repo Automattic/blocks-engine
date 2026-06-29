@@ -52,7 +52,7 @@ describe('native renderer dispatcher frozen surface', () => {
     expectTypeOf(FLATTEN_PRONE_MODELS).toEqualTypeOf<ReadonlySet<InteractionModel>>();
     expectTypeOf(MEDIA_LAYOUT_DENY).toEqualTypeOf<ReadonlySet<InteractionModel>>();
     expectTypeOf(renderCardGrid).toEqualTypeOf<
-      (section: SectionSpec, withButtons: boolean) => NativeRenderOut
+      (section: SectionSpec, withButtons: boolean, ctx?: NativeRenderCtx) => NativeRenderOut
     >();
     expectTypeOf(renderFaq).toEqualTypeOf<(section: SectionSpec) => NativeRenderOut>();
     expectTypeOf(renderCellGrid).toEqualTypeOf<

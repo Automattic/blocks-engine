@@ -748,11 +748,11 @@ describe('site-to-theme P0-3 orchestration', () => {
       });
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(result.written).toEqual(expect.arrayContaining(['assets/logo.png']));
+      expect(result.written).toEqual(expect.arrayContaining(['assets/img/logo.png']));
       expect(result.written).toEqual(
         expect.arrayContaining(['parts/header.html', 'parts/footer.html'])
       );
-      expect(existsSync(join(outDir, 'assets', 'logo.png'))).toBe(true);
+      expect(existsSync(join(outDir, 'assets', 'img', 'logo.png'))).toBe(true);
       expect(existsSync(join(outDir, 'parts', 'header.html'))).toBe(true);
       expect(existsSync(join(outDir, 'parts', 'footer.html'))).toBe(true);
 
@@ -779,18 +779,73 @@ describe('site-to-theme P0-3 orchestration', () => {
       expect(template).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
       expect(body).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
       expect(template).toContain('Build calmer block themes');
-      expect(template).toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(template).toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
       expect(template).toMatch(
-        /<!-- wp:html \{"metadata":\{"name":"lib-coverage-island"\}\} -->[\s\S]*<img src="\/wp-content\/themes\/fixture-theme\/assets\/logo\.png" alt="Blocks Engine mark">[\s\S]*<!-- \/wp:html -->/
+        /<!-- wp:html \{"metadata":\{"name":"lib-coverage-island"\}\} -->[\s\S]*<img src="\/wp-content\/themes\/fixture-theme\/assets\/img\/logo\.png" alt="Blocks Engine mark">[\s\S]*<!-- \/wp:html -->/
       );
       expect(template).not.toContain('<!-- wp:image -->');
       expect(template).not.toContain('src="assets/logo.png"');
       expectGenericQueriedContentTemplate(indexTemplate);
       expectGenericQueriedContentTemplate(pageTemplate);
-      expect(indexTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/logo.png');
-      expect(pageTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(indexTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
+      expect(pageTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
       expect(headerPart).toContain('About');
       expect(footerPart).toContain('Blocks Engine');
+    });
+  });
+
+  it('siteToTheme-e2e-local-image-carry does not duplicate a native carried image', async () => {
+    const { siteToTheme } = await import('../theme/index.js');
+
+    await withTempDir('blocks-engine-site-to-theme-local-img-once-', async (siteDir) => {
+      mkdirSync(join(siteDir, 'assets'), { recursive: true });
+      writeFileSync(join(siteDir, 'assets', 'hero.png'), new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+      writeFileSync(
+        join(siteDir, 'index.html'),
+        [
+          '<!doctype html><html><body><main><section>',
+          '<h1>Hero image</h1>',
+          '<p>Body copy.</p>',
+          '<img src="assets/hero.png" alt="Hero image" width="640" height="420">',
+          '</section></main></body></html>',
+        ].join(''),
+        'utf8'
+      );
+
+      const image = {
+        url: 'assets/hero.png',
+        sourceUrl: 'assets/hero.png',
+        alt: 'Hero image',
+        kind: 'img',
+        width: 640,
+        height: 420,
+      } satisfies SectionSpec['images'][number];
+      const result = await siteToTheme(siteDir, {
+        outDir: join(siteDir, 'theme-out'),
+        themeMeta: themeMeta(),
+        sections: {
+          home: [
+            {
+              ...semanticSpec(0),
+              headings: ['Hero image'],
+              bodyText: ['Body copy.'],
+              images: [image],
+              sectionHtml:
+                '<section><h1>Hero image</h1><p>Body copy.</p><img src="assets/hero.png" alt="Hero image" width="640" height="420"></section>',
+            },
+          ],
+        },
+      });
+
+      const template = result.model.templates['front-page.html'];
+      const carriedSrc = '/wp-content/themes/fixture-theme/assets/img/hero.png';
+
+      expect(template).toContain(carriedSrc);
+      expect(template).not.toContain('lib-coverage-island');
+      expect(template.match(/<!-- wp:image /g) ?? []).toHaveLength(1);
+      expect(template.match(new RegExp(carriedSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) ?? []).toHaveLength(1);
+      expect(result.model.assets.map((asset) => asset.relPath)).toContain('assets/img/hero.png');
+      expect(result.model.assets.map((asset) => asset.relPath)).not.toContain('assets/hero.png');
     });
   });
 
@@ -1064,7 +1119,7 @@ describe('site-to-theme P0-3 orchestration', () => {
 
       expect(template).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
       expect(body).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
-      expect(body).toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(body).toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
       expectGenericQueriedContentTemplate(indexTemplate);
       expectGenericQueriedContentTemplate(pageTemplate);
     });
@@ -1111,12 +1166,12 @@ describe('site-to-theme P0-3 orchestration', () => {
       const indexTemplate = readFileSync(join(outDir, 'templates', 'index.html'), 'utf8');
       const pageTemplate = readFileSync(join(outDir, 'templates', 'page.html'), 'utf8');
 
-      expect(frontPage).toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(frontPage).toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
       expect(frontPage).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
       expectGenericQueriedContentTemplate(indexTemplate);
       expectGenericQueriedContentTemplate(pageTemplate);
-      expect(indexTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/logo.png');
-      expect(pageTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(indexTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
+      expect(pageTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
     });
   });
 
@@ -1138,8 +1193,8 @@ describe('site-to-theme P0-3 orchestration', () => {
       });
 
       const template = readFileSync(join(outDir, 'templates', 'front-page.html'), 'utf8');
-      expect(result.model.assets.map((asset) => asset.relPath)).toContain('assets/logo.png');
-      expect(template).toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(result.model.assets.map((asset) => asset.relPath)).toContain('assets/img/logo.png');
+      expect(template).toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
       expect(template).not.toContain('/wp-content/themes/Fixture Theme!');
     });
   });
@@ -1232,7 +1287,7 @@ describe('site-to-theme P0-3 orchestration', () => {
         },
       });
 
-      expect(first.written).toEqual(expect.arrayContaining(['assets/logo.png']));
+      expect(first.written).toEqual(expect.arrayContaining(['assets/img/logo.png']));
       expect(first.written.some((file) => file.startsWith('assets/fonts/'))).toBe(true);
       expect(second.model).toEqual(first.model);
       expect(second.written).toEqual(first.written);

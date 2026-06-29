@@ -7,6 +7,7 @@ import {
   renderTextBand,
   type GalleryBlockOptions,
 } from '../theme/native-renderers-text.js';
+import type { NativeImageResolutionContext } from '../theme/native-media.js';
 import type { NativeRenderCtx, NativeRenderOut } from '../theme/native-reconstruct-types.js';
 import type { SectionSpec, SectionSpecImage } from '../theme/section-spec.js';
 
@@ -39,7 +40,12 @@ describe('native text renderer frozen surface', () => {
       (section: SectionSpec, flip: boolean, ctx: NativeRenderCtx) => NativeRenderOut
     >();
     expectTypeOf(galleryBlock).toEqualTypeOf<
-      (images: SectionSpecImage[], out: NativeRenderOut, opts?: GalleryBlockOptions) => string
+      (
+        images: SectionSpecImage[],
+        out: NativeRenderOut,
+        opts?: GalleryBlockOptions,
+        ctx?: NativeImageResolutionContext,
+      ) => string
     >();
   });
 });

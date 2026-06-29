@@ -11,7 +11,7 @@ import {
 import { brightness, nearestToken } from './native-color.js';
 import { nearestFamily } from './native-fonts.js';
 import { buttonJustify, centerOf, isTintedSection, responsiveSpace, sectionPad } from './native-layout.js';
-import { iconImageBlock, isWpMediaUrl } from './native-media.js';
+import { iconImageBlock, isUsableNativeImage } from './native-media.js';
 import type { NativeRenderCtx, NativeRenderOut } from './native-reconstruct-types.js';
 import { escapeHtml } from '../escape.js';
 import { normalizeCopy } from './page-reconstruct-helpers.js';
@@ -26,7 +26,7 @@ export interface CardGroupPadding {
   left: number;
 }
 
-export function renderCardGrid(section: SectionSpec, withButtons: boolean): NativeRenderOut {
+export function renderCardGrid(section: SectionSpec, withButtons: boolean, ctx?: NativeRenderCtx): NativeRenderOut {
   const out = emptyNativeRenderOut();
   const headings = dedupeAdjacent(section.headings);
   const bodyText = section.bodyText ?? [];
@@ -37,9 +37,15 @@ export function renderCardGrid(section: SectionSpec, withButtons: boolean): Nati
     const cardParts: string[] = [];
     if (section.images.length > 0) {
       cardParts.push(
-        imageBlock(section.images[i], out, `${section.interactionModel}#${section.sectionIndex}.card${i}`, {
-          rounded: true,
-        }),
+        imageBlock(
+          section.images[i],
+          out,
+          `${section.interactionModel}#${section.sectionIndex}.card${i}`,
+          {
+            rounded: true,
+          },
+          ctx,
+        ),
       );
     }
     if (headings[i]) {
@@ -157,10 +163,10 @@ export function renderCellGrid(section: SectionSpec, ctx: NativeRenderCtx): Nati
     }
     if (
       cell.image &&
-      isWpMediaUrl(cell.image.url) &&
+      isUsableNativeImage(cell.image, ctx) &&
       Math.min(cell.image.width || 0, cell.image.height || 0) >= MIN_CELL_IMAGE_PX
     ) {
-      parts.push(imageBlock(cell.image, out, `cell#${section.sectionIndex}`, { rounded: true }));
+      parts.push(imageBlock(cell.image, out, `cell#${section.sectionIndex}`, { rounded: true }, ctx));
     }
     const cellHeadFamily = nearestFamily(cell.headingFamily, ctx.fontFamilies) || undefined;
     const cellBodyFamily = nearestFamily(cell.bodyFamily, ctx.fontFamilies) || undefined;
@@ -195,8 +201,8 @@ export function renderCellGrid(section: SectionSpec, ctx: NativeRenderCtx): Nati
   const claimedImageUrls = new Set(cells.map((cell) => cell.image?.url).filter(Boolean));
   for (const image of section.images ?? []) {
     if (claimedImageUrls.has(image.url)) continue;
-    if (!isWpMediaUrl(image.url) || Math.min(image.width || 0, image.height || 0) < MIN_CELL_IMAGE_PX) continue;
-    cols.push(column([imageBlock(image, out, `cell-media#${section.sectionIndex}`, { rounded: true })]));
+    if (!isUsableNativeImage(image, ctx) || Math.min(image.width || 0, image.height || 0) < MIN_CELL_IMAGE_PX) continue;
+    cols.push(column([imageBlock(image, out, `cell-media#${section.sectionIndex}`, { rounded: true }, ctx)]));
   }
   const fullBleed = (section.layout?.containerWidth ?? 0) >= 1380;
   out.markup = wrapSection([...intro.filter(Boolean), columns(cols, { fullBleed })], {

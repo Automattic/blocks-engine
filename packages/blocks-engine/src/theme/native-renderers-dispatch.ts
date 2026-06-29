@@ -1,4 +1,4 @@
-import { pickLeadImage, isWpMediaUrl } from './native-media.js';
+import { isUsableNativeImage, pickLeadImage } from './native-media.js';
 import { renderCardGrid, renderCellGrid, renderFaq } from './native-renderers-grid.js';
 import { renderImageRow, renderReviewGrid } from './native-renderers-section.js';
 import { renderCover, renderMediaText, renderTextBand } from './native-renderers-text.js';
@@ -82,10 +82,10 @@ export function renderSection(section: SectionSpec, ctx: NativeRenderCtx): Nativ
       return renderMediaText(section, flip, ctx);
     }
     case 'product-card-row':
-      return renderCardGrid(section, true);
+      return renderCardGrid(section, true, ctx);
     case 'project-card-grid':
     case 'blog-card-grid':
-      return renderCardGrid(section, false);
+      return renderCardGrid(section, false, ctx);
     case 'review-grid':
     case 'testimonial':
       return renderReviewGrid(section);
@@ -93,7 +93,7 @@ export function renderSection(section: SectionSpec, ctx: NativeRenderCtx): Nativ
     case 'logo-strip':
     case 'gallery':
     case 'marquee-strip':
-      return renderImageRow(section);
+      return renderImageRow(section, ctx);
     case 'columns':
       // A two-up columns band: if it has both copy and one image, treat as media-text;
       // otherwise a centered text band.
@@ -110,7 +110,7 @@ export function renderSection(section: SectionSpec, ctx: NativeRenderCtx): Nativ
       // (often invisible) heading beside a shrunken photo. Mirrors the
       // animated-cover branch. Generic: keyed on the captured fullBleed flag +
       // image width, not any one site.
-      if (coverLead && isWpMediaUrl(coverLead.url) && section.fullBleed && (coverLead.width || 0) >= 1000) {
+      if (coverLead && isUsableNativeImage(coverLead, ctx) && section.fullBleed && (coverLead.width || 0) >= 1000) {
         return renderCover(section, ctx);
       }
       // A non-full-bleed hero with a REAL lead photo renders as a 2-column
@@ -128,7 +128,7 @@ export function renderSection(section: SectionSpec, ctx: NativeRenderCtx): Nativ
       // cover — render it as media-text so it isn't turned into a full-bleed
       // text-over-photo band.
       const coverLead = pickLeadImage(section.images);
-      if (coverLead && isWpMediaUrl(coverLead.url) && (coverLead.width || 0) >= 1000) {
+      if (coverLead && isUsableNativeImage(coverLead, ctx) && (coverLead.width || 0) >= 1000) {
         return renderCover(section, ctx);
       }
       if (coverLead && (section.headings.length || (section.bodyText ?? []).length)) {

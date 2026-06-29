@@ -1,6 +1,6 @@
 // src/lib/replicate/local-theme/source-assets.ts
 //
-// Stage 1d: carry the SOURCE site's CSS/JS into the theme so the
+// Stage 1d: carry the SOURCE site's CSS and referenced assets into the theme so the
 // class-preserving block DOM (emit-blocks className/anchor) renders under the
 // designer's own stylesheet — the path to ~100% parity. We OWN the source, so
 // divergences are fixed by deterministic adaptation here, not approximation:
@@ -8,9 +8,9 @@
 //     by google-fonts.ts under the same family names).
 //   - A small WP-compat layer is PREPENDED (lowest precedence) neutralizing
 //     WP wrapper interference (template-part div, root layout padding).
-// JS is carried verbatim (user decision: identical replication; the spec's
-// off-by-default hatch is deliberately ON for this flow) — functions.php adds
-// the html.js class snippet so source reveal-gates behave as authored.
+// Source/reveal JS is NOT carried into themes: siteToTheme does not write or
+// enqueue source JS in this slice. The reveal neutralizer exists because the
+// source reveal JS is absent.
 //
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, posix } from 'node:path';

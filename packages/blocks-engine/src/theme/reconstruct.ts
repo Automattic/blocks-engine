@@ -7,7 +7,12 @@ import { hasUnmigratedRemoteAsset, scanForInjection } from './injection-scan.js'
 import { imageBlock, visibleText } from './native-block-builders.js';
 import { nearestFamily } from './native-fonts.js';
 import { centerOf } from './native-layout.js';
-import { isWpMediaUrl } from './native-media.js';
+import {
+  MISSING_IMAGE_PLACEHOLDER,
+  isUsableNativeImage,
+  resolveNativeImageUrl,
+  type NativeImageResolutionContext,
+} from './native-media.js';
 import { renderSection } from './native-renderers-dispatch.js';
 import type {
   ConvertedSectionInput,
@@ -25,6 +30,7 @@ import {
   foldText,
   measureConvertedCoverage,
   measureSectionCoverage,
+  TEXT_FLOOR,
 } from './section-coverage.js';
 import type { CapturedSectionContent, CoverageResult } from './section-coverage.js';
 import type { SectionSpec, SectionSpecCell, SectionSpecImage } from './section-spec.js';
@@ -264,6 +270,7 @@ function appendRecoverableImages(
   out: NativeRenderOut,
   captured: CapturedSectionContent,
   coverage: CoverageResult,
+  resolutionContext?: NativeImageResolutionContext,
 ): CoverageResult {
   if (!(coverage.lost && coverage.missingImages.length > 0)) return coverage;
 
@@ -272,30 +279,68 @@ function appendRecoverableImages(
     .filter(
       (image): image is SectionSpecImage =>
         !!image &&
-        isWpMediaUrl(image.url) &&
+        isUsableNativeImage(image, resolutionContext) &&
         Math.min(image.width || 0, image.height || 0) >= MIN_CELL_IMAGE_PX,
     );
   if (recoverable.length !== coverage.missingImages.length) return coverage;
 
   const recovered = recoverable
     .map((image) =>
-      imageBlock(image, out, `recovered#${section.sectionIndex}`, {
-        align: centerOf(section) ? 'center' : null,
-        rounded: true,
-      }),
+      imageBlock(
+        image,
+        out,
+        `recovered#${section.sectionIndex}`,
+        {
+          align: centerOf(section) ? 'center' : null,
+          rounded: true,
+        },
+        resolutionContext,
+      ),
     )
     .filter(Boolean);
   const augmented = out.markup.endsWith(SECTION_CLOSE)
     ? out.markup.slice(0, -SECTION_CLOSE.length) + recovered.join('\n') + '\n' + SECTION_CLOSE
     : (out.markup ? out.markup + '\n\n' : '') + recovered.join('\n');
   const reMeasured = measureSectionCoverage(captured, augmented);
-  if (reMeasured.lost) return coverage;
+  const unrecoveredMissing = reMeasured.missingImages.filter((url) => !coverage.missingImages.includes(url));
+  if (unrecoveredMissing.length > 0 || reMeasured.textCoverage < TEXT_FLOOR) return coverage;
 
   out.markup = augmented;
   out.flags.push(
     `media-recovered#${section.sectionIndex}: appended ${recovered.length} dropped image(s) as blocks (island averted)`,
   );
-  return reMeasured;
+  return { ...reMeasured, missingImages: unrecoveredMissing, lost: false };
+}
+
+function accountForRenderedMappedImages(
+  section: SectionSpec,
+  out: NativeRenderOut,
+  coverage: CoverageResult,
+  resolutionContext?: NativeImageResolutionContext,
+): CoverageResult {
+  if (!(coverage.lost && coverage.missingImages.length > 0)) return coverage;
+
+  const missingImages = coverage.missingImages.filter((url) => {
+    const image = (section.images ?? []).find((candidate) => candidate.url === url);
+    const resolved = resolveNativeImageUrl(image, resolutionContext);
+    return !resolved || resolved === url || !out.markup.includes(resolved);
+  });
+  if (missingImages.length === coverage.missingImages.length) return coverage;
+
+  return {
+    ...coverage,
+    missingImages,
+    lost: missingImages.length > 0 || coverage.textCoverage < TEXT_FLOOR,
+  };
+}
+
+function shouldPreserveNativeImagePlaceholder(out: NativeRenderOut, coverage: CoverageResult): boolean {
+  return (
+    coverage.lost &&
+    coverage.missingImages.length > 0 &&
+    coverage.textCoverage >= TEXT_FLOOR &&
+    out.markup.includes(MISSING_IMAGE_PLACEHOLDER)
+  );
 }
 
 function fallbackDecision(
@@ -390,9 +435,12 @@ function nativeDecision(section: SectionSpec, options: SectionRenderOptions, ctx
 
   const captured = nativeCapturedContent(section);
   let coverage = measureSectionCoverage(captured, out.markup);
-  coverage = appendRecoverableImages(section, out, captured, coverage);
+  coverage = accountForRenderedMappedImages(section, out, coverage, options);
+  coverage = appendRecoverableImages(section, out, captured, coverage, options);
 
-  const fallback = fallbackDecision(section, coverage, options);
+  const fallback = shouldPreserveNativeImagePlaceholder(out, coverage)
+    ? null
+    : fallbackDecision(section, coverage, options);
   if (fallback) return fallback;
 
   if (!out.markup) return null;
@@ -440,6 +488,7 @@ export function reconstructNativeAggregate(
     iconCounter: 0,
     paletteTokens: options.paletteTokens ?? [],
     fontFamilies: options.fontFamilies ?? [],
+    ...(options.mediaUrlMap ? { mediaUrlMap: options.mediaUrlMap } : {}),
   };
 
   const strategy = options.strategy ?? classifySemanticStrategy;

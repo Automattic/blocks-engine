@@ -81,7 +81,7 @@ function stageCtx(overrides: Partial<StageCtx> & Record<string, unknown> = {}): 
 }
 
 describe('theme reconstruct coverage gate', () => {
-  it('falls back from native dispatch loss to a verbatim coverage island', async () => {
+  it('keeps native placeholder output when only an image is unrecoverable', async () => {
     const remoteImage = 'https://cdn.example.com/uploads/hero.jpg';
     const spec = sectionSpec({
       headings: ['Build calmer block themes'],
@@ -104,12 +104,12 @@ describe('theme reconstruct coverage gate', () => {
       0
     );
 
-    expect(section.blocks).toContain('metadata":{"name":"lib-coverage-island"}');
-    expect(section.blocks).toContain('<h1>Build calmer block themes</h1>');
-    expect(section.blocks).toContain(
-      '<p>Static source pages become a structured theme pipeline.</p>'
-    );
-    expect(measureSectionCoverage(captureSectionContent(spec), section.blocks).lost).toBe(false);
+    expect(section.blocks).toContain('Build calmer block themes');
+    expect(section.blocks).toContain('Static source pages become a structured theme pipeline.');
+    expect(section.blocks).toContain('[image unavailable');
+    expect(section.blocks).not.toContain(remoteImage);
+    expect(section.blocks).not.toContain('lib-coverage-island');
+    expect(measureSectionCoverage(captureSectionContent(spec), section.blocks).lost).toBe(true);
     expect(section.coverage).toBe(0);
   });
 
@@ -173,7 +173,9 @@ describe('theme reconstruct coverage gate', () => {
       0
     );
 
-    expect(section.blocks).toContain('metadata":{"name":"lib-coverage-island"}');
+    expect(section.blocks).toContain('[image unavailable');
+    expect(section.blocks).not.toContain(remoteImage);
+    expect(section.blocks).not.toContain('lib-coverage-island');
     expect(section.blocks).not.toBe(convertedNative);
     expect(section.coverage).toBe(0);
   });
@@ -337,7 +339,8 @@ describe('theme reconstruct coverage gate', () => {
       { sectionIndex: 0, coverage: 0, forms: 0 },
       { sectionIndex: 1, coverage: 1, forms: 1 },
     ]);
-    expect(sections[0].blocks).toContain('lib-coverage-island');
+    expect(sections[0].blocks).toContain('[image unavailable');
+    expect(sections[0].blocks).not.toContain('https://cdn.example.com/uploads/missing.jpg');
     expect(sections[0].blocks).toContain('<!-- hooked -->');
     expect(sections[1].blocks).toContain('jetpack/contact-form');
     expect(sections[1].blocks).toContain('<!-- hooked -->');
