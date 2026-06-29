@@ -21,6 +21,49 @@ $serialized = $runtime->serializeBlocks($blocks);
 assertSame('<!-- wp:paragraph {"content":"Hello"} --><p>Hello</p><!-- /wp:paragraph -->', $serialized, 'Fallback serializer should preserve block comments and inner HTML.');
 assertSame('wordpress_serialize_blocks_unavailable', $runtime->diagnostics()[0]['code'] ?? null, 'Fallback serializer should expose a diagnostic.');
 
+// Dynamic/nested blocks (core/navigation et al.) save() to null inner HTML, so
+// the WordPress-free fallback serializer must emit canonical comment-delimited
+// markup recursively rather than rendering static HTML. A standalone navigation
+// block keeps its navigation-link children, and a navigation block nested inside
+// another block survives with its delimiters and children intact.
+$navigationLink = static fn (string $label, string $url): array => array(
+    'blockName'    => 'core/navigation-link',
+    'attrs'        => array( 'label' => $label, 'url' => $url ),
+    'innerBlocks'  => array(),
+    'innerHTML'    => '',
+    'innerContent' => array( '' ),
+);
+$navigationBlock = array(
+    'blockName'    => 'core/navigation',
+    'attrs'        => array(),
+    'innerBlocks'  => array( $navigationLink('Home', '/'), $navigationLink('About', '/about') ),
+    'innerHTML'    => '',
+    'innerContent' => array( '', null, null, '' ),
+);
+
+$serializedNav = $runtime->serializeBlocks(array( $navigationBlock ));
+assertSame(
+    '<!-- wp:navigation --><!-- wp:navigation-link {"label":"Home","url":"/"} /--><!-- wp:navigation-link {"label":"About","url":"/about"} /--><!-- /wp:navigation -->',
+    $serializedNav,
+    'Fallback serializer should keep a standalone navigation block\'s navigation-link children instead of collapsing to a self-closing comment.'
+);
+assertSame($serializedNav, $runtime->serializeBlocks(array( $navigationBlock )), 'Fallback serializer must be deterministic (byte-identical across runs).');
+
+$groupWithNav = array(
+    'blockName'    => 'core/group',
+    'attrs'        => array(),
+    'innerBlocks'  => array( $navigationBlock ),
+    'innerHTML'    => '<div class="wp-block-group"></div>',
+    'innerContent' => array( '<div class="wp-block-group">', null, '</div>' ),
+);
+$serializedNested = $runtime->serializeBlocks(array( $groupWithNav ));
+assertSame(
+    '<!-- wp:group --><div class="wp-block-group"><!-- wp:navigation --><!-- wp:navigation-link {"label":"Home","url":"/"} /--><!-- wp:navigation-link {"label":"About","url":"/about"} /--><!-- /wp:navigation --></div><!-- /wp:group -->',
+    $serializedNested,
+    'Fallback serializer should keep a nested navigation block (and its children) instead of dropping it from the group output.'
+);
+assertSame($serializedNested, $runtime->serializeBlocks(array( $groupWithNav )), 'Nested-navigation fallback serialization must be deterministic (byte-identical across runs).');
+
 $html = $runtime->renderBlocks($blocks);
 assertSame('<p>Hello</p>', $html, 'Fallback renderer should render static block HTML.');
 assertSame('wordpress_render_block_unavailable', $runtime->diagnostics()[0]['code'] ?? null, 'Fallback renderer should expose a diagnostic.');
