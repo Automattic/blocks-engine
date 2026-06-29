@@ -1,0 +1,41 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-div-pseudo-form-materializable",
+  "description": "Surfaces a div-based pseudo-form (a non-<form> container pairing a data-entry control with a submit-like control) as the same materializable html_form_fallback finding a real <form> produces, so a downstream consumer renders it as a working form instead of dropping it to prose plus a dead button.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-div-pseudo-form-materializable.json",
+    "notes": "Newsletter/signup widgets are frequently built without a <form> element (a div holding an email input and a Subscribe button). The issue #315 form-detection path keys off the <form> element, so such pseudo-forms are missed entirely; this extends detection to the structural input+submit pairing."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><div class=\"signup\"><label for=\"nl\">Email address</label><input type=\"email\" id=\"nl\" name=\"email\" placeholder=\"you@example.com\" required><button>Subscribe</button></div></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" }
+  ],
+  "expected_fallbacks": [
+    { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
+    { "path": "fallbacks.0.reason", "assert": "equals", "value": "form_requires_runtime" },
+    { "path": "fallbacks.0.tag", "assert": "equals", "value": "div" },
+    { "path": "fallbacks.0.control_count", "assert": "equals", "value": 2 },
+    { "path": "fallbacks.0.controls.0.tag", "assert": "equals", "value": "input" },
+    { "path": "fallbacks.0.controls.0.type", "assert": "equals", "value": "email" },
+    { "path": "fallbacks.0.controls.0.name", "assert": "equals", "value": "email" },
+    { "path": "fallbacks.0.controls.0.required", "assert": "equals", "value": true },
+    { "path": "fallbacks.0.controls.1.tag", "assert": "equals", "value": "button" },
+    { "path": "fallbacks.0.controls.1.type", "assert": "equals", "value": "submit" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Email address: you@example.com (required)" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Subscribe" }
+  ]
+}
