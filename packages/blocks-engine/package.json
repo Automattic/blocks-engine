@@ -5,6 +5,10 @@
   "keywords": ["wordpress", "blocks", "gutenberg", "block-theme", "html", "static-site"],
   "license": "GPL-3.0-or-later",
   "type": "module",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "bin": {
     "blocks-engine": "./dist/cli.js"
   },
@@ -39,7 +43,8 @@
   },
   "scripts": {
     "build": "tsup",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "cheerio": "1.2.0",
