@@ -61,6 +61,34 @@
       "expected_codes": []
     },
     {
+      "name": "valid-heading-canonical-save-shape",
+      "input": "<!-- wp:heading {\"level\":2} --><h2 class=\"wp-block-heading\">Section</h2><!-- /wp:heading -->",
+      "expected_status": "pass",
+      "expected_codes": []
+    },
+    {
+      "name": "invalid-heading-missing-generated-class",
+      "input": "<!-- wp:heading {\"level\":2} --><h2>Section</h2><!-- /wp:heading -->",
+      "expected_status": "warning",
+      "expected_codes": [
+        "canonical_save_shape_violation"
+      ]
+    },
+    {
+      "name": "valid-list-canonical-save-shape",
+      "input": "<!-- wp:list --><ul class=\"wp-block-list\"></ul><!-- /wp:list -->",
+      "expected_status": "pass",
+      "expected_codes": []
+    },
+    {
+      "name": "invalid-list-missing-generated-class",
+      "input": "<!-- wp:list --><ul></ul><!-- /wp:list -->",
+      "expected_status": "warning",
+      "expected_codes": [
+        "canonical_save_shape_violation"
+      ]
+    },
+    {
       "name": "invalid-navigation-serialized-child-comments",
       "blocks": [
         {

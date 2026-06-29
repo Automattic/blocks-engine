@@ -19,11 +19,13 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
  *
  * When the transformer puts a source class on a structural child instead of the
  * wrapper (the historic `core/button` leak routed `className` onto the inner
- * `<a>`/`<button>` rather than the `wp-block-button` wrapper), or drops the
- * `anchor` id, the stored markup diverges from `save()` and the editor flags the
- * block invalid. This validator catches that class of regression in the fast
- * pure-PHP loop — no WordPress runtime required — so most invalid-block
- * detection moves off the editor gate.
+ * `<a>`/`<button>` rather than the `wp-block-button` wrapper), drops the
+ * `anchor` id, or omits the generated `wp-block-*` base class that
+ * `addGeneratedClassName` always reproduces for a `className`-supporting block
+ * (the historic `core/heading` / `core/list` leak), the stored markup diverges
+ * from `save()` and the editor flags the block invalid. This validator catches
+ * that class of regression in the fast pure-PHP loop — no WordPress runtime
+ * required — so most invalid-block detection moves off the editor gate.
  *
  * Scope is deliberately the static structural wrappers. Registry-versioned and
  * dynamic blocks (`core/navigation` family, `core/icon`) are skipped: their
@@ -49,6 +51,31 @@ final class CanonicalSaveShapeValidator
         'core/buttons',
         'core/button',
         'core/details',
+        'core/heading',
+        'core/list',
+        'core/quote',
+    );
+
+    /**
+     * The base `wp-block-{name}` class WordPress' `addGeneratedClassName` filter
+     * reproduces in `save()` for every block whose `className` support is true
+     * (the default). For these blocks the stored wrapper must carry the class or
+     * `wp.blocks.validateBlock` flags the block invalid, since the current
+     * `save()` always emits it. Keyed by block name so the assertion stays a
+     * pure-PHP shape check.
+     *
+     * @var array<string, string>
+     */
+    private const GENERATED_BASE_CLASS = array(
+        'core/group'   => 'wp-block-group',
+        'core/columns' => 'wp-block-columns',
+        'core/column'  => 'wp-block-column',
+        'core/buttons' => 'wp-block-buttons',
+        'core/button'  => 'wp-block-button',
+        'core/details' => 'wp-block-details',
+        'core/heading' => 'wp-block-heading',
+        'core/list'    => 'wp-block-list',
+        'core/quote'   => 'wp-block-quote',
     );
 
     /**
@@ -106,6 +133,22 @@ final class CanonicalSaveShapeValidator
         $classNameValue = is_string($attrs['className'] ?? null) ? $attrs['className'] : '';
         $classNameTokens = $this->tokens($classNameValue);
         $anchor          = is_string($attrs['anchor'] ?? null) ? $attrs['anchor'] : '';
+
+        // The block base class core's `addGeneratedClassName` always reproduces
+        // in save() must be present on the stored wrapper. A block emitted
+        // without it (the historic core/heading / core/list leak that dropped
+        // the generated wp-block-* class) diverges from the current save() and
+        // the editor flags it invalid.
+        $generatedClass = self::GENERATED_BASE_CLASS[$blockName] ?? '';
+        if ( '' !== $generatedClass && ! in_array($generatedClass, $wrapperClasses, true) ) {
+            $this->addFinding(
+                $findings,
+                $path,
+                $blockName,
+                'Wrapper is missing the generated class "' . $generatedClass . '" that core save() always emits for this block; the stored markup diverges from save().',
+                array( 'reason' => 'missing_generated_class', 'class' => $generatedClass )
+            );
+        }
 
         // Every wrapper class must be either a structural/support class or a
         // token core would reproduce from the className attribute. A leftover
