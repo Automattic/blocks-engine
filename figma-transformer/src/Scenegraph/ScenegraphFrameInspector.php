@@ -474,7 +474,14 @@ final class ScenegraphFrameInspector
         return array_slice($siblings, 0, 5);
     }
 
-    private function normalizedPageName(string $name): string
+    /**
+     * Normalize a frame name to its page identity by stripping device/breakpoint
+     * and width tokens ("Home Page – Desktop" and "Home Page – Mobile" both
+     * become "home-page"). This is the shared normalization behind responsive
+     * sibling grouping; the page planner also uses it to derive a responsive
+     * page's slug so the slug reflects the PAGE, not its widest variant.
+     */
+    public function normalizedPageName(string $name): string
     {
         $normalized = strtolower($name);
         $normalized = (string) preg_replace('/\b(desktop|mobile|tablet|phone|web|copy|variant|version|v\d+|i\d+)\b/', ' ', $normalized);
