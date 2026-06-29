@@ -22,6 +22,7 @@ export interface NativeRenderCtx {
   iconCounter: number;
   paletteTokens: Array<{ slug: string; hex: string }>;
   fontFamilies: FontFamilyToken[];
+  mediaUrlMap?: Map<string, string>;
 }
 
 export interface NativeSectionResult {

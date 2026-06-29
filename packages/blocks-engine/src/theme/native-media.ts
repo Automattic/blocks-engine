@@ -11,6 +11,10 @@ export interface ResolvedNativeImage {
   usable: boolean;
 }
 
+export interface NativeImageResolutionContext {
+  mediaUrlMap?: Map<string, string>;
+}
+
 export interface IconImageBlockOptions {
   sizePx?: number;
   fill?: string;
@@ -36,7 +40,9 @@ export function resolveImage(
   image: SectionSpecImage | undefined,
   out: NativeRenderOut,
   context: string,
+  resolutionContext?: NativeImageResolutionContext,
 ): ResolvedNativeImage {
+  void resolutionContext;
   if (!image) {
     out.flags.push(`${context}: no image in spec — placeholder emitted`);
     return { url: '', alt: MISSING_IMAGE_PLACEHOLDER, usable: false };
