@@ -6078,6 +6078,91 @@ $assert(in_array('link_target_unresolved', $unresolvedSignalCodes, true), 'unres
 $assert(in_array('link_target_unresolved', $unresolvedDiagnosticCodes, true), 'unresolved-link-diagnostic-code');
 
 // ---------------------------------------------------------------------------
+// Figma links from .fig Kiwi shapes (#328): the normalizer + emitter turn the
+// raw decoded `hyperlink` struct and `prototypeInteractions` list (Kiwi field
+// names, distinct from the REST `reactions`) into real <a href> anchors.
+// ---------------------------------------------------------------------------
+
+// (a) A node carrying the Kiwi `Hyperlink` shape ({url} with no REST `type`)
+// emits a real URL anchor.
+$kiwiHyperlinkResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Kiwi Hyperlink Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'kiwilink:1',
+            'type'     => 'FRAME',
+            'name'     => 'Footer',
+            'width'    => 1200,
+            'height'   => 200,
+            'children' => array(
+                array(
+                    'id'         => 'kiwilink:2',
+                    'type'       => 'TEXT',
+                    'name'       => 'External link',
+                    'characters' => 'Visit Automattic',
+                    'hyperlink'  => array('url' => 'https://automattic.com/work'),
+                ),
+            ),
+        ),
+    ),
+));
+$kiwiHyperlinkHtml = $fileContent($kiwiHyperlinkResult, 'index.html');
+$assert(str_contains($kiwiHyperlinkHtml, '<a class="figma-link" href="https://automattic.com/work" data-figma-link-type="url">'), 'kiwi-hyperlink-url-emits-anchor');
+
+// (b) A node carrying an ON_CLICK `prototypeInteractions` entry whose action is
+// a Kiwi URL connection (connectionType/connectionURL) emits a real URL anchor.
+$kiwiReactionResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Kiwi Reaction Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'kiwireact:1',
+            'type'     => 'FRAME',
+            'name'     => 'Home',
+            'width'    => 1280,
+            'height'   => 900,
+            'children' => array(
+                array(
+                    'id'                    => 'kiwireact:cta',
+                    'type'                  => 'FRAME',
+                    'name'                  => 'CTA button',
+                    'width'                 => 160,
+                    'height'                => 48,
+                    'prototypeInteractions' => array(
+                        array(
+                            'event'   => array('interactionType' => 'ON_CLICK'),
+                            'actions' => array(
+                                array('connectionType' => 'URL', 'connectionURL' => 'https://automattic.com/cta'),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$kiwiReactionHtml = $fileContent($kiwiReactionResult, 'index.html');
+$assert(str_contains($kiwiReactionHtml, '<a class="figma-link" href="https://automattic.com/cta" data-figma-link-type="url">'), 'kiwi-prototype-interaction-url-emits-anchor');
+
+// DECODE: the extended field policy carries `hyperlink` and the Kiwi
+// `prototypeInteractions` list through the REAL generic decoder, resolving the
+// connection enums to their token strings and the GUID destination struct.
+$linkDecoder = new FigKiwiDecoder();
+$linkSchema = $linkDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_link_schema_fixture());
+$assert(null !== ($linkSchema['schema'] ?? null), 'link-kiwi-schema-decodes');
+$linkMessage = $linkDecoder->decodeMessageSelective(
+    blocks_engine_figma_transformer_kiwi_link_message_fixture(),
+    $linkSchema['schema'] ?? array()
+);
+$linkNodeChanges = $linkMessage['message']['nodeChanges'] ?? array();
+$assert('https://example.com/about' === ($linkNodeChanges[0]['hyperlink']['url'] ?? null), 'link-field-policy-carries-hyperlink-url');
+$linkInteraction = $linkNodeChanges[1]['prototypeInteractions'][0] ?? array();
+$assert('ON_CLICK' === ($linkInteraction['event']['interactionType'] ?? null), 'link-field-policy-carries-interaction-trigger');
+$assert('URL' === ($linkInteraction['actions'][0]['connectionType'] ?? null), 'link-field-policy-carries-connection-type');
+$assert('https://example.com/cta' === ($linkInteraction['actions'][0]['connectionURL'] ?? null), 'link-field-policy-carries-connection-url');
+$assert('INTERNAL_NODE' === ($linkInteraction['actions'][1]['connectionType'] ?? null), 'link-field-policy-carries-node-connection-type');
+$assert(array('sessionID' => 7, 'localID' => 42) === ($linkInteraction['actions'][1]['transitionNodeID'] ?? null), 'link-field-policy-carries-transition-node-guid');
+
+// ---------------------------------------------------------------------------
 // Figma Dev Mode status (#280): decode -> normalize -> select -> diagnose.
 // ---------------------------------------------------------------------------
 
@@ -7501,6 +7586,114 @@ function blocks_engine_figma_transformer_kiwi_stroke_message_fixture(): string
         . blocks_engine_figma_transformer_kiwi_float(2.0)
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);
+}
+
+/**
+ * Kiwi schema (version-106 shape) that defines the prototype-link surface (#328):
+ * a `Hyperlink` struct plus the `PrototypeInteraction`/`PrototypeAction` graph
+ * hanging off `NodeChange`, with the real Figma `ConnectionType`/`NavigationType`
+ * enums. Proves the field-policy additions read links through the REAL decoder.
+ */
+function blocks_engine_figma_transformer_kiwi_link_schema_fixture(): string
+{
+    $field = 'blocks_engine_figma_transformer_kiwi_schema_field';
+    $str = 'blocks_engine_figma_transformer_kiwi_string';
+    $varint = 'blocks_engine_figma_transformer_wire_varint';
+
+    return $varint(10)
+        // def0: STRUCT GUID { sessionID, localID }
+        . $str('GUID') . chr(1) . $varint(2)
+        . $field('sessionID', -4, false, 1)
+        . $field('localID', -4, false, 2)
+        // def1: ENUM InteractionType { ON_CLICK = 0 }
+        . $str('InteractionType') . chr(0) . $varint(1)
+        . $field('ON_CLICK', 0, false, 0)
+        // def2: ENUM ConnectionType { NONE = 0, INTERNAL_NODE = 1, URL = 2 }
+        . $str('ConnectionType') . chr(0) . $varint(3)
+        . $field('NONE', 0, false, 0)
+        . $field('INTERNAL_NODE', 0, false, 1)
+        . $field('URL', 0, false, 2)
+        // def3: ENUM NavigationType { NAVIGATE = 0 }
+        . $str('NavigationType') . chr(0) . $varint(1)
+        . $field('NAVIGATE', 0, false, 0)
+        // def4: MESSAGE PrototypeEvent { interactionType }
+        . $str('PrototypeEvent') . chr(2) . $varint(1)
+        . $field('interactionType', 1, false, 1)
+        // def5: MESSAGE PrototypeAction { transitionNodeID, connectionType, connectionURL, navigationType }
+        . $str('PrototypeAction') . chr(2) . $varint(4)
+        . $field('transitionNodeID', 0, false, 1)
+        . $field('connectionType', 2, false, 7)
+        . $field('connectionURL', -6, false, 8)
+        . $field('navigationType', 3, false, 10)
+        // def6: MESSAGE PrototypeInteraction { event, actions[] }
+        . $str('PrototypeInteraction') . chr(2) . $varint(2)
+        . $field('event', 4, false, 2)
+        . $field('actions', 5, true, 3)
+        // def7: MESSAGE Hyperlink { url, guid }
+        . $str('Hyperlink') . chr(2) . $varint(2)
+        . $field('url', -6, false, 1)
+        . $field('guid', 0, false, 2)
+        // def8: MESSAGE NodeChange { type, name, hyperlink, prototypeInteractions[] }
+        . $str('NodeChange') . chr(2) . $varint(4)
+        . $field('type', -6, false, 1)
+        . $field('name', -6, false, 2)
+        . $field('hyperlink', 7, false, 4)
+        . $field('prototypeInteractions', 6, true, 5)
+        // def9: MESSAGE Message { type, nodeChanges[] }
+        . $str('Message') . chr(2) . $varint(2)
+        . $field('type', -6, false, 1)
+        . $field('nodeChanges', 8, true, 2);
+}
+
+/**
+ * Kiwi message for {@see blocks_engine_figma_transformer_kiwi_link_schema_fixture()}:
+ * a TEXT NodeChange with a URL `hyperlink`, and a FRAME NodeChange with an
+ * ON_CLICK `prototypeInteractions` entry whose actions carry a URL connection
+ * and a node-navigation connection (GUID destination).
+ */
+function blocks_engine_figma_transformer_kiwi_link_message_fixture(): string
+{
+    $str = 'blocks_engine_figma_transformer_kiwi_string';
+    $v = 'blocks_engine_figma_transformer_wire_varint';
+
+    // Hyperlink { url = "https://example.com/about" }
+    $hyperlink = $v(1) . $str('https://example.com/about') . $v(0);
+
+    // PrototypeEvent { interactionType = ON_CLICK (0) }
+    $event = $v(1) . $v(0) . $v(0);
+
+    // PrototypeAction { connectionType = URL (2), connectionURL }
+    $actionUrl = $v(7) . $v(2)
+        . $v(8) . $str('https://example.com/cta')
+        . $v(0);
+
+    // PrototypeAction { transitionNodeID = GUID{7,42}, connectionType = INTERNAL_NODE (1), navigationType = NAVIGATE (0) }
+    $actionNode = $v(1) . $v(7) . $v(42) // GUID struct body (sessionID, localID; structs carry no terminator)
+        . $v(7) . $v(1)
+        . $v(10) . $v(0)
+        . $v(0);
+
+    // PrototypeInteraction { event, actions = [actionUrl, actionNode] }
+    $interaction = $v(2) . $event
+        . $v(3) . $v(2) . $actionUrl . $actionNode
+        . $v(0);
+
+    // NodeChange A: TEXT { hyperlink }
+    $nodeA = $v(1) . $str('TEXT')
+        . $v(2) . $str('External link')
+        . $v(4) . $hyperlink
+        . $v(0);
+
+    // NodeChange B: FRAME { prototypeInteractions = [interaction] }
+    $nodeB = $v(1) . $str('FRAME')
+        . $v(2) . $str('CTA')
+        . $v(5) . $v(1) . $interaction
+        . $v(0);
+
+    // Message { type = "DOCUMENT", nodeChanges = [nodeA, nodeB] }
+    return $v(1) . $str('DOCUMENT')
+        . $v(2) . $v(2) . $nodeA . $nodeB
+        . $v(0);
 }
 
 /**

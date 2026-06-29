@@ -2023,8 +2023,11 @@ final class ScenegraphNormalizer
 
         $type = strtoupper((string) ($hyperlink['type'] ?? ''));
         $url = $this->readString($hyperlink, array('url', 'href'));
+        // The Kiwi `Hyperlink` struct has no `type` field and stores the node
+        // target as a `guid` GUID struct, so bridge `guid` onto the REST-shaped
+        // `nodeID` resolution (#328).
         $nodeId = $this->readString($hyperlink, array('nodeID', 'nodeId', 'node_id'))
-            ?? $this->readGuidId($hyperlink['nodeID'] ?? ($hyperlink['nodeId'] ?? null));
+            ?? $this->readGuidId($hyperlink['nodeID'] ?? ($hyperlink['nodeId'] ?? ($hyperlink['guid'] ?? null)));
 
         if ( 'URL' === $type && null !== $url ) {
             return array('type' => 'url', 'url' => $url);
@@ -2076,7 +2079,14 @@ final class ScenegraphNormalizer
      */
     private function normalizeReactionLink(array $node): ?array
     {
-        foreach ( is_array($node['reactions'] ?? null) ? $node['reactions'] : array() as $reaction ) {
+        // `reactions` is the REST name; `prototypeInteractions` is the Kiwi name
+        // for the same prototype-interaction list decoded from `.fig` (#328).
+        $interactions = is_array($node['reactions'] ?? null) ? $node['reactions'] : array();
+        if ( is_array($node['prototypeInteractions'] ?? null) ) {
+            $interactions = array_merge($interactions, $node['prototypeInteractions']);
+        }
+
+        foreach ( $interactions as $reaction ) {
             if ( ! is_array($reaction) ) {
                 continue;
             }
@@ -2112,16 +2122,22 @@ final class ScenegraphNormalizer
      */
     private function normalizeActionLink(array $action): ?array
     {
+        // REST uses `type`/`url`/`destinationId`/`navigation`; the Kiwi
+        // `PrototypeAction` uses `connectionType` (URL/INTERNAL_NODE),
+        // `connectionURL`, the `transitionNodeID` GUID, and `navigationType`.
+        // Read both so the link path works from `.fig` and REST inputs (#328).
         $type = strtoupper((string) ($action['type'] ?? ''));
-        $url = $this->readString($action, array('url', 'href'));
-        if ( 'URL' === $type && null !== $url ) {
+        $connectionType = strtoupper((string) ($action['connectionType'] ?? ''));
+        $url = $this->readString($action, array('url', 'href', 'connectionURL'));
+        if ( ( 'URL' === $type || 'URL' === $connectionType ) && null !== $url ) {
             return array('type' => 'url', 'url' => $url);
         }
 
         $destination = $this->readString($action, array('destinationId', 'navigationDestinationId', 'transitionNodeID'))
-            ?? $this->readGuidId($action['destinationId'] ?? null);
-        $navigation = strtoupper((string) ($action['navigation'] ?? ''));
+            ?? $this->readGuidId($action['destinationId'] ?? ($action['transitionNodeID'] ?? null));
+        $navigation = strtoupper((string) ($action['navigation'] ?? ($action['navigationType'] ?? '')));
         $navigatesToNode = 'NODE' === $type
+            || 'INTERNAL_NODE' === $connectionType
             || in_array($navigation, array('NAVIGATE', 'OVERLAY', 'SWAP', 'SCROLL_TO'), true);
         if ( $navigatesToNode && null !== $destination && '' !== $destination ) {
             return array('type' => 'node', 'target_node_id' => $destination);
