@@ -159,18 +159,16 @@ $diagSvg = CorpusDetectors::svgContentLost($diagResult, array());
 $assert(2 === count($diagSvg), '3d: inline-svg fallback diagnostics route into svg_content_lost', 'got ' . count($diagSvg));
 
 // ---------------------------------------------------------------------------
-// 4. Layout-direction misrecognition: a vertical flex container that converts to
-//    core/columns flags columns_from_vertical_flex; horizontal flex does not.
+// 4. Layout-direction misrecognition: the detector flags a vertical flex
+//    container that converts to core/columns; horizontal flex does not. The
+//    verifier is stubbed here so the detector logic is exercised independently
+//    of the live transformer (whose vertical-flex routing is asserted in 4e).
 // ---------------------------------------------------------------------------
 $verticalFlex = '<div style="display:flex; flex-direction:column; gap:1rem; max-width:760px;">'
     . '<p>One</p><p>Two</p><p>Three</p></div>';
 $layout = CorpusDetectors::layoutDirectionMisrecognition(
     $verticalFlex,
-    static function (string $fragment): bool {
-        $blocks = ( new HtmlTransformer() )->transform($fragment, array())->toArray()['blocks'] ?? array();
-
-        return is_array($blocks[0] ?? null) && 'core/columns' === ($blocks[0]['blockName'] ?? '');
-    }
+    static fn (string $fragment): bool => true
 );
 $assert(1 === count($layout), '4: a vertical-flex container that becomes core/columns is flagged', 'got ' . count($layout));
 $assert(
@@ -194,6 +192,41 @@ $vetoed = CorpusDetectors::layoutDirectionMisrecognition(
     static fn (string $fragment): bool => false
 );
 $assert(0 === count($vetoed), '4d: a vertical-flex candidate that does not become columns is vetoed', 'got ' . count($vetoed));
+
+// 4e. Regression guard for the fix: the live transformer must route a vertical
+//     flex container (display:flex; flex-direction:column) to a vertical
+//     core/group, not a horizontal core/columns. With the real transformer as
+//     the verifier the detector therefore finds nothing.
+$verticalBlocks = ( new HtmlTransformer() )->transform($verticalFlex, array())->toArray()['blocks'] ?? array();
+$assert(
+    'core/group' === ($verticalBlocks[0]['blockName'] ?? ''),
+    '4e: live transformer emits core/group for a vertical flex container',
+    (string) ($verticalBlocks[0]['blockName'] ?? '(none)')
+);
+$assert(
+    'vertical' === ($verticalBlocks[0]['attrs']['layout']['orientation'] ?? ''),
+    '4e: the vertical flex group carries an explicit vertical flex orientation',
+    (string) ($verticalBlocks[0]['attrs']['layout']['orientation'] ?? '(none)')
+);
+$liveLayout = CorpusDetectors::layoutDirectionMisrecognition(
+    $verticalFlex,
+    static function (string $fragment): bool {
+        $blocks = ( new HtmlTransformer() )->transform($fragment, array())->toArray()['blocks'] ?? array();
+
+        return is_array($blocks[0] ?? null) && 'core/columns' === ($blocks[0]['blockName'] ?? '');
+    }
+);
+$assert(0 === count($liveLayout), '4e: detector reports no misrecognition once the transformer stacks the flex column vertically', 'got ' . count($liveLayout));
+
+// 4f. Horizontal flex still becomes core/columns — the fix must not disturb
+//     legitimate horizontal column layouts.
+$horizontalColumns = '<div style="display:flex; gap:1rem;"><div><h2>A</h2><p>one</p></div><div><h2>B</h2><p>two</p></div></div>';
+$horizontalBlocks = ( new HtmlTransformer() )->transform($horizontalColumns, array())->toArray()['blocks'] ?? array();
+$assert(
+    'core/columns' === ($horizontalBlocks[0]['blockName'] ?? ''),
+    '4f: live transformer keeps horizontal flex as core/columns',
+    (string) ($horizontalBlocks[0]['blockName'] ?? '(none)')
+);
 
 // ---------------------------------------------------------------------------
 // 5. Severity ranking and cluster keys.

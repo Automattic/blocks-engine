@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-horizontal-flex-stays-columns",
+  "description": "A flex container with the default (row) main axis is a genuine horizontal layout, so it stays a core/columns block. Guards that the flex-direction:column redirect never disturbs legitimate horizontal column layouts.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-horizontal-flex-stays-columns.json",
+    "notes": "Same display:flex container shape as the vertical fixture but without flex-direction:column. The ColumnsPattern flex-direction guard does not fire, so the horizontal columns layout is preserved unchanged."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Covers current PHP transformer columns recognizer behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"cols\" style=\"display:flex\"><div class=\"c\"><h2>A</h2><p>one</p></div><div class=\"c\"><h2>B</h2><p>two</p></div></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/columns", "attrs": { "className": "cols", "layout": { "type": "flex" } } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "c" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "A", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "one" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/column", "attrs": { "className": "c" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/heading", "attrs": { "content": "B", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "two" } }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"cols\",\"layout\":{\"type\":\"flex\"}}" }
+  ]
+}

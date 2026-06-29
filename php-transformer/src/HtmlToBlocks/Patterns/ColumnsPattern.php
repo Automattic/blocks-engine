@@ -94,10 +94,36 @@ final class ColumnsPattern
             return false;
         }
 
+        // A genuinely vertical flex container (display:flex with
+        // flex-direction: column / column-reverse) lays its children out in a
+        // vertical stack. Emitting core/columns would render them horizontally —
+        // the wrong direction. Decline here so the host transformer routes the
+        // element to a vertical core/group instead, preserving its classes and
+        // styles. Horizontal flex (row / row-reverse / default) and grid layouts
+        // are unaffected, so legitimate horizontal columns are never disturbed.
+        if ( $this->isVerticalFlexContainer($style) ) {
+            return false;
+        }
+
         return (bool) preg_match('/(?:^|[\s_-])columns?(?:$|[\s_-])/', $className)
             || ( $this->looksLikeSplitLayout($element) && 1 < $this->directElementChildCount($element) )
             || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element) )
             || preg_match('/(?:^|;)\s*(?:display\s*:\s*(?:inline-)?flex|grid-template-columns\s*:)/', $style);
+    }
+
+    /**
+     * True when the resolved style declares a flex container whose main axis is
+     * vertical (flex-direction: column / column-reverse). flex-direction only has
+     * meaning on a flex container, so both display:flex and the column direction
+     * are required before redirecting away from horizontal columns.
+     */
+    private function isVerticalFlexContainer(string $style): bool
+    {
+        if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style) ) {
+            return false;
+        }
+
+        return (bool) preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style);
     }
 
     private function looksLikeSplitLayout(DOMElement $element): bool
