@@ -35,7 +35,10 @@ final class RuntimeDependencyParityReport
     public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = '', array $runtimeIslands = array(), array $assetReferences = array(), array $interactionCandidates = array(), array $supersededSelectors = array()): array
     {
         $sourceTargets = $this->sourceTargets($sourceHtml, $sourcePath);
-        $generatedTargets = $this->withRuntimeIslandTargets($this->htmlTargets($generatedHtml), $runtimeIslands);
+        $generatedTargets = $this->withBlockCommentAnchorTargets(
+            $this->withRuntimeIslandTargets($this->htmlTargets($generatedHtml), $runtimeIslands),
+            $generatedHtml
+        );
         $superseded = $this->normalizeSupersededSelectors($supersededSelectors);
         $dependencies = array();
         $findings = array();
@@ -494,6 +497,47 @@ final class RuntimeDependencyParityReport
             foreach ( preg_split('/\s+/', trim($element->hasAttribute('class') ? $element->getAttribute('class') : '')) ?: array() as $class ) {
                 if ( '' !== $class ) {
                     $targets['.' . $class] = array('tag' => $tag, 'source_path' => $sourcePath, 'class' => $class);
+                }
+            }
+        }
+
+        return $targets;
+    }
+
+    /**
+     * Harvest `anchor` ids and `className` classes declared in block-comment
+     * attributes as preserved DOM targets. Dynamic, server-rendered blocks (the
+     * `core/navigation` family) store no static wrapper markup — their `save()`
+     * returns null — so an `anchor` or `className` the source carried lives in the
+     * block comment (`{"anchor":"x","className":"y"}`) rather than as `id="x"` /
+     * `class="y"` in the serialized HTML. WordPress' anchor and className supports
+     * still render those onto the wrapper at runtime, so a first-party script
+     * targeting `#x` / `.y` keeps working. Recognizing the comment-declared
+     * anchor/className keeps the runtime-dependency parity check honest now that
+     * the navigation family emits canonical (empty) save markup.
+     *
+     * @param array{ids: array<string, bool>, classes: array<string, bool>} $targets
+     * @return array{ids: array<string, bool>, classes: array<string, bool>}
+     */
+    private function withBlockCommentAnchorTargets(array $targets, string $generatedHtml): array
+    {
+        if ( ! preg_match_all('/<!--\s*wp:[a-z][a-z0-9-]*(?:\/[a-z][a-z0-9-]*)?\s+(\{.*?\})\s*\/?-->/s', $generatedHtml, $matches) ) {
+            return $targets;
+        }
+
+        foreach ( $matches[1] as $json ) {
+            $attrs = json_decode((string) $json, true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+            $anchor = is_string($attrs['anchor'] ?? null) ? trim($attrs['anchor']) : '';
+            if ( '' !== $anchor ) {
+                $targets['ids'][$anchor] = true;
+            }
+            $className = is_string($attrs['className'] ?? null) ? trim($attrs['className']) : '';
+            foreach ( preg_split('/\s+/', $className) ?: array() as $class ) {
+                if ( '' !== $class ) {
+                    $targets['classes'][$class] = true;
                 }
             }
         }

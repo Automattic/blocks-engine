@@ -827,7 +827,13 @@ $runtimeTargetNavigation = ( new HtmlTransformer() )->transform(
 $runtimeTargetNavigationSerialized = (string) ($runtimeTargetNavigation['serialized_blocks'] ?? '');
 $runtimeTargetNavigationItemAttrs = $runtimeTargetNavigation['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
 $assert('nav-link' === ($runtimeTargetNavigationItemAttrs['className'] ?? ''), 'runtime-target navigation link classes are preserved on navigation item attrs');
-$assert(str_contains($runtimeTargetNavigationSerialized, '<li class="wp-block-navigation-item wp-block-navigation-link nav-link">'), 'runtime-target navigation link classes are exposed on navigation item markup');
+// core/navigation-link is dynamic (save() returns null): the canonical stored
+// block carries no static <li> markup, so the runtime-target class rides in the
+// block comment className attribute, which core's className support renders onto
+// the navigation item at runtime. Emitting a static <li> here would make
+// wp.blocks.validateBlock flag the block invalid in the editor.
+$assert(str_contains($runtimeTargetNavigationSerialized, '"className":"nav-link"'), 'runtime-target navigation link classes are preserved in the canonical navigation-link block comment');
+$assert(! str_contains($runtimeTargetNavigationSerialized, '<li class="wp-block-navigation-item'), 'canonical navigation-link emits no static <li> markup that the editor would reject');
 
 $headerCluster = ( new HtmlTransformer() )->transform(
     '<header class="site-header"><a class="site-logo" href="/">Acme Lab</a><nav class="primary-nav" aria-label="Primary"><a class="nav-link" href="/work">Work</a><a class="nav-link" href="/docs"><span>Docs</span></a></nav><form class="site-search" role="search" action="/search"><label for="q">Search</label><input id="q" type="search" name="q" placeholder="Search docs"><button type="submit">Search</button></form><div class="header-actions"><a class="cta" href="/start">Get started</a></div></header>'

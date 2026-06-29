@@ -258,21 +258,22 @@ final class BlockFactory
             return '<div' . $this->htmlAttrs($wrapperAttrs) . '><a' . $this->htmlAttrs($linkAttrs) . $href . '>' . ($attrs['text'] ?? '') . '</a></div>';
         }
 
-        if ( 'core/navigation' === $name ) {
-            return array( 'opening' => '<nav' . $this->blockSupportAttrs($attrs, 'wp-block-navigation') . '><ul class="wp-block-navigation__container">', 'closing' => '</ul></nav>' );
+        // The navigation family (`core/navigation`, `core/navigation-link`,
+        // `core/navigation-submenu`) are dynamic, server-rendered blocks:
+        // `supports.html` is false and each registers a `render_callback`, so
+        // their `save()` returns null. WordPress stores only the block comment
+        // delimiters (plus serialized inner blocks); the `<nav>`/`<ul>`/`<li>`
+        // chrome is produced at render time. Emitting that static markup into the
+        // stored block makes `wp.blocks.validateBlock` re-run `save()` (empty),
+        // see the leftover tags, and flag every navigation block invalid in the
+        // editor. The label/url/className ride in the comment attributes, so the
+        // canonical save()-matching shape carries no inner HTML at all.
+        if ( 'core/navigation' === $name || 'core/navigation-submenu' === $name ) {
+            return array( 'opening' => '', 'closing' => '' );
         }
 
         if ( 'core/navigation-link' === $name ) {
-            $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-            return '<li' . $this->blockSupportAttrs($attrs, 'wp-block-navigation-item wp-block-navigation-link') . '><a' . $this->navigationAnchorAttrs($attrs, $href) . '><span class="wp-block-navigation-item__label">' . ($attrs['label'] ?? '') . '</span></a></li>';
-        }
-
-        if ( 'core/navigation-submenu' === $name ) {
-            $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-            return array(
-                'opening' => '<li' . $this->blockSupportAttrs($attrs, 'wp-block-navigation-item has-child wp-block-navigation-submenu') . '><a' . $this->navigationAnchorAttrs($attrs, $href) . '><span class="wp-block-navigation-item__label">' . ($attrs['label'] ?? '') . '</span></a><ul' . $this->navigationSubmenuAttrs($attrs) . '>',
-                'closing' => '</ul></li>',
-            );
+            return '';
         }
 
         if ( 'core/shortcode' === $name ) {
@@ -567,28 +568,6 @@ final class BlockFactory
             'classes' => '',
             'style'   => is_string($style) ? $style : '',
         );
-    }
-
-    /**
-     * @param array<string, mixed> $attrs
-     */
-    private function navigationAnchorAttrs(array $attrs, string $href): string
-    {
-        return $this->htmlAttrs(array(
-            'class' => $this->mergeClassNames('wp-block-navigation-item__content', (string) ($attrs['anchorClassName'] ?? '')),
-            'style' => (string) ($attrs['anchorStyle'] ?? ''),
-        )) . $href;
-    }
-
-    /**
-     * @param array<string, mixed> $attrs
-     */
-    private function navigationSubmenuAttrs(array $attrs): string
-    {
-        return $this->htmlAttrs(array(
-            'class' => $this->mergeClassNames('wp-block-navigation__submenu-container', (string) ($attrs['submenuClassName'] ?? '')),
-            'style' => (string) ($attrs['submenuStyle'] ?? ''),
-        ));
     }
 
     /**
