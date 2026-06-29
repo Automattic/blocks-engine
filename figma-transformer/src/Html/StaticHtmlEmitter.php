@@ -4118,23 +4118,115 @@ final class StaticHtmlEmitter
             return array();
         }
 
-        $width = 1;
+        $width = 1.0;
         if ( isset($node['strokeWeight']) && is_numeric($node['strokeWeight']) ) {
             $width = (float) $node['strokeWeight'];
         }
 
+        $align     = strtoupper((string) ($node['strokeAlign'] ?? ''));
+        $sideWidths = $this->strokeSideWidths($node, $width);
+        $dashed    = $this->hasDashPattern($node);
+        // CSS borders can't reproduce an exact Figma dash array (border-style only
+        // exposes the `dashed` keyword), so a non-empty dashPattern degrades to a
+        // dashed border. Precise dash lengths would need an SVG/background stroke,
+        // which is out of scope here.
+        $lineStyle = $dashed ? 'dashed' : 'solid';
+
         if ( true === $stroke['gradient'] ) {
             return array(
-                'border:' . $this->number((float) $width) . 'px solid transparent',
+                'border:' . $this->number($width) . 'px ' . $lineStyle . ' transparent',
                 'border-image:' . $stroke['css'] . ' 1',
             );
         }
 
-        if ( 'OUTSIDE' === strtoupper((string) ($node['strokeAlign'] ?? '')) ) {
-            return array('box-shadow:0 0 0 ' . $this->number((float) $width) . 'px ' . $stroke['css']);
+        // Outside strokes don't grow the layout box; the emitter renders them as an
+        // outset box-shadow ring at the real weight. box-shadow can't express dashes
+        // or per-side weights, so those fall through to the border path below.
+        if ( 'OUTSIDE' === $align && null === $sideWidths && ! $dashed ) {
+            return array('box-shadow:0 0 0 ' . $this->number($width) . 'px ' . $stroke['css']);
         }
 
-        return array('border:' . $this->number((float) $width) . 'px solid ' . $stroke['css']);
+        if ( null !== $sideWidths || $dashed ) {
+            $styles = array();
+            if ( null !== $sideWidths ) {
+                foreach ( $sideWidths as $side => $sideWidth ) {
+                    $styles[] = 'border-' . $side . '-width:' . $this->number($sideWidth) . 'px';
+                }
+            } else {
+                $styles[] = 'border-width:' . $this->number($width) . 'px';
+            }
+            $styles[] = 'border-style:' . $lineStyle;
+            $styles[] = 'border-color:' . $stroke['css'];
+            // Inside strokes are drawn within the node bounds; keep the border from
+            // expanding the box so the design's dimensions stay intact.
+            if ( 'INSIDE' === $align ) {
+                $styles[] = 'box-sizing:border-box';
+            }
+
+            return $styles;
+        }
+
+        $styles = array('border:' . $this->number($width) . 'px solid ' . $stroke['css']);
+        if ( 'INSIDE' === $align ) {
+            $styles[] = 'box-sizing:border-box';
+        }
+
+        return $styles;
+    }
+
+    /**
+     * Resolve per-side stroke widths when a node carries independent border
+     * weights. Returns null when the stroke is uniform so callers use the
+     * single-weight border path.
+     *
+     * @param array<string, mixed> $node
+     * @return array<string, float>|null
+     */
+    private function strokeSideWidths(array $node, float $fallback): ?array
+    {
+        $sides = array(
+            'top'    => array('borderTopWeight', 'strokeTopWeight'),
+            'right'  => array('borderRightWeight', 'strokeRightWeight'),
+            'bottom' => array('borderBottomWeight', 'strokeBottomWeight'),
+            'left'   => array('borderLeftWeight', 'strokeLeftWeight'),
+        );
+
+        $widths = array();
+        $found  = false;
+        foreach ( $sides as $side => $keys ) {
+            $value = null;
+            foreach ( $keys as $key ) {
+                if ( isset($node[$key]) && is_numeric($node[$key]) ) {
+                    $value = (float) $node[$key];
+                    break;
+                }
+            }
+            if ( null !== $value ) {
+                $found = true;
+            }
+            $widths[$side] = null !== $value ? $value : $fallback;
+        }
+
+        return $found ? $widths : null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasDashPattern(array $node): bool
+    {
+        $pattern = $node['dashPattern'] ?? null;
+        if ( ! is_array($pattern) ) {
+            return false;
+        }
+
+        foreach ( $pattern as $value ) {
+            if ( is_numeric($value) && (float) $value > 0 ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

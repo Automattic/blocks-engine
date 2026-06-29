@@ -3771,6 +3771,52 @@ $outsideStrokeCss = $fileContent($outsideStrokeResult, 'style.css');
 $assert(str_contains($outsideStrokeCss, '.figma-node-stroke-outside-outside-stroke-image{width:100px;height:80px;box-shadow:0 0 0 8px #ffffff}'), 'outside-stroke-emits-non-shrinking-shadow');
 $assert(! str_contains($outsideStrokeCss, 'border:8px solid #ffffff'), 'outside-stroke-does-not-shrink-border-box');
 
+// Stroke geometry (#328): an INSIDE stroke must render at the design weight (3px),
+// not the stale 1px default, and stay inside the box via box-sizing.
+$insideStrokeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Inside Stroke Fixture',
+    'nodes' => array(
+        array(
+            'id'           => 'stroke:inside',
+            'type'         => 'RECTANGLE',
+            'name'         => 'Inside stroke box',
+            'width'        => 120,
+            'height'       => 90,
+            'strokeAlign'  => 'INSIDE',
+            'strokeWeight' => 3,
+            'strokes'      => array(
+                array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1)),
+            ),
+        ),
+    ),
+));
+$insideStrokeCss = $fileContent($insideStrokeResult, 'style.css');
+$assert(str_contains($insideStrokeCss, '.figma-node-stroke-inside-inside-stroke-box{width:120px;height:90px;border:3px solid #000000;box-sizing:border-box}'), 'inside-stroke-emits-design-width-border');
+$assert(! str_contains($insideStrokeCss, 'border:1px solid'), 'inside-stroke-does-not-default-to-1px');
+
+// A non-empty dashPattern degrades to a dashed border at the design weight.
+$dashedStrokeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Dashed Stroke Fixture',
+    'nodes' => array(
+        array(
+            'id'           => 'stroke:dashed',
+            'type'         => 'RECTANGLE',
+            'name'         => 'Dashed stroke box',
+            'width'        => 80,
+            'height'       => 60,
+            'strokeAlign'  => 'INSIDE',
+            'strokeWeight' => 2,
+            'dashPattern'  => array(4, 2),
+            'strokes'      => array(
+                array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1)),
+            ),
+        ),
+    ),
+));
+$dashedStrokeCss = $fileContent($dashedStrokeResult, 'style.css');
+$assert(str_contains($dashedStrokeCss, 'border-style:dashed'), 'dashed-stroke-emits-dashed-border-style');
+$assert(str_contains($dashedStrokeCss, 'border-width:2px'), 'dashed-stroke-emits-design-width');
+
 $gradientPaintResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Gradient Paint Fixture',
     'nodes' => array(
@@ -6049,6 +6095,25 @@ $assert('DOCUMENT' === ($devStatusMessage['message']['type'] ?? null), 'dev-stat
 $assert('SECTION' === ($devStatusNodeChange['type'] ?? null), 'dev-status-kiwi-section-node-decodes');
 $assert('COMPLETED' === ($devStatusNodeChange['sectionStatus'] ?? null), 'dev-status-field-policy-carries-section-status');
 
+// Stroke geometry (#328): the extended field policy must carry strokeWeight,
+// strokeAlign and dashPattern through the REAL generic Kiwi decoder. Before the
+// whitelist fix these were skipped and every border defaulted to 1px.
+$strokeDecoder = new FigKiwiDecoder();
+$strokeSchema  = $strokeDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_stroke_schema_fixture());
+$assert(null !== ($strokeSchema['schema'] ?? null), 'stroke-kiwi-schema-decodes');
+$strokeMessage = $strokeDecoder->decodeMessageSelective(
+    blocks_engine_figma_transformer_kiwi_stroke_message_fixture(),
+    $strokeSchema['schema'] ?? array()
+);
+$strokeNodeChange = $strokeMessage['message']['nodeChanges'][0] ?? array();
+$assert('RECTANGLE' === ($strokeNodeChange['type'] ?? null), 'stroke-kiwi-node-decodes');
+$assert(3.0 === round((float) ($strokeNodeChange['strokeWeight'] ?? 0.0), 4), 'stroke-field-policy-carries-stroke-weight');
+$assert('INSIDE' === ($strokeNodeChange['strokeAlign'] ?? null), 'stroke-field-policy-carries-stroke-align');
+$assert(
+    array(4.0, 2.0) === array_map(static fn ($value): float => round((float) $value, 4), is_array($strokeNodeChange['dashPattern'] ?? null) ? $strokeNodeChange['dashPattern'] : array()),
+    'stroke-field-policy-carries-dash-pattern'
+);
+
 // NORMALIZE: raw sectionStatus tokens map onto a clean dev_status with the raw
 // value carried for auditability.
 $devStatusNormalizer = new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer();
@@ -7257,6 +7322,24 @@ function blocks_engine_figma_transformer_kiwi_varfloat(float $value): string
 }
 
 /**
+ * Encode a float in the Kiwi "compressed float" form that
+ * {@see FigKiwiByteReader::readVarFloat()} consumes: a single 0 byte for zero,
+ * otherwise the IEEE-754 bits rotated right by 23 and emitted little-endian.
+ */
+function blocks_engine_figma_transformer_kiwi_float(float $value): string
+{
+    if ( 0.0 === $value ) {
+        return chr(0);
+    }
+
+    $bits = unpack('V', pack('f', $value));
+    $ieee = is_array($bits) ? (int) $bits[1] : 0;
+    // Inverse of the decoder's rotate-left-by-23 so the round trip reproduces $value.
+    $rotated = ( ( $ieee << 9 ) & 0xffffffff ) | ( ( $ieee >> 23 ) & 0x1ff );
+    return pack('V', $rotated);
+}
+
+/**
  * Kiwi schema (version-106 shape) defining Color/Vector structs, the EffectType
  * enum (with the real `FOREGROUND_BLUR` token), an Effect struct, and a
  * NodeChange/Message pair carrying `effects`. Proves the #328 field-policy
@@ -7357,6 +7440,67 @@ function blocks_engine_figma_transformer_kiwi_effects_message_fixture(): string
         . blocks_engine_figma_transformer_wire_varint(1)             // array length
         . $nodeChange
         . blocks_engine_figma_transformer_wire_varint(0);            // end Message
+}
+
+/**
+ * Kiwi schema defining a StrokeAlign enum plus a NodeChange/Message pair that
+ * carries `strokeWeight` (float), `strokeAlign` (enum) and `dashPattern`
+ * (float[]). Proves the field-policy extension (#328) reads stroke geometry
+ * through the REAL generic decoder instead of dropping it at the whitelist.
+ */
+function blocks_engine_figma_transformer_kiwi_stroke_schema_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(3)
+        // def0: ENUM StrokeAlign { CENTER = 1, INSIDE = 2, OUTSIDE = 3 }
+        . blocks_engine_figma_transformer_kiwi_string('StrokeAlign')
+        . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('CENTER', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('INSIDE', 0, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('OUTSIDE', 0, false, 3)
+        // def1: MESSAGE NodeChange { type, name, strokeWeight, strokeAlign, dashPattern[] }
+        . blocks_engine_figma_transformer_kiwi_string('NodeChange')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(5)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('strokeWeight', -5, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('strokeAlign', 0, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('dashPattern', -5, true, 5)
+        // def2: MESSAGE Message { type, nodeChanges[] }
+        . blocks_engine_figma_transformer_kiwi_string('Message')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 1, true, 2);
+}
+
+/**
+ * Kiwi message for {@see blocks_engine_figma_transformer_kiwi_stroke_schema_fixture()}:
+ * one RECTANGLE NodeChange with strokeWeight = 3, strokeAlign = INSIDE and a
+ * dashPattern of [4, 2].
+ */
+function blocks_engine_figma_transformer_kiwi_stroke_message_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_string('DOCUMENT')
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        // NodeChange[0]
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_string('RECTANGLE')
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('Bordered Rect')
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_float(3.0)
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(5)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_float(4.0)
+        . blocks_engine_figma_transformer_kiwi_float(2.0)
+        . blocks_engine_figma_transformer_wire_varint(0)
+        . blocks_engine_figma_transformer_wire_varint(0);
 }
 
 /**
