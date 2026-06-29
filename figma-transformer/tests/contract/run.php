@@ -4632,6 +4632,53 @@ $assert('cdn_google_fonts' === ($syneCoverage['Syne']['resolution'] ?? null), 's
 $assert('unresolved' === ($syneCoverage['Cabinet Grotesk']['resolution'] ?? null), 'cabinet-grotesk-not-on-google-fonts');
 $assert(true === ($syneCoverage['Cabinet Grotesk']['needs_operator_font'] ?? null), 'cabinet-grotesk-needs-operator-font');
 
+// System / web-safe fonts resolve via the generated system-fonts table
+// (scripts/generate-system-fonts.php, sourced from Modern Font Stacks + the
+// classic web-safe set). Helvetica Neue and Segoe UI are OS system faces that
+// are NOT on Google Fonts: they must resolve `web_safe` with no @import and no
+// operator-font diagnostic, carrying their generated fallback stacks. This
+// mirrors the FSE Pilot Build Theme .fig parity diagnostic where Helvetica Neue
+// was reported unresolved. Critically, a genuinely-unknown brand/custom face
+// ("Acme Brand Sans") that is neither on Google Fonts nor in the system table
+// must STILL resolve `unresolved` and raise font_css_missing_for_source_font —
+// the generated table widens known-system coverage, it does not silence the
+// parity signal for real custom typefaces.
+$systemFontResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'System Font Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'sf:1',
+            'type'     => 'FRAME',
+            'name'     => 'System font frame',
+            'children' => array(
+                array('id' => 'sf:2', 'type' => 'TEXT', 'name' => 'Helvetica Neue heading', 'characters' => 'Helvetica Neue heading', 'fontName' => array('family' => 'Helvetica Neue', 'style' => 'Bold'), 'fontSize' => 40),
+                array('id' => 'sf:3', 'type' => 'TEXT', 'name' => 'Segoe UI body', 'characters' => 'Segoe UI body copy', 'fontName' => array('family' => 'Segoe UI', 'style' => 'Regular'), 'fontSize' => 16),
+                array('id' => 'sf:4', 'type' => 'TEXT', 'name' => 'Brand heading', 'characters' => 'Brand heading', 'fontName' => array('family' => 'Acme Brand Sans', 'style' => 'Regular'), 'fontSize' => 24),
+            ),
+        ),
+    ),
+));
+$systemFontCss = $fileContent($systemFontResult, 'style.css');
+$systemFontFonts = $systemFontResult['source_reports']['figma']['html']['transform_diagnostics']['fonts'] ?? array();
+$systemFontCodes = array_map(static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), $systemFontResult['diagnostics'] ?? array());
+$systemFontCoverage = array();
+foreach ( is_array($systemFontFonts['coverage'] ?? null) ? $systemFontFonts['coverage'] : array() as $coverageEntry ) {
+    $systemFontCoverage[(string) ($coverageEntry['family'] ?? '')] = $coverageEntry;
+}
+$assert('web_safe' === ($systemFontCoverage['Helvetica Neue']['resolution'] ?? null), 'helvetica-neue-resolves-web-safe');
+$assert(false === ($systemFontCoverage['Helvetica Neue']['needs_operator_font'] ?? null), 'helvetica-neue-no-operator-font-needed');
+$assert('"Helvetica Neue", Helvetica, Arial, sans-serif' === ($systemFontCoverage['Helvetica Neue']['fallback_stack'] ?? null), 'helvetica-neue-system-fallback-stack');
+$assert('web_safe' === ($systemFontCoverage['Segoe UI']['resolution'] ?? null), 'segoe-ui-resolves-web-safe');
+$assert(false === ($systemFontCoverage['Segoe UI']['needs_operator_font'] ?? null), 'segoe-ui-no-operator-font-needed');
+$assert('"Segoe UI", Tahoma, Geneva, Verdana, sans-serif' === ($systemFontCoverage['Segoe UI']['fallback_stack'] ?? null), 'segoe-ui-system-fallback-stack');
+$assert(! in_array('Helvetica Neue', $systemFontFonts['missing_css'] ?? array(), true) && ! in_array('Segoe UI', $systemFontFonts['missing_css'] ?? array(), true), 'system-fonts-not-in-missing-css');
+$assert(! str_contains($systemFontCss, 'Helvetica+Neue') && ! str_contains($systemFontCss, 'Segoe+UI') && ! str_contains($systemFontCss, 'fonts.googleapis.com'), 'system-fonts-emit-no-cdn-import');
+// Boundary: a genuinely-unknown custom typeface stays unresolved and keeps the diagnostic.
+$assert('unresolved' === ($systemFontCoverage['Acme Brand Sans']['resolution'] ?? null), 'custom-font-stays-unresolved');
+$assert(true === ($systemFontCoverage['Acme Brand Sans']['needs_operator_font'] ?? null), 'custom-font-needs-operator-font');
+$assert(in_array('Acme Brand Sans', $systemFontFonts['missing_css'] ?? array(), true), 'custom-font-in-missing-css');
+$assert(in_array('font_css_missing_for_source_font', $systemFontCodes, true), 'custom-font-raises-missing-diagnostic');
+
 $assetReferenceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'   => 'Asset Reference Fixture',
     'assets' => array(
