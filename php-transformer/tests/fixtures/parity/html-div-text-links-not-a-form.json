@@ -1,0 +1,24 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-div-text-links-not-a-form",
+  "description": "A plain content div holding only text and links carries no data-entry/submit control pairing, so div-based pseudo-form detection stays silent and no html_form_fallback finding is emitted.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-div-text-links-not-a-form.json",
+    "notes": "Guards the conservative bound: ordinary containers (and lone inputs or stray links) must not be promoted into form fallbacks; the input+submit pairing is required."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><div class=\"promo\"><p>Read our <a href=\"/blog\">latest stories</a> for distillery updates.</p><a href=\"/about\">About us</a></div></main>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "html_form_fallback" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "latest stories" }
+  ]
+}

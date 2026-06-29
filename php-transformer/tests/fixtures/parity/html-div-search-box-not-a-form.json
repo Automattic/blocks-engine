@@ -1,0 +1,22 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-div-search-box-not-a-form",
+  "description": "A div holding a search input and a search submit button is a search widget, not a data-entry form, so div-based pseudo-form detection stays silent and emits no html_form_fallback finding.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-div-search-box-not-a-form.json",
+    "notes": "Search inputs have dedicated standalone-search handling and must not be promoted into a form fallback; pseudo-form detection only counts non-search data-entry controls as the form anchor."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><div class=\"searchbar\"><input type=\"search\" name=\"q\" placeholder=\"Search\"><button type=\"submit\">Search</button></div></main>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

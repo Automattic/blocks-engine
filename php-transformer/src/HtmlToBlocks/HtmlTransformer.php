@@ -1483,7 +1483,6 @@ final class HtmlTransformer
 
             $controls = $this->formControls($element);
             $readableFormBlock = $this->readableFormBlockFromForm($element, true);
-            $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
             $this->recordRuntimeIsland($element, 'form', 'form_requires_runtime', 'server_or_client_form_handler', array(
                 'form'            => $this->formMetadata($element),
                 'controls'        => $controls,
@@ -1502,28 +1501,7 @@ final class HtmlTransformer
             // Carrying the generic control list (tag/type/name/required/options)
             // keeps the transformer free of any provider or plugin knowledge.
             if ( null === $readableFormBlock || $this->formHasDataEntryControls($element) ) {
-                $fallbacks[] = FallbackDiagnostic::build(array(
-                    'type'            => 'html',
-                    'reason'          => 'form_requires_runtime',
-                    'diagnostic_code' => 'html_form_fallback',
-                    'message'         => 'Form HTML requires runtime behavior and was preserved as safe fallback metadata.',
-                    'source_format'   => 'html',
-                    'tag'             => $tagName,
-                    'selector'        => $this->elementSelector($element),
-                    'attributes'      => $this->htmlAttributes($element),
-                    'form'            => $this->formMetadata($element),
-                    'context'         => $this->sourceContext($element),
-                    'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
-                    'events'          => $this->eventMetadata($element),
-                    'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
-                    'controls'        => $controls,
-                    'control_count'   => count($controls),
-                    'text_length'     => strlen(trim($element->textContent ?? '')),
-                    'child_count'     => $this->childElementCount($element),
-                    'html'            => $boundedHtml['html'],
-                    'html_bytes'      => $boundedHtml['bytes'],
-                    'html_truncated'  => $boundedHtml['truncated'],
-                ), $this->fallbackProvenance);
+                $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
             }
 
             return $readableFormBlock;
@@ -1537,6 +1515,19 @@ final class HtmlTransformer
         }
 
         if ( in_array($tagName, array( 'article', 'aside', 'body', 'center', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+            // Div-based pseudo-form (issue #315 follow-up): some signup/contact
+            // widgets pair data-entry controls with a submit-like control inside a
+            // plain container and never wrap them in a <form>. Without a <form>
+            // element the form-detection path above never fires, so the controls
+            // flatten into prose plus a dead button. When the tightest container
+            // pairs a data-entry control with a submit-like control (and no real
+            // <form> owns the subtree), emit the SAME html_form_fallback finding so
+            // the downstream materializer treats it identically to a real form. The
+            // readable content still renders below; this only adds the finding.
+            if ( $this->isDivBasedPseudoForm($element) ) {
+                $fallbacks[] = $this->formFallbackFinding($element, $this->readableFormBlockFromForm($element, true));
+            }
+
             $logo = $this->logoPattern->match(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
@@ -4646,6 +4637,190 @@ final class HtmlTransformer
             || array() !== $this->eventMetadata($form)
             || array() !== $this->formMetadata($form)
             || $this->formHasDataEntryControls($form);
+    }
+
+    /**
+     * Build the shared html_form_fallback finding (issue #315) for an element that
+     * behaves as a form. Both the real <form> path and the div-based pseudo-form
+     * path emit through here so the downstream materializer receives an identical
+     * shape (controls, form metadata, classification, bounded HTML) regardless of
+     * whether the source markup used a <form> element.
+     *
+     * @param array<string, mixed>|null $readableFormBlock
+     * @return array<string, mixed>
+     */
+    private function formFallbackFinding(DOMElement $element, ?array $readableFormBlock): array
+    {
+        $controls = $this->formControls($element);
+        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+
+        return FallbackDiagnostic::build(array(
+            'type'            => 'html',
+            'reason'          => 'form_requires_runtime',
+            'diagnostic_code' => 'html_form_fallback',
+            'message'         => 'Form HTML requires runtime behavior and was preserved as safe fallback metadata.',
+            'source_format'   => 'html',
+            'tag'             => strtolower($element->tagName),
+            'selector'        => $this->elementSelector($element),
+            'attributes'      => $this->htmlAttributes($element),
+            'form'            => $this->formMetadata($element),
+            'context'         => $this->sourceContext($element),
+            'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
+            'events'          => $this->eventMetadata($element),
+            'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
+            'controls'        => $controls,
+            'control_count'   => count($controls),
+            'text_length'     => strlen(trim($element->textContent ?? '')),
+            'child_count'     => $this->childElementCount($element),
+            'html'            => $boundedHtml['html'],
+            'html_bytes'      => $boundedHtml['bytes'],
+            'html_truncated'  => $boundedHtml['truncated'],
+        ), $this->fallbackProvenance);
+    }
+
+    /**
+     * Whether a non-<form> container behaves as a form: it is the tightest
+     * container that pairs at least one data-entry control with a submit-like
+     * control, and no real <form> owns the subtree.
+     *
+     * Structural only — the signal is "data-entry control + submit-like control in
+     * one bounded container", never a fixture id/class/name. Conservative: a lone
+     * search box or a stray input with no submit control never qualifies, and a
+     * subtree owned by a real <form> (as ancestor or descendant) is left to the
+     * <form> path so the finding is emitted exactly once.
+     */
+    private function isDivBasedPseudoForm(DOMElement $element): bool
+    {
+        if ( 'form' === strtolower($element->tagName) ) {
+            return false;
+        }
+
+        // A real <form> ancestor or descendant owns the controls; let the <form>
+        // path emit the finding so it is never double-counted.
+        if ( $this->hasFormAncestor($element) ) {
+            return false;
+        }
+        if ( 0 < $element->getElementsByTagName('form')->length ) {
+            return false;
+        }
+
+        if ( ! $this->containerPairsDataEntryWithSubmit($element) ) {
+            return false;
+        }
+
+        // Bound the container to the tightest one: if a descendant container also
+        // pairs the controls, defer to it so a wrapper does not swallow a nested
+        // pseudo-form (and sibling pseudo-forms each emit their own finding).
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement
+                && ! $this->isFormControlElement($descendant)
+                && $this->containerPairsDataEntryWithSubmit($descendant) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether a container holds at least one data-entry control AND at least one
+     * submit-like control. Reuses the issue #315 control-detection helpers
+     * (formControlElements / isDataEntryControl) so detection stays in one place.
+     */
+    private function containerPairsDataEntryWithSubmit(DOMElement $element): bool
+    {
+        $hasDataEntry = false;
+        $hasSubmit = false;
+
+        foreach ( $this->formControlElements($element) as $control ) {
+            if ( $this->isPseudoFormDataEntryControl($control) ) {
+                $hasDataEntry = true;
+            } elseif ( $this->isSubmitLikeControl($control) ) {
+                $hasSubmit = true;
+            }
+
+            if ( $hasDataEntry && $hasSubmit ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A data-entry control that anchors a pseudo-form. Reuses #315's
+     * isDataEntryControl and additionally excludes search inputs, which already
+     * have dedicated standalone-search handling and should not be promoted into a
+     * form fallback.
+     */
+    private function isPseudoFormDataEntryControl(DOMElement $control): bool
+    {
+        return $this->isDataEntryControl($control) && 'search' !== $this->formControlType($control);
+    }
+
+    /**
+     * Whether a control submits a form: an explicit submit/image control, or a
+     * button/input whose text/value/type/class/id/name/aria carries submit,
+     * subscribe, sign-up, or send semantics. A plain <button> defaults to type
+     * "submit" and qualifies directly; a type="reset" control never does.
+     */
+    private function isSubmitLikeControl(DOMElement $control): bool
+    {
+        $tagName = strtolower($control->tagName);
+        if ( 'button' !== $tagName && 'input' !== $tagName ) {
+            return false;
+        }
+
+        $type = $this->formControlType($control);
+        if ( in_array($type, array( 'submit', 'image' ), true) ) {
+            return true;
+        }
+        if ( 'reset' === $type ) {
+            return false;
+        }
+
+        // Only generic clickable controls (button-typed) fall through to the
+        // semantic check; data-entry input types are never submit controls.
+        if ( 'input' === $tagName && 'button' !== $type ) {
+            return false;
+        }
+
+        return $this->hasSubmitSemantics($control);
+    }
+
+    /**
+     * Whether a control's text/attributes carry submit-like intent. Structural
+     * vocabulary only — no fixture-specific identifiers.
+     */
+    private function hasSubmitSemantics(DOMElement $control): bool
+    {
+        $haystack = strtolower(implode(' ', array(
+            $control->textContent ?? '',
+            $this->attr($control, 'value'),
+            $this->attr($control, 'class'),
+            $this->attr($control, 'id'),
+            $this->attr($control, 'name'),
+            $this->attr($control, 'aria-label'),
+        )));
+
+        foreach ( array( 'submit', 'subscribe', 'sign up', 'sign-up', 'signup', 'send' ) as $needle ) {
+            if ( str_contains($haystack, $needle) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasFormAncestor(DOMElement $element): bool
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( 'form' === strtolower($parent->tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
