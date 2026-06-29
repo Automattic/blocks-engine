@@ -3177,6 +3177,10 @@ final class ScenegraphNormalizer
             $box['opacity'] = (float) $node['opacity'];
         }
 
+        if ( isset($node['blendMode']) && is_scalar($node['blendMode']) ) {
+            $box['blend_mode'] = strtoupper((string) $node['blendMode']);
+        }
+
         foreach ( array('rotation' => 'rotation') as $sourceKey => $targetKey ) {
             if ( isset($node[$sourceKey]) && is_numeric($node[$sourceKey]) ) {
                 $box[$targetKey] = (float) $node[$sourceKey];

@@ -4214,6 +4214,42 @@ $assert('tc:7' === ($textCaseParagraphDiagnostic['context']['node_id'] ?? null),
 $assert(24.0 === ($textCaseParagraphDiagnostic['context']['paragraph_spacing'] ?? null), 'paragraph-spacing-diagnostic-value');
 $assert(! str_contains($textCaseCss, 'paragraph-spacing') && ! str_contains($textCaseCss, 'paragraph_spacing'), 'paragraph-spacing-not-emitted-as-css');
 
+// Node-level blendMode → CSS mix-blend-mode. A non-default Figma blend mode
+// (MULTIPLY) must surface as `mix-blend-mode:multiply`, while the default
+// compositing modes (NORMAL / PASS_THROUGH) emit no mix-blend-mode at all.
+$blendModeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Blend Mode Fixture',
+    'nodes' => array(
+        array(
+            'id'        => 'blend:1',
+            'type'      => 'FRAME',
+            'name'      => 'Multiply layer',
+            'width'     => 100,
+            'height'    => 80,
+            'blendMode' => 'MULTIPLY',
+        ),
+        array(
+            'id'        => 'blend:2',
+            'type'      => 'FRAME',
+            'name'      => 'Normal layer',
+            'width'     => 100,
+            'height'    => 80,
+            'blendMode' => 'NORMAL',
+        ),
+        array(
+            'id'        => 'blend:3',
+            'type'      => 'FRAME',
+            'name'      => 'Pass through layer',
+            'width'     => 100,
+            'height'    => 80,
+            'blendMode' => 'PASS_THROUGH',
+        ),
+    ),
+));
+$blendModeCss = $fileContent($blendModeResult, 'style.css');
+$assert(str_contains($blendModeCss, '.figma-node-blend-1-multiply-layer{') && str_contains($blendModeCss, 'mix-blend-mode:multiply'), 'node-blend-mode-multiply-emits');
+$assert(1 === substr_count($blendModeCss, 'mix-blend-mode'), 'node-blend-mode-normal-and-pass-through-omit');
+
 // Inline character-level style overrides (characterStyleOverrides + styleOverrideTable).
 //
 // The Figma API encodes per-character style overrides as a parallel array of integer

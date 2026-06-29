@@ -2789,6 +2789,13 @@ final class StaticHtmlEmitter
             $styles[] = 'opacity:' . $this->number((float) $box['opacity']);
         }
 
+        if ( isset($box['blend_mode']) && is_scalar($box['blend_mode']) ) {
+            $blendMode = $this->blendModeCss((string) $box['blend_mode']);
+            if ( null !== $blendMode ) {
+                $styles[] = 'mix-blend-mode:' . $blendMode;
+            }
+        }
+
         $transform = $this->isNearZeroHeightContainer($node, $type) || $this->hasAbsoluteVisualBounds($node) ? null : $this->transformStyle($box);
         if ( null !== $transform ) {
             $styles[] = 'transform:' . $transform;
@@ -5643,6 +5650,34 @@ final class StaticHtmlEmitter
     private function numericOrNull(mixed $value): ?float
     {
         return is_numeric($value) ? (float) $value : null;
+    }
+
+    /**
+     * Map a Figma node-level blendMode enum to the equivalent CSS
+     * `mix-blend-mode` keyword. Returns null for the default compositing
+     * modes (NORMAL / PASS_THROUGH) and any unrecognized value so no CSS
+     * is emitted in those cases.
+     */
+    private function blendModeCss(string $blendMode): ?string
+    {
+        return match ( strtoupper($blendMode) ) {
+            'MULTIPLY' => 'multiply',
+            'SCREEN' => 'screen',
+            'OVERLAY' => 'overlay',
+            'DARKEN' => 'darken',
+            'LIGHTEN' => 'lighten',
+            'COLOR_DODGE' => 'color-dodge',
+            'COLOR_BURN' => 'color-burn',
+            'HARD_LIGHT' => 'hard-light',
+            'SOFT_LIGHT' => 'soft-light',
+            'DIFFERENCE' => 'difference',
+            'EXCLUSION' => 'exclusion',
+            'HUE' => 'hue',
+            'SATURATION' => 'saturation',
+            'COLOR' => 'color',
+            'LUMINOSITY' => 'luminosity',
+            default => null,
+        };
     }
 
     private function color(mixed $value, mixed $opacity = null): ?string
