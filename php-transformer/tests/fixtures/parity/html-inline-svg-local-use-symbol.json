@@ -1,0 +1,82 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-local-use-symbol",
+  "description": "Preserves an inline SVG that references in-document artwork via a local <use href=\"#id\"> pointing at an in-document <symbol>/<defs>. The symbol definition and the local <use> instance both survive faithfully in the emitted core/html so the referenced shapes still render. By contrast a <use> that points at an external sprite file (href=\"sprite.svg#id\") cannot be inlined \u2014 the referenced symbol lives in another file that does not travel with the imported markup \u2014 so an SVG whose only artwork is an external-sprite reference carries no inlinable drawable content and is reported through the bounded inline-SVG fallback rather than emitted as a broken external reference.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-local-use-symbol.json",
+    "notes": "Product-neutral fixture covering local-use(#id) preservation alongside external-sprite-use reporting."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><div class=\"icon-row\"><svg viewBox=\"0 0 48 24\" role=\"img\" aria-label=\"Valve pair\"><defs><symbol id=\"valve\"><circle cx=\"6\" cy=\"6\" r=\"5\" fill=\"#e94560\"></circle></symbol></defs><use href=\"#valve\" x=\"0\" y=\"0\"></use><use href=\"#valve\" x=\"24\" y=\"0\"></use></svg></div><div class=\"svc\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><use href=\"icons.svg#gear\"></use></svg></div></main>"
+  },
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/group"
+    },
+    {
+      "path": "blocks.0.innerBlocks.0",
+      "name": "core/group",
+      "attrs": {
+        "className": "icon-row"
+      }
+    },
+    {
+      "path": "blocks.0.innerBlocks.0.innerBlocks.0",
+      "name": "core/html"
+    }
+  ],
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content",
+      "assert": "contains",
+      "value": "<symbol id=\"valve\"><circle cx=\"6\" cy=\"6\" r=\"5\" fill=\"#e94560\"></circle></symbol>"
+    },
+    {
+      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content",
+      "assert": "contains",
+      "value": "<use href=\"#valve\" x=\"0\" y=\"0\"></use>"
+    },
+    {
+      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content",
+      "assert": "contains",
+      "value": "<use href=\"#valve\" x=\"24\" y=\"0\"></use>"
+    },
+    {
+      "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content",
+      "assert": "not_contains",
+      "value": "icons.svg#gear"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "icons.svg#gear"
+    },
+    {
+      "path": "fallbacks",
+      "assert": "count",
+      "count": 1
+    },
+    {
+      "path": "fallbacks.0.type",
+      "assert": "equals",
+      "value": "inline_svg"
+    },
+    {
+      "path": "fallbacks.0.tag",
+      "assert": "equals",
+      "value": "svg"
+    }
+  ]
+}
