@@ -792,11 +792,63 @@ final class HtmlTransformer
             return false;
         }
 
-        if ( ! $element->hasAttribute('aria-controls') && ! $element->hasAttribute('aria-expanded') ) {
+        if ( '' !== $this->visibleMenuToggleLabel($element) ) {
             return false;
         }
 
-        return '' === $this->visibleMenuToggleLabel($element);
+        // ARIA-toggle shape: a labelless control that opens a menu via ARIA
+        // state (aria-controls/aria-expanded), regardless of its icon markup.
+        if ( $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded') ) {
+            return true;
+        }
+
+        // Icon-bars shape: a labelless control whose only content is the stacked
+        // empty <span> bars that draw a hamburger glyph, with no ARIA toggle
+        // wiring. Many themes draw the bars with CSS on empty spans and bind the
+        // open/close behavior in JS the importer cannot carry, so the control
+        // arrives with no aria-* hooks at all — only its bar-stack shape betrays
+        // it. Recognizing that shape (never a class string) lets these toggles be
+        // dropped too, instead of surfacing as an empty, always-visible button.
+        return $this->isHamburgerBarStackControl($element);
+    }
+
+    /**
+     * Whether the control's only content is a stack of two or more empty <span>
+     * bars: the framework-agnostic shape of a CSS-drawn hamburger glyph. A real
+     * button carries a text label, an image, or other meaningful content, so it
+     * is never matched. Genuinely empty controls (no bars) are not matched
+     * either; only the deliberate multi-bar stack qualifies.
+     */
+    private function isHamburgerBarStackControl(DOMElement $element): bool
+    {
+        $emptyBars = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return false;
+                }
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                return false;
+            }
+
+            if ( 'span' !== strtolower($child->tagName)
+                || '' !== trim($child->textContent ?? '')
+                || 0 !== $child->getElementsByTagName('img')->length
+                || 0 !== $child->getElementsByTagName('svg')->length ) {
+                return false;
+            }
+
+            ++$emptyBars;
+        }
+
+        return $emptyBars >= 2;
     }
 
     /**
