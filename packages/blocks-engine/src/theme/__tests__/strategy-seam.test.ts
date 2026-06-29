@@ -209,8 +209,8 @@ describe('reconstruct strategy seam default path', () => {
       <!-- wp:paragraph -->
       <p>Converted copy survives intact.</p>
       <!-- /wp:paragraph -->",
-          "<!-- wp:group {"tagName":"section","align":"full","backgroundColor":"surface-inverse","textColor":"text-inverse","style":{"spacing":{"margin":{"top":"0","bottom":"0"},"padding":{"top":"var:preset|spacing|60","bottom":"var:preset|spacing|60","left":"var:preset|spacing|40","right":"var:preset|spacing|40"},"blockGap":"var:preset|spacing|40"}},"layout":{"type":"constrained","contentSize":"760px"}} -->
-      <section class="wp-block-group alignfull has-surface-inverse-background-color has-text-inverse-color has-text-color has-background" style="margin-top:0;margin-bottom:0;padding-top:var(--wp--preset--spacing--60);padding-right:var(--wp--preset--spacing--40);padding-bottom:var(--wp--preset--spacing--60);padding-left:var(--wp--preset--spacing--40)">
+          "<!-- wp:group {"tagName":"section","align":"full","anchor":"lossy","className":"fallback","backgroundColor":"surface-inverse","textColor":"text-inverse","style":{"spacing":{"margin":{"top":"0","bottom":"0"},"padding":{"top":"var:preset|spacing|60","bottom":"var:preset|spacing|60","left":"var:preset|spacing|40","right":"var:preset|spacing|40"},"blockGap":"var:preset|spacing|40"}},"layout":{"type":"constrained","contentSize":"760px"}} -->
+      <section id="lossy" class="wp-block-group alignfull has-surface-inverse-background-color has-text-inverse-color has-text-color has-background fallback" style="margin-top:0;margin-bottom:0;padding-top:var(--wp--preset--spacing--60);padding-right:var(--wp--preset--spacing--40);padding-bottom:var(--wp--preset--spacing--60);padding-left:var(--wp--preset--spacing--40)">
       <!-- wp:heading {"textAlign":"center","level":1,"fontFamily":"display","textColor":"text-inverse"} -->
       <h1 class="wp-block-heading has-text-align-center has-text-inverse-color has-text-color has-display-font-family">Lossy fallback</h1>
       <!-- /wp:heading -->

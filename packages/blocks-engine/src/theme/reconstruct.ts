@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio';
+import { escapeHtmlAttr } from '../escape.js';
 import type { WorkerPool } from '../pool/types.js';
 import { buildFallbackDiagnostic } from './fallback-diagnostic.js';
 import { formToBlocks, SKIPPED_FIELD_KINDS } from './form-blocks.js';
@@ -84,6 +85,103 @@ function publicCoverage(blocks: string, coverage: CoverageResult): number {
 
 function dedupe(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
+}
+
+function jsonAttrs(attrs: Record<string, unknown>): string {
+  return JSON.stringify(attrs).replace(/--/g, '\\u002d\\u002d');
+}
+
+function classTokens(value: string | undefined): string[] {
+  return value ? value.split(/\s+/).filter(Boolean) : [];
+}
+
+function sourceIdentity(section: SectionSpec): { anchor?: string; classes: string[] } {
+  const source = section as SourceIdentitySection;
+  return {
+    ...(source.sourceId?.trim() ? { anchor: source.sourceId.trim() } : {}),
+    classes: dedupe(
+      (source.sourceClasses ?? [])
+        .map((value) => value.trim())
+        .filter((value) => value && !isGeneratedGroupWrapperClass(value)),
+    ),
+  };
+}
+
+function isGeneratedGroupWrapperClass(value: string): boolean {
+  return (
+    value === 'wp-block-group' ||
+    value === 'has-text-color' ||
+    value === 'has-background' ||
+    /^align(?:full|wide|left|right|center)$/.test(value) ||
+    /^is-layout-[a-z0-9-]+$/.test(value) ||
+    /^has-[a-z0-9-]+-(?:color|background-color|gradient-background)$/.test(value)
+  );
+}
+
+function orderGroupAttrsWithIdentity(
+  attrs: Record<string, unknown>,
+  anchor: string | undefined,
+  className: string | undefined,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of ['tagName', 'align']) {
+    if (key in attrs) out[key] = attrs[key];
+  }
+  if (anchor) out.anchor = anchor;
+  if (className) out.className = className;
+  for (const [key, value] of Object.entries(attrs)) {
+    if (key === 'tagName' || key === 'align' || key === 'anchor' || key === 'className') continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+function mergeSectionOpenTagIdentity(openTag: string, anchor: string | undefined, sourceClasses: string[]): string {
+  let out = openTag;
+  if (anchor) {
+    const id = escapeHtmlAttr(anchor);
+    out = /\sid="[^"]*"/.test(out)
+      ? out.replace(/\sid="[^"]*"/, ` id="${id}"`)
+      : out.replace(/^<section\b/, `<section id="${id}"`);
+  }
+  if (sourceClasses.length > 0) {
+    out = /\bclass="([^"]*)"/.test(out)
+      ? out.replace(/\bclass="([^"]*)"/, (_match, value: string) => {
+          const merged = dedupe([...classTokens(value), ...sourceClasses]);
+          return `class="${escapeHtmlAttr(merged.join(' '))}"`;
+        })
+      : out.replace(/^<section\b/, `<section class="${escapeHtmlAttr(sourceClasses.join(' '))}"`);
+  }
+  return out;
+}
+
+function sectionOpenClassTokens(openTag: string): string[] {
+  return classTokens(/\bclass="([^"]*)"/.exec(openTag)?.[1]);
+}
+
+function preserveNativePlaceholderSourceIdentity(markup: string, section: SectionSpec): string {
+  const identity = sourceIdentity(section);
+  if (!identity.anchor && identity.classes.length === 0) return markup;
+
+  const groupMatch = /^(\s*<!-- wp:group )(\{[^\n]+})( -->\n)(<section\b[^>]*>)/.exec(markup);
+  if (!groupMatch) return markup;
+
+  let attrs: Record<string, unknown>;
+  try {
+    attrs = JSON.parse(groupMatch[2]) as Record<string, unknown>;
+  } catch {
+    return markup;
+  }
+
+  const generatedSectionClasses = new Set(sectionOpenClassTokens(groupMatch[4]));
+  const sourceClassNameClasses = identity.classes.filter((value) => !generatedSectionClasses.has(value));
+  const className = dedupe([
+    ...classTokens(typeof attrs.className === 'string' ? attrs.className : undefined),
+    ...sourceClassNameClasses,
+  ]).join(' ');
+  const nextAttrs = orderGroupAttrsWithIdentity(attrs, identity.anchor, className || undefined);
+  const nextOpenTag = mergeSectionOpenTagIdentity(groupMatch[4], identity.anchor, identity.classes);
+  return markup.replace(groupMatch[0], `${groupMatch[1]}${jsonAttrs(nextAttrs)}${groupMatch[3]}${nextOpenTag}`);
 }
 
 function nativeCapturedContent(section: SectionSpec): CapturedSectionContent {
@@ -438,9 +536,12 @@ function nativeDecision(section: SectionSpec, options: SectionRenderOptions, ctx
   coverage = accountForRenderedMappedImages(section, out, coverage, options);
   coverage = appendRecoverableImages(section, out, captured, coverage, options);
 
-  const fallback = shouldPreserveNativeImagePlaceholder(out, coverage)
-    ? null
-    : fallbackDecision(section, coverage, options);
+  const preserveNativeImagePlaceholder = shouldPreserveNativeImagePlaceholder(out, coverage);
+  if (preserveNativeImagePlaceholder) {
+    out.markup = preserveNativePlaceholderSourceIdentity(out.markup, section);
+  }
+
+  const fallback = preserveNativeImagePlaceholder ? null : fallbackDecision(section, coverage, options);
   if (fallback) return fallback;
 
   if (!out.markup) return null;
