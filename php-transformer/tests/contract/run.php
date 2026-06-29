@@ -1636,6 +1636,31 @@ $webFontMaterializationPlan = ( new MaterializationPlanBuilder() )->fromCompiled
 ));
 $assert('Oswald' === ($webFontMaterializationPlan['theme']['font_materialization']['roles']['heading'] ?? null), 'materialization plan materializes heading font from web-font sources');
 
+// CSS custom-property (var()) font-families resolve to their concrete typeface.
+// Sources frequently apply fonts through `var(--font-body)` defined in :root.
+// An unresolved `var(--font-body)` token must never reach the Google Fonts
+// request: it is not a real family and corrupts the css2 endpoint (HTTP 400),
+// which drops every linked font and renders the system fallback. The resolver
+// must expand the variable to its real family and assign roles accordingly.
+$varFontHtml = '<head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&amp;family=Lora:wght@400;500&amp;display=swap"></head>';
+$varFontCss  = ":root{--font-disp:'Playfair Display',Georgia,serif;--font-body:'Lora',Georgia,serif;}body{font-family:var(--font-body);}h1,h2,h3{font-family:var(--font-disp);}";
+$varFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources($varFontHtml, $varFontCss);
+$varFontFamilies = array_map(static fn (array $font): string => (string) $font['family'], $varFontPlan['fonts'] ?? array());
+$assert(array('Lora', 'Playfair Display') === $varFontFamilies, 'var() font-family resolves to concrete families and emits no var token family');
+$assert('Lora' === ($varFontPlan['roles']['body'] ?? null), 'var() body font-family resolves to its defined typeface');
+$assert('Playfair Display' === ($varFontPlan['roles']['heading'] ?? null), 'var() heading font-family resolves to its defined typeface');
+$assert(! str_contains((string) ($varFontPlan['css'] ?? ''), 'var('), 'materialized google fonts css carries no unresolved var() token');
+$assert(! str_contains((string) ($varFontPlan['css'] ?? ''), '%28'), 'materialized google fonts css carries no encoded parenthesis family');
+
+// An unresolvable var() (no :root definition, no fallback) must be dropped, not
+// emitted as a bogus family that would break the linked Google Fonts request.
+$unresolvedVarPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
+    '<head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400&display=swap"></head>',
+    'body{font-family:var(--font-undefined);}'
+);
+$assert(array('Lora') === array_map(static fn (array $font): string => (string) $font['family'], $unresolvedVarPlan['fonts'] ?? array()), 'unresolvable var() font-family is dropped from materialized fonts');
+$assert(! str_contains((string) ($unresolvedVarPlan['css'] ?? ''), 'var('), 'unresolvable var() never reaches the materialized google fonts css');
+
 // Typography/web-font parity diagnostic (semantic-parity finding family).
 $semanticFindings = static function (array $result): array {
     return $result['source_reports']['semantic_parity']['findings'] ?? array();

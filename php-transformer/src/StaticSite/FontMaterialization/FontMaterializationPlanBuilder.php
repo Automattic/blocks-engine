@@ -47,11 +47,19 @@ final class FontMaterializationPlanBuilder
      */
     public function fromWebFontSources(string $html = '', string $css = ''): array
     {
+        // Source typography is frequently applied through CSS custom properties
+        // (`body { font-family: var(--font-body) }` defined by
+        // `:root { --font-body: 'Lora', serif }`). Resolve those references to
+        // their concrete typefaces before parsing so the plan captures the real
+        // family — never a literal `var(--font-body)` token, which would corrupt
+        // the materialized Google Fonts request and the body role.
+        $resolvedCss = $this->resolveCssVariables($css);
+
         $fontUsage = array_merge(
             $this->fontUsageFromLinkedStylesheets($html),
-            $this->fontUsageFromCssDeclarations($css)
+            $this->fontUsageFromCssDeclarations($resolvedCss)
         );
-        $roles = $this->fontRolesFromCss($css);
+        $roles = $this->fontRolesFromCss($resolvedCss);
 
         // The base/body `font-family` is the document's foundational typography
         // and must survive into the materialized output even when it is declared
@@ -60,7 +68,7 @@ final class FontMaterializationPlanBuilder
         // typography keeps the source's body face. Heading-only inline fonts are
         // deliberately NOT materialized here: a custom heading face with no
         // loaded web-font cannot render, so it stays a reported drop.
-        $inlineBody = (string) ($this->fontRolesFromCss($this->styleBlockCss($html))['body'] ?? '');
+        $inlineBody = (string) ($this->fontRolesFromCss($this->resolveCssVariables($this->styleBlockCss($html)))['body'] ?? '');
         if ( '' !== $inlineBody ) {
             $fontUsage[] = array('family' => $inlineBody, 'weights' => array(400));
             if ( '' === (string) ($roles['body'] ?? '') ) {
@@ -229,7 +237,7 @@ final class FontMaterializationPlanBuilder
             }
 
             $family = $this->normalizeFamily((string) ($font['family'] ?? $font['font_family'] ?? ''));
-            if ( '' === $family || $this->isWebSafeFontFamily($family) ) {
+            if ( '' === $family || $this->isWebSafeFontFamily($family) || $this->isInvalidFontFamily($family) ) {
                 continue;
             }
 
@@ -282,12 +290,82 @@ final class FontMaterializationPlanBuilder
     {
         foreach ( explode(',', $declaration) as $candidate ) {
             $family = $this->normalizeFamily($candidate);
-            if ( '' !== $family && ! $this->isWebSafeFontFamily($family) ) {
+            if ( '' !== $family && ! $this->isWebSafeFontFamily($family) && ! $this->isInvalidFontFamily($family) ) {
                 return $family;
             }
         }
 
         return '';
+    }
+
+    /**
+     * Expand `var(--name[, fallback])` references within a CSS string using the
+     * custom-property definitions found in that same CSS. Bounded recursive
+     * passes resolve variables whose values reference other variables. Leaves
+     * unresolved references intact so they can be filtered as invalid families.
+     */
+    private function resolveCssVariables(string $css): string
+    {
+        if ( '' === trim($css) || ! str_contains($css, 'var(') ) {
+            return $css;
+        }
+
+        $vars = $this->cssCustomProperties($css);
+        if ( array() === $vars ) {
+            return $css;
+        }
+
+        for ( $pass = 0; $pass < 5; $pass++ ) {
+            $expanded = preg_replace_callback(
+                '/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/',
+                static function (array $match) use ($vars): string {
+                    $name = (string) $match[1];
+                    if ( isset($vars[$name]) && '' !== $vars[$name] ) {
+                        return $vars[$name];
+                    }
+
+                    return isset($match[2]) && '' !== trim((string) $match[2]) ? trim((string) $match[2]) : (string) $match[0];
+                },
+                $css
+            );
+
+            if ( ! is_string($expanded) || $expanded === $css ) {
+                break;
+            }
+            $css = $expanded;
+        }
+
+        return $css;
+    }
+
+    /**
+     * Collect `--name: value` custom-property declarations from CSS. Later
+     * declarations win, mirroring the cascade for the common single-scope case.
+     *
+     * @return array<string,string>
+     */
+    private function cssCustomProperties(string $css): array
+    {
+        if ( ! preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $css, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $vars = array();
+        foreach ( $matches as $match ) {
+            $vars[(string) $match[1]] = trim((string) $match[2]);
+        }
+
+        return $vars;
+    }
+
+    /**
+     * A real typeface name never contains CSS function syntax or starts with a
+     * custom-property prefix. Such tokens (e.g. an unresolved `var(--font-body)`)
+     * must never be emitted as a Google Fonts family — they corrupt the request.
+     */
+    private function isInvalidFontFamily(string $family): bool
+    {
+        return str_contains($family, '(') || str_contains($family, ')') || str_starts_with($family, '--');
     }
 
     /**
