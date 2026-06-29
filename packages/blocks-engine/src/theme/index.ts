@@ -52,6 +52,11 @@ export {
   rewriteHtmlImageSrcs,
   WP_COMPAT_CSS,
 } from './source-assets.js';
+export {
+  buildRevealNeutralizerCss,
+  REVEAL_NEUTRALIZER_CSS,
+  REVEAL_NEUTRALIZER_SELECTORS,
+} from './reveal-neutralizer.js';
 export { extractGoogleFontCssUrls } from './google-fonts.js';
 export {
   absolutizeFontUrl,
