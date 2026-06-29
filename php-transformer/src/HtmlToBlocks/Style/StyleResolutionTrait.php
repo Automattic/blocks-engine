@@ -419,6 +419,18 @@ trait StyleResolutionTrait
 
         $style = strtolower('' !== trim($mergedStyle) ? $mergedStyle : $this->attr($element, 'style'));
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style) ) {
+            // flex-direction: column / column-reverse is a vertical main axis. A
+            // core/group flex layout defaults to a horizontal Row, so the
+            // orientation must be made explicit or the children render
+            // side-by-side instead of stacked. Row / row-reverse / default flex
+            // keeps the implicit horizontal orientation.
+            if ( preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style) ) {
+                return array(
+                    'type'        => 'flex',
+                    'orientation' => 'vertical',
+                );
+            }
+
             return array( 'type' => 'flex' );
         }
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $style) ) {
