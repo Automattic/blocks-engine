@@ -935,6 +935,11 @@ final class ScenegraphNormalizer
         $resolved['id'] = (string) ($instance['id'] ?? $resolved['id'] ?? '');
         $resolved['type'] = 'INSTANCE';
         $resolved['name'] = (string) ($instance['name'] ?? $resolved['name'] ?? '');
+        // The resolved node stands in for the instance placement, so its
+        // visibility is governed by the instance, not the component definition.
+        // Without this, a designer-hidden (visible:false) instance would inherit
+        // the definition's visibility and incorrectly emit to HTML.
+        $resolved['visible'] = $instance['visible'] ?? true;
 
         foreach ( array('box', 'figma_box', 'layout', 'figma_paints', 'figma_effects', 'figma_link', 'figma_vector_paths', 'componentProperties', 'fillPaints', 'effects', 'styleIdForFill', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd') as $key ) {
             if ( array_key_exists($key, $instance) ) {
