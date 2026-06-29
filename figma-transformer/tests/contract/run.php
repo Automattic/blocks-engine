@@ -7006,6 +7006,148 @@ $assert(! in_array('frame:title-card', $multiPageFrameIds, true), 'multi-page-ov
 $singlePagePlan = ( new ScenegraphPagePlanner() )->plan($multiPageSource);
 $assert(1 === ($singlePagePlan['page_count'] ?? null), 'multi-page-backward-compat-single-page-default');
 
+// ORPHAN MOBILE MENU EXCLUSION: when a .fig file has responsive desktop+mobile
+// page pairs AND contains an extra lone mobile-width frame whose name matches a
+// nav/menu component pattern and whose page_type is unknown, the orphan frame
+// must be excluded from page selection. The 5 real pages must be completely
+// unaffected. This is the regression that the FSE Pilot "Mobile Menu" frame
+// triggered — a component demo of the open-menu state, not a real page.
+$orphanMenuSource = array(
+    'name'  => 'FSE Pilot Orphan Menu Demo',
+    'nodes' => array(
+        array(
+            'id'       => 'canvas:fse',
+            'type'     => 'CANVAS',
+            'name'     => 'FSE Pilot',
+            'children' => array(
+                // Home Page: responsive desktop + mobile pair.
+                array(
+                    'id'       => 'frame:home-d',
+                    'type'     => 'FRAME',
+                    'name'     => 'Home Page – Desktop',
+                    'width'    => 1440,
+                    'height'   => 3200,
+                    'children' => array(
+                        array('id' => 'home-d:hero', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Welcome'),
+                    ),
+                ),
+                array(
+                    'id'       => 'frame:home-m',
+                    'type'     => 'FRAME',
+                    'name'     => 'Home Page – Mobile',
+                    'width'    => 390,
+                    'height'   => 5200,
+                    'children' => array(
+                        array('id' => 'home-m:hero', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Welcome'),
+                    ),
+                ),
+                // Blog Post: responsive pair.
+                array(
+                    'id'       => 'frame:blog-d',
+                    'type'     => 'FRAME',
+                    'name'     => 'Blog Post – Desktop',
+                    'width'    => 1440,
+                    'height'   => 4000,
+                    'children' => array(
+                        array('id' => 'blog-d:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Post Title'),
+                    ),
+                ),
+                array(
+                    'id'       => 'frame:blog-m',
+                    'type'     => 'FRAME',
+                    'name'     => 'Blog Post – Mobile',
+                    'width'    => 390,
+                    'height'   => 6000,
+                    'children' => array(
+                        array('id' => 'blog-m:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Post Title'),
+                    ),
+                ),
+                // Orphan mobile menu frame: a component demo of the open-menu
+                // state — lone mobile-width, no desktop sibling, unknown page_type.
+                // Matches the FSE Pilot node 4210:11834 "Mobile Menu" pattern.
+                array(
+                    'id'       => 'frame:mobile-menu',
+                    'type'     => 'FRAME',
+                    'name'     => 'Mobile Menu',
+                    'width'    => 390,
+                    'height'   => 844,
+                    'children' => array(
+                        array('id' => 'mm:link1', 'type' => 'TEXT', 'name' => 'Nav link', 'characters' => 'Home'),
+                        array('id' => 'mm:link2', 'type' => 'TEXT', 'name' => 'Nav link', 'characters' => 'About'),
+                    ),
+                ),
+            ),
+        ),
+    ),
+);
+$orphanMenuPlan = ( new ScenegraphPagePlanner() )->plan($orphanMenuSource, array('multi_page' => true, 'max_pages' => 20));
+$orphanMenuByFrame = array();
+foreach ( $orphanMenuPlan['pages'] ?? array() as $orphanMenuPage ) {
+    if ( is_array($orphanMenuPage) && isset($orphanMenuPage['frame_id']) ) {
+        $orphanMenuByFrame[(string) $orphanMenuPage['frame_id']] = $orphanMenuPage;
+    }
+}
+$orphanMenuFrameIds = array_keys($orphanMenuByFrame);
+// Real pages: the two responsive pairs must be selected.
+$assert(2 === ($orphanMenuPlan['page_count'] ?? null), 'orphan-menu-two-real-pages-selected');
+$assert(isset($orphanMenuByFrame['frame:home-d']), 'orphan-menu-home-desktop-selected');
+$assert(true === ($orphanMenuByFrame['frame:home-d']['responsive'] ?? null), 'orphan-menu-home-is-responsive');
+$assert(isset($orphanMenuByFrame['frame:blog-d']), 'orphan-menu-blog-desktop-selected');
+$assert(true === ($orphanMenuByFrame['frame:blog-d']['responsive'] ?? null), 'orphan-menu-blog-is-responsive');
+// Orphan mobile menu frame must be excluded from page selection.
+$assert(! in_array('frame:mobile-menu', $orphanMenuFrameIds, true), 'orphan-menu-mobile-menu-excluded');
+
+// REGRESSION GUARD — mobile-only site: when the file has NO responsive pairs
+// (all frames are mobile-width with no desktop counterpart), a mobile-width
+// frame with a menu-like name must NOT be excluded, because the file is a
+// genuine mobile-only design, not a file with orphan component demos.
+$mobileOnlySource = array(
+    'name'  => 'Mobile Only Site',
+    'nodes' => array(
+        array(
+            'id'       => 'canvas:mob',
+            'type'     => 'CANVAS',
+            'name'     => 'Mobile Pages',
+            'children' => array(
+                // A genuine mobile-only home page.
+                array(
+                    'id'       => 'frame:mob-home',
+                    'type'     => 'FRAME',
+                    'name'     => 'Home',
+                    'width'    => 390,
+                    'height'   => 3200,
+                    'children' => array(
+                        array('id' => 'mob-home:hero', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Welcome'),
+                    ),
+                ),
+                // A genuine mobile-only page whose name contains "Mobile Menu" —
+                // must NOT be filtered because the file has no responsive pairs.
+                array(
+                    'id'       => 'frame:mob-menu',
+                    'type'     => 'FRAME',
+                    'name'     => 'Mobile Menu',
+                    'width'    => 390,
+                    'height'   => 844,
+                    'children' => array(
+                        array('id' => 'mob-menu:link', 'type' => 'TEXT', 'name' => 'Link', 'characters' => 'Home'),
+                    ),
+                ),
+            ),
+        ),
+    ),
+);
+$mobileOnlyPlan = ( new ScenegraphPagePlanner() )->plan($mobileOnlySource, array('multi_page' => true, 'max_pages' => 20));
+$mobileOnlyByFrame = array();
+foreach ( $mobileOnlyPlan['pages'] ?? array() as $mobileOnlyPage ) {
+    if ( is_array($mobileOnlyPage) && isset($mobileOnlyPage['frame_id']) ) {
+        $mobileOnlyByFrame[(string) $mobileOnlyPage['frame_id']] = $mobileOnlyPage;
+    }
+}
+// Both frames must survive in a mobile-only file (no responsive pairs present).
+$assert(isset($mobileOnlyByFrame['frame:mob-home']), 'mobile-only-home-selected');
+$assert(isset($mobileOnlyByFrame['frame:mob-menu']), 'mobile-only-menu-page-not-excluded');
+$assert(2 === ($mobileOnlyPlan['page_count'] ?? null), 'mobile-only-two-pages-selected');
+
 // Semantic HTML5 elements: a generically-named page structure maps to landmarks
 // (header/nav/main/section/footer), a font-size hierarchy maps to h1/h2, repeated
 // sibling cards map to <ul>/<li>, and a button-like control maps to <button>.

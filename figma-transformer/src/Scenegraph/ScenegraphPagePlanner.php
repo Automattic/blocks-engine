@@ -300,6 +300,27 @@ final class ScenegraphPagePlanner
             $diagnostics[] = $groupDiagnostic;
         }
 
+        // Orphan mobile menu/component-demo exclusion: when the file has at
+        // least one real responsive desktop+mobile pair, lone mobile-width
+        // frames that never grouped with a desktop sibling AND carry a
+        // menu/nav/component-demo name AND have no recognizable page-type
+        // signal are component demos of the open-menu state — NOT pages.
+        // Explicit frame selection bypasses this filter so a requested frame
+        // is always emitted. The filter never empties the selected set (safety
+        // guard for pathological inputs where every candidate is an orphan).
+        if ( ! $explicitSelected && ! empty($responsiveGroups) ) {
+            $filtered = $this->filterOrphanMenuDemoFrames(
+                $selectedIds,
+                $pageCandidates,
+                $responsiveGroups,
+                $classifications,
+                $detectionById
+            );
+            if ( ! empty($filtered) ) {
+                $selectedIds = $filtered;
+            }
+        }
+
         // Entrypoint (index.html) assignment. The downstream php-transformer and
         // WordPress treat index.html as the FRONT PAGE, so the page classified
         // `front_page` must own it rather than whichever page merely ranked first.
@@ -1200,6 +1221,94 @@ final class ScenegraphPagePlanner
         }
 
         return $variants;
+    }
+
+    /**
+     * Remove orphan mobile-width frames that are nav/menu component demos from
+     * the selected ID list when the file has real responsive paired pages.
+     *
+     * A frame is filtered when ALL three structural signals fire:
+     *   1. It is NOT part of any responsive group (orphan — no desktop partner).
+     *   2. Its width sits in the mobile range (≤ {@see ORPHAN_MOBILE_MAX_WIDTH_PX}).
+     *   3. Its name matches the menu/nav/component-demo pattern.
+     *
+     * The file-has-responsive-pairs guard (non-empty $responsiveGroups) is
+     * checked by the caller so a mobile-only design (no desktop variants at all)
+     * never triggers the filter — there are no responsive groups to compare
+     * against, so every frame is treated as a potential page.
+     *
+     * Page_type is intentionally NOT a signal here: a nav-menu component demo
+     * with text nodes (nav links) classifies as `page` rather than `unknown`,
+     * so gating on `unknown` would silently fail to exclude the common case.
+     * The name pattern is specific enough (mobile menu / hamburger / nav drawer
+     * vocabulary) that false positives are near-impossible once the orphan +
+     * mobile-width guards have already narrowed the candidate set.
+     *
+     * @param array<int, string>                  $selectedIds
+     * @param array<string, array<string, mixed>> $pageCandidates
+     * @param array<string, array<int, string>>   $responsiveGroups  member id → ordered group
+     * @param array<string, array<string, mixed>> $classifications    unused; reserved for future expansion
+     * @param array<string, array<string, mixed>> $detectionById      unused; reserved for future expansion
+     * @return array<int, string>
+     */
+    private function filterOrphanMenuDemoFrames(
+        array $selectedIds,
+        array $pageCandidates,
+        array $responsiveGroups,
+        array $classifications,
+        array $detectionById
+    ): array {
+        return array_values(array_filter(
+            $selectedIds,
+            function (string $id) use ($pageCandidates, $responsiveGroups): bool {
+                // Signal 1: part of a responsive group → keep (it has a partner).
+                if ( isset($responsiveGroups[$id]) ) {
+                    return true;
+                }
+
+                // Signal 2: width must be mobile-range to be an orphan mobile frame.
+                $width = (float) ($pageCandidates[$id]['dimensions']['width'] ?? 0);
+                if ( $width > self::ORPHAN_MOBILE_MAX_WIDTH_PX ) {
+                    return true;
+                }
+
+                // Signal 3: name must match a menu/nav/component-demo pattern.
+                $name = (string) ($pageCandidates[$id]['node']['name'] ?? '');
+                if ( ! $this->isMenuOrComponentDemoName($name) ) {
+                    return true;
+                }
+
+                // All three signals fired: exclude as orphan menu/component demo.
+                return false;
+            }
+        ));
+    }
+
+    /**
+     * Maximum width (px) for a frame to be considered a mobile-width orphan
+     * in {@see filterOrphanMenuDemoFrames}. Covers common device widths (320,
+     * 375, 390, 414, 428, 430) with a comfortable margin above the widest
+     * production mobile width while staying well below the tablet range.
+     */
+    private const ORPHAN_MOBILE_MAX_WIDTH_PX = 500.0;
+
+    /**
+     * Whether a frame name matches a navigation menu or component-demo pattern.
+     *
+     * Matches names that describe a menu/nav UI component state (e.g. "Mobile
+     * Menu", "Mobile Nav", "Hamburger Menu", "Nav Drawer") rather than a real
+     * page. The pattern is deliberately focused on navigation-component
+     * vocabulary to avoid false positives on content pages like "Our Menu"
+     * or "Products". The other three structural signals in
+     * {@see filterOrphanMenuDemoFrames} serve as a multi-layer guard so the
+     * pattern does not need to be exhaustive.
+     */
+    private function isMenuOrComponentDemoName(string $name): bool
+    {
+        return 1 === preg_match(
+            '/\b(mobile\s+menu|mobile\s+nav(igation)?|nav(igation)?\s+menu|nav(igation)?\s+(drawer|overlay|open)|hamburger(\s+menu)?|menu\s+(open|expanded|overlay|demo|state)|mobile\s+header|mobile\s+drawer|flyout(\s+menu)?|side\s*bar\s+menu)\b/i',
+            $name
+        );
     }
 
     /**
