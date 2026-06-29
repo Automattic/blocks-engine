@@ -45,6 +45,9 @@ final class CorpusDiagnosticsRunner
             'core_html_count'     => 0,
             'freeform_count'      => 0,
             'invalid_block_count' => 0,
+            'richtext_invalid_risk_count' => 0,
+            'svg_content_lost_count' => 0,
+            'layout_direction_misrecognition_count' => 0,
             'var_ref_count'       => 0,
             'var_custom_ref_count' => 0,
             'finding_count'       => 0,
@@ -53,7 +56,7 @@ final class CorpusDiagnosticsRunner
         foreach ( $documents as $document ) {
             $html = (string) file_get_contents($document['path']);
             $result = $this->transformer->transform($html, array())->toArray();
-            $collected = CorpusDetectors::collect($result);
+            $collected = CorpusDetectors::collect($result, $html, $this->columnsVerifier());
 
             $relPath = $document['rel'];
             $fixtures[$relPath] = array(
@@ -73,6 +76,9 @@ final class CorpusDiagnosticsRunner
             $totals['core_html_count'] += (int) $metrics['core_html_count'];
             $totals['freeform_count'] += (int) $metrics['freeform_count'];
             $totals['invalid_block_count'] += (int) $metrics['invalid_block_count'];
+            $totals['richtext_invalid_risk_count'] += (int) $metrics['richtext_invalid_risk_count'];
+            $totals['svg_content_lost_count'] += (int) $metrics['svg_content_lost_count'];
+            $totals['layout_direction_misrecognition_count'] += (int) $metrics['layout_direction_misrecognition_count'];
             $totals['var_ref_count'] += (int) $metrics['var_ref_count'];
             $totals['var_custom_ref_count'] += (int) $metrics['var_custom_ref_count'];
 
@@ -88,6 +94,7 @@ final class CorpusDiagnosticsRunner
                         'detector'      => (string) ($finding['detector'] ?? ''),
                         'source'        => (string) ($finding['source'] ?? ''),
                         'pattern'       => (string) ($finding['pattern'] ?? ''),
+                        'severity'      => (string) ($finding['severity'] ?? CorpusDetectors::SEVERITY_MEDIUM),
                         'count'         => 0,
                         'fixtures'      => array(),
                     );
@@ -125,16 +132,31 @@ final class CorpusDiagnosticsRunner
         $lines = array();
         $lines[] = 'Corpus diagnostics — ' . $totals['document_count'] . ' document(s) across ' . $totals['fixture_count'] . ' fixture(s)';
         $lines[] = sprintf(
-            'blocks=%d native_rate=%.1f%% invalid_blocks=%d var_refs=%d (custom=%d) findings=%d',
+            'blocks=%d native_rate=%.1f%% findings=%d',
             $totals['block_count'],
             ((float) $totals['native_rate']) * 100,
-            $totals['invalid_block_count'],
-            $totals['var_ref_count'],
-            $totals['var_custom_ref_count'],
             $totals['finding_count']
         );
+        $lines[] = sprintf(
+            'EDITOR-INVALID RISK: richtext_invalid_risk=%d block(s) — class/style-bearing inline <span>/<a> that RichText drops.',
+            (int) ($totals['richtext_invalid_risk_count'] ?? 0)
+        );
+        $lines[] = sprintf(
+            '  (structural wp_block_validity=%d is a serialization round-trip count, NOT proof of "no invalid content".)',
+            (int) ($totals['invalid_block_count'] ?? 0)
+        );
+        $lines[] = sprintf(
+            'MISSING ARTWORK: svg_content_lost=%d   LAYOUT: columns_from_vertical_flex=%d',
+            (int) ($totals['svg_content_lost_count'] ?? 0),
+            (int) ($totals['layout_direction_misrecognition_count'] ?? 0)
+        );
+        $lines[] = sprintf(
+            'INFORMATIONAL var density (materialized downstream by SSI — not a repair gap): var_refs=%d (custom=%d)',
+            (int) $totals['var_ref_count'],
+            (int) $totals['var_custom_ref_count']
+        );
         $lines[] = '';
-        $lines[] = 'TOP RANKED CLUSTERS (occurrences :: cluster :: fixtures):';
+        $lines[] = 'TOP RANKED CLUSTERS (severity | occurrences :: cluster :: fixtures):';
 
         $rank = 0;
         foreach ( $report['clusters'] as $cluster ) {
@@ -144,8 +166,9 @@ final class CorpusDiagnosticsRunner
             ++$rank;
             $examples = implode(', ', array_slice($cluster['example_fixtures'], 0, 3));
             $lines[] = sprintf(
-                '%2d. [%4d in %3d files] %s',
+                '%2d. [%-6s %4d in %3d files] %s',
                 $rank,
+                strtoupper((string) ($cluster['severity'] ?? CorpusDetectors::SEVERITY_MEDIUM)),
                 $cluster['count'],
                 $cluster['fixture_count'],
                 $cluster['key']
@@ -277,11 +300,35 @@ final class CorpusDiagnosticsRunner
         }
 
         usort($ranked, static function (array $a, array $b): int {
-            return ($b['count'] <=> $a['count'])
+            $severityA = CorpusDetectors::severityRank((string) ($a['severity'] ?? CorpusDetectors::SEVERITY_MEDIUM));
+            $severityB = CorpusDetectors::severityRank((string) ($b['severity'] ?? CorpusDetectors::SEVERITY_MEDIUM));
+
+            return ($severityB <=> $severityA)
+                ?: ($b['count'] <=> $a['count'])
                 ?: ($b['fixture_count'] <=> $a['fixture_count'])
                 ?: strcmp($a['key'], $b['key']);
         });
 
         return $ranked;
+    }
+
+    /**
+     * Predicate the layout-direction detector uses to confirm that a vertical
+     * flex source fragment really converts to a top-level core/columns block,
+     * rather than core/group/core/list. Runs the same transformer over the
+     * isolated element so misrecognitions are reported only when they actually
+     * occur.
+     *
+     * @return callable(string): bool
+     */
+    private function columnsVerifier(): callable
+    {
+        return function (string $fragment): bool {
+            $result = $this->transformer->transform($fragment, array())->toArray();
+            $blocks = is_array($result['blocks'] ?? null) ? $result['blocks'] : array();
+            $first = $blocks[0] ?? null;
+
+            return is_array($first) && 'core/columns' === ($first['blockName'] ?? '');
+        };
     }
 }
