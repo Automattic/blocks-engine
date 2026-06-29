@@ -44,6 +44,8 @@ final class FontResolver
     private const WEB_SAFE = array(
         'arial'           => 'sans-serif',
         'helvetica'       => 'sans-serif',
+        'helvetica neue'  => 'sans-serif',
+        'segoe ui'        => 'sans-serif',
         'tahoma'          => 'sans-serif',
         'trebuchet ms'    => 'sans-serif',
         'verdana'         => 'sans-serif',
@@ -55,6 +57,20 @@ final class FontResolver
         'monospace'       => 'monospace',
         'sans-serif'      => 'sans-serif',
         'serif'           => 'serif',
+    );
+
+    /**
+     * Optional richer fallback stacks for system fonts that degrade better
+     * through an intermediate family before the generic. Keyed by lowercased
+     * family name. Consulted only by fallbackStack() — resolution still flows
+     * through WEB_SAFE, so these fonts emit no `@import` (you cannot and should
+     * not load a proprietary OS font from a CDN).
+     *
+     * @var array<string, string>
+     */
+    private const SYSTEM_FONT_STACKS = array(
+        'helvetica neue' => '"Helvetica Neue", Helvetica, Arial, sans-serif',
+        'segoe ui'       => '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif',
     );
 
     /**
@@ -180,8 +196,13 @@ final class FontResolver
             return 'sans-serif';
         }
 
+        $key = strtolower($family);
+        if ( isset(self::SYSTEM_FONT_STACKS[$key]) ) {
+            return self::SYSTEM_FONT_STACKS[$key];
+        }
+
         $generic = $this->genericFor($family);
-        if ( strtolower($family) === $generic ) {
+        if ( $key === $generic ) {
             return $generic;
         }
 

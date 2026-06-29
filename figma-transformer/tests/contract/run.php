@@ -4629,6 +4629,40 @@ $assert('cdn_google_fonts' === ($syneCoverage['Syne']['resolution'] ?? null), 's
 $assert('unresolved' === ($syneCoverage['Cabinet Grotesk']['resolution'] ?? null), 'cabinet-grotesk-not-on-google-fonts');
 $assert(true === ($syneCoverage['Cabinet Grotesk']['needs_operator_font'] ?? null), 'cabinet-grotesk-needs-operator-font');
 
+// Helvetica Neue: a macOS/iOS system font that is not on Google Fonts. It must
+// resolve as a web-safe system font (no @import, no operator-font diagnostic)
+// with a graceful Helvetica/Arial fallback stack. Mirrors the FSE Pilot Build
+// Theme .fig parity diagnostic where Helvetica Neue was reported unresolved.
+$systemFontResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'System Font Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'sf:1',
+            'type'     => 'FRAME',
+            'name'     => 'System font frame',
+            'children' => array(
+                array('id' => 'sf:2', 'type' => 'TEXT', 'name' => 'Helvetica Neue heading', 'characters' => 'Helvetica Neue heading', 'fontName' => array('family' => 'Helvetica Neue', 'style' => 'Bold'), 'fontSize' => 40),
+                array('id' => 'sf:3', 'type' => 'TEXT', 'name' => 'Segoe UI body', 'characters' => 'Segoe UI body copy', 'fontName' => array('family' => 'Segoe UI', 'style' => 'Regular'), 'fontSize' => 16),
+            ),
+        ),
+    ),
+));
+$systemFontCss = $fileContent($systemFontResult, 'style.css');
+$systemFontFonts = $systemFontResult['source_reports']['figma']['html']['transform_diagnostics']['fonts'] ?? array();
+$systemFontCodes = array_map(static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), $systemFontResult['diagnostics'] ?? array());
+$systemFontCoverage = array();
+foreach ( is_array($systemFontFonts['coverage'] ?? null) ? $systemFontFonts['coverage'] : array() as $coverageEntry ) {
+    $systemFontCoverage[(string) ($coverageEntry['family'] ?? '')] = $coverageEntry;
+}
+$assert('web_safe' === ($systemFontCoverage['Helvetica Neue']['resolution'] ?? null), 'helvetica-neue-resolves-web-safe');
+$assert(false === ($systemFontCoverage['Helvetica Neue']['needs_operator_font'] ?? null), 'helvetica-neue-no-operator-font-needed');
+$assert('"Helvetica Neue", Helvetica, Arial, sans-serif' === ($systemFontCoverage['Helvetica Neue']['fallback_stack'] ?? null), 'helvetica-neue-system-fallback-stack');
+$assert('web_safe' === ($systemFontCoverage['Segoe UI']['resolution'] ?? null), 'segoe-ui-resolves-web-safe');
+$assert(false === ($systemFontCoverage['Segoe UI']['needs_operator_font'] ?? null), 'segoe-ui-no-operator-font-needed');
+$assert(array() === ($systemFontFonts['missing_css'] ?? null), 'system-fonts-none-unresolved');
+$assert(! str_contains($systemFontCss, 'Helvetica+Neue') && ! str_contains($systemFontCss, 'fonts.googleapis.com'), 'system-fonts-emit-no-cdn-import');
+$assert(! in_array('font_css_missing_for_source_font', $systemFontCodes, true), 'system-fonts-no-missing-font-diagnostic');
+
 $assetReferenceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'   => 'Asset Reference Fixture',
     'assets' => array(
