@@ -138,6 +138,7 @@ final class StaticHtmlEmitter
             'body{margin:0}',
             '.figma-root{position:relative;width:100%}',
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
+            'ul,ol{margin:0;padding:0;list-style:none}',
             'img{display:block;max-width:100%;height:auto}',
             'a.figma-link{display:contents;color:inherit;text-decoration:inherit}',
             '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
@@ -259,6 +260,7 @@ final class StaticHtmlEmitter
             'body{margin:0}',
             '.figma-root{position:relative;width:100%}',
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
+            'ul,ol{margin:0;padding:0;list-style:none}',
             'img{display:block;max-width:100%;height:auto}',
             'a.figma-link{display:contents;color:inherit;text-decoration:inherit}',
             '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
@@ -458,10 +460,25 @@ final class StaticHtmlEmitter
         $baseStyles = array();
         $this->collectVariantNodeStyles($baseNode, 0, null, 'r', $baseStyles);
 
+        // Derive the primary (base) viewport width from the variants list so we
+        // can compute midpoint breakpoints between adjacent variant widths.
+        $primaryViewportWidth = null;
+        foreach ( $variants as $variant ) {
+            if ( is_array($variant) && true === ($variant['primary'] ?? false) && is_numeric($variant['viewport_width'] ?? null) ) {
+                $primaryViewportWidth = (float) $variant['viewport_width'];
+                break;
+            }
+        }
+
         $blocks = array();
         // Variants are ordered widest-first, so iterating in order emits the
         // narrower breakpoints later in the cascade — exactly the precedence
         // overlapping `max-width` queries need.
+        // Track the previously seen (wider) viewport width so each breakpoint
+        // keys at the midpoint between adjacent variant widths rather than at
+        // the narrow variant's own width, which would be too narrow for most
+        // browsers and phones.
+        $prevViewportWidth = $primaryViewportWidth;
         foreach ( $variants as $variant ) {
             if ( ! is_array($variant) || true === ($variant['primary'] ?? false) ) {
                 continue;
@@ -478,11 +495,26 @@ final class StaticHtmlEmitter
 
             $rules = $this->breakpointDiffRules($baseStyles, $variantStyles);
             if ( empty($rules) ) {
+                $prevViewportWidth = (float) $viewportWidth;
                 continue;
             }
 
-            $blocks[] = '@media (max-width:' . $this->number((float) $viewportWidth) . 'px){'
+            // Key the breakpoint at the midpoint between this variant and its
+            // next-wider neighbour (the previous iteration, or the primary).
+            // Midpoint avoids keying at the narrow variant's own width (e.g.
+            // 390px) which would leave most desktop-resized browsers outside
+            // the mobile styles. Falls back to the variant's own width when no
+            // wider neighbour width is known.
+            if ( null !== $prevViewportWidth && $prevViewportWidth > (float) $viewportWidth ) {
+                $breakpointPx = (int) round(($prevViewportWidth + (float) $viewportWidth) / 2);
+            } else {
+                $breakpointPx = (int) round((float) $viewportWidth);
+            }
+
+            $blocks[] = '@media (max-width:' . $this->number((float) $breakpointPx) . 'px){'
                 . "\n" . implode("\n", $rules) . "\n}";
+
+            $prevViewportWidth = (float) $viewportWidth;
         }
 
         return $blocks;
@@ -2822,9 +2854,10 @@ final class StaticHtmlEmitter
             $styles[] = $style;
         }
 
-        $assetPath = $this->nodeAssetPath($node);
-        if ( null !== $assetPath ) {
-            $styles[] = 'background-image:url("' . $assetPath . '")';
+        $assetPaths = $this->nodeAssetPaths($node);
+        if ( ! empty($assetPaths) ) {
+            $urlList = implode(',', array_map(static fn (string $p): string => 'url("' . $p . '")', $assetPaths));
+            $styles[] = 'background-image:' . $urlList;
             foreach ( $this->imageBackgroundStyles($node) as $style ) {
                 $styles[] = $style;
             }
@@ -4663,6 +4696,79 @@ final class StaticHtmlEmitter
         }
 
         return null;
+    }
+
+    /**
+     * Return all image-fill asset paths for a node ordered top→bottom (Figma's
+     * topmost paint first), matching CSS background-image layer stacking order.
+     * Figma stores fills bottom→top in the array, so fills are reversed before
+     * resolution. Paints with `visible === false` are skipped. Every resolved
+     * path is marked used so its blob is emitted.
+     *
+     * When a node carries no fill-based image paints the method falls back to
+     * the legacy node-level reference (same as {@see nodeAssetPath()}) so that
+     * simple `asset_id` nodes continue to work unchanged.
+     *
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function nodeAssetPaths(array $node): array
+    {
+        $paths = array();
+
+        foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
+            $paintCollections = array();
+            if ( is_array($node[$paintKey] ?? null) ) {
+                $paintCollections[] = $node[$paintKey];
+            }
+            if ( is_array($node['figma_paints'][$paintKey] ?? null) ) {
+                $paintCollections[] = $node['figma_paints'][$paintKey];
+            }
+
+            foreach ( $paintCollections as $paints ) {
+                // Figma stores fills bottom→top; reverse so topmost is first
+                // (CSS background-image: first url = topmost layer).
+                $orderedPaints = array_reverse(array_values($paints));
+                foreach ( $orderedPaints as $paint ) {
+                    if ( ! is_array($paint) || 'IMAGE' !== strtoupper((string) ($paint['type'] ?? '')) ) {
+                        continue;
+                    }
+                    // Honour Figma visibility flag.
+                    if ( false === ($paint['visible'] ?? true) ) {
+                        continue;
+                    }
+
+                    foreach ( array('ref', 'imageRef', 'imageHash', 'asset_id', 'image_ref') as $key ) {
+                        if ( ! isset($paint[$key]) || ! is_scalar($paint[$key]) || '' === (string) $paint[$key] ) {
+                            continue;
+                        }
+                        $assetId = (string) $paint[$key];
+                        if ( isset($this->assetsById[$assetId]) ) {
+                            $p = (string) $this->assetsById[$assetId]['path'];
+                            $this->usedAssetPaths[$p] = true;
+                            $paths[] = $p;
+                            break;
+                        }
+                        $slugged = $this->slug($assetId);
+                        if ( isset($this->assetsById[$slugged]) ) {
+                            $p = (string) $this->assetsById[$slugged]['path'];
+                            $this->usedAssetPaths[$p] = true;
+                            $paths[] = $p;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if ( ! empty($paths) ) {
+            return array_values(array_unique($paths));
+        }
+
+        // Fallback: node-level asset reference (e.g. explicit `asset_id` key
+        // not expressed as a fill paint).
+        $fallbackPath = $this->nodeAssetPath($node);
+        return null !== $fallbackPath ? array($fallbackPath) : array();
     }
 
     /**

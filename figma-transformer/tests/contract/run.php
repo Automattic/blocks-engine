@@ -2084,22 +2084,26 @@ foreach ( $responsiveEmitResult['files'] ?? array() as $responsiveEmitFile ) {
 }
 $assert('success' === ($responsiveEmitResult['status'] ?? null), 'responsive-emit-status-success');
 $assert('' !== $responsiveEmitCss, 'responsive-emit-stylesheet-present');
-// Two narrower breakpoints => exactly two media blocks at the variant widths.
+// Two narrower breakpoints => exactly two media blocks, keyed at the MIDPOINT
+// between adjacent variant widths (not the narrow variant's own width).
+// desktop=1440, tablet=834, mobile=390:
+//   tablet breakpoint = round((1440+834)/2) = 1137
+//   mobile breakpoint = round((834+390)/2)  = 612
 $assert(2 === substr_count($responsiveEmitCss, '@media'), 'responsive-emit-two-media-blocks');
-$assert(str_contains($responsiveEmitCss, '@media (max-width:834px){'), 'responsive-emit-tablet-media-query');
-$assert(str_contains($responsiveEmitCss, '@media (max-width:390px){'), 'responsive-emit-mobile-media-query');
+$assert(str_contains($responsiveEmitCss, '@media (max-width:1137px){'), 'responsive-emit-tablet-media-query');
+$assert(str_contains($responsiveEmitCss, '@media (max-width:612px){'), 'responsive-emit-mobile-media-query');
 // Base layout uses the primary (desktop) variant styles, emitted before media.
 $responsiveEmitBasePos = strpos($responsiveEmitCss, '.figma-node-card-desktop-hero-card{width:1200px;height:400px;background:#ff0000}');
 $assert(false !== $responsiveEmitBasePos, 'responsive-emit-base-uses-primary-variant');
 $responsiveEmitFirstMediaPos = strpos($responsiveEmitCss, '@media');
 $assert(false !== $responsiveEmitFirstMediaPos && $responsiveEmitBasePos < $responsiveEmitFirstMediaPos, 'responsive-emit-base-precedes-media');
 // Narrower-wins cascade: tablet block precedes mobile block.
-$assert(strpos($responsiveEmitCss, '@media (max-width:834px)') < strpos($responsiveEmitCss, '@media (max-width:390px)'), 'responsive-emit-cascade-widest-first');
+$assert(strpos($responsiveEmitCss, '@media (max-width:1137px)') < strpos($responsiveEmitCss, '@media (max-width:612px)'), 'responsive-emit-cascade-widest-first');
 // Media blocks override on the BASE class names, carrying only changed props.
-$responsiveEmitTabletBlock = substr($responsiveEmitCss, strpos($responsiveEmitCss, '@media (max-width:834px)'), strpos($responsiveEmitCss, '@media (max-width:390px)') - strpos($responsiveEmitCss, '@media (max-width:834px)'));
+$responsiveEmitTabletBlock = substr($responsiveEmitCss, strpos($responsiveEmitCss, '@media (max-width:1137px)'), strpos($responsiveEmitCss, '@media (max-width:612px)') - strpos($responsiveEmitCss, '@media (max-width:1137px)'));
 $assert(str_contains($responsiveEmitTabletBlock, '.figma-node-card-desktop-hero-card{width:700px}'), 'responsive-emit-tablet-card-width-diff-only');
 $assert(! str_contains($responsiveEmitTabletBlock, 'background:'), 'responsive-emit-tablet-omits-unchanged-background');
-$responsiveEmitMobileBlock = substr($responsiveEmitCss, strpos($responsiveEmitCss, '@media (max-width:390px)'));
+$responsiveEmitMobileBlock = substr($responsiveEmitCss, strpos($responsiveEmitCss, '@media (max-width:612px)'));
 $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-card-desktop-hero-card{width:350px;height:500px;background:#00ff00}'), 'responsive-emit-mobile-card-diffs-width-height-background');
 // The single-variant About page contributes NO media override for its nodes.
 $assert(0 === preg_match('/@media[^@]*figma-node-card-about/s', $responsiveEmitCss), 'responsive-emit-single-variant-page-no-media');
@@ -2537,8 +2541,9 @@ $assert(str_contains($responsiveLiveStyle, '.figma-root'), 'responsive-live-base
 $assert(str_contains($responsiveLiveStyle, 'width:1200px') || str_contains($responsiveLiveStyle, 'width:1200px;'), 'responsive-live-base-uses-desktop-width');
 // The merged stylesheet carries an `@media` block (the mobile breakpoint),
 // proving the responsive emission fired through the LIVE transform path.
+// desktop=1440, mobile=390: midpoint = round((1440+390)/2) = 915.
 $assert(str_contains($responsiveLiveStyle, '@media'), 'responsive-live-media-block-present');
-$assert(str_contains($responsiveLiveStyle, '@media (max-width:390px)'), 'responsive-live-mobile-media-query');
+$assert(str_contains($responsiveLiveStyle, '@media (max-width:915px)'), 'responsive-live-mobile-media-query');
 // `@media` block survived chunk merging intact (balanced braces, base before media).
 $assert(strpos($responsiveLiveStyle, '.figma-root') < strpos($responsiveLiveStyle, '@media'), 'responsive-live-base-precedes-media');
 $assert(substr_count($responsiveLiveStyle, '{') === substr_count($responsiveLiveStyle, '}'), 'responsive-live-balanced-braces');
@@ -7528,6 +7533,155 @@ $assert('success' === ($counterSpacingResult['status'] ?? null), 'counter-spacin
 $assert(str_contains($counterSpacingCss, 'flex-wrap:wrap'), 'counter-spacing-wraps');
 $assert(str_contains($counterSpacingCss, 'gap:12px 24px'), 'counter-spacing-emits-two-value-gap');
 $assert(! str_contains($counterSpacingCss, 'gap:24px'), 'counter-spacing-not-single-value-gap');
+
+// ──────────────────────────────────────────────────────────────────────────────
+// PARITY FIX 1 — Multi-layer image fills: comma-separated background-image,
+// topmost Figma paint first, matching CSS stacking order.
+// A node with two IMAGE fills should emit both paths as a comma-separated
+// background-image list, with the topmost (last in the fills array) first.
+// ──────────────────────────────────────────────────────────────────────────────
+$multiLayerImageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'   => 'Multi-Layer Image Fixture',
+    'assets' => array(
+        'placeholder-id' => array(
+            'name'      => 'placeholder.png',
+            'mime_type' => 'image/png',
+            'content'   => 'placeholder bytes',
+        ),
+        'real-photo-id' => array(
+            'name'      => 'real-photo.png',
+            'mime_type' => 'image/png',
+            'content'   => 'real photo bytes',
+        ),
+    ),
+    'nodes' => array(
+        array(
+            'id'     => 'multi:card',
+            'type'   => 'RECTANGLE',
+            'name'   => 'Photo Card',
+            'width'  => 400,
+            'height' => 300,
+            // fills[0] = bottom layer (placeholder), fills[1] = topmost (real photo).
+            // Figma stores fills bottom→top; CSS background-image is top→bottom.
+            'fills' => array(
+                array('type' => 'IMAGE', 'ref' => 'placeholder-id'),
+                array('type' => 'IMAGE', 'ref' => 'real-photo-id'),
+            ),
+        ),
+    ),
+));
+$multiLayerImageCss = $fileContent($multiLayerImageResult, 'style.css');
+$assert('success' === ($multiLayerImageResult['status'] ?? null), 'multi-layer-image-transform-success');
+// Both asset blobs must be emitted (both marked used).
+$assert(2 === ($multiLayerImageResult['metrics']['asset_count'] ?? null), 'multi-layer-image-both-assets-emitted');
+// The CSS must carry a comma-separated background-image, topmost fill first.
+// Asset names like "real-photo.png" are slugified to "real-photo-png.png" by
+// the path normalizer (dots become dashes, then extension is re-appended).
+$assert(
+    str_contains($multiLayerImageCss, 'background-image:url("assets/real-photo-png.png"),url("assets/placeholder-png.png")'),
+    'multi-layer-image-comma-separated-topmost-first'
+);
+
+// ──────────────────────────────────────────────────────────────────────────────
+// PARITY FIX 2 — ul/ol CSS reset present in BOTH emit() and emitSite() paths.
+// ──────────────────────────────────────────────────────────────────────────────
+// Single-page path (emit()).
+$ulResetSingleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'UL Reset Single-Page Fixture',
+    'nodes' => array(
+        array(
+            'id'   => 'ul:root',
+            'type' => 'FRAME',
+            'name' => 'Grid Root',
+            'width'  => 1440,
+            'height' => 900,
+            'children' => array(
+                array('id' => 'ul:item', 'type' => 'RECTANGLE', 'name' => 'Card', 'width' => 400, 'height' => 300),
+            ),
+        ),
+    ),
+));
+$ulResetSingleCss = $fileContent($ulResetSingleResult, 'style.css');
+$assert('success' === ($ulResetSingleResult['status'] ?? null), 'ul-reset-single-page-transform-success');
+$assert(str_contains($ulResetSingleCss, 'ul,ol{margin:0;padding:0;list-style:none}'), 'ul-reset-single-page-present');
+
+// Multi-page / emitSite() path.
+$ulResetSiteResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name'   => 'UL Reset Site Fixture',
+        'assets' => array(),
+        'nodes'  => array(
+            array('id' => 'ulsite:frame', 'type' => 'FRAME', 'name' => 'Home Page', 'width' => 1440, 'height' => 900, 'children' => array()),
+        ),
+    ),
+    array(
+        'pages' => array(
+            array('frame_id' => 'ulsite:frame', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true, 'variants' => array(
+                array('frame_id' => 'ulsite:frame', 'viewport_width' => 1440.0, 'primary' => true),
+            )),
+        ),
+    )
+);
+$ulResetSiteCss = '';
+foreach ( $ulResetSiteResult['files'] ?? array() as $ulResetSiteFile ) {
+    if ( is_array($ulResetSiteFile) && 'style.css' === ($ulResetSiteFile['path'] ?? null) ) {
+        $ulResetSiteCss = (string) ($ulResetSiteFile['content'] ?? '');
+    }
+}
+$assert('success' === ($ulResetSiteResult['status'] ?? null), 'ul-reset-site-path-transform-success');
+$assert(str_contains($ulResetSiteCss, 'ul,ol{margin:0;padding:0;list-style:none}'), 'ul-reset-site-path-present');
+
+// ──────────────────────────────────────────────────────────────────────────────
+// PARITY FIX 3 — Responsive breakpoint keyed at midpoint, not variant width.
+// Two-variant case: desktop=1440, mobile=390 → midpoint = 915 (not 390).
+// ──────────────────────────────────────────────────────────────────────────────
+$midpointBreakpointResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name'   => 'Midpoint Breakpoint Fixture',
+        'assets' => array(),
+        'nodes'  => array(
+            array(
+                'id' => 'bp:desktop', 'type' => 'FRAME', 'name' => 'Home Desktop',
+                'box' => array('width' => 1440, 'height' => 900),
+                'children' => array(
+                    array('id' => 'bp:card', 'type' => 'RECTANGLE', 'name' => 'Card', 'box' => array('width' => 1200, 'height' => 400), 'background' => '#ff0000'),
+                ),
+            ),
+            array(
+                'id' => 'bp:mobile', 'type' => 'FRAME', 'name' => 'Home Mobile',
+                'box' => array('width' => 390, 'height' => 900),
+                'children' => array(
+                    array('id' => 'bp:card-m', 'type' => 'RECTANGLE', 'name' => 'Card', 'box' => array('width' => 350, 'height' => 400), 'background' => '#ff0000'),
+                ),
+            ),
+        ),
+    ),
+    array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'bp:desktop',
+                'name'       => 'Home',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'variants'   => array(
+                    array('frame_id' => 'bp:desktop', 'viewport_width' => 1440.0, 'primary' => true),
+                    array('frame_id' => 'bp:mobile',  'viewport_width' => 390.0,  'primary' => false),
+                ),
+            ),
+        ),
+    )
+);
+$midpointBreakpointCss = '';
+foreach ( $midpointBreakpointResult['files'] ?? array() as $midpointBpFile ) {
+    if ( is_array($midpointBpFile) && 'style.css' === ($midpointBpFile['path'] ?? null) ) {
+        $midpointBreakpointCss = (string) ($midpointBpFile['content'] ?? '');
+    }
+}
+$assert('success' === ($midpointBreakpointResult['status'] ?? null), 'midpoint-breakpoint-transform-success');
+// Midpoint of 1440 and 390 = round((1440+390)/2) = 915.
+$assert(str_contains($midpointBreakpointCss, '@media (max-width:915px){'), 'midpoint-breakpoint-keyed-at-midpoint');
+// The narrow variant's own width (390) must NOT be the breakpoint.
+$assert(! str_contains($midpointBreakpointCss, '@media (max-width:390px){'), 'midpoint-breakpoint-not-variant-own-width');
 
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
