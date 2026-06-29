@@ -420,6 +420,15 @@ final class FigKiwiDecoder
                 // `effects` was absent from the policy, so the decoder silently
                 // dropped every Effect from the binary.
                 'effects',
+                // Links + prototype navigation (#328). `hyperlink` is the
+                // text/node-level Hyperlink struct; `prototypeInteractions` is
+                // the Kiwi name for what REST calls `reactions`; `reactions`
+                // is whitelisted too for forward-compatibility. `transitionNodeID`
+                // backs the node-level single-interaction navigation fallback.
+                // Scope is link extraction only (URL + node navigation); the
+                // richer animation/overlay/swap action data is intentionally
+                // not decoded here (a separate prototype-fidelity effort).
+                'hyperlink', 'prototypeInteractions', 'reactions', 'transitionNodeID',
             ),
             'GUID' => array('sessionID', 'localID'),
             'ParentIndex' => array('guid', 'position'),
@@ -463,6 +472,18 @@ final class FigKiwiDecoder
             'HandoffStatusMap' => array('entries', 'values', 'handoffStatuses'),
             'HandoffStatusMapEntry' => array('key', 'guid', 'nodeId', 'value', 'status', 'statusInfo', 'currentStatus'),
             'NodeStatusChange' => array('guid', 'nodeId', 'currentStatus', 'statusInfo', 'status'),
+            // Links + prototype navigation (#328). The Kiwi schema models a
+            // text/node hyperlink as `Hyperlink { url, guid }` and prototype
+            // interactions as `PrototypeInteraction { event, actions }` whose
+            // `PrototypeAction` carries `connectionType` (URL/INTERNAL_NODE),
+            // `connectionURL`, `navigationType`, and the `transitionNodeID`
+            // GUID destination. Only the fields the normalizer needs to build a
+            // URL or node-navigation `figma_link` are whitelisted; animation,
+            // overlay, swap, and variable-mutation action data is left undecoded.
+            'Hyperlink' => array('url', 'guid'),
+            'PrototypeInteraction' => array('event', 'actions', 'id'),
+            'PrototypeEvent' => array('interactionType'),
+            'PrototypeAction' => array('connectionType', 'connectionURL', 'transitionNodeID', 'navigationType'),
         );
     }
 
