@@ -56,14 +56,14 @@ function normalize(blocks: RawBlock[]): ParsedNode[] {
 
 /**
  * Text a `contains` assertion can match: a block's attribute values (where core
- * blocks keep paragraph/heading content, button text, image url/alt) plus, for a
- * leaf block, its inner HTML. Containers exclude inner HTML so a `contains` on a
- * parent doesn't match a descendant's text.
+ * blocks keep paragraph/heading content, button text, image url/alt) plus its own
+ * inner HTML. The serialization parser's `innerHTML` is wrapper-only — child block
+ * content is excluded — so this captures a container's OWN text (a details
+ * `<summary>`, a quote `<cite>`, wrapper classes) without leaking descendant block
+ * text up to a parent.
  */
 export function blockText(node: ParsedNode): string {
-  const attrs = JSON.stringify(node.attrs ?? {});
-  const inner = node.children.length === 0 ? node.innerHTML : '';
-  return `${attrs} ${inner}`;
+  return `${JSON.stringify(node.attrs ?? {})} ${node.innerHTML}`;
 }
 
 /** Find the produced block matching `exp` among `candidates`, then recurse in order. */

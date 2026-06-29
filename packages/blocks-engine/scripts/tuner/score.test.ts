@@ -48,6 +48,20 @@ describe('blockText', () => {
     const tree = parseToTree('<!-- wp:paragraph -->\n<p>Hello world</p>\n<!-- /wp:paragraph -->');
     expect(blockText(tree[0])).toContain('Hello world');
   });
+
+  test('includes a container block own text (e.g. a details summary)', () => {
+    const tree = parseToTree(
+      '<!-- wp:details --><details class="wp-block-details"><summary>My question</summary><!-- wp:paragraph --><p>Answer</p><!-- /wp:paragraph --></details><!-- /wp:details -->',
+    );
+    expect(blockText(tree[0])).toContain('My question');
+  });
+
+  test('does not leak descendant block text into a container', () => {
+    const tree = parseToTree(
+      '<!-- wp:group --><div class="wp-block-group"><!-- wp:heading --><h2>ChildText</h2><!-- /wp:heading --></div><!-- /wp:group -->',
+    );
+    expect(blockText(tree[0])).not.toContain('ChildText');
+  });
 });
 
 describe('matchNode', () => {
