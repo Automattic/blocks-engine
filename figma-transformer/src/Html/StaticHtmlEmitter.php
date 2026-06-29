@@ -635,7 +635,17 @@ final class StaticHtmlEmitter
         $name = (string) ($node['name'] ?? '');
         $attributeName = $this->sanitizeAttribute($name);
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
-        $text = 'TEXT' === $type ? ( $this->textGlyphSvg($node) ?? $this->textContent($node) ) : $this->textContent($node);
+        if ( 'TEXT' === $type ) {
+            $text = $this->textGlyphSvg($node);
+            if ( null === $text ) {
+                // Multi-paragraph text splits into per-paragraph boxes so
+                // `paragraphSpacing` lands as a margin; otherwise render the node
+                // as a single element.
+                $text = $this->multiParagraphTextContent($node) ?? $this->textContent($node);
+            }
+        } else {
+            $text = $this->textContent($node);
+        }
         $tag = $this->semanticTag($node, $type, $name, $depth, $parentNode);
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
         $children = $this->nodeList($node);
@@ -3605,13 +3615,7 @@ final class StaticHtmlEmitter
                     continue;
                 }
 
-                $segmentStyles = is_array($segment['style'] ?? null) ? $this->textStyleDeclarations($segment['style']) : array();
-                if ( empty($segmentStyles) ) {
-                    $content .= $this->sanitizeText($segmentText);
-                    continue;
-                }
-
-                $content .= '<span style="' . $this->sanitizeAttribute(implode(';', $segmentStyles)) . '">' . $this->sanitizeText($segmentText) . '</span>';
+                $content .= $this->segmentRunHtml($segmentText, is_array($segment['style'] ?? null) ? $segment['style'] : null);
             }
 
             if ( '' !== $content ) {
@@ -3634,6 +3638,175 @@ final class StaticHtmlEmitter
         }
 
         return $this->sanitizeText($characters);
+    }
+
+    /**
+     * Renders a single styled text run, wrapping it in a minimal `<span style>`
+     * only when the run carries overriding style declarations. Mirrors the inline
+     * segment rendering in {@see textContent} so per-character override spans
+     * (color/weight/etc.) emit identically whether the text node is a single
+     * element or split into per-paragraph boxes.
+     *
+     * @param array<string, mixed>|null $style
+     */
+    private function segmentRunHtml(string $characters, ?array $style): string
+    {
+        if ( '' === $characters ) {
+            return '';
+        }
+
+        $segmentStyles = is_array($style) ? $this->textStyleDeclarations($style) : array();
+        if ( empty($segmentStyles) ) {
+            return $this->sanitizeText($characters);
+        }
+
+        return '<span style="' . $this->sanitizeAttribute(implode(';', $segmentStyles)) . '">' . $this->sanitizeText($characters) . '</span>';
+    }
+
+    /**
+     * Splits a text node into per-paragraph buckets of styled runs.
+     *
+     * Figma encodes a hard paragraph break (the Enter key, the boundary
+     * `paragraphSpacing` applies between) as a `\n` in the node's characters.
+     * Soft line wraps are not present in the source characters — they are
+     * recovered separately as derived baselines — so this split keys only on the
+     * real `\n` separators and never treats a wrapped line as a paragraph.
+     *
+     * Each bucket is an ordered list of `['characters' => string, 'style' =>
+     * ?array]` runs. When a styled run straddles a `\n` it is divided at the
+     * break and the same style is carried into both paragraphs, so per-character
+     * override spans land in the correct paragraph. Leading/trailing empty
+     * paragraphs (from a stray boundary `\n`) are dropped; interior blank
+     * paragraphs are preserved.
+     *
+     * @param array<string, mixed> $node
+     * @return array<int, array<int, array{characters: string, style: array<string, mixed>|null}>>
+     */
+    private function paragraphBuckets(array $node): array
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $segments = is_array($text['segments'] ?? null) ? $text['segments'] : array();
+
+        $runs = array();
+        foreach ( $segments as $segment ) {
+            if ( ! is_array($segment) ) {
+                continue;
+            }
+            $segmentText = (string) ($segment['characters'] ?? '');
+            if ( '' === $segmentText ) {
+                continue;
+            }
+            $runs[] = array(
+                'characters' => $segmentText,
+                'style'      => is_array($segment['style'] ?? null) ? $segment['style'] : null,
+            );
+        }
+
+        if ( empty($runs) ) {
+            $characters = isset($text['characters']) && is_scalar($text['characters'])
+                ? (string) $text['characters']
+                : (string) ($node['characters'] ?? $node['text'] ?? '');
+            if ( '' === $characters || $this->isUnresolvedComponentPlaceholderText($node, $characters) ) {
+                return array();
+            }
+            $runs[] = array('characters' => $characters, 'style' => null);
+        }
+
+        $paragraphs = array(array());
+        foreach ( $runs as $run ) {
+            $parts = explode("\n", (string) $run['characters']);
+            foreach ( $parts as $index => $part ) {
+                if ( $index > 0 ) {
+                    $paragraphs[] = array();
+                }
+                if ( '' !== $part ) {
+                    $paragraphs[count($paragraphs) - 1][] = array(
+                        'characters' => $part,
+                        'style'      => $run['style'],
+                    );
+                }
+            }
+        }
+
+        // Drop empty paragraphs at the head and tail (a stray boundary newline),
+        // while keeping interior blank paragraphs that carry a real blank line.
+        while ( ! empty($paragraphs) && empty($paragraphs[0]) ) {
+            array_shift($paragraphs);
+        }
+        while ( ! empty($paragraphs) && empty($paragraphs[count($paragraphs) - 1]) ) {
+            array_pop($paragraphs);
+        }
+
+        return array_values($paragraphs);
+    }
+
+    /**
+     * Whether a text node carries real paragraph spacing that can be rendered by
+     * splitting it into separate per-paragraph boxes.
+     *
+     * Requires a positive `paragraphSpacing` and at least two real paragraphs
+     * (`\n`-separated). Glyph-rendered text has no paragraph boxes to carry a
+     * margin, so it is excluded and reported via {@see paragraphSpacingDiagnostic}.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function shouldSplitParagraphs(array $node): bool
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        if ( ! isset($style['paragraph_spacing']) || ! is_numeric($style['paragraph_spacing']) || 0.0 >= (float) $style['paragraph_spacing'] ) {
+            return false;
+        }
+
+        if ( null !== $this->textGlyphSvg($node) ) {
+            return false;
+        }
+
+        return count($this->paragraphBuckets($node)) >= 2;
+    }
+
+    /**
+     * Renders a multi-paragraph text node as one block element per paragraph so
+     * Figma `paragraphSpacing` lands as a real `margin-bottom` between paragraphs.
+     *
+     * Each paragraph is a block-level `<span>` (valid inside the node's `<p>` /
+     * heading container) and carries the spacing as `margin-bottom` on every
+     * paragraph except the last. Inline override spans are preserved within each
+     * paragraph via {@see segmentRunHtml}. Returns null when the node is not a
+     * splittable multi-paragraph node, so the caller falls back to {@see
+     * textContent}.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function multiParagraphTextContent(array $node): ?string
+    {
+        if ( ! $this->shouldSplitParagraphs($node) ) {
+            return null;
+        }
+
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        $spacing = (float) $style['paragraph_spacing'];
+
+        $paragraphs = $this->paragraphBuckets($node);
+        $last = count($paragraphs) - 1;
+
+        $html = '';
+        foreach ( $paragraphs as $index => $runs ) {
+            $inner = '';
+            foreach ( $runs as $run ) {
+                $inner .= $this->segmentRunHtml((string) $run['characters'], $run['style']);
+            }
+
+            $styles = array('display:block');
+            if ( $index < $last ) {
+                $styles[] = 'margin-bottom:' . $this->number($spacing) . 'px';
+            }
+
+            $html .= '<span style="' . $this->sanitizeAttribute(implode(';', $styles)) . '">' . $inner . '</span>';
+        }
+
+        return '' === $html ? null : $html;
     }
 
     /**
@@ -3830,7 +4003,7 @@ final class StaticHtmlEmitter
             ));
             $styles[] = 'line-height:' . $this->number($derivedLineHeight) . 'px';
         }
-        if ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) {
+        if ( ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) && ! $this->shouldSplitParagraphs($node) ) {
             $styles[] = 'white-space:pre-line';
         }
 
@@ -3838,13 +4011,15 @@ final class StaticHtmlEmitter
     }
 
     /**
-     * Reports a Figma `paragraphSpacing` value that cannot be applied as CSS.
+     * Reports a Figma `paragraphSpacing` value that genuinely cannot be applied.
      *
-     * Multi-paragraph text nodes are emitted as a single element with
-     * `white-space:pre-line`, so there is no per-paragraph box to carry a
-     * `margin-bottom`. When such a node carries paragraph spacing the value is
-     * surfaced as an `info` diagnostic instead of being faked into the CSS.
-     * Single-paragraph nodes are ignored because paragraph spacing has no effect.
+     * Multi-paragraph text is normally split into per-paragraph boxes that carry
+     * the spacing as `margin-bottom` ({@see multiParagraphTextContent}), so no
+     * diagnostic is emitted in that case. The value is only surfaced as an `info`
+     * diagnostic when the node has multiple real paragraphs but cannot be split —
+     * for example glyph-rendered text, which has no paragraph boxes to carry a
+     * margin. Single-paragraph nodes (including soft-wrap-only text) are ignored
+     * because paragraph spacing has no paragraph boundary to apply between.
      *
      * @param array<string, mixed> $node
      * @return array<string, mixed>|null
@@ -3857,14 +4032,21 @@ final class StaticHtmlEmitter
             return null;
         }
 
-        if ( ! $this->textHasLineBreaks($node) && ! $this->textHasDerivedLineBreaks($node) ) {
+        // Spacing is actually applied as per-paragraph margins — nothing to report.
+        if ( $this->shouldSplitParagraphs($node) ) {
+            return null;
+        }
+
+        // Only a node with multiple real paragraphs that could not be split is a
+        // genuine "not applied" case. Single-paragraph text has no boundary.
+        if ( count($this->paragraphBuckets($node)) < 2 ) {
             return null;
         }
 
         return array(
             'severity' => 'info',
             'code'     => 'paragraph_spacing_not_applied',
-            'message'  => 'Figma paragraphSpacing cannot be applied to a single-element text node rendered with white-space:pre-line; the value is reported but not emitted as CSS.',
+            'message'  => 'Figma paragraphSpacing could not be applied: this multi-paragraph text node cannot be split into per-paragraph boxes (for example glyph-rendered text); the value is reported but not emitted as CSS.',
             'context'  => array(
                 'node_id'           => (string) ($node['id'] ?? ''),
                 'paragraph_spacing' => (float) $style['paragraph_spacing'],

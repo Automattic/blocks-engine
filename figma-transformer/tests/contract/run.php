@@ -2794,6 +2794,61 @@ $assert(array('text:unsupported-glyph-a', 'text:unsupported-glyph-b') === ($unsu
 $assert(str_contains($fileContent($unsupportedGlyphResult, 'index.html'), 'Unsupported glyph A'), 'unsupported-glyph-diagnostics-preserve-text-a');
 $assert(str_contains($fileContent($unsupportedGlyphResult, 'index.html'), 'Unsupported glyph B'), 'unsupported-glyph-diagnostics-preserve-text-b');
 
+// Whitespace glyphs are emitted by Figma as a single 0x00 (empty-path) command
+// blob: well-formed, but carrying no drawable outline. These are valid, not
+// unsupported, and must NOT raise unsupported_text_glyph_command_blob warnings
+// (the FSE Pilot footer text "Proudly powered by WordPress.com" produced
+// thousands of these false-positive warnings before this gate).
+$emptyGlyphCommandBlob = chr(0);
+$whitespaceGlyphScenegraph = array(
+    'name'  => 'Whitespace Glyph Empty-Path Fixture',
+    'blobs' => array(
+        array('bytes' => $quadraticCommandBlob),
+        array('bytes' => $emptyGlyphCommandBlob),
+    ),
+    'nodes' => array(
+        array(
+            'id'              => 'text:whitespace-glyph',
+            'type'            => 'TEXT',
+            'name'            => 'Measured Whitespace Text',
+            'characters'      => 'A B',
+            'width'           => 146.5,
+            'height'          => 32.25,
+            'fontSize'        => 10,
+            'fontName'        => array('family' => 'Example Sans', 'style' => 'Regular'),
+            'derivedTextData' => array(
+                'layoutSize' => array('x' => 146.5, 'y' => 32.25),
+                'glyphs' => array(
+                    array('firstCharacter' => 0, 'advance' => 0.5, 'fontSize' => 10, 'x' => 2, 'y' => 3, 'commandsBlob' => 0),
+                    array('firstCharacter' => 1, 'advance' => 0.5, 'fontSize' => 10, 'commandsBlob' => 1),
+                    array('firstCharacter' => 2, 'advance' => 0.5, 'fontSize' => 10, 'commandsBlob' => 0),
+                ),
+            ),
+        ),
+    ),
+);
+$whitespaceGlyphResult = blocks_engine_figma_transformer_transform_scenegraph($whitespaceGlyphScenegraph);
+$whitespaceGlyphDiagnostics = array_values(array_filter(
+    $whitespaceGlyphResult['diagnostics'] ?? array(),
+    static fn (array $diagnostic): bool => 'unsupported_text_glyph_command_blob' === ($diagnostic['code'] ?? null)
+));
+$assert(0 === count($whitespaceGlyphDiagnostics), 'whitespace-glyph-empty-path-no-warning');
+$assert(str_contains($fileContent($whitespaceGlyphResult, 'index.html'), 'A B'), 'whitespace-glyph-preserves-text');
+$whitespaceGlyphVisualNodes = $whitespaceGlyphResult['source_reports']['figma']['html']['visual_node_map'] ?? array();
+$whitespaceGlyphVisualNode = null;
+foreach ( is_array($whitespaceGlyphVisualNodes) ? $whitespaceGlyphVisualNodes : array() as $visualNode ) {
+    if ( is_array($visualNode) && 'text:whitespace-glyph' === ($visualNode['id'] ?? null) ) {
+        $whitespaceGlyphVisualNode = $visualNode;
+        break;
+    }
+}
+$whitespaceGlyphPaths = $whitespaceGlyphVisualNode['text']['derived_layout']['glyph_paths'] ?? array();
+$whitespaceGlyphPathData = array_values(array_filter(array_map(
+    static fn ($glyphPath): ?string => is_array($glyphPath) && isset($glyphPath['data']) ? (string) $glyphPath['data'] : null,
+    is_array($whitespaceGlyphPaths) ? $whitespaceGlyphPaths : array()
+)));
+$assert(array('M 0 0 Q 4 8 8 0 Z', 'M 0 0 Q 4 8 8 0 Z') === $whitespaceGlyphPathData, 'whitespace-glyph-keeps-drawable-paths-only');
+
 $derivedTextGlyphResult = blocks_engine_figma_transformer_transform_scenegraph($derivedTextLayoutScenegraph, array('render_text_glyph_paths' => true));
 $derivedTextGlyphHtml = $fileContent($derivedTextGlyphResult, 'index.html');
 $derivedTextGlyphCss = $fileContent($derivedTextGlyphResult, 'style.css');
@@ -4317,7 +4372,15 @@ $assert(str_contains($textCaseCss, '.figma-node-tc-2-upper-text{position:absolut
 $assert(str_contains($textCaseCss, 'text-transform:lowercase'), 'text-case-lower-text-transform');
 $assert(str_contains($textCaseCss, 'text-transform:capitalize'), 'text-case-title-text-transform');
 $assert(str_contains($textCaseCss, '.figma-node-tc-5-small-caps-forced-text{position:absolute;font-family:"Example Sans", sans-serif;font-size:18px;text-transform:uppercase;font-variant:small-caps}'), 'text-case-small-caps-forced');
-$assert(str_contains($textCaseCss, '.figma-node-tc-6-original-case-text{position:absolute;font-family:"Example Sans", sans-serif;font-size:18px}'), 'text-case-original-no-transform');
+// ORIGINAL text case emits no text-transform. With paragraphSpacing now applied
+// by splitting (no white-space:pre-line), tc:7's box style matches tc:6's, so the
+// emitter dedupes them into one shared rule — assert on the un-transformed
+// declaration body and that tc:6 carries no transform-bearing rule of its own.
+$assert(str_contains($textCaseCss, '{position:absolute;font-family:"Example Sans", sans-serif;font-size:18px}'), 'text-case-original-no-transform');
+$assert(! str_contains($textCaseCss, '.figma-node-tc-6-original-case-text{'), 'text-case-original-deduped-into-shared-rule');
+// `paragraphSpacing` is now applied by splitting the multi-paragraph node into
+// per-paragraph boxes (completing the path started in #318), so the
+// `paragraph_spacing_not_applied` diagnostic must no longer fire for tc:7.
 $textCaseParagraphDiagnostic = null;
 foreach ( $textCaseResult['diagnostics'] ?? array() as $diagnostic ) {
     if ( 'paragraph_spacing_not_applied' === ($diagnostic['code'] ?? null) ) {
@@ -4325,10 +4388,15 @@ foreach ( $textCaseResult['diagnostics'] ?? array() as $diagnostic ) {
         break;
     }
 }
-$assert(null !== $textCaseParagraphDiagnostic, 'paragraph-spacing-diagnostic-present');
-$assert('tc:7' === ($textCaseParagraphDiagnostic['context']['node_id'] ?? null), 'paragraph-spacing-diagnostic-node-id');
-$assert(24.0 === ($textCaseParagraphDiagnostic['context']['paragraph_spacing'] ?? null), 'paragraph-spacing-diagnostic-value');
+$assert(null === $textCaseParagraphDiagnostic, 'paragraph-spacing-diagnostic-dropped-when-applied');
 $assert(! str_contains($textCaseCss, 'paragraph-spacing') && ! str_contains($textCaseCss, 'paragraph_spacing'), 'paragraph-spacing-not-emitted-as-css');
+
+// The two paragraphs render as separate block boxes; the first carries the
+// 24px paragraph spacing as a margin-bottom, the last carries none. The split
+// node also drops the single-element white-space:pre-line fallback.
+$textCaseHtml = $fileContent($textCaseResult, 'index.html');
+$assert(str_contains($textCaseHtml, '<span style="display:block;margin-bottom:24px">First paragraph.</span><span style="display:block">Second paragraph.</span>'), 'paragraph-spacing-split-into-margin-boxes');
+$assert(! str_contains($textCaseCss, 'white-space:pre-line'), 'paragraph-spacing-split-drops-pre-line');
 
 // Node-level blendMode → CSS mix-blend-mode. A non-default Figma blend mode
 // (MULTIPLY) must surface as `mix-blend-mode:multiply`, while the default
@@ -4448,6 +4516,72 @@ $assert(str_contains($inlineTextStyleHtml, 'Hello blue <span style="color:#0000f
 
 // Mixed-weight: only "Bold" differs in font-weight — it gets a font-weight span.
 $assert(str_contains($inlineTextStyleHtml, '<span style="font-weight:700">Bold</span> plain text'), 'inline-style-mixed-weight-spans');
+
+// Paragraph splitting must preserve inline override spans inside the correct
+// paragraph, and single-paragraph nodes must not gain a wrapper (#318 follow-up).
+//
+// "Bold intro\nplain rest" (21 chars): the first 4 characters ("Bold") map to a
+// weight-700 override, the rest to the base style. The `\n` (index 10) is the
+// paragraph boundary, so the bold span belongs to the first paragraph and only
+// the first paragraph carries the 12px margin-bottom.
+$paragraphSplitResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Paragraph Split Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'psplit:1',
+            'type'     => 'FRAME',
+            'name'     => 'Paragraph split frame',
+            'width'    => 1200,
+            'height'   => 400,
+            'children' => array(
+                // Multi-paragraph node with an inline weight override in paragraph 1.
+                array(
+                    'id'                      => 'psplit:2',
+                    'type'                    => 'TEXT',
+                    'name'                    => 'Styled multi paragraph',
+                    'characters'              => "Bold intro\nplain rest",
+                    'style'                   => array(
+                        'fontFamily'       => 'Inter',
+                        'fontWeight'       => 400,
+                        'fontSize'         => 16,
+                        'paragraphSpacing' => 12,
+                    ),
+                    'characterStyleOverrides' => array(1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                    'styleOverrideTable'      => array(
+                        '1' => array('fontWeight' => 700),
+                    ),
+                ),
+                // Single-paragraph node that also declares paragraphSpacing: there
+                // is no paragraph boundary, so it must render exactly as before —
+                // no per-paragraph wrapper, no margin, no diagnostic.
+                array(
+                    'id'         => 'psplit:3',
+                    'type'       => 'TEXT',
+                    'name'       => 'Single paragraph spacing',
+                    'characters' => 'Only one paragraph here',
+                    'style'      => array(
+                        'fontFamily'       => 'Inter',
+                        'fontSize'         => 16,
+                        'paragraphSpacing' => 18,
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$paragraphSplitHtml = $fileContent($paragraphSplitResult, 'index.html');
+$paragraphSplitDiagnostics = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $paragraphSplitResult['diagnostics'] ?? array()
+);
+
+// The bold override span survives, nested inside the first paragraph box, and
+// the second paragraph is its own box with no margin.
+$assert(str_contains($paragraphSplitHtml, '<span style="display:block;margin-bottom:12px"><span style="font-weight:700">Bold</span> intro</span><span style="display:block">plain rest</span>'), 'paragraph-split-preserves-inline-span-in-correct-paragraph');
+
+// Single-paragraph node: no per-paragraph wrapper and no diagnostic.
+$assert(str_contains($paragraphSplitHtml, '>Only one paragraph here</p>'), 'single-paragraph-spacing-no-wrapper');
+$assert(! in_array('paragraph_spacing_not_applied', $paragraphSplitDiagnostics, true), 'single-paragraph-spacing-no-diagnostic');
 
 // Kiwi (.fig) inline style overrides (#328).
 //

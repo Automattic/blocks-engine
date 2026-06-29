@@ -23,6 +23,7 @@
     { "path": "parity.score", "assert": "equals", "value": 0.5455 },
     { "path": "parity.coverage", "assert": "equals", "value": 1.0 },
     { "path": "summary.matched_total", "assert": "equals", "value": 3 },
+    { "path": "summary.absorbed_source_total", "assert": "equals", "value": 0 },
     { "path": "summary.finding_total", "assert": "equals", "value": 5 },
     { "path": "findings.0.property", "assert": "equals", "value": "background-color" },
     { "path": "findings.0.selector", "assert": "equals", "value": "section.hero" },
