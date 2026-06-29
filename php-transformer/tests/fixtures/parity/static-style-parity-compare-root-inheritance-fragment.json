@@ -1,0 +1,37 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "static-style-parity-compare-root-inheritance-fragment",
+  "description": "The transform candidate is body-level block markup with no document scaffold, while the source is a full document. Author rules that target the document root (html { font-family; color }) inherit into every source element, so the fragment candidate must be probed inside an equivalent <html><body> root or those root-inherited values silently vanish from the candidate and faithfully-preserved content reads as a property regression. Here source and candidate carry identical structure and classes; with symmetric root scaffolding both elements resolve the same root-inherited font-family and color, so property parity is whole and nothing is reported. Without the scaffold the fragment loses the html-level typography and the comparator emits spurious style deltas.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/static-style-parity-compare-root-inheritance-fragment.json",
+    "notes": "Locks in symmetric document-root scaffolding so root-inherited author styles bind on fragment candidates."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Static style parity comparison emits the shared visual-parity report contract."
+  },
+  "operation": "static_style_parity.compare",
+  "input": {
+    "source_content": "<html><body><section class=\"wrap\"><p class=\"lead\">Hello world</p></section></body></html>",
+    "source_css": "html{font-family:Inter,sans-serif;color:#111}.lead{font-size:18px}",
+    "target_content": "<section class=\"wrap\"><p class=\"lead\">Hello world</p></section>",
+    "target_css": "html{font-family:Inter,sans-serif;color:#111}.lead{font-size:18px}"
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/visual-parity-report/v1" },
+    { "path": "status", "assert": "equals", "value": "pass" },
+    { "path": "parity.property_parity", "assert": "equals", "value": 1.0 },
+    { "path": "parity.coverage", "assert": "equals", "value": 1.0 },
+    { "path": "parity.score", "assert": "equals", "value": 1.0 },
+    { "path": "summary.source_total", "assert": "equals", "value": 2 },
+    { "path": "summary.matched_total", "assert": "equals", "value": 2 },
+    { "path": "summary.compared_properties", "assert": "equals", "value": 5 },
+    { "path": "summary.agreed_properties", "assert": "equals", "value": 5 },
+    { "path": "summary.finding_total", "assert": "equals", "value": 0 },
+    { "path": "matches.0.source_selector", "assert": "equals", "value": "section.wrap" },
+    { "path": "matches.0.target_selector", "assert": "equals", "value": "section.wrap" },
+    { "path": "matches.1.source_selector", "assert": "equals", "value": "section.wrap > p.lead" },
+    { "path": "matches.1.target_selector", "assert": "equals", "value": "section.wrap > p.lead" }
+  ]
+}

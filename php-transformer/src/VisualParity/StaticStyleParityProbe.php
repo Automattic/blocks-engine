@@ -86,7 +86,18 @@ final class StaticStyleParityProbe
     {
         $document = new DOMDocument();
         $previous = libxml_use_internal_errors(true);
-        $sourceHtml = preg_match('/<(?:!doctype|html|head|body)\b/i', $html) ? $html : '<body>' . $html . '</body>';
+        // Fragments (e.g. the transform candidate, which is body-level block
+        // markup with no document scaffold) are wrapped in a full <html><body>
+        // root so that author rules targeting the document root — `html { ... }`,
+        // `body { ... }` — bind to a real element and their inheritable values
+        // (font-family, font-size, color, line-height, …) cascade into the
+        // fragment's elements exactly as they do in a full source document. A
+        // bare <body> wrapper left `html { font-family }` with no element to
+        // match, so every candidate element silently lost the root-inherited
+        // typography the source kept — a measurement asymmetry that depressed
+        // coverage for faithfully-preserved content. Full documents already carry
+        // their own root and are probed as-is.
+        $sourceHtml = preg_match('/<(?:!doctype|html|head|body)\b/i', $html) ? $html : '<html><body>' . $html . '</body></html>';
         $loaded = $document->loadHTML('<?xml encoding="utf-8" ?>' . $sourceHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
