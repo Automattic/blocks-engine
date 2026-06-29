@@ -1669,6 +1669,8 @@ final class HtmlTransformer
      */
     private function createBlock(string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array
     {
+        $attrs = $this->hoistContentWrappingSpans($name, $attrs);
+
         if ( $sourceElement instanceof DOMElement ) {
             $provenanceId = $this->nextSourceProvenanceId++;
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
@@ -1696,6 +1698,177 @@ final class HtmlTransformer
         }
 
         return $block;
+    }
+
+    /**
+     * Lift class/style styling hooks out of a paragraph/heading's RichText
+     * `content` so the stored block round-trips through RichText unchanged.
+     *
+     * core/paragraph and core/heading store `content` as RichText, which only
+     * preserves a fixed set of inline formats (a, strong, em, br, …). A
+     * `<span class="…">` / `<span style="…">` is not a format, so RichText drops
+     * its attributes on parse: the saved markup no longer matches the
+     * re-serialized block ("unexpected or invalid content"), and the class — a
+     * styling hook the materialized CSS targets — would be silently lost.
+     *
+     * The fix keys off STRUCTURE (a content-bearing span carrying only
+     * class/style), never on any specific class name:
+     *   - A SINGLE styling-hook span wrapping the ENTIRE content is UNWRAPPED and
+     *     its class/style are HOISTED onto the block (merged into `className` and
+     *     the canonical `style` object). The hook survives where RichText does
+     *     preserve it and the inner text/inline-format becomes valid content.
+     *     Nested wrappers are peeled across iterations.
+     *   - Remaining sibling/partial styling-hook spans are UNWRAPPED to their
+     *     inner content. Their per-span class styling cannot ride valid RichText
+     *     here, so this is best-effort; the emitted block is always valid.
+     * Genuine inline formats (strong/em/a/br/…) are never touched.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function hoistContentWrappingSpans(string $name, array $attrs): array
+    {
+        if ( ! in_array($name, array( 'core/paragraph', 'core/heading' ), true) ) {
+            return $attrs;
+        }
+
+        $content = (string) ($attrs['content'] ?? '');
+        if ( '' === $content || ! preg_match('/<span\b/i', $content) ) {
+            return $attrs;
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if ( ! $body instanceof DOMElement ) {
+            return $attrs;
+        }
+
+        $hoistedClasses      = '';
+        $hoistedDeclarations = array();
+
+        // Peel a single styling-hook span wrapping the whole content, hoisting it
+        // onto the block. Nested wrappers are peeled across iterations.
+        while ( ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
+            $hoistedClasses = trim($hoistedClasses . ' ' . $this->attr($wrapper, 'class'));
+            $wrapperStyle   = trim($this->attr($wrapper, 'style'));
+            if ( '' !== $wrapperStyle ) {
+                $hoistedDeclarations = array_merge($hoistedDeclarations, $this->cssDeclarations($wrapperStyle));
+            }
+            $this->unwrapElement($wrapper);
+        }
+
+        // Unwrap any remaining styling-hook spans (sibling / partial content):
+        // best-effort, the class styling is not representable as valid RichText.
+        foreach ( $this->stylingHookSpans($body) as $span ) {
+            $this->unwrapElement($span);
+        }
+
+        $newContent = $this->innerHtml($body);
+        if ( $newContent === $content && '' === $hoistedClasses && array() === $hoistedDeclarations ) {
+            return $attrs;
+        }
+
+        $attrs['content'] = $newContent;
+
+        if ( '' !== $hoistedClasses ) {
+            $promoted = $this->promotedClassName($hoistedClasses);
+            if ( '' !== trim($promoted) ) {
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $promoted);
+            }
+        }
+
+        if ( array() !== $hoistedDeclarations ) {
+            $mapped = $this->styleAttributeMapper()->map($hoistedDeclarations)['style'];
+            if ( array() !== $mapped ) {
+                $existing       = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+                $attrs['style'] = array_replace_recursive($mapped, $existing);
+            }
+        }
+
+        return $attrs;
+    }
+
+    /**
+     * The single styling-hook span that is the container's only significant
+     * child, or null when the content is plain text, inline formats, or sibling
+     * spans (which must not be hoisted as one block-level styling hook).
+     */
+    private function soleStylingHookSpan(DOMElement $container): ?DOMElement
+    {
+        $only = null;
+        foreach ( $container->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( null !== $only ) {
+                return null;
+            }
+            $only = $child;
+        }
+
+        return $only instanceof DOMElement && $this->isStylingHookSpan($only) ? $only : null;
+    }
+
+    /**
+     * A `<span>` whose only attributes are class and/or style (at least one
+     * non-empty). These are presentational styling hooks RichText cannot store,
+     * not semantic spans (a span carrying id, data-, or role is left intact).
+     */
+    private function isStylingHookSpan(DOMElement $element): bool
+    {
+        if ( 'span' !== strtolower($element->tagName) ) {
+            return false;
+        }
+
+        $hasStyling = false;
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $attributeName = strtolower($attribute->nodeName);
+            if ( 'class' !== $attributeName && 'style' !== $attributeName ) {
+                return false;
+            }
+            if ( '' !== trim($attribute->nodeValue ?? '') ) {
+                $hasStyling = true;
+            }
+        }
+
+        return $hasStyling;
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function stylingHookSpans(DOMElement $container): array
+    {
+        $spans = array();
+        foreach ( $container->getElementsByTagName('span') as $span ) {
+            if ( $span instanceof DOMElement && $this->isStylingHookSpan($span) ) {
+                $spans[] = $span;
+            }
+        }
+
+        return $spans;
+    }
+
+    /**
+     * Replace an element with its children in place, dropping only the wrapper.
+     */
+    private function unwrapElement(DOMElement $element): void
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMNode ) {
+            return;
+        }
+
+        while ( null !== $element->firstChild ) {
+            $parent->insertBefore($element->firstChild, $element);
+        }
+
+        $parent->removeChild($element);
     }
 
     /**
