@@ -1439,10 +1439,26 @@ final class ScenegraphNormalizer
             }
         }
         if ( is_array($child['transform'] ?? null) ) {
+            // m02 and m12 carry canvas-global (absolute) coordinates, not parent-local
+            // coordinates. Stamp them into absoluteBoundingBox so that normalizeLayoutBox
+            // labels the resulting box coordinate_space='absolute'. Without this, the bare
+            // x/y values written below are picked up by the local-coordinate fallback path
+            // and mislabeled coordinate_space='local', causing positionOffset() to emit the
+            // raw canvas value verbatim (e.g. 13842 px) instead of subtracting the
+            // containing-block origin.
+            $absoluteBounds = is_array($child['absoluteBoundingBox'] ?? null) ? $child['absoluteBoundingBox'] : array();
             foreach ( array('m02' => 'x', 'm12' => 'y') as $source => $target ) {
                 if ( isset($child['transform'][$source]) && is_numeric($child['transform'][$source]) ) {
                     $child[$target] = (float) $child['transform'][$source];
+                    // Only backfill absoluteBoundingBox where the dimension is not already
+                    // present — preserve any richer absolute bounds the payload already has.
+                    if ( ! isset($absoluteBounds[$target]) ) {
+                        $absoluteBounds[$target] = (float) $child['transform'][$source];
+                    }
                 }
+            }
+            if ( ! empty($absoluteBounds) ) {
+                $child['absoluteBoundingBox'] = $absoluteBounds;
             }
         }
 

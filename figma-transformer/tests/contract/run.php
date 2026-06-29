@@ -6247,6 +6247,83 @@ $assert(! str_contains($derivedSymbolInstanceHtml, '<g transform="scale'), 'deri
 $assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-2-derived-label{width:90px;height:24px;position:absolute;left:12px;top:6px'), 'derived-symbol-instance-label-size-position');
 $assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-3-derived-icon{width:10px;height:10px;position:absolute;left:110px;top:10px'), 'derived-symbol-instance-icon-size-position');
 
+// OVERRIDDEN INSTANCE CHILD CANVAS-GLOBAL COORDINATE BUG (#xxx).
+//
+// When an instance resolves a component and an override carries a positional
+// `transform`, the m02/m12 values are canvas-global (absolute) coordinates —
+// NOT parent-local offsets. A page frame at canvas x=12000 y=0 containing a
+// Footer instance should resolve the Logo child's override transform m02=12120
+// as CSS left:120px (= 12120 - 12000), NOT left:12120px (the raw canvas value).
+//
+// Before the fix, normalizeOverriddenInstanceChild stamped bare x/y from m02/m12
+// onto the child, which normalizeLayoutBox then mislabeled coordinate_space='local',
+// causing positionOffset() to emit the raw canvas value verbatim instead of
+// subtracting the containing-block origin.
+//
+// The instance must have NO pre-populated children so that resolveInstances clones
+// them from the component and runs applyInstanceOverridesToChildren, which is the
+// code path that calls normalizeOverriddenInstanceChild.
+$canvasGlobalOverrideResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Canvas-Global Override Coordinate Fixture',
+    'nodes' => array(
+        // Component master: Logo child has NO absoluteBoundingBox — only width/height.
+        // The instance override will supply a canvas-global transform (m02=12120).
+        // Without the fix, normalizeLayoutBox picks up the stamped bare x/y and labels
+        // them coordinate_space='local', causing positionOffset() to emit 12120px verbatim.
+        array(
+            'id'       => 'cgoc:component',
+            'type'     => 'COMPONENT',
+            'name'     => 'Footer component',
+            'key'      => 'footer-key',
+            'absoluteBoundingBox' => array('x' => 12000, 'y' => 700, 'width' => 1440, 'height' => 200),
+            'children' => array(
+                array(
+                    'id'    => 'cgoc:logo',
+                    'type'  => 'RECTANGLE',
+                    'name'  => 'Logo',
+                    // No absoluteBoundingBox — the override transform is the only position source.
+                    'width' => 160,
+                    'height' => 60,
+                ),
+            ),
+        ),
+        // Page frame at canvas offset x=12000, containing the footer instance.
+        // The instance has NO children — resolution will clone them from the component.
+        array(
+            'id'                  => 'cgoc:page',
+            'type'                => 'FRAME',
+            'name'                => 'Page',
+            'absoluteBoundingBox' => array('x' => 12000, 'y' => 0, 'width' => 1440, 'height' => 900),
+            'children'            => array(
+                array(
+                    'id'          => 'cgoc:instance',
+                    'type'        => 'INSTANCE',
+                    'name'        => 'Footer',
+                    'componentId' => 'footer-key',
+                    'absoluteBoundingBox' => array('x' => 12000, 'y' => 700, 'width' => 1440, 'height' => 200),
+                    // Override: the Logo child's transform carries a canvas-global position
+                    // (m02=12120 is an absolute canvas X). This mimics the FSE Pilot .fig
+                    // pattern where m02=13842 leaked through as CSS left:13842px.
+                    'overrides'   => array(
+                        array(
+                            'nodeId'    => 'cgoc:logo',
+                            'transform' => array('m00' => 1, 'm01' => 0, 'm02' => 12120, 'm10' => 0, 'm11' => 1, 'm12' => 860),
+                        ),
+                    ),
+                    // No 'children' key — instance resolution clones from the component.
+                ),
+            ),
+        ),
+    ),
+), array('frame_id' => 'cgoc:page'));
+$canvasGlobalOverrideCss = $fileContent($canvasGlobalOverrideResult, 'style.css');
+// The Logo node's CSS left must be page-relative (120px), NOT the raw canvas value (12120px).
+// A value >= 1440 (canvas width) proves the bug: the raw canvas coordinate leaked through.
+// The namespaced class is "cgoc-instance-cgoc-logo-logo" (instanceId/childId).
+preg_match('/figma-node-cgoc-instance-cgoc-logo[^{]*\{[^}]*left:([\d.]+)px/', $canvasGlobalOverrideCss, $canvasGlobalLogoLeft);
+$canvasGlobalLogoLeftPx = isset($canvasGlobalLogoLeft[1]) ? (float) $canvasGlobalLogoLeft[1] : -1.0;
+$assert($canvasGlobalLogoLeftPx >= 0.0 && $canvasGlobalLogoLeftPx < 1440.0, 'overridden-instance-child-canvas-global-transform-localizes-x');
+
 // Real anchor tags: a TEXT node carrying a URL hyperlink emits a real <a href>.
 $urlLinkResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Url Link Fixture',
