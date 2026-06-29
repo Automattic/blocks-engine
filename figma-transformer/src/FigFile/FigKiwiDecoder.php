@@ -387,7 +387,7 @@ final class FigKiwiDecoder
                 // `handoffStatus` carries the dev-handoff map, and
                 // `currentStatus`/`statusInfo` mirror NodeStatusChange fields.
                 'sectionStatus', 'sectionStatusInfo', 'handoffStatus', 'currentStatus', 'statusInfo', 'devStatus',
-                'guid', 'parentIndex', 'type', 'name', 'visible', 'opacity', 'size', 'transform',
+                'guid', 'parentIndex', 'type', 'name', 'visible', 'opacity', 'blendMode', 'size', 'transform',
                 'useAbsoluteBounds', 'cornerRadius', 'rectangleTopLeftCornerRadius',
                 'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius',
                 'rectangleBottomRightCornerRadius', 'fillPaints', 'strokePaints', 'backgroundPaints',
