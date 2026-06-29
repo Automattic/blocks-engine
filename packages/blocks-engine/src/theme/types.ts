@@ -98,6 +98,13 @@ export interface SiteToThemeOptions extends SourceCssCarryOptions {
   foundationAggregates?: FoundationAggregates;
   hooks?: SiteToThemeHooks;
   fetchImpl?: typeof fetch;
+  /**
+   * Hostname → resolved-IP lookup used to guard the DEFAULT remote-image fetch path
+   * against SSRF (a public hostname resolving to an internal IP). Defaults to node:dns;
+   * injectable so SSRF/remote-image tests stay hermetic (no real DNS). Ignored when an
+   * explicit fetchImpl is provided (that impl owns its own transport).
+   */
+  imageHostLookup?: (host: string) => Promise<Array<{ address: string; family: number }>>;
   coverageFloor?: number;
   themeMeta?: Partial<ThemeMeta>;
 }

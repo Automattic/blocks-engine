@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { siteToTheme } from '../theme/site-to-theme.js';
 import {
+  createPublicHostGuardedFetch,
   DEFAULT_REMOTE_IMAGE_FETCH_CONFIG,
   fetchRemoteImage,
   type RemoteImageFetchConfig,
@@ -129,6 +130,8 @@ describe('remote image carry contract', () => {
         sections: {
           home: [remoteImageSpec(remoteHeroUrl)],
         },
+        // Hermetic SSRF guard: resolve the test host to a public IP without real DNS.
+        imageHostLookup: async () => [{ address: '93.184.216.34', family: 4 }],
       });
 
       const template = readFileSync(join(siteDir, 'theme', 'templates', 'front-page.html'), 'utf8');
@@ -255,5 +258,81 @@ describe('remote image carry contract', () => {
     expect(result.ok).toBe(false);
     expect(result).not.toHaveProperty('bytes');
     expect(result.warning).toMatch(/abort|timeout/i);
+  });
+
+  it('refuses to self-host SVG responses (stored-XSS vector)', async () => {
+    const fetchMock = vi.fn(async () =>
+      imageResponse(new Uint8Array([0x3c, 0x73, 0x76, 0x67]), 'image/svg+xml').clone()
+    );
+
+    const result = await fetchRemoteImage(remoteHeroUrl, {
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      config: smallSafetyConfig({ maxBytes: 1024 }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result).not.toHaveProperty('bytes');
+    expect(result.warning).toMatch(/content-type|image/i);
+  });
+
+  it('re-validates redirect hops and blocks a redirect to an internal IP without fetching it', async () => {
+    const internalUrl = 'http://169.254.169.254/latest/meta-data/';
+    const fetchMock = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      if (String(input) === remoteHeroUrl) {
+        return new Response(null, { status: 302, headers: { location: internalUrl } }) as Response;
+      }
+      // Should never be reached — the internal redirect target must be blocked first.
+      return imageResponse(new Uint8Array([1, 2, 3])).clone();
+    });
+
+    const result = await fetchRemoteImage(remoteHeroUrl, {
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      config: smallSafetyConfig({ maxBytes: 1024 }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result).not.toHaveProperty('bytes');
+    // The original URL was fetched once; the internal redirect target was NEVER fetched.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalledWith(internalUrl, expect.anything());
+  });
+
+  it('follows a redirect to another public image and self-hosts it', async () => {
+    const finalUrl = 'https://cdn2.example.test/assets/hero-final.png';
+    const fetchMock = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      if (String(input) === remoteHeroUrl) {
+        return new Response(null, { status: 302, headers: { location: finalUrl } }) as Response;
+      }
+      return imageResponse(remoteHeroBytes).clone();
+    });
+
+    const result = await fetchRemoteImage(remoteHeroUrl, {
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      config: smallSafetyConfig({ maxBytes: 1024 }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('guards the default fetch against a hostname that resolves to an internal IP', async () => {
+    const base = vi.fn(async () => imageResponse(remoteHeroBytes).clone());
+    const guarded = createPublicHostGuardedFetch(base as unknown as typeof fetch, async () => [
+      { address: '10.0.0.7', family: 4 },
+    ]);
+
+    await expect(guarded('https://cdn.example.test/hero.png')).rejects.toThrow(/internal IP/i);
+    expect(base).not.toHaveBeenCalled();
+  });
+
+  it('allows the default fetch when the hostname resolves to a public IP', async () => {
+    const base = vi.fn(async () => imageResponse(remoteHeroBytes).clone());
+    const guarded = createPublicHostGuardedFetch(base as unknown as typeof fetch, async () => [
+      { address: '93.184.216.34', family: 4 },
+    ]);
+
+    const res = await guarded('https://cdn.example.test/hero.png');
+    expect(res.status).toBe(200);
+    expect(base).toHaveBeenCalledTimes(1);
   });
 });

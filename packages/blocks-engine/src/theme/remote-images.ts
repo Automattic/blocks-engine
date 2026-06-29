@@ -1,7 +1,13 @@
+import { lookup as dnsLookup } from 'node:dns/promises';
 import { extname } from 'node:path';
 
 import type { StaticImgRef } from './assets-static.js';
 import type { AssetFile } from './types.js';
+
+/** Resolve a hostname to its IPs. Injectable so SSRF tests stay hermetic (no real DNS). */
+export type HostLookup = (host: string) => Promise<Array<{ address: string; family: number }>>;
+
+const defaultHostLookup: HostLookup = (host) => dnsLookup(host, { all: true });
 
 export interface RemoteImageFetchConfig {
   timeoutMs: number;
@@ -95,7 +101,12 @@ export async function fetchRemoteImage(
   }
 
   try {
-    const res = await fetchFn(url.toString(), { signal: controller.signal });
+    const res = await fetchFollowingSafeRedirects(
+      fetchFn,
+      url,
+      config.allowedSchemes,
+      controller.signal
+    );
 
     if (!isSuccess(res)) {
       return {
@@ -291,6 +302,98 @@ function isHttpScheme(protocol: string): boolean {
   return protocol === 'http:' || protocol === 'https:';
 }
 
+const MAX_IMAGE_REDIRECTS = 5;
+
+function isRedirectStatus(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+}
+
+/**
+ * Fetch following redirects MANUALLY so every hop's target is re-validated through
+ * assertPublicImageUrl. Default fetch redirect-following would silently follow a
+ * public URL to e.g. http://169.254.169.254/ (cloud metadata) — an SSRF the initial
+ * string guard cannot see. With redirect:'manual' we read each Location and re-guard
+ * it before continuing. A blocked hop throws RemoteImageBlockedError (caught upstream
+ * → graceful placeholder). Mocked fetchImpls can return 3xx + Location to exercise this.
+ */
+async function fetchFollowingSafeRedirects(
+  fetchFn: typeof fetch,
+  startUrl: URL,
+  allowedSchemes: readonly string[],
+  signal: AbortSignal
+): Promise<Response> {
+  let current = startUrl;
+  for (let hop = 0; ; hop++) {
+    const res = await fetchFn(current.toString(), { signal, redirect: 'manual' });
+    if (!isRedirectStatus(res.status)) return res;
+
+    const location = res.headers.get('location');
+    if (!location) return res; // 3xx without Location — treated as a non-success upstream.
+    if (hop >= MAX_IMAGE_REDIRECTS) {
+      throw new RemoteImageBlockedError(`too many redirects (> ${MAX_IMAGE_REDIRECTS})`);
+    }
+
+    let next: URL;
+    try {
+      next = new URL(location, current);
+    } catch {
+      throw new RemoteImageBlockedError(`unparseable redirect target: ${truncate(location)}`);
+    }
+    current = assertPublicImageUrl(next.toString(), allowedSchemes);
+  }
+}
+
+/**
+ * Public check for whether a RESOLVED IP address is internal/loopback/link-local,
+ * reusing the same tables as the string guard. Used by the default-fetch wrapper to
+ * validate DNS-name targets against their resolved IPs (closes the DNS-name → private
+ * IP vector the string-only guard misses). family is the Node dns lookup family (4|6).
+ */
+export function isInternalResolvedIp(address: string, family: number): boolean {
+  return family === 6 ? isInternalIpv6(address.toLowerCase()) : isInternalIpv4(address);
+}
+
+/**
+ * Wrap a fetch impl so DNS-name targets are validated against their RESOLVED IPs before
+ * connecting — closes the "public hostname that resolves to a private IP" SSRF that the
+ * string-only guard cannot see. Literal IPs are already validated by assertPublicImageUrl,
+ * so only real hostnames are resolved. Applied per call, so each redirect hop (fetched
+ * individually) is validated too. Only the DEFAULT (globalThis.fetch) path is wrapped;
+ * an injected fetchImpl owns its own transport/SSRF posture.
+ *
+ * Residual: TOCTOU/DNS-rebinding between this lookup and the kernel connect is not closed
+ * (that needs a connect-time `lookup` hook on the dispatcher); acceptable for this tool's
+ * primary use (converting the operator's own captured sites), documented in the spec.
+ */
+export function createPublicHostGuardedFetch(
+  baseFetch: typeof fetch,
+  lookup: HostLookup = defaultHostLookup
+): typeof fetch {
+  return (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const target =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : (input as Request).url;
+    let host = '';
+    try {
+      host = new URL(target).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    } catch {
+      host = '';
+    }
+    if (host && !literalIp(host)) {
+      const results = await lookup(host);
+      for (const { address, family } of results) {
+        if (isInternalResolvedIp(address, family)) {
+          throw new RemoteImageBlockedError(`host ${host} resolves to internal IP ${address}`);
+        }
+      }
+    }
+    return baseFetch(input, init);
+  }) as typeof fetch;
+}
+
 function literalIp(host: string): { kind: 'ipv4' | 'ipv6'; value: string } | null {
   let h = host;
   if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
@@ -361,7 +464,12 @@ function isSuccess(res: Response): boolean {
 function imageContentType(res: Response): string | null {
   const header = res.headers.get('content-type') ?? '';
   const contentType = header.split(';', 1)[0]?.trim().toLowerCase() ?? '';
-  return contentType.startsWith('image/') ? contentType : null;
+  if (!contentType.startsWith('image/')) return null;
+  // SVG is active content: it can embed <script> and event handlers. Self-hosting an
+  // attacker-supplied SVG and serving it same-origin from the theme is a stored-XSS
+  // vector, so refuse to carry it (degrades to the placeholder like any other miss).
+  if (contentType === 'image/svg+xml') return null;
+  return contentType;
 }
 
 async function readCappedBytes(

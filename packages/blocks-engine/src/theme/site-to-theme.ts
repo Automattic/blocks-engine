@@ -15,7 +15,11 @@ import { reconcileRegions, type PlacedRegion, type RegionSelectionReport } from 
 import { sectionExtract } from './section-extract.js';
 import { collectSourceAssets, type ImgAssetRef, type MediaAsset } from './source-assets.js';
 import { shouldCarrySourceCss } from './source-css-carry.js';
-import { collectRemoteImageAssets } from './remote-images.js';
+import {
+  collectRemoteImageAssets,
+  createPublicHostGuardedFetch,
+  type HostLookup,
+} from './remote-images.js';
 import { applyHoistSwaps, hoistVariations, type HoistedVariation } from './variation-hoist.js';
 import { writeTheme } from './write-theme.js';
 import type {
@@ -64,7 +68,7 @@ export async function siteToTheme(
       sourceAssets.imgAssets
     );
     const remoteImageCarry = await collectRemoteImageAssets(site.pages, {
-      fetchImpl: resolveRemoteImageFetchImpl(options?.fetchImpl),
+      fetchImpl: resolveRemoteImageFetchImpl(options?.fetchImpl, options?.imageHostLookup),
       occupiedRelPaths: sourceAssets.imgAssets.map((asset) => asset.themeRel),
     });
     for (const warning of remoteImageCarry.warnings) {
@@ -253,10 +257,17 @@ function dedupeImgRefs(refs: StaticImgRef[]): StaticImgRef[] {
   return out;
 }
 
-function resolveRemoteImageFetchImpl(fetchImpl: typeof fetch | undefined): typeof fetch | undefined {
+function resolveRemoteImageFetchImpl(
+  fetchImpl: typeof fetch | undefined,
+  lookup?: HostLookup
+): typeof fetch | undefined {
+  // An injected fetchImpl owns its own transport + SSRF posture — do not double-guard it.
   if (fetchImpl) return fetchImpl;
   const defaultFetch = globalThis.fetch;
-  return typeof defaultFetch === 'function' ? defaultFetch.bind(globalThis) as typeof fetch : undefined;
+  if (typeof defaultFetch !== 'function') return undefined;
+  // The default path fetches URLs scraped from (potentially untrusted) source HTML, so
+  // guard resolved hostnames against internal IPs on top of the per-URL string guard.
+  return createPublicHostGuardedFetch(defaultFetch.bind(globalThis) as typeof fetch, lookup);
 }
 
 function mergeAssetFiles(a: AssetFile[], b: AssetFile[]): AssetFile[] {
@@ -266,8 +277,12 @@ function mergeAssetFiles(a: AssetFile[], b: AssetFile[]): AssetFile[] {
   for (const asset of a) {
     byRelPath.set(asset.relPath, asset);
   }
+  // `a` (CSS-carried / inventory / local image assets) wins on collision: a remote
+  // image must never silently overwrite an already-allocated asset at the same relPath
+  // (local img assets are already collision-protected via occupiedRelPaths; this guards
+  // the css/inventory set, which is computed after the remote fetch and cannot be seeded).
   for (const asset of b) {
-    byRelPath.set(asset.relPath, asset);
+    if (!byRelPath.has(asset.relPath)) byRelPath.set(asset.relPath, asset);
   }
   return sortAssetFiles([...byRelPath.values()]);
 }
