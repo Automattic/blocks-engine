@@ -677,6 +677,13 @@ final class StaticHtmlEmitter
         }
         $nodeStyleDiagnostics[] = $this->nodeStyleDiagnostic($node, $type, $className, $tag, $styles, $parentNode);
 
+        if ( 'TEXT' === $type ) {
+            $paragraphSpacingDiagnostic = $this->paragraphSpacingDiagnostic($node);
+            if ( null !== $paragraphSpacingDiagnostic ) {
+                $diagnostics[] = $paragraphSpacingDiagnostic;
+            }
+        }
+
         $attributes = sprintf(' class="%1$s" data-figma-node-id="%2$s" data-figma-node-name="%3$s"', $className, $id, $attributeName);
         if ( 'RECTANGLE' === $type && '' === $content ) {
             $attributes .= ' aria-hidden="true"';
@@ -3808,6 +3815,41 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * Reports a Figma `paragraphSpacing` value that cannot be applied as CSS.
+     *
+     * Multi-paragraph text nodes are emitted as a single element with
+     * `white-space:pre-line`, so there is no per-paragraph box to carry a
+     * `margin-bottom`. When such a node carries paragraph spacing the value is
+     * surfaced as an `info` diagnostic instead of being faked into the CSS.
+     * Single-paragraph nodes are ignored because paragraph spacing has no effect.
+     *
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>|null
+     */
+    private function paragraphSpacingDiagnostic(array $node): ?array
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        if ( ! isset($style['paragraph_spacing']) || ! is_numeric($style['paragraph_spacing']) || 0.0 >= (float) $style['paragraph_spacing'] ) {
+            return null;
+        }
+
+        if ( ! $this->textHasLineBreaks($node) && ! $this->textHasDerivedLineBreaks($node) ) {
+            return null;
+        }
+
+        return array(
+            'severity' => 'info',
+            'code'     => 'paragraph_spacing_not_applied',
+            'message'  => 'Figma paragraphSpacing cannot be applied to a single-element text node rendered with white-space:pre-line; the value is reported but not emitted as CSS.',
+            'context'  => array(
+                'node_id'           => (string) ($node['id'] ?? ''),
+                'paragraph_spacing' => (float) $style['paragraph_spacing'],
+            ),
+        );
+    }
+
+    /**
      * @param array<string, mixed> $node
      */
     private function textHasLineBreaks(array $node): bool
@@ -3991,6 +4033,20 @@ final class StaticHtmlEmitter
         }
         if ( ! empty($decorations) ) {
             $styles[] = 'text-decoration:' . implode(' ', array_values(array_unique($decorations)));
+        }
+
+        if ( isset($style['text_transform']) && is_scalar($style['text_transform']) ) {
+            $transform = strtolower((string) $style['text_transform']);
+            if ( in_array($transform, array('uppercase', 'lowercase', 'capitalize'), true) ) {
+                $styles[] = 'text-transform:' . $transform;
+            }
+        }
+
+        if ( isset($style['font_variant']) && is_scalar($style['font_variant']) ) {
+            $variant = strtolower((string) $style['font_variant']);
+            if ( 'small-caps' === $variant ) {
+                $styles[] = 'font-variant:' . $variant;
+            }
         }
 
         return $styles;
