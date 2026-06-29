@@ -15,6 +15,7 @@ import { reconcileRegions, type PlacedRegion, type RegionSelectionReport } from 
 import { sectionExtract } from './section-extract.js';
 import { collectSourceAssets, type ImgAssetRef, type MediaAsset } from './source-assets.js';
 import { shouldCarrySourceCss } from './source-css-carry.js';
+import { collectRemoteImageAssets } from './remote-images.js';
 import { applyHoistSwaps, hoistVariations, type HoistedVariation } from './variation-hoist.js';
 import { writeTheme } from './write-theme.js';
 import type {
@@ -62,7 +63,18 @@ export async function siteToTheme(
       sourceAssets.imgRewritesByPage,
       sourceAssets.imgAssets
     );
-    const sourceMediaUrlMapsByPage = sourceMediaUrlMapsBySlug(sourceImgRefsByPage, themeMeta.slug);
+    const remoteImageCarry = await collectRemoteImageAssets(site.pages, {
+      fetchImpl: resolveRemoteImageFetchImpl(options?.fetchImpl),
+      occupiedRelPaths: sourceAssets.imgAssets.map((asset) => asset.themeRel),
+    });
+    for (const warning of remoteImageCarry.warnings) {
+      ctx.warn(warning);
+    }
+    const carriedImgRefsByPage = mergeImgRefsByPage(
+      sourceImgRefsByPage,
+      remoteImageCarry.imgRefsByPage
+    );
+    const sourceMediaUrlMapsByPage = sourceMediaUrlMapsBySlug(carriedImgRefsByPage, themeMeta.slug);
     const pages: Record<string, SectionBlocks[]> = {};
 
     for (const page of site.pages) {
@@ -100,9 +112,12 @@ export async function siteToTheme(
     const sourceCssCarry = carrySourceCss
       ? prepareSourceCssCarry(sourceAssets.css, sourceAssets.mediaAssets, inventory.assets)
       : undefined;
-    const assembledAssets = mergeCarriedImgAssets(
-      sourceCssCarry?.assets ?? inventory.assets,
-      sourceAssets.imgAssets
+    const assembledAssets = mergeAssetFiles(
+      mergeCarriedImgAssets(
+        sourceCssCarry?.assets ?? inventory.assets,
+        sourceAssets.imgAssets
+      ),
+      remoteImageCarry.assets
     );
     const assembled = assemble({
       site,
@@ -111,7 +126,7 @@ export async function siteToTheme(
       meta: themeMeta,
       assets: assembledAssets,
       fontCss: assetStage.fontCss,
-      imgRefsByPage: mergeImgRefsByPage(sourceImgRefsByPage, assetStage.imgRefsByPage),
+      imgRefsByPage: mergeImgRefsByPage(carriedImgRefsByPage, assetStage.imgRefsByPage),
       chromeParts: chromeRes.parts,
       chromeSlugsByPage: chromeRes.slugsByPage,
       layoutOffsetWrapperClass,
@@ -236,6 +251,25 @@ function dedupeImgRefs(refs: StaticImgRef[]): StaticImgRef[] {
   }
 
   return out;
+}
+
+function resolveRemoteImageFetchImpl(fetchImpl: typeof fetch | undefined): typeof fetch | undefined {
+  if (fetchImpl) return fetchImpl;
+  const defaultFetch = globalThis.fetch;
+  return typeof defaultFetch === 'function' ? defaultFetch.bind(globalThis) as typeof fetch : undefined;
+}
+
+function mergeAssetFiles(a: AssetFile[], b: AssetFile[]): AssetFile[] {
+  if (b.length === 0) return a;
+
+  const byRelPath = new Map<string, AssetFile>();
+  for (const asset of a) {
+    byRelPath.set(asset.relPath, asset);
+  }
+  for (const asset of b) {
+    byRelPath.set(asset.relPath, asset);
+  }
+  return sortAssetFiles([...byRelPath.values()]);
 }
 
 function mergeCarriedImgAssets(

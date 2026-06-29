@@ -3,11 +3,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import * as cheerio from 'cheerio';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { siteToTheme } from '../theme/site-to-theme.js';
 import { emptyNativeRenderOut, imageBlock } from '../theme/native-block-builders.js';
 import type { SectionSpec, SectionSpecImage } from '../theme/section-spec.js';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 async function withTempDir<T>(prefix: string, fn: (dir: string) => Promise<T> | T): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -179,6 +183,7 @@ describe('theme local image carry contract', () => {
           home: [imageSpec(sectionImage('assets/missing.png'))],
         },
       });
+      vi.stubGlobal('fetch', undefined);
       const remote = await siteToTheme(siteDir, {
         outDir: join(siteDir, 'remote-theme'),
         themeMeta: { slug: 'fixture-theme' },
@@ -202,6 +207,7 @@ describe('theme local image carry contract', () => {
     await withTempDir('blocks-engine-lossy-section-identity-', async (siteDir) => {
       const remoteImage = 'https://cdn.example.test/lossy.jpg';
       writeLossyIdentityPage(siteDir, remoteImage);
+      vi.stubGlobal('fetch', undefined);
 
       const result = await siteToTheme(siteDir, {
         outDir: join(siteDir, 'theme'),
