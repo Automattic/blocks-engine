@@ -31,12 +31,24 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
  * dynamic blocks (`core/navigation` family, `core/icon`) are skipped: their
  * `save()` returns a ref/wrapper or is plugin-provided, so a pure-PHP shape
  * assertion would false-flag them. Those stay the editor gate's job.
+ *
+ * One invariant is asserted for every block, not just the structural wrappers:
+ * no element may carry the same class token twice. `addGeneratedClassName`,
+ * `useBlockProps.save()`, and the block supports all emit each class exactly
+ * once, so a doubled token (the historic `core/button` inner-anchor leak that
+ * merged the structural `wp-element-button` class on top of a source className
+ * that already carried it) makes the stored markup diverge from `save()` and the
+ * editor flags the block invalid. The check scans every element of each block's
+ * own `innerHTML`, so it catches duplicates on structural children the wrapper
+ * shape assertions never inspect.
  */
 final class CanonicalSaveShapeValidator
 {
     public const SCHEMA = 'blocks-engine/php-transformer/canonical-save-shape-report/v1';
 
     public const FINDING_CODE = 'canonical_save_shape_violation';
+
+    public const DUPLICATE_CLASS_TOKEN_CODE = 'duplicate_class_token';
 
     /**
      * Static core wrappers whose canonical save() shape is fully determined by
@@ -105,6 +117,12 @@ final class CanonicalSaveShapeValidator
         if ( null !== $blockName && in_array($blockName, self::TARGET_BLOCKS, true) ) {
             $this->validateWrapper($block, $blockName, $path, $findings);
         }
+
+        // The no-duplicate-class-token invariant holds for every block, not just
+        // the structural wrappers, and applies to every element in the block's
+        // own markup (the wrapper and any structural children), so it runs over
+        // innerHTML for all blocks regardless of name.
+        $this->validateNoDuplicateClassTokens($block, $blockName, $path, $findings);
 
         $innerBlocks = is_array($block['innerBlocks'] ?? null) ? array_values($block['innerBlocks']) : array();
         foreach ( $innerBlocks as $index => $innerBlock ) {
@@ -211,6 +229,55 @@ final class CanonicalSaveShapeValidator
     }
 
     /**
+     * Flag any element in the block's own markup that carries the same class
+     * token more than once. No canonical core save() path emits a class twice,
+     * so a duplicate token is always a divergence the editor rejects — whether
+     * it lands on the wrapper or on a structural child the shape assertions do
+     * not inspect.
+     *
+     * @param array<string, mixed> $block
+     * @param array<int, array<string, mixed>> $findings
+     */
+    private function validateNoDuplicateClassTokens(array $block, ?string $blockName, string $path, array &$findings): void
+    {
+        $innerHTML = is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '';
+        if ( '' === $innerHTML || ! preg_match_all('/<[a-zA-Z][a-zA-Z0-9:-]*\b[^>]*>/', $innerHTML, $matches) ) {
+            return;
+        }
+
+        foreach ( $matches[0] as $openingTag ) {
+            $classValue = $this->attributeValue($openingTag, 'class');
+            if ( null === $classValue ) {
+                continue;
+            }
+
+            $seen       = array();
+            $duplicates = array();
+            foreach ( $this->tokens($classValue) as $token ) {
+                if ( isset($seen[$token]) ) {
+                    $duplicates[$token] = true;
+                    continue;
+                }
+                $seen[$token] = true;
+            }
+
+            if ( array() === $duplicates ) {
+                continue;
+            }
+
+            $duplicateTokens = array_keys($duplicates);
+            $this->addFinding(
+                $findings,
+                $path,
+                $blockName,
+                'Element carries duplicate class token(s) "' . implode('", "', $duplicateTokens) . '"; core save() emits each class once, so the stored markup diverges from save() and the editor flags the block invalid.',
+                array( 'reason' => 'duplicate_class_token', 'class' => $classValue, 'duplicate_tokens' => $duplicateTokens ),
+                self::DUPLICATE_CLASS_TOKEN_CODE
+            );
+        }
+    }
+
+    /**
      * A class WordPress' block supports reproduce in save() without any source
      * input: the block base class, element classes, and attribute-derived
      * support classes (alignment, color/border has-*, and is-* state/style).
@@ -256,11 +323,11 @@ final class CanonicalSaveShapeValidator
      * @param array<int, array<string, mixed>> $findings
      * @param array<string, mixed> $details
      */
-    private function addFinding(array &$findings, string $path, ?string $blockName, string $summary, array $details): void
+    private function addFinding(array &$findings, string $path, ?string $blockName, string $summary, array $details, string $code = self::FINDING_CODE): void
     {
         $findings[] = array_filter(
             array(
-                'code'       => self::FINDING_CODE,
+                'code'       => $code,
                 'severity'   => 'warning',
                 'category'   => 'wp_block_validity',
                 'path'       => $path,

@@ -543,6 +543,39 @@ $invalidBlockLevelButtonReport = ( new \Automattic\BlocksEngine\PhpTransformer\W
 $invalidBlockLevelButtonCodes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $invalidBlockLevelButtonReport['findings'] ?? array());
 $assert(in_array('button_block_level_link_markup', $invalidBlockLevelButtonCodes, true), 'runtime reports invalid block-level button link markup');
 
+// A doubled structural class token on the inner element (the historic core/button
+// leak that merged wp-element-button on top of a source className already carrying
+// it) makes the stored markup diverge from save(). The canonical save()-shape
+// validator must flag it as duplicate_class_token in the pure-PHP loop so the
+// regression is caught off the editor gate, even though the duplicate sits on a
+// structural child the wrapper shape assertions never inspect.
+$duplicateClassTokenButtonBlocks = array(
+    array(
+        'blockName'    => 'core/button',
+        'attrs'        => array('text' => 'Book now', 'url' => '/book'),
+        'innerBlocks'  => array(),
+        'innerHTML'    => '<div class="wp-block-button"><a class="wp-element-button wp-block-button__link has-text-color has-background wp-element-button" href="/book">Book now</a></div>',
+        'innerContent' => array('<div class="wp-block-button"><a class="wp-element-button wp-block-button__link has-text-color has-background wp-element-button" href="/book">Book now</a></div>'),
+    ),
+);
+$duplicateClassTokenReport = ( new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime() )->validateBlockSerialization($duplicateClassTokenButtonBlocks);
+$duplicateClassTokenCodes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $duplicateClassTokenReport['findings'] ?? array());
+$assert('warning' === ($duplicateClassTokenReport['status'] ?? ''), 'runtime warns on a button carrying a doubled class token');
+$assert(in_array('duplicate_class_token', $duplicateClassTokenCodes, true), 'canonical save()-shape validator flags a duplicate class token on the inner button element');
+$duplicateClassTokenFinding = null;
+foreach ( $duplicateClassTokenReport['findings'] ?? array() as $finding ) {
+    if ( 'duplicate_class_token' === ($finding['code'] ?? '') ) {
+        $duplicateClassTokenFinding = $finding;
+        break;
+    }
+}
+$assert(is_array($duplicateClassTokenFinding) && in_array('wp-element-button', $duplicateClassTokenFinding['details']['duplicate_tokens'] ?? array(), true), 'duplicate_class_token finding names the doubled wp-element-button token');
+
+// A canonical button (each class emitted once) must not be false-flagged.
+$canonicalButtonValidity = (array) ($buttonResult['source_reports']['wp_block_validity'] ?? array());
+$canonicalButtonCodes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $canonicalButtonValidity['findings'] ?? array());
+$assert(! in_array('duplicate_class_token', $canonicalButtonCodes, true), 'canonical generated buttons are not flagged for duplicate class tokens');
+
 $inlineSvgVisualWrapper = ( new HtmlTransformer() )->transform(
     '<main><section class="visual-region"><div class="map-layer"><div class="map-image" style="background-image:url(assets/map.png)"><svg><path d="M0 0h1v1z"></path></svg></div></div></section></main>'
 )->toArray();
