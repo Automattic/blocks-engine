@@ -77,7 +77,7 @@ final class BlockFactory
         if ( 'core/heading' === $name ) {
             $level = (int) ($attrs['level'] ?? 2);
             $level = max(1, min(6, $level));
-            return '<h' . $level . $this->blockSupportAttrs($attrs) . '>' . ($attrs['content'] ?? '') . '</h' . $level . '>';
+            return '<h' . $level . $this->blockSupportAttrs($attrs, 'wp-block-heading') . '>' . ($attrs['content'] ?? '') . '</h' . $level . '>';
         }
 
         if ( 'core/paragraph' === $name ) {
@@ -94,7 +94,7 @@ final class BlockFactory
 
         if ( 'core/list' === $name ) {
             $tagName = ! empty($attrs['ordered']) ? 'ol' : 'ul';
-            return array( 'opening' => '<' . $tagName . $this->blockSupportAttrs($attrs) . '>', 'closing' => '</' . $tagName . '>' );
+            return array( 'opening' => '<' . $tagName . $this->blockSupportAttrs($attrs, 'wp-block-list') . '>', 'closing' => '</' . $tagName . '>' );
         }
 
         if ( 'core/quote' === $name ) {

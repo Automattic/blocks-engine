@@ -33,6 +33,9 @@
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 7 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<h2 class=\"wp-block-heading\">Section title</h2>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<ul class=\"wp-block-list\">" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" }
   ]
 }
