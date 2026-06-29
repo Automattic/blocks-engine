@@ -1612,6 +1612,34 @@ final class ScenegraphNormalizer
             }
         }
 
+        // Figma `textCase` enum → CSS text-transform / font-variant. ORIGINAL and
+        // absent values keep the native font casing. SMALL_CAPS_FORCED uppercases
+        // before rendering small caps, matching Figma's render behaviour.
+        if ( isset($source['textCase']) && is_scalar($source['textCase']) && '' !== (string) $source['textCase'] ) {
+            $textCase = strtoupper((string) $source['textCase']);
+            $textTransform = match ( $textCase ) {
+                'UPPER'             => 'uppercase',
+                'LOWER'             => 'lowercase',
+                'TITLE'             => 'capitalize',
+                'SMALL_CAPS_FORCED' => 'uppercase',
+                default             => null,
+            };
+            if ( null !== $textTransform ) {
+                $style['text_transform'] = $textTransform;
+            }
+            if ( 'SMALL_CAPS' === $textCase || 'SMALL_CAPS_FORCED' === $textCase ) {
+                $style['font_variant'] = 'small-caps';
+            }
+        }
+
+        // Figma `paragraphSpacing` (px between paragraphs). The emitter renders a
+        // multi-paragraph text node as a single white-space:pre-line element, so
+        // this is captured for downstream consumers and a diagnostic rather than
+        // emitted as CSS that would not apply.
+        if ( isset($source['paragraphSpacing']) && is_numeric($source['paragraphSpacing']) ) {
+            $style['paragraph_spacing'] = (float) $source['paragraphSpacing'];
+        }
+
         return $style;
     }
 

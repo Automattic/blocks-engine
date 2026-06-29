@@ -4106,9 +4106,113 @@ $kiwiRadiusResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         ),
     ),
 ));
+
+// Figma `textCase` enum → CSS text-transform / font-variant, and `paragraphSpacing`
+// surfaced as an info diagnostic because a single-element text node cannot carry
+// per-paragraph margins.
+$textCaseResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Text Case And Paragraph Spacing',
+    'nodes' => array(
+        array(
+            'id'       => 'tc:1',
+            'type'     => 'FRAME',
+            'name'     => 'Text case frame',
+            'children' => array(
+                array(
+                    'id'         => 'tc:2',
+                    'type'       => 'TEXT',
+                    'name'       => 'Upper text',
+                    'characters' => 'shout this',
+                    'style'      => array(
+                        'fontFamily' => 'Example Sans',
+                        'fontSize'   => 18,
+                        'textCase'   => 'UPPER',
+                    ),
+                ),
+                array(
+                    'id'         => 'tc:3',
+                    'type'       => 'TEXT',
+                    'name'       => 'Lower text',
+                    'characters' => 'QUIET This',
+                    'style'      => array(
+                        'fontFamily' => 'Example Sans',
+                        'fontSize'   => 18,
+                        'textCase'   => 'LOWER',
+                    ),
+                ),
+                array(
+                    'id'         => 'tc:4',
+                    'type'       => 'TEXT',
+                    'name'       => 'Title text',
+                    'characters' => 'a nice heading',
+                    'style'      => array(
+                        'fontFamily' => 'Example Sans',
+                        'fontSize'   => 18,
+                        'textCase'   => 'TITLE',
+                    ),
+                ),
+                array(
+                    'id'         => 'tc:5',
+                    'type'       => 'TEXT',
+                    'name'       => 'Small caps forced text',
+                    'characters' => 'small caps forced',
+                    'style'      => array(
+                        'fontFamily' => 'Example Sans',
+                        'fontSize'   => 18,
+                        'textCase'   => 'SMALL_CAPS_FORCED',
+                    ),
+                ),
+                array(
+                    'id'         => 'tc:6',
+                    'type'       => 'TEXT',
+                    'name'       => 'Original case text',
+                    'characters' => 'Leave Me Alone',
+                    'style'      => array(
+                        'fontFamily' => 'Example Sans',
+                        'fontSize'   => 18,
+                        'textCase'   => 'ORIGINAL',
+                    ),
+                ),
+                array(
+                    'id'         => 'tc:7',
+                    'type'       => 'TEXT',
+                    'name'       => 'Multi paragraph text',
+                    'characters' => "First paragraph.\nSecond paragraph.",
+                    'style'      => array(
+                        'fontFamily'        => 'Example Sans',
+                        'fontSize'          => 18,
+                        'paragraphSpacing'  => 24,
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
 $kiwiRadiusCss = $fileContent($kiwiRadiusResult, 'style.css');
 $assert(str_contains($kiwiRadiusCss, '.figma-node-5-2-kiwi-corner-radius{width:160px;height:90px;border-top-left-radius:8px;border-top-right-radius:8px;border-bottom-right-radius:0px;border-bottom-left-radius:0px}'), 'kiwi-per-corner-radius-style');
 $assert(! str_contains($kiwiRadiusCss, 'border-radius:99px'), 'kiwi-per-corner-radius-overrides-uniform');
+
+$textCaseCss = $fileContent($textCaseResult, 'style.css');
+$textCaseDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $textCaseResult['diagnostics'] ?? array()
+);
+$assert(str_contains($textCaseCss, '.figma-node-tc-2-upper-text{position:absolute;font-family:"Example Sans", sans-serif;font-size:18px;text-transform:uppercase}'), 'text-case-upper-text-transform');
+$assert(str_contains($textCaseCss, 'text-transform:lowercase'), 'text-case-lower-text-transform');
+$assert(str_contains($textCaseCss, 'text-transform:capitalize'), 'text-case-title-text-transform');
+$assert(str_contains($textCaseCss, '.figma-node-tc-5-small-caps-forced-text{position:absolute;font-family:"Example Sans", sans-serif;font-size:18px;text-transform:uppercase;font-variant:small-caps}'), 'text-case-small-caps-forced');
+$assert(str_contains($textCaseCss, '.figma-node-tc-6-original-case-text{position:absolute;font-family:"Example Sans", sans-serif;font-size:18px}'), 'text-case-original-no-transform');
+$textCaseParagraphDiagnostic = null;
+foreach ( $textCaseResult['diagnostics'] ?? array() as $diagnostic ) {
+    if ( 'paragraph_spacing_not_applied' === ($diagnostic['code'] ?? null) ) {
+        $textCaseParagraphDiagnostic = $diagnostic;
+        break;
+    }
+}
+$assert(null !== $textCaseParagraphDiagnostic, 'paragraph-spacing-diagnostic-present');
+$assert('tc:7' === ($textCaseParagraphDiagnostic['context']['node_id'] ?? null), 'paragraph-spacing-diagnostic-node-id');
+$assert(24.0 === ($textCaseParagraphDiagnostic['context']['paragraph_spacing'] ?? null), 'paragraph-spacing-diagnostic-value');
+$assert(! str_contains($textCaseCss, 'paragraph-spacing') && ! str_contains($textCaseCss, 'paragraph_spacing'), 'paragraph-spacing-not-emitted-as-css');
 
 // Inline character-level style overrides (characterStyleOverrides + styleOverrideTable).
 //
