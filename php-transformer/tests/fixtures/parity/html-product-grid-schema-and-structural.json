@@ -1,0 +1,44 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-product-grid-schema-and-structural",
+  "description": "Emits an additive html_product_grid_fallback finding for a schema.org Product grid (name/price/sale_price/image/cart control) while leaving a generic services grid and a price-only pricing table unflagged.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-product-grid-schema-and-structural.json",
+    "notes": "Product-neutral fixture: detection is driven by schema.org microdata and the structural commerce triad (name + currency price + add-to-cart control), never by fixture class names. Proves genericity by leaving the services/pricing grids silent."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream commerce-recognition fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><ul class=\"product-grid\"><li class=\"card\" itemscope itemtype=\"https://schema.org/Product\"><img src=\"/img/lamp.jpg\" alt=\"Desk Lamp\"><h3 itemprop=\"name\">Desk Lamp</h3><p class=\"desc\">Warm focused light for any desk.</p><span class=\"price\" itemprop=\"price\">$48</span><span class=\"price sale\">$36</span><a class=\"add-to-cart\" href=\"/cart/add/lamp\">Add to cart</a></li><li class=\"card\" itemscope itemtype=\"https://schema.org/Product\"><h3 itemprop=\"name\">Wall Clock</h3><span class=\"price\" itemprop=\"price\">$29</span><button class=\"buy-now\">Buy now</button></li></ul><div class=\"services grid\"><div class=\"service card\"><h3>Consulting</h3><p>We help you grow.</p><a href=\"/contact\">Learn more</a></div><div class=\"service card\"><h3>Design</h3><p>Beautiful interfaces.</p><a href=\"/contact\">Learn more</a></div></div><section class=\"pricing grid\"><div class=\"tier card\"><h3>Basic</h3><span class=\"price\">$9/mo</span><a href=\"/signup\">Get started</a></div><div class=\"tier card\"><h3>Pro</h3><span class=\"price\">$29/mo</span><a href=\"/signup\">Get started</a></div></section></main>"
+  },
+  "expected_fallbacks": [
+    { "type": "html", "reason": "commerce_product_grid_detected", "tag": "ul", "diagnostic_code": "html_product_grid_fallback", "kind": "html_product_grid_fallback", "product_count": 2 }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_product_grid_fallback" },
+    { "path": "fallbacks.0.kind", "assert": "equals", "value": "html_product_grid_fallback" },
+    { "path": "fallbacks.0.reason_code", "assert": "equals", "value": "html_product_grid_fallback" },
+    { "path": "fallbacks.0.pattern_family", "assert": "equals", "value": "commerce_product_grid" },
+    { "path": "fallbacks.0.repair_bucket", "assert": "equals", "value": "materialize_commerce_products" },
+    { "path": "fallbacks.0.container_selector", "assert": "equals", "value": "main:nth-of-type(1) > ul:nth-of-type(1)" },
+    { "path": "fallbacks.0.products", "assert": "count", "count": 2 },
+    { "path": "fallbacks.0.products.0.name", "assert": "equals", "value": "Desk Lamp" },
+    { "path": "fallbacks.0.products.0.price", "assert": "equals", "value": "$48" },
+    { "path": "fallbacks.0.products.0.sale_price", "assert": "equals", "value": "$36" },
+    { "path": "fallbacks.0.products.0.description", "assert": "equals", "value": "Warm focused light for any desk." },
+    { "path": "fallbacks.0.products.0.image.src", "assert": "equals", "value": "/img/lamp.jpg" },
+    { "path": "fallbacks.0.products.0.image.alt", "assert": "equals", "value": "Desk Lamp" },
+    { "path": "fallbacks.0.products.0.has_cart_control", "assert": "equals", "value": true },
+    { "path": "fallbacks.0.products.0.source_selector", "assert": "equals", "value": "main:nth-of-type(1) > ul:nth-of-type(1) > li:nth-of-type(1)" },
+    { "path": "fallbacks.0.products.1.name", "assert": "equals", "value": "Wall Clock" },
+    { "path": "fallbacks.0.products.1.price", "assert": "equals", "value": "$29" },
+    { "path": "fallbacks.0.products.1.sale_price", "assert": "equals", "value": null },
+    { "path": "fallbacks.0.products.1.has_cart_control", "assert": "equals", "value": true }
+  ]
+}

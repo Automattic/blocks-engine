@@ -66,6 +66,19 @@ final class FallbackDiagnostic
                 'suggested_primitive'   => 'form',
                 'materialization_hint'  => 'preserve_form_markup_or_replace_with_form_block_integration',
             ),
+            'html_product_grid_fallback' => array(
+                'severity'              => 'info',
+                'conversion_classification' => 'editable_approximation',
+                'loss_class'            => 'native_conversion',
+                'diagnostic_class'      => 'commerce_structure_detected',
+                'preservation_strategy' => 'layout_blocks_with_structured_product_metadata',
+                'runtime_requirement'   => 'none',
+                'recoverability'        => 'recoverable_with_commerce_product_materialization',
+                'actionability'         => 'materialize_detected_products_in_a_commerce_provider',
+                'suggested_repair_class' => 'materialize_commerce_products',
+                'suggested_primitive'   => 'product_grid',
+                'materialization_hint'  => 'layout_blocks_are_emitted_as_is; map_each_detected_product_name_price_and_cart_control_onto_a_commerce_provider',
+            ),
             'html_script_fallback' => array(
                 'severity'              => 'warning',
                 'conversion_classification' => 'runtime_island_preserved',
@@ -204,6 +217,7 @@ final class FallbackDiagnostic
 
         return match ( $code ) {
             'html_form_fallback' => 'interactive_form',
+            'html_product_grid_fallback' => 'commerce_product_grid',
             'html_script_fallback' => 'runtime_script',
             'interactive_control_behavior_lost' => 'interactive_control',
             'html_iframe_embed_fallback' => 'external_embed',

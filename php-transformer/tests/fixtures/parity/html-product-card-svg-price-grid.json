@@ -24,7 +24,9 @@
     { "path": "blocks.0.innerBlocks.0.innerBlocks.3", "name": "core/buttons" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.3.innerBlocks.0", "name": "core/button", "attrs": { "className": "product-cta", "text": "Buy now", "url": "/products/bowl" } }
   ],
-  "expected_fallbacks": [],
+  "expected_fallbacks": [
+    { "type": "html", "reason": "commerce_product_grid_detected", "tag": "div", "diagnostic_code": "html_product_grid_fallback", "kind": "html_product_grid_fallback", "product_count": 2 }
+  ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
@@ -32,6 +34,16 @@
     { "path": "assets", "assert": "count", "count": 0 },
     { "path": "serialized_blocks", "assert": "contains", "value": "product-price" },
     { "path": "source_reports.html.structure_signals.3.signals.price_like", "assert": "equals", "value": true },
-    { "path": "source_reports.html.structure_signals.14.signals.grid_like", "assert": "equals", "value": true }
+    { "path": "source_reports.html.structure_signals.14.signals.grid_like", "assert": "equals", "value": true },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_product_grid_fallback" },
+    { "path": "fallbacks.0.container_selector", "assert": "equals", "value": "div:nth-of-type(1)" },
+    { "path": "fallbacks.0.products", "assert": "count", "count": 2 },
+    { "path": "fallbacks.0.products.0.name", "assert": "equals", "value": "Ceramic Bowl" },
+    { "path": "fallbacks.0.products.0.price", "assert": "equals", "value": "$42" },
+    { "path": "fallbacks.0.products.0.has_cart_control", "assert": "equals", "value": true },
+    { "path": "fallbacks.0.products.1.name", "assert": "equals", "value": "Linen Towel" },
+    { "path": "fallbacks.0.products.1.price", "assert": "equals", "value": "$18" },
+    { "path": "fallbacks.0.products.1.has_cart_control", "assert": "equals", "value": true }
   ]
 }
