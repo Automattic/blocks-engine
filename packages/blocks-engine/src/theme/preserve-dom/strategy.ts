@@ -125,8 +125,74 @@ function emitChild($: CheerioAPI, el: Element, sheet: InstanceStyleSheet): Child
     };
   }
 
-  // TODO(P3-S3): port non-core preserve-DOM branches only after this lib-i core proof lands.
+  // P3-S3: nested non-leaf container (e.g. .menu-grid > .menu-card > h3 + p). Recurse,
+  // preserving the container's source class/id as a nested wp:group, so designed
+  // structures survive instead of being dropped. `clean` only stays true if every
+  // descendant emitted cleanly (an unhandled leaf still downgrades the whole subtree).
+  if (NESTABLE_CONTAINERS.has(tag) && elementChildren.length > 0) {
+    return emitContainer($, el, tag, sheet);
+  }
+
+  // Unhandled element kind (e.g. table, form, media element): downgrade.
   return { markup: '', clean: false };
+}
+
+const NESTABLE_CONTAINERS = new Set([
+  'div',
+  'section',
+  'article',
+  'header',
+  'footer',
+  'main',
+  'aside',
+  'nav',
+  'ul',
+  'ol',
+  'li',
+  'figure',
+  'figcaption',
+]);
+
+function emitContainer(
+  $: CheerioAPI,
+  el: Element,
+  tag: string,
+  sheet: InstanceStyleSheet
+): ChildResult {
+  const $el = $(el);
+  const childResults: ChildResult[] = [];
+  for (const node of $el.contents().get()) {
+    if (isTag(node)) {
+      childResults.push(emitChild($, node, sheet));
+    } else if (isText(node)) {
+      const text = node.data.trim();
+      if (text) childResults.push({ markup: paragraphBlock(escapeHtml(text)), clean: true });
+    }
+  }
+
+  const innerMarkup = childResults
+    .map((res) => res.markup)
+    .filter(Boolean)
+    .join('\n');
+  if (!innerMarkup) return { markup: '', clean: false };
+
+  const cls = classNameWithInstance($el, sheet);
+  const id = $el.attr('id')?.trim();
+  // div is the default wp:group tag; keep an explicit tagName for semantic containers.
+  const pairs: string[] = [];
+  if (tag !== 'div') pairs.push(`"tagName":${attrJson(tag)}`);
+  if (id) pairs.push(`"anchor":${attrJson(id)}`);
+  const attrs = blockAttrs(pairs, cls);
+  const wrapTag = tag === 'div' ? 'div' : tag;
+  const divCls = ['wp-block-group', cls].filter(Boolean).join(' ');
+  const idPart = id ? ` id="${escapeHtml(id)}"` : '';
+  return {
+    markup:
+      `<!-- wp:group${attrs} -->\n` +
+      `<${wrapTag}${idPart} class="${escapeHtml(divCls)}">${innerMarkup}</${wrapTag}>\n` +
+      `<!-- /wp:group -->`,
+    clean: childResults.every((res) => res.clean),
+  };
 }
 
 function sheetFromState(state: StrategyState): InstanceStyleSheet {
