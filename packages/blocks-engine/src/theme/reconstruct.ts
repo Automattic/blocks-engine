@@ -1,11 +1,11 @@
 import * as cheerio from 'cheerio';
 import { escapeHtmlAttr } from '../escape.js';
 import type { WorkerPool } from '../pool/types.js';
-import { convertSemanticSections } from './convert-semantic-sections.js';
 import { buildFallbackDiagnostic } from './fallback-diagnostic.js';
 import { formToBlocks, SKIPPED_FIELD_KINDS } from './form-blocks.js';
 import { buildHtmlFallbackBlock, selectIslandSource, type HtmlFallbackOpts } from './html-fallback.js';
 import { hasUnmigratedRemoteAsset, scanForInjection } from './injection-scan.js';
+import { preserveDomStrategy } from './preserve-dom/strategy.js';
 import { imageBlock, visibleText } from './native-block-builders.js';
 import { nearestFamily } from './native-fonts.js';
 import { centerOf } from './native-layout.js';
@@ -613,6 +613,23 @@ export const classifySemanticStrategy: SectionStrategy = {
   },
 };
 
+// Default reconstruction (the DLA-faithful path): preserve-dom first — native editable
+// blocks that keep their source classes (so carried CSS binds → visual parity), with nested
+// core/html islands for the elements that can't become core blocks. Falls back to a whole-
+// section verbatim island, then native rendering, only when preserve-dom has no usable source
+// HTML. Drains preserve-dom's deduped lib-i instance CSS so inline styles resolve.
+export const defaultReconstructStrategy: SectionStrategy = {
+  name: 'preserve-dom-default',
+  render(section, options, ctx, state) {
+    const preserved = preserveDomStrategy.render(section, options, ctx, state);
+    if (preserved && !preserved.coverage.lost) return preserved;
+    return islandDecision(section, options) ?? nativeDecision(section, options, ctx);
+  },
+  drainDedup(state) {
+    return preserveDomStrategy.drainDedup?.(state) ?? { cssRules: [] };
+  },
+};
+
 function optionsFromCtx(ctx: StageCtx): SectionRenderOptions {
   const rewriteCtx = ctx as RewriteCtx;
   return {
@@ -637,7 +654,7 @@ export function reconstructNativeAggregate(
     ...(options.mediaUrlMap ? { mediaUrlMap: options.mediaUrlMap } : {}),
   };
 
-  const strategy = options.strategy ?? classifySemanticStrategy;
+  const strategy = options.strategy ?? defaultReconstructStrategy;
   const state: StrategyState = {};
   const decisions: NativeSectionDecision[] = [];
   const sectionMarkup: string[] = [];
@@ -686,16 +703,10 @@ export async function reconstruct(
   coverageFloor: number,
   renderOptions: SectionRenderOptions = {}
 ): Promise<SectionBlocks[]> {
-  // PRODUCING half of the convert-or-island hybrid: pre-convert semantic sections
-  // through rawConvert on the pool so convertedDecision can promote the clean ones
-  // to canonical editable blocks. Anything dirty/non-semantic stays out of the map
-  // and falls back to a verbatim island (keeps source classes → carried CSS binds).
-  const convertedSections =
-    renderOptions.convertedSections ?? (await convertSemanticSections(specs, pool));
+  void pool;
   const aggregate = reconstructNativeAggregate(specs, {
     ...optionsFromCtx(ctx),
     ...renderOptions,
-    convertedSections,
   });
   renderOptions.onDedup?.(aggregate.dedup?.cssRules ?? []);
   const sections: SectionBlocks[] = [];

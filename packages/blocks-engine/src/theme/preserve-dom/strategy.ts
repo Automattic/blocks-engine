@@ -6,6 +6,14 @@ import { escapeHtmlAttr as escapeHtml } from '../../escape.js';
 import type { NativeSectionDecision, SectionStrategy, StrategyState } from '../native-reconstruct-types.js';
 import type { SectionSpec } from '../section-spec.js';
 import { InstanceStyleSheet } from './instance-styles.js';
+import { buildHtmlFallbackBlock } from '../html-fallback.js';
+
+/** Wrap an un-convertible element's verbatim source as a nested core/html island
+ *  (sanitized, same opener marker as section-level islands). Keeps the element's
+ *  visual + classes so carried CSS binds, without dropping it. */
+function coreHtmlIsland(html: string): string {
+  return buildHtmlFallbackBlock(html);
+}
 
 type SourceIdentitySection = SectionSpec & {
   sourceId?: string;
@@ -133,7 +141,12 @@ function emitChild($: CheerioAPI, el: Element, sheet: InstanceStyleSheet): Child
     return emitContainer($, el, tag, sheet);
   }
 
-  // Unhandled element kind (e.g. table, form, media element): downgrade.
+  // Un-convertible element kind (svg, table, form, media): keep it losslessly as a nested
+  // core/html island instead of dropping it — preserves the visual AND its source classes
+  // (so carried CSS still binds → visual parity) while the rest of the section stays native
+  // editable blocks. This is DLA's per-element island behavior (apply-block-recipe).
+  const verbatim = $.html(el).trim();
+  if (verbatim) return { markup: coreHtmlIsland(verbatim), clean: true };
   return { markup: '', clean: false };
 }
 
@@ -174,7 +187,12 @@ function emitContainer(
     .map((res) => res.markup)
     .filter(Boolean)
     .join('\n');
-  if (!innerMarkup) return { markup: '', clean: false };
+  // Container whose children produced no native markup (e.g. an SVG-only wrapper):
+  // island it verbatim rather than dropping it.
+  if (!innerMarkup) {
+    const verbatim = $.html(el).trim();
+    return verbatim ? { markup: coreHtmlIsland(verbatim), clean: true } : { markup: '', clean: false };
+  }
 
   const cls = classNameWithInstance($el, sheet);
   const id = $el.attr('id')?.trim();
