@@ -5430,10 +5430,78 @@ final class StaticHtmlEmitter
         }
 
         if ( 'GRADIENT_RADIAL' === ($paint['type'] ?? null) ) {
+            // Radial center/radius are encoded in the gradientTransform too, but
+            // recovering them faithfully is more involved; emit a centered circle
+            // as the supported baseline.
             return 'radial-gradient(circle,' . implode(',', $cssStops) . ')';
         }
 
-        return 'linear-gradient(180deg,' . implode(',', $cssStops) . ')';
+        return 'linear-gradient(' . $this->number($this->linearGradientAngle($paint)) . 'deg,' . implode(',', $cssStops) . ')';
+    }
+
+    /**
+     * Computes the CSS linear-gradient angle (degrees) for a Figma linear paint
+     * from its gradientTransform matrix.
+     *
+     * Figma encodes gradient direction with a 2x3 affine matrix that maps the
+     * shape's normalized bounding-box space (0..1, y-down) into the gradient's
+     * canonical parameter space, where the gradient runs along x from 0 (start)
+     * to 1 (end) at any y. To recover the start->end direction in the shape's own
+     * space we map the canonical points (0, 0.5) and (1, 0.5) back through the
+     * INVERSE matrix. Their difference equals the first column of the inverse
+     * linear part, (d/det, -c/det), where the linear part is [[a, b], [c, d]] and
+     * det = a*d - b*c.
+     *
+     * CSS linear-gradient angles run clockwise from "to top": 0deg points up,
+     * 90deg right, 180deg down, 270deg left. For a direction vector (dx, dy) in
+     * y-down space the matching angle is atan2(dx, -dy), normalized to [0, 360).
+     * A left-to-right vector (1, 0) yields 90deg; a top-to-bottom vector (0, 1)
+     * yields 180deg.
+     *
+     * Returns 180.0 (top-to-bottom) when no usable transform is present, so paints
+     * without geometry keep the historical default.
+     *
+     * @param array<string, mixed> $paint
+     */
+    private function linearGradientAngle(array $paint): float
+    {
+        $matrix = $paint['gradientTransform'] ?? null;
+        if ( ! is_array($matrix) || ! is_array($matrix[0] ?? null) || ! is_array($matrix[1] ?? null) ) {
+            return 180.0;
+        }
+
+        $a = $this->numericOrNull($matrix[0][0] ?? null);
+        $b = $this->numericOrNull($matrix[0][1] ?? null);
+        $c = $this->numericOrNull($matrix[1][0] ?? null);
+        $d = $this->numericOrNull($matrix[1][1] ?? null);
+        if ( null === $a || null === $b || null === $c || null === $d ) {
+            return 180.0;
+        }
+
+        $det = $a * $d - $b * $c;
+        if ( abs($det) < 1e-9 ) {
+            return 180.0;
+        }
+
+        // First column of the inverse linear part: the start->end direction in
+        // the shape's normalized (y-down) coordinate space.
+        $dx = $d / $det;
+        $dy = -$c / $det;
+        if ( abs($dx) < 1e-9 && abs($dy) < 1e-9 ) {
+            return 180.0;
+        }
+
+        $angle = fmod(rad2deg(atan2($dx, -$dy)), 360.0);
+        if ( $angle < 0.0 ) {
+            $angle += 360.0;
+        }
+
+        return $angle;
+    }
+
+    private function numericOrNull(mixed $value): ?float
+    {
+        return is_numeric($value) ? (float) $value : null;
     }
 
     private function color(mixed $value, mixed $opacity = null): ?string
