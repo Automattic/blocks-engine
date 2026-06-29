@@ -497,6 +497,10 @@ final class FigmaTransformer
         $normalizeOptions = $options;
         unset($normalizeOptions['frame_id'], $normalizeOptions['responsive_variants'], $normalizeOptions['page_name']);
         $normalizeOptions['render_document'] = true;
+        $normalizeOptions['document_frame_ids'] = array_values(array_filter(array_map(
+            static fn (array $variant): string => isset($variant['frame_id']) && is_scalar($variant['frame_id']) ? (string) $variant['frame_id'] : '',
+            $variants
+        )));
         $normalized = $this->scenegraphNormalizer->normalize($scenegraph, $normalizeOptions);
 
         $pagePlan = array(
