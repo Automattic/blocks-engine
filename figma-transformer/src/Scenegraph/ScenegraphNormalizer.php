@@ -960,6 +960,14 @@ final class ScenegraphNormalizer
         $resolvedChildren = is_array($resolved['children'] ?? null) ? $resolved['children'] : array();
         $resolvedChildren = $this->resolveClonedInstanceChildren($resolvedChildren, $nodeMap);
         $resolvedChildren = $this->scaleVectorOnlyInstanceChildren($resolvedChildren, $component, $instance);
+        // Figma binds per-instance text content through component properties: each
+        // master text node references a property definition (componentPropRefs ->
+        // componentPropNodeField: TEXT_DATA) and the instance assigns the real value
+        // (componentPropAssignments -> value.textValue.characters). Fold those text
+        // assignments into the override map keyed by the consuming node id so the
+        // existing override machinery renders each instance's own content instead of
+        // the component master's default placeholder.
+        $overrides = $this->mergeComponentPropertyTextOverrides($overrides, $instance, $component);
         if ( $this->instanceOverridesUseTransforms($overrides) ) {
             $resolved['layout'] = array('freeform' => true);
         }
@@ -969,6 +977,175 @@ final class ScenegraphNormalizer
         );
 
         return $resolved;
+    }
+
+    /**
+     * Fold the instance's component-property text assignments into the override map.
+     *
+     * Figma stores per-instance text overrides as component properties rather than as
+     * descendant node changes: the instance carries componentPropAssignments (defID ->
+     * value.textValue.characters) and each master text node carries componentPropRefs
+     * (defID -> componentPropNodeField: TEXT_DATA). Matching them by defID yields the
+     * real per-instance characters for each consuming text node.
+     *
+     * @param array<string, array<string, mixed>> $overrides Existing override map keyed by node id.
+     * @param array<string, mixed>                 $instance  Instance node carrying componentPropAssignments.
+     * @param array<string, mixed>                 $component Component definition whose text nodes carry componentPropRefs.
+     * @return array<string, array<string, mixed>>
+     */
+    private function mergeComponentPropertyTextOverrides(array $overrides, array $instance, array $component): array
+    {
+        $assignments = $this->componentPropertyTextAssignments($instance);
+        if ( empty($assignments) ) {
+            return $overrides;
+        }
+
+        $targets = array();
+        $this->collectComponentPropertyTextTargets($component, $assignments, $targets);
+
+        foreach ( $targets as $nodeId => $fields ) {
+            foreach ( $fields as $field => $value ) {
+                // Do not clobber a value an explicit override already established;
+                // component-property assignments only fill content that is otherwise
+                // left at the component master default.
+                if ( ! isset($overrides[$nodeId][$field]) ) {
+                    $overrides[$nodeId][$field] = $value;
+                }
+            }
+        }
+
+        return $overrides;
+    }
+
+    /**
+     * Read the text-valued component property assignments from an instance.
+     *
+     * @param array<string, mixed> $instance
+     * @return array<string, string> Map of property definition id => assigned characters.
+     */
+    private function componentPropertyTextAssignments(array $instance): array
+    {
+        $assignmentsRaw = $instance['componentPropAssignments'] ?? null;
+        if ( ! is_array($assignmentsRaw) ) {
+            return array();
+        }
+
+        $assignments = array();
+        foreach ( $assignmentsRaw as $assignment ) {
+            if ( ! is_array($assignment) ) {
+                continue;
+            }
+
+            $defId = $this->readGuidId($assignment['defID'] ?? $assignment['defId'] ?? null);
+            if ( null === $defId || '' === $defId ) {
+                continue;
+            }
+
+            $characters = $this->readComponentPropertyAssignmentCharacters($assignment);
+            if ( null === $characters ) {
+                continue;
+            }
+
+            $assignments[$defId] = $characters;
+        }
+
+        return $assignments;
+    }
+
+    /**
+     * @param array<string, mixed> $assignment
+     */
+    private function readComponentPropertyAssignmentCharacters(array $assignment): ?string
+    {
+        $paths = array(
+            array('value', 'textValue', 'characters'),
+            array('value', 'textDataValue', 'characters'),
+            array('varValue', 'value', 'textDataValue', 'characters'),
+            array('varValue', 'value', 'textValue', 'characters'),
+        );
+
+        foreach ( $paths as $path ) {
+            $cursor = $assignment;
+            foreach ( $path as $key ) {
+                if ( ! is_array($cursor) || ! array_key_exists($key, $cursor) ) {
+                    $cursor = null;
+                    break;
+                }
+                $cursor = $cursor[$key];
+            }
+            if ( is_scalar($cursor) ) {
+                return (string) $cursor;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Walk a component subtree and record text overrides for nodes whose TEXT_DATA
+     * property reference matches an instance assignment.
+     *
+     * @param array<string, mixed>  $node
+     * @param array<string, string> $assignments Map of property definition id => characters.
+     * @param array<string, array<string, mixed>> $targets Accumulator keyed by node id.
+     */
+    private function collectComponentPropertyTextTargets(array $node, array $assignments, array &$targets): void
+    {
+        foreach ( $this->componentPropertyTextRefDefIds($node) as $defId ) {
+            if ( ! isset($assignments[$defId]) ) {
+                continue;
+            }
+
+            $nodeId = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
+            if ( '' === $nodeId ) {
+                continue;
+            }
+
+            $targets[$nodeId]['characters'] = $assignments[$defId];
+            $targets[$nodeId]['text'] = $assignments[$defId];
+            break;
+        }
+
+        if ( is_array($node['children'] ?? null) ) {
+            foreach ( $node['children'] as $child ) {
+                if ( is_array($child) ) {
+                    $this->collectComponentPropertyTextTargets($child, $assignments, $targets);
+                }
+            }
+        }
+    }
+
+    /**
+     * Read the property definition ids bound to a node's TEXT_DATA field.
+     *
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function componentPropertyTextRefDefIds(array $node): array
+    {
+        $refs = $node['componentPropRefs'] ?? $node['componentPropRef'] ?? null;
+        if ( ! is_array($refs) ) {
+            return array();
+        }
+
+        $defIds = array();
+        foreach ( $refs as $ref ) {
+            if ( ! is_array($ref) ) {
+                continue;
+            }
+
+            $field = strtoupper((string) ($ref['componentPropNodeField'] ?? ''));
+            if ( 'TEXT_DATA' !== $field && 'TEXT' !== $field && 'CHARACTERS' !== $field ) {
+                continue;
+            }
+
+            $defId = $this->readGuidId($ref['defID'] ?? $ref['defId'] ?? null);
+            if ( null !== $defId && '' !== $defId ) {
+                $defIds[] = $defId;
+            }
+        }
+
+        return $defIds;
     }
 
     /**
