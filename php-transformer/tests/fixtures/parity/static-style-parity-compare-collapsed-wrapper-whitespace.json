@@ -1,0 +1,37 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "static-style-parity-compare-collapsed-wrapper-whitespace",
+  "description": "Collapsed-wrapper coverage must survive the transform's minified serialization. The source list carries authored whitespace between its inline children (\"Title Detail\"), but the candidate merges those children back-to-back with no separating whitespace (\"TitleDetail\") and re-tags the wrapper, so the list element owns no 1:1 candidate. The inter-child whitespace is a serialization artifact, not visual content, so the absorption content test compares whitespace-insensitively: the collapsed list wrapper is recognized as carrying its content and earns coverage credit, exactly as its absorbed children do. A genuine drop — content simply absent from every candidate — still fails containment and stays a counted loss.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/static-style-parity-compare-collapsed-wrapper-whitespace.json",
+    "notes": "Locks in whitespace-insensitive content subsumption so minified collapsed wrappers are not counted as loss."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Static style parity comparison emits the shared visual-parity report contract."
+  },
+  "operation": "static_style_parity.compare",
+  "input": {
+    "source_content": "<body><ul class=\"list\"><li>\n  <span class=\"t\">Title</span>\n  <span class=\"d\">Detail</span>\n</li></ul></body>",
+    "source_css": ".t{color:#111}.d{color:#222}",
+    "target_content": "<div class=\"list\"><div><p class=\"t\">Title</p><p class=\"d\">Detail</p></div></div>",
+    "target_css": ".t{color:#111}.d{color:#222}"
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/visual-parity-report/v1" },
+    { "path": "status", "assert": "equals", "value": "pass" },
+    { "path": "parity.property_parity", "assert": "equals", "value": 1.0 },
+    { "path": "parity.coverage", "assert": "equals", "value": 1.0 },
+    { "path": "parity.score", "assert": "equals", "value": 1.0 },
+    { "path": "summary.source_total", "assert": "equals", "value": 3 },
+    { "path": "summary.matched_total", "assert": "equals", "value": 0 },
+    { "path": "summary.absorbed_source_total", "assert": "equals", "value": 3 },
+    { "path": "summary.covered_total", "assert": "equals", "value": 3 },
+    { "path": "summary.unmatched_source_total", "assert": "equals", "value": 0 },
+    { "path": "summary.finding_total", "assert": "equals", "value": 0 },
+    { "path": "absorbed_source.0.tag", "assert": "equals", "value": "ul" },
+    { "path": "absorbed_source.0.source_selector", "assert": "equals", "value": "ul.list" },
+    { "path": "absorbed_source.0.absorbed_into_selector", "assert": "equals", "value": "div.list" }
+  ]
+}

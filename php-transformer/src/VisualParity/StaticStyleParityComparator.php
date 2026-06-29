@@ -336,14 +336,31 @@ final class StaticStyleParityComparator
      * wrapper merely because its single character appears somewhere in the source.
      * Equal texts satisfy containment, which also covers the probe's shared
      * 80-char truncation boundary.
+     *
+     * Comparison is whitespace-insensitive. The transform serializes blocks as
+     * minified markup, so adjacent block children render back-to-back with no
+     * separating whitespace ("JanuaryThe"), whereas the source carried inter-
+     * element whitespace from its indentation ("January The"). That spacing is
+     * not visual content — it is a serialization artifact of how the two
+     * documents lay out the SAME text. Collapsing all whitespace before the
+     * containment test lets a collapsed parent wrapper (a `<li>` merged into a
+     * group whose children are absorbed) still be recognized as carrying its
+     * content, while a genuine drop — whose characters are simply absent from
+     * every candidate — still fails containment and stays a counted loss.
      */
     private function contentSubsumed(string $sourceText, string $candidateText): bool
     {
+        $sourceText = $this->stripWhitespace($sourceText);
         if ( '' === $sourceText ) {
             return true;
         }
 
-        return str_contains($candidateText, $sourceText);
+        return str_contains($this->stripWhitespace($candidateText), $sourceText);
+    }
+
+    private function stripWhitespace(string $text): string
+    {
+        return preg_replace('/\s+/', '', $text) ?? $text;
     }
 
     /**
