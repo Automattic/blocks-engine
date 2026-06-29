@@ -1,0 +1,41 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-paragraph-heading-classed-span-hoist",
+  "description": "Hoists a single content-wrapping class/style span out of paragraph and heading RichText content onto the block, and unwraps sibling/partial styling-hook spans, so the stored block round-trips through RichText (saved == regenerated) while genuine inline formats are preserved.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-paragraph-heading-classed-span-hoist.json",
+    "notes": "Covers the dominant invalid-block cause in real imports: classed/styled <span> styling hooks inside paragraph/heading content, which RichText strips on parse."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This fixture covers WordPress block-validity normalization beyond the legacy converter behavior."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"card\"><p><span class=\"section-label\">Our Kitchen</span></p><p><span class=\"badge\" style=\"color:#ffffff\">New</span></p><h2><span class=\"ht-line\">Ember</span> <span class=\"ht-amp\">&amp;</span> <span class=\"ht-line-2\">Rye</span></h2><p><span class=\"lead\"><strong>Bold</strong> and <a href=\"/x\">link</a></span></p><p>Plain <strong>bold</strong> text</p></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "card" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "section-label", "content": "Our Kitchen" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "badge", "content": "New", "style": { "color": { "text": "#ffffff" } } } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/heading", "attrs": { "level": 2, "content": "Ember &amp; Rye" } },
+    { "path": "blocks.0.innerBlocks.3", "name": "core/paragraph", "attrs": { "className": "lead", "content": "<strong>Bold</strong> and <a href=\"/x\">link</a>" } },
+    { "path": "blocks.0.innerBlocks.4", "name": "core/paragraph", "attrs": { "content": "Plain <strong>bold</strong> text" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 5 },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"section-label\">Our Kitchen</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"has-text-color badge\" style=\"color:#ffffff\">New</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<h2>Ember &amp; Rye</h2>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"lead\"><strong>Bold</strong> and <a href=\"/x\">link</a></p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p>Plain <strong>bold</strong> text</p>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "class=\"section-label\">Our Kitchen</span>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "ht-line" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<span" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
