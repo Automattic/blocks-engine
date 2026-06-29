@@ -1490,17 +1490,19 @@ final class ScenegraphNormalizer
                 if ( isset($glyph['commandsBlob']) ) {
                     $bytes = $this->readCommandBlobBytes($glyph['commandsBlob'], $blobs);
                     if ( null !== $bytes ) {
-                        $path = $this->decodeVectorCommandBlob($bytes);
-                        if ( null === $path ) {
+                        $decoded = $this->classifyVectorCommandBlob($bytes);
+                        if ( 'path' === $decoded['status'] ) {
+                            $glyphPath['data'] = $decoded['path'];
+                        } elseif ( 'unsupported' === $decoded['status'] ) {
                             $diagnostics[] = array(
                                 'severity' => 'warning',
                                 'code'     => 'unsupported_text_glyph_command_blob',
                                 'message'  => 'Unsupported Figma text glyph command blob was omitted from derived glyph metadata.',
                                 'context'  => array('node_id' => $nodeId, 'glyph_index' => $index),
                             );
-                        } else {
-                            $glyphPath['data'] = $path;
                         }
+                        // 'empty' blobs (e.g. whitespace glyphs encoded as a single
+                        // 0x00 byte) carry no drawable outline and are not warnings.
                     }
                 }
 
@@ -3143,6 +3145,24 @@ final class ScenegraphNormalizer
 
     private function decodeVectorCommandBlob(string $bytes): ?string
     {
+        return $this->classifyVectorCommandBlob($bytes)['path'];
+    }
+
+    /**
+     * Walk a Figma vector/glyph command blob once and classify the outcome.
+     *
+     * The status distinguishes three cases the single ?string decoder cannot:
+     *  - 'path'        the blob decoded to one or more drawable SVG commands.
+     *  - 'empty'       the blob is well-formed but draws nothing (e.g. the
+     *                  whitespace glyphs Figma emits as a single 0x00 byte).
+     *                  These are valid, not unsupported, and must not warn.
+     *  - 'unsupported' an opcode was unknown or a point ran past the blob,
+     *                  so the encoding could not be honored.
+     *
+     * @return array{status: 'path'|'empty'|'unsupported', path: ?string}
+     */
+    private function classifyVectorCommandBlob(string $bytes): array
+    {
         $offset = 0;
         $length = strlen($bytes);
         $parts = array();
@@ -3162,7 +3182,7 @@ final class ScenegraphNormalizer
             if ( 1 === $opcode || 2 === $opcode ) {
                 $point = $this->readFloatPair($bytes, $offset);
                 if ( null === $point ) {
-                    return null;
+                    return array('status' => 'unsupported', 'path' => null);
                 }
                 $parts[] = ( 1 === $opcode ? 'M ' : 'L ' ) . $this->svgNumber($point[0]) . ' ' . $this->svgNumber($point[1]);
                 $offset += 8;
@@ -3174,7 +3194,7 @@ final class ScenegraphNormalizer
                 for ( $i = 0; $i < 2; $i++ ) {
                     $point = $this->readFloatPair($bytes, $offset + ( $i * 8 ));
                     if ( null === $point ) {
-                        return null;
+                        return array('status' => 'unsupported', 'path' => null);
                     }
                     $points[] = $point;
                 }
@@ -3188,7 +3208,7 @@ final class ScenegraphNormalizer
                 for ( $i = 0; $i < 3; $i++ ) {
                     $point = $this->readFloatPair($bytes, $offset + ( $i * 8 ));
                     if ( null === $point ) {
-                        return null;
+                        return array('status' => 'unsupported', 'path' => null);
                     }
                     $points[] = $point;
                 }
@@ -3197,10 +3217,12 @@ final class ScenegraphNormalizer
                 continue;
             }
 
-            return null;
+            return array('status' => 'unsupported', 'path' => null);
         }
 
-        return empty($parts) ? null : implode(' ', $parts);
+        return empty($parts)
+            ? array('status' => 'empty', 'path' => null)
+            : array('status' => 'path', 'path' => implode(' ', $parts));
     }
 
     /**

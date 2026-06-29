@@ -2794,6 +2794,61 @@ $assert(array('text:unsupported-glyph-a', 'text:unsupported-glyph-b') === ($unsu
 $assert(str_contains($fileContent($unsupportedGlyphResult, 'index.html'), 'Unsupported glyph A'), 'unsupported-glyph-diagnostics-preserve-text-a');
 $assert(str_contains($fileContent($unsupportedGlyphResult, 'index.html'), 'Unsupported glyph B'), 'unsupported-glyph-diagnostics-preserve-text-b');
 
+// Whitespace glyphs are emitted by Figma as a single 0x00 (empty-path) command
+// blob: well-formed, but carrying no drawable outline. These are valid, not
+// unsupported, and must NOT raise unsupported_text_glyph_command_blob warnings
+// (the FSE Pilot footer text "Proudly powered by WordPress.com" produced
+// thousands of these false-positive warnings before this gate).
+$emptyGlyphCommandBlob = chr(0);
+$whitespaceGlyphScenegraph = array(
+    'name'  => 'Whitespace Glyph Empty-Path Fixture',
+    'blobs' => array(
+        array('bytes' => $quadraticCommandBlob),
+        array('bytes' => $emptyGlyphCommandBlob),
+    ),
+    'nodes' => array(
+        array(
+            'id'              => 'text:whitespace-glyph',
+            'type'            => 'TEXT',
+            'name'            => 'Measured Whitespace Text',
+            'characters'      => 'A B',
+            'width'           => 146.5,
+            'height'          => 32.25,
+            'fontSize'        => 10,
+            'fontName'        => array('family' => 'Example Sans', 'style' => 'Regular'),
+            'derivedTextData' => array(
+                'layoutSize' => array('x' => 146.5, 'y' => 32.25),
+                'glyphs' => array(
+                    array('firstCharacter' => 0, 'advance' => 0.5, 'fontSize' => 10, 'x' => 2, 'y' => 3, 'commandsBlob' => 0),
+                    array('firstCharacter' => 1, 'advance' => 0.5, 'fontSize' => 10, 'commandsBlob' => 1),
+                    array('firstCharacter' => 2, 'advance' => 0.5, 'fontSize' => 10, 'commandsBlob' => 0),
+                ),
+            ),
+        ),
+    ),
+);
+$whitespaceGlyphResult = blocks_engine_figma_transformer_transform_scenegraph($whitespaceGlyphScenegraph);
+$whitespaceGlyphDiagnostics = array_values(array_filter(
+    $whitespaceGlyphResult['diagnostics'] ?? array(),
+    static fn (array $diagnostic): bool => 'unsupported_text_glyph_command_blob' === ($diagnostic['code'] ?? null)
+));
+$assert(0 === count($whitespaceGlyphDiagnostics), 'whitespace-glyph-empty-path-no-warning');
+$assert(str_contains($fileContent($whitespaceGlyphResult, 'index.html'), 'A B'), 'whitespace-glyph-preserves-text');
+$whitespaceGlyphVisualNodes = $whitespaceGlyphResult['source_reports']['figma']['html']['visual_node_map'] ?? array();
+$whitespaceGlyphVisualNode = null;
+foreach ( is_array($whitespaceGlyphVisualNodes) ? $whitespaceGlyphVisualNodes : array() as $visualNode ) {
+    if ( is_array($visualNode) && 'text:whitespace-glyph' === ($visualNode['id'] ?? null) ) {
+        $whitespaceGlyphVisualNode = $visualNode;
+        break;
+    }
+}
+$whitespaceGlyphPaths = $whitespaceGlyphVisualNode['text']['derived_layout']['glyph_paths'] ?? array();
+$whitespaceGlyphPathData = array_values(array_filter(array_map(
+    static fn ($glyphPath): ?string => is_array($glyphPath) && isset($glyphPath['data']) ? (string) $glyphPath['data'] : null,
+    is_array($whitespaceGlyphPaths) ? $whitespaceGlyphPaths : array()
+)));
+$assert(array('M 0 0 Q 4 8 8 0 Z', 'M 0 0 Q 4 8 8 0 Z') === $whitespaceGlyphPathData, 'whitespace-glyph-keeps-drawable-paths-only');
+
 $derivedTextGlyphResult = blocks_engine_figma_transformer_transform_scenegraph($derivedTextLayoutScenegraph, array('render_text_glyph_paths' => true));
 $derivedTextGlyphHtml = $fileContent($derivedTextGlyphResult, 'index.html');
 $derivedTextGlyphCss = $fileContent($derivedTextGlyphResult, 'style.css');
