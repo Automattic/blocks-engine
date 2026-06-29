@@ -90,4 +90,10 @@ export interface SectionRenderOptions {
   sourceUrl?: string;
   slug?: string;
   strategy?: SectionStrategy;
+  /**
+   * Sink for a strategy's deduped instance CSS (e.g. preserve-dom's content-addressed
+   * lib-i rules). Called once per reconstruct with the drained rules so the caller can
+   * merge them into style.css. Without it the rules are produced and dropped.
+   */
+  onDedup?: (cssRules: string[]) => void;
 }

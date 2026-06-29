@@ -105,6 +105,13 @@ export interface SiteToThemeOptions extends SourceCssCarryOptions {
    * explicit fetchImpl is provided (that impl owns its own transport).
    */
   imageHostLookup?: (host: string) => Promise<Array<{ address: string; family: number }>>;
+  /**
+   * Route sections whose source identity is targeted by the carried CSS through class-preserving
+   * preserve-dom reconstruction (instead of class-discarding native), so the carried CSS actually
+   * styles the body. Off by default while the regenerated goldens for the activated path are
+   * validated; callers (and the next golden-regen step) opt in.
+   */
+  routeRichSections?: boolean;
   coverageFloor?: number;
   themeMeta?: Partial<ThemeMeta>;
 }

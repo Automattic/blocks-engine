@@ -27,6 +27,12 @@ type ThemeAssemblyParts = ThemeAssemblySourceCssInput & {
   chromeSlugsByPage?: Record<string, ChromeSlugs>;
   layoutOffsetWrapperClass?: string;
   styleBlocks?: Record<string, Record<string, unknown>>;
+  /**
+   * Deduped instance CSS drained from a routing strategy (e.g. preserve-dom's content-addressed
+   * lib-i rules). Appended to style.css after the carried source CSS so the lib-i classes the
+   * routed blocks reference are actually defined.
+   */
+  dedupCss?: string;
 };
 
 type PaletteEntry = {
@@ -50,11 +56,15 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
   // style.css carries real front-end CSS when we carry the source stylesheet or
   // append @font-face rules. Block themes don't auto-enqueue style.css, so it
   // must be enqueued explicitly via functions.php or that CSS never loads.
-  const styleCssHasFrontEndCss = carriedSourceCss || Boolean(parts.fontCss);
+  const dedupCss = parts.dedupCss?.trim() ? parts.dedupCss : undefined;
+  const styleCssHasFrontEndCss = carriedSourceCss || Boolean(parts.fontCss) || Boolean(dedupCss);
   const templatePlan = planTemplates(parts.site);
 
   return {
-    styleCss: appendCarriedSourceCss(appendFontCss(styleCss, parts.fontCss), parts.sourceCss),
+    styleCss: appendDedupCss(
+      appendCarriedSourceCss(appendFontCss(styleCss, parts.fontCss), parts.sourceCss),
+      dedupCss
+    ),
     ...(styleCssHasFrontEndCss ? { functionsPhp: buildFunctionsPhp(themeSlug) } : {}),
     themeJson: buildThemeJson(parts.tokens, palette, fontFamilies, {
       omitStyles: carriedSourceCss,
@@ -78,6 +88,12 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
     ...(parts.styleBlocks ? { styleBlocks: parts.styleBlocks } : {}),
     assets: collectAssets(parts),
   };
+}
+
+function appendDedupCss(styleCss: string, dedupCss: string | undefined): string {
+  if (!dedupCss) return styleCss;
+  const prefix = styleCss.endsWith('\n') ? styleCss : `${styleCss}\n`;
+  return `${prefix}${dedupCss}\n`;
 }
 
 function appendFontCss(styleCss: string, fontCss: string | undefined): string {

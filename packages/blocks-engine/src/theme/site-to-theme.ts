@@ -14,12 +14,13 @@ import { extractSourceLandmarksFromHtml } from './region-census.js';
 import { reconcileRegions, type PlacedRegion, type RegionSelectionReport } from './region-audit.js';
 import { sectionExtract } from './section-extract.js';
 import { collectSourceAssets, type ImgAssetRef, type MediaAsset } from './source-assets.js';
-import { shouldCarrySourceCss } from './source-css-carry.js';
+import { hasCarriedSourceCss, shouldCarrySourceCss } from './source-css-carry.js';
 import {
   collectRemoteImageAssets,
   createPublicHostGuardedFetch,
   type HostLookup,
 } from './remote-images.js';
+import { createRichCssRoutingStrategy } from './routing-strategy.js';
 import { applyHoistSwaps, hoistVariations, type HoistedVariation } from './variation-hoist.js';
 import { writeTheme } from './write-theme.js';
 import type {
@@ -81,22 +82,35 @@ export async function siteToTheme(
     const sourceMediaUrlMapsByPage = sourceMediaUrlMapsBySlug(carriedImgRefsByPage, themeMeta.slug);
     const pages: Record<string, SectionBlocks[]> = {};
 
+    // Per-section routing: when enabled and source CSS is carried, route rich sections through
+    // class-preserving preserve-dom so the carried CSS styles the body. Its drained instance CSS
+    // (lib-i...) is accumulated across pages and appended to style.css via assemble's dedupCss.
+    const dedupCssRules = new Set<string>();
+    const routingStrategy =
+      options?.routeRichSections && hasCarriedSourceCss(sourceAssets.css)
+        ? createRichCssRoutingStrategy({ carriedCss: sourceAssets.css })
+        : undefined;
+
     for (const page of site.pages) {
       const specs =
         options?.sections?.[page.slug] ??
         sectionExtract({ ...page, html: chromeRes.mainHtmlByPage[page.slug] ?? page.html });
-      pages[page.slug] = await reconstruct(
-        specs,
-        ctx,
-        pool,
-        hooks,
-        coverageFloor,
-        pageRenderOptions(
-          options?.renderOptions?.[page.slug],
-          sourceMediaUrlMapsByPage[page.slug]
-        )
+      const baseRenderOptions = pageRenderOptions(
+        options?.renderOptions?.[page.slug],
+        sourceMediaUrlMapsByPage[page.slug]
       );
+      const renderOptions = routingStrategy
+        ? {
+            ...(baseRenderOptions ?? {}),
+            strategy: routingStrategy,
+            onDedup: (rules: string[]) => {
+              for (const rule of rules) dedupCssRules.add(rule);
+            },
+          }
+        : baseRenderOptions;
+      pages[page.slug] = await reconstruct(specs, ctx, pool, hooks, coverageFloor, renderOptions);
     }
+    const dedupCss = dedupCssRules.size ? [...dedupCssRules].join('\n') : undefined;
 
     const regionAudit = buildRegionAuditDiagnostics(site, pages, chromeRes.parts, chromeRes.slugsByPage, warnings);
     const styleBlocks =
@@ -136,6 +150,7 @@ export async function siteToTheme(
       layoutOffsetWrapperClass,
       styleBlocks,
       sourceCss: sourceCssCarry?.css,
+      dedupCss,
     });
     const model = hooks.onRefine ? await hooks.onRefine(assembled, ctx) : assembled;
     const written = await writeTheme(model, outDir);

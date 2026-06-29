@@ -646,6 +646,7 @@ export async function reconstruct(
     ...optionsFromCtx(ctx),
     ...renderOptions,
   });
+  renderOptions.onDedup?.(aggregate.dedup?.cssRules ?? []);
   const sections: SectionBlocks[] = [];
 
   for (const decision of aggregate.sections) {
