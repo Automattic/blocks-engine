@@ -417,7 +417,17 @@ final class FigKiwiDecoder
             'Color' => array('r', 'g', 'b', 'a'),
             'ColorStop' => array('position', 'color'),
             'FontName' => array('family', 'style', 'postscript'),
-            'TextData' => array('characters', 'layoutSize'),
+            // Inline styled-text spans (#328, feeding the normalizer path added in
+            // #305/#299). In the Kiwi encoding the per-character style-run IDs ride
+            // on `characterStyleIDs` (the REST API calls the same data
+            // `characterStyleOverrides`), and `styleOverrideTable` is a `NodeChange[]`
+            // of partial style overrides each carrying a `styleID` plus the overriding
+            // properties (`fontName`, `fontSize`, `fillPaints`, ...). The override
+            // entries decode against the existing `NodeChange` policy below, which
+            // already whitelists `styleID`/`fontName`/`fontSize`/`fillPaints`/etc.
+            // Without these two names the per-character override data is dropped by
+            // `skipField()` and every .fig text node emits flat, single-style text.
+            'TextData' => array('characters', 'layoutSize', 'characterStyleIDs', 'styleOverrideTable'),
             'Number' => array('value', 'units'),
             'Paint' => array('type', 'color', 'opacity', 'visible', 'stops', 'transform', 'image', 'imageScaleMode', 'originalImageWidth', 'originalImageHeight', 'altText'),
             // Effect struct (#328). The Kiwi blur token is `FOREGROUND_BLUR`
