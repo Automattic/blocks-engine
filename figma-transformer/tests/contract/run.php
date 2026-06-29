@@ -6773,6 +6773,108 @@ $assert(str_contains($hiddenLayerHtml, 'Visible content stays'), 'visible-siblin
 $assert(! str_contains($hiddenLayerHtml, 'data-figma-node-id="vis:hidden-child"'), 'hidden-node-id-not-emitted');
 $assert(! str_contains($hiddenLayerHtml, 'Hidden content must vanish'), 'hidden-node-text-not-emitted');
 
+// --- Decoded-but-dropped trio (coverage issue #328) ----------------------
+// paragraphIndent, textAutoResize, and stackCounterSpacing are decoded by the
+// Kiwi parser but were never read by the normalizer. These contracts assert the
+// exact CSS the wiring now emits.
+
+// paragraphIndent → CSS text-indent on the text style declarations.
+$paragraphIndentResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Paragraph Indent',
+    'nodes' => array(
+        array(
+            'id'         => 'pi:root',
+            'type'       => 'FRAME',
+            'name'       => 'Indent Root',
+            'width'      => 400,
+            'height'     => 200,
+            'layoutMode' => 'VERTICAL',
+            'children'   => array(
+                array(
+                    'id'              => 'pi:text',
+                    'type'            => 'TEXT',
+                    'name'            => 'Indented Copy',
+                    'text'            => 'Indented paragraph',
+                    'paragraphIndent' => 16,
+                ),
+            ),
+        ),
+    ),
+));
+$paragraphIndentCss = $fileContent($paragraphIndentResult, 'style.css');
+$assert('success' === ($paragraphIndentResult['status'] ?? null), 'paragraph-indent-transform-success');
+$assert(str_contains($paragraphIndentCss, 'text-indent:16px'), 'paragraph-indent-emits-text-indent');
+
+// textAutoResize → content sizing. WIDTH_AND_HEIGHT hugs both axes; HEIGHT keeps
+// the fixed width and lets the height hug content.
+$textAutoResizeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Text Auto Resize',
+    'nodes' => array(
+        array(
+            'id'         => 'tar:root',
+            'type'       => 'FRAME',
+            'name'       => 'Auto Resize Root',
+            'width'      => 600,
+            'height'     => 400,
+            'layoutMode' => 'VERTICAL',
+            'children'   => array(
+                array(
+                    'id'             => 'tar:hug',
+                    'type'           => 'TEXT',
+                    'name'           => 'Hug Copy',
+                    'text'           => 'Hug both axes',
+                    'width'          => 200,
+                    'height'         => 50,
+                    'textAutoResize' => 'WIDTH_AND_HEIGHT',
+                ),
+                array(
+                    'id'             => 'tar:autoheight',
+                    'type'           => 'TEXT',
+                    'name'           => 'Auto Height Copy',
+                    'text'           => 'Fixed width auto height',
+                    'width'          => 180,
+                    'height'         => 50,
+                    'textAutoResize' => 'HEIGHT',
+                ),
+            ),
+        ),
+    ),
+));
+$textAutoResizeCss = $fileContent($textAutoResizeResult, 'style.css');
+$assert('success' === ($textAutoResizeResult['status'] ?? null), 'text-auto-resize-transform-success');
+$assert(str_contains($textAutoResizeCss, 'width:fit-content;height:fit-content'), 'text-auto-resize-width-and-height-hugs-both-axes');
+$assert(! str_contains($textAutoResizeCss, 'width:200px'), 'text-auto-resize-width-and-height-omits-fixed-width');
+$assert(str_contains($textAutoResizeCss, 'width:180px;height:fit-content'), 'text-auto-resize-height-keeps-fixed-width-auto-height');
+
+// stackCounterSpacing → two-value CSS gap on a wrapping Auto Layout. The cross-
+// axis (counter) spacing is the row gap and the main-axis spacing the column gap
+// for a wrapping flex row.
+$counterSpacingResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Counter Axis Spacing',
+    'nodes' => array(
+        array(
+            'id'                  => 'cas:root',
+            'type'                => 'FRAME',
+            'name'                => 'Wrap Root',
+            'width'               => 400,
+            'height'              => 300,
+            'stackMode'           => 'HORIZONTAL',
+            'stackWrap'           => 'WRAP',
+            'stackSpacing'        => 24,
+            'stackCounterSpacing' => 12,
+            'children'            => array(
+                array('id' => 'cas:a', 'type' => 'RECTANGLE', 'name' => 'Tile A', 'width' => 100, 'height' => 80, 'fill' => array('r' => 1, 'g' => 0, 'b' => 0)),
+                array('id' => 'cas:b', 'type' => 'RECTANGLE', 'name' => 'Tile B', 'width' => 100, 'height' => 80, 'fill' => array('r' => 0, 'g' => 1, 'b' => 0)),
+            ),
+        ),
+    ),
+));
+$counterSpacingCss = $fileContent($counterSpacingResult, 'style.css');
+$assert('success' === ($counterSpacingResult['status'] ?? null), 'counter-spacing-transform-success');
+$assert(str_contains($counterSpacingCss, 'flex-wrap:wrap'), 'counter-spacing-wraps');
+$assert(str_contains($counterSpacingCss, 'gap:12px 24px'), 'counter-spacing-emits-two-value-gap');
+$assert(! str_contains($counterSpacingCss, 'gap:24px'), 'counter-spacing-not-single-value-gap');
+
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
     exit(1);

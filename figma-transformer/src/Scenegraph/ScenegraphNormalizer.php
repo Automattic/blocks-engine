@@ -1640,6 +1640,13 @@ final class ScenegraphNormalizer
             $style['paragraph_spacing'] = (float) $source['paragraphSpacing'];
         }
 
+        // Figma `paragraphIndent` (px first-line indent of each paragraph). Decoded
+        // by the Kiwi parser but previously never read here, so it was dropped for
+        // .fig input. Maps directly onto CSS `text-indent` in the emitter.
+        if ( isset($source['paragraphIndent']) && is_numeric($source['paragraphIndent']) ) {
+            $style['paragraph_indent'] = (float) $source['paragraphIndent'];
+        }
+
         return $style;
     }
 
@@ -3540,6 +3547,32 @@ final class ScenegraphNormalizer
             }
         }
 
+        // Figma `textAutoResize` (TEXT auto-resize behaviour) governs whether a
+        // text box hugs its content. WIDTH_AND_HEIGHT hugs both axes, HEIGHT keeps
+        // a fixed width while the height hugs content, NONE is a fixed box, and
+        // TRUNCATE is a fixed box that clips overflow. It is decoded by the Kiwi
+        // parser but was never read, so the intent was dropped for .fig input.
+        // Bridge it onto the HUG/FIXED sizing fields and clip flag the emitter
+        // already consumes rather than inventing a parallel sizing channel.
+        if ( isset($node['textAutoResize']) && is_scalar($node['textAutoResize']) && '' !== (string) $node['textAutoResize'] ) {
+            $autoResize = strtoupper((string) $node['textAutoResize']);
+            $layout['text_auto_resize'] = $autoResize;
+            [$autoResizeHorizontal, $autoResizeVertical] = match ( $autoResize ) {
+                'WIDTH_AND_HEIGHT' => array('HUG', 'HUG'),
+                'HEIGHT'           => array(null, 'HUG'),
+                default            => array(null, null),
+            };
+            if ( null !== $autoResizeHorizontal && ! isset($layout['sizing_horizontal']) ) {
+                $layout['sizing_horizontal'] = $autoResizeHorizontal;
+            }
+            if ( null !== $autoResizeVertical && ! isset($layout['sizing_vertical']) ) {
+                $layout['sizing_vertical'] = $autoResizeVertical;
+            }
+            if ( 'TRUNCATE' === $autoResize ) {
+                $layout['clips_content'] = true;
+            }
+        }
+
         foreach ( array(
             'primaryAxisAlignItems' => 'primary_axis_alignment',
             'counterAxisAlignItems' => 'counter_axis_alignment',
@@ -3597,6 +3630,17 @@ final class ScenegraphNormalizer
             $layout['item_spacing'] = (float) $node['itemSpacing'];
         } elseif ( isset($node['stackSpacing']) && is_numeric($node['stackSpacing']) ) {
             $layout['item_spacing'] = (float) $node['stackSpacing'];
+        }
+
+        // REST `counterAxisSpacing`; Kiwi `stackCounterSpacing`. The cross-axis gap
+        // between wrapped rows/columns in a wrapping Auto Layout, distinct from the
+        // main-axis `item_spacing`. Decoded by the Kiwi parser but never read, so
+        // the wrap gap was dropped for .fig input. The emitter folds it into the
+        // two-value CSS `gap` shorthand when it differs from the main spacing.
+        if ( isset($node['counterAxisSpacing']) && is_numeric($node['counterAxisSpacing']) ) {
+            $layout['counter_axis_spacing'] = (float) $node['counterAxisSpacing'];
+        } elseif ( isset($node['stackCounterSpacing']) && is_numeric($node['stackCounterSpacing']) ) {
+            $layout['counter_axis_spacing'] = (float) $node['stackCounterSpacing'];
         }
 
         if ( isset($node['layoutWrap']) && is_scalar($node['layoutWrap']) ) {

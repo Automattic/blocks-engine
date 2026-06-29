@@ -2854,7 +2854,23 @@ final class StaticHtmlEmitter
         }
 
         if ( isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ) {
-            $styles[] = 'gap:' . $this->number((float) $layout['item_spacing']) . 'px';
+            $mainGap = $this->number((float) $layout['item_spacing']);
+            if ( 'wrap' === ($layout['flex_wrap'] ?? null)
+                && isset($layout['counter_axis_spacing'])
+                && is_numeric($layout['counter_axis_spacing'])
+                && (float) $layout['counter_axis_spacing'] !== (float) $layout['item_spacing'] ) {
+                // CSS `gap` shorthand is `row-gap column-gap`. In a wrapping flex
+                // row the main-axis item spacing is the column gap while the
+                // counter-axis spacing (the gap between wrapped rows) is the row
+                // gap; a wrapping column is the inverse.
+                $counterGap = $this->number((float) $layout['counter_axis_spacing']);
+                $isColumn = 'column' === ($layout['flex_direction'] ?? null);
+                $rowGap = $isColumn ? $mainGap : $counterGap;
+                $columnGap = $isColumn ? $counterGap : $mainGap;
+                $styles[] = 'gap:' . $rowGap . 'px ' . $columnGap . 'px';
+            } else {
+                $styles[] = 'gap:' . $mainGap . 'px';
+            }
         }
 
         if ( ! $isDecorativeFlexUnderlay ) {
@@ -4001,6 +4017,12 @@ final class StaticHtmlEmitter
             $styles[] = 'letter-spacing:' . $this->number((float) $style['letter_spacing']) . 'px';
         } elseif ( isset($style['letter_spacing_em']) && is_numeric($style['letter_spacing_em']) ) {
             $styles[] = 'letter-spacing:' . $this->number((float) $style['letter_spacing_em']) . 'em';
+        }
+
+        // Figma `paragraphIndent` → CSS first-line indent. A zero indent is the
+        // default, so it is left implicit.
+        if ( isset($style['paragraph_indent']) && is_numeric($style['paragraph_indent']) && 0.0 !== (float) $style['paragraph_indent'] ) {
+            $styles[] = 'text-indent:' . $this->number((float) $style['paragraph_indent']) . 'px';
         }
 
         $color = $this->color($style['color'] ?? null);
