@@ -27,6 +27,15 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\VisualParityReportContract;
  *   3. class      — same tag, same sorted class set
  *   4. structural — same class-free structural path (tag + nth-of-type chain)
  *
+ * COVERAGE then accounts for the transformer's intentional collapse of
+ * presentational wrappers. A source element that owns no 1:1 candidate is not
+ * automatically parity loss: if some candidate carries every one of its
+ * effective tracked-style values and subsumes its content, the wrapper was
+ * faithfully absorbed under collapse and earns coverage credit (no findings).
+ * Only genuinely dropped or restyled elements — whose style is absent from every
+ * candidate, or whose content has no home — stay counted as loss, so the score
+ * still falls for real divergence. Coverage = (matched + absorbed) / source.
+ *
  * Same inputs -> byte-identical report on every run. No screenshots, no
  * dimensions, no scroll/animation flakiness, no OOM.
  */
@@ -64,11 +73,13 @@ final class StaticStyleParityComparator
         $sourceProbes = $this->probes($source);
         $targetProbes = $this->probes($target);
         $available = array_fill_keys(array_keys($targetProbes), true);
+        $normalizedTargets = $this->normalizedTargets($targetProbes);
 
         $matches = array();
         $findings = array();
         $recommendations = array();
         $unmatchedSource = array();
+        $absorbedSource = array();
 
         $comparedProperties = 0;
         $agreedProperties = 0;
@@ -76,6 +87,24 @@ final class StaticStyleParityComparator
         foreach ( $sourceProbes as $sourceProbe ) {
             [$targetIndex, $tier] = $this->bestTargetIndex($sourceProbe, $targetProbes, $available);
             if ( null === $targetIndex ) {
+                // No 1:1 candidate remained. Before counting this as parity loss,
+                // test for collapsed-wrapper equivalence: the transformer
+                // intentionally merges presentational wrappers, so a source
+                // element that owns no 1:1 candidate is faithfully preserved when
+                // some candidate carries every one of its effective tracked-style
+                // values AND subsumes its content. Such an element lost no visual
+                // signal under collapse, so it earns coverage credit rather than
+                // being scored as a drop. Non-consuming: the wrapper legitimately
+                // shares the merged element with the content match. A genuinely
+                // dropped/regressed element (its style absent from every candidate
+                // or its content gone) finds no absorbing candidate and stays a
+                // counted loss, so real divergence still lowers the score.
+                $absorbIndex = $this->absorbingTargetIndex($sourceProbe, $normalizedTargets);
+                if ( null !== $absorbIndex ) {
+                    $absorbedSource[] = $this->absorbedSummary($sourceProbe, $targetProbes[$absorbIndex]);
+                    continue;
+                }
+
                 $unmatchedSource[] = $this->candidateSummary($sourceProbe);
                 $finding = $this->missingElementFinding($sourceProbe, count($findings) + 1);
                 $recommendation = $this->recommendationFor($finding, count($recommendations) + 1);
@@ -129,8 +158,14 @@ final class StaticStyleParityComparator
 
         $sourceTotal = count($sourceProbes);
         $matchedTotal = count($matches);
+        $absorbedTotal = count($absorbedSource);
+        // Coverage measures whether each source element's visual signal found a
+        // home in the candidate, either as a 1:1 style comparison (matched) or as
+        // a faithfully-preserved collapsed wrapper (absorbed). Only genuinely
+        // dropped/regressed elements are excluded from the numerator.
+        $coveredTotal = $matchedTotal + $absorbedTotal;
         $propertyParity = $comparedProperties > 0 ? $agreedProperties / $comparedProperties : 1.0;
-        $coverage = $sourceTotal > 0 ? $matchedTotal / $sourceTotal : 1.0;
+        $coverage = $sourceTotal > 0 ? $coveredTotal / $sourceTotal : 1.0;
         $score = round($propertyParity * $coverage, 4);
 
         $status = $this->status($score, array() === $findings);
@@ -157,12 +192,15 @@ final class StaticStyleParityComparator
                 'source_total' => $sourceTotal,
                 'target_total' => count($targetProbes),
                 'matched_total' => $matchedTotal,
+                'absorbed_source_total' => $absorbedTotal,
+                'covered_total' => $coveredTotal,
                 'unmatched_source_total' => count($unmatchedSource),
                 'compared_properties' => $comparedProperties,
                 'agreed_properties' => $agreedProperties,
                 'finding_total' => count($findings),
             ),
             'unmatched_source' => $unmatchedSource,
+            'absorbed_source' => $absorbedSource,
             'diagnostics' => array(),
         );
 
@@ -196,6 +234,116 @@ final class StaticStyleParityComparator
         }
 
         return array(null, '');
+    }
+
+    /**
+     * Pre-normalize every candidate's tracked style and text once so the
+     * absorption pass is a cheap, deterministic lookup. Keyed by the same indices
+     * as $targetProbes; iteration order is document order.
+     *
+     * @param array<int, array<string, mixed>> $targetProbes
+     * @return array<int, array{style: array<string, string>, text: string}>
+     */
+    private function normalizedTargets(array $targetProbes): array
+    {
+        $normalized = array();
+        foreach ( $targetProbes as $index => $targetProbe ) {
+            $style = array();
+            foreach ( $this->style($targetProbe) as $property => $value ) {
+                $normalizedValue = $this->normalizeValue((string) $property, (string) $value);
+                if ( '' !== $normalizedValue ) {
+                    $style[(string) $property] = $normalizedValue;
+                }
+            }
+            $normalized[$index] = array(
+                'style' => $style,
+                'text' => $this->text($targetProbe),
+            );
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * Collapsed-wrapper equivalence test.
+     *
+     * Returns the first candidate (document order) that faithfully absorbs the
+     * source element, or null when none does. A candidate absorbs the source when:
+     *
+     *  - STYLE is preserved: every declared, non-empty tracked-style value on the
+     *    source equals the candidate's normalized value for that property
+     *    (candidate is a style superset), and
+     *  - CONTENT has a home: the source has no text, or one of the two texts
+     *    contains the other (the merged candidate subsumes the wrapper's content;
+     *    the bidirectional check tolerates the probe's 80-char text truncation).
+     *
+     * This credits presentational wrappers the transformer intentionally merges
+     * without crediting drops: if any declared style value is missing from every
+     * candidate (a real style regression) or the content is gone (a real drop),
+     * no candidate qualifies and the element remains a counted loss. Non-consuming
+     * by design — the wrapper and its content legitimately share one merged
+     * candidate element.
+     *
+     * @param array<string, mixed> $sourceProbe
+     * @param array<int, array{style: array<string, string>, text: string}> $normalizedTargets
+     */
+    private function absorbingTargetIndex(array $sourceProbe, array $normalizedTargets): ?int
+    {
+        $sourceStyle = array();
+        foreach ( $this->style($sourceProbe) as $property => $value ) {
+            $normalizedValue = $this->normalizeValue((string) $property, (string) $value);
+            if ( '' !== $normalizedValue ) {
+                $sourceStyle[(string) $property] = $normalizedValue;
+            }
+        }
+        $sourceText = $this->text($sourceProbe);
+
+        foreach ( $normalizedTargets as $index => $target ) {
+            if ( ! $this->styleIsSuperset($sourceStyle, $target['style']) ) {
+                continue;
+            }
+            if ( $this->contentSubsumed($sourceText, $target['text']) ) {
+                return $index;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * True when every declared source value is reproduced on the candidate.
+     *
+     * @param array<string, string> $sourceStyle    Normalized, non-empty values.
+     * @param array<string, string> $candidateStyle Normalized, non-empty values.
+     */
+    private function styleIsSuperset(array $sourceStyle, array $candidateStyle): bool
+    {
+        foreach ( $sourceStyle as $property => $value ) {
+            if ( ($candidateStyle[$property] ?? null) !== $value ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * True when the absorbing candidate carries the source element's content.
+     * Empty source text (a layout wrapper or an SVG shape) carries no textual
+     * content to lose and is always subsumed. Otherwise the merged candidate must
+     * contain the source's full text — a directional check, so a short candidate
+     * (e.g. a one-letter icon) can never spuriously "absorb" a text-bearing
+     * wrapper merely because its single character appears somewhere in the source.
+     * Equal texts satisfy containment, which also covers the probe's shared
+     * 80-char truncation boundary.
+     */
+    private function contentSubsumed(string $sourceText, string $candidateText): bool
+    {
+        if ( '' === $sourceText ) {
+            return true;
+        }
+
+        return str_contains($candidateText, $sourceText);
     }
 
     /**
@@ -402,6 +550,26 @@ final class StaticStyleParityComparator
             'tag' => $probe['tag'] ?? null,
             'selector' => $probe['selector'] ?? null,
             'text' => $probe['text'] ?? null,
+        ), static fn ($value): bool => null !== $value && '' !== $value);
+    }
+
+    /**
+     * Transparency record for a source element whose styling and content the
+     * transform faithfully preserved on a merged candidate (collapsed wrapper).
+     * Names the absorbing candidate selector so the credit is auditable.
+     *
+     * @param array<string, mixed> $sourceProbe
+     * @param array<string, mixed> $targetProbe
+     * @return array<string, mixed>
+     */
+    private function absorbedSummary(array $sourceProbe, array $targetProbe): array
+    {
+        return array_filter(array(
+            'id' => $sourceProbe['id'] ?? null,
+            'tag' => $sourceProbe['tag'] ?? null,
+            'source_selector' => $this->selector($sourceProbe),
+            'absorbed_into_selector' => $this->selector($targetProbe),
+            'text' => $sourceProbe['text'] ?? null,
         ), static fn ($value): bool => null !== $value && '' !== $value);
     }
 }

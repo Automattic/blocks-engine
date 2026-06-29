@@ -24,6 +24,8 @@
     { "path": "parity.property_parity", "assert": "equals", "value": 1.0 },
     { "path": "parity.coverage", "assert": "equals", "value": 1.0 },
     { "path": "summary.matched_total", "assert": "equals", "value": 3 },
+    { "path": "summary.absorbed_source_total", "assert": "equals", "value": 0 },
+    { "path": "summary.covered_total", "assert": "equals", "value": 3 },
     { "path": "summary.compared_properties", "assert": "equals", "value": 11 },
     { "path": "summary.agreed_properties", "assert": "equals", "value": 11 },
     { "path": "summary.finding_total", "assert": "equals", "value": 0 },

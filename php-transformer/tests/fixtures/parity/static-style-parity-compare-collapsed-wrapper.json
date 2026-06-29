@@ -1,0 +1,39 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "static-style-parity-compare-collapsed-wrapper",
+  "description": "Coverage must be honest about the transformer's intentional collapse of presentational wrappers. The source has a wrapper div.col whose styling is purely inherited and whose paragraph content the candidate preserves on a single merged element, plus a div.banner whose distinctive fill is genuinely dropped. The comparator credits the faithfully-absorbed wrapper as coverage (no finding) while still counting the dropped banner as parity loss with a presence finding, so the score reflects real divergence rather than the matching artifact of having no 1:1 candidate for a collapsed wrapper.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/static-style-parity-compare-collapsed-wrapper.json",
+    "notes": "Locks in collapsed-wrapper equivalence: a preserved wrapper is not loss, a dropped styled element is."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Static style parity comparison emits the shared visual-parity report contract."
+  },
+  "operation": "static_style_parity.compare",
+  "input": {
+    "source_content": "<style>body{font-family:Inter,sans-serif;color:#111}.lead{font-size:18px}.banner{background-color:#e91e63;color:#fff}</style><body><div class=\"col\"><p class=\"lead\">Hello world</p></div><div class=\"banner\">Sale</div></body>",
+    "target_content": "<style>body{font-family:Inter,sans-serif;color:#111}.lead{font-size:18px}.banner{background-color:#e91e63;color:#fff}</style><body><p class=\"lead\">Hello world</p></body>"
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/visual-parity-report/v1" },
+    { "path": "status", "assert": "equals", "value": "fail" },
+    { "path": "severity", "assert": "equals", "value": "error" },
+    { "path": "parity.property_parity", "assert": "equals", "value": 1.0 },
+    { "path": "parity.coverage", "assert": "equals", "value": 0.6667 },
+    { "path": "parity.score", "assert": "equals", "value": 0.6667 },
+    { "path": "summary.source_total", "assert": "equals", "value": 3 },
+    { "path": "summary.matched_total", "assert": "equals", "value": 1 },
+    { "path": "summary.absorbed_source_total", "assert": "equals", "value": 1 },
+    { "path": "summary.covered_total", "assert": "equals", "value": 2 },
+    { "path": "summary.unmatched_source_total", "assert": "equals", "value": 1 },
+    { "path": "summary.finding_total", "assert": "equals", "value": 1 },
+    { "path": "absorbed_source.0.tag", "assert": "equals", "value": "div" },
+    { "path": "absorbed_source.0.source_selector", "assert": "equals", "value": "div.col" },
+    { "path": "absorbed_source.0.absorbed_into_selector", "assert": "equals", "value": "p.lead" },
+    { "path": "unmatched_source.0.selector", "assert": "equals", "value": "div.banner:nth-of-type(2)" },
+    { "path": "findings.0.property", "assert": "equals", "value": "presence" },
+    { "path": "findings.0.selector", "assert": "equals", "value": "div.banner:nth-of-type(2)" }
+  ]
+}
