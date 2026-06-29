@@ -391,6 +391,18 @@ final class FigKiwiDecoder
                 'useAbsoluteBounds', 'cornerRadius', 'rectangleTopLeftCornerRadius',
                 'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius',
                 'rectangleBottomRightCornerRadius', 'fillPaints', 'strokePaints', 'backgroundPaints',
+                // Stroke geometry (#328): without these the emitter's strokeStyles()
+                // never sees a weight/align/dash and every border falls back to the
+                // 1px default. `strokeWeight` (float) and `dashPattern` (float[]) carry
+                // the size/dash; `strokeAlign` is the INSIDE/OUTSIDE/CENTER enum and
+                // resolves to its token string. Per-side weights ride on
+                // `borderStrokeWeightsIndependent` + the four `border*Weight` floats;
+                // the `stroke*Weight` aliases are over-listed defensively — unlisted
+                // names are skipped, not mis-read, so listing both shapes is safe.
+                'strokeWeight', 'strokeAlign', 'strokeCap', 'strokeJoin', 'dashPattern',
+                'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight',
+                'borderLeftWeight', 'borderRightWeight',
+                'strokeTopWeight', 'strokeBottomWeight', 'strokeLeftWeight', 'strokeRightWeight',
                 'fillGeometry', 'strokeGeometry', 'vectorData', 'booleanOperation', 'key', 'componentKey',
                 'componentOrStateGroupKey', 'originComponentKey', 'componentId', 'mainComponentId',
                 'mainComponent', 'component', 'symbolData', 'derivedSymbolData', 'guidPath',
