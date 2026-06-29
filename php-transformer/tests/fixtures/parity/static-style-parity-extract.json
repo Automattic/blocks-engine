@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "static-style-parity-extract",
+  "description": "Render-free static style parity probe extracts a deterministic effective-style fingerprint per styleable element from HTML + author CSS (no browser, no rasterization).",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/static-style-parity-extract.json",
+    "notes": "Generic PHP-boundary static style extraction; cascade + inheritance resolved statically."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Static style parity extraction is a deterministic diagnostic fingerprint, not a block-conversion output."
+  },
+  "operation": "static_style_parity.extract",
+  "input": {
+    "content": "<style>body{font-family:\"Inter\",sans-serif;color:#111}.hero{background-color:#0a0a0a;color:#fff;padding:40px}h1{font-size:48px;font-weight:700}.btn{background-color:#ff5a1f;border-radius:8px;color:#fff}</style><body><section class=\"hero\"><h1>Welcome</h1><a class=\"btn\" href=\"/x\">Get started</a></section></body>"
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/static-style-parity-probes/v1" },
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "summary.total", "assert": "equals", "value": 3 },
+    { "path": "summary.styled_total", "assert": "equals", "value": 3 },
+    { "path": "probes.0.tag", "assert": "equals", "value": "section" },
+    { "path": "probes.0.selector", "assert": "equals", "value": "section.hero" },
+    { "path": "probes.0.structural_path", "assert": "equals", "value": "section:1" },
+    { "path": "probes.0.style.background-color", "assert": "equals", "value": "#0a0a0a" },
+    { "path": "probes.0.style.color", "assert": "equals", "value": "#fff" },
+    { "path": "probes.2.selector", "assert": "equals", "value": "section.hero > a.btn" },
+    { "path": "probes.2.style.border-radius", "assert": "equals", "value": "8px" }
+  ]
+}
