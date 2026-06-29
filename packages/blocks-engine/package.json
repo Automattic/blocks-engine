@@ -55,6 +55,9 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "bench": "node --import tsx scripts/tuner/bench.ts",
+    "bench:record": "node --import tsx scripts/tuner/bench.ts --record",
+    "bench:derive": "node --import tsx scripts/tuner/derive.ts",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

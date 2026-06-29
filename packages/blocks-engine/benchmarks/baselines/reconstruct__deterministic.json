@@ -1,0 +1,13 @@
+{
+  "engine": "reconstruct",
+  "model": "deterministic",
+  "suiteHash": "sha256:71387aba7090",
+  "updatedAt": "2026-06-29T16:09:24.984Z",
+  "fixtures": {
+    "renderImageRow/color-block-grid-wrapping-gallery": 100,
+    "renderImageRow/gallery-scroller-mixed-aspect-strip": 100,
+    "renderReviewGrid/body-text-fallback-without-structured-reviews": 100,
+    "renderReviewGrid/placeholder-review-gap": 100,
+    "renderReviewGrid/structured-review-cards-dark-band": 79
+  }
+}
