@@ -403,6 +403,11 @@ final class FigKiwiDecoder
                 'stackPrimaryAlignItems', 'stackCounterAlignItems', 'stackCounterSizing',
                 'stackWrap', 'stackCounterSpacing', 'stackReverseZIndex',
                 'stackChildPrimaryGrow', 'stackChildAlignSelf', 'stackPositioning', 'resizeToFit', 'isClip', 'minSize', 'maxSize',
+                // Visual effects (#328): shadows + blur. `normalizeEffects()` and
+                // `effectStyles()` are already written but were starved because
+                // `effects` was absent from the policy, so the decoder silently
+                // dropped every Effect from the binary.
+                'effects',
             ),
             'GUID' => array('sessionID', 'localID'),
             'ParentIndex' => array('guid', 'position'),
@@ -415,6 +420,10 @@ final class FigKiwiDecoder
             'TextData' => array('characters', 'layoutSize'),
             'Number' => array('value', 'units'),
             'Paint' => array('type', 'color', 'opacity', 'visible', 'stops', 'transform', 'image', 'imageScaleMode', 'originalImageWidth', 'originalImageHeight', 'altText'),
+            // Effect struct (#328). The Kiwi blur token is `FOREGROUND_BLUR`
+            // (REST calls it `LAYER_BLUR`); the normalizer bridges both. `offset`
+            // resolves to the whitelisted `Vector` struct and `color` to `Color`.
+            'Effect' => array('type', 'color', 'offset', 'radius', 'spread', 'visible', 'blendMode'),
             'Image' => array('hash', 'name'),
             'Blob' => array('bytes'),
             'Path' => array('commandsBlob', 'windingRule', 'styleID'),
