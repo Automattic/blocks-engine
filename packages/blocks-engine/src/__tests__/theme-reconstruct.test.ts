@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { WorkerPool } from '../pool/types.js';
+import { canonicalize } from '../wp/canonicalize.js';
 import {
   captureSectionContent,
   hasUnmigratedRemoteAsset,
@@ -80,6 +81,22 @@ function stageCtx(overrides: Partial<StageCtx> & Record<string, unknown> = {}): 
   };
 }
 
+function outerGroupAttrs(markup: string): Record<string, unknown> {
+  const match = markup.match(/^\s*<!-- wp:group (\{[^\n]+}) -->/);
+  expect(match?.[1]).toBeTruthy();
+  return JSON.parse(match![1]);
+}
+
+function sectionClassTokens(markup: string): string[] {
+  const match = markup.match(/<section\b[^>]*\bclass="([^"]*)"/);
+  expect(match?.[1]).toBeTruthy();
+  return match![1].split(/\s+/).filter(Boolean);
+}
+
+function expectNoDuplicateTokens(tokens: string[]): void {
+  expect(new Set(tokens).size).toBe(tokens.length);
+}
+
 describe('theme reconstruct coverage gate', () => {
   it('keeps native placeholder output when only an image is unrecoverable', async () => {
     const remoteImage = 'https://cdn.example.com/uploads/hero.jpg';
@@ -111,6 +128,93 @@ describe('theme reconstruct coverage gate', () => {
     expect(section.blocks).not.toContain('lib-coverage-island');
     expect(measureSectionCoverage(captureSectionContent(spec), section.blocks).lost).toBe(true);
     expect(section.coverage).toBe(0);
+  });
+
+  it('carries source section identity on image-lost native placeholder groups with canonical classes', async () => {
+    const remoteImage = 'https://cdn.example.com/uploads/lossy.jpg';
+    const spec = sectionSpec({
+      headings: ['Lossy source identity'],
+      bodyText: ['Source CSS targeting survives.'],
+      images: [sectionImage(remoteImage)],
+      sectionHtml: [
+        '<section id="lossy" class="wp-block-group fallback fallback">',
+        '<h2 class="inner-title">Lossy source identity</h2>',
+        '<p class="inner-copy">Source CSS targeting survives.</p>',
+        `<img class="inner-image" src="${remoteImage}" alt="Hero image">`,
+        '</section>',
+      ].join(''),
+    });
+
+    const [section] = await reconstruct(
+      [spec],
+      stageCtx(),
+      fakePool(() => ''),
+      {},
+      0
+    );
+
+    const attrs = outerGroupAttrs(section.blocks);
+    expect(attrs.anchor).toBe('lossy');
+    expect(attrs.className).toBe('fallback');
+    expectNoDuplicateTokens(String(attrs.className).split(/\s+/).filter(Boolean));
+
+    const tokens = sectionClassTokens(section.blocks);
+    expect(tokens).toEqual(expect.arrayContaining(['wp-block-group', 'alignfull', 'fallback']));
+    expectNoDuplicateTokens(tokens);
+    expect(section.blocks).toContain('<section id="lossy" class="');
+    expect(section.blocks).not.toContain('inner-title');
+    expect(section.blocks).not.toContain('inner-copy');
+    expect(section.blocks).not.toContain('inner-image');
+
+    const fixed = canonicalize(section.blocks);
+    expect(fixed.fixedIssues).toEqual([]);
+    const fixedAttrs = outerGroupAttrs(fixed.html);
+    expect(fixedAttrs.anchor).toBe('lossy');
+    expect(fixedAttrs.className).toBe('fallback');
+    expectNoDuplicateTokens(String(fixedAttrs.className).split(/\s+/).filter(Boolean));
+    expectNoDuplicateTokens(sectionClassTokens(fixed.html));
+  });
+
+  it('does not carry source section identity onto resolved-image or ordinary native sections', async () => {
+    const resolvedImage = '/wp-content/uploads/2026/06/hero.jpg';
+    const [resolved, ordinary] = await reconstruct(
+      [
+        sectionSpec({
+          sectionIndex: 0,
+          headings: ['Resolved image'],
+          bodyText: ['The source image resolves as a native block.'],
+          images: [sectionImage(resolvedImage)],
+          sectionHtml: [
+            '<section id="resolved" class="resolved-section">',
+            '<h2>Resolved image</h2>',
+            '<p>The source image resolves as a native block.</p>',
+            `<img src="${resolvedImage}" alt="Hero image">`,
+            '</section>',
+          ].join(''),
+        }),
+        sectionSpec({
+          sectionIndex: 1,
+          headings: ['Ordinary native'],
+          bodyText: ['No image is lost here.'],
+          sectionHtml: '<section id="ordinary" class="ordinary-section"><h2>Ordinary native</h2><p>No image is lost here.</p></section>',
+        }),
+      ],
+      stageCtx(),
+      fakePool(() => ''),
+      {},
+      0
+    );
+
+    expect(resolved.blocks).toContain('<!-- wp:image ');
+    expect(resolved.blocks).not.toContain('"anchor":"resolved"');
+    expect(resolved.blocks).not.toContain('"className":"resolved-section"');
+    expect(resolved.blocks).not.toContain('id="resolved"');
+    expect(resolved.blocks).not.toContain('resolved-section');
+
+    expect(ordinary.blocks).not.toContain('"anchor":"ordinary"');
+    expect(ordinary.blocks).not.toContain('"className":"ordinary-section"');
+    expect(ordinary.blocks).not.toContain('id="ordinary"');
+    expect(ordinary.blocks).not.toContain('ordinary-section');
   });
 
   it('keeps full-coverage native dispatch blocks', async () => {

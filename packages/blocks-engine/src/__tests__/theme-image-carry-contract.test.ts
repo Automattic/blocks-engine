@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import * as cheerio from 'cheerio';
 import { describe, expect, it } from 'vitest';
 
 import { siteToTheme } from '../theme/site-to-theme.js';
@@ -33,6 +34,23 @@ function writeSitePage(dir: string, imgSrc: string): void {
       '<h1>Local image contract</h1>',
       '<p>Body copy.</p>',
       `<img src="${imgSrc}" alt="Local hero" width="640" height="420">`,
+      '</section></main>',
+      '</body></html>',
+    ].join(''),
+    'utf8'
+  );
+}
+
+function writeLossyIdentityPage(dir: string, imgSrc: string): void {
+  writeFileSync(
+    join(dir, 'index.html'),
+    [
+      '<!doctype html>',
+      '<html><head><title>Fixture</title><style>.fallback{color:red}#lossy{padding-top:1px}</style></head><body>',
+      '<main><section id="lossy" class="fallback fallback">',
+      '<h2>Lossy source identity</h2>',
+      '<p>Source CSS targeting survives.</p>',
+      `<img src="${imgSrc}" alt="Remote hero" width="640" height="420">`,
       '</section></main>',
       '</body></html>',
     ].join(''),
@@ -73,6 +91,21 @@ function imageSpec(image: SectionSpecImage): SectionSpec {
       '<section>',
       '<h1>Local image contract</h1>',
       '<p>Body copy.</p>',
+      `<img src="${image.sourceUrl}" alt="${image.alt}" width="${image.width}" height="${image.height}">`,
+      '</section>',
+    ].join(''),
+  };
+}
+
+function lossyIdentitySpec(image: SectionSpecImage): SectionSpec {
+  return {
+    ...imageSpec(image),
+    headings: ['Lossy source identity'],
+    bodyText: ['Source CSS targeting survives.'],
+    sectionHtml: [
+      '<section id="lossy" class="fallback fallback">',
+      '<h2>Lossy source identity</h2>',
+      '<p>Source CSS targeting survives.</p>',
       `<img src="${image.sourceUrl}" alt="${image.alt}" width="${image.width}" height="${image.height}">`,
       '</section>',
     ].join(''),
@@ -162,6 +195,33 @@ describe('theme local image carry contract', () => {
       expect(remoteTemplate).toContain('[image unavailable');
       expect(remoteTemplate).not.toContain('https://cdn.example.test/hero.png');
       expect(remote.model.assets.map((asset) => asset.relPath)).not.toContain('assets/img/hero.png');
+    });
+  });
+
+  it('keeps source id and class selectors matchable on assembled image-lost section elements', async () => {
+    await withTempDir('blocks-engine-lossy-section-identity-', async (siteDir) => {
+      const remoteImage = 'https://cdn.example.test/lossy.jpg';
+      writeLossyIdentityPage(siteDir, remoteImage);
+
+      const result = await siteToTheme(siteDir, {
+        outDir: join(siteDir, 'theme'),
+        themeMeta: { slug: 'fixture-theme' },
+        sections: {
+          home: [lossyIdentitySpec(sectionImage(remoteImage))],
+        },
+      });
+
+      const template = result.model.templates['front-page.html'];
+      const $ = cheerio.load(template);
+      const sourceTarget = $('section#lossy.fallback');
+      expect(sourceTarget.length).toBe(1);
+
+      const tokens = (sourceTarget.attr('class') ?? '').split(/\s+/).filter(Boolean);
+      expect(tokens).toEqual(expect.arrayContaining(['wp-block-group', 'alignfull', 'fallback']));
+      expect(new Set(tokens).size).toBe(tokens.length);
+      expect(template).toContain('[image unavailable');
+      expect(result.model.styleCss).toContain('.fallback{color:red}');
+      expect(result.model.styleCss).toContain('#lossy{padding-top:1px}');
     });
   });
 
