@@ -1988,7 +1988,10 @@ $assert(2 === ($responsivePagePlan['page_count'] ?? null), 'page-plan-responsive
 $assert(null !== $responsiveHomePage, 'page-plan-responsive-home-primary-is-desktop');
 $assert(true === ($responsiveHomePage['responsive'] ?? null), 'page-plan-responsive-home-flagged-responsive');
 $assert(3 === ($responsiveHomePage['breakpoint_count'] ?? null), 'page-plan-responsive-home-three-breakpoints');
-$assert('home-page-desktop' === ($responsiveHomePage['slug'] ?? null), 'page-plan-responsive-primary-drives-slug');
+// A responsive page's slug reflects the PAGE, not its widest variant: the
+// breakpoint token ("Desktop") is stripped so desktop+mobile collapse to one
+// stable slug.
+$assert('home-page' === ($responsiveHomePage['slug'] ?? null), 'page-plan-responsive-slug-strips-breakpoint-token');
 $assert(array('frame:home-desktop', 'frame:home-tablet', 'frame:home-mobile')
     === array_map(static fn (array $variant): string => (string) ($variant['frame_id'] ?? ''), $responsiveHomePage['variants'] ?? array()), 'page-plan-responsive-variants-ordered-widest-first');
 $assert(array('desktop', 'tablet', 'mobile')
@@ -6705,6 +6708,16 @@ $assert(array('frame:home-desktop', 'frame:home-mobile')
     === array_map(static fn (array $variant): string => (string) ($variant['frame_id'] ?? ''), $multiPageByFrame['frame:home-desktop']['variants'] ?? array()), 'multi-page-home-variants-widest-first');
 $assert(isset($multiPageByFrame['frame:contact-desktop'])
     && true === ($multiPageByFrame['frame:contact-desktop']['responsive'] ?? null), 'multi-page-contact-groups-desktop-mobile');
+// The `front_page`-classified page owns the index.html entrypoint, not whichever
+// page merely ranked first.
+$assert(ScenegraphFrameClassifier::PAGE_TYPE_FRONT_PAGE === ($multiPageByFrame['frame:home-desktop']['page_type'] ?? null), 'multi-page-home-classified-front-page');
+$assert(true === ($multiPageByFrame['frame:home-desktop']['entrypoint'] ?? null)
+    && 'index.html' === ($multiPageByFrame['frame:home-desktop']['path'] ?? null), 'multi-page-front-page-is-entrypoint');
+$assert(false === ($multiPageByFrame['frame:contact-desktop']['entrypoint'] ?? null), 'multi-page-non-front-page-not-entrypoint');
+// Responsive page slugs/paths strip the breakpoint token.
+$assert('home-page' === ($multiPageByFrame['frame:home-desktop']['slug'] ?? null), 'multi-page-home-slug-normalized');
+$assert('contact' === ($multiPageByFrame['frame:contact-desktop']['slug'] ?? null)
+    && 'contact.html' === ($multiPageByFrame['frame:contact-desktop']['path'] ?? null), 'multi-page-contact-slug-and-path-normalized');
 // (b) Nested annotation frame is NOT a page.
 $assert(! in_array('frame:home-annotation', $multiPageFrameIds, true), 'multi-page-nested-frame-not-a-page');
 // (c) Design-system frame is excluded from pages (and reported as such).

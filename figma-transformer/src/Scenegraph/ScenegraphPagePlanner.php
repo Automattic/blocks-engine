@@ -300,10 +300,41 @@ final class ScenegraphPagePlanner
             $diagnostics[] = $groupDiagnostic;
         }
 
+        // Entrypoint (index.html) assignment. The downstream php-transformer and
+        // WordPress treat index.html as the FRONT PAGE, so the page classified
+        // `front_page` must own it rather than whichever page merely ranked first.
+        // An explicit `entry_frame_id` always wins; otherwise the highest-ranked
+        // `front_page` page is the entrypoint, falling back to rank order when no
+        // page classifies as a front page.
+        $entrypointPrimaryId = null;
+        if ( null === $entryFrameId ) {
+            $seenPrimary = array();
+            $rankFirstPrimaryId = null;
+            foreach ( $selectedIds as $id ) {
+                $members = $responsiveGroups[$id] ?? array($id);
+                $primaryId = $members[0];
+                if ( isset($seenPrimary[$primaryId]) ) {
+                    continue;
+                }
+                $seenPrimary[$primaryId] = true;
+                if ( null === $rankFirstPrimaryId ) {
+                    $rankFirstPrimaryId = $primaryId;
+                }
+                $primaryClassification = $classifications[$primaryId]
+                    ?? $this->classifyCandidate($primaryId, $candidates[$primaryId], $nodes, $childrenIndex, $parentIndex);
+                if ( ScenegraphFrameClassifier::PAGE_TYPE_FRONT_PAGE === ($primaryClassification['page_type'] ?? '') ) {
+                    $entrypointPrimaryId = $primaryId;
+                    break;
+                }
+            }
+            if ( null === $entrypointPrimaryId ) {
+                $entrypointPrimaryId = $rankFirstPrimaryId;
+            }
+        }
+
         $slugs = array();
         $pages = array();
         $consumed = array();
-        $emittedPosition = 0;
         foreach ( $selectedIds as $id ) {
             if ( isset($consumed[$id]) ) {
                 continue;
@@ -320,8 +351,8 @@ final class ScenegraphPagePlanner
             $page = $this->nearestAncestor($primaryId, array('CANVAS'), $nodes, $parentIndex);
             $section = $this->nearestAncestor($primaryId, array('SECTION'), $nodes, $parentIndex);
             $name = (string) ($node['name'] ?? $primaryId);
-            $slug = $this->dedupeSlug($this->configuredSlug($primaryId, $slugMap) ?? $this->slugify($name), $slugs);
-            $entrypoint = null !== $entryFrameId ? in_array($entryFrameId, $members, true) : 0 === $emittedPosition;
+            $slug = $this->dedupeSlug($this->pageSlug($primaryId, $name, $members, $slugMap), $slugs);
+            $entrypoint = null !== $entryFrameId ? in_array($entryFrameId, $members, true) : $primaryId === $entrypointPrimaryId;
             $variants = $this->breakpointVariants($members, $primaryId, $candidates, $detectionById);
             $classification = $classifications[$primaryId] ?? $this->classifyCandidate($primaryId, $candidate, $nodes, $childrenIndex, $parentIndex);
 
@@ -348,7 +379,6 @@ final class ScenegraphPagePlanner
                 'variants'              => $variants,
                 'diagnostics'           => $this->pageDiagnostics($primaryId, $node, $candidate['dimensions'], $explicitSelected),
             );
-            ++$emittedPosition;
         }
 
         $classificationCoverage = $this->classificationCoverage($candidates, $classifications, $pages);
@@ -1361,6 +1391,31 @@ final class ScenegraphPagePlanner
     private function isWebLikeDimensions(float $width, float $height): bool
     {
         return $width >= 320 && $width <= 2400 && $height >= 700 && $height <= 20000;
+    }
+
+    /**
+     * Resolve a page's slug source. A configured `frame_slug_map` entry always
+     * wins. For a RESPONSIVE page (more than one breakpoint variant) the slug is
+     * derived from the normalized page name so it reflects the page rather than
+     * its widest variant — "Home Page – Desktop" + "Home Page – Mobile" collapse
+     * to the slug "home-page", not "home-page-desktop". A single-variant page
+     * keeps its own name (e.g. "Mobile Menu" stays "mobile-menu").
+     *
+     * @param array<int, string>   $members
+     * @param array<string, mixed> $slugMap
+     */
+    private function pageSlug(string $primaryId, string $name, array $members, array $slugMap): string
+    {
+        $configured = $this->configuredSlug($primaryId, $slugMap);
+        if ( null !== $configured ) {
+            return $configured;
+        }
+
+        if ( count($members) > 1 ) {
+            return $this->slugify($this->frameInspector->normalizedPageName($name));
+        }
+
+        return $this->slugify($name);
     }
 
     /**
