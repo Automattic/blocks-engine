@@ -31,6 +31,11 @@ export {
 } from './region-census.js';
 export { reconcileRegions } from './region-audit.js';
 export {
+  collectCssSelectorTokens,
+  sectionCssRichness,
+  type SourceCssSignal,
+} from './source-css-signal.js';
+export {
   normalizeCopy,
   sanitizePatternHeaderField,
   sanitizeSvgAsset,
