@@ -15,6 +15,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { buildAdminBarAccommodationCss } from './admin-bar-accommodation.js';
+import { REVEAL_NEUTRALIZER_CSS } from './reveal-neutralizer.js';
 
 /** Neutralize WP-injected wrappers so source layout selectors keep working.
  * Prepended (lowest precedence) — source rules always win over it. */
@@ -70,7 +71,7 @@ nav.wp-block-navigation ul, nav.wp-block-navigation li { display: contents; }
   color: inherit;
   text-decoration: none;
 }
-`;
+${REVEAL_NEUTRALIZER_CSS}`;
 
 const GOOGLE_IMPORT_RE = /@import\s+url\(\s*['"]?https:\/\/fonts\.googleapis\.com[^)]*\)\s*;?/g;
 
