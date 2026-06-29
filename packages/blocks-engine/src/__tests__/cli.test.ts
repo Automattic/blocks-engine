@@ -309,6 +309,43 @@ describe('CLI theme builds', () => {
     expect(stderr.text()).toBe('');
   });
 
+  it('reprints usage when given an unknown option', async () => {
+    const stdout = writableBuffer();
+    const stderr = writableBuffer();
+    const calls: string[] = [];
+
+    const exitCode = await runCli(['/tmp/source-site', '--ot', '/tmp/out'], {
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      pathExists: () => true,
+      isDirectory: () => true,
+      siteToThemeImpl: async (calledSrcDir) => {
+        calls.push(calledSrcDir);
+        return themeResult('/tmp/out');
+      },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(calls).toEqual([]);
+    expect(stdout.text()).toBe('');
+    expect(stderr.text()).toContain('Unknown option: --ot');
+    expect(stderr.text()).toContain('blocks-engine theme <srcDir>');
+  });
+
+  it('reprints usage when the explicit theme command omits srcDir', async () => {
+    const stdout = writableBuffer();
+    const stderr = writableBuffer();
+
+    const exitCode = await runCli(['theme'], {
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stderr.text()).toContain('Missing <srcDir>');
+    expect(stderr.text()).toContain('blocks-engine theme <srcDir>');
+  });
+
   it('prints a clear error when the explicit theme command omits srcDir', async () => {
     const stdout = writableBuffer();
     const stderr = writableBuffer();

@@ -5,6 +5,16 @@
   "keywords": ["wordpress", "blocks", "gutenberg", "block-theme", "html", "static-site"],
   "license": "GPL-3.0-or-later",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Automattic/blocks-engine.git",
+    "directory": "packages/blocks-engine"
+  },
+  "homepage": "https://github.com/Automattic/blocks-engine/tree/trunk/packages/blocks-engine#readme",
+  "bugs": "https://github.com/Automattic/blocks-engine/issues",
+  "engines": {
+    "node": ">=20"
+  },
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
@@ -43,6 +53,7 @@
   },
   "scripts": {
     "build": "tsup",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "prepublishOnly": "npm run build"
   },

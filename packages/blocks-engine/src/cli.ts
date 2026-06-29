@@ -15,6 +15,9 @@ interface WritableLike {
   write(chunk: string | Uint8Array): unknown;
 }
 
+/** Thrown when the CLI is invoked incorrectly (bad flags, missing arguments). The handler reprints usage. */
+class CliUsageError extends Error {}
+
 type ConvertHtml = (html: string, ctx: { url: string }) => Promise<string>;
 type SiteToThemeImpl = (srcDir: string, options?: SiteToThemeOptions) => Promise<ThemeBuildResult>;
 
@@ -71,6 +74,11 @@ export async function runCli(argv: string[], options: RunCliOptions = {}): Promi
   } catch (error) {
     if (error instanceof BlocksEngineError) {
       stderr.write(`${error.message}\n${error.hint}\n`);
+      return 1;
+    }
+
+    if (error instanceof CliUsageError) {
+      stderr.write(`${error.message}\n\n${usage()}`);
       return 1;
     }
 
@@ -156,7 +164,7 @@ function parseThemeArgs(argv: string[]): {
 } {
   const srcDir = argv[0];
   if (srcDir === undefined) {
-    throw new Error('Missing <srcDir> for theme command.');
+    throw new CliUsageError('Missing <srcDir> for theme command.');
   }
 
   const flags: { outDir?: string; slug?: string; name?: string } = {};
@@ -166,7 +174,7 @@ function parseThemeArgs(argv: string[]): {
     if (arg === '--out' || arg === '--slug' || arg === '--name') {
       const value = argv[index + 1];
       if (value === undefined) {
-        throw new Error(`Missing value for ${arg}.`);
+        throw new CliUsageError(`Missing value for ${arg}.`);
       }
       setThemeFlag(flags, arg, value);
       index += 1;
@@ -174,9 +182,9 @@ function parseThemeArgs(argv: string[]): {
       const equalsIndex = arg.indexOf('=');
       setThemeFlag(flags, arg.slice(0, equalsIndex), arg.slice(equalsIndex + 1));
     } else if (arg.startsWith('--')) {
-      throw new Error(`Unknown option: ${arg}`);
+      throw new CliUsageError(`Unknown option: ${arg}`);
     } else {
-      throw new Error(`Unexpected argument: ${arg}`);
+      throw new CliUsageError(`Unexpected argument: ${arg}`);
     }
   }
 

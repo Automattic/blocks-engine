@@ -190,6 +190,31 @@ try {
 
 **Packaging.** Run from an environment that can fork Node child processes and use IPC. For packaged or CI usage, run the package from its built distribution so the worker child file is present; source-mode execution depends on the local TypeScript runner setup.
 
+## Error handling
+
+Package-level failures throw a `BlocksEngineError` carrying a stable `code` and a user-facing `hint`. The `code` is part of the package's contract — switch on it rather than matching message text. From the CLI, the `message` and `hint` are printed to stderr and the process exits non-zero.
+
+```ts
+import { siteToTheme, BlocksEngineError } from '@automattic/blocks-engine';
+
+try {
+  await siteToTheme('./my-site');
+} catch (error) {
+  if (error instanceof BlocksEngineError) {
+    console.error(`[${error.code}] ${error.message}\n${error.hint}`);
+  } else {
+    throw error;
+  }
+}
+```
+
+| Code | Thrown when | Fix |
+|------|-------------|-----|
+| `INJECTION_VECTORS_REMAIN` | The default HTML fallback sanitized input but unsafe vectors remained. | Pass a custom `htmlFallback` that emits safe markup, or pre-sanitize the input. |
+| `THEME_INGEST_DUPLICATE_SLUG` | Two source pages resolve to the same theme slug. | Rename or restructure the source pages so each maps to a unique slug. |
+| `THEME_INGEST_NO_HTML` | A theme build finds no `.html`/`.htm` pages under the source directory. | Point the build at a directory that contains at least one HTML page. |
+| `WORKER_CHILD_UNRESOLVED` | The worker pool can't locate its child file (typically running from source, or an incomplete build). | Run `npm run build` and run from the built `dist`; confirm the worker child file is present. |
+
 ## License
 
 GPL-3.0-or-later
