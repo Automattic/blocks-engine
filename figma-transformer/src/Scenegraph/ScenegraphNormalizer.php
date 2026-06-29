@@ -3280,9 +3280,12 @@ final class ScenegraphNormalizer
                 continue;
             }
 
-            if ( in_array($type, array('LAYER_BLUR', 'BACKGROUND_BLUR'), true) ) {
+            // The decoded Kiwi enum names layer blur `FOREGROUND_BLUR`; the REST
+            // shape calls the same effect `LAYER_BLUR`. Bridge both onto the
+            // emitter's `layer_blur` (→ `filter:blur()`) branch (#328).
+            if ( in_array($type, array('LAYER_BLUR', 'FOREGROUND_BLUR', 'BACKGROUND_BLUR'), true) ) {
                 $effects[] = array(
-                    'type' => 'LAYER_BLUR' === $type ? 'layer_blur' : 'background_blur',
+                    'type' => 'BACKGROUND_BLUR' === $type ? 'background_blur' : 'layer_blur',
                     'radius' => is_numeric($effect['radius'] ?? null) ? (float) $effect['radius'] : 0.0,
                 );
                 continue;
