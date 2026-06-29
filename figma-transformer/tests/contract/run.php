@@ -6593,6 +6593,129 @@ $assert(in_array('frame:palette', $contentShapeCoverage['excluded_design_system_
 $assert(ScenegraphFrameClassifier::PAGE_TYPE_ARCHIVE === ($contentShapeByFrame['frame:list']['page_type'] ?? null), 'classification-content-card-list-archive');
 $assert(in_array('content:card_list', $contentShapeByFrame['frame:list']['classification_signals'] ?? array(), true), 'classification-content-card-list-signal');
 
+// MULTI-PAGE SELECTION (#280/#242 FSE Pilot acceptance): `--multi-page` (no
+// `frame_ids`) selects the TOP-LEVEL page frames on a canvas, groups each
+// page's desktop+mobile variants into ONE responsive page, excludes the
+// design-system frame, and ignores both nested annotation frames and oversized
+// decorative boards. Backward compat: the SAME scenegraph with neither
+// `multi_page` nor `frame_ids` still slices to a single page.
+$multiPageSource = array(
+    'name'  => 'Multi Page Selection Site',
+    'nodes' => array(
+        array(
+            'id'       => 'canvas:mockups',
+            'type'     => 'CANVAS',
+            'name'     => 'Mockups (dev handoff)',
+            'children' => array(
+                // Home: a desktop + mobile pair → one responsive page. The
+                // desktop frame also carries a NESTED annotation frame that must
+                // never be selected as a page of its own.
+                array(
+                    'id'       => 'frame:home-desktop',
+                    'type'     => 'FRAME',
+                    'name'     => 'Home Page – Desktop',
+                    'width'    => 1440,
+                    'height'   => 3200,
+                    'children' => array(
+                        array('id' => 'home:hero', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Welcome'),
+                        array(
+                            'id'       => 'frame:home-annotation',
+                            'type'     => 'FRAME',
+                            'name'     => 'Buttons',
+                            'width'    => 240,
+                            'height'   => 120,
+                            'children' => array(
+                                array('id' => 'home:btn', 'type' => 'TEXT', 'name' => 'Button label', 'characters' => 'Click'),
+                            ),
+                        ),
+                    ),
+                ),
+                array(
+                    'id'       => 'frame:home-mobile',
+                    'type'     => 'FRAME',
+                    'name'     => 'Home Page – Mobile',
+                    'width'    => 390,
+                    'height'   => 5200,
+                    'children' => array(
+                        array('id' => 'home-m:hero', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Welcome'),
+                    ),
+                ),
+                // Contact: a second desktop + mobile pair → one responsive page.
+                array(
+                    'id'       => 'frame:contact-desktop',
+                    'type'     => 'FRAME',
+                    'name'     => 'Contact – Desktop',
+                    'width'    => 1440,
+                    'height'   => 2000,
+                    'children' => array(
+                        array('id' => 'contact:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Contact us'),
+                    ),
+                ),
+                array(
+                    'id'       => 'frame:contact-mobile',
+                    'type'     => 'FRAME',
+                    'name'     => 'Contact – Mobile',
+                    'width'    => 390,
+                    'height'   => 2600,
+                    'children' => array(
+                        array('id' => 'contact-m:title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Contact us'),
+                    ),
+                ),
+                // Design-system frame: excluded from page selection by role.
+                array(
+                    'id'       => 'frame:styleguide',
+                    'type'     => 'FRAME',
+                    'name'     => 'Style Guide',
+                    'width'    => 1440,
+                    'height'   => 2000,
+                    'children' => array(
+                        array('id' => 'sg:swatch', 'type' => 'TEXT', 'name' => 'Colors', 'characters' => 'Brand Colors'),
+                    ),
+                ),
+                // Oversized decorative divider board: off the page-width band, so
+                // excluded as a non-page even though it is top-level on the canvas.
+                array(
+                    'id'       => 'frame:title-card',
+                    'type'     => 'FRAME',
+                    'name'     => 'Title Card',
+                    'width'    => 2238,
+                    'height'   => 291,
+                    'children' => array(
+                        array('id' => 'tc:label', 'type' => 'TEXT', 'name' => 'Section label', 'characters' => 'Mockups'),
+                    ),
+                ),
+            ),
+        ),
+    ),
+);
+$multiPagePlan = ( new ScenegraphPagePlanner() )->plan($multiPageSource, array('multi_page' => true, 'max_pages' => 20));
+$multiPageByFrame = array();
+foreach ( $multiPagePlan['pages'] ?? array() as $multiPagePage ) {
+    if ( is_array($multiPagePage) && isset($multiPagePage['frame_id']) ) {
+        $multiPageByFrame[(string) $multiPagePage['frame_id']] = $multiPagePage;
+    }
+}
+$multiPageFrameIds = array_keys($multiPageByFrame);
+// (a) One responsive page per distinct page name (Home, Contact).
+$assert(2 === ($multiPagePlan['page_count'] ?? null), 'multi-page-selects-one-page-per-distinct-name');
+$assert(isset($multiPageByFrame['frame:home-desktop']), 'multi-page-home-primary-is-desktop');
+$assert(true === ($multiPageByFrame['frame:home-desktop']['responsive'] ?? null)
+    && 2 === ($multiPageByFrame['frame:home-desktop']['breakpoint_count'] ?? null), 'multi-page-home-groups-desktop-mobile');
+$assert(array('frame:home-desktop', 'frame:home-mobile')
+    === array_map(static fn (array $variant): string => (string) ($variant['frame_id'] ?? ''), $multiPageByFrame['frame:home-desktop']['variants'] ?? array()), 'multi-page-home-variants-widest-first');
+$assert(isset($multiPageByFrame['frame:contact-desktop'])
+    && true === ($multiPageByFrame['frame:contact-desktop']['responsive'] ?? null), 'multi-page-contact-groups-desktop-mobile');
+// (b) Nested annotation frame is NOT a page.
+$assert(! in_array('frame:home-annotation', $multiPageFrameIds, true), 'multi-page-nested-frame-not-a-page');
+// (c) Design-system frame is excluded from pages (and reported as such).
+$assert(! in_array('frame:styleguide', $multiPageFrameIds, true), 'multi-page-design-system-excluded');
+$assert(in_array('frame:styleguide', $multiPagePlan['classification_coverage']['excluded_design_system_frame_ids'] ?? array(), true), 'multi-page-design-system-reported-excluded');
+// Oversized decorative board is excluded as a non-page.
+$assert(! in_array('frame:title-card', $multiPageFrameIds, true), 'multi-page-oversized-divider-not-a-page');
+// (d) Backward compat: no multi_page / no frame_ids → single page.
+$singlePagePlan = ( new ScenegraphPagePlanner() )->plan($multiPageSource);
+$assert(1 === ($singlePagePlan['page_count'] ?? null), 'multi-page-backward-compat-single-page-default');
+
 // Semantic HTML5 elements: a generically-named page structure maps to landmarks
 // (header/nav/main/section/footer), a font-size hierarchy maps to h1/h2, repeated
 // sibling cards map to <ul>/<li>, and a button-like control maps to <button>.

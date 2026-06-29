@@ -40,6 +40,20 @@ final class ScenegraphPagePlanner
      */
     private const RESPONSIVE_WIDTH_MATERIAL_RATIO = 0.2;
 
+    /**
+     * Page-candidacy dimension band. A real page artboard is a tall, scrolling
+     * frame whose width sits in the realistic device range (small mobile through
+     * wide desktop). Frames outside this band are top-level on the canvas but are
+     * not pages: layout-grid guides / chips (narrower than {@see PAGE_MIN_WIDTH_PX}),
+     * oversized presentation / overview / style-guide boards (wider than
+     * {@see PAGE_MAX_WIDTH_PX}), and decorative dividers / cover thumbnails /
+     * device mockups (shorter than {@see PAGE_MIN_HEIGHT_PX}). Explicit
+     * `frame_ids` bypass this band so any requested frame stays selectable.
+     */
+    private const PAGE_MIN_WIDTH_PX  = 320.0;
+    private const PAGE_MAX_WIDTH_PX  = 2048.0;
+    private const PAGE_MIN_HEIGHT_PX = 700.0;
+
     public function __construct(
         private readonly ScenegraphIndex $index = new ScenegraphIndex(),
         private readonly ScenegraphFrameInspector $frameInspector = new ScenegraphFrameInspector(),
@@ -119,26 +133,33 @@ final class ScenegraphPagePlanner
         $diagnostics = is_array($index['diagnostics'] ?? null) ? $index['diagnostics'] : array();
         $statsMemo = array();
         $explicitFrameIds = $this->explicitFrameIds($options);
-        $includeAllPages = true === ($options['include_all_pages'] ?? false) || ! empty($options['frame_ids']);
+        $includeAllPages = true === ($options['include_all_pages'] ?? false)
+            || true === ($options['multi_page'] ?? false)
+            || ! empty($options['frame_ids']);
         $maxPages = isset($options['max_pages']) && is_numeric($options['max_pages']) ? max(1, (int) $options['max_pages']) : null;
         $entryFrameId = isset($options['entry_frame_id']) && is_scalar($options['entry_frame_id']) ? (string) $options['entry_frame_id'] : null;
         $slugMap = is_array($options['frame_slug_map'] ?? null) ? $options['frame_slug_map'] : array();
         $candidates = array();
 
+        // Page candidates are TOP-LEVEL frames: FRAME nodes that sit directly on
+        // a CANVAS (or the document root), with only transparent SECTION grouping
+        // allowed in between. The deeply nested frames (annotation cards like
+        // "Buttons"/"Legend", layout-grid guides, component internals) are NOT
+        // pages and must not drown the real pages or misdirect dev-status
+        // selection. Restricting candidacy to the top level collapses the
+        // candidate set from "every FRAME at any depth" to the handful of real
+        // page frames. Explicit `frame_ids` bypass this scoping (built on demand
+        // in the selection branch below) so a requested frame at any depth stays
+        // selectable.
         foreach ( $nodes as $id => $node ) {
             if ( ! is_string($id) || ! is_array($node) || 'FRAME' !== strtoupper((string) ($node['type'] ?? '')) ) {
                 continue;
             }
+            if ( ! $this->isTopLevelFrame($id, $nodes, $parentIndex) ) {
+                continue;
+            }
 
-            $stats = $this->subtreeStats($id, $nodes, $childrenIndex, $statsMemo);
-            $dimensions = $this->dimensions($node);
-            $candidates[$id] = array(
-                'id'         => $id,
-                'node'       => $node,
-                'stats'      => $stats,
-                'dimensions' => $dimensions,
-                'score'      => $this->scoreCandidate($id, $node, $dimensions, $stats, $nodes, $parentIndex),
-            );
+            $candidates[$id] = $this->buildCandidate($id, $node, $nodes, $childrenIndex, $parentIndex, $statsMemo);
         }
 
         // Frame role classification (#247): decide WHAT each top-level frame IS
@@ -163,6 +184,32 @@ final class ScenegraphPagePlanner
             }
         }
 
+        // The SELECTABLE page pool: top-level candidates that are neither
+        // design-system frames nor off-page-sized noise (grid guides, decorative
+        // dividers, cover/device boards, oversized overview artboards). Selection,
+        // dev-status ranking, responsive detection and grouping all operate over
+        // THIS pool so noise frames never become pages and never get pulled into a
+        // real page's responsive group. The full `$candidates` set is retained for
+        // candidate_count and classification coverage. If dimension filtering
+        // empties the pool (unusual designs), fall back to all non-design-system
+        // candidates so a plan is still produced and single-page never yields zero.
+        $pageCandidates = array();
+        foreach ( $candidates as $candidateId => $candidate ) {
+            if ( isset($designSystemIds[$candidateId]) ) {
+                continue;
+            }
+            if ( ! $this->isPageSizedCandidate(
+                (float) ($candidate['dimensions']['width'] ?? 0),
+                (float) ($candidate['dimensions']['height'] ?? 0)
+            ) ) {
+                continue;
+            }
+            $pageCandidates[$candidateId] = $candidate;
+        }
+        if ( array() === $pageCandidates ) {
+            $pageCandidates = array_diff_key($candidates, $designSystemIds);
+        }
+
         // Figma Dev Mode status (#280): when ANY node in the file carries a
         // normalized dev status, it becomes the PRIMARY frame-selection signal.
         $nodeDevStatus = $this->resolveNodeDevStatus($nodes);
@@ -172,35 +219,52 @@ final class ScenegraphPagePlanner
         $selectedIds = array();
         $explicitSelected = false;
         $selectionSource = 'heuristic';
+        // Dev-status is the PRIMARY selector ONLY when a real top-level page
+        // candidate carries a mark. Because page candidacy is top-level scoped,
+        // dev marks that live solely on nested/annotation frames never enter
+        // this set, so they can no longer suppress unmarked real pages —
+        // selection then falls back to the heuristic ranking over top-level
+        // page candidates. Design-system frames never become pages even when
+        // dev-marked.
+        $markedPageCandidates = array_intersect_key($pageCandidates, $frameDevStatus);
         if ( ! empty($explicitFrameIds) ) {
             $explicitSelected = true;
             foreach ( $explicitFrameIds as $id ) {
-                if ( isset($candidates[$id]) ) {
-                    $selectedIds[] = $id;
-                    continue;
-                }
+                if ( ! isset($candidates[$id]) ) {
+                    $node = is_array($nodes[$id] ?? null) ? $nodes[$id] : null;
+                    if ( null === $node || 'FRAME' !== strtoupper((string) ($node['type'] ?? '')) ) {
+                        $diagnostics[] = array(
+                            'severity' => 'warning',
+                            'code'     => 'figma_page_plan_frame_missing',
+                            'message'  => 'Skipped a requested frame because it was not found as a FRAME node.',
+                            'frame_id' => $id,
+                        );
+                        continue;
+                    }
 
-                $diagnostics[] = array(
-                    'severity' => 'warning',
-                    'code'     => 'figma_page_plan_frame_missing',
-                    'message'  => 'Skipped a requested frame because it was not found as a FRAME node.',
-                    'frame_id' => $id,
-                );
+                    // Explicit selection bypasses top-level + page-size scoping:
+                    // build the requested frame as a candidate on demand so a
+                    // frame at any depth stays selectable and emits a page, and
+                    // add it to the page pool so it still participates in
+                    // responsive grouping with its explicitly-selected siblings.
+                    $candidates[$id] = $this->buildCandidate($id, $node, $nodes, $childrenIndex, $parentIndex, $statsMemo);
+                    $classifications[$id] = $this->classifyCandidate($id, $candidates[$id], $nodes, $childrenIndex, $parentIndex);
+                }
+                $pageCandidates[$id] = $candidates[$id];
+
+                $selectedIds[] = $id;
             }
-        } elseif ( $fileHasDevStatus && array() !== $frameDevStatus ) {
+        } elseif ( $fileHasDevStatus && array() !== $markedPageCandidates ) {
             // Prefer ready_for_dev/completed frames (and frames under a marked
             // section); skip WIP/unmarked frames. Heuristics stay as the order
             // within the marked set and as the fallback when no frame qualifies.
-            // Design-system frames never become pages even when dev-marked.
             $selectionSource = 'dev_status';
-            $markedCandidates = array_diff_key(array_intersect_key($candidates, $frameDevStatus), $designSystemIds);
-            $selectedIds = $this->rankedCandidateIdsByDevStatus($markedCandidates, $frameDevStatus);
+            $selectedIds = $this->rankedCandidateIdsByDevStatus($markedPageCandidates, $frameDevStatus);
             if ( ! $includeAllPages ) {
                 $selectedIds = array_slice($selectedIds, 0, 1);
             }
         } else {
-            $selectableCandidates = array_diff_key($candidates, $designSystemIds);
-            $selectedIds = $this->rankedCandidateIds($selectableCandidates);
+            $selectedIds = $this->rankedCandidateIds($pageCandidates);
             if ( ! $includeAllPages ) {
                 $selectedIds = array_slice($selectedIds, 0, 1);
             }
@@ -218,7 +282,7 @@ final class ScenegraphPagePlanner
             }
         }
 
-        $detectionResult = $this->detectResponsive($candidates, $nodes, $parentIndex, $options);
+        $detectionResult = $this->detectResponsive($pageCandidates, $nodes, $parentIndex, $options);
         $detectionById = $detectionResult['detection'];
         if ( $detectionResult['bounded'] ) {
             $diagnostics[] = array(
@@ -230,7 +294,7 @@ final class ScenegraphPagePlanner
             );
         }
 
-        $grouping = $this->responsiveGroups($candidates, $detectionById);
+        $grouping = $this->responsiveGroups($pageCandidates, $detectionById);
         $responsiveGroups = $grouping['groups'];
         foreach ( $grouping['diagnostics'] as $groupDiagnostic ) {
             $diagnostics[] = $groupDiagnostic;
@@ -332,6 +396,86 @@ final class ScenegraphPagePlanner
             'dev_status_coverage'     => $devStatusCoverage,
             'classification_coverage' => $classificationCoverage,
             'diagnostics'             => $diagnostics,
+        );
+    }
+
+    /**
+     * Whether a FRAME node is a TOP-LEVEL page candidate: walking up its ancestor
+     * chain reaches a CANVAS or the document root WITHOUT first passing through
+     * another container FRAME/GROUP/INSTANCE/COMPONENT. SECTION nodes are
+     * transparent because they are Figma's on-canvas organizational grouping (a
+     * dev-handoff "folder"), so a page frame placed inside a section is still
+     * top-level; likewise a frame at the document root (a CANVAS-less synthetic
+     * source) is top-level. This is the generic structural test that separates
+     * real page frames from the nested frames (annotation cards, layout-grid
+     * guides, component internals) that must never compete for page selection.
+     *
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, string|null>          $parentIndex
+     */
+    private function isTopLevelFrame(string $id, array $nodes, array $parentIndex): bool
+    {
+        $cursor = $parentIndex[$id] ?? null;
+        $guard = 0;
+        while ( is_string($cursor) && isset($nodes[$cursor]) && is_array($nodes[$cursor]) && $guard < 4096 ) {
+            ++$guard;
+            $type = strtoupper((string) ($nodes[$cursor]['type'] ?? ''));
+            if ( 'CANVAS' === $type ) {
+                return true;
+            }
+            if ( 'SECTION' !== $type ) {
+                // Nested inside another frame/group/component → content, not a page.
+                return false;
+            }
+            $cursor = $parentIndex[$cursor] ?? null;
+        }
+
+        // Reached the document root (no parent, or only SECTIONs above) without
+        // passing through a container frame: a depth-1 frame, i.e. a page.
+        return true;
+    }
+
+    /**
+     * Whether a candidate frame has PAGE-SIZED dimensions: a width inside the
+     * realistic page-width band (mobile through wide desktop) and a height tall
+     * enough to be a scrolling page. This is the dimension half of page
+     * candidacy — it drops top-level frames that are structurally on the canvas
+     * but are plainly not pages: layout-grid guides and chips (too narrow),
+     * decorative "Title Card" dividers / cover thumbnails / device mockups (too
+     * short), and oversized presentation/overview artboards (too wide, e.g. a
+     * 2238px "Home Page – Desktop" overview board colliding with the real 1440px
+     * page). Explicit `frame_ids` bypass this gate entirely.
+     */
+    private function isPageSizedCandidate(float $width, float $height): bool
+    {
+        return $width >= self::PAGE_MIN_WIDTH_PX
+            && $width <= self::PAGE_MAX_WIDTH_PX
+            && $height >= self::PAGE_MIN_HEIGHT_PX;
+    }
+
+    /**
+     * Build a single page-candidate record (subtree stats, dimensions, score).
+     * Shared by the top-level candidacy scan and the explicit-`frame_ids`
+     * on-demand path so a requested frame at any depth is scored identically.
+     *
+     * @param array<string, mixed>                $node
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, array<int, string>>   $childrenIndex
+     * @param array<string, string|null>          $parentIndex
+     * @param array<string, array<string, int>>   $statsMemo
+     * @return array{id:string,node:array<string, mixed>,stats:array{nodes:int,texts:int,assets:int},dimensions:array{width:float|null,height:float|null},score:int}
+     */
+    private function buildCandidate(string $id, array $node, array $nodes, array $childrenIndex, array $parentIndex, array &$statsMemo): array
+    {
+        $stats = $this->subtreeStats($id, $nodes, $childrenIndex, $statsMemo);
+        $dimensions = $this->dimensions($node);
+
+        return array(
+            'id'         => $id,
+            'node'       => $node,
+            'stats'      => $stats,
+            'dimensions' => $dimensions,
+            'score'      => $this->scoreCandidate($id, $node, $dimensions, $stats, $nodes, $parentIndex),
         );
     }
 
