@@ -4333,6 +4333,81 @@ $assert(str_contains($inlineTextStyleHtml, 'Hello blue <span style="color:#0000f
 // Mixed-weight: only "Bold" differs in font-weight — it gets a font-weight span.
 $assert(str_contains($inlineTextStyleHtml, '<span style="font-weight:700">Bold</span> plain text'), 'inline-style-mixed-weight-spans');
 
+// Kiwi (.fig) inline style overrides (#328).
+//
+// The REST API fixture above passes `characters` / `characterStyleOverrides` /
+// `styleOverrideTable` (an id-keyed map) flat on the node. Real `.fig` (Kiwi) files
+// encode the same data differently, and the figma-transformer must decode and
+// bridge that shape into the same `segments` contract:
+//   - text lives under `textData.characters`
+//   - per-character run IDs live under `textData.characterStyleIDs`
+//   - the override table is `textData.styleOverrideTable`, a `NodeChange[]` where
+//     each entry carries a `styleID` plus the overriding properties, and override
+//     text color rides on `fillPaints` (not REST `fills`).
+// This fixture mirrors that .fig shape so the bridge is exercised end-to-end:
+// decode -> normalize (id-keyed + fillPaints color + fontName→weight) -> emit span.
+$kiwiInlineTextStyleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Kiwi Inline Text Style Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'kts:1',
+            'type'     => 'FRAME',
+            'name'     => 'Kiwi inline text frame',
+            'width'    => 1200,
+            'height'   => 400,
+            'children' => array(
+                // "Hello blue " (11 chars) in base black, "world" (5 chars) in blue
+                // via a NodeChange-shaped override entry carrying `fillPaints`.
+                array(
+                    'id'         => 'kts:2',
+                    'type'       => 'TEXT',
+                    'name'       => 'Kiwi two color text',
+                    'fontName'   => array('family' => 'Inter', 'style' => 'Regular'),
+                    'fontSize'   => 16,
+                    'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                    'textData'   => array(
+                        'characters'        => 'Hello blue world',
+                        'characterStyleIDs' => array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1),
+                        'styleOverrideTable' => array(
+                            array(
+                                'styleID'    => 1,
+                                'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 1, 'a' => 1))),
+                            ),
+                        ),
+                    ),
+                ),
+                // "Bold" (4 chars) at weight 700 via a NodeChange-shaped override
+                // entry carrying a bold `fontName`, " plain text" (11 chars) at base.
+                array(
+                    'id'         => 'kts:3',
+                    'type'       => 'TEXT',
+                    'name'       => 'Kiwi mixed weight text',
+                    'fontName'   => array('family' => 'Inter', 'style' => 'Regular'),
+                    'fontSize'   => 16,
+                    'textData'   => array(
+                        'characters'        => 'Bold plain text',
+                        'characterStyleIDs' => array(1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                        'styleOverrideTable' => array(
+                            array(
+                                'styleID'  => 1,
+                                'fontName' => array('family' => 'Inter', 'style' => 'Bold'),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$kiwiInlineTextStyleHtml = $fileContent($kiwiInlineTextStyleResult, 'index.html');
+
+// Kiwi two-color: only the "world" run differs in fill color — it gets a color span,
+// and the non-overridden "Hello blue " text is emitted unwrapped.
+$assert(str_contains($kiwiInlineTextStyleHtml, 'Hello blue <span style="color:#0000ff">world</span>'), 'kiwi-inline-style-two-color-spans');
+// Kiwi mixed-weight: only "Bold" differs in font-weight — derived from the override
+// entry's bold `fontName` — and " plain text" stays unwrapped.
+$assert(str_contains($kiwiInlineTextStyleHtml, '<span style="font-weight:700">Bold</span> plain text'), 'kiwi-inline-style-mixed-weight-spans');
+
 // Font embedding: a known web font (Inter) resolves to a weight-aware Google Fonts
 // @font-face import, while an unknown family (Skolar Latin) stays actionable. This
 // mirrors the David Perell .fig matrix where Inter + Skolar Latin rendered in a

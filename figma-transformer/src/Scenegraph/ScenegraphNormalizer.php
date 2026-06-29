@@ -1733,11 +1733,15 @@ final class ScenegraphNormalizer
      * format produced by {@see normalizeStyledTextSegments}.
      *
      * Figma REST API and .fig files expose per-character style overrides via two
-     * parallel fields:
-     *   - `characterStyleOverrides` — one integer per character; 0 = base style,
-     *     N = an entry in `styleOverrideTable`.
-     *   - `styleOverrideTable` — map from string key (the N above) to a Figma
+     * parallel fields, with different names and shapes per encoding:
+     *   - REST `characterStyleOverrides` / Kiwi `textData.characterStyleIDs` — one
+     *     integer per character; 0 = base style, N = an entry in the override table.
+     *   - REST `styleOverrideTable` — map from string key (the N above) to a Figma
      *     style object carrying only the overriding properties.
+     *   - Kiwi `textData.styleOverrideTable` — a `NodeChange[]` where each entry
+     *     carries a `styleID` (the N above) plus the overriding properties
+     *     (`fontName`, `fontSize`, `fillPaints`, ...). It is bridged into the same
+     *     id-keyed map shape the REST path produces.
      *
      * Adjacent characters sharing the same override ID are collapsed into a single
      * run. For each non-base run the override style is compared against the
@@ -1750,8 +1754,17 @@ final class ScenegraphNormalizer
      */
     private function normalizeCharacterStyleOverrideSegments(array $node): array
     {
+        $textData = is_array($node['textData'] ?? null) ? $node['textData'] : array();
+
         $overrides = is_array($node['characterStyleOverrides'] ?? null) ? array_values($node['characterStyleOverrides']) : array();
+        if ( empty($overrides) && is_array($textData['characterStyleIDs'] ?? null) ) {
+            $overrides = array_values($textData['characterStyleIDs']);
+        }
+
         $overrideTable = is_array($node['styleOverrideTable'] ?? null) ? $node['styleOverrideTable'] : array();
+        if ( empty($overrideTable) && is_array($textData['styleOverrideTable'] ?? null) ) {
+            $overrideTable = $this->indexKiwiStyleOverrideTable($textData['styleOverrideTable']);
+        }
 
         if ( empty($overrides) || empty($overrideTable) ) {
             return array();
@@ -1769,13 +1782,16 @@ final class ScenegraphNormalizer
             return array();
         }
 
-        // Resolve the characters string.
+        // Resolve the characters string. .fig (Kiwi) nests it under `textData`.
         $characters = '';
         foreach ( array('characters', 'text') as $key ) {
             if ( isset($node[$key]) && is_scalar($node[$key]) ) {
                 $characters = (string) $node[$key];
                 break;
             }
+        }
+        if ( '' === $characters && isset($textData['characters']) && is_scalar($textData['characters']) ) {
+            $characters = (string) $textData['characters'];
         }
         if ( '' === $characters ) {
             return array();
@@ -1790,11 +1806,10 @@ final class ScenegraphNormalizer
                 $baseStyle[$key] = $value;
             }
         }
-        // Extract text fill color from the base node's fills when not already in style.
+        // Extract text fill color from the base node's fills when not already in
+        // style. REST encodes these as `fills`; .fig (Kiwi) as `fillPaints`.
         if ( ! isset($baseStyle['color']) ) {
-            $baseFills = is_array($baseStyleSource['fills'] ?? null)
-                ? $baseStyleSource['fills']
-                : ( is_array($node['fills'] ?? null) ? $node['fills'] : array() );
+            $baseFills = $this->firstFillList(array($baseStyleSource['fills'] ?? null, $node['fills'] ?? null, $node['fillPaints'] ?? null));
             $fillColor = $this->solidFillColor($baseFills);
             if ( null !== $fillColor ) {
                 $baseStyle['color'] = $fillColor;
@@ -1843,9 +1858,10 @@ final class ScenegraphNormalizer
                 if ( ! empty($rawOverride) ) {
                     $overrideStyle = $this->normalizeTextStyle($rawOverride);
 
-                    // Figma REST API encodes text color as fills in override entries.
+                    // Figma encodes override text color as fills: REST uses `fills`,
+                    // .fig (Kiwi) NodeChange entries use `fillPaints`.
                     if ( ! isset($overrideStyle['color']) ) {
-                        $overrideFills = is_array($rawOverride['fills'] ?? null) ? $rawOverride['fills'] : array();
+                        $overrideFills = $this->firstFillList(array($rawOverride['fills'] ?? null, $rawOverride['fillPaints'] ?? null));
                         $fillColor = $this->solidFillColor($overrideFills);
                         if ( null !== $fillColor ) {
                             $overrideStyle['color'] = $fillColor;
@@ -1870,6 +1886,48 @@ final class ScenegraphNormalizer
         }
 
         return $segments;
+    }
+
+    /**
+     * Bridges the Kiwi `textData.styleOverrideTable` (a `NodeChange[]` where each
+     * entry carries a `styleID`) into the id-keyed map shape that the REST path —
+     * and the rest of {@see normalizeCharacterStyleOverrideSegments} — expects.
+     *
+     * @param array<int|string, mixed> $table
+     * @return array<string, array<string, mixed>>
+     */
+    private function indexKiwiStyleOverrideTable(array $table): array
+    {
+        $indexed = array();
+        foreach ( $table as $entry ) {
+            if ( ! is_array($entry) ) {
+                continue;
+            }
+            if ( ! isset($entry['styleID']) || ! is_numeric($entry['styleID']) ) {
+                continue;
+            }
+            $indexed[(string) (int) $entry['styleID']] = $entry;
+        }
+
+        return $indexed;
+    }
+
+    /**
+     * Returns the first non-empty paint list from a set of candidate sources. Used
+     * to bridge REST `fills` and Kiwi `fillPaints` when resolving text colors.
+     *
+     * @param array<int, mixed> $candidates
+     * @return array<int, mixed>
+     */
+    private function firstFillList(array $candidates): array
+    {
+        foreach ( $candidates as $candidate ) {
+            if ( is_array($candidate) && ! empty($candidate) ) {
+                return $candidate;
+            }
+        }
+
+        return array();
     }
 
     /**
