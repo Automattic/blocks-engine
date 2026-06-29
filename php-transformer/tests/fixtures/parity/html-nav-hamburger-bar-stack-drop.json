@@ -1,0 +1,37 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nav-hamburger-bar-stack-drop",
+  "description": "A site header holds a converting core/navigation menu (overlayMenu='mobile') beside a mobile hamburger toggle that carries NO aria-controls/aria-expanded — only an aria-label and the stacked empty <span> bars themes draw with CSS. The open/close behavior lived in JS the importer cannot carry, so the bare bar-stack shape is the only signal. The toggle is dropped as redundant chrome (the navigation already supplies its own responsive overlay hamburger) instead of surfacing as an empty, always-visible core/button. Detection is structural — a labelless control whose only content is two or more empty <span> bars, associated with a navigation menu in its header landmark — never the class string (the source class 'nav-toggle' is ignored).",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nav-hamburger-bar-stack-drop.json",
+    "notes": "Generalizes redundant-toggle dropping to hamburgers with no ARIA toggle wiring. Mirrors the recurring runtime_target_gap:...:class:nav-toggle matrix finding where the toggle became a broken empty button and shifted header layout."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header class=\"site-header\"><a class=\"logo\" href=\"/\">Acme</a><nav class=\"main-nav\" aria-label=\"Main\"><ul><li><a href=\"/about\">About</a></li><li><a href=\"/blog\">Blog</a></li></ul></nav><button class=\"nav-toggle is-style-outline\" aria-label=\"Toggle menu\"><span></span><span></span><span></span></button></header>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "main-nav", "overlayMenu": "mobile" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "About", "url": "/about", "kind": "custom" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:button" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:buttons" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "Toggle menu" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"overlayMenu\":\"mobile\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"label\":\"About\",\"url\":\"/about\",\"kind\":\"custom\"} -->" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
