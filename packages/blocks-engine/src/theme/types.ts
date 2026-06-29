@@ -106,10 +106,11 @@ export interface SiteToThemeOptions extends SourceCssCarryOptions {
    */
   imageHostLookup?: (host: string) => Promise<Array<{ address: string; family: number }>>;
   /**
-   * Route sections whose source identity is targeted by the carried CSS through class-preserving
-   * preserve-dom reconstruction (instead of class-discarding native), so the carried CSS actually
-   * styles the body. Off by default while the regenerated goldens for the activated path are
-   * validated; callers (and the next golden-regen step) opt in.
+   * Opt-in: route sections whose source identity is targeted by the carried CSS through the
+   * class-preserving preserve-dom strategy (editable blocks that keep source classes). Off by
+   * default — the default reconstruction is the convert-or-island hybrid (clean canonical blocks
+   * where rawConvert is clean, faithful verbatim islands otherwise), which restores the fidelity
+   * lost when native canonical-block reconstruction (commit 86f39fd1) replaced the island path.
    */
   routeRichSections?: boolean;
   coverageFloor?: number;

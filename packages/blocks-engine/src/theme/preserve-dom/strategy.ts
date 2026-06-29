@@ -233,17 +233,23 @@ export const preserveDomStrategy: SectionStrategy = {
 
     const inner = childMarkup.join('\n');
     const sourceId = source.sourceId ?? container.attr('id')?.trim();
-    const sourceClasses =
+    const rawSourceClasses =
       source.sourceClasses && source.sourceClasses.length > 0
         ? source.sourceClasses
         : (container.attr('class') ?? '').split(/\s+/).filter(Boolean);
+    // Dedup source classes — the source DOM can repeat a class (e.g. class="fallback fallback")
+    // and CanonicalSaveShapeValidator rejects duplicate classes on a block.
+    const sourceClasses = [...new Set(rawSourceClasses)];
     const cls = sourceClasses.join(' ');
     const sectionInstance = sheet.classFor(container.attr('style'));
     const wrapperCls = [cls, sectionInstance].filter(Boolean).join(' ');
-    const wrapperPairs = ['"tagName":"section"'];
+    // Top-level sections break out of the theme's centered content width so full-bleed source
+    // bands stay full-bleed — mirrors the native section wrapper, which emits both the align:full
+    // attribute and the alignfull class (a core/group with align:full is invalid without it).
+    const wrapperPairs = ['"tagName":"section"', '"align":"full"'];
     if (sourceId) wrapperPairs.unshift(`"anchor":${attrJson(sourceId)}`);
     const attrs = blockAttrs(wrapperPairs, wrapperCls);
-    const divCls = ['wp-block-group', wrapperCls].filter(Boolean).join(' ');
+    const divCls = [...new Set(['wp-block-group', 'alignfull', ...sourceClasses, sectionInstance].filter(Boolean))].join(' ');
     const idPart = sourceId ? ` id="${escapeHtml(sourceId)}"` : '';
     const blocks =
       `<!-- wp:group${attrs} -->\n` +

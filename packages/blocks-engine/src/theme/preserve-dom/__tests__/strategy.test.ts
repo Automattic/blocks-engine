@@ -53,8 +53,8 @@ describe('preserveDomStrategy', () => {
     );
 
     expect(aggregate.sectionMarkup).toEqual([
-      '<!-- wp:group {"anchor":"hero-panel","tagName":"section","className":"feature shell"} -->\n' +
-        '<section id="hero-panel" class="wp-block-group feature shell"><!-- wp:heading {"className":"eyebrow lib-i91a84cc172"} -->\n' +
+      '<!-- wp:group {"anchor":"hero-panel","tagName":"section","align":"full","className":"feature shell"} -->\n' +
+        '<section id="hero-panel" class="wp-block-group alignfull feature shell"><!-- wp:heading {"className":"eyebrow lib-i91a84cc172"} -->\n' +
         '<h2 class="wp-block-heading eyebrow lib-i91a84cc172">Build <span class="accent">fast</span></h2>\n' +
         '<!-- /wp:heading -->\n' +
         '<!-- wp:paragraph {"className":"lede"} -->\n' +
@@ -80,8 +80,8 @@ describe('preserveDomStrategy', () => {
     );
 
     expect(aggregate.sectionMarkup).toEqual([
-      '<!-- wp:group {"anchor":"media-panel","tagName":"section","className":"media shell lib-i42aa6d9c6f"} -->\n' +
-        '<section id="media-panel" class="wp-block-group media shell lib-i42aa6d9c6f"><!-- wp:image {"className":"photo lib-i0466783d98"} -->\n' +
+      '<!-- wp:group {"anchor":"media-panel","tagName":"section","align":"full","className":"media shell lib-i42aa6d9c6f"} -->\n' +
+        '<section id="media-panel" class="wp-block-group alignfull media shell lib-i42aa6d9c6f"><!-- wp:image {"className":"photo lib-i0466783d98"} -->\n' +
         '<figure class="wp-block-image photo lib-i0466783d98"><img src="/photo.jpg" alt="Photo"/></figure>\n' +
         '<!-- /wp:image -->\n' +
         '<!-- wp:paragraph {"className":"caption lib-ie3ec02ace9"} -->\n' +
@@ -114,8 +114,8 @@ describe('preserveDomStrategy', () => {
     // The nested .card wrapper is preserved as a nested wp:group (was previously dropped),
     // and the inner .label class survives onto the emitted paragraph.
     expect(aggregate.sectionMarkup).toEqual([
-      '<!-- wp:group {"anchor":"nested-panel","tagName":"section","className":"shell"} -->\n' +
-        '<section id="nested-panel" class="wp-block-group shell"><!-- wp:group {"anchor":"card","className":"card"} -->\n' +
+      '<!-- wp:group {"anchor":"nested-panel","tagName":"section","align":"full","className":"shell"} -->\n' +
+        '<section id="nested-panel" class="wp-block-group alignfull shell"><!-- wp:group {"anchor":"card","className":"card"} -->\n' +
         '<div id="card" class="wp-block-group card"><!-- wp:paragraph {"className":"label"} -->\n' +
         '<p class="label">Nested</p>\n' +
         '<!-- /wp:paragraph --></div>\n' +

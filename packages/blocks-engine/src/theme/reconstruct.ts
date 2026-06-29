@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 import { escapeHtmlAttr } from '../escape.js';
 import type { WorkerPool } from '../pool/types.js';
+import { convertSemanticSections } from './convert-semantic-sections.js';
 import { buildFallbackDiagnostic } from './fallback-diagnostic.js';
 import { formToBlocks, SKIPPED_FIELD_KINDS } from './form-blocks.js';
 import { buildHtmlFallbackBlock, selectIslandSource, type HtmlFallbackOpts } from './html-fallback.js';
@@ -560,11 +561,55 @@ function nativeDecision(section: SectionSpec, options: SectionRenderOptions, ctx
   };
 }
 
+// Verbatim-island fallback (faithful). When a section did not convert cleanly,
+// emit its original DOM verbatim inside a core/html island so every source class
+// survives and the carried CSS binds 1:1. Wrapped in an align:full group so the
+// section breaks out of main's constrained content width and renders full-bleed
+// (the un-wrapped island boxed into contentSize — the 5a8720b7 fidelity gap).
+function islandDecision(
+  section: SectionSpec,
+  options: SectionRenderOptions,
+): NativeSectionDecision | null {
+  if (!(section.styledHtml || section.sectionHtml)) return null;
+
+  const { source, tier } = selectIslandSource(section);
+  const island = buildHtmlFallbackBlock(source, fallbackOptions(options));
+  const blocks =
+    `<!-- wp:group {"tagName":"section","align":"full"} -->\n` +
+    `<section class="wp-block-group alignfull">\n` +
+    `${island}\n` +
+    `</section>\n` +
+    `<!-- /wp:group -->`;
+  const coverage: CoverageResult = { textCoverage: 1, missingImages: [], lost: false };
+  return {
+    spec: section,
+    blocks,
+    coverage,
+    expectedText: section.headings,
+    bodyText: section.bodyText,
+    expectedAssets: section.images.map((image) => image.url || image.sourceUrl).filter(Boolean),
+    provenanceFlags: [
+      `html-island${tier === 'verbatim' ? '' : `-${tier}`}#${section.sectionIndex}: verbatim source (faithful)`,
+    ],
+    fallbackDiagnostics: [],
+    iconAssets: [],
+    decision: 'fallback',
+  };
+}
+
 export const classifySemanticStrategy: SectionStrategy = {
   name: 'classify-semantic',
   render(section, options, ctx) {
+    // Convert-or-island hybrid (ported from data-liberation-agent): a clean canonical
+    // conversion (wpHtmlResidue 0) becomes editable blocks; otherwise the section
+    // falls back to a faithful verbatim island. nativeDecision is the last resort for
+    // synthetic specs that carry no source HTML to island.
     const converted = options.convertedSections?.get(section.sectionIndex);
-    return convertedDecision(section, converted, options) ?? nativeDecision(section, options, ctx);
+    return (
+      convertedDecision(section, converted, options) ??
+      islandDecision(section, options) ??
+      nativeDecision(section, options, ctx)
+    );
   },
 };
 
@@ -641,10 +686,16 @@ export async function reconstruct(
   coverageFloor: number,
   renderOptions: SectionRenderOptions = {}
 ): Promise<SectionBlocks[]> {
-  void pool;
+  // PRODUCING half of the convert-or-island hybrid: pre-convert semantic sections
+  // through rawConvert on the pool so convertedDecision can promote the clean ones
+  // to canonical editable blocks. Anything dirty/non-semantic stays out of the map
+  // and falls back to a verbatim island (keeps source classes → carried CSS binds).
+  const convertedSections =
+    renderOptions.convertedSections ?? (await convertSemanticSections(specs, pool));
   const aggregate = reconstructNativeAggregate(specs, {
     ...optionsFromCtx(ctx),
     ...renderOptions,
+    convertedSections,
   });
   renderOptions.onDedup?.(aggregate.dedup?.cssRules ?? []);
   const sections: SectionBlocks[] = [];

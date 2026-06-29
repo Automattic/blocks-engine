@@ -46,7 +46,7 @@ describe('rich-css routing strategy', () => {
     const markup = aggregate.sectionMarkup[0] ?? '';
     // preserve-dom keeps the source section + child classes so the carried CSS targets them.
     expect(markup).toContain('"className":"menu shell"');
-    expect(markup).toContain('class="wp-block-group menu shell"');
+    expect(markup).toContain('class="wp-block-group alignfull menu shell"');
     expect(markup).toContain('eyebrow');
     expect(markup).toContain('Our menu');
     expect(aggregate.sections[0]?.coverage.lost).toBe(false);

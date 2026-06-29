@@ -212,6 +212,10 @@ describe('theme local image carry contract', () => {
       const result = await siteToTheme(siteDir, {
         outDir: join(siteDir, 'theme'),
         themeMeta: { slug: 'fixture-theme' },
+        // This contract freezes the NATIVE lossy-image path (identity preservation +
+        // [image unavailable] placeholder), which remains the fallback when preserve-dom
+        // declines a section. Pin it off the default rich routing so it keeps testing native.
+        routeRichSections: false,
         sections: {
           home: [lossyIdentitySpec(sectionImage(remoteImage))],
         },

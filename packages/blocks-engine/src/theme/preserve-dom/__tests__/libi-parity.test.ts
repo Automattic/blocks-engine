@@ -7,8 +7,8 @@ const LIB_I_CORE_HTML =
   '<section id="hero" class="hero cover"><h1 class="display" style="margin:20px 0 0;font-size:clamp(3rem,9vw,6.5rem)">Scent</h1><p class="lead" style="max-width:46ch">Made to order.</p></section>';
 
 const DLA_CAPTURED_MARKUP =
-  '<!-- wp:group {"anchor":"hero","tagName":"section","className":"hero cover"} -->\n' +
-  '<section id="hero" class="wp-block-group hero cover"><!-- wp:heading {"level":1,"className":"display lib-i513454c2bb"} -->\n' +
+  '<!-- wp:group {"anchor":"hero","tagName":"section","align":"full","className":"hero cover"} -->\n' +
+  '<section id="hero" class="wp-block-group alignfull hero cover"><!-- wp:heading {"level":1,"className":"display lib-i513454c2bb"} -->\n' +
   '<h1 class="wp-block-heading display lib-i513454c2bb">Scent</h1>\n' +
   '<!-- /wp:heading -->\n' +
   '<!-- wp:paragraph {"className":"lead lib-i91a84cc172"} -->\n' +

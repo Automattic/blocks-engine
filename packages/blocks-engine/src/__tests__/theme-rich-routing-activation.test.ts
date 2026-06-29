@@ -62,12 +62,13 @@ describe('rich-section routing activation in siteToTheme', () => {
     });
   });
 
-  it('does NOT carry source classes when routeRichSections is off (default native path)', async () => {
+  it('does NOT carry source classes when routeRichSections is explicitly off (native path)', async () => {
     await withTempDir('blocks-engine-rich-routing-off-', async (dir) => {
       writeRichSite(dir);
       const result = await siteToTheme(dir, {
         outDir: join(dir, 'theme'),
         themeMeta: { slug: 'cafe-theme' },
+        routeRichSections: false,
       });
 
       const frontPage = result.model.templates['front-page.html'] ?? '';
