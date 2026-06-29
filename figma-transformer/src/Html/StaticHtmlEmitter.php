@@ -5513,7 +5513,7 @@ final class StaticHtmlEmitter
                 }
             }
 
-            if ( in_array(($paint['type'] ?? null), array('GRADIENT_LINEAR', 'GRADIENT_RADIAL'), true) ) {
+            if ( in_array(($paint['type'] ?? null), array('GRADIENT_LINEAR', 'GRADIENT_RADIAL', 'GRADIENT_ANGULAR'), true) ) {
                 $gradient = $this->gradientPaint($paint);
                 if ( null !== $gradient ) {
                     return array('css' => $gradient, 'gradient' => true);
@@ -5584,7 +5584,91 @@ final class StaticHtmlEmitter
             return 'radial-gradient(circle,' . implode(',', $cssStops) . ')';
         }
 
+        if ( 'GRADIENT_ANGULAR' === ($paint['type'] ?? null) ) {
+            $geometry = $this->angularGradientGeometry($paint);
+
+            return 'conic-gradient(from ' . $this->number($geometry['from']) . 'deg at '
+                . $this->number($geometry['cx']) . '% ' . $this->number($geometry['cy']) . '%,'
+                . implode(',', $cssStops) . ')';
+        }
+
         return 'linear-gradient(' . $this->number($this->linearGradientAngle($paint)) . 'deg,' . implode(',', $cssStops) . ')';
+    }
+
+    /**
+     * Computes the CSS conic-gradient geometry (start angle + center) for a
+     * Figma angular paint from its gradientTransform matrix.
+     *
+     * Figma evaluates an angular (conic) gradient in the same canonical space
+     * the linear/radial paths use: the 2x3 gradientTransform maps the shape's
+     * normalized bounding-box space (0..1, y-down) into the gradient's canonical
+     * space, and the angular parameter is t = atan2(v - 0.5, u - 0.5) / 2pi
+     * around the canonical center (0.5, 0.5). So t = 0 (the gradient's first
+     * stop / seam) points along the canonical +u axis -- the very same handle
+     * direction the linear path treats as start->end. Mapping +u back through
+     * the INVERSE matrix yields (d/det, -c/det), the t=0 radial direction in the
+     * shape's own y-down space.
+     *
+     * CSS conic-gradient `from` angles share the linear-gradient clock: 0deg
+     * points up, 90deg right, 180deg down, 270deg left, sweeping clockwise. For
+     * a y-down direction (dx, dy) the matching angle is atan2(dx, -dy), so the
+     * seam direction reuses the exact linearGradientAngle convention. The center
+     * is the canonical point (0.5, 0.5) mapped back through the inverse affine,
+     * expressed as percentages of the shape box.
+     *
+     * Returns `from 0deg at 50% 50%` (seam at top, centered) when no usable
+     * transform is present, so geometry-less angular paints stay deterministic.
+     *
+     * @param array<string, mixed> $paint
+     * @return array{from: float, cx: float, cy: float}
+     */
+    private function angularGradientGeometry(array $paint): array
+    {
+        $default = array('from' => 0.0, 'cx' => 50.0, 'cy' => 50.0);
+
+        $matrix = $paint['gradientTransform'] ?? null;
+        if ( ! is_array($matrix) || ! is_array($matrix[0] ?? null) || ! is_array($matrix[1] ?? null) ) {
+            return $default;
+        }
+
+        $a = $this->numericOrNull($matrix[0][0] ?? null);
+        $b = $this->numericOrNull($matrix[0][1] ?? null);
+        $tx = $this->numericOrNull($matrix[0][2] ?? null);
+        $c = $this->numericOrNull($matrix[1][0] ?? null);
+        $d = $this->numericOrNull($matrix[1][1] ?? null);
+        $ty = $this->numericOrNull($matrix[1][2] ?? null);
+        if ( null === $a || null === $b || null === $tx || null === $c || null === $d || null === $ty ) {
+            return $default;
+        }
+
+        $det = $a * $d - $b * $c;
+        if ( abs($det) < 1e-9 ) {
+            return $default;
+        }
+
+        // Canonical +u axis mapped to the shape's y-down space: the t=0 seam
+        // direction. Identical first column of the inverse linear part the
+        // linear path uses, so the seam angle matches linearGradientAngle.
+        $dx = $d / $det;
+        $dy = -$c / $det;
+        $from = 0.0;
+        if ( abs($dx) >= 1e-9 || abs($dy) >= 1e-9 ) {
+            $from = fmod(rad2deg(atan2($dx, -$dy)), 360.0);
+            if ( $from < 0.0 ) {
+                $from += 360.0;
+            }
+        }
+
+        // Canonical center (0.5, 0.5) mapped back through the inverse affine
+        // gives the conic center in the shape's normalized space.
+        $cx = ($d * (0.5 - $tx) - $b * (0.5 - $ty)) / $det;
+        $cy = ($a * (0.5 - $ty) - $c * (0.5 - $tx)) / $det;
+
+        return array(
+            'from' => $from,
+            'cx'   => $cx * 100.0,
+            'cy'   => $cy * 100.0,
+        );
     }
 
     /**

@@ -3869,6 +3869,70 @@ $gradientPaintResult = blocks_engine_figma_transformer_transform_scenegraph(arra
             ),
         ),
         array(
+            'id'     => 'gradient:angular',
+            'type'   => 'RECTANGLE',
+            'name'   => 'Angular gradient',
+            'width'  => 100,
+            'height' => 100,
+            'fills'  => array(
+                array(
+                    'type'              => 'GRADIENT_ANGULAR',
+                    // Identity gradientTransform: the angular seam (t=0) runs
+                    // along the shape's +x axis (3 o'clock) => CSS conic
+                    // `from 90deg`, centered at 50% 50%.
+                    'gradientTransform' => array(
+                        array(1, 0, 0),
+                        array(0, 1, 0),
+                    ),
+                    'gradientStops'     => array(
+                        array('position' => 0, 'color' => array('r' => 1, 'g' => 0, 'b' => 0, 'a' => 1)),
+                        array('position' => 1, 'color' => array('r' => 0, 'g' => 0, 'b' => 1, 'a' => 1)),
+                    ),
+                ),
+            ),
+        ),
+        array(
+            'id'     => 'gradient:angular-top',
+            'type'   => 'RECTANGLE',
+            'name'   => 'Angular gradient top',
+            'width'  => 100,
+            'height' => 100,
+            'fills'  => array(
+                array(
+                    'type'              => 'GRADIENT_ANGULAR',
+                    // A transform whose canonical +u axis maps to the shape's
+                    // -y (up) direction: the seam starts at the top (12 o'clock)
+                    // => CSS conic `from 0deg`, still centered at 50% 50%.
+                    'gradientTransform' => array(
+                        array(0, -1, 1),
+                        array(1, 0, 0),
+                    ),
+                    'gradientStops'     => array(
+                        array('position' => 0, 'color' => array('r' => 0, 'g' => 1, 'b' => 0, 'a' => 1)),
+                        array('position' => 1, 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1)),
+                    ),
+                ),
+            ),
+        ),
+        array(
+            'id'     => 'gradient:angular-default',
+            'type'   => 'RECTANGLE',
+            'name'   => 'Angular gradient default',
+            'width'  => 100,
+            'height' => 100,
+            'fills'  => array(
+                array(
+                    // No gradientTransform: emit a deterministic centered conic
+                    // gradient with its seam at the top.
+                    'type'          => 'GRADIENT_ANGULAR',
+                    'gradientStops' => array(
+                        array('position' => 0, 'color' => array('r' => 1, 'g' => 1, 'b' => 0, 'a' => 1)),
+                        array('position' => 1, 'color' => array('r' => 1, 'g' => 0, 'b' => 1, 'a' => 1)),
+                    ),
+                ),
+            ),
+        ),
+        array(
             'id'     => 'gradient:malformed',
             'type'   => 'RECTANGLE',
             'name'   => 'Malformed gradient',
@@ -3890,6 +3954,9 @@ $assert(str_contains($gradientPaintCss, '.figma-node-gradient-linear-h-horizonta
 $assert(str_contains($gradientPaintCss, '.figma-node-gradient-linear-v-vertical-gradient{width:110px;height:80px;background:linear-gradient(180deg,#ff0000 0%,#0000ff 100%)}'), 'linear-gradient-vertical-transform-emits-180deg');
 $assert(str_contains($gradientPaintCss, '.figma-node-gradient-radial-radial-gradient{width:90px;height:70px;background:radial-gradient(circle,rgba(0,255,0,0.5) 25%,rgba(0,0,0,0.5) 100%)}'), 'radial-gradient-background-emits');
 $assert(str_contains($gradientPaintCss, '.figma-node-gradient-stroke-gradient-stroke{width:70px;height:60px;border:3px solid transparent;border-image:linear-gradient(180deg,#ffff00 0%,#ff00ff 100%) 1}'), 'linear-gradient-stroke-emits-border-image');
+$assert(str_contains($gradientPaintCss, '.figma-node-gradient-angular-angular-gradient{width:100px;height:100px;background:conic-gradient(from 90deg at 50% 50%,#ff0000 0%,#0000ff 100%)}'), 'angular-gradient-identity-transform-emits-from-90deg');
+$assert(str_contains($gradientPaintCss, '.figma-node-gradient-angular-top-angular-gradient-top{width:100px;height:100px;background:conic-gradient(from 0deg at 50% 50%,#00ff00 0%,#000000 100%)}'), 'angular-gradient-top-seam-transform-emits-from-0deg');
+$assert(str_contains($gradientPaintCss, '.figma-node-gradient-angular-default-angular-gradient-default{width:100px;height:100px;background:conic-gradient(from 0deg at 50% 50%,#ffff00 0%,#ff00ff 100%)}'), 'angular-gradient-no-transform-emits-centered-default');
 $assert(in_array('unsupported_figma_paint_type', $gradientDiagnosticCodes, true), 'unsupported-malformed-gradient-diagnostic');
 
 $metadataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
