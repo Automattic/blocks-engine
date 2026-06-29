@@ -5569,6 +5569,102 @@ $guidOverrideInstanceHtml = $fileContent($guidOverrideInstanceResult, 'index.htm
 $assert(str_contains($guidOverrideInstanceHtml, 'Learn'), 'guid-override-instance-applies-text');
 $assert(str_contains($guidOverrideInstanceHtml, 'data-figma-node-id="instance:menu-item/180:6416"') && str_contains($guidOverrideInstanceHtml, '>Learn<'), 'guid-override-instance-replaces-default-text');
 
+// Component-property (componentPropAssignments) text overrides (#329 / FSE Pilot).
+//
+// Figma binds per-instance text content through component properties rather than
+// descendant node changes: each master text node carries componentPropRefs
+// (componentPropNodeField: TEXT_DATA -> a property definition guid) and each instance
+// carries componentPropAssignments (defID -> value.textValue.characters). Resolution
+// must render each instance's assigned characters instead of the component master's
+// placeholder default. This is the FSE Pilot "Post Title" repeated-placeholder bug:
+// a Query Loop of Preview instances whose real post titles were dropped.
+$componentPropTextResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Component Property Text Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'component:post-card',
+            'type'     => 'COMPONENT',
+            'name'     => 'Post card component',
+            'key'      => 'post-card-key',
+            'children' => array(
+                array(
+                    'id'         => 'component:post-heading',
+                    'type'       => 'TEXT',
+                    'name'       => 'Heading',
+                    'characters' => 'Post Title',
+                    // Heading characters are bound to component property 4166:1.
+                    'componentPropRefs' => array(
+                        array(
+                            'defID'                  => array('sessionID' => 4166, 'localID' => 1),
+                            'componentPropNodeField' => 'TEXT_DATA',
+                        ),
+                    ),
+                ),
+                array(
+                    'id'         => 'component:post-excerpt',
+                    'type'       => 'TEXT',
+                    'name'       => 'Excerpt',
+                    'characters' => 'Placeholder excerpt copy.',
+                    'componentPropRefs' => array(
+                        array(
+                            'defID'                  => array('sessionID' => 4166, 'localID' => 2),
+                            'componentPropNodeField' => 'TEXT_DATA',
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        // Instance A assigns its own real heading + excerpt.
+        array(
+            'id'          => 'instance:card-a',
+            'type'        => 'INSTANCE',
+            'name'        => 'Preview A',
+            'componentId' => 'post-card-key',
+            'componentPropAssignments' => array(
+                array(
+                    'defID' => array('sessionID' => 4166, 'localID' => 1),
+                    'value' => array('textValue' => array('characters' => 'Welcome to LEGO City')),
+                ),
+                array(
+                    'defID' => array('sessionID' => 4166, 'localID' => 2),
+                    'value' => array('textValue' => array('characters' => 'Bricks for everyone.')),
+                ),
+            ),
+        ),
+        // Instance B assigns a different real heading (varValue/textDataValue shape).
+        array(
+            'id'          => 'instance:card-b',
+            'type'        => 'INSTANCE',
+            'name'        => 'Preview B',
+            'componentId' => 'post-card-key',
+            'componentPropAssignments' => array(
+                array(
+                    'defID'    => array('sessionID' => 4166, 'localID' => 1),
+                    'varValue' => array('value' => array('textDataValue' => array('characters' => 'Spaceship Set Review'))),
+                ),
+            ),
+        ),
+        // Instance C has no assignment: it must keep the component master default.
+        array(
+            'id'          => 'instance:card-c',
+            'type'        => 'INSTANCE',
+            'name'        => 'Preview C',
+            'componentId' => 'post-card-key',
+        ),
+    ),
+));
+$componentPropTextHtml = $fileContent($componentPropTextResult, 'index.html');
+$assert(str_contains($componentPropTextHtml, '>Welcome to LEGO City<'), 'component-prop-text-instance-a-heading');
+$assert(str_contains($componentPropTextHtml, '>Bricks for everyone.<'), 'component-prop-text-instance-a-excerpt');
+$assert(str_contains($componentPropTextHtml, '>Spaceship Set Review<'), 'component-prop-text-instance-b-heading');
+// Each instance renders ITS OWN heading, not a shared master clone.
+$assert(substr_count($componentPropTextHtml, 'Welcome to LEGO City') === 1 && substr_count($componentPropTextHtml, 'Spaceship Set Review') === 1, 'component-prop-text-distinct-per-instance');
+// The placeholder default survives only on the component master definition (rendered
+// top-level in this flat fixture) and on instance C which carries no assignment.
+// Instances A and B, which DO assign the heading, no longer clone the placeholder.
+$assert(substr_count($componentPropTextHtml, '>Post Title<') === 2, 'component-prop-text-default-only-without-assignment');
+$assert(str_contains($componentPropTextHtml, 'data-figma-node-id="instance:card-c/component:post-heading"'), 'component-prop-text-no-override-preserves-default-node');
+
 $fontAwesomeIconNameResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Font Awesome Icon Name Fixture',
     'nodes' => array(
