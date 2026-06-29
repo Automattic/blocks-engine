@@ -3157,19 +3157,44 @@ final class ScenegraphNormalizer
             }
         }
 
+        $uniformRadius = null;
         if ( isset($node['cornerRadius']) && is_numeric($node['cornerRadius']) ) {
-            $box['corner_radius'] = (float) $node['cornerRadius'];
+            $uniformRadius = (float) $node['cornerRadius'];
         }
 
+        // Per-corner radii arrive under REST API names (`topLeftRadius`) from
+        // remote scenegraphs and under Kiwi names (`rectangleTopLeftCornerRadius`)
+        // from decoded `.fig` archives. Read the REST name first and fall back to
+        // the Kiwi name so mixed-radius nodes survive both ingestion paths.
+        $perCorner = array();
         foreach ( array(
-            'topLeftRadius' => 'top_left_radius',
-            'topRightRadius' => 'top_right_radius',
-            'bottomRightRadius' => 'bottom_right_radius',
-            'bottomLeftRadius' => 'bottom_left_radius',
-        ) as $sourceKey => $targetKey ) {
-            if ( isset($node[$sourceKey]) && is_numeric($node[$sourceKey]) ) {
-                $box[$targetKey] = (float) $node[$sourceKey];
+            'top_left_radius'     => array('topLeftRadius', 'rectangleTopLeftCornerRadius'),
+            'top_right_radius'    => array('topRightRadius', 'rectangleTopRightCornerRadius'),
+            'bottom_right_radius' => array('bottomRightRadius', 'rectangleBottomRightCornerRadius'),
+            'bottom_left_radius'  => array('bottomLeftRadius', 'rectangleBottomLeftCornerRadius'),
+        ) as $targetKey => $sourceKeys ) {
+            foreach ( $sourceKeys as $sourceKey ) {
+                if ( isset($node[$sourceKey]) && is_numeric($node[$sourceKey]) ) {
+                    $perCorner[$targetKey] = (float) $node[$sourceKey];
+                    break;
+                }
             }
+        }
+
+        if ( ! empty($perCorner) ) {
+            // Per-corner values override the uniform radius when present. Fill any
+            // corner the source left unset from the uniform radius so partial
+            // per-corner data still describes the full shape.
+            foreach ( array('top_left_radius', 'top_right_radius', 'bottom_right_radius', 'bottom_left_radius') as $targetKey ) {
+                if ( ! isset($perCorner[$targetKey]) && null !== $uniformRadius ) {
+                    $perCorner[$targetKey] = $uniformRadius;
+                }
+                if ( isset($perCorner[$targetKey]) ) {
+                    $box[$targetKey] = $perCorner[$targetKey];
+                }
+            }
+        } elseif ( null !== $uniformRadius ) {
+            $box['corner_radius'] = $uniformRadius;
         }
 
         return $box;

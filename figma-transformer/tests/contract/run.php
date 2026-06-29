@@ -4027,6 +4027,43 @@ $assert(null !== $frameStyleDiagnostic, 'node-style-diagnostics-frame-node-prese
 $assert('rgba(51,102,153,0.5)' === ($frameStyleDiagnostic['expected']['background'] ?? null), 'node-style-diagnostics-expected-background');
 $assert('rgba(51,102,153,0.5)' === ($frameStyleDiagnostic['emitted']['background'] ?? null), 'node-style-diagnostics-emitted-background');
 
+// Kiwi-format per-corner radii (the `.fig` ingestion path). Decoded archives carry
+// the Kiwi field names (`rectangleTopLeftCornerRadius`) alongside a uniform
+// `cornerRadius`, where the REST scenegraph would carry `topLeftRadius`. The
+// normalizer must read the Kiwi names and let per-corner values win over the
+// uniform radius so a mixed node (top rounded, bottom square) keeps its shape
+// instead of collapsing to a uniform radius or a square.
+$kiwiRadiusResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Kiwi Corner Radius',
+    'nodes' => array(
+        array(
+            'id'       => '5:1',
+            'type'     => 'FRAME',
+            'name'     => 'Kiwi radius frame',
+            'width'    => 200,
+            'height'   => 200,
+            'children' => array(
+                array(
+                    'id'                               => '5:2',
+                    'type'                             => 'RECTANGLE',
+                    'name'                             => 'Kiwi corner radius',
+                    'width'                            => 160,
+                    'height'                           => 90,
+                    // Uniform value is intentionally wrong; per-corner must override it.
+                    'cornerRadius'                     => 99,
+                    'rectangleTopLeftCornerRadius'     => 8,
+                    'rectangleTopRightCornerRadius'    => 8,
+                    'rectangleBottomRightCornerRadius' => 0,
+                    'rectangleBottomLeftCornerRadius'  => 0,
+                ),
+            ),
+        ),
+    ),
+));
+$kiwiRadiusCss = $fileContent($kiwiRadiusResult, 'style.css');
+$assert(str_contains($kiwiRadiusCss, '.figma-node-5-2-kiwi-corner-radius{width:160px;height:90px;border-top-left-radius:8px;border-top-right-radius:8px;border-bottom-right-radius:0px;border-bottom-left-radius:0px}'), 'kiwi-per-corner-radius-style');
+$assert(! str_contains($kiwiRadiusCss, 'border-radius:99px'), 'kiwi-per-corner-radius-overrides-uniform');
+
 // Inline character-level style overrides (characterStyleOverrides + styleOverrideTable).
 //
 // The Figma API encodes per-character style overrides as a parallel array of integer
