@@ -1401,8 +1401,29 @@ final class HtmlTransformer
             // its sizing class(es), and correct-case viewBox so the
             // materialized source CSS can size it.
             if ( $this->isSafeDecorativeSvgElement($element) ) {
-                if ( $this->hasIconLikeContext($element) ) {
-                    return $this->inlineSvgBlockFromElement($element);
+                // Faithfully preserve any inline SVG that carries real drawable
+                // artwork — icons, diagrams, illustrations — even when it is
+                // marked aria-hidden / role=presentation. aria-hidden hides the
+                // graphic from the accessibility tree; it does NOT mean the
+                // artwork is visually disposable. WordPress cannot reconstruct
+                // arbitrary vector artwork from CSS, so routing such an SVG into
+                // the visual-layer group (empty) or dropping it (return null)
+                // silently erased every shape — service icons collapsed to empty
+                // blocks and pipe/boiler diagrams to whitespace + comments.
+                //
+                // The exception is genuine decorative chrome the materialized
+                // source CSS recreates: a positioned visual layer (an absolutely
+                // positioned full-bleed background) or a stretched-to-fit band
+                // (preserveAspectRatio="none", which distorts geometry and so is
+                // never used for meaningful icons/diagrams). Those still collapse
+                // to a styleable group / are dropped below.
+                $isDecorativeChrome = $this->isVisualLayerElement($element)
+                    || 'none' === strtolower(trim($this->attr($element, 'preserveaspectratio')));
+                if ( ! $isDecorativeChrome && $this->svgHasDrawableContent($element) ) {
+                    $svgBlock = $this->inlineSvgBlockFromElement($element);
+                    if ( null !== $svgBlock ) {
+                        return $svgBlock;
+                    }
                 }
                 if ( $this->isVisualLayerElement($element) ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
@@ -3693,16 +3714,18 @@ final class HtmlTransformer
         // javascript: URLs stripped via sanitizeInlineSvgMarkup + verified by
         // isSafeSvgContent), and the original outer SVG preserves
         // viewBox/role/aria-label/class.
-        return $this->createBlock('core/html', array( 'content' => $this->restoreSvgAttributeCasing($html) ), array(), $element);
+        return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($html) ), array(), $element);
     }
 
     /**
-     * Restore the canonical camelCase casing of SVG attribute names that the
-     * HTML parser lowercases (e.g. `viewbox` -> `viewBox`). SVG attribute names
-     * are case-sensitive, so a lowercased `viewbox` is ignored by browsers and
-     * the inline SVG would not scale to its viewport.
+     * Restore the canonical camelCase casing of SVG element and attribute names
+     * that the HTML parser lowercases (e.g. `viewbox` -> `viewBox`,
+     * `<lineargradient>` -> `<linearGradient>`). SVG element and attribute names
+     * are case-sensitive, so a lowercased `viewbox` is ignored (the SVG would not
+     * scale to its viewport) and a lowercased `<lineargradient>` is an unknown
+     * element the browser does not render (the gradient fill disappears).
      */
-    private function restoreSvgAttributeCasing(string $html): string
+    private function restoreSvgCasing(string $html): string
     {
         static $camelCaseAttributes = array(
             'viewBox', 'preserveAspectRatio', 'baseProfile', 'attributeName', 'attributeType',
@@ -3718,8 +3741,24 @@ final class HtmlTransformer
             'pointsAtZ', 'systemLanguage',
         );
 
+        // Case-sensitive SVG element names. A lowercased tag is an unknown element
+        // to the browser, so the gradient/clip/filter it defines never applies.
+        static $camelCaseElements = array(
+            'linearGradient', 'radialGradient', 'clipPath', 'textPath', 'foreignObject',
+            'feBlend', 'feColorMatrix', 'feComponentTransfer', 'feComposite',
+            'feConvolveMatrix', 'feDiffuseLighting', 'feDisplacementMap', 'feDistantLight',
+            'feDropShadow', 'feFlood', 'feFuncA', 'feFuncB', 'feFuncG', 'feFuncR',
+            'feGaussianBlur', 'feImage', 'feMerge', 'feMergeNode', 'feMorphology',
+            'feOffset', 'fePointLight', 'feSpecularLighting', 'feSpotLight', 'feTile',
+            'feTurbulence', 'animateMotion', 'animateTransform',
+        );
+
         foreach ( $camelCaseAttributes as $attribute ) {
             $html = preg_replace('/(\s)' . preg_quote($attribute, '/') . '(\s*=)/i', '$1' . $attribute . '$2', $html) ?? $html;
+        }
+
+        foreach ( $camelCaseElements as $tag ) {
+            $html = preg_replace('/<(\/?)' . preg_quote($tag, '/') . '(?=[\s\/>])/i', '<$1' . $tag, $html) ?? $html;
         }
 
         return $html;
@@ -3899,8 +3938,32 @@ final class HtmlTransformer
 
     private function isPassiveSvgMarkup(DOMElement $element): bool
     {
-        $allowedTags = array_flip(array( 'circle', 'clippath', 'defs', 'desc', 'ellipse', 'g', 'line', 'lineargradient', 'mask', 'path', 'polygon', 'polyline', 'radialgradient', 'rect', 'stop', 'svg', 'title' ));
-        $allowedAttributes = array_flip(array( 'aria-hidden', 'aria-label', 'class', 'clip-path', 'clip-rule', 'cx', 'cy', 'd', 'fill', 'fill-opacity', 'fill-rule', 'gradienttransform', 'gradientunits', 'height', 'id', 'offset', 'opacity', 'points', 'preserveaspectratio', 'r', 'role', 'rx', 'ry', 'stop-color', 'stop-opacity', 'stroke', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-opacity', 'stroke-width', 'style', 'transform', 'viewbox', 'width', 'x', 'x1', 'x2', 'xmlns', 'y', 'y1', 'y2' ));
+        // Full set of safe SVG structure/presentation/text elements. These carry
+        // only geometry, gradients, and text — no scripting or external embedding
+        // (script/style/foreignObject/image are deliberately excluded and are
+        // stripped by the sanitizer). <use>/<symbol> reference handling is gated
+        // separately: a <use> carries href/xlink:href which isPassiveSvgElement()
+        // always rejects, so use-bearing SVGs route through the faithful
+        // inline-preservation path (local refs) or the fallback diagnostic
+        // (external sprite refs) rather than this decorative classification.
+        $allowedTags = array_flip(array(
+            'circle', 'clippath', 'defs', 'desc', 'ellipse', 'g', 'line', 'lineargradient',
+            'marker', 'mask', 'path', 'pattern', 'polygon', 'polyline', 'radialgradient',
+            'rect', 'stop', 'svg', 'symbol', 'text', 'title', 'tspan', 'use',
+        ));
+        $allowedAttributes = array_flip(array(
+            'aria-hidden', 'aria-label', 'class', 'clip-path', 'clip-rule', 'cx', 'cy', 'd',
+            'dominant-baseline', 'dx', 'dy', 'fill', 'fill-opacity', 'fill-rule', 'font-family',
+            'font-size', 'font-style', 'font-weight', 'gradienttransform', 'gradientunits',
+            'height', 'id', 'letter-spacing', 'marker-end', 'marker-mid', 'marker-start',
+            'markerheight', 'markerunits', 'markerwidth', 'mask', 'offset', 'opacity', 'orient',
+            'patterncontentunits', 'patterntransform', 'patternunits', 'points',
+            'preserveaspectratio', 'r', 'refx', 'refy', 'role', 'rotate', 'rx', 'ry',
+            'spreadmethod', 'stop-color', 'stop-opacity', 'stroke', 'stroke-dasharray',
+            'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit',
+            'stroke-opacity', 'stroke-width', 'style', 'text-anchor', 'transform',
+            'vector-effect', 'viewbox', 'width', 'x', 'x1', 'x2', 'xmlns', 'y', 'y1', 'y2',
+        ));
 
         foreach ( $element->getElementsByTagName('*') as $child ) {
             if ( ! $child instanceof DOMElement || ! $this->isPassiveSvgElement($child, $allowedTags, $allowedAttributes) ) {

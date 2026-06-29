@@ -380,11 +380,38 @@ trait DomHelpersTrait
             if ( $this->hasAncestorTag($child, array( 'foreignobject' )) ) {
                 continue;
             }
+            // A <use> that points at an external sprite file (href="sprite.svg#id"
+            // rather than a local "#id") cannot be inlined: the referenced symbol
+            // lives in another file that does not travel with the imported markup,
+            // so the emitted <use> would render nothing. It carries no drawable
+            // artwork of its own, so it does not, by itself, make the SVG
+            // preservable — the SVG falls through to the bounded fallback
+            // diagnostic instead of emitting a broken external reference. A local
+            // <use href="#id"> (resolved against an in-document symbol/defs) and
+            // any real shape element still count as drawable.
+            if ( 'use' === $tag && $this->isExternalSpriteUse($child) ) {
+                continue;
+            }
 
             return true;
         }
 
         return false;
+    }
+
+    /**
+     * Whether a <use> element references an external sprite file rather than an
+     * in-document fragment. An external reference is any href/xlink:href whose
+     * target is not a bare local "#id" fragment.
+     */
+    private function isExternalSpriteUse(DOMElement $element): bool
+    {
+        $href = trim($this->attr($element, 'href'));
+        if ( '' === $href ) {
+            $href = trim($this->attr($element, 'xlink:href'));
+        }
+
+        return '' !== $href && '#' !== substr($href, 0, 1);
     }
 
     /**
