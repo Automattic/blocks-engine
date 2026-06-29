@@ -1,0 +1,42 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-list-item-structured-card-decompose",
+  "description": "Decomposes a <ul>/<ol> of structured inline cards (the universal blog/news/essay-index row: a classed title link plus dek/meta styling-hook spans inside each <li>) into a core/group of per-item core/groups. core/list-item stores its content as RichText, which strips the class from an inner <a>/<span> on parse, so the saved markup diverges from the regenerated block and the per-fragment styling hooks are lost; a single list item also cannot carry the distinct class of each fragment. Each fragment instead becomes a paragraph carrying its hoisted styling hook, with the title link kept as a valid RichText anchor — fully valid (group/paragraph round-trip and store a custom className) while every styling hook and the working link survive.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-list-item-structured-card-decompose.json",
+    "notes": "Real blog/essay-index pattern: <li> = <a class=\"title\"> + <span class=\"dek\"> + <span class=\"meta\">. The list-item follow-up to the paragraph/heading classed-span hoist (#323)."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This fixture covers WordPress block-validity normalization beyond the legacy converter behavior."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><ul class=\"essay-index\"><li><a class=\"title\" href=\"/essay\">The thing about January</a> <span class=\"dek\">The light comes in at an angle…</span> <span class=\"meta\">2026 · 01 · 24 · 9 min read</span></li><li><a class=\"title\" href=\"/february\">February notes</a> <span class=\"dek\">Short days, long thoughts.</span> <span class=\"meta\">2026 · 02 · 02 · 6 min read</span></li></ul></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "essay-index" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "title" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "dek", "content": "The light comes in at an angle…" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/paragraph", "attrs": { "className": "meta", "content": "2026 · 01 · 24 · 9 min read" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "title" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-group essay-index\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"title\"><a href=\"/essay\">The thing about January</a></p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"dek\">The light comes in at an angle…</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"meta\">2026 · 01 · 24 · 9 min read</p>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<span" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<a class=" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<li" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

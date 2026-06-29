@@ -30,7 +30,7 @@
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"section-label\">Our Kitchen</p>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"has-text-color badge\" style=\"color:#ffffff\">New</p>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<h2>Ember &amp; Rye</h2>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<h2 class=\"wp-block-heading\">Ember &amp; Rye</h2>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"lead\"><strong>Bold</strong> and <a href=\"/x\">link</a></p>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p>Plain <strong>bold</strong> text</p>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "class=\"section-label\">Our Kitchen</span>" },
