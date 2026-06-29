@@ -6418,6 +6418,43 @@ $assert(array('Brand Sans') === ($fontFamilyOverridesFonts['family_overrides_app
 $assert(! in_array('Inter', $fontFamilyOverridesFonts['missing_css'] ?? array(), true), 'per-family-override-inter-not-unresolved');
 $assert(! in_array('Brand Sans', $fontFamilyOverridesFonts['missing_css'] ?? array(), true), 'per-family-override-brand-sans-not-unresolved');
 
+// HIDDEN LAYER SKIP: a designer-hidden child (node-level visible:false) must
+// not emit to HTML, while a sibling without an explicit visible:false renders.
+$hiddenLayerResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Hidden Layer Skip Fixture',
+    'nodes' => array(
+        array(
+            'id'         => 'vis:frame',
+            'type'       => 'FRAME',
+            'name'       => 'Visibility frame',
+            'width'      => 400,
+            'height'     => 200,
+            'layoutMode' => 'VERTICAL',
+            'children'   => array(
+                array(
+                    'id'         => 'vis:visible-child',
+                    'type'       => 'TEXT',
+                    'name'       => 'Shown copy',
+                    'characters' => 'Visible content stays',
+                ),
+                array(
+                    'id'         => 'vis:hidden-child',
+                    'type'       => 'TEXT',
+                    'name'       => 'Hidden copy',
+                    'visible'    => false,
+                    'characters' => 'Hidden content must vanish',
+                ),
+            ),
+        ),
+    ),
+));
+$hiddenLayerHtml = $fileContent($hiddenLayerResult, 'index.html');
+$assert('success' === ($hiddenLayerResult['status'] ?? null), 'hidden-layer-skip-transform-success');
+$assert(str_contains($hiddenLayerHtml, 'data-figma-node-id="vis:visible-child"'), 'visible-sibling-emitted');
+$assert(str_contains($hiddenLayerHtml, 'Visible content stays'), 'visible-sibling-text-emitted');
+$assert(! str_contains($hiddenLayerHtml, 'data-figma-node-id="vis:hidden-child"'), 'hidden-node-id-not-emitted');
+$assert(! str_contains($hiddenLayerHtml, 'Hidden content must vanish'), 'hidden-node-text-not-emitted');
+
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
     exit(1);

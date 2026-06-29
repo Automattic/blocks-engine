@@ -622,6 +622,15 @@ final class StaticHtmlEmitter
      */
     private function emitNode(array $node, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics, int $depth, ?array $parentNode): string
     {
+        // Designer-hidden layers carry an explicit `visible: false` from Figma.
+        // Skip emitting them and their entire subtree. Absent/null `visible`
+        // means visible, so only an explicit false is honored. A hidden node
+        // emitted as a top-level render root (depth 0, e.g. an explicitly
+        // selected frame) still renders; hidden descendants never do.
+        if ( $depth > 0 && false === ($node['visible'] ?? null) ) {
+            return '';
+        }
+
         $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
         $name = (string) ($node['name'] ?? '');
         $attributeName = $this->sanitizeAttribute($name);
