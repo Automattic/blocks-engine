@@ -6324,6 +6324,88 @@ preg_match('/figma-node-cgoc-instance-cgoc-logo[^{]*\{[^}]*left:([\d.]+)px/', $c
 $canvasGlobalLogoLeftPx = isset($canvasGlobalLogoLeft[1]) ? (float) $canvasGlobalLogoLeft[1] : -1.0;
 $assert($canvasGlobalLogoLeftPx >= 0.0 && $canvasGlobalLogoLeftPx < 1440.0, 'overridden-instance-child-canvas-global-transform-localizes-x');
 
+// DOCUMENT-MODE MULTI-PAGE ORIGIN REBASE (#360): emitSite resolves each page
+// frame from scenegraph['node_map'], so render_document normalization must write
+// page-localized frames back into node_map instead of only rebasing render nodes.
+$documentModeNormalizer = new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer();
+$documentModeEmitter = new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter();
+$documentModeScenegraph = array(
+    'name'  => 'Document Mode Canvas-Global Override Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'mpoc:canvas',
+            'type'     => 'CANVAS',
+            'name'     => 'Site Pages',
+            'children' => array(
+                array(
+                    'id'       => 'mpoc:component',
+                    'type'     => 'COMPONENT',
+                    'name'     => 'Footer component',
+                    'key'      => 'mpoc-footer-key',
+                    'absoluteBoundingBox' => array('x' => 12000, 'y' => 700, 'width' => 1440, 'height' => 200),
+                    'children' => array(
+                        array('id' => 'mpoc:logo', 'type' => 'RECTANGLE', 'name' => 'Logo', 'width' => 160, 'height' => 60),
+                    ),
+                ),
+                array(
+                    'id'                  => 'mpoc:home',
+                    'type'                => 'FRAME',
+                    'name'                => 'Home',
+                    'absoluteBoundingBox' => array('x' => 12000, 'y' => 0, 'width' => 1440, 'height' => 900),
+                    'children'            => array(
+                        array(
+                            'id'          => 'mpoc:home-instance',
+                            'type'        => 'INSTANCE',
+                            'name'        => 'Footer',
+                            'componentId' => 'mpoc-footer-key',
+                            'absoluteBoundingBox' => array('x' => 12000, 'y' => 700, 'width' => 1440, 'height' => 200),
+                            'overrides'   => array(
+                                array('nodeId' => 'mpoc:logo', 'transform' => array('m00' => 1, 'm01' => 0, 'm02' => 12120, 'm10' => 0, 'm11' => 1, 'm12' => 860)),
+                            ),
+                        ),
+                    ),
+                ),
+                array(
+                    'id'                  => 'mpoc:about',
+                    'type'                => 'FRAME',
+                    'name'                => 'About',
+                    'absoluteBoundingBox' => array('x' => 24000, 'y' => 0, 'width' => 1440, 'height' => 900),
+                    'children'            => array(
+                        array(
+                            'id'          => 'mpoc:about-instance',
+                            'type'        => 'INSTANCE',
+                            'name'        => 'Footer',
+                            'componentId' => 'mpoc-footer-key',
+                            'absoluteBoundingBox' => array('x' => 24000, 'y' => 700, 'width' => 1440, 'height' => 200),
+                            'overrides'   => array(
+                                array('nodeId' => 'mpoc:logo', 'transform' => array('m00' => 1, 'm01' => 0, 'm02' => 24150, 'm10' => 0, 'm11' => 1, 'm12' => 860)),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+);
+$documentModeNormalized = $documentModeNormalizer->normalize($documentModeScenegraph, array(
+    'render_document' => true,
+    'document_frame_ids' => array('mpoc:home', 'mpoc:about'),
+));
+$documentModeSite = $documentModeEmitter->emitSite($documentModeNormalized, array(
+    'pages' => array(
+        array('frame_id' => 'mpoc:home', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true),
+        array('frame_id' => 'mpoc:about', 'name' => 'About', 'path' => 'about.html'),
+    ),
+));
+$documentModeCss = $fileContent($documentModeSite, 'style.css');
+preg_match('/figma-node-mpoc-home-instance-mpoc-logo[^{]*\{[^}]*left:([\d.]+)px/', $documentModeCss, $documentModeHomeLogoLeft);
+preg_match('/figma-node-mpoc-about-instance-mpoc-logo[^{]*\{[^}]*left:([\d.]+)px/', $documentModeCss, $documentModeAboutLogoLeft);
+$documentModeHomeLogoLeftPx = isset($documentModeHomeLogoLeft[1]) ? (float) $documentModeHomeLogoLeft[1] : -1.0;
+$documentModeAboutLogoLeftPx = isset($documentModeAboutLogoLeft[1]) ? (float) $documentModeAboutLogoLeft[1] : -1.0;
+$assert($documentModeHomeLogoLeftPx >= 0.0 && $documentModeHomeLogoLeftPx < 1440.0, 'document-mode-multi-page-overridden-instance-child-localizes-home-x');
+$assert($documentModeAboutLogoLeftPx >= 0.0 && $documentModeAboutLogoLeftPx < 1440.0, 'document-mode-multi-page-overridden-instance-child-localizes-about-x');
+$assert(! str_contains($documentModeCss, 'left:12120px') && ! str_contains($documentModeCss, 'left:24150px'), 'document-mode-multi-page-css-omits-canvas-global-lefts');
+
 // Real anchor tags: a TEXT node carrying a URL hyperlink emits a real <a href>.
 $urlLinkResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Url Link Fixture',

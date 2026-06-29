@@ -48,6 +48,13 @@ final class ScenegraphNormalizer
 
         $renderIds = $topLevelIds;
         $renderDocument = ! empty($options['render_document']);
+        if ( $renderDocument ) {
+            $documentFrameIds = $this->documentFrameIds($options, $frameIds, $nodeMap);
+            foreach ( $documentFrameIds as $documentFrameId ) {
+                $rebasedFrame = $this->rebaseSelectedFrameToOrigin($this->refreshResolvedTree($nodeMap[$documentFrameId], $nodeMap));
+                $this->appendNodeMap($rebasedFrame, $nodeMap);
+            }
+        }
         if ( ! $renderDocument && null !== $selectedFrameId && 1 === count($topLevelIds) && $selectedFrameId !== $topLevelIds[0] ) {
             $renderIds = array($selectedFrameId);
         }
@@ -732,6 +739,54 @@ final class ScenegraphNormalizer
         $node['_selected_frame_root'] = true;
 
         return $this->rebaseNodeCoordinates($node, $originX, $originY, true);
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @param array<int, string>   $fallbackFrameIds
+     * @param array<string, mixed> $nodeMap
+     * @return array<int, string>
+     */
+    private function documentFrameIds(array $options, array $fallbackFrameIds, array $nodeMap): array
+    {
+        $rawFrameIds = is_array($options['document_frame_ids'] ?? null) ? $options['document_frame_ids'] : $fallbackFrameIds;
+        $frameIds = array();
+        foreach ( $rawFrameIds as $id ) {
+            if ( ! is_scalar($id) ) {
+                continue;
+            }
+
+            $frameId = (string) $id;
+            if ( '' !== $frameId && isset($nodeMap[$frameId]) ) {
+                $frameIds[$frameId] = $frameId;
+            }
+        }
+
+        return array_values($frameIds);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $nodeMap
+     */
+    private function appendNodeMap(array $node, array &$nodeMap): void
+    {
+        $id = (string) ($node['id'] ?? '');
+        if ( '' !== $id ) {
+            $nodeMap[$id] = $node;
+        }
+
+        foreach ( array('children', 'nodes') as $childrenKey ) {
+            if ( ! is_array($node[$childrenKey] ?? null) ) {
+                continue;
+            }
+
+            foreach ( $node[$childrenKey] as $child ) {
+                if ( is_array($child) ) {
+                    $this->appendNodeMap($child, $nodeMap);
+                }
+            }
+        }
     }
 
     /**
