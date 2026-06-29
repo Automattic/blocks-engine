@@ -3791,6 +3791,50 @@ $gradientPaintResult = blocks_engine_figma_transformer_transform_scenegraph(arra
             ),
         ),
         array(
+            'id'     => 'gradient:linear-h',
+            'type'   => 'RECTANGLE',
+            'name'   => 'Horizontal gradient',
+            'width'  => 120,
+            'height' => 80,
+            'fills'  => array(
+                array(
+                    'type'              => 'GRADIENT_LINEAR',
+                    // Identity gradientTransform: the gradient runs along the
+                    // shape's x-axis, i.e. left-to-right => CSS 90deg.
+                    'gradientTransform' => array(
+                        array(1, 0, 0),
+                        array(0, 1, 0),
+                    ),
+                    'gradientStops'     => array(
+                        array('position' => 0, 'color' => array('r' => 1, 'g' => 0, 'b' => 0, 'a' => 1)),
+                        array('position' => 1, 'color' => array('r' => 0, 'g' => 0, 'b' => 1, 'a' => 1)),
+                    ),
+                ),
+            ),
+        ),
+        array(
+            'id'     => 'gradient:linear-v',
+            'type'   => 'RECTANGLE',
+            'name'   => 'Vertical gradient',
+            'width'  => 110,
+            'height' => 80,
+            'fills'  => array(
+                array(
+                    'type'              => 'GRADIENT_LINEAR',
+                    // A real top-to-bottom Figma transform; the formula must
+                    // still resolve this to CSS 180deg.
+                    'gradientTransform' => array(
+                        array(0, 1, 0),
+                        array(-1, 0, 1),
+                    ),
+                    'gradientStops'     => array(
+                        array('position' => 0, 'color' => array('r' => 1, 'g' => 0, 'b' => 0, 'a' => 1)),
+                        array('position' => 1, 'color' => array('r' => 0, 'g' => 0, 'b' => 1, 'a' => 1)),
+                    ),
+                ),
+            ),
+        ),
+        array(
             'id'     => 'gradient:radial',
             'type'   => 'RECTANGLE',
             'name'   => 'Radial gradient',
@@ -3842,6 +3886,8 @@ $gradientDiagnosticCodes = array_map(
     $gradientPaintResult['diagnostics'] ?? array()
 );
 $assert(str_contains($gradientPaintCss, '.figma-node-gradient-linear-linear-gradient{width:100px;height:80px;background:linear-gradient(180deg,#ff0000 0%,#0000ff 100%)}'), 'linear-gradient-background-emits');
+$assert(str_contains($gradientPaintCss, '.figma-node-gradient-linear-h-horizontal-gradient{width:120px;height:80px;background:linear-gradient(90deg,#ff0000 0%,#0000ff 100%)}'), 'linear-gradient-horizontal-transform-emits-90deg');
+$assert(str_contains($gradientPaintCss, '.figma-node-gradient-linear-v-vertical-gradient{width:110px;height:80px;background:linear-gradient(180deg,#ff0000 0%,#0000ff 100%)}'), 'linear-gradient-vertical-transform-emits-180deg');
 $assert(str_contains($gradientPaintCss, '.figma-node-gradient-radial-radial-gradient{width:90px;height:70px;background:radial-gradient(circle,rgba(0,255,0,0.5) 25%,rgba(0,0,0,0.5) 100%)}'), 'radial-gradient-background-emits');
 $assert(str_contains($gradientPaintCss, '.figma-node-gradient-stroke-gradient-stroke{width:70px;height:60px;border:3px solid transparent;border-image:linear-gradient(180deg,#ffff00 0%,#ff00ff 100%) 1}'), 'linear-gradient-stroke-emits-border-image');
 $assert(in_array('unsupported_figma_paint_type', $gradientDiagnosticCodes, true), 'unsupported-malformed-gradient-diagnostic');
