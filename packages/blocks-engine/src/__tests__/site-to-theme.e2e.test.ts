@@ -477,6 +477,84 @@ describe('site-to-theme P0-3 orchestration', () => {
     expect(model.templates['page.html']).toContain('wp:post-content');
   });
 
+  it('assemble emits functions.php enqueuing style.css when source CSS is carried', async () => {
+    const { assemble } = await import('../theme/index.js');
+    const baseParts = {
+      site: siteModel(),
+      tokens: foundationTokens(),
+      pages: { home: [{ spec: imageSpec(0), blocks: imageBlockMarkup(), coverage: 1 }] },
+      meta: themeMeta(),
+    } as Parameters<typeof assemble>[0];
+
+    const carried = assemble({
+      ...baseParts,
+      sourceCss: '.hero{ text-align:center; color:#222 }',
+    } as Parameters<typeof assemble>[0]);
+
+    // Carried source CSS lives in style.css and theme.json styles are omitted, so
+    // the front end is unstyled unless functions.php enqueues style.css.
+    expect(carried.functionsPhp).toBeDefined();
+    expect(carried.functionsPhp).toContain("add_action(\n\t'wp_enqueue_scripts'");
+    expect(carried.functionsPhp).toContain('wp_enqueue_style(');
+    expect(carried.functionsPhp).toContain('get_stylesheet_uri()');
+    expect(carried.functionsPhp).toContain("'fixture-theme-style'");
+    expect(carried.functionsPhp).toContain("if ( ! defined( 'ABSPATH' ) )");
+    expect(carried.themeJson).not.toHaveProperty('styles');
+  });
+
+  it('assemble emits functions.php when only font CSS is appended to style.css', async () => {
+    const { assemble } = await import('../theme/index.js');
+    const model = assemble({
+      site: siteModel(),
+      tokens: foundationTokens(),
+      pages: { home: [{ spec: imageSpec(0), blocks: imageBlockMarkup(), coverage: 1 }] },
+      meta: themeMeta(),
+      fontCss: '@font-face { font-family: "Inter"; src: url("assets/fonts/inter.woff2"); }',
+    } as Parameters<typeof assemble>[0]);
+
+    expect(model.functionsPhp).toBeDefined();
+    expect(model.functionsPhp).toContain('get_stylesheet_uri()');
+  });
+
+  it('assemble omits functions.php when style.css carries no front-end CSS (theme.json styles drive design)', async () => {
+    const { assemble } = await import('../theme/index.js');
+    const model = assemble({
+      site: siteModel(),
+      tokens: foundationTokens(),
+      pages: { home: [{ spec: imageSpec(0), blocks: imageBlockMarkup(), coverage: 1 }] },
+      meta: themeMeta(),
+    } as Parameters<typeof assemble>[0]);
+
+    expect(model.functionsPhp).toBeUndefined();
+    // No carried CSS → theme.json keeps its global styles.
+    expect(model.themeJson).toHaveProperty('styles');
+  });
+
+  it('writeTheme writes functions.php to disk when present and skips it when absent', async () => {
+    const { assemble } = await import('../theme/index.js');
+    const { writeTheme } = await import('../theme/write-theme.js');
+    const baseParts = {
+      site: siteModel(),
+      tokens: foundationTokens(),
+      pages: { home: [{ spec: imageSpec(0), blocks: imageBlockMarkup(), coverage: 1 }] },
+      meta: themeMeta(),
+    } as Parameters<typeof assemble>[0];
+
+    const withCss = assemble({ ...baseParts, sourceCss: '.hero{color:#222}' } as Parameters<typeof assemble>[0]);
+    const withDir = mkdtempSync(join(tmpdir(), 'fnphp-with-'));
+    const withWritten = await writeTheme(withCss, withDir);
+    expect(withWritten).toContain('functions.php');
+    expect(readFileSync(join(withDir, 'functions.php'), 'utf8')).toContain('wp_enqueue_style(');
+    rmSync(withDir, { recursive: true, force: true });
+
+    const without = assemble(baseParts);
+    const withoutDir = mkdtempSync(join(tmpdir(), 'fnphp-without-'));
+    const withoutWritten = await writeTheme(without, withoutDir);
+    expect(withoutWritten).not.toContain('functions.php');
+    expect(existsSync(join(withoutDir, 'functions.php'))).toBe(false);
+    rmSync(withoutDir, { recursive: true, force: true });
+  });
+
   it('assemble-threads-chrome emits real parts and wraps front-page with template-part refs', async () => {
     const { assemble } = await import('../theme/index.js');
     const { headerRef, footerRef } = homeChromeRefs();

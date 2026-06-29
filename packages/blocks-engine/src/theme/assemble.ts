@@ -47,10 +47,15 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
   const fontFamilies = buildFontFamilies(parts.tokens);
   const styleCss = buildStyleCss(parts.meta, themeSlug);
   const carriedSourceCss = hasCarriedSourceCss(parts.sourceCss);
+  // style.css carries real front-end CSS when we carry the source stylesheet or
+  // append @font-face rules. Block themes don't auto-enqueue style.css, so it
+  // must be enqueued explicitly via functions.php or that CSS never loads.
+  const styleCssHasFrontEndCss = carriedSourceCss || Boolean(parts.fontCss);
   const templatePlan = planTemplates(parts.site);
 
   return {
     styleCss: appendCarriedSourceCss(appendFontCss(styleCss, parts.fontCss), parts.sourceCss),
+    ...(styleCssHasFrontEndCss ? { functionsPhp: buildFunctionsPhp(themeSlug) } : {}),
     themeJson: buildThemeJson(parts.tokens, palette, fontFamilies, {
       omitStyles: carriedSourceCss,
     }),
@@ -96,6 +101,49 @@ function buildStyleCss(meta: ThemeMeta, themeSlug: string): string {
 function buildThemeHeader(fields: Array<[string, string]>): string {
   const body = fields.map(([key, value]) => `${key}: ${value}`).join('\n');
   return `/*\n${body}\n*/\n`;
+}
+
+/**
+ * Block themes do not auto-enqueue style.css on the front end, so when the
+ * design is carried in style.css (source CSS / @font-face) we emit a functions.php
+ * that enqueues it explicitly. get_stylesheet_uri() resolves to the active
+ * theme's style.css; the theme version busts the cache. The handle is namespaced
+ * by the theme slug so it never collides with a core/plugin handle.
+ */
+function buildFunctionsPhp(themeSlug: string): string {
+  const handle = `${themeSlug}-style`;
+  return `<?php
+/**
+ * ${themeSlug} theme bootstrap.
+ *
+ * Enqueues the carried source stylesheet (style.css) on the front end. Block
+ * themes do not load style.css automatically, so this is required for the
+ * assembled design to render.
+ *
+ * @package ${themeSlug}
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+\texit;
+}
+
+add_action(
+\t'wp_enqueue_scripts',
+\tstatic function () {
+\t\twp_enqueue_style(
+\t\t\t${phpString(handle)},
+\t\t\tget_stylesheet_uri(),
+\t\t\tarray(),
+\t\t\twp_get_theme()->get( 'Version' )
+\t\t);
+\t}
+);
+`;
+}
+
+/** Single-quoted PHP string literal with embedded quotes/backslashes escaped. */
+function phpString(value: string): string {
+  return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
 function buildThemeJson(

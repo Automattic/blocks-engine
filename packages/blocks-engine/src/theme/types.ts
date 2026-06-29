@@ -43,6 +43,14 @@ export interface ThemeModel {
   patterns: Record<string, string>;
   styleBlocks?: Record<string, Record<string, unknown>>;
   assets: AssetFile[];
+  /**
+   * PHP bootstrap (functions.php) that enqueues the theme's own style.css on the
+   * front end. Block themes do not auto-enqueue style.css, so when the design is
+   * carried in style.css (source CSS / @font-face) rather than theme.json styles,
+   * this is required or the front end renders unstyled. Undefined when style.css
+   * carries no front-end CSS beyond the header (theme.json styles drive the design).
+   */
+  functionsPhp?: string;
 }
 
 export interface SectionBlocks {
