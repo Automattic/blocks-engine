@@ -49,8 +49,51 @@ final class StaticStyleParityRunner
         $result = $this->transformer->transform($sourceHtml, array())->toArray();
         $candidateHtml = self::candidateHtmlFromSerializedBlocks((string) ($result['serialized_blocks'] ?? ''));
 
-        $sourceProbes = $this->probe->extract($sourceHtml, $authorCss);
-        $candidateProbes = $this->probe->extract($candidateHtml, $authorCss);
+        // The render-free proxy carries the SAME author CSS to both sides so the
+        // only variable is the transformed DOM.
+        return $this->compareSourceToCandidate($sourceHtml, $candidateHtml, $authorCss, $authorCss);
+    }
+
+    /**
+     * Compare a source document against an EXTERNALLY produced candidate document.
+     *
+     * Unlike {@see compareSourceToTransform}, which builds the candidate render-free
+     * from serialized blocks, this entry accepts a candidate HTML string produced by
+     * a real WordPress render (e.g. the DOM HTML wp-codebox fetches after SSI import
+     * + activate). It runs the IDENTICAL deterministic probe + comparator so the
+     * report contract, score, and per-property diff are exactly the same shape as the
+     * render-free gate — only the candidate's provenance differs.
+     *
+     * This exercises WordPress's own block rendering + global-styles layer (the layer
+     * the render-free proxy cannot see) while staying fully deterministic: no browser,
+     * no rasterization, no network, no screenshots. The candidate's effective styling
+     * is resolved statically from whatever CSS the rendered DOM already carries
+     * (WP global-styles / block-supports / layout `<style>` blocks) plus any explicit
+     * $candidateCss the caller inlined; nothing is fetched.
+     *
+     * The source and candidate take SEPARATE CSS inputs on purpose: the source side
+     * carries the fixture's own author CSS, while the live-WP candidate must be judged
+     * solely on the styling WordPress actually emitted — feeding the source's author
+     * CSS to the candidate would mask exactly the rendering/global-styles regressions
+     * this variant exists to catch.
+     *
+     * @param string $sourceHtml    Source HTML document.
+     * @param string $candidateHtml Candidate HTML document (e.g. live-WP rendered DOM).
+     * @param string $sourceCss     Author CSS merged into the source-side cascade.
+     * @param string $candidateCss  Extra CSS merged into the candidate-side cascade.
+     *                              Defaults to empty: a self-contained rendered DOM
+     *                              already carries its own <style> blocks.
+     * @return array<string, mixed> VisualParityReportContract report (same contract
+     *                              as {@see compareSourceToTransform}).
+     */
+    public function compareSourceToCandidate(
+        string $sourceHtml,
+        string $candidateHtml,
+        string $sourceCss = '',
+        string $candidateCss = ''
+    ): array {
+        $sourceProbes = $this->probe->extract($sourceHtml, $sourceCss);
+        $candidateProbes = $this->probe->extract($candidateHtml, $candidateCss);
 
         return $this->comparator->compare($sourceProbes, $candidateProbes);
     }
