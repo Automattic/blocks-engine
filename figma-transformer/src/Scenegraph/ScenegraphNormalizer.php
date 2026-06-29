@@ -2225,7 +2225,7 @@ final class ScenegraphNormalizer
             return $normalized;
         }
 
-        if ( in_array($type, array('GRADIENT_LINEAR', 'GRADIENT_RADIAL'), true) ) {
+        if ( in_array($type, array('GRADIENT_LINEAR', 'GRADIENT_RADIAL', 'GRADIENT_ANGULAR'), true) ) {
             $stops = $this->normalizeGradientStops($paint['gradientStops'] ?? $paint['stops'] ?? array());
             if ( ! empty($stops) ) {
                 $normalized = array(
