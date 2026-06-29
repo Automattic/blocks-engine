@@ -3468,12 +3468,38 @@ final class ScenegraphNormalizer
             }
         }
 
+        // REST exposes `primaryAxisSizingMode`/`counterAxisSizingMode`; the .fig
+        // Kiwi schema carries the same intent as flat `stackPrimarySizing`/
+        // `stackCounterSizing` enums. Read REST first, fall back to Kiwi, and
+        // normalize both vocabularies to canonical HUG/FIXED tokens.
         foreach ( array(
-            'primaryAxisSizingMode' => 'primary_axis_sizing',
-            'counterAxisSizingMode' => 'counter_axis_sizing',
-        ) as $source => $target ) {
-            if ( isset($node[$source]) && is_scalar($node[$source]) ) {
-                $layout[$target] = strtoupper((string) $node[$source]);
+            'primary_axis_sizing' => array('rest' => 'primaryAxisSizingMode', 'kiwi' => 'stackPrimarySizing'),
+            'counter_axis_sizing' => array('rest' => 'counterAxisSizingMode', 'kiwi' => 'stackCounterSizing'),
+        ) as $target => $sources ) {
+            $raw = null;
+            if ( isset($node[$sources['rest']]) && is_scalar($node[$sources['rest']]) ) {
+                $raw = (string) $node[$sources['rest']];
+            } elseif ( isset($node[$sources['kiwi']]) && is_scalar($node[$sources['kiwi']]) ) {
+                $raw = (string) $node[$sources['kiwi']];
+            }
+            if ( null !== $raw ) {
+                $layout[$target] = $this->normalizeAxisSizingValue($raw);
+            }
+        }
+
+        // Bridge axis sizing onto the horizontal/vertical sizing fields the HTML
+        // emitter consumes, mapping primary/counter to physical axes by stack
+        // orientation. .fig input never sets `layoutSizingHorizontal`, so without
+        // this bridge HUG/FIXED intent from the Kiwi stack enums is pure data loss.
+        $flexDirection = $layout['flex_direction'] ?? null;
+        if ( 'row' === $flexDirection || 'column' === $flexDirection ) {
+            $primaryAxisKey = 'row' === $flexDirection ? 'sizing_horizontal' : 'sizing_vertical';
+            $counterAxisKey = 'row' === $flexDirection ? 'sizing_vertical' : 'sizing_horizontal';
+            if ( isset($layout['primary_axis_sizing']) && ! isset($layout[$primaryAxisKey]) ) {
+                $layout[$primaryAxisKey] = $layout['primary_axis_sizing'];
+            }
+            if ( isset($layout['counter_axis_sizing']) && ! isset($layout[$counterAxisKey]) ) {
+                $layout[$counterAxisKey] = $layout['counter_axis_sizing'];
             }
         }
 
@@ -3548,12 +3574,23 @@ final class ScenegraphNormalizer
             }
         }
 
-        if ( isset($node['layoutPositioning']) && 'ABSOLUTE' === strtoupper((string) $node['layoutPositioning']) ) {
+        // REST `layoutPositioning`; Kiwi `stackPositioning`. Both encode the
+        // absolute-in-auto-layout escape with an `ABSOLUTE` enum token.
+        $positioning = null;
+        if ( isset($node['layoutPositioning']) && is_scalar($node['layoutPositioning']) ) {
+            $positioning = strtoupper((string) $node['layoutPositioning']);
+        } elseif ( isset($node['stackPositioning']) && is_scalar($node['stackPositioning']) ) {
+            $positioning = strtoupper((string) $node['stackPositioning']);
+        }
+        if ( 'ABSOLUTE' === $positioning ) {
             $layout['positioning'] = 'absolute';
         }
 
+        // REST `layoutGrow`; Kiwi `stackChildPrimaryGrow`. Flex-grow factor.
         if ( isset($node['layoutGrow']) && is_numeric($node['layoutGrow']) ) {
             $layout['grow'] = (float) $node['layoutGrow'];
+        } elseif ( isset($node['stackChildPrimaryGrow']) && is_numeric($node['stackChildPrimaryGrow']) ) {
+            $layout['grow'] = (float) $node['stackChildPrimaryGrow'];
         }
 
         if ( isset($node['layoutAlign']) && is_scalar($node['layoutAlign']) ) {
@@ -3566,15 +3603,48 @@ final class ScenegraphNormalizer
             $layout['clips_content'] = true;
         }
 
+        // REST exposes a nested `constraints` object with LEFT/RIGHT/LEFT_RIGHT/
+        // CENTER/SCALE (and TOP/BOTTOM/TOP_BOTTOM) tokens. The .fig Kiwi schema
+        // instead carries flat `horizontalConstraint`/`verticalConstraint` enums
+        // whose token vocabulary is MIN/CENTER/MAX/STRETCH/SCALE. Read the REST
+        // shape first, then fall back to the Kiwi scalars, translating the Kiwi
+        // enum onto the REST vocabulary so the emitter sees a single language.
+        $constraints = array();
         if ( is_array($node['constraints'] ?? null) ) {
-            $constraints = array();
             foreach ( array('horizontal', 'vertical') as $axis ) {
                 if ( isset($node['constraints'][$axis]) && is_scalar($node['constraints'][$axis]) ) {
                     $constraints[$axis] = strtoupper((string) $node['constraints'][$axis]);
                 }
             }
-            if ( ! empty($constraints) ) {
-                $layout['constraints'] = $constraints;
+        }
+        foreach ( array('horizontal' => 'horizontalConstraint', 'vertical' => 'verticalConstraint') as $axis => $kiwiKey ) {
+            if ( isset($constraints[$axis]) || ! isset($node[$kiwiKey]) || ! is_scalar($node[$kiwiKey]) ) {
+                continue;
+            }
+            $translated = $this->normalizeKiwiConstraint(strtoupper((string) $node[$kiwiKey]), $axis);
+            if ( null !== $translated ) {
+                $constraints[$axis] = $translated;
+            }
+        }
+        if ( ! empty($constraints) ) {
+            $layout['constraints'] = $constraints;
+        }
+
+        // Auto Layout min/max width/height. Kiwi decodes `minSize`/`maxSize` as
+        // OptionalVector {x, y} objects (x = width, y = height) but nothing ever
+        // referenced them, so they were decoded-and-dropped for .fig input.
+        foreach ( array('minSize' => 'min', 'maxSize' => 'max') as $source => $prefix ) {
+            if ( ! is_array($node[$source] ?? null) ) {
+                continue;
+            }
+            foreach ( array('x' => 'width', 'y' => 'height') as $axis => $dimension ) {
+                if ( ! isset($node[$source][$axis]) || ! is_numeric($node[$source][$axis]) ) {
+                    continue;
+                }
+                $value = (float) $node[$source][$axis];
+                if ( is_finite($value) && $value >= 0.0 ) {
+                    $layout[$prefix . '_' . $dimension] = $value;
+                }
             }
         }
 
@@ -3586,6 +3656,42 @@ final class ScenegraphNormalizer
         }
 
         return $layout;
+    }
+
+    /**
+     * Normalize REST `*AxisSizingMode` and Kiwi `stack*Sizing` enum tokens onto a
+     * single HUG/FILL/FIXED vocabulary the HTML emitter understands. REST uses
+     * FIXED/AUTO, the .fig Kiwi `StackSize` enum uses FIXED/RESIZE_TO_FIT
+     * (RESIZE_TO_FIT == HUG / resize-to-fit-content).
+     */
+    private function normalizeAxisSizingValue(string $value): string
+    {
+        return match ( strtoupper($value) ) {
+            'AUTO', 'HUG', 'RESIZE_TO_FIT', 'RESIZE_TO_FIT_WITH_IMPLICIT_SIZE' => 'HUG',
+            'FILL', 'STRETCH' => 'FILL',
+            default => 'FIXED',
+        };
+    }
+
+    /**
+     * Translate a Kiwi `horizontalConstraint`/`verticalConstraint` enum token onto
+     * the REST `constraints` vocabulary the emitter pins against. The Kiwi
+     * `ConstraintType` enum is MIN/CENTER/MAX/STRETCH/SCALE; STRETCH is the
+     * both-side pin (REST LEFT_RIGHT/TOP_BOTTOM), MIN is the near edge (LEFT/TOP),
+     * MAX is the far edge (RIGHT/BOTTOM).
+     */
+    private function normalizeKiwiConstraint(string $value, string $axis): ?string
+    {
+        $isHorizontal = 'horizontal' === $axis;
+
+        return match ( strtoupper($value) ) {
+            'MIN' => $isHorizontal ? 'LEFT' : 'TOP',
+            'MAX' => $isHorizontal ? 'RIGHT' : 'BOTTOM',
+            'STRETCH' => $isHorizontal ? 'LEFT_RIGHT' : 'TOP_BOTTOM',
+            'CENTER' => 'CENTER',
+            'SCALE' => 'SCALE',
+            default => null,
+        };
     }
 
     private function cssAxisAlignment(string $alignment): ?string

@@ -2714,6 +2714,19 @@ final class StaticHtmlEmitter
             }
         }
 
+        // Auto Layout min/max constraints (Kiwi minSize/maxSize). Skip a property
+        // the width/height pass already emitted (e.g. the fluid root max-width).
+        foreach ( array(
+            'min_width'  => 'min-width',
+            'max_width'  => 'max-width',
+            'min_height' => 'min-height',
+            'max_height' => 'max-height',
+        ) as $layoutKey => $property ) {
+            if ( isset($layout[$layoutKey]) && is_numeric($layout[$layoutKey]) && ! $this->stylesDeclareProperty($styles, $property) ) {
+                $styles[] = $property . ':' . $this->number((float) $layout[$layoutKey]) . 'px';
+            }
+        }
+
         if ( true === ($layout['clips_content'] ?? false) ) {
             $styles[] = 'overflow:hidden';
         }
@@ -2923,6 +2936,20 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array<int, string> $styles
+     */
+    private function stylesDeclareProperty(array $styles, string $property): bool
+    {
+        foreach ( $styles as $style ) {
+            if ( is_string($style) && str_starts_with($style, $property . ':') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param array<string, mixed> $box
      * @param array<string, mixed> $layout
      * @return array<int, string>
@@ -2935,17 +2962,66 @@ final class StaticHtmlEmitter
         $top = $this->positionOffset($box, $parentBox, 'y', $parentNode);
         $constraints = is_array($layout['constraints'] ?? null) ? $layout['constraints'] : array();
 
-        if ( null !== $left ) {
-            $styles[] = 'left:' . $this->number($left) . 'px';
+        foreach ( $this->axisConstraintStyles('horizontal', is_scalar($constraints['horizontal'] ?? null) ? (string) $constraints['horizontal'] : null, $left, $parentBox, $box) as $style ) {
+            $styles[] = $style;
         }
-        if ( isset($constraints['horizontal'], $parentBox['width'], $box['width']) && 'LEFT_RIGHT' === $constraints['horizontal'] && null !== $left ) {
-            $styles[] = 'right:' . $this->number((float) $parentBox['width'] - $left - (float) $box['width']) . 'px';
+        foreach ( $this->axisConstraintStyles('vertical', is_scalar($constraints['vertical'] ?? null) ? (string) $constraints['vertical'] : null, $top, $parentBox, $box) as $style ) {
+            $styles[] = $style;
         }
-        if ( null !== $top ) {
-            $styles[] = 'top:' . $this->number($top) . 'px';
+
+        return $styles;
+    }
+
+    /**
+     * Resolve the absolute-position CSS for a single axis from its Figma pin
+     * constraint. The near edge (left/top) is the default; LEFT_RIGHT/TOP_BOTTOM
+     * pin both edges, RIGHT/BOTTOM pin only the far edge, and CENTER holds a fixed
+     * offset from the parent center without relying on `transform` (which the
+     * emitter reserves for the node's own matrix). SCALE is percentage-based and
+     * has no clean pixel translation, so it falls back to the deterministic near
+     * pin instead of emitting a wrong guess.
+     *
+     * @param array<string, mixed> $parentBox
+     * @param array<string, mixed> $box
+     * @return array<int, string>
+     */
+    private function axisConstraintStyles(string $axis, ?string $constraint, ?float $offset, array $parentBox, array $box): array
+    {
+        $isHorizontal = 'horizontal' === $axis;
+        $startProp = $isHorizontal ? 'left' : 'top';
+        $endProp = $isHorizontal ? 'right' : 'bottom';
+        $sizeKey = $isHorizontal ? 'width' : 'height';
+        $bothPin = $isHorizontal ? 'LEFT_RIGHT' : 'TOP_BOTTOM';
+        $farPin = $isHorizontal ? 'RIGHT' : 'BOTTOM';
+        $parentSize = isset($parentBox[$sizeKey]) && is_numeric($parentBox[$sizeKey]) ? (float) $parentBox[$sizeKey] : null;
+        $boxSize = isset($box[$sizeKey]) && is_numeric($box[$sizeKey]) ? (float) $box[$sizeKey] : null;
+        $constraint = null === $constraint ? null : strtoupper($constraint);
+
+        $styles = array();
+
+        // Far-edge-only pin (REST RIGHT/BOTTOM, Kiwi MAX): anchor to the trailing
+        // edge and drop the leading offset so the node stays glued on resize.
+        if ( $farPin === $constraint && null !== $offset && null !== $parentSize && null !== $boxSize ) {
+            $styles[] = $endProp . ':' . $this->number($parentSize - $offset - $boxSize) . 'px';
+            return $styles;
         }
-        if ( isset($constraints['vertical'], $parentBox['height'], $box['height']) && 'TOP_BOTTOM' === $constraints['vertical'] && null !== $top ) {
-            $styles[] = 'bottom:' . $this->number((float) $parentBox['height'] - $top - (float) $box['height']) . 'px';
+
+        // Center pin: keep a constant offset from the parent center. Using calc()
+        // off the leading edge avoids touching transform.
+        if ( 'CENTER' === $constraint && null !== $offset && null !== $parentSize ) {
+            $delta = $offset - ( $parentSize / 2.0 );
+            $sign = $delta < 0 ? '-' : '+';
+            $styles[] = $startProp . ':calc(50% ' . $sign . ' ' . $this->number(abs($delta)) . 'px)';
+            return $styles;
+        }
+
+        // Near-edge pin (LEFT/TOP/default, also SCALE fallback) plus an optional
+        // far-edge pin for the both-side stretch constraint.
+        if ( null !== $offset ) {
+            $styles[] = $startProp . ':' . $this->number($offset) . 'px';
+        }
+        if ( $bothPin === $constraint && null !== $offset && null !== $parentSize && null !== $boxSize ) {
+            $styles[] = $endProp . ':' . $this->number($parentSize - $offset - $boxSize) . 'px';
         }
 
         return $styles;

@@ -4638,6 +4638,101 @@ $kiwiStackLayoutCss = $fileContent($kiwiStackLayoutResult, 'style.css');
 $assert(str_contains($kiwiStackLayoutCss, '.figma-node-stack-frame-kiwi-stack-frame{width:300px;height:200px;overflow:hidden;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;flex-wrap:wrap;align-content:flex-start;padding-top:8px;padding-right:20px;padding-bottom:30px;padding-left:8px;gap:24px}'), 'kiwi-stack-layout-emits-flex-padding-gap');
 $assert(str_contains($kiwiStackLayoutCss, '.figma-node-stack-child-a-child-a{width:50px;height:40px;flex-shrink:0}'), 'kiwi-stack-child-not-absolute');
 
+// .fig (Kiwi) input carries layout intent under flat Kiwi field names the
+// normalizer historically ignored in favor of the REST vocabulary, so the
+// constraints, stack sizing, child grow, min/max, and absolute-positioning
+// signals were pure data loss. This fixture feeds the Kiwi field names with
+// their real decoded enum values (ConstraintType MIN/MAX/STRETCH/CENTER,
+// StackSize RESIZE_TO_FIT/FIXED, OptionalVector min/maxSize) and proves they
+// reach CSS: constraints become pins, stack sizing becomes flex sizing, grow
+// becomes flex-grow, and min/maxSize become min/max width/height.
+$kiwiLayoutFieldsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Kiwi Layout Fields Fixture',
+    'nodes' => array(
+        array(
+            'id'                  => 'kiwi-layout:frame',
+            'type'                => 'FRAME',
+            'name'                => 'Kiwi layout frame',
+            'absoluteBoundingBox' => array('x' => 0, 'y' => 0, 'width' => 400, 'height' => 300),
+            'children'            => array(
+                array(
+                    'id'                   => 'kiwi-layout:stretch-badge',
+                    'type'                 => 'RECTANGLE',
+                    'name'                 => 'Stretch badge',
+                    'absoluteBoundingBox'  => array('x' => 20, 'y' => 30, 'width' => 50, 'height' => 20),
+                    'stackPositioning'     => 'ABSOLUTE',
+                    'horizontalConstraint' => 'STRETCH',
+                    'verticalConstraint'   => 'STRETCH',
+                    'fill'                 => array('r' => 0, 'g' => 0, 'b' => 0),
+                ),
+                array(
+                    'id'                   => 'kiwi-layout:far-badge',
+                    'type'                 => 'RECTANGLE',
+                    'name'                 => 'Far badge',
+                    'absoluteBoundingBox'  => array('x' => 300, 'y' => 10, 'width' => 60, 'height' => 40),
+                    'stackPositioning'     => 'ABSOLUTE',
+                    'horizontalConstraint' => 'MAX',
+                    'verticalConstraint'   => 'MIN',
+                ),
+                array(
+                    'id'                   => 'kiwi-layout:center-badge',
+                    'type'                 => 'RECTANGLE',
+                    'name'                 => 'Center badge',
+                    'absoluteBoundingBox'  => array('x' => 175, 'y' => 140, 'width' => 50, 'height' => 20),
+                    'stackPositioning'     => 'ABSOLUTE',
+                    'horizontalConstraint' => 'CENTER',
+                    'verticalConstraint'   => 'CENTER',
+                ),
+            ),
+        ),
+        array(
+            'id'        => 'kiwi-layout:flexframe',
+            'type'      => 'FRAME',
+            'name'      => 'Kiwi flex frame',
+            'width'     => 300,
+            'height'    => 100,
+            'stackMode' => 'HORIZONTAL',
+            'children'  => array(
+                array(
+                    'id'                    => 'kiwi-layout:fill-item',
+                    'type'                  => 'RECTANGLE',
+                    'name'                  => 'Fill item',
+                    'width'                 => 80,
+                    'height'                => 40,
+                    'stackChildPrimaryGrow' => 1,
+                    'minSize'               => array('x' => 100, 'y' => 20),
+                    'maxSize'               => array('x' => 200, 'y' => 60),
+                ),
+                array(
+                    'id'                 => 'kiwi-layout:hug-frame',
+                    'type'               => 'FRAME',
+                    'name'               => 'Hug frame',
+                    'width'              => 50,
+                    'height'             => 40,
+                    'stackMode'          => 'HORIZONTAL',
+                    'stackPrimarySizing' => 'RESIZE_TO_FIT',
+                    'stackCounterSizing' => 'FIXED',
+                    'children'           => array(
+                        array('id' => 'kiwi-layout:hug-a', 'type' => 'RECTANGLE', 'name' => 'Hug A', 'width' => 30, 'height' => 20),
+                        array('id' => 'kiwi-layout:hug-b', 'type' => 'RECTANGLE', 'name' => 'Hug B', 'width' => 40, 'height' => 20),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$kiwiLayoutFieldsCss = $fileContent($kiwiLayoutFieldsResult, 'style.css');
+// Kiwi STRETCH constraint == REST LEFT_RIGHT/TOP_BOTTOM both-side pin.
+$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-stretch-badge-stretch-badge{width:50px;height:20px;position:absolute;left:20px;right:330px;top:30px;bottom:250px;background:#000000}'), 'kiwi-constraint-stretch-pins-both-edges');
+// Kiwi MAX (horizontal) == far-edge pin only; Kiwi MIN (vertical) == near pin.
+$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-far-badge-far-badge{width:60px;height:40px;position:absolute;right:40px;top:10px}'), 'kiwi-constraint-max-pins-far-edge-only');
+// Kiwi CENTER == fixed offset from parent center via calc(), no transform.
+$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-center-badge-center-badge{width:50px;height:20px;position:absolute;left:calc(50% - 25px);top:calc(50% - 10px)}'), 'kiwi-constraint-center-uses-calc-offset');
+// stackChildPrimaryGrow -> flex-grow; minSize/maxSize -> min/max width/height.
+$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-fill-item-fill-item{width:80px;height:40px;min-width:100px;max-width:200px;min-height:20px;max-height:60px;flex-grow:1}'), 'kiwi-grow-and-min-max-size');
+// stackPrimarySizing RESIZE_TO_FIT -> HUG main axis; stackCounterSizing FIXED -> fixed cross axis.
+$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-hug-frame-hug-frame{width:max-content;height:40px;display:flex;flex-direction:row;flex-shrink:0}'), 'kiwi-stack-sizing-bridges-to-flex-sizing');
+
 $plainFrameLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Plain Frame Layout Fixture',
     'nodes' => array(
