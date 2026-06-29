@@ -25,7 +25,7 @@
     { "path": "blocks.0.innerBlocks.3", "name": "core/list", "attrs": { "className": "checks" } },
     { "path": "blocks.0.innerBlocks.3.innerBlocks.0", "name": "core/list-item", "attrs": { "content": "Parent" } },
     { "path": "blocks.0.innerBlocks.3.innerBlocks.0.innerBlocks.0", "name": "core/list" },
-    { "path": "blocks.0.innerBlocks.3.innerBlocks.0.innerBlocks.0.innerBlocks.0", "name": "core/list-item", "attrs": { "content": "<span class=\"accent\">Child</span>" } },
+    { "path": "blocks.0.innerBlocks.3.innerBlocks.0.innerBlocks.0.innerBlocks.0", "name": "core/list-item", "attrs": { "content": "Child", "className": "accent" } },
     { "path": "blocks.0.innerBlocks.4", "name": "core/group", "attrs": { "className": "local-widget" } },
     { "path": "blocks.0.innerBlocks.4.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Signup", "level": 2 } },
     { "path": "blocks.0.innerBlocks.4.innerBlocks.1", "name": "core/group" },

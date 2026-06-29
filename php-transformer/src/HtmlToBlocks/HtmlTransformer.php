@@ -1098,6 +1098,13 @@ final class HtmlTransformer
                 return $this->rememberAccordionDisclosureRoot($navigation, $element);
             }
 
+            if ( $this->isStructuredCardList($element) ) {
+                $decomposed = $this->decomposeStructuredCardList($element, $fallbacks);
+                if ( null !== $decomposed ) {
+                    return $decomposed;
+                }
+            }
+
             $items = $this->listItems($element, $fallbacks);
 
             if ( array() === $items ) {
@@ -1754,15 +1761,16 @@ final class HtmlTransformer
     }
 
     /**
-     * Lift class/style styling hooks out of a paragraph/heading's RichText
-     * `content` so the stored block round-trips through RichText unchanged.
+     * Lift class/style styling hooks out of a paragraph/heading/list-item's
+     * RichText `content` so the stored block round-trips through RichText
+     * unchanged.
      *
-     * core/paragraph and core/heading store `content` as RichText, which only
-     * preserves a fixed set of inline formats (a, strong, em, br, …). A
-     * `<span class="…">` / `<span style="…">` is not a format, so RichText drops
-     * its attributes on parse: the saved markup no longer matches the
-     * re-serialized block ("unexpected or invalid content"), and the class — a
-     * styling hook the materialized CSS targets — would be silently lost.
+     * core/paragraph, core/heading, and core/list-item store `content` as
+     * RichText, which only preserves a fixed set of inline formats (a, strong,
+     * em, br, …). A `<span class="…">` / `<span style="…">` is not a format, so
+     * RichText drops its attributes on parse: the saved markup no longer matches
+     * the re-serialized block ("unexpected or invalid content"), and the class —
+     * a styling hook the materialized CSS targets — would be silently lost.
      *
      * The fix keys off STRUCTURE (a content-bearing span carrying only
      * class/style), never on any specific class name:
@@ -1776,12 +1784,17 @@ final class HtmlTransformer
      *     here, so this is best-effort; the emitted block is always valid.
      * Genuine inline formats (strong/em/a/br/…) are never touched.
      *
+     * A list item whose content carries block-level children (an image/heading/
+     * paragraph "card", e.g. a commerce product grid) is left untouched here:
+     * that is not flowing RichText, so it stays the job of the structured-card
+     * decomposition path and the commerce path rather than per-span unwrapping.
+     *
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
     private function hoistContentWrappingSpans(string $name, array $attrs): array
     {
-        if ( ! in_array($name, array( 'core/paragraph', 'core/heading' ), true) ) {
+        if ( ! in_array($name, array( 'core/paragraph', 'core/heading', 'core/list-item' ), true) ) {
             return $attrs;
         }
 
@@ -1798,6 +1811,10 @@ final class HtmlTransformer
 
         $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
         if ( ! $body instanceof DOMElement ) {
+            return $attrs;
+        }
+
+        if ( 'core/list-item' === $name && $this->hasBlockContentChildren($body) ) {
             return $attrs;
         }
 
@@ -3656,6 +3673,281 @@ final class HtmlTransformer
         }
 
         return $items;
+    }
+
+    /**
+     * Whether a `<ul>`/`<ol>` is a stack of "structured inline cards" rather than
+     * a normal list.
+     *
+     * A structured card list is one whose every content-bearing `<li>` is built
+     * from MULTIPLE class/style-carrying inline fragments — the universal
+     * blog/news/essay-index row of a title link plus dek/meta spans
+     * (`<a class>` + `<span class>` + `<span class>`). core/list-item stores its
+     * content as RichText, which only preserves a fixed set of inline formats, so
+     * the class on an inner `<a>`/`<span>` is dropped on parse (saved markup
+     * diverges from the regenerated block) and the per-fragment styling hooks the
+     * materialized CSS targets are lost. A single list item also cannot carry the
+     * distinct class of each fragment, so the row is really a mini-card.
+     *
+     * Keys off STRUCTURE (multiple styling-hook inline fragments), never on any
+     * specific class name. A plain-text list, a simple link list, a flowing
+     * sentence with one inline link, or a list item that carries block-level
+     * children (an image/heading/paragraph product card owned by the commerce
+     * path) is NOT a structured card and stays a normal core/list.
+     */
+    private function isStructuredCardList(DOMElement $list): bool
+    {
+        $cardItems = 0;
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+                continue;
+            }
+            if ( '' === trim($this->runtime->stripAllTags($this->innerHtmlWithoutTags($child, array( 'ul', 'ol' )))) ) {
+                continue;
+            }
+            if ( ! $this->isStructuredCardItem($child) ) {
+                return false;
+            }
+            ++$cardItems;
+        }
+
+        return $cardItems > 0;
+    }
+
+    /**
+     * A `<li>` that is a structured inline card: all of its content is inline
+     * (text + inline formats/links — no block-level children), and it carries at
+     * least two class/style styling-hook inline fragments (e.g. a classed title
+     * link plus dek/meta spans). The "two hooks" threshold distinguishes a
+     * stacked card from flowing text that merely contains a single inline link.
+     */
+    private function isStructuredCardItem(DOMElement $item): bool
+    {
+        $stylingHookFragments = 0;
+        foreach ( $item->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tag = strtolower($child->tagName);
+            if ( in_array($tag, array( 'ul', 'ol' ), true) ) {
+                continue;
+            }
+
+            // A block-level child means this is not an inline card (e.g. a
+            // product card with <img>/<h3>/<p>); leave it to the normal path.
+            if ( 'br' !== $tag && 'a' !== $tag && ! $this->isInlineContentElement($tag) ) {
+                return false;
+            }
+
+            if ( $this->isStylingHookInline($child) ) {
+                ++$stylingHookFragments;
+            }
+        }
+
+        return $stylingHookFragments >= 2;
+    }
+
+    /**
+     * An inline element carrying a class/style styling hook RichText cannot
+     * store: a styling-hook `<span>` (class/style only), or any link/inline
+     * format element (`<a>`, `<strong>`, …) with a non-empty class or style.
+     */
+    private function isStylingHookInline(DOMElement $element): bool
+    {
+        $tag = strtolower($element->tagName);
+        if ( 'span' === $tag ) {
+            return $this->isStylingHookSpan($element);
+        }
+        if ( 'a' !== $tag && ! $this->isInlineContentElement($tag) ) {
+            return false;
+        }
+
+        return '' !== trim($this->attr($element, 'class')) || '' !== trim($this->attr($element, 'style'));
+    }
+
+    /**
+     * Decompose a structured card `<ul>`/`<ol>` into a `core/group` of per-item
+     * `core/group`s. Each fragment of an item becomes its own block carrying its
+     * hoisted styling hook, so the result is fully valid (group/paragraph
+     * round-trip and store a custom className) while the per-fragment styling
+     * hooks and the working link survive — which a single core/list-item cannot
+     * represent. The outer group inherits the list's presentation, each inner
+     * group inherits its `<li>`'s presentation.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function decomposeStructuredCardList(DOMElement $list, array &$fallbacks): ?array
+    {
+        $itemGroups = array();
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+                continue;
+            }
+
+            $itemGroup = $this->structuredCardItemGroup($child, $fallbacks);
+            if ( null !== $itemGroup ) {
+                $itemGroups[] = $itemGroup;
+            }
+        }
+
+        if ( array() === $itemGroups ) {
+            return null;
+        }
+
+        return $this->createBlock('core/group', $this->presentationAttributes($list), $itemGroups, $list);
+    }
+
+    /**
+     * Build the per-item `core/group` for one structured card `<li>`: a paragraph
+     * per inline fragment (the title link, the dek, the meta), each carrying the
+     * fragment's hoisted styling hook, plus any nested list converted in place.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function structuredCardItemGroup(DOMElement $item, array &$fallbacks): ?array
+    {
+        $fragmentBlocks = array();
+        foreach ( $item->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                $text = trim($child->textContent ?? '');
+                if ( '' !== $text ) {
+                    $fragmentBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($text) ));
+                }
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tag = strtolower($child->tagName);
+            if ( in_array($tag, array( 'ul', 'ol' ), true) ) {
+                $nested = $this->convertElement($child, $fallbacks, true);
+                if ( null !== $nested ) {
+                    $fragmentBlocks[] = $nested;
+                }
+                continue;
+            }
+
+            $block = $this->cardFragmentBlock($child);
+            if ( null !== $block ) {
+                $fragmentBlocks[] = $block;
+            }
+        }
+
+        if ( array() === $fragmentBlocks ) {
+            return null;
+        }
+
+        return $this->createBlock('core/group', $this->presentationAttributes($item), $fragmentBlocks, $item);
+    }
+
+    /**
+     * Turn one inline card fragment into a `core/paragraph` that round-trips
+     * through RichText while keeping the fragment's styling hook on the block.
+     *
+     *   - A link fragment stays a valid RichText anchor (`<a href>` with its
+     *     RichText-dropped class/style stripped) and its class/style are hoisted
+     *     onto the paragraph, so the styling hook survives and the link works.
+     *   - A styling-hook `<span>` is unwrapped to its inner content and its
+     *     class/style are hoisted onto the paragraph.
+     *   - Any other inline fragment is kept verbatim inside the paragraph;
+     *     createBlock's span hoisting normalizes any nested styling-hook spans.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function cardFragmentBlock(DOMElement $element): ?array
+    {
+        $tag = strtolower($element->tagName);
+
+        if ( 'a' === $tag ) {
+            $content = $this->anchorWithoutStylingAttributes($element);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/paragraph', array_merge(
+                $this->hoistedStylingAttributes($element),
+                array( 'content' => $content )
+            ));
+        }
+
+        if ( 'span' === $tag && $this->isStylingHookSpan($element) ) {
+            $content = $this->innerHtml($element);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/paragraph', array_merge(
+                $this->hoistedStylingAttributes($element),
+                array( 'content' => $content )
+            ));
+        }
+
+        $content = $this->outerHtml($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            return null;
+        }
+
+        return $this->createBlock('core/paragraph', array( 'content' => $content ));
+    }
+
+    /**
+     * Map an element's source class/style into the block `className` + canonical
+     * `style` object attributes, so the styling hook rides where the block save()
+     * reproduces it.
+     *
+     * @return array<string, mixed>
+     */
+    private function hoistedStylingAttributes(DOMElement $element): array
+    {
+        $attrs = array();
+
+        $className = $this->promotedClassName($this->attr($element, 'class'));
+        if ( '' !== trim($className) ) {
+            $attrs['className'] = $className;
+        }
+
+        $style = trim($this->attr($element, 'style'));
+        if ( '' !== $style ) {
+            $mapped = $this->styleAttributeMapper()->map($this->cssDeclarations($style))['style'];
+            if ( array() !== $mapped ) {
+                $attrs['style'] = $mapped;
+            }
+        }
+
+        return $attrs;
+    }
+
+    /**
+     * Serialize an `<a>` with its RichText-dropped presentational attributes
+     * (class/style) removed and an unsafe href dropped, leaving a clean anchor
+     * RichText preserves. When no safe href remains, the link text is returned
+     * without the anchor so no broken/empty link is emitted.
+     */
+    private function anchorWithoutStylingAttributes(DOMElement $anchor): string
+    {
+        $attributes = array();
+        foreach ( $this->htmlAttributes($anchor) as $name => $value ) {
+            if ( in_array(strtolower($name), array( 'class', 'style' ), true) ) {
+                continue;
+            }
+            $attributes[$name] = $value;
+        }
+
+        $href = $this->safeNavigationUrl($this->attr($anchor, 'href'));
+        $inner = $this->innerHtml($anchor);
+        if ( '' === $href ) {
+            return $inner;
+        }
+
+        $attributes['href'] = $href;
+        return '<a' . $this->htmlAttributeString($attributes) . '>' . $inner . '</a>';
     }
 
     /**
