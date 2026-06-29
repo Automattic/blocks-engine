@@ -8,6 +8,8 @@ use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\ButtonMenuVisualProbe;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\ButtonMenuVisualProbeComparator;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityComparator;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityProbe;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbe;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbeComparator;
 
@@ -321,6 +323,23 @@ function runFixture(array $fixture): array
         $report = ( new TypographyVisualProbeComparator() )->compare(
             $probe->extract((string) ($input['source_content'] ?? '')),
             $probe->extract((string) ($input['target_content'] ?? ''))
+        );
+        \Automattic\BlocksEngine\PhpTransformer\Contract\VisualParityReportContract::assertReport($report);
+        return $report;
+    }
+
+    if ( 'static_style_parity.extract' === $fixture['operation'] ) {
+        return ( new StaticStyleParityProbe() )->extract(
+            (string) ($input['content'] ?? ''),
+            (string) ($input['css'] ?? '')
+        );
+    }
+
+    if ( 'static_style_parity.compare' === $fixture['operation'] ) {
+        $probe = new StaticStyleParityProbe();
+        $report = ( new StaticStyleParityComparator() )->compare(
+            $probe->extract((string) ($input['source_content'] ?? ''), (string) ($input['source_css'] ?? '')),
+            $probe->extract((string) ($input['target_content'] ?? ''), (string) ($input['target_css'] ?? ''))
         );
         \Automattic\BlocksEngine\PhpTransformer\Contract\VisualParityReportContract::assertReport($report);
         return $report;
