@@ -11,6 +11,7 @@ require_once __DIR__ . '/GeometryBoxContract.php';
 require_once __DIR__ . '/LayoutMismatchContract.php';
 require_once __DIR__ . '/NodeTraceContract.php';
 require_once __DIR__ . '/OriginInferenceContract.php';
+require_once __DIR__ . '/ParserParityContract.php';
 require_once __DIR__ . '/RenderStyleMismatchContract.php';
 require_once __DIR__ . '/SyntheticFigKiwiFixtureBuilder.php';
 require_once __DIR__ . '/VisualNodeMapContract.php';
@@ -8198,6 +8199,7 @@ $assert(2 === substr_count($rootLevelHtml, '<section'), 'section-refinement-root
 
 blocks_engine_figma_transformer_run_fixture_matrix_contract($assert);
 blocks_engine_figma_transformer_run_node_trace_contract($assert);
+blocks_engine_figma_transformer_run_parser_parity_contract($assert);
 
 // Authored CSS classes: repeated per-node styles collapse into shared, readably
 // named classes (like a hand-authored site reuses `.card`), names derive from
