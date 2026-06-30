@@ -6874,6 +6874,7 @@ $assert(array('sessionID' => 9, 'localID' => 10) === ($componentPropAssignment['
 $assert('Selected label' === ($componentPropAssignment['value']['textValue']['characters'] ?? null), 'component-prop-field-policy-carries-text-value');
 $assert(array('sessionID' => 9, 'localID' => 10) === ($componentPropRef['defID'] ?? null), 'component-prop-field-policy-carries-ref-def-id');
 $assert('TEXT_DATA' === ($componentPropRef['componentPropNodeField'] ?? null), 'component-prop-field-policy-carries-text-ref-field');
+$assert(! array_key_exists('pluginData', $componentPropNodeChange), 'component-prop-field-policy-skips-adjacent-plugin-data');
 
 // NORMALIZE: raw sectionStatus tokens map onto a clean dev_status with the raw
 // value carried for auditability.
@@ -8722,12 +8723,13 @@ function blocks_engine_figma_transformer_kiwi_component_prop_schema_fixture(): s
         . $str('ComponentPropRef') . chr(2) . $varint(2)
         . $field('defID', 1, false, 2)
         . $field('componentPropNodeField', 0, false, 4)
-        // def6: MESSAGE NodeChange { type, name, componentPropAssignments[], componentPropRefs[] }
-        . $str('NodeChange') . chr(2) . $varint(4)
+        // def6: MESSAGE NodeChange { type, name, componentPropAssignments[], componentPropRefs[], pluginData }
+        . $str('NodeChange') . chr(2) . $varint(5)
         . $field('type', -6, false, 1)
         . $field('name', -6, false, 2)
         . $field('componentPropAssignments', 4, true, 3)
         . $field('componentPropRefs', 5, true, 4)
+        . $field('pluginData', -2, true, 5)
         // def7: MESSAGE Message { type, nodeChanges[] }
         . $str('Message') . chr(2) . $varint(2)
         . $field('type', -6, false, 1)
@@ -8755,6 +8757,7 @@ function blocks_engine_figma_transformer_kiwi_component_prop_message_fixture(): 
         . $v(2) . $str('Component Property Instance')
         . $v(3) . $v(1) . $assignment
         . $v(4) . $v(1) . $ref
+        . $v(5) . $v(3) . 'raw'
         . $v(0);
 
     return $v(1) . $str('DOCUMENT')

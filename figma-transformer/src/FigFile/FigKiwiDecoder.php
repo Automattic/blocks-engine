@@ -378,59 +378,8 @@ final class FigKiwiDecoder
     private function defaultScenegraphFieldPolicy(): array
     {
         return array(
-            // `handoffStatus`/`sectionStatus` may also surface at the file root
-            // as a handoff map, so they are whitelisted on the root Message too.
-            'Message' => array('type', 'nodeChanges', 'blobs', 'blobBaseIndex', 'fileVersion', 'sectionStatus', 'handoffStatus'),
-            'NodeChange' => array(
-                // Figma Dev Mode status (#280): Ready-for-dev / Completed signal.
-                // `sectionStatus`/`sectionStatusInfo` ride on SECTION nodes,
-                // `handoffStatus` carries the dev-handoff map, and
-                // `currentStatus`/`statusInfo` mirror NodeStatusChange fields.
-                'sectionStatus', 'sectionStatusInfo', 'handoffStatus', 'currentStatus', 'statusInfo', 'devStatus',
-                'guid', 'parentIndex', 'type', 'name', 'visible', 'opacity', 'blendMode', 'size', 'transform',
-                'useAbsoluteBounds', 'cornerRadius', 'rectangleTopLeftCornerRadius',
-                'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius',
-                'rectangleBottomRightCornerRadius', 'fillPaints', 'strokePaints', 'backgroundPaints',
-                // Stroke geometry (#328): without these the emitter's strokeStyles()
-                // never sees a weight/align/dash and every border falls back to the
-                // 1px default. `strokeWeight` (float) and `dashPattern` (float[]) carry
-                // the size/dash; `strokeAlign` is the INSIDE/OUTSIDE/CENTER enum and
-                // resolves to its token string. Per-side weights ride on
-                // `borderStrokeWeightsIndependent` + the four `border*Weight` floats;
-                // the `stroke*Weight` aliases are over-listed defensively — unlisted
-                // names are skipped, not mis-read, so listing both shapes is safe.
-                'strokeWeight', 'strokeAlign', 'strokeCap', 'strokeJoin', 'dashPattern',
-                'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight',
-                'borderLeftWeight', 'borderRightWeight',
-                'strokeTopWeight', 'strokeBottomWeight', 'strokeLeftWeight', 'strokeRightWeight',
-                'fillGeometry', 'strokeGeometry', 'vectorData', 'booleanOperation', 'key', 'componentKey',
-                'componentOrStateGroupKey', 'originComponentKey', 'componentId', 'mainComponentId',
-                'componentPropAssignments', 'componentPropRefs',
-                'mainComponent', 'component', 'symbolData', 'derivedSymbolData', 'guidPath',
-                'fontSize', 'fontName', 'textData', 'lineHeight', 'letterSpacing',
-                'paragraphIndent', 'paragraphSpacing', 'styleID',
-                'textAlignHorizontal', 'textAlignVertical', 'textCase', 'textDecoration', 'textAutoResize', 'horizontalConstraint',
-                'verticalConstraint', 'stackWidth', 'stackHeight', 'stackPrimarySizing',
-                'stackMode', 'stackSpacing', 'stackHorizontalPadding', 'stackVerticalPadding',
-                'stackPadding', 'stackPaddingLeft', 'stackPaddingRight', 'stackPaddingTop', 'stackPaddingBottom',
-                'stackPrimaryAlignItems', 'stackCounterAlignItems', 'stackCounterSizing',
-                'stackWrap', 'stackCounterSpacing', 'stackReverseZIndex',
-                'stackChildPrimaryGrow', 'stackChildAlignSelf', 'stackPositioning', 'resizeToFit', 'isClip', 'minSize', 'maxSize',
-                // Visual effects (#328): shadows + blur. `normalizeEffects()` and
-                // `effectStyles()` are already written but were starved because
-                // `effects` was absent from the policy, so the decoder silently
-                // dropped every Effect from the binary.
-                'effects',
-                // Links + prototype navigation (#328). `hyperlink` is the
-                // text/node-level Hyperlink struct; `prototypeInteractions` is
-                // the Kiwi name for what REST calls `reactions`; `reactions`
-                // is whitelisted too for forward-compatibility. `transitionNodeID`
-                // backs the node-level single-interaction navigation fallback.
-                // Scope is link extraction only (URL + node navigation); the
-                // richer animation/overlay/swap action data is intentionally
-                // not decoded here (a separate prototype-fidelity effort).
-                'hyperlink', 'prototypeInteractions', 'reactions', 'transitionNodeID',
-            ),
+            'Message' => $this->scenegraphRootFields(),
+            'NodeChange' => $this->nodeChangeScenegraphFields(),
             'GUID' => array('sessionID', 'localID'),
             'ParentIndex' => array('guid', 'position'),
             'Vector' => array('x', 'y'),
@@ -489,6 +438,143 @@ final class FigKiwiDecoder
             'PrototypeEvent' => array('interactionType'),
             'PrototypeAction' => array('connectionType', 'connectionURL', 'transitionNodeID', 'navigationType'),
         );
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function scenegraphRootFields(): array
+    {
+        // `handoffStatus`/`sectionStatus` may also surface at the file root as a handoff map.
+        return array('type', 'nodeChanges', 'blobs', 'blobBaseIndex', 'fileVersion', 'sectionStatus', 'handoffStatus');
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nodeChangeScenegraphFields(): array
+    {
+        return array_merge(
+            $this->nodeIdentityFields(),
+            $this->nodeDevStatusFields(),
+            $this->nodeGeometryFields(),
+            $this->nodePaintAndStrokeFields(),
+            $this->nodeVectorAndImageFields(),
+            $this->nodeComponentFields(),
+            $this->nodeTextFields(),
+            $this->nodeLayoutFields(),
+            $this->nodeEffectFields(),
+            $this->nodePrototypeLinkFields()
+        );
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nodeIdentityFields(): array
+    {
+        return array('guid', 'parentIndex', 'type', 'name', 'visible', 'opacity', 'blendMode');
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nodeDevStatusFields(): array
+    {
+        // Figma Dev Mode status (#280): Ready-for-dev / Completed signal.
+        return array('sectionStatus', 'sectionStatusInfo', 'handoffStatus', 'currentStatus', 'statusInfo', 'devStatus');
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nodeGeometryFields(): array
+    {
+        return array(
+            'size', 'transform', 'useAbsoluteBounds', 'cornerRadius',
+            'rectangleTopLeftCornerRadius', 'rectangleTopRightCornerRadius',
+            'rectangleBottomLeftCornerRadius', 'rectangleBottomRightCornerRadius',
+            'horizontalConstraint', 'verticalConstraint', 'resizeToFit', 'isClip', 'minSize', 'maxSize',
+        );
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nodePaintAndStrokeFields(): array
+    {
+        // Stroke geometry (#328): weight/align/dash fields feed border emission.
+        return array(
+            'fillPaints', 'strokePaints', 'backgroundPaints',
+            'strokeWeight', 'strokeAlign', 'strokeCap', 'strokeJoin', 'dashPattern',
+            'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight',
+            'borderLeftWeight', 'borderRightWeight',
+            'strokeTopWeight', 'strokeBottomWeight', 'strokeLeftWeight', 'strokeRightWeight',
+        );
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nodeVectorAndImageFields(): array
+    {
+        return array('fillGeometry', 'strokeGeometry', 'vectorData', 'booleanOperation');
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nodeComponentFields(): array
+    {
+        return array(
+            'key', 'componentKey', 'componentOrStateGroupKey', 'originComponentKey',
+            'componentId', 'mainComponentId', 'componentPropAssignments', 'componentPropRefs',
+            'mainComponent', 'component', 'symbolData', 'derivedSymbolData', 'guidPath',
+        );
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nodeTextFields(): array
+    {
+        return array(
+            'fontSize', 'fontName', 'textData', 'lineHeight', 'letterSpacing',
+            'paragraphIndent', 'paragraphSpacing', 'styleID', 'textAlignHorizontal',
+            'textAlignVertical', 'textCase', 'textDecoration', 'textAutoResize',
+        );
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nodeLayoutFields(): array
+    {
+        return array(
+            'stackWidth', 'stackHeight', 'stackPrimarySizing', 'stackMode', 'stackSpacing',
+            'stackHorizontalPadding', 'stackVerticalPadding', 'stackPadding', 'stackPaddingLeft',
+            'stackPaddingRight', 'stackPaddingTop', 'stackPaddingBottom', 'stackPrimaryAlignItems',
+            'stackCounterAlignItems', 'stackCounterSizing', 'stackWrap', 'stackCounterSpacing',
+            'stackReverseZIndex', 'stackChildPrimaryGrow', 'stackChildAlignSelf', 'stackPositioning',
+        );
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nodeEffectFields(): array
+    {
+        // Visual effects (#328): shadows + blur.
+        return array('effects');
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nodePrototypeLinkFields(): array
+    {
+        // Link extraction only; richer animation/overlay/swap action data stays undecoded.
+        return array('hyperlink', 'prototypeInteractions', 'reactions', 'transitionNodeID');
     }
 
     /**
