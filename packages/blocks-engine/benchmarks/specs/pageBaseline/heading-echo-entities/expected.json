@@ -5,7 +5,7 @@
       "block": "core/group",
       "children": [
         {
-          "block": "core/heading"
+          "block": "core/paragraph"
         },
         {
           "block": "core/paragraph"

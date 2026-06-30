@@ -1,8 +1,8 @@
 {
   "engine": "reconstruct",
   "model": "deterministic",
-  "suiteHash": "sha256:05f5e8d68e94",
-  "updatedAt": "2026-06-29T16:44:33.315Z",
+  "suiteHash": "sha256:42c28127f484",
+  "updatedAt": "2026-06-30T01:23:04.112Z",
   "fixtures": {
     "pageBaseline/animated-cover-cover": 100,
     "pageBaseline/app-download-text-band": 100,
