@@ -1261,6 +1261,27 @@ $artifactNonEntryInlineSvgPage = $artifactNonEntryInlineSvg['source_reports']['m
 $assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), '<!-- wp:html'), 'non-entry artifact simple icon SVG is preserved faithfully as a core/html block, not a dynamic core/icon');
 $assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), 'aria-label="About icon"') && str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), 'viewBox="0 0 8 8"'), 'non-entry artifact faithful SVG preserves its accessible label and correct-case viewBox');
 $assert(array() === ($artifactNonEntryInlineSvg['source_reports']['materialization_plan']['assets'] ?? array()), 'non-entry artifact simple icon SVG does not materialize a generated image asset');
+
+$artifactInlineScript = $compiler->compile(
+    array(
+        'schema'         => ArtifactCompiler::INPUT_SCHEMA,
+        'generated_html' => '<!doctype html><html><head><script type="application/ld+json">{"name":"metadata"}</script></head><body><main><h1>Cafe</h1></main><script defer>document.documentElement.classList.add("hydrated");</script></body></html>',
+    )
+)->toArray();
+$artifactInlineScriptAssets = $artifactInlineScript['source_reports']['materialization_plan']['assets'] ?? array();
+$artifactInlineScriptAsset = array_values(array_filter($artifactInlineScriptAssets, static fn (array $asset): bool => 'inline-script' === ($asset['source'] ?? '')))[0] ?? array();
+$assert('js' === ($artifactInlineScriptAsset['kind'] ?? ''), 'artifact inline executable script becomes a JS materialization asset');
+$assert('script' === ($artifactInlineScriptAsset['role'] ?? ''), 'artifact inline executable script asset has script role');
+$assert('behavior' === ($artifactInlineScriptAsset['intent'] ?? ''), 'artifact inline executable script asset has behavior intent');
+$assert('body' === ($artifactInlineScriptAsset['placement'] ?? ''), 'artifact inline executable script placement is preserved');
+$assert(true === ($artifactInlineScriptAsset['defer'] ?? false), 'artifact inline executable script defer metadata is preserved');
+$assert('index.inline-2.js' === ($artifactInlineScriptAsset['path'] ?? ''), 'artifact inline executable script path is stable and indexed by source script position');
+$assert('script:nth-of-type(2)' === ($artifactInlineScriptAsset['selector'] ?? ''), 'artifact inline executable script selector is preserved');
+$assert(str_contains((string) ($artifactInlineScriptAsset['content'] ?? ''), 'classList.add'), 'artifact inline executable script content is preserved');
+$assert(in_array('index.inline-2.js', $artifactInlineScript['source_reports']['materialization_plan']['theme']['scripts'] ?? array(), true), 'artifact inline executable script is exposed as a theme script');
+$assert(! str_contains((string) ($artifactInlineScript['serialized_blocks'] ?? ''), '<!-- wp:html'), 'artifact materialized inline script does not become a core/html fallback block');
+$assert(! str_contains((string) ($artifactInlineScript['serialized_blocks'] ?? ''), 'classList.add'), 'artifact materialized inline script body is removed from serialized block content');
+
 $assert(1 === ($simple['source_reports']['materialization_plan']['totals']['pages'] ?? null), 'materialization plan counts pages');
 $assert('index' === ($simple['source_reports']['materialization_plan']['pages'][0]['slug'] ?? ''), 'materialization plan exposes page slug');
 $assert('blocks' === ($simple['source_reports']['materialization_plan']['pages'][0]['body_format'] ?? ''), 'materialization plan exposes converted block body format');

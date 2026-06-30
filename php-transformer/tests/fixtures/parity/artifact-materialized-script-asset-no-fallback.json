@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "artifact-materialized-script-asset-no-fallback",
-  "description": "Treats bundled external script tags as materialized theme script assets while preserving inline runtime scripts as fallbacks.",
+  "description": "Treats bundled external and executable inline script tags as materialized theme script assets without raw HTML fallbacks.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/artifact-materialized-script-asset-no-fallback.json",
@@ -30,15 +30,17 @@
     }
   },
   "expect": [
-    { "path": "status", "assert": "equals", "value": "success_with_warnings" },
-    { "path": "fallbacks", "assert": "count", "count": 1 },
-    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_script_fallback" },
-    { "path": "fallbacks.0.script_role", "assert": "equals", "value": "runtime" },
-    { "path": "fallbacks.0.script_source_kind", "assert": "equals", "value": "inline" },
-    { "path": "fallbacks.0.body", "assert": "equals", "value": "window.inlineRuntime = true;" },
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "serialized_blocks", "assert": "contains", "value": "Content remains block-convertible." },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "assets/site.js" },
-    { "path": "source_reports.compiled_site.theme.scripts.0", "assert": "equals", "value": "assets/site.js" },
-    { "path": "source_reports.materialization_plan.theme.scripts.0", "assert": "equals", "value": "assets/site.js" }
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "window.inlineRuntime" },
+    { "path": "source_reports.compiled_site.theme.scripts.0", "assert": "equals", "value": "index.inline-2.js" },
+    { "path": "source_reports.compiled_site.theme.scripts.1", "assert": "equals", "value": "assets/site.js" },
+    { "path": "source_reports.materialization_plan.theme.scripts.0", "assert": "equals", "value": "index.inline-2.js" },
+    { "path": "source_reports.materialization_plan.theme.scripts.1", "assert": "equals", "value": "assets/site.js" },
+    { "path": "source_reports.materialization_plan.assets.0.source", "assert": "equals", "value": "inline-script" },
+    { "path": "source_reports.materialization_plan.assets.0.selector", "assert": "equals", "value": "script:nth-of-type(2)" },
+    { "path": "source_reports.materialization_plan.assets.0.content", "assert": "equals", "value": "window.inlineRuntime = true;" }
   ]
 }

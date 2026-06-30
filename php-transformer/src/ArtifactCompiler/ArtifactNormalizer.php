@@ -42,7 +42,7 @@ final class ArtifactNormalizer
             }
         }
 
-        $rawFiles = $this->withInlineStyleFiles($this->rawFiles($artifact));
+        $rawFiles = $this->withInlineScriptFiles($this->withInlineStyleFiles($this->rawFiles($artifact)));
         $safeEntrypoints = array();
         foreach ( array_unique($entrypoints) as $entrypoint ) {
             $path = ArtifactPath::safeRelativePath($entrypoint);
@@ -124,6 +124,16 @@ final class ArtifactNormalizer
             }
             if ( '' !== $intent ) {
                 $normalized['intent'] = $intent;
+            }
+            foreach ( array('placement', 'type', 'source_path', 'selector') as $field ) {
+                if ( isset($file[$field]) && is_scalar($file[$field]) && '' !== trim((string) $file[$field]) ) {
+                    $normalized[$field] = (string) $file[$field];
+                }
+            }
+            foreach ( array('defer', 'async') as $field ) {
+                if ( isset($file[$field]) ) {
+                    $normalized[$field] = (bool) $file[$field];
+                }
             }
 
             if ( 'mdx' === $kind ) {
@@ -266,6 +276,93 @@ final class ArtifactNormalizer
         $stylePath = ('' === $filename ? 'inline' : $filename) . '.inline.css';
 
         return '' === $directory ? $stylePath : $directory . '/' . $stylePath;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function withInlineScriptFiles(array $files): array
+    {
+        $expanded = array();
+        foreach ( $files as $file ) {
+            $expanded[] = $file;
+
+            $content = is_string($file['content'] ?? null) ? (string) $file['content'] : '';
+            if ( '' === trim($content) || ! $this->isHtmlLikeFile($file) || ! preg_match_all('@<script\b([^>]*)>(.*?)</script>@is', $content, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
+                continue;
+            }
+
+            $scriptIndex = 0;
+            foreach ( $matches as $match ) {
+                ++$scriptIndex;
+                $attributes = (string) $match[1][0];
+                $body = trim((string) $match[2][0]);
+                if ( '' === $body || '' !== $this->htmlAttribute($attributes, 'src') || ! $this->isExecutableScriptType($this->htmlAttribute($attributes, 'type')) ) {
+                    continue;
+                }
+
+                $expanded[] = array(
+                    'path'        => $this->inlineScriptPath((string) ($file['path'] ?? 'index.html'), $scriptIndex),
+                    'content'     => $body,
+                    'kind'        => 'js',
+                    'mime_type'   => 'text/javascript',
+                    'role'        => 'script',
+                    'intent'      => 'behavior',
+                    'source'      => 'inline-script',
+                    'placement'   => $this->scriptPlacement($content, (int) $match[0][1]),
+                    'type'        => $this->htmlAttribute($attributes, 'type'),
+                    'defer'       => $this->hasBooleanAttribute($attributes, 'defer'),
+                    'async'       => $this->hasBooleanAttribute($attributes, 'async'),
+                    'source_path' => ArtifactPath::safeRelativePath((string) ($file['path'] ?? 'index.html')),
+                    'selector'    => 'script:nth-of-type(' . $scriptIndex . ')',
+                );
+            }
+        }
+
+        return $expanded;
+    }
+
+    private function inlineScriptPath(string $htmlPath, int $index): string
+    {
+        $path = ArtifactPath::safeRelativePath($htmlPath);
+        if ( '' === $path ) {
+            return 1 === $index ? 'inline.js' : 'inline-' . $index . '.js';
+        }
+
+        $directory = trim((string) pathinfo($path, PATHINFO_DIRNAME), '.');
+        $filename = pathinfo($path, PATHINFO_FILENAME);
+        $scriptPath = ('' === $filename ? 'inline' : $filename) . (1 === $index ? '.inline.js' : '.inline-' . $index . '.js');
+
+        return '' === $directory ? $scriptPath : $directory . '/' . $scriptPath;
+    }
+
+    private function isExecutableScriptType(string $type): bool
+    {
+        $type = strtolower(trim($type));
+        return '' === $type || in_array($type, array('module', 'text/javascript', 'application/javascript', 'text/ecmascript', 'application/ecmascript'), true);
+    }
+
+    private function htmlAttribute(string $attributes, string $name): string
+    {
+        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*(["\'])(.*?)\1/i', $attributes, $match) ) {
+            return html_entity_decode((string) $match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        }
+        if ( preg_match('/(?:^|\s)' . preg_quote($name, '/') . '\s*=\s*([^\s>]+)/i', $attributes, $match) ) {
+            return html_entity_decode((string) $match[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        }
+        return '';
+    }
+
+    private function hasBooleanAttribute(string $attributes, string $name): bool
+    {
+        return 1 === preg_match('/(?:^|\s)' . preg_quote($name, '/') . '(?:\s|=|$)/i', $attributes);
+    }
+
+    private function scriptPlacement(string $html, int $offset): string
+    {
+        $headClose = stripos($html, '</head>');
+        return false !== $headClose && $offset < $headClose ? 'head' : 'body';
     }
 
     /**

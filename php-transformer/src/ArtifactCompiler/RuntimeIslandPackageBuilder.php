@@ -193,7 +193,16 @@ final class RuntimeIslandPackageBuilder
                 $sourceKind = '' !== trim((string) ($attributes['src'] ?? '')) ? 'external' : 'inline';
             }
             $scriptRole = is_scalar($requiredScript['script_role'] ?? null) ? (string) $requiredScript['script_role'] : 'runtime';
-            $scripts[] = $this->buildScript($sourceKind, $attributes, $scriptRole, '', $files, $sourcePath);
+            $inline = '';
+            if ( 'inline' === $sourceKind ) {
+                foreach ( array('script_body', 'body', 'content') as $field ) {
+                    if ( isset($requiredScript[$field]) && is_scalar($requiredScript[$field]) && '' !== trim((string) $requiredScript[$field]) ) {
+                        $inline = trim((string) $requiredScript[$field]);
+                        break;
+                    }
+                }
+            }
+            $scripts[] = $this->buildScript($sourceKind, $attributes, $scriptRole, $inline, $files, $sourcePath);
         }
 
         return $this->dedupeRows($scripts);

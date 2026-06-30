@@ -211,7 +211,11 @@ final class ArtifactCompiler
             'diagnostics'       => is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array(),
             'fallbacks'         => is_array($result['fallbacks'] ?? null) ? $result['fallbacks'] : array(),
             'assets'            => is_array($result['assets'] ?? null) ? $result['assets'] : array(),
-            'runtime_islands'   => is_array($result['source_reports']['runtime_islands'] ?? null) ? $result['source_reports']['runtime_islands'] : array(),
+            'runtime_islands'   => $this->runtimeIslandsWithMaterializedInlineScripts(
+                is_array($result['source_reports']['runtime_islands'] ?? null) ? $result['source_reports']['runtime_islands'] : array(),
+                $sourcePath,
+                $files
+            ),
             'generated_blocks'  => is_array($result['source_reports']['generated_blocks'] ?? null) ? $result['source_reports']['generated_blocks'] : array(),
             'interaction_candidates' => is_array($result['source_reports']['interaction_candidates'] ?? null) ? $result['source_reports']['interaction_candidates'] : array(),
             'superseded_selectors' => array_values(array_filter(
@@ -219,6 +223,159 @@ final class ArtifactCompiler
                 static fn (mixed $selector): bool => is_string($selector) && '' !== $selector
             )),
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $runtimeIslands
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function runtimeIslandsWithMaterializedInlineScripts(array $runtimeIslands, string $sourcePath, array $files): array
+    {
+        $inlineScripts = array_values(array_filter($files, fn (mixed $file): bool => is_array($file) && 'inline-script' === ($file['source'] ?? '') && $sourcePath === ($file['source_path'] ?? '') && $this->isMaterializedScriptAsset($file)));
+        foreach ( $runtimeIslands as &$runtimeIsland ) {
+            if ( ! is_array($runtimeIsland) || 'script' === ($runtimeIsland['kind'] ?? '') ) {
+                continue;
+            }
+            $requiredScripts = is_array($runtimeIsland['required_scripts'] ?? null) ? $runtimeIsland['required_scripts'] : array();
+            foreach ( $inlineScripts as $file ) {
+                $content = is_scalar($file['content'] ?? null) ? trim((string) $file['content']) : '';
+                if ( '' === $content || ! $this->inlineScriptReferencesRuntimeIsland($content, $runtimeIsland) ) {
+                    continue;
+                }
+                $requiredScripts[] = array_filter(array(
+                    'script_source_kind' => 'inline',
+                    'script_role'        => 'first_party',
+                    'selector'           => is_scalar($file['selector'] ?? null) ? (string) $file['selector'] : '',
+                    'script_body'        => $content,
+                    'body_bytes'         => strlen($content),
+                    'body_truncated'     => false,
+                    'attributes'         => $this->inlineScriptAttributes($file),
+                ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+            }
+            $runtimeIsland['required_scripts'] = $this->dedupeArrayRows($requiredScripts);
+        }
+        unset($runtimeIsland);
+
+        foreach ( $files as $file ) {
+            if ( ! is_array($file) || 'inline-script' !== ($file['source'] ?? '') || $sourcePath !== ($file['source_path'] ?? '') || ! $this->isMaterializedScriptAsset($file) ) {
+                continue;
+            }
+
+            $selector = is_scalar($file['selector'] ?? null) ? (string) $file['selector'] : '';
+            $content = is_scalar($file['content'] ?? null) ? trim((string) $file['content']) : '';
+            if ( '' === $selector || '' === $content || $this->hasRuntimeIsland($runtimeIslands, 'script', $selector) ) {
+                continue;
+            }
+
+            $attributes = $this->inlineScriptAttributes($file);
+
+            $attributeHtml = '';
+            foreach ( $attributes as $name => $value ) {
+                if ( $name === $value ) {
+                    $attributeHtml .= ' ' . $name;
+                    continue;
+                }
+                $attributeHtml .= ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+
+            $runtimeIslands[] = array_filter(array(
+                'kind'                => 'script',
+                'selector'            => $selector,
+                'tag'                 => 'script',
+                'diagnostic_code'     => 'preserved_runtime_island',
+                'preservation_reason' => 'script_requires_runtime',
+                'runtime_requirement' => 'client_script_execution',
+                'source_snippet'      => '<script' . $attributeHtml . '></script>',
+                'source_bytes'        => strlen($content),
+                'source_truncated'    => false,
+                'attributes'          => $attributes,
+                'script_role'         => 'first_party',
+                'script_source_kind'  => 'inline',
+                'script_body'         => $content,
+                'body_bytes'          => strlen($content),
+                'body_truncated'      => false,
+                'required_assets'     => array(),
+                'required_scripts'    => array(),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+        }
+
+        return $runtimeIslands;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $runtimeIslands
+     */
+    private function hasRuntimeIsland(array $runtimeIslands, string $kind, string $selector): bool
+    {
+        foreach ( $runtimeIslands as $island ) {
+            if ( is_array($island) && $kind === ($island['kind'] ?? '') && $selector === ($island['selector'] ?? '') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $runtimeIsland
+     */
+    private function inlineScriptReferencesRuntimeIsland(string $content, array $runtimeIsland): bool
+    {
+        $attributes = is_array($runtimeIsland['attributes'] ?? null) ? $runtimeIsland['attributes'] : array();
+        $id = is_scalar($attributes['id'] ?? null) ? trim((string) $attributes['id']) : '';
+        if ( '' !== $id && str_contains($content, $id) ) {
+            return true;
+        }
+
+        $classes = preg_split('/\s+/', is_scalar($attributes['class'] ?? null) ? trim((string) $attributes['class']) : '') ?: array();
+        foreach ( $classes as $class ) {
+            if ( '' !== $class && str_contains($content, $class) ) {
+                return true;
+            }
+        }
+
+        $selector = is_scalar($runtimeIsland['selector'] ?? null) ? trim((string) $runtimeIsland['selector']) : '';
+        return '' !== $selector && str_contains($content, $selector);
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     * @return array<string, string>
+     */
+    private function inlineScriptAttributes(array $file): array
+    {
+        $attributes = array();
+        if ( isset($file['type']) && is_scalar($file['type']) && '' !== trim((string) $file['type']) ) {
+            $attributes['type'] = (string) $file['type'];
+        }
+        foreach ( array('defer', 'async') as $field ) {
+            if ( ! empty($file[$field]) ) {
+                $attributes[$field] = $field;
+            }
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * @param array<int, mixed> $rows
+     * @return array<int, mixed>
+     */
+    private function dedupeArrayRows(array $rows): array
+    {
+        $deduped = array();
+        $seen = array();
+        foreach ( $rows as $row ) {
+            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
+            if ( ! is_string($key) || isset($seen[$key]) ) {
+                continue;
+            }
+            $seen[$key] = true;
+            $deduped[] = $row;
+        }
+
+        return $deduped;
     }
 
     /**
@@ -244,14 +401,21 @@ final class ArtifactCompiler
      */
     private function withoutMaterializedScriptTags(string $html, string $entryPath, array $files): string
     {
-        return preg_replace_callback('/<script\b([^>]*)>\s*<\/script>/i', function (array $matches) use ($entryPath, $files): string {
+        $scriptIndex = 0;
+        return preg_replace_callback('/<script\b([^>]*)>(.*?)<\/script>/is', function (array $matches) use ($entryPath, $files, &$scriptIndex): string {
+            ++$scriptIndex;
             $src = $this->htmlAttribute((string) $matches[1], 'src');
-            if ( '' === $src ) {
-                return (string) $matches[0];
+            if ( '' !== $src ) {
+                $asset = $this->findAssetByHtmlReference($src, $entryPath, $files);
+                if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) ) {
+                    return (string) $matches[0];
+                }
+
+                return '';
             }
 
-            $asset = $this->findAssetByHtmlReference($src, $entryPath, $files);
-            if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) ) {
+            $asset = $this->findInlineScriptAsset($entryPath, $scriptIndex, $files);
+            if ( ! is_array($asset) ) {
                 return (string) $matches[0];
             }
 
@@ -267,6 +431,24 @@ final class ArtifactCompiler
         return in_array($asset['kind'] ?? '', array('js', 'mjs'), true)
             || 'script' === ($asset['role'] ?? '')
             || in_array($asset['mime_type'] ?? '', array('application/javascript', 'text/javascript', 'application/ecmascript', 'text/ecmascript'), true);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, mixed>|null
+     */
+    private function findInlineScriptAsset(string $entryPath, int $scriptIndex, array $files): ?array
+    {
+        $selector = 'script:nth-of-type(' . $scriptIndex . ')';
+        foreach ( $files as $file ) {
+            if ( 'inline-script' !== ($file['source'] ?? '') || $entryPath !== ($file['source_path'] ?? '') || $selector !== ($file['selector'] ?? '') || ! $this->isMaterializedScriptAsset($file) ) {
+                continue;
+            }
+
+            return $file;
+        }
+
+        return null;
     }
 
     /**
@@ -1132,6 +1314,12 @@ final class ArtifactCompiler
                     'content'          => $asset['content'] ?? null,
                     'content_base64'   => $asset['content_base64'] ?? null,
                     'hash'             => $asset['hash'] ?? $asset['provenance']['hash'] ?? '',
+                    'placement'        => $asset['placement'] ?? '',
+                    'type'             => $asset['type'] ?? '',
+                    'defer'            => $asset['defer'] ?? false,
+                    'async'            => $asset['async'] ?? false,
+                    'source_path'      => $asset['source_path'] ?? '',
+                    'selector'         => $asset['selector'] ?? '',
                     'references'       => $asset['references'] ?? array(),
                 ),
                 static fn (mixed $value): bool => null !== $value && '' !== $value
@@ -1379,6 +1567,16 @@ final class ArtifactCompiler
             }
             if ( ! empty($file['intent']) ) {
                 $asset['intent'] = $file['intent'];
+            }
+            foreach ( array('placement', 'type', 'source_path', 'selector') as $field ) {
+                if ( isset($file[$field]) && is_scalar($file[$field]) && '' !== trim((string) $file[$field]) ) {
+                    $asset[$field] = (string) $file[$field];
+                }
+            }
+            foreach ( array('defer', 'async') as $field ) {
+                if ( isset($file[$field]) ) {
+                    $asset[$field] = (bool) $file[$field];
+                }
             }
             $references = $this->referencesForAsset((string) $file['path'], $assetReferences);
             if ( array() !== $references ) {
