@@ -63,6 +63,34 @@ function blocks_engine_figma_transformer_run_parser_parity_contract(callable $as
                         'height'     => 48,
                         'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'paint-asset')),
                     ),
+                    array(
+                        'id'         => 'parity:instance-ref',
+                        'type'       => 'INSTANCE',
+                        'name'       => 'Parity Instance Ref',
+                        'symbolData' => array(
+                            'symbolOverrides' => array(
+                                array(
+                                    'fillPaints' => array(array(
+                                        'type'  => 'IMAGE',
+                                        'image' => array('hash' => 'instance-paint-asset'),
+                                    )),
+                                ),
+                            ),
+                        ),
+                        'children'   => array(
+                            array(
+                                'id'         => 'parity:instance-child-ref',
+                                'type'       => 'RECTANGLE',
+                                'name'       => 'Parity Instance Child Ref',
+                                'width'      => 32,
+                                'height'     => 32,
+                                'fillPaints' => array(array(
+                                    'type'  => 'IMAGE',
+                                    'image' => array('hash' => 'instance-paint-asset'),
+                                )),
+                            ),
+                        ),
+                    ),
                 ),
             ),
         ),
@@ -80,15 +108,15 @@ function blocks_engine_figma_transformer_run_parser_parity_contract(callable $as
     $assert(is_array($report), 'parser-parity-json-output');
     $assert('blocks-engine/figma-transformer/parser-parity/v1' === ($report['schema'] ?? null), 'parser-parity-schema');
     $assert('parity:frame' === ($report['options']['frame_id'] ?? null), 'parser-parity-frame-option');
-    $assert(5 === ($report['raw']['node_count'] ?? null), 'parser-parity-raw-node-count');
-    $assert(5 === ($report['normalized']['node_count'] ?? null), 'parser-parity-normalized-node-count');
+    $assert(7 === ($report['raw']['node_count'] ?? null), 'parser-parity-raw-node-count');
+    $assert(7 === ($report['normalized']['node_count'] ?? null), 'parser-parity-normalized-node-count');
     $assert(1 === ($report['raw']['blob_count'] ?? null), 'parser-parity-raw-blob-count');
     $assert(2 === ($report['raw']['asset_count'] ?? null), 'parser-parity-raw-asset-count');
     $assert(1 === ($report['raw']['text_node_count'] ?? null), 'parser-parity-raw-text-node-count');
     $assert(1 === ($report['raw']['vector_node_count'] ?? null), 'parser-parity-raw-vector-node-count');
-    $assert(1 === ($report['raw']['component_prop_node_count'] ?? null), 'parser-parity-component-prop-node-count');
-    $assert(5 === ($report['coverage']['raw_to_normalized_node']['covered_count'] ?? null), 'parser-parity-raw-normalized-node-coverage');
-    $assert(2 === ($report['coverage']['raw_asset_refs_to_normalized_asset_refs']['covered_count'] ?? null), 'parser-parity-asset-reference-coverage');
+    $assert(2 === ($report['raw']['component_prop_node_count'] ?? null), 'parser-parity-component-prop-node-count');
+    $assert(7 === ($report['coverage']['raw_to_normalized_node']['covered_count'] ?? null), 'parser-parity-raw-normalized-node-coverage');
+    $assert(4 === ($report['coverage']['raw_asset_refs_to_normalized_asset_refs']['covered_count'] ?? null), 'parser-parity-asset-reference-coverage');
     $assert(is_array($report['top_missing_field_paths'] ?? null), 'parser-parity-missing-field-paths-present');
 
     $figPath = SyntheticFigKiwiFixtureBuilder::figArchive(
