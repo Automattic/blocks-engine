@@ -4993,6 +4993,40 @@ $assert(str_contains($kiwiTextStyleReferenceCss, 'font-size:48px'), 'kiwi-text-s
 $assert(str_contains($kiwiTextStyleReferenceCss, 'font-weight:700'), 'kiwi-text-style-reference-font-weight');
 $assert(! str_contains($kiwiTextStyleReferenceCss, 'font-family:"Helvetica Neue", Helvetica, Arial, sans-serif'), 'kiwi-text-style-reference-stale-inline-font-not-emitted');
 
+// Kiwi text can carry the rendered font through derivedTextData.fontMetaData.
+// Preserve that concrete glyph font instead of retaining a stale/default text style.
+$kiwiInstanceTextDerivedFontResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Kiwi Text Derived Font Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'kitdf:frame',
+            'type'     => 'FRAME',
+            'name'     => 'Frame',
+            'children' => array(
+                array(
+                    'id'              => 'kitdf:text',
+                    'type'            => 'TEXT',
+                    'name'            => 'Paragraph',
+                    'textData'        => array('characters' => 'Overridden paragraph'),
+                    'fontName'        => array('family' => 'Plus Jakarta Sans', 'style' => 'Bold'),
+                    'fontSize'        => 24,
+                    'derivedTextData' => array(
+                        'fontMetaData' => array(
+                            array(
+                                'key'            => array('family' => 'Plus Jakarta Sans', 'style' => 'Medium'),
+                                'fontWeight'     => 500,
+                                'fontLineHeight' => 1.26,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$kiwiInstanceTextDerivedFontHtml = $fileContent($kiwiInstanceTextDerivedFontResult, 'index.html');
+$assert(str_contains($kiwiInstanceTextDerivedFontHtml, 'font-family:"Plus Jakarta Sans", sans-serif;font-size:24px;font-weight:500'), 'kiwi-instance-text-derived-font-overrides-component-weight');
+
 // Font embedding: a known web font (Inter) resolves to a weight-aware Google Fonts
 // @font-face import, while an unknown family (Skolar Latin) stays actionable. This
 // mirrors the David Perell .fig matrix where Inter + Skolar Latin rendered in a
