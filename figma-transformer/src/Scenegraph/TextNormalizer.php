@@ -9,6 +9,9 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Scenegraph;
  */
 final class TextNormalizer
 {
+    private const MAX_TEXT_GLYPH_COMMAND_BLOB_BYTES = 262144;
+    private const MAX_TEXT_GLYPH_COMMAND_BLOB_BYTES_PER_NODE = 262144;
+
     public function __construct(
         private readonly VectorGeometryNormalizer $vectorGeometryNormalizer = new VectorGeometryNormalizer()
     ) {
@@ -20,7 +23,7 @@ final class TextNormalizer
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<string, mixed>
      */
-    public function normalizeText(array $node, array $blobs = array(), string $nodeId = '', array &$diagnostics = array(), array $paintStyles = array(), array $textStyles = array()): array
+    public function normalizeText(array $node, array $blobs = array(), string $nodeId = '', array &$diagnostics = array(), array $paintStyles = array(), array $textStyles = array(), array $options = array()): array
     {
         $text = array();
 
@@ -64,7 +67,7 @@ final class TextNormalizer
             }
         }
 
-        $derivedLayout = $this->normalizeDerivedTextLayout($node, $blobs, $nodeId, $diagnostics);
+        $derivedLayout = $this->normalizeDerivedTextLayout($node, $blobs, $nodeId, $diagnostics, true === ($options['render_text_glyph_paths'] ?? false));
         if ( ! empty($derivedLayout) ) {
             $text['derived_layout'] = $derivedLayout;
             $style = $this->fillMissingStyleFromDerivedFonts($style, $derivedLayout);
@@ -163,7 +166,7 @@ final class TextNormalizer
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<string, mixed>
      */
-    private function normalizeDerivedTextLayout(array $node, array $blobs = array(), string $nodeId = '', array &$diagnostics = array()): array
+    private function normalizeDerivedTextLayout(array $node, array $blobs = array(), string $nodeId = '', array &$diagnostics = array(), bool $decodeGlyphCommandBlobs = false): array
     {
         $source = is_array($node['derivedTextData'] ?? null) ? $node['derivedTextData'] : array();
         if ( empty($source) ) {
@@ -214,12 +217,17 @@ final class TextNormalizer
 
         if ( is_array($source['glyphs'] ?? null) ) {
             $layout['glyph_count'] = count($source['glyphs']);
+            if ( ! $decodeGlyphCommandBlobs ) {
+                return $this->appendDerivedTextFonts($layout, $source);
+            }
+
             $glyphPaths = array();
             $characters = isset($node['textData']['characters']) && is_scalar($node['textData']['characters']) ? (string) $node['textData']['characters'] : ( isset($node['characters']) && is_scalar($node['characters']) ? (string) $node['characters'] : '' );
             $characterList = '' !== $characters ? preg_split('//u', $characters, -1, PREG_SPLIT_NO_EMPTY) : array();
             if ( ! is_array($characterList) ) {
                 $characterList = array();
             }
+            $decodedGlyphCommandBlobBytes = 0;
             foreach ( $source['glyphs'] as $index => $glyph ) {
                 if ( ! is_array($glyph) ) {
                     continue;
@@ -242,9 +250,26 @@ final class TextNormalizer
                     }
                 }
 
-                if ( isset($glyph['commandsBlob']) ) {
+                if ( $decodeGlyphCommandBlobs && isset($glyph['commandsBlob']) ) {
                     $bytes = $this->vectorGeometryNormalizer->readCommandBlobBytes($glyph['commandsBlob'], $blobs);
                     if ( null !== $bytes ) {
+                        $byteLength = strlen($bytes);
+                        if ( $byteLength > self::MAX_TEXT_GLYPH_COMMAND_BLOB_BYTES || $decodedGlyphCommandBlobBytes + $byteLength > self::MAX_TEXT_GLYPH_COMMAND_BLOB_BYTES_PER_NODE ) {
+                            $diagnostics[] = array(
+                                'severity' => 'warning',
+                                'code'     => 'unsupported_text_glyph_command_blob',
+                                'message'  => 'Oversized Figma text glyph command blob was omitted from derived glyph metadata.',
+                                'context'  => array(
+                                    'node_id'     => $nodeId,
+                                    'glyph_index' => $index,
+                                    'byte_length' => $byteLength,
+                                    'reason'      => $byteLength > self::MAX_TEXT_GLYPH_COMMAND_BLOB_BYTES ? 'byte_limit_exceeded' : 'node_byte_budget_exceeded',
+                                ),
+                            );
+                            continue;
+                        }
+                        $decodedGlyphCommandBlobBytes += $byteLength;
+
                         $decoded = $this->vectorGeometryNormalizer->classifyVectorCommandBlob($bytes);
                         if ( 'path' === $decoded['status'] ) {
                             $glyphPath['data'] = $decoded['path'];
@@ -270,6 +295,16 @@ final class TextNormalizer
                 $layout['glyph_paths'] = $glyphPaths;
             }
         }
+        return $this->appendDerivedTextFonts($layout, $source);
+    }
+
+    /**
+     * @param array<string, mixed> $layout
+     * @param array<string, mixed> $source
+     * @return array<string, mixed>
+     */
+    private function appendDerivedTextFonts(array $layout, array $source): array
+    {
         if ( is_array($source['fontMetaData'] ?? null) ) {
             $fonts = array();
             foreach ( $source['fontMetaData'] as $font ) {
