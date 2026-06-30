@@ -45,7 +45,7 @@ final class FigKiwiDecodePolicy
             // Effect struct (#328). The Kiwi blur token is `FOREGROUND_BLUR`
             // (REST calls it `LAYER_BLUR`); the normalizer bridges both. `offset`
             // resolves to the whitelisted `Vector` struct and `color` to `Color`.
-            'Effect' => array('type', 'color', 'offset', 'radius', 'spread', 'visible', 'blendMode'),
+            'Effect' => array('type', 'color', 'offset', 'radius', 'spread', 'visible', 'blendMode', 'showShadowBehindNode'),
             'Image' => array('hash', 'name'),
             'Blob' => array('bytes'),
             'Path' => array('commandsBlob', 'windingRule', 'styleID'),
@@ -279,6 +279,7 @@ final class FigKiwiDecodePolicy
         return array(
             'key', 'componentKey', 'componentOrStateGroupKey', 'originComponentKey',
             'componentId', 'mainComponentId', 'componentPropAssignments', 'componentPropDefs', 'componentPropRefs',
+            'styleIdForEffect',
             'mainComponent', 'component', 'symbolData', 'derivedSymbolData', 'guidPath',
         );
     }
