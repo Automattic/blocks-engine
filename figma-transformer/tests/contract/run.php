@@ -3225,6 +3225,53 @@ $assert(str_contains($derivedLineBreakHtml, "First line\nSecond line"), 'derived
 $assert(str_contains($derivedLineBreakCss, '.figma-node-text-derived-lines-measured-lines{width:120px;height:44px;line-height:22px;white-space:pre-line}'), 'derived-baselines-enable-pre-line');
 $assert(! str_contains($derivedLineBreakCss, 'line-height:40px;line-height:22px'), 'derived-baselines-replace-source-line-height');
 
+$derivedHugTextHeightResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Derived Hug Text Height Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'frame:derived-hug-text-height',
+            'type'     => 'FRAME',
+            'name'     => 'Measured Text Stack',
+            'width'    => 320,
+            'height'   => 140,
+            'layoutMode' => 'VERTICAL',
+            'itemSpacing' => 32,
+            'children' => array(
+                array(
+                    'id'              => 'text:derived-hug-text-height',
+                    'type'            => 'TEXT',
+                    'name'            => 'Trimmed Heading',
+                    'characters'      => 'PAge not found',
+                    'width'           => 320,
+                    'height'          => 86,
+                    'fontSize'        => 128,
+                    'lineHeight'      => array('value' => 0.9, 'units' => 'RAW'),
+                    'textAutoResize'  => 'HEIGHT',
+                    'derivedTextData' => array(
+                        'layoutSize' => array('x' => 320, 'y' => 86),
+                        'baselines'  => array(
+                            array('firstCharacter' => 0, 'endCharacter' => 14, 'lineHeight' => 115.2, 'lineAscent' => 96, 'position' => array('x' => 0, 'y' => 81.4)),
+                        ),
+                    ),
+                ),
+                array(
+                    'id'         => 'text:derived-hug-copy',
+                    'type'       => 'TEXT',
+                    'name'       => 'Copy',
+                    'characters' => 'Follow-up copy',
+                    'width'      => 320,
+                    'height'     => 20,
+                    'fontSize'   => 16,
+                ),
+            ),
+        ),
+    ),
+));
+$derivedHugTextHeightCss = $fileContent($derivedHugTextHeightResult, 'style.css');
+$assert(str_contains($derivedHugTextHeightCss, '.figma-node-text-derived-hug-text-height-trimmed-heading{') && str_contains($derivedHugTextHeightCss, 'width:320px;height:86px') && str_contains($derivedHugTextHeightCss, 'font-size:128px;line-height:0.9'), 'derived-hug-text-height-preserves-measured-box');
+$assert(! str_contains($derivedHugTextHeightCss, '.figma-node-text-derived-hug-text-height-trimmed-heading{width:320px;height:fit-content'), 'derived-hug-text-height-not-fit-content');
+$assert(str_contains($derivedHugTextHeightCss, '.figma-node-frame-derived-hug-text-height-measured-text-stack{width:320px;height:140px;display:flex;flex-direction:column;gap:32px}'), 'derived-hug-text-height-parent-gap-preserved');
+
 $derivedMeasuredLineHeightResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Derived Measured Line Height Fixture',
     'nodes' => array(

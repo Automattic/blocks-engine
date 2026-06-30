@@ -3296,7 +3296,10 @@ final class StaticHtmlEmitter
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
             $sizing = strtoupper((string) ($layout[$sizingKey] ?? ''));
             if ( 'HUG' === $sizing ) {
-                if ( 'flex' === ($layout['display'] ?? null) && isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
+                $derivedTextSize = 'TEXT' === $type ? $this->derivedTextLayoutSize($node, $dimension) : null;
+                if ( null !== $derivedTextSize ) {
+                    $styles[] = $dimension . ':' . $this->number($derivedTextSize) . 'px';
+                } elseif ( 'flex' === ($layout['display'] ?? null) && isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
                     $intrinsicMainAxisSize = $this->flexHugMainAxisIntrinsicSizeStyle($node, $dimension);
                     $styles[] = $dimension . ':' . (null === $intrinsicMainAxisSize ? $this->number((float) $box[$dimension]) . 'px' : $intrinsicMainAxisSize);
                 } else {
@@ -3509,6 +3512,21 @@ final class StaticHtmlEmitter
         }
 
         return $merged;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function derivedTextLayoutSize(array $node, string $dimension): ?float
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
+        $size = is_array($derivedLayout['size'] ?? null) ? $derivedLayout['size'] : array();
+        if ( isset($size[$dimension]) && is_numeric($size[$dimension]) && 0.0 <= (float) $size[$dimension] ) {
+            return (float) $size[$dimension];
+        }
+
+        return null;
     }
 
     /**
