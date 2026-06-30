@@ -1,13 +1,20 @@
 import * as cheerio from 'cheerio';
+import { escapeHtmlAttr } from '../escape.js';
 import type { WorkerPool } from '../pool/types.js';
 import { buildFallbackDiagnostic } from './fallback-diagnostic.js';
 import { formToBlocks, SKIPPED_FIELD_KINDS } from './form-blocks.js';
 import { buildHtmlFallbackBlock, selectIslandSource, type HtmlFallbackOpts } from './html-fallback.js';
 import { hasUnmigratedRemoteAsset, scanForInjection } from './injection-scan.js';
+import { preserveDomStrategy } from './preserve-dom/strategy.js';
 import { imageBlock, visibleText } from './native-block-builders.js';
 import { nearestFamily } from './native-fonts.js';
 import { centerOf } from './native-layout.js';
-import { isWpMediaUrl } from './native-media.js';
+import {
+  MISSING_IMAGE_PLACEHOLDER,
+  isUsableNativeImage,
+  resolveNativeImageUrl,
+  type NativeImageResolutionContext,
+} from './native-media.js';
 import { renderSection } from './native-renderers-dispatch.js';
 import type {
   ConvertedSectionInput,
@@ -25,6 +32,7 @@ import {
   foldText,
   measureConvertedCoverage,
   measureSectionCoverage,
+  TEXT_FLOOR,
 } from './section-coverage.js';
 import type { CapturedSectionContent, CoverageResult } from './section-coverage.js';
 import type { SectionSpec, SectionSpecCell, SectionSpecImage } from './section-spec.js';
@@ -78,6 +86,103 @@ function publicCoverage(blocks: string, coverage: CoverageResult): number {
 
 function dedupe(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
+}
+
+function jsonAttrs(attrs: Record<string, unknown>): string {
+  return JSON.stringify(attrs).replace(/--/g, '\\u002d\\u002d');
+}
+
+function classTokens(value: string | undefined): string[] {
+  return value ? value.split(/\s+/).filter(Boolean) : [];
+}
+
+function sourceIdentity(section: SectionSpec): { anchor?: string; classes: string[] } {
+  const source = section as SourceIdentitySection;
+  return {
+    ...(source.sourceId?.trim() ? { anchor: source.sourceId.trim() } : {}),
+    classes: dedupe(
+      (source.sourceClasses ?? [])
+        .map((value) => value.trim())
+        .filter((value) => value && !isGeneratedGroupWrapperClass(value)),
+    ),
+  };
+}
+
+function isGeneratedGroupWrapperClass(value: string): boolean {
+  return (
+    value === 'wp-block-group' ||
+    value === 'has-text-color' ||
+    value === 'has-background' ||
+    /^align(?:full|wide|left|right|center)$/.test(value) ||
+    /^is-layout-[a-z0-9-]+$/.test(value) ||
+    /^has-[a-z0-9-]+-(?:color|background-color|gradient-background)$/.test(value)
+  );
+}
+
+function orderGroupAttrsWithIdentity(
+  attrs: Record<string, unknown>,
+  anchor: string | undefined,
+  className: string | undefined,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of ['tagName', 'align']) {
+    if (key in attrs) out[key] = attrs[key];
+  }
+  if (anchor) out.anchor = anchor;
+  if (className) out.className = className;
+  for (const [key, value] of Object.entries(attrs)) {
+    if (key === 'tagName' || key === 'align' || key === 'anchor' || key === 'className') continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+function mergeSectionOpenTagIdentity(openTag: string, anchor: string | undefined, sourceClasses: string[]): string {
+  let out = openTag;
+  if (anchor) {
+    const id = escapeHtmlAttr(anchor);
+    out = /\sid="[^"]*"/.test(out)
+      ? out.replace(/\sid="[^"]*"/, ` id="${id}"`)
+      : out.replace(/^<section\b/, `<section id="${id}"`);
+  }
+  if (sourceClasses.length > 0) {
+    out = /\bclass="([^"]*)"/.test(out)
+      ? out.replace(/\bclass="([^"]*)"/, (_match, value: string) => {
+          const merged = dedupe([...classTokens(value), ...sourceClasses]);
+          return `class="${escapeHtmlAttr(merged.join(' '))}"`;
+        })
+      : out.replace(/^<section\b/, `<section class="${escapeHtmlAttr(sourceClasses.join(' '))}"`);
+  }
+  return out;
+}
+
+function sectionOpenClassTokens(openTag: string): string[] {
+  return classTokens(/\bclass="([^"]*)"/.exec(openTag)?.[1]);
+}
+
+function preserveNativePlaceholderSourceIdentity(markup: string, section: SectionSpec): string {
+  const identity = sourceIdentity(section);
+  if (!identity.anchor && identity.classes.length === 0) return markup;
+
+  const groupMatch = /^(\s*<!-- wp:group )(\{[^\n]+})( -->\n)(<section\b[^>]*>)/.exec(markup);
+  if (!groupMatch) return markup;
+
+  let attrs: Record<string, unknown>;
+  try {
+    attrs = JSON.parse(groupMatch[2]) as Record<string, unknown>;
+  } catch {
+    return markup;
+  }
+
+  const generatedSectionClasses = new Set(sectionOpenClassTokens(groupMatch[4]));
+  const sourceClassNameClasses = identity.classes.filter((value) => !generatedSectionClasses.has(value));
+  const className = dedupe([
+    ...classTokens(typeof attrs.className === 'string' ? attrs.className : undefined),
+    ...sourceClassNameClasses,
+  ]).join(' ');
+  const nextAttrs = orderGroupAttrsWithIdentity(attrs, identity.anchor, className || undefined);
+  const nextOpenTag = mergeSectionOpenTagIdentity(groupMatch[4], identity.anchor, identity.classes);
+  return markup.replace(groupMatch[0], `${groupMatch[1]}${jsonAttrs(nextAttrs)}${groupMatch[3]}${nextOpenTag}`);
 }
 
 function nativeCapturedContent(section: SectionSpec): CapturedSectionContent {
@@ -264,6 +369,7 @@ function appendRecoverableImages(
   out: NativeRenderOut,
   captured: CapturedSectionContent,
   coverage: CoverageResult,
+  resolutionContext?: NativeImageResolutionContext,
 ): CoverageResult {
   if (!(coverage.lost && coverage.missingImages.length > 0)) return coverage;
 
@@ -272,30 +378,68 @@ function appendRecoverableImages(
     .filter(
       (image): image is SectionSpecImage =>
         !!image &&
-        isWpMediaUrl(image.url) &&
+        isUsableNativeImage(image, resolutionContext) &&
         Math.min(image.width || 0, image.height || 0) >= MIN_CELL_IMAGE_PX,
     );
   if (recoverable.length !== coverage.missingImages.length) return coverage;
 
   const recovered = recoverable
     .map((image) =>
-      imageBlock(image, out, `recovered#${section.sectionIndex}`, {
-        align: centerOf(section) ? 'center' : null,
-        rounded: true,
-      }),
+      imageBlock(
+        image,
+        out,
+        `recovered#${section.sectionIndex}`,
+        {
+          align: centerOf(section) ? 'center' : null,
+          rounded: true,
+        },
+        resolutionContext,
+      ),
     )
     .filter(Boolean);
   const augmented = out.markup.endsWith(SECTION_CLOSE)
     ? out.markup.slice(0, -SECTION_CLOSE.length) + recovered.join('\n') + '\n' + SECTION_CLOSE
     : (out.markup ? out.markup + '\n\n' : '') + recovered.join('\n');
   const reMeasured = measureSectionCoverage(captured, augmented);
-  if (reMeasured.lost) return coverage;
+  const unrecoveredMissing = reMeasured.missingImages.filter((url) => !coverage.missingImages.includes(url));
+  if (unrecoveredMissing.length > 0 || reMeasured.textCoverage < TEXT_FLOOR) return coverage;
 
   out.markup = augmented;
   out.flags.push(
     `media-recovered#${section.sectionIndex}: appended ${recovered.length} dropped image(s) as blocks (island averted)`,
   );
-  return reMeasured;
+  return { ...reMeasured, missingImages: unrecoveredMissing, lost: false };
+}
+
+function accountForRenderedMappedImages(
+  section: SectionSpec,
+  out: NativeRenderOut,
+  coverage: CoverageResult,
+  resolutionContext?: NativeImageResolutionContext,
+): CoverageResult {
+  if (!(coverage.lost && coverage.missingImages.length > 0)) return coverage;
+
+  const missingImages = coverage.missingImages.filter((url) => {
+    const image = (section.images ?? []).find((candidate) => candidate.url === url);
+    const resolved = resolveNativeImageUrl(image, resolutionContext);
+    return !resolved || resolved === url || !out.markup.includes(resolved);
+  });
+  if (missingImages.length === coverage.missingImages.length) return coverage;
+
+  return {
+    ...coverage,
+    missingImages,
+    lost: missingImages.length > 0 || coverage.textCoverage < TEXT_FLOOR,
+  };
+}
+
+function shouldPreserveNativeImagePlaceholder(out: NativeRenderOut, coverage: CoverageResult): boolean {
+  return (
+    coverage.lost &&
+    coverage.missingImages.length > 0 &&
+    coverage.textCoverage >= TEXT_FLOOR &&
+    out.markup.includes(MISSING_IMAGE_PLACEHOLDER)
+  );
 }
 
 function fallbackDecision(
@@ -390,9 +534,15 @@ function nativeDecision(section: SectionSpec, options: SectionRenderOptions, ctx
 
   const captured = nativeCapturedContent(section);
   let coverage = measureSectionCoverage(captured, out.markup);
-  coverage = appendRecoverableImages(section, out, captured, coverage);
+  coverage = accountForRenderedMappedImages(section, out, coverage, options);
+  coverage = appendRecoverableImages(section, out, captured, coverage, options);
 
-  const fallback = fallbackDecision(section, coverage, options);
+  const preserveNativeImagePlaceholder = shouldPreserveNativeImagePlaceholder(out, coverage);
+  if (preserveNativeImagePlaceholder) {
+    out.markup = preserveNativePlaceholderSourceIdentity(out.markup, section);
+  }
+
+  const fallback = preserveNativeImagePlaceholder ? null : fallbackDecision(section, coverage, options);
   if (fallback) return fallback;
 
   if (!out.markup) return null;
@@ -411,11 +561,72 @@ function nativeDecision(section: SectionSpec, options: SectionRenderOptions, ctx
   };
 }
 
+// Verbatim-island fallback (faithful). When a section did not convert cleanly,
+// emit its original DOM verbatim inside a core/html island so every source class
+// survives and the carried CSS binds 1:1. Wrapped in an align:full group so the
+// section breaks out of main's constrained content width and renders full-bleed
+// (the un-wrapped island boxed into contentSize — the 5a8720b7 fidelity gap).
+function islandDecision(
+  section: SectionSpec,
+  options: SectionRenderOptions,
+): NativeSectionDecision | null {
+  if (!(section.styledHtml || section.sectionHtml)) return null;
+
+  const { source, tier } = selectIslandSource(section);
+  const island = buildHtmlFallbackBlock(source, fallbackOptions(options));
+  const blocks =
+    `<!-- wp:group {"tagName":"section","align":"full"} -->\n` +
+    `<section class="wp-block-group alignfull">\n` +
+    `${island}\n` +
+    `</section>\n` +
+    `<!-- /wp:group -->`;
+  const coverage: CoverageResult = { textCoverage: 1, missingImages: [], lost: false };
+  return {
+    spec: section,
+    blocks,
+    coverage,
+    expectedText: section.headings,
+    bodyText: section.bodyText,
+    expectedAssets: section.images.map((image) => image.url || image.sourceUrl).filter(Boolean),
+    provenanceFlags: [
+      `html-island${tier === 'verbatim' ? '' : `-${tier}`}#${section.sectionIndex}: verbatim source (faithful)`,
+    ],
+    fallbackDiagnostics: [],
+    iconAssets: [],
+    decision: 'fallback',
+  };
+}
+
 export const classifySemanticStrategy: SectionStrategy = {
   name: 'classify-semantic',
   render(section, options, ctx) {
+    // Convert-or-island hybrid (ported from data-liberation-agent): a clean canonical
+    // conversion (wpHtmlResidue 0) becomes editable blocks; otherwise the section
+    // falls back to a faithful verbatim island. nativeDecision is the last resort for
+    // synthetic specs that carry no source HTML to island.
     const converted = options.convertedSections?.get(section.sectionIndex);
-    return convertedDecision(section, converted, options) ?? nativeDecision(section, options, ctx);
+    return (
+      convertedDecision(section, converted, options) ??
+      islandDecision(section, options) ??
+      nativeDecision(section, options, ctx)
+    );
+  },
+};
+
+// Default reconstruction (the DLA-faithful path): preserve-dom first — native editable
+// blocks that keep their source classes (so carried CSS binds → visual parity), with nested
+// core/html islands for the elements that can't become core blocks. Falls back to a whole-
+// section verbatim island, then native rendering, only when preserve-dom has no usable source
+// HTML. Drains preserve-dom's deduped lib-i instance CSS so inline styles resolve.
+export const defaultReconstructStrategy: SectionStrategy = {
+  name: 'preserve-dom-default',
+  render(section, options, ctx, state) {
+    const preserved = preserveDomStrategy.render(section, options, ctx, state);
+    if (preserved && !preserved.coverage.lost) return preserved;
+    return islandDecision(section, options) ?? nativeDecision(section, options, ctx);
+  },
+  drainDedup(state) {
+    return preserveDomStrategy.drainDedup?.(state) ?? { cssRules: [] };
   },
 };
 
@@ -440,9 +651,10 @@ export function reconstructNativeAggregate(
     iconCounter: 0,
     paletteTokens: options.paletteTokens ?? [],
     fontFamilies: options.fontFamilies ?? [],
+    ...(options.mediaUrlMap ? { mediaUrlMap: options.mediaUrlMap } : {}),
   };
 
-  const strategy = options.strategy ?? classifySemanticStrategy;
+  const strategy = options.strategy ?? defaultReconstructStrategy;
   const state: StrategyState = {};
   const decisions: NativeSectionDecision[] = [];
   const sectionMarkup: string[] = [];
@@ -496,6 +708,7 @@ export async function reconstruct(
     ...optionsFromCtx(ctx),
     ...renderOptions,
   });
+  renderOptions.onDedup?.(aggregate.dedup?.cssRules ?? []);
   const sections: SectionBlocks[] = [];
 
   for (const decision of aggregate.sections) {

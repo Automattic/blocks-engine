@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import { renderImageRow, renderReviewGrid } from '../theme/native-renderers-section.js';
-import type { NativeRenderOut } from '../theme/native-reconstruct-types.js';
+import type { NativeRenderCtx, NativeRenderOut } from '../theme/native-reconstruct-types.js';
 import type { SectionSpec } from '../theme/section-spec.js';
 
 describe('native section renderer frozen surface', () => {
@@ -19,6 +19,6 @@ describe('native section renderer frozen surface', () => {
 
   it('freezes the renderer type signatures', () => {
     expectTypeOf(renderReviewGrid).toEqualTypeOf<(section: SectionSpec) => NativeRenderOut>();
-    expectTypeOf(renderImageRow).toEqualTypeOf<(section: SectionSpec) => NativeRenderOut>();
+    expectTypeOf(renderImageRow).toEqualTypeOf<(section: SectionSpec, ctx?: NativeRenderCtx) => NativeRenderOut>();
   });
 });

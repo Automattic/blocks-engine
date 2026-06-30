@@ -14,6 +14,7 @@ export async function writeTheme(model: ThemeModel, outDir: string): Promise<str
 
   const files: Array<[string, FileContent]> = [
     ['style.css', model.styleCss],
+    ...(model.functionsPhp ? [['functions.php', model.functionsPhp] as [string, FileContent]] : []),
     ['theme.json', JSON.stringify(model.themeJson, null, 2) + '\n'],
     ...recordFiles('templates', model.templates),
     ...recordFiles('parts', model.parts),

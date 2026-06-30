@@ -4,7 +4,12 @@ import { escapeHtml } from '../escape.js';
 import { normalizeCopy, sanitizeSvgAsset } from './page-reconstruct-helpers.js';
 import { brightness, nearestToken } from './native-color.js';
 import { buttonJustify, opaqueTintHex, responsiveFontSize, responsiveSpace } from './native-layout.js';
-import { MISSING_IMAGE_PLACEHOLDER, recolorSvg, resolveImage } from './native-media.js';
+import {
+  MISSING_IMAGE_PLACEHOLDER,
+  recolorSvg,
+  resolveImage,
+  type NativeImageResolutionContext,
+} from './native-media.js';
 
 export interface TypographyFragments {
   attr: string;
@@ -91,9 +96,10 @@ export function imageBlock(
   out: NativeRenderOut,
   context: string,
   opts?: ImageBlockOptions,
+  resolutionContext?: NativeImageResolutionContext,
 ): string {
   const options = opts ?? {};
-  const resolved = resolveImage(image, out, context);
+  const resolved = resolveImage(image, out, context, resolutionContext);
   const roundStyle = options.rounded ? ',"style":{"border":{"radius":"12px"}}' : '';
   const roundClass = options.rounded ? ' has-custom-border' : '';
   const alignAttr = options.align === 'center' ? ',"align":"center"' : '';

@@ -10,7 +10,7 @@ import {
 import { centerOf, isDarkSection, isTintedSection, sectionPad } from './native-layout.js';
 import { normalizeCopy } from './page-reconstruct-helpers.js';
 import { galleryBlock } from './native-renderers-text.js';
-import type { NativeRenderOut } from './native-reconstruct-types.js';
+import type { NativeRenderCtx, NativeRenderOut } from './native-reconstruct-types.js';
 import type { ExtractedReview, SectionSpec } from './section-spec.js';
 
 export function renderReviewGrid(section: SectionSpec): NativeRenderOut {
@@ -89,7 +89,7 @@ export function renderReviewGrid(section: SectionSpec): NativeRenderOut {
   return out;
 }
 
-export function renderImageRow(section: SectionSpec): NativeRenderOut {
+export function renderImageRow(section: SectionSpec, ctx?: NativeRenderCtx): NativeRenderOut {
   const out = emptyNativeRenderOut();
   const parts: string[] = [];
   section.headings.forEach((heading, index) =>
@@ -113,7 +113,7 @@ export function renderImageRow(section: SectionSpec): NativeRenderOut {
       }),
     ),
   );
-  const gallery = galleryBlock(section.images, out, { sectionHeight: section.height });
+  const gallery = galleryBlock(section.images, out, { sectionHeight: section.height }, ctx);
   if (gallery) parts.push(gallery);
   out.markup = wrapSection(parts.filter(Boolean), {
     wide: '1100px',

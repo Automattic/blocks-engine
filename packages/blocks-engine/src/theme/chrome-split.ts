@@ -165,7 +165,24 @@ function splitRegionsDeep(bodyHtml: string): DeepRegionSplit {
   };
 
   const headerEl = findChrome(bodyHtml, { tag: 'header', id: 'SITE_HEADER', which: 'first' });
-  const header = headerEl ? extendToHeaderGroup(bodyHtml, headerEl) : null;
+  // A site header precedes the content sections. A <header> that appears after the first
+  // top-level <section> is a section-internal header (e.g. <header class="section-header">
+  // inside a content section), not site chrome — leave it in the body so it renders in place
+  // instead of hijacking the WP header template part. An explicit id="SITE_HEADER" overrides.
+  const hasHeaderId = idStart(bodyHtml, 'SITE_HEADER') >= 0;
+  const firstSection = topLevelSections(bodyHtml)[0];
+  const headerIsSiteLevel =
+    headerEl !== null && (hasHeaderId || firstSection === undefined || headerEl[0] < firstSection[0]);
+  let header = headerIsSiteLevel ? extendToHeaderGroup(bodyHtml, headerEl as [number, number]) : null;
+  // No <header> banner? A leading top-level <nav> before the first content section is
+  // the site navigation (e.g. <nav class="nav"> at the top of the hero) — route it to the
+  // header template part instead of letting it be stripped and discarded as a body section.
+  if (header === null) {
+    const navEl = balancedSpan(bodyHtml, 'nav', 'first');
+    if (navEl && (firstSection === undefined || navEl[0] < firstSection[0])) {
+      header = navEl;
+    }
+  }
   const footer = findChrome(bodyHtml, { tag: 'footer', id: 'SITE_FOOTER', which: 'last' });
 
   if (!header && !footer) return empty;

@@ -2,17 +2,25 @@ import { basename, extname, join, resolve } from 'node:path';
 
 import { createWorker } from '../pool/pool.js';
 import { assemble } from './assemble.js';
+import type { StaticImgRef } from './assets-static.js';
 import { assets as runAssetsStage } from './assets.js';
 import { chrome } from './chrome.js';
 import { foundation } from './foundation.js';
 import { ingest } from './ingest.js';
 import { detectLayoutOffsetWrapper } from './layout-offset-wrapper.js';
+import type { SectionRenderOptions } from './native-reconstruct-types.js';
 import { reconstruct } from './reconstruct.js';
 import { extractSourceLandmarksFromHtml } from './region-census.js';
 import { reconcileRegions, type PlacedRegion, type RegionSelectionReport } from './region-audit.js';
 import { sectionExtract } from './section-extract.js';
-import { collectSourceAssets, type MediaAsset } from './source-assets.js';
-import { shouldCarrySourceCss } from './source-css-carry.js';
+import { collectSourceAssets, type ImgAssetRef, type MediaAsset } from './source-assets.js';
+import { hasCarriedSourceCss, shouldCarrySourceCss } from './source-css-carry.js';
+import {
+  collectRemoteImageAssets,
+  createPublicHostGuardedFetch,
+  type HostLookup,
+} from './remote-images.js';
+import { createRichCssRoutingStrategy } from './routing-strategy.js';
 import { applyHoistSwaps, hoistVariations, type HoistedVariation } from './variation-hoist.js';
 import { writeTheme } from './write-theme.js';
 import type {
@@ -51,30 +59,65 @@ export async function siteToTheme(
     const baseTokens = foundation(site, options?.foundationAggregates);
     const tokens = hooks.onFoundation ? await hooks.onFoundation(baseTokens, ctx) : baseTokens;
     const chromeRes = await chrome(ctx, pool);
+    const sourceAssets = collectSourceAssets(
+      site.root,
+      site.pages.map((page) => ({ relPath: page.relPath, html: page.html }))
+    );
+    const sourceImgRefsByPage = sourceImgRefsBySlug(
+      site.pages,
+      sourceAssets.imgRewritesByPage,
+      sourceAssets.imgAssets
+    );
+    const remoteImageCarry = await collectRemoteImageAssets(site.pages, {
+      fetchImpl: resolveRemoteImageFetchImpl(options?.fetchImpl, options?.imageHostLookup),
+      occupiedRelPaths: sourceAssets.imgAssets.map((asset) => asset.themeRel),
+    });
+    for (const warning of remoteImageCarry.warnings) {
+      ctx.warn(warning);
+    }
+    const carriedImgRefsByPage = mergeImgRefsByPage(
+      sourceImgRefsByPage,
+      remoteImageCarry.imgRefsByPage
+    );
+    const sourceMediaUrlMapsByPage = sourceMediaUrlMapsBySlug(carriedImgRefsByPage, themeMeta.slug);
     const pages: Record<string, SectionBlocks[]> = {};
+
+    // Per-section routing: when enabled and source CSS is carried, route rich sections through
+    // class-preserving preserve-dom so the carried CSS styles the body. Its drained instance CSS
+    // (lib-i...) is accumulated across pages and appended to style.css via assemble's dedupCss.
+    const dedupCssRules = new Set<string>();
+    const routingStrategy =
+      options?.routeRichSections && hasCarriedSourceCss(sourceAssets.css)
+        ? createRichCssRoutingStrategy({ carriedCss: sourceAssets.css })
+        : undefined;
 
     for (const page of site.pages) {
       const specs =
         options?.sections?.[page.slug] ??
         sectionExtract({ ...page, html: chromeRes.mainHtmlByPage[page.slug] ?? page.html });
-      pages[page.slug] = await reconstruct(
-        specs,
-        ctx,
-        pool,
-        hooks,
-        coverageFloor,
-        options?.renderOptions?.[page.slug]
+      const baseRenderOptions = pageRenderOptions(
+        options?.renderOptions?.[page.slug],
+        sourceMediaUrlMapsByPage[page.slug]
       );
+      const renderOptions = {
+        ...(baseRenderOptions ?? {}),
+        ...(routingStrategy ? { strategy: routingStrategy } : {}),
+        // Collect drained lib-i instance CSS from whichever strategy runs — the default
+        // preserve-dom strategy hashes inline styles into lib-i classes too, so onDedup must
+        // be wired unconditionally or those rules never reach style.css (the lib-i classes
+        // would appear in markup with no backing CSS).
+        onDedup: (rules: string[]) => {
+          for (const rule of rules) dedupCssRules.add(rule);
+        },
+      };
+      pages[page.slug] = await reconstruct(specs, ctx, pool, hooks, coverageFloor, renderOptions);
     }
+    const dedupCss = dedupCssRules.size ? [...dedupCssRules].join('\n') : undefined;
 
     const regionAudit = buildRegionAuditDiagnostics(site, pages, chromeRes.parts, chromeRes.slugsByPage, warnings);
     const styleBlocks =
       options?.variationHoist === false ? undefined : hoistPageStyleBlocks(site, pages, warnings);
     const assetStage = await runAssetsStage(ctx, { fetchImpl: options?.fetchImpl });
-    const sourceAssets = collectSourceAssets(
-      site.root,
-      site.pages.map((page) => ({ relPath: page.relPath, html: page.html }))
-    );
     const layoutOffsetWrapperClass = detectLayoutOffsetWrapper(
       homePage(site)?.html ?? '',
       sourceAssets.css
@@ -89,19 +132,27 @@ export async function siteToTheme(
     const sourceCssCarry = carrySourceCss
       ? prepareSourceCssCarry(sourceAssets.css, sourceAssets.mediaAssets, inventory.assets)
       : undefined;
+    const assembledAssets = mergeAssetFiles(
+      mergeCarriedImgAssets(
+        sourceCssCarry?.assets ?? inventory.assets,
+        sourceAssets.imgAssets
+      ),
+      remoteImageCarry.assets
+    );
     const assembled = assemble({
       site,
       tokens,
       pages,
       meta: themeMeta,
-      assets: sourceCssCarry?.assets ?? inventory.assets,
+      assets: assembledAssets,
       fontCss: assetStage.fontCss,
-      imgRefsByPage: assetStage.imgRefsByPage,
+      imgRefsByPage: mergeImgRefsByPage(carriedImgRefsByPage, assetStage.imgRefsByPage),
       chromeParts: chromeRes.parts,
       chromeSlugsByPage: chromeRes.slugsByPage,
       layoutOffsetWrapperClass,
       styleBlocks,
       sourceCss: sourceCssCarry?.css,
+      dedupCss,
     });
     const model = hooks.onRefine ? await hooks.onRefine(assembled, ctx) : assembled;
     const written = await writeTheme(model, outDir);
@@ -129,6 +180,154 @@ export async function siteToTheme(
       await pool.stop();
     }
   }
+}
+
+function sourceImgRefsBySlug(
+  pages: Array<{ slug: string; relPath: string }>,
+  imgRewritesByPage: Record<string, ImgAssetRef[]>,
+  imgAssets: MediaAsset[]
+): Record<string, StaticImgRef[]> {
+  const sourcePathByThemeRel = new Map(
+    imgAssets.map((asset) => [asset.themeRel, asset.srcAbs])
+  );
+  const out: Record<string, StaticImgRef[]> = {};
+
+  for (const page of pages) {
+    const refs = imgRewritesByPage[page.relPath];
+    if (!refs?.length) continue;
+
+    out[page.slug] = refs.map((ref) => ({
+      ref: ref.ref,
+      themeRel: ref.themeRel,
+      sourcePath: sourcePathByThemeRel.get(ref.themeRel) ?? '',
+    }));
+  }
+
+  return out;
+}
+
+function sourceMediaUrlMapsBySlug(
+  imgRefsByPage: Record<string, StaticImgRef[]>,
+  themeSlug: string
+): Record<string, Map<string, string>> {
+  const out: Record<string, Map<string, string>> = {};
+
+  for (const [slug, refs] of Object.entries(imgRefsByPage)) {
+    const mediaUrlMap = new Map<string, string>();
+    for (const ref of refs) {
+      mediaUrlMap.set(ref.ref, themeAssetUrl(themeSlug, ref.themeRel));
+    }
+    if (mediaUrlMap.size > 0) out[slug] = mediaUrlMap;
+  }
+
+  return out;
+}
+
+function pageRenderOptions(
+  options: SectionRenderOptions | undefined,
+  sourceMediaUrlMap: Map<string, string> | undefined
+): SectionRenderOptions | undefined {
+  if (!sourceMediaUrlMap?.size) return options;
+
+  const mediaUrlMap = new Map(sourceMediaUrlMap);
+  for (const [from, to] of options?.mediaUrlMap ?? []) {
+    mediaUrlMap.set(from, to);
+  }
+
+  return {
+    ...options,
+    mediaUrlMap,
+  };
+}
+
+function mergeImgRefsByPage(
+  carriedRefsByPage: Record<string, StaticImgRef[]>,
+  staticRefsByPage: Record<string, StaticImgRef[]>
+): Record<string, StaticImgRef[]> {
+  const out: Record<string, StaticImgRef[]> = {};
+  const slugs = new Set([
+    ...Object.keys(carriedRefsByPage),
+    ...Object.keys(staticRefsByPage),
+  ]);
+
+  for (const slug of slugs) {
+    const refs = dedupeImgRefs([
+      ...(carriedRefsByPage[slug] ?? []),
+      ...(staticRefsByPage[slug] ?? []),
+    ]);
+    if (refs.length > 0) out[slug] = refs;
+  }
+
+  return out;
+}
+
+function dedupeImgRefs(refs: StaticImgRef[]): StaticImgRef[] {
+  const seen = new Set<string>();
+  const out: StaticImgRef[] = [];
+
+  for (const ref of refs) {
+    if (seen.has(ref.ref)) continue;
+    seen.add(ref.ref);
+    out.push(ref);
+  }
+
+  return out;
+}
+
+function resolveRemoteImageFetchImpl(
+  fetchImpl: typeof fetch | undefined,
+  lookup?: HostLookup
+): typeof fetch | undefined {
+  // An injected fetchImpl owns its own transport + SSRF posture — do not double-guard it.
+  if (fetchImpl) return fetchImpl;
+  const defaultFetch = globalThis.fetch;
+  if (typeof defaultFetch !== 'function') return undefined;
+  // The default path fetches URLs scraped from (potentially untrusted) source HTML, so
+  // guard resolved hostnames against internal IPs on top of the per-URL string guard.
+  return createPublicHostGuardedFetch(defaultFetch.bind(globalThis) as typeof fetch, lookup);
+}
+
+function mergeAssetFiles(a: AssetFile[], b: AssetFile[]): AssetFile[] {
+  if (b.length === 0) return a;
+
+  const byRelPath = new Map<string, AssetFile>();
+  for (const asset of a) {
+    byRelPath.set(asset.relPath, asset);
+  }
+  // `a` (CSS-carried / inventory / local image assets) wins on collision: a remote
+  // image must never silently overwrite an already-allocated asset at the same relPath
+  // (local img assets are already collision-protected via occupiedRelPaths; this guards
+  // the css/inventory set, which is computed after the remote fetch and cannot be seeded).
+  for (const asset of b) {
+    if (!byRelPath.has(asset.relPath)) byRelPath.set(asset.relPath, asset);
+  }
+  return sortAssetFiles([...byRelPath.values()]);
+}
+
+function mergeCarriedImgAssets(
+  assets: AssetFile[],
+  imgAssets: MediaAsset[]
+): AssetFile[] {
+  if (imgAssets.length === 0) return assets;
+
+  const byRelPath = new Map<string, AssetFile>();
+  const carriedSourcePaths = new Set(imgAssets.map((asset) => resolve(asset.srcAbs)));
+  for (const asset of assets) {
+    if (asset.sourcePath && carriedSourcePaths.has(resolve(asset.sourcePath))) continue;
+    byRelPath.set(asset.relPath, asset);
+  }
+  for (const imgAsset of imgAssets) {
+    byRelPath.set(imgAsset.themeRel, {
+      relPath: imgAsset.themeRel,
+      sourcePath: imgAsset.srcAbs,
+    });
+  }
+
+  return sortAssetFiles([...byRelPath.values()]);
+}
+
+function themeAssetUrl(themeSlug: string, themeRel: string): string {
+  return `/wp-content/themes/${themeSlug}/${themeRel.replace(/^\/+/, '')}`;
 }
 
 function buildRegionAuditDiagnostics(

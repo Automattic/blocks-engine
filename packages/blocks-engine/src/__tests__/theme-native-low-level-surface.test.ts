@@ -16,11 +16,14 @@ import {
 import {
   MISSING_IMAGE_PLACEHOLDER,
   iconImageBlock,
+  isUsableNativeImage,
   isWpMediaUrl,
   pickLeadImage,
   recolorSvg,
   resolveImage,
+  resolveNativeImageUrl,
   type IconImageBlockOptions,
+  type NativeImageResolutionContext,
   type ResolvedNativeImage,
 } from '../theme/native-media.js';
 import {
@@ -64,6 +67,8 @@ describe('native low-level helper frozen surface', () => {
       isDarkSection,
       pickLeadImage,
       isWpMediaUrl,
+      resolveNativeImageUrl,
+      isUsableNativeImage,
       recolorSvg,
       resolveImage,
       iconImageBlock,
@@ -97,6 +102,8 @@ describe('native low-level helper frozen surface', () => {
             'isDarkSection',
             'pickLeadImage',
             'isWpMediaUrl',
+            'resolveNativeImageUrl',
+            'isUsableNativeImage',
             'recolorSvg',
             'resolveImage',
             'iconImageBlock',
@@ -184,9 +191,21 @@ describe('native low-level helper frozen surface', () => {
     expectTypeOf(isDarkSection).toEqualTypeOf<(section: SectionSpec) => boolean>();
     expectTypeOf(pickLeadImage).toEqualTypeOf<(images: SectionSpecImage[]) => SectionSpecImage | undefined>();
     expectTypeOf(isWpMediaUrl).toEqualTypeOf<(url: string) => boolean>();
+    expectTypeOf<NativeImageResolutionContext>().toEqualTypeOf<{ mediaUrlMap?: Map<string, string> }>();
+    expectTypeOf(resolveNativeImageUrl).toEqualTypeOf<
+      (image: SectionSpecImage | undefined, resolutionContext?: NativeImageResolutionContext) => string | null
+    >();
+    expectTypeOf(isUsableNativeImage).toEqualTypeOf<
+      (image: SectionSpecImage | undefined, resolutionContext?: NativeImageResolutionContext) => boolean
+    >();
     expectTypeOf(recolorSvg).toEqualTypeOf<(svg: string, hex: string) => string>();
     expectTypeOf(resolveImage).toEqualTypeOf<
-      (image: SectionSpecImage | undefined, out: NativeRenderOut, context: string) => ResolvedNativeImage
+      (
+        image: SectionSpecImage | undefined,
+        out: NativeRenderOut,
+        context: string,
+        resolutionContext?: NativeImageResolutionContext,
+      ) => ResolvedNativeImage
     >();
     expectTypeOf(iconImageBlock).toEqualTypeOf<
       (
@@ -207,6 +226,7 @@ describe('native low-level helper frozen surface', () => {
         out: NativeRenderOut,
         context: string,
         opts?: ImageBlockOptions,
+        resolutionContext?: NativeImageResolutionContext,
       ) => string
     >();
     expectTypeOf(headingBlock).toEqualTypeOf<

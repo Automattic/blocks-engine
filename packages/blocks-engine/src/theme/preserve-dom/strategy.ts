@@ -6,6 +6,14 @@ import { escapeHtmlAttr as escapeHtml } from '../../escape.js';
 import type { NativeSectionDecision, SectionStrategy, StrategyState } from '../native-reconstruct-types.js';
 import type { SectionSpec } from '../section-spec.js';
 import { InstanceStyleSheet } from './instance-styles.js';
+import { buildHtmlFallbackBlock } from '../html-fallback.js';
+
+/** Wrap an un-convertible element's verbatim source as a nested core/html island
+ *  (sanitized, same opener marker as section-level islands). Keeps the element's
+ *  visual + classes so carried CSS binds, without dropping it. */
+function coreHtmlIsland(html: string): string {
+  return buildHtmlFallbackBlock(html);
+}
 
 type SourceIdentitySection = SectionSpec & {
   sourceId?: string;
@@ -125,8 +133,84 @@ function emitChild($: CheerioAPI, el: Element, sheet: InstanceStyleSheet): Child
     };
   }
 
-  // TODO(P3-S3): port non-core preserve-DOM branches only after this lib-i core proof lands.
+  // P3-S3: nested non-leaf container (e.g. .menu-grid > .menu-card > h3 + p). Recurse,
+  // preserving the container's source class/id as a nested wp:group, so designed
+  // structures survive instead of being dropped. `clean` only stays true if every
+  // descendant emitted cleanly (an unhandled leaf still downgrades the whole subtree).
+  if (NESTABLE_CONTAINERS.has(tag) && elementChildren.length > 0) {
+    return emitContainer($, el, tag, sheet);
+  }
+
+  // Un-convertible element kind (svg, table, form, media): keep it losslessly as a nested
+  // core/html island instead of dropping it — preserves the visual AND its source classes
+  // (so carried CSS still binds → visual parity) while the rest of the section stays native
+  // editable blocks. This is DLA's per-element island behavior (apply-block-recipe).
+  const verbatim = $.html(el).trim();
+  if (verbatim) return { markup: coreHtmlIsland(verbatim), clean: true };
   return { markup: '', clean: false };
+}
+
+const NESTABLE_CONTAINERS = new Set([
+  'div',
+  'section',
+  'article',
+  'header',
+  'footer',
+  'main',
+  'aside',
+  'nav',
+  'ul',
+  'ol',
+  'li',
+  'figure',
+  'figcaption',
+]);
+
+function emitContainer(
+  $: CheerioAPI,
+  el: Element,
+  tag: string,
+  sheet: InstanceStyleSheet
+): ChildResult {
+  const $el = $(el);
+  const childResults: ChildResult[] = [];
+  for (const node of $el.contents().get()) {
+    if (isTag(node)) {
+      childResults.push(emitChild($, node, sheet));
+    } else if (isText(node)) {
+      const text = node.data.trim();
+      if (text) childResults.push({ markup: paragraphBlock(escapeHtml(text)), clean: true });
+    }
+  }
+
+  const innerMarkup = childResults
+    .map((res) => res.markup)
+    .filter(Boolean)
+    .join('\n');
+  // Container whose children produced no native markup (e.g. an SVG-only wrapper):
+  // island it verbatim rather than dropping it.
+  if (!innerMarkup) {
+    const verbatim = $.html(el).trim();
+    return verbatim ? { markup: coreHtmlIsland(verbatim), clean: true } : { markup: '', clean: false };
+  }
+
+  const cls = classNameWithInstance($el, sheet);
+  const id = $el.attr('id')?.trim();
+  // div is the default wp:group tag; keep an explicit tagName for semantic containers.
+  const pairs: string[] = [];
+  if (tag !== 'div') pairs.push(`"tagName":${attrJson(tag)}`);
+  if (id) pairs.push(`"anchor":${attrJson(id)}`);
+  const attrs = blockAttrs(pairs, cls);
+  const wrapTag = tag === 'div' ? 'div' : tag;
+  const divCls = ['wp-block-group', cls].filter(Boolean).join(' ');
+  const idPart = id ? ` id="${escapeHtml(id)}"` : '';
+  return {
+    markup:
+      `<!-- wp:group${attrs} -->\n` +
+      `<${wrapTag}${idPart} class="${escapeHtml(divCls)}">${innerMarkup}</${wrapTag}>\n` +
+      `<!-- /wp:group -->`,
+    clean: childResults.every((res) => res.clean),
+  };
 }
 
 function sheetFromState(state: StrategyState): InstanceStyleSheet {
@@ -167,17 +251,23 @@ export const preserveDomStrategy: SectionStrategy = {
 
     const inner = childMarkup.join('\n');
     const sourceId = source.sourceId ?? container.attr('id')?.trim();
-    const sourceClasses =
+    const rawSourceClasses =
       source.sourceClasses && source.sourceClasses.length > 0
         ? source.sourceClasses
         : (container.attr('class') ?? '').split(/\s+/).filter(Boolean);
+    // Dedup source classes — the source DOM can repeat a class (e.g. class="fallback fallback")
+    // and CanonicalSaveShapeValidator rejects duplicate classes on a block.
+    const sourceClasses = [...new Set(rawSourceClasses)];
     const cls = sourceClasses.join(' ');
     const sectionInstance = sheet.classFor(container.attr('style'));
     const wrapperCls = [cls, sectionInstance].filter(Boolean).join(' ');
-    const wrapperPairs = ['"tagName":"section"'];
+    // Top-level sections break out of the theme's centered content width so full-bleed source
+    // bands stay full-bleed — mirrors the native section wrapper, which emits both the align:full
+    // attribute and the alignfull class (a core/group with align:full is invalid without it).
+    const wrapperPairs = ['"tagName":"section"', '"align":"full"'];
     if (sourceId) wrapperPairs.unshift(`"anchor":${attrJson(sourceId)}`);
     const attrs = blockAttrs(wrapperPairs, wrapperCls);
-    const divCls = ['wp-block-group', wrapperCls].filter(Boolean).join(' ');
+    const divCls = [...new Set(['wp-block-group', 'alignfull', ...sourceClasses, sectionInstance].filter(Boolean))].join(' ');
     const idPart = sourceId ? ` id="${escapeHtml(sourceId)}"` : '';
     const blocks =
       `<!-- wp:group${attrs} -->\n` +

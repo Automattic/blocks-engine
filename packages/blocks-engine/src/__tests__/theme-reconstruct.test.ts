@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import type { WorkerPool } from '../pool/types.js';
+import { canonicalize } from '../wp/canonicalize.js';
 import {
   captureSectionContent,
+  classifySemanticStrategy,
   hasUnmigratedRemoteAsset,
   measureSectionCoverage,
   reconstruct,
@@ -80,20 +82,31 @@ function stageCtx(overrides: Partial<StageCtx> & Record<string, unknown> = {}): 
   };
 }
 
+function outerGroupAttrs(markup: string): Record<string, unknown> {
+  const match = markup.match(/^\s*<!-- wp:group (\{[^\n]+}) -->/);
+  expect(match?.[1]).toBeTruthy();
+  return JSON.parse(match![1]);
+}
+
+function sectionClassTokens(markup: string): string[] {
+  const match = markup.match(/<section\b[^>]*\bclass="([^"]*)"/);
+  expect(match?.[1]).toBeTruthy();
+  return match![1].split(/\s+/).filter(Boolean);
+}
+
+function expectNoDuplicateTokens(tokens: string[]): void {
+  expect(new Set(tokens).size).toBe(tokens.length);
+}
+
 describe('theme reconstruct coverage gate', () => {
-  it('falls back from native dispatch loss to a verbatim coverage island', async () => {
+  it('keeps native placeholder output when only an image is unrecoverable', async () => {
     const remoteImage = 'https://cdn.example.com/uploads/hero.jpg';
+    // No sectionHtml: the verbatim-island path is bypassed so the native renderer
+    // runs and emits its image-lost placeholder (the path this test pins).
     const spec = sectionSpec({
       headings: ['Build calmer block themes'],
       bodyText: ['Static source pages become a structured theme pipeline.'],
       images: [sectionImage(remoteImage)],
-      sectionHtml: [
-        '<section id="hero">',
-        '<h1>Build calmer block themes</h1>',
-        '<p>Static source pages become a structured theme pipeline.</p>',
-        `<img src="${remoteImage}" alt="Hero image">`,
-        '</section>',
-      ].join(''),
     });
 
     const [section] = await reconstruct(
@@ -101,16 +114,111 @@ describe('theme reconstruct coverage gate', () => {
       stageCtx(),
       fakePool(() => ''),
       {},
-      0
+      0,
+      { strategy: classifySemanticStrategy }
     );
 
-    expect(section.blocks).toContain('metadata":{"name":"lib-coverage-island"}');
-    expect(section.blocks).toContain('<h1>Build calmer block themes</h1>');
-    expect(section.blocks).toContain(
-      '<p>Static source pages become a structured theme pipeline.</p>'
-    );
-    expect(measureSectionCoverage(captureSectionContent(spec), section.blocks).lost).toBe(false);
+    expect(section.blocks).toContain('Build calmer block themes');
+    expect(section.blocks).toContain('Static source pages become a structured theme pipeline.');
+    expect(section.blocks).toContain('[image unavailable');
+    expect(section.blocks).not.toContain(remoteImage);
+    expect(section.blocks).not.toContain('lib-coverage-island');
+    expect(measureSectionCoverage(captureSectionContent(spec), section.blocks).lost).toBe(true);
     expect(section.coverage).toBe(0);
+  });
+
+  it('carries source section identity on image-lost native placeholder groups with canonical classes', async () => {
+    const remoteImage = 'https://cdn.example.com/uploads/lossy.jpg';
+    // Source identity is supplied directly (sourceId/sourceClasses) rather than
+    // recovered from sectionHtml; omitting sectionHtml routes the section to the
+    // native image-lost placeholder path this test pins, while still exercising
+    // the wp-block-group-stripping + dedup of the carried source classes.
+    const spec = {
+      ...sectionSpec({
+        headings: ['Lossy source identity'],
+        bodyText: ['Source CSS targeting survives.'],
+        images: [sectionImage(remoteImage)],
+      }),
+      sourceId: 'lossy',
+      sourceClasses: ['wp-block-group', 'fallback', 'fallback'],
+    } as SectionSpec;
+
+    const [section] = await reconstruct(
+      [spec],
+      stageCtx(),
+      fakePool(() => ''),
+      {},
+      0,
+      { strategy: classifySemanticStrategy }
+    );
+
+    const attrs = outerGroupAttrs(section.blocks);
+    expect(attrs.anchor).toBe('lossy');
+    expect(attrs.className).toBe('fallback');
+    expectNoDuplicateTokens(String(attrs.className).split(/\s+/).filter(Boolean));
+
+    const tokens = sectionClassTokens(section.blocks);
+    expect(tokens).toEqual(expect.arrayContaining(['wp-block-group', 'alignfull', 'fallback']));
+    expectNoDuplicateTokens(tokens);
+    expect(section.blocks).toContain('<section id="lossy" class="');
+    expect(section.blocks).not.toContain('inner-title');
+    expect(section.blocks).not.toContain('inner-copy');
+    expect(section.blocks).not.toContain('inner-image');
+
+    const fixed = canonicalize(section.blocks);
+    expect(fixed.fixedIssues).toEqual([]);
+    const fixedAttrs = outerGroupAttrs(fixed.html);
+    expect(fixedAttrs.anchor).toBe('lossy');
+    expect(fixedAttrs.className).toBe('fallback');
+    expectNoDuplicateTokens(String(fixedAttrs.className).split(/\s+/).filter(Boolean));
+    expectNoDuplicateTokens(sectionClassTokens(fixed.html));
+  });
+
+  it('does not carry source section identity onto resolved-image or ordinary native sections', async () => {
+    const resolvedImage = '/wp-content/uploads/2026/06/hero.jpg';
+    // Identity is present on both specs (sourceId/sourceClasses) but must NOT be
+    // carried onto a resolved-image or ordinary native section — only onto
+    // image-lost placeholders. Identity is supplied directly so the native path
+    // runs (no sectionHtml island interception).
+    const [resolved, ordinary] = await reconstruct(
+      [
+        {
+          ...sectionSpec({
+            sectionIndex: 0,
+            headings: ['Resolved image'],
+            bodyText: ['The source image resolves as a native block.'],
+            images: [sectionImage(resolvedImage)],
+          }),
+          sourceId: 'resolved',
+          sourceClasses: ['resolved-section'],
+        } as SectionSpec,
+        {
+          ...sectionSpec({
+            sectionIndex: 1,
+            headings: ['Ordinary native'],
+            bodyText: ['No image is lost here.'],
+          }),
+          sourceId: 'ordinary',
+          sourceClasses: ['ordinary-section'],
+        } as SectionSpec,
+      ],
+      stageCtx(),
+      fakePool(() => ''),
+      {},
+      0,
+      { strategy: classifySemanticStrategy }
+    );
+
+    expect(resolved.blocks).toContain('<!-- wp:image ');
+    expect(resolved.blocks).not.toContain('"anchor":"resolved"');
+    expect(resolved.blocks).not.toContain('"className":"resolved-section"');
+    expect(resolved.blocks).not.toContain('id="resolved"');
+    expect(resolved.blocks).not.toContain('resolved-section');
+
+    expect(ordinary.blocks).not.toContain('"anchor":"ordinary"');
+    expect(ordinary.blocks).not.toContain('"className":"ordinary-section"');
+    expect(ordinary.blocks).not.toContain('id="ordinary"');
+    expect(ordinary.blocks).not.toContain('ordinary-section');
   });
 
   it('keeps full-coverage native dispatch blocks', async () => {
@@ -137,17 +245,13 @@ describe('theme reconstruct coverage gate', () => {
 
   it('rejects injected converted native blocks with unmigrated remote assets', async () => {
     const remoteImage = 'https://cdn.example.com/uploads/hero.jpg';
+    // No sectionHtml: when the injected converted block is rejected the section
+    // falls through to the native renderer (not the verbatim island), so the
+    // unmigratable remote image becomes an image-lost placeholder.
     const spec = sectionSpec({
       headings: ['Remote asset hero'],
       bodyText: ['Coverage can pass while asset provenance fails.'],
       images: [sectionImage(remoteImage)],
-      sectionHtml: [
-        '<section>',
-        '<h2>Remote asset hero</h2>',
-        '<p>Coverage can pass while asset provenance fails.</p>',
-        `<img src="${remoteImage}" alt="Hero image">`,
-        '</section>',
-      ].join(''),
     });
     const convertedNative = [
       '<!-- wp:heading -->',
@@ -170,20 +274,23 @@ describe('theme reconstruct coverage gate', () => {
       }),
       fakePool(() => ''),
       {},
-      0
+      0,
+      { strategy: classifySemanticStrategy }
     );
 
-    expect(section.blocks).toContain('metadata":{"name":"lib-coverage-island"}');
+    expect(section.blocks).toContain('[image unavailable');
+    expect(section.blocks).not.toContain(remoteImage);
+    expect(section.blocks).not.toContain('lib-coverage-island');
     expect(section.blocks).not.toBe(convertedNative);
     expect(section.coverage).toBe(0);
   });
 
   it('rejects injected converted native blocks with injection or placeholders', async () => {
+    // No sectionHtml: a rejected converted block (injection / placeholder) falls
+    // through to the native renderer, which rebuilds clean blocks from the spec.
     const injectionSpec = sectionSpec({
       headings: ['Safe hero'],
       bodyText: ['Fallback copy survives.'],
-      sectionHtml:
-        '<section><h2>Safe hero</h2><p>Fallback copy survives.</p><script>alert(1)</script></section>',
     });
     const injectedNative = [
       '<!-- wp:heading -->',
@@ -202,7 +309,8 @@ describe('theme reconstruct coverage gate', () => {
       }),
       fakePool(() => ''),
       {},
-      0
+      0,
+      { strategy: classifySemanticStrategy }
     );
 
     expect(injectedSection.blocks).toContain('Fallback copy survives.');
@@ -213,7 +321,6 @@ describe('theme reconstruct coverage gate', () => {
     const placeholderSpec = sectionSpec({
       headings: ['Personalized hero'],
       bodyText: ['Clean fallback copy.'],
-      sectionHtml: '<section><h2>Personalized hero</h2><p>Clean fallback copy.</p></section>',
     });
     const placeholderNative = [
       '<!-- wp:heading -->',
@@ -234,7 +341,8 @@ describe('theme reconstruct coverage gate', () => {
       }),
       fakePool(() => ''),
       {},
-      0
+      0,
+      { strategy: classifySemanticStrategy }
     );
 
     expect(placeholderSection.blocks).toContain('Clean fallback copy.');
@@ -278,7 +386,8 @@ describe('theme reconstruct coverage gate', () => {
       }),
       fakePool(() => ''),
       {},
-      0
+      0,
+      { strategy: classifySemanticStrategy }
     );
 
     expect(hasUnmigratedRemoteAsset(nativeBlocks)).toBe(false);
@@ -288,12 +397,12 @@ describe('theme reconstruct coverage gate', () => {
   });
 
   it('fires onSection for low coverage and form remainder, not full-coverage non-form sections', async () => {
+    // No sectionHtml: the native renderer runs and emits an image-lost placeholder
+    // (coverage 0), so onSection fires for this low-coverage section.
     const lowCoverage = sectionSpec({
       sectionIndex: 0,
       headings: ['Hooked hero'],
       images: [sectionImage('https://cdn.example.com/uploads/missing.jpg')],
-      sectionHtml:
-        '<section><h1>Hooked hero</h1><img src="https://cdn.example.com/uploads/missing.jpg"></section>',
     });
     const formSection = sectionSpec({
       sectionIndex: 1,
@@ -330,14 +439,16 @@ describe('theme reconstruct coverage gate', () => {
           };
         },
       },
-      0
+      0,
+      { strategy: classifySemanticStrategy }
     );
 
     expect(seen).toEqual([
       { sectionIndex: 0, coverage: 0, forms: 0 },
       { sectionIndex: 1, coverage: 1, forms: 1 },
     ]);
-    expect(sections[0].blocks).toContain('lib-coverage-island');
+    expect(sections[0].blocks).toContain('[image unavailable');
+    expect(sections[0].blocks).not.toContain('https://cdn.example.com/uploads/missing.jpg');
     expect(sections[0].blocks).toContain('<!-- hooked -->');
     expect(sections[1].blocks).toContain('jetpack/contact-form');
     expect(sections[1].blocks).toContain('<!-- hooked -->');

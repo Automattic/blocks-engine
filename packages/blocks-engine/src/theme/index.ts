@@ -31,6 +31,11 @@ export {
 } from './region-census.js';
 export { reconcileRegions } from './region-audit.js';
 export {
+  collectCssSelectorTokens,
+  sectionCssRichness,
+  type SourceCssSignal,
+} from './source-css-signal.js';
+export {
   normalizeCopy,
   sanitizePatternHeaderField,
   sanitizeSvgAsset,
@@ -52,6 +57,11 @@ export {
   rewriteHtmlImageSrcs,
   WP_COMPAT_CSS,
 } from './source-assets.js';
+export {
+  buildRevealNeutralizerCss,
+  REVEAL_NEUTRALIZER_CSS,
+  REVEAL_NEUTRALIZER_SELECTORS,
+} from './reveal-neutralizer.js';
 export { extractGoogleFontCssUrls } from './google-fonts.js';
 export {
   absolutizeFontUrl,
@@ -75,6 +85,11 @@ export {
 export { sectionExtract } from './section-extract.js';
 export { siteToTheme } from './site-to-theme.js';
 export { lintThemeJson } from './theme-json-lint.js';
+export {
+  collectRemoteImageAssets,
+  DEFAULT_REMOTE_IMAGE_FETCH_CONFIG,
+  fetchRemoteImage,
+} from './remote-images.js';
 export { applyHoistSwaps, hoistVariations, HOIST_MIN_INSTANCES } from './variation-hoist.js';
 export { writeTheme } from './write-theme.js';
 
@@ -123,6 +138,7 @@ export type {
   StrategyState,
 } from './native-reconstruct-types.js';
 export type * from './region-audit.js';
+export type * from './remote-images.js';
 export type { InternalLinkMap } from './url-rewrite.js';
 export type * from './section-spec.js';
 export type * from './source-assets.js';

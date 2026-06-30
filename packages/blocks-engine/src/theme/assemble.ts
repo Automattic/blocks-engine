@@ -27,6 +27,12 @@ type ThemeAssemblyParts = ThemeAssemblySourceCssInput & {
   chromeSlugsByPage?: Record<string, ChromeSlugs>;
   layoutOffsetWrapperClass?: string;
   styleBlocks?: Record<string, Record<string, unknown>>;
+  /**
+   * Deduped instance CSS drained from a routing strategy (e.g. preserve-dom's content-addressed
+   * lib-i rules). Appended to style.css after the carried source CSS so the lib-i classes the
+   * routed blocks reference are actually defined.
+   */
+  dedupCss?: string;
 };
 
 type PaletteEntry = {
@@ -47,10 +53,23 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
   const fontFamilies = buildFontFamilies(parts.tokens);
   const styleCss = buildStyleCss(parts.meta, themeSlug);
   const carriedSourceCss = hasCarriedSourceCss(parts.sourceCss);
+  // style.css carries real front-end CSS when we carry the source stylesheet or
+  // append @font-face rules. Block themes don't auto-enqueue style.css, so it
+  // must be enqueued explicitly via functions.php or that CSS never loads.
+  const dedupCss = parts.dedupCss?.trim() ? parts.dedupCss : undefined;
+  const styleCssHasFrontEndCss = carriedSourceCss || Boolean(parts.fontCss) || Boolean(dedupCss);
   const templatePlan = planTemplates(parts.site);
 
+  const styleCssWithCarried = appendDedupCss(
+    appendCarriedSourceCss(appendFontCss(styleCss, parts.fontCss), parts.sourceCss),
+    dedupCss
+  );
+
   return {
-    styleCss: appendCarriedSourceCss(appendFontCss(styleCss, parts.fontCss), parts.sourceCss),
+    styleCss: styleCssHasFrontEndCss
+      ? appendCarriedSectionGapReset(styleCssWithCarried)
+      : styleCssWithCarried,
+    ...(styleCssHasFrontEndCss ? { functionsPhp: buildFunctionsPhp(themeSlug) } : {}),
     themeJson: buildThemeJson(parts.tokens, palette, fontFamilies, {
       omitStyles: carriedSourceCss,
     }),
@@ -75,6 +94,31 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
   };
 }
 
+/**
+ * Carried full-bleed sections (the align:full wp:group wrappers reconstruction
+ * emits) own all inter-section spacing through their carried source CSS. WordPress's
+ * global block gap would otherwise inject a ~24px margin above every section after
+ * the first, reading as a stray stripe above full-bleed bands. This neutralizes the
+ * block gap on those wrappers only — via CSS, so the section block markup stays
+ * byte-identical to the DLA reference. Blocks the user adds in the editor are not
+ * align:full, so they keep WordPress's default block gap. The selector outweighs
+ * core's zero-specificity `:where(...) > * + *` gap rule.
+ */
+function appendCarriedSectionGapReset(styleCss: string): string {
+  const prefix = styleCss.endsWith('\n') ? styleCss : `${styleCss}\n`;
+  return (
+    `${prefix}/* blocks-engine: carried full-bleed sections own their spacing; ` +
+    `keep WP block gap for editor-added blocks. */\n` +
+    `:where(.is-layout-flow, .is-layout-constrained) > .wp-block-group.alignfull{margin-block-start:0}\n`
+  );
+}
+
+function appendDedupCss(styleCss: string, dedupCss: string | undefined): string {
+  if (!dedupCss) return styleCss;
+  const prefix = styleCss.endsWith('\n') ? styleCss : `${styleCss}\n`;
+  return `${prefix}${dedupCss}\n`;
+}
+
 function appendFontCss(styleCss: string, fontCss: string | undefined): string {
   return fontCss ? `${styleCss}${fontCss}` : styleCss;
 }
@@ -96,6 +140,57 @@ function buildStyleCss(meta: ThemeMeta, themeSlug: string): string {
 function buildThemeHeader(fields: Array<[string, string]>): string {
   const body = fields.map(([key, value]) => `${key}: ${value}`).join('\n');
   return `/*\n${body}\n*/\n`;
+}
+
+/**
+ * Block themes do not auto-enqueue style.css on the front end, so when the
+ * design is carried in style.css (source CSS / @font-face) we emit a functions.php
+ * that enqueues it explicitly. get_stylesheet_uri() resolves to the active
+ * theme's style.css; the theme version busts the cache. The handle is namespaced
+ * by the theme slug so it never collides with a core/plugin handle.
+ */
+function buildFunctionsPhp(themeSlug: string): string {
+  const handle = `${themeSlug}-style`;
+  return `<?php
+/**
+ * ${themeSlug} theme bootstrap.
+ *
+ * Enqueues the carried source stylesheet (style.css) on the front end. Block
+ * themes do not load style.css automatically, so this is required for the
+ * assembled design to render. The same stylesheet is registered as an editor
+ * style so the design also renders inside the block editor's iframe canvas.
+ *
+ * @package ${themeSlug}
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+\texit;
+}
+
+add_action(
+\t'wp_enqueue_scripts',
+\tstatic function () {
+\t\twp_enqueue_style(
+\t\t\t${phpString(handle)},
+\t\t\tget_stylesheet_uri(),
+\t\t\tarray(),
+\t\t\twp_get_theme()->get( 'Version' )
+\t\t);
+\t}
+);
+
+add_action(
+\t'after_setup_theme',
+\tstatic function () {
+\t\tadd_editor_style( 'style.css' );
+\t}
+);
+`;
+}
+
+/** Single-quoted PHP string literal with embedded quotes/backslashes escaped. */
+function phpString(value: string): string {
+  return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
 function buildThemeJson(

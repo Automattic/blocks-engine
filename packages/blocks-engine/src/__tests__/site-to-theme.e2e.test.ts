@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { classifySemanticStrategy } from '../theme/index.js';
 import type { WorkerPool } from '../pool/types.js';
 import type {
   AssetFile,
@@ -477,6 +478,127 @@ describe('site-to-theme P0-3 orchestration', () => {
     expect(model.templates['page.html']).toContain('wp:post-content');
   });
 
+  it('assemble emits functions.php enqueuing style.css when source CSS is carried', async () => {
+    const { assemble } = await import('../theme/index.js');
+    const baseParts = {
+      site: siteModel(),
+      tokens: foundationTokens(),
+      pages: { home: [{ spec: imageSpec(0), blocks: imageBlockMarkup(), coverage: 1 }] },
+      meta: themeMeta(),
+    } as Parameters<typeof assemble>[0];
+
+    const carried = assemble({
+      ...baseParts,
+      sourceCss: '.hero{ text-align:center; color:#222 }',
+    } as Parameters<typeof assemble>[0]);
+
+    // Carried source CSS lives in style.css and theme.json styles are omitted, so
+    // the front end is unstyled unless functions.php enqueues style.css.
+    expect(carried.functionsPhp).toBeDefined();
+    expect(carried.functionsPhp).toContain("add_action(\n\t'wp_enqueue_scripts'");
+    expect(carried.functionsPhp).toContain('wp_enqueue_style(');
+    expect(carried.functionsPhp).toContain('get_stylesheet_uri()');
+    expect(carried.functionsPhp).toContain("'fixture-theme-style'");
+    expect(carried.functionsPhp).toContain("if ( ! defined( 'ABSPATH' ) )");
+    expect(carried.themeJson).not.toHaveProperty('styles');
+  });
+
+  it('assemble loads carried style.css into the block editor too', async () => {
+    const { assemble } = await import('../theme/index.js');
+    const carried = assemble({
+      site: siteModel(),
+      tokens: foundationTokens(),
+      pages: { home: [{ spec: imageSpec(0), blocks: imageBlockMarkup(), coverage: 1 }] },
+      meta: themeMeta(),
+      sourceCss: '.hero{ text-align:center; color:#222 }',
+    } as Parameters<typeof assemble>[0]);
+
+    // The block editor renders block markup in an isolated iframe that does NOT
+    // pick up the front-end wp_enqueue_scripts stylesheet, so the carried design
+    // only shows in the editor if functions.php also registers it as an editor
+    // style.
+    expect(carried.functionsPhp).toContain('after_setup_theme');
+    expect(carried.functionsPhp).toContain("add_editor_style( 'style.css' )");
+  });
+
+  it('neutralizes block gap on carried sections only, keeping it for editor-added blocks', async () => {
+    const { assemble } = await import('../theme/index.js');
+    const carried = assemble({
+      site: siteModel(),
+      tokens: foundationTokens(),
+      pages: { home: [{ spec: imageSpec(0), blocks: imageBlockMarkup(), coverage: 1 }] },
+      meta: themeMeta(),
+      sourceCss: '.hero{ text-align:center; color:#222 }',
+    } as Parameters<typeof assemble>[0]);
+
+    // Block gap stays enabled globally (no theme.json opt-out), so blocks the user
+    // adds in the editor still get default spacing...
+    expect(carried.themeJson).not.toMatchObject({ settings: { spacing: { blockGap: false } } });
+    // ...while a CSS rule zeroes the gap on the carried align:full section wrappers
+    // so reconstructed sections sit flush. CSS-only keeps the block markup
+    // byte-identical to the DLA reference.
+    expect(carried.styleCss).toContain(
+      ':where(.is-layout-flow, .is-layout-constrained) > .wp-block-group.alignfull{margin-block-start:0}'
+    );
+  });
+
+  it('assemble emits functions.php when only font CSS is appended to style.css', async () => {
+    const { assemble } = await import('../theme/index.js');
+    const model = assemble({
+      site: siteModel(),
+      tokens: foundationTokens(),
+      pages: { home: [{ spec: imageSpec(0), blocks: imageBlockMarkup(), coverage: 1 }] },
+      meta: themeMeta(),
+      fontCss: '@font-face { font-family: "Inter"; src: url("assets/fonts/inter.woff2"); }',
+    } as Parameters<typeof assemble>[0]);
+
+    expect(model.functionsPhp).toBeDefined();
+    expect(model.functionsPhp).toContain('get_stylesheet_uri()');
+  });
+
+  it('assemble omits functions.php when style.css carries no front-end CSS (theme.json styles drive design)', async () => {
+    const { assemble } = await import('../theme/index.js');
+    const model = assemble({
+      site: siteModel(),
+      tokens: foundationTokens(),
+      pages: { home: [{ spec: imageSpec(0), blocks: imageBlockMarkup(), coverage: 1 }] },
+      meta: themeMeta(),
+    } as Parameters<typeof assemble>[0]);
+
+    expect(model.functionsPhp).toBeUndefined();
+    // No carried CSS → theme.json keeps its global styles.
+    expect(model.themeJson).toHaveProperty('styles');
+    // ...and block gap stays enabled, since theme.json spacing drives the design.
+    expect(model.themeJson).not.toMatchObject({ settings: { spacing: { blockGap: false } } });
+    // No carried sections to neutralize → no gap-reset rule (style.css isn't even enqueued).
+    expect(model.styleCss).not.toContain('margin-block-start:0}');
+  });
+
+  it('writeTheme writes functions.php to disk when present and skips it when absent', async () => {
+    const { assemble } = await import('../theme/index.js');
+    const { writeTheme } = await import('../theme/write-theme.js');
+    const baseParts = {
+      site: siteModel(),
+      tokens: foundationTokens(),
+      pages: { home: [{ spec: imageSpec(0), blocks: imageBlockMarkup(), coverage: 1 }] },
+      meta: themeMeta(),
+    } as Parameters<typeof assemble>[0];
+
+    const withCss = assemble({ ...baseParts, sourceCss: '.hero{color:#222}' } as Parameters<typeof assemble>[0]);
+    const withDir = mkdtempSync(join(tmpdir(), 'fnphp-with-'));
+    const withWritten = await writeTheme(withCss, withDir);
+    expect(withWritten).toContain('functions.php');
+    expect(readFileSync(join(withDir, 'functions.php'), 'utf8')).toContain('wp_enqueue_style(');
+    rmSync(withDir, { recursive: true, force: true });
+
+    const without = assemble(baseParts);
+    const withoutDir = mkdtempSync(join(tmpdir(), 'fnphp-without-'));
+    const withoutWritten = await writeTheme(without, withoutDir);
+    expect(withoutWritten).not.toContain('functions.php');
+    expect(existsSync(join(withoutDir, 'functions.php'))).toBe(false);
+    rmSync(withoutDir, { recursive: true, force: true });
+  });
+
   it('assemble-threads-chrome emits real parts and wraps front-page with template-part refs', async () => {
     const { assemble } = await import('../theme/index.js');
     const { headerRef, footerRef } = homeChromeRefs();
@@ -670,11 +792,11 @@ describe('site-to-theme P0-3 orchestration', () => {
       });
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(result.written).toEqual(expect.arrayContaining(['assets/logo.png']));
+      expect(result.written).toEqual(expect.arrayContaining(['assets/img/logo.png']));
       expect(result.written).toEqual(
         expect.arrayContaining(['parts/header.html', 'parts/footer.html'])
       );
-      expect(existsSync(join(outDir, 'assets', 'logo.png'))).toBe(true);
+      expect(existsSync(join(outDir, 'assets', 'img', 'logo.png'))).toBe(true);
       expect(existsSync(join(outDir, 'parts', 'header.html'))).toBe(true);
       expect(existsSync(join(outDir, 'parts', 'footer.html'))).toBe(true);
 
@@ -701,18 +823,74 @@ describe('site-to-theme P0-3 orchestration', () => {
       expect(template).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
       expect(body).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
       expect(template).toContain('Build calmer block themes');
-      expect(template).toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(template).toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
+      // Under the preserve-dom default the resolvable logo renders as a native
+      // core/image block pointing at the copied theme asset (not an island).
       expect(template).toMatch(
-        /<!-- wp:html \{"metadata":\{"name":"lib-coverage-island"\}\} -->[\s\S]*<img src="\/wp-content\/themes\/fixture-theme\/assets\/logo\.png" alt="Blocks Engine mark">[\s\S]*<!-- \/wp:html -->/
+        /<!-- wp:image -->\s*<figure class="wp-block-image"><img src="\/wp-content\/themes\/fixture-theme\/assets\/img\/logo\.png" alt="Blocks Engine mark"\/><\/figure>\s*<!-- \/wp:image -->/
       );
-      expect(template).not.toContain('<!-- wp:image -->');
       expect(template).not.toContain('src="assets/logo.png"');
       expectGenericQueriedContentTemplate(indexTemplate);
       expectGenericQueriedContentTemplate(pageTemplate);
-      expect(indexTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/logo.png');
-      expect(pageTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(indexTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
+      expect(pageTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
       expect(headerPart).toContain('About');
       expect(footerPart).toContain('Blocks Engine');
+    });
+  });
+
+  it('siteToTheme-e2e-local-image-carry does not duplicate a native carried image', async () => {
+    const { siteToTheme } = await import('../theme/index.js');
+
+    await withTempDir('blocks-engine-site-to-theme-local-img-once-', async (siteDir) => {
+      mkdirSync(join(siteDir, 'assets'), { recursive: true });
+      writeFileSync(join(siteDir, 'assets', 'hero.png'), new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+      writeFileSync(
+        join(siteDir, 'index.html'),
+        [
+          '<!doctype html><html><body><main><section>',
+          '<h1>Hero image</h1>',
+          '<p>Body copy.</p>',
+          '<img src="assets/hero.png" alt="Hero image" width="640" height="420">',
+          '</section></main></body></html>',
+        ].join(''),
+        'utf8'
+      );
+
+      const image = {
+        url: 'assets/hero.png',
+        sourceUrl: 'assets/hero.png',
+        alt: 'Hero image',
+        kind: 'img',
+        width: 640,
+        height: 420,
+      } satisfies SectionSpec['images'][number];
+      const result = await siteToTheme(siteDir, {
+        outDir: join(siteDir, 'theme-out'),
+        themeMeta: themeMeta(),
+        sections: {
+          home: [
+            {
+              ...semanticSpec(0),
+              headings: ['Hero image'],
+              bodyText: ['Body copy.'],
+              images: [image],
+              sectionHtml:
+                '<section><h1>Hero image</h1><p>Body copy.</p><img src="assets/hero.png" alt="Hero image" width="640" height="420"></section>',
+            },
+          ],
+        },
+      });
+
+      const template = result.model.templates['front-page.html'];
+      const carriedSrc = '/wp-content/themes/fixture-theme/assets/img/hero.png';
+
+      expect(template).toContain(carriedSrc);
+      expect(template).not.toContain('lib-coverage-island');
+      expect(template.match(/<!-- wp:image /g) ?? []).toHaveLength(1);
+      expect(template.match(new RegExp(carriedSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) ?? []).toHaveLength(1);
+      expect(result.model.assets.map((asset) => asset.relPath)).toContain('assets/img/hero.png');
+      expect(result.model.assets.map((asset) => asset.relPath)).not.toContain('assets/hero.png');
     });
   });
 
@@ -838,6 +1016,9 @@ describe('site-to-theme P0-3 orchestration', () => {
         sections: sectionsByPage,
         renderOptions: {
           home: {
+            // convertedSections are only consumed by the semantic classifier path;
+            // the preserve-dom default ignores them, so pin the strategy here.
+            strategy: classifySemanticStrategy,
             convertedSections: new Map([
               [0, { markup: convertedMarkup, wpHtmlResidue: 0 }],
             ]),
@@ -885,11 +1066,15 @@ describe('site-to-theme P0-3 orchestration', () => {
       copyFixtureSite(siteDir);
       const hoistedOut = join(rootDir, 'theme-hoisted');
       const optOutOut = join(rootDir, 'theme-opt-out');
+      // convertedSections are only consumed by the semantic classifier path; the
+      // preserve-dom default ignores them, so pin the strategy per page.
       const renderOptions = {
         about: {
+          strategy: classifySemanticStrategy,
           convertedSections: new Map([[0, { markup: styledConvertedMarkup, wpHtmlResidue: 0 }]]),
         },
         home: {
+          strategy: classifySemanticStrategy,
           convertedSections: new Map([
             [0, { markup: styledConvertedMarkup, wpHtmlResidue: 0 }],
             [1, { markup: styledConvertedMarkup, wpHtmlResidue: 0 }],
@@ -986,7 +1171,7 @@ describe('site-to-theme P0-3 orchestration', () => {
 
       expect(template).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
       expect(body).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
-      expect(body).toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(body).toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
       expectGenericQueriedContentTemplate(indexTemplate);
       expectGenericQueriedContentTemplate(pageTemplate);
     });
@@ -1033,12 +1218,12 @@ describe('site-to-theme P0-3 orchestration', () => {
       const indexTemplate = readFileSync(join(outDir, 'templates', 'index.html'), 'utf8');
       const pageTemplate = readFileSync(join(outDir, 'templates', 'page.html'), 'utf8');
 
-      expect(frontPage).toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(frontPage).toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
       expect(frontPage).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
       expectGenericQueriedContentTemplate(indexTemplate);
       expectGenericQueriedContentTemplate(pageTemplate);
-      expect(indexTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/logo.png');
-      expect(pageTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(indexTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
+      expect(pageTemplate).not.toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
     });
   });
 
@@ -1060,8 +1245,8 @@ describe('site-to-theme P0-3 orchestration', () => {
       });
 
       const template = readFileSync(join(outDir, 'templates', 'front-page.html'), 'utf8');
-      expect(result.model.assets.map((asset) => asset.relPath)).toContain('assets/logo.png');
-      expect(template).toContain('/wp-content/themes/fixture-theme/assets/logo.png');
+      expect(result.model.assets.map((asset) => asset.relPath)).toContain('assets/img/logo.png');
+      expect(template).toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
       expect(template).not.toContain('/wp-content/themes/Fixture Theme!');
     });
   });
@@ -1154,7 +1339,7 @@ describe('site-to-theme P0-3 orchestration', () => {
         },
       });
 
-      expect(first.written).toEqual(expect.arrayContaining(['assets/logo.png']));
+      expect(first.written).toEqual(expect.arrayContaining(['assets/img/logo.png']));
       expect(first.written.some((file) => file.startsWith('assets/fonts/'))).toBe(true);
       expect(second.model).toEqual(first.model);
       expect(second.written).toEqual(first.written);

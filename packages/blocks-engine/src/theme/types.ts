@@ -43,6 +43,14 @@ export interface ThemeModel {
   patterns: Record<string, string>;
   styleBlocks?: Record<string, Record<string, unknown>>;
   assets: AssetFile[];
+  /**
+   * PHP bootstrap (functions.php) that enqueues the theme's own style.css on the
+   * front end. Block themes do not auto-enqueue style.css, so when the design is
+   * carried in style.css (source CSS / @font-face) rather than theme.json styles,
+   * this is required or the front end renders unstyled. Undefined when style.css
+   * carries no front-end CSS beyond the header (theme.json styles drive the design).
+   */
+  functionsPhp?: string;
 }
 
 export interface SectionBlocks {
@@ -90,6 +98,21 @@ export interface SiteToThemeOptions extends SourceCssCarryOptions {
   foundationAggregates?: FoundationAggregates;
   hooks?: SiteToThemeHooks;
   fetchImpl?: typeof fetch;
+  /**
+   * Hostname → resolved-IP lookup used to guard the DEFAULT remote-image fetch path
+   * against SSRF (a public hostname resolving to an internal IP). Defaults to node:dns;
+   * injectable so SSRF/remote-image tests stay hermetic (no real DNS). Ignored when an
+   * explicit fetchImpl is provided (that impl owns its own transport).
+   */
+  imageHostLookup?: (host: string) => Promise<Array<{ address: string; family: number }>>;
+  /**
+   * Opt-in: route sections whose source identity is targeted by the carried CSS through the
+   * class-preserving preserve-dom strategy (editable blocks that keep source classes). Off by
+   * default — the default reconstruction is the convert-or-island hybrid (clean canonical blocks
+   * where rawConvert is clean, faithful verbatim islands otherwise), which restores the fidelity
+   * lost when native canonical-block reconstruction (commit 86f39fd1) replaced the island path.
+   */
+  routeRichSections?: boolean;
   coverageFloor?: number;
   themeMeta?: Partial<ThemeMeta>;
 }

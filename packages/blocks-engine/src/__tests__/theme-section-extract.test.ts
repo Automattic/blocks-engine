@@ -148,6 +148,34 @@ describe('sectionExtract', () => {
     ]);
   });
 
+  it('captures designed top-level bands that have no heading or landmark', () => {
+    const sections = sectionExtract(
+      pageWithHtml(`
+        <body>
+          <main>
+            <section id="hero"><h1>Welcome</h1><p>Intro copy.</p></section>
+          </main>
+          <div class="ticker-band" aria-hidden="true">
+            <div class="ticker-track">
+              <span class="ticker-item">Driftwood Roasters</span>
+              <span class="ticker-item">Est. 2018</span>
+              <span class="ticker-item">Pacific Coast Blend</span>
+            </div>
+          </div>
+        </body>
+      `)
+    );
+
+    const ticker = sections.find((section) =>
+      section.sectionHtml?.includes('ticker-band')
+    );
+    expect(ticker).toBeDefined();
+    expect(ticker?.bodyText).toEqual(
+      expect.arrayContaining(['Driftwood Roasters', 'Est. 2018', 'Pacific Coast Blend'])
+    );
+    expect(ticker?.selector).toBeTruthy();
+  });
+
   it('does not import browser runtimes in the P0-2 stage implementations', () => {
     const source = [
       readFileSync(join(testDir, '../theme/ingest.ts'), 'utf8'),

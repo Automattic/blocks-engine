@@ -53,8 +53,8 @@ describe('preserveDomStrategy', () => {
     );
 
     expect(aggregate.sectionMarkup).toEqual([
-      '<!-- wp:group {"anchor":"hero-panel","tagName":"section","className":"feature shell"} -->\n' +
-        '<section id="hero-panel" class="wp-block-group feature shell"><!-- wp:heading {"className":"eyebrow lib-i91a84cc172"} -->\n' +
+      '<!-- wp:group {"anchor":"hero-panel","tagName":"section","align":"full","className":"feature shell"} -->\n' +
+        '<section id="hero-panel" class="wp-block-group alignfull feature shell"><!-- wp:heading {"className":"eyebrow lib-i91a84cc172"} -->\n' +
         '<h2 class="wp-block-heading eyebrow lib-i91a84cc172">Build <span class="accent">fast</span></h2>\n' +
         '<!-- /wp:heading -->\n' +
         '<!-- wp:paragraph {"className":"lede"} -->\n' +
@@ -80,8 +80,8 @@ describe('preserveDomStrategy', () => {
     );
 
     expect(aggregate.sectionMarkup).toEqual([
-      '<!-- wp:group {"anchor":"media-panel","tagName":"section","className":"media shell lib-i42aa6d9c6f"} -->\n' +
-        '<section id="media-panel" class="wp-block-group media shell lib-i42aa6d9c6f"><!-- wp:image {"className":"photo lib-i0466783d98"} -->\n' +
+      '<!-- wp:group {"anchor":"media-panel","tagName":"section","align":"full","className":"media shell lib-i42aa6d9c6f"} -->\n' +
+        '<section id="media-panel" class="wp-block-group alignfull media shell lib-i42aa6d9c6f"><!-- wp:image {"className":"photo lib-i0466783d98"} -->\n' +
         '<figure class="wp-block-image photo lib-i0466783d98"><img src="/photo.jpg" alt="Photo"/></figure>\n' +
         '<!-- /wp:image -->\n' +
         '<!-- wp:paragraph {"className":"caption lib-ie3ec02ace9"} -->\n' +
@@ -98,7 +98,7 @@ describe('preserveDomStrategy', () => {
     });
   });
 
-  it('does not flatten deferred non-leaf wrappers through the leaf span/div path', () => {
+  it('P3-S3: recurses nested non-leaf wrappers, preserving their source id/class', () => {
     const aggregate = reconstructNativeAggregate(
       [
         sectionSpec({
@@ -111,13 +111,48 @@ describe('preserveDomStrategy', () => {
       { strategy: preserveDomStrategy },
     );
 
+    // The nested .card wrapper is preserved as a nested wp:group (was previously dropped),
+    // and the inner .label class survives onto the emitted paragraph.
     expect(aggregate.sectionMarkup).toEqual([
-      '<!-- wp:group {"anchor":"nested-panel","tagName":"section","className":"shell"} -->\n' +
-        '<section id="nested-panel" class="wp-block-group shell"></section>\n' +
+      '<!-- wp:group {"anchor":"nested-panel","tagName":"section","align":"full","className":"shell"} -->\n' +
+        '<section id="nested-panel" class="wp-block-group alignfull shell"><!-- wp:group {"anchor":"card","className":"card"} -->\n' +
+        '<div id="card" class="wp-block-group card"><!-- wp:paragraph {"className":"label"} -->\n' +
+        '<p class="label">Nested</p>\n' +
+        '<!-- /wp:paragraph --></div>\n' +
+        '<!-- /wp:group --></section>\n' +
         '<!-- /wp:group -->',
     ]);
-    expect(aggregate.sections[0]?.coverage.lost).toBe(true);
-    expect(aggregate.provenanceFlags).toEqual(['preserve-dom#4: skipped non-core elements']);
+    expect(aggregate.sections[0]?.coverage.lost).toBe(false);
+    expect(aggregate.provenanceFlags).toEqual([]);
+  });
+
+  it('P3-S3: preserves a real designed grid (.menu-grid > .menu-card > h3 + p) with inner classes', () => {
+    const aggregate = reconstructNativeAggregate(
+      [
+        sectionSpec({
+          sectionIndex: 5,
+          headings: ['Latte'],
+          bodyText: ['Oat milk'],
+          sectionHtml:
+            '<section class="menu"><div class="menu-grid">' +
+            '<div class="menu-card"><h3 class="menu-card__name">Latte</h3><p class="menu-card__desc">Oat milk</p></div>' +
+            '</div></section>',
+        }),
+      ],
+      { strategy: preserveDomStrategy },
+    );
+
+    const markup = aggregate.sectionMarkup[0] ?? '';
+    // Every source layout class survives so carried CSS targeting them still applies.
+    expect(markup).toContain('"className":"menu-grid"');
+    expect(markup).toContain('"className":"menu-card"');
+    expect(markup).toContain('class="wp-block-heading menu-card__name"');
+    expect(markup).toContain('"className":"menu-card__desc"');
+    expect(markup).toContain('>Latte<');
+    expect(markup).toContain('>Oat milk<');
+    // The whole nested subtree emitted cleanly — nothing dropped.
+    expect(aggregate.sections[0]?.coverage.lost).toBe(false);
+    expect(aggregate.provenanceFlags).toEqual([]);
   });
 
   it('freezes lib-i hash parity for max-width declarations', () => {

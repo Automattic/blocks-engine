@@ -11,6 +11,10 @@ export interface ResolvedNativeImage {
   usable: boolean;
 }
 
+export interface NativeImageResolutionContext {
+  mediaUrlMap?: Map<string, string>;
+}
+
 export interface IconImageBlockOptions {
   sizePx?: number;
   fill?: string;
@@ -25,6 +29,38 @@ export function isWpMediaUrl(url: string): boolean {
   return /\/wp-content\/uploads\//i.test(url);
 }
 
+function mappedMediaUrl(
+  image: SectionSpecImage | undefined,
+  resolutionContext?: NativeImageResolutionContext,
+): string | null {
+  const mediaUrlMap = resolutionContext?.mediaUrlMap;
+  if (!image || !mediaUrlMap?.size) return null;
+
+  const keys = [image.url, image.sourceUrl].filter(Boolean);
+  for (const key of keys) {
+    const mapped = mediaUrlMap.get(key);
+    if (mapped) return mapped;
+  }
+  return null;
+}
+
+export function resolveNativeImageUrl(
+  image: SectionSpecImage | undefined,
+  resolutionContext?: NativeImageResolutionContext,
+): string | null {
+  if (!image) return null;
+  const mapped = mappedMediaUrl(image, resolutionContext);
+  if (mapped) return mapped;
+  return isWpMediaUrl(image.url) ? image.url : null;
+}
+
+export function isUsableNativeImage(
+  image: SectionSpecImage | undefined,
+  resolutionContext?: NativeImageResolutionContext,
+): boolean {
+  return resolveNativeImageUrl(image, resolutionContext) !== null;
+}
+
 export function recolorSvg(svg: string, hex: string): string {
   const stripped = svg
     .replace(/\sfill="(?!none")[^"]*"/gi, '')
@@ -36,16 +72,18 @@ export function resolveImage(
   image: SectionSpecImage | undefined,
   out: NativeRenderOut,
   context: string,
+  resolutionContext?: NativeImageResolutionContext,
 ): ResolvedNativeImage {
   if (!image) {
     out.flags.push(`${context}: no image in spec — placeholder emitted`);
     return { url: '', alt: MISSING_IMAGE_PLACEHOLDER, usable: false };
   }
-  if (!isWpMediaUrl(image.url)) {
+  const url = resolveNativeImageUrl(image, resolutionContext);
+  if (!url) {
     out.flags.push(`${context}: image not in WP library (${image.sourceUrl}) — placeholder emitted`);
     return { url: '', alt: MISSING_IMAGE_PLACEHOLDER, usable: false };
   }
-  return { url: image.url, alt: image.alt || '', usable: true };
+  return { url, alt: image.alt || '', usable: true };
 }
 
 export function iconImageBlock(
