@@ -16,20 +16,27 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
     $fields = is_array($inventory['fields'] ?? null) ? $inventory['fields'] : array();
 
     $assert('blocks-engine/figma-transformer/kiwi-skipped-field-inventory/v1' === ($inventory['schema'] ?? null), 'kiwi-skipped-inventory-schema');
-    $assert(5 === ($inventory['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-field-count');
-    $assert(5 === ($inventory['summary']['occurrences'] ?? null), 'kiwi-skipped-inventory-occurrences');
+    $assert(9 === ($inventory['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-field-count');
+    $assert(9 === ($inventory['summary']['occurrences'] ?? null), 'kiwi-skipped-inventory-occurrences');
     $assert(1 === ($inventory['summary']['by_role']['geometry_layout'] ?? null), 'kiwi-skipped-inventory-geometry-role');
     $assert(1 === ($inventory['summary']['by_role']['component_overrides'] ?? null), 'kiwi-skipped-inventory-component-role');
     $assert(1 === ($inventory['summary']['by_role']['fills_images'] ?? null), 'kiwi-skipped-inventory-image-role');
     $assert(! isset($inventory['summary']['by_role']['masks_effects']), 'kiwi-skipped-inventory-mask-role');
-    $assert(1 === ($inventory['summary']['by_role']['text_style'] ?? null), 'kiwi-skipped-inventory-text-role');
+    $assert(2 === ($inventory['summary']['by_role']['text_style'] ?? null), 'kiwi-skipped-inventory-text-role');
     $assert(1 === ($inventory['summary']['by_role']['vectors'] ?? null), 'kiwi-skipped-inventory-vector-role');
+    $assert(1 === ($inventory['summary']['by_role']['variables_bindings'] ?? null), 'kiwi-skipped-inventory-variables-role');
+    $assert(1 === ($inventory['summary']['by_role']['export_metadata'] ?? null), 'kiwi-skipped-inventory-export-role');
+    $assert(1 === ($inventory['summary']['by_role']['document_metadata'] ?? null), 'kiwi-skipped-inventory-document-role');
 
     $layoutEntry = blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'layoutGrids');
     $assert('NodeChange' === ($layoutEntry['parent_message'] ?? null), 'kiwi-skipped-inventory-parent-message');
     $assert('FRAME' === array_key_first(is_array($layoutEntry['node_types'] ?? null) ? $layoutEntry['node_types'] : array()), 'kiwi-skipped-inventory-node-type');
     $assert(array('7:42') === ($layoutEntry['sample_node_ids'] ?? null), 'kiwi-skipped-inventory-node-id-sample');
     $assert(array() === blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'maskType'), 'kiwi-skipped-inventory-mask-type-decoded');
+    $phaseEntry = blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'phase');
+    $assert('document_metadata' === ($phaseEntry['field_role'] ?? null), 'kiwi-skipped-inventory-phase-document-role');
+    $glyphEntry = blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'glyphs');
+    $assert('text_style' === ($glyphEntry['field_role'] ?? null), 'kiwi-skipped-inventory-glyph-text-role');
 
     $fixture = SyntheticFigKiwiFixtureBuilder::figArchive(
         SyntheticFigKiwiFixtureBuilder::canvas(array(
@@ -46,7 +53,7 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
 
     $assert(is_array($cli), 'kiwi-skipped-inventory-cli-json');
     $assert('blocks-engine/figma-transformer/kiwi-skipped-field-inventory-file/v1' === ($cli['schema'] ?? null), 'kiwi-skipped-inventory-cli-schema');
-    $assert(5 === ($cli['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-cli-field-count');
+    $assert(9 === ($cli['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-cli-field-count');
 
     $fixture = SyntheticFigKiwiFixtureBuilder::figArchive(
         SyntheticFigKiwiFixtureBuilder::canvas(array(
@@ -70,7 +77,7 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
     $assert('blocks-engine/figma-transformer/kiwi-skipped-field-inventory-output/v1' === ($cli['schema'] ?? null), 'kiwi-skipped-inventory-output-cli-schema');
     $assert(is_array($written), 'kiwi-skipped-inventory-output-file-json');
     $assert('blocks-engine/figma-transformer/kiwi-skipped-field-inventory-file/v1' === ($written['schema'] ?? null), 'kiwi-skipped-inventory-output-file-schema');
-    $assert(5 === ($written['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-output-file-field-count');
+    $assert(9 === ($written['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-output-file-field-count');
 }
 
 /**
@@ -97,7 +104,7 @@ function blocks_engine_figma_transformer_kiwi_inventory_schema_fixture(): string
         . blocks_engine_figma_transformer_kiwi_schema_field('localID', -4, false, 2)
         . blocks_engine_figma_transformer_kiwi_string('NodeChange')
         . chr(2)
-        . blocks_engine_figma_transformer_wire_varint(9)
+        . blocks_engine_figma_transformer_wire_varint(13)
         . blocks_engine_figma_transformer_kiwi_schema_field('guid', 0, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 3)
@@ -107,6 +114,10 @@ function blocks_engine_figma_transformer_kiwi_inventory_schema_fixture(): string
         . blocks_engine_figma_transformer_kiwi_schema_field('maskType', -6, false, 7)
         . blocks_engine_figma_transformer_kiwi_schema_field('textStyleOverrides', -6, false, 8)
         . blocks_engine_figma_transformer_kiwi_schema_field('vectorNetwork', -6, false, 9)
+        . blocks_engine_figma_transformer_kiwi_schema_field('phase', -6, false, 10)
+        . blocks_engine_figma_transformer_kiwi_schema_field('variableConsumptionMap', -6, false, 11)
+        . blocks_engine_figma_transformer_kiwi_schema_field('exportSettings', -6, false, 12)
+        . blocks_engine_figma_transformer_kiwi_schema_field('glyphs', -6, false, 13)
         . blocks_engine_figma_transformer_kiwi_string('Message')
         . chr(2)
         . blocks_engine_figma_transformer_wire_varint(2)
@@ -139,6 +150,14 @@ function blocks_engine_figma_transformer_kiwi_inventory_message_fixture(): strin
         . blocks_engine_figma_transformer_kiwi_string('text')
         . blocks_engine_figma_transformer_wire_varint(9)
         . blocks_engine_figma_transformer_kiwi_string('vector')
+        . blocks_engine_figma_transformer_wire_varint(10)
+        . blocks_engine_figma_transformer_kiwi_string('phase')
+        . blocks_engine_figma_transformer_wire_varint(11)
+        . blocks_engine_figma_transformer_kiwi_string('variables')
+        . blocks_engine_figma_transformer_wire_varint(12)
+        . blocks_engine_figma_transformer_kiwi_string('export')
+        . blocks_engine_figma_transformer_wire_varint(13)
+        . blocks_engine_figma_transformer_kiwi_string('glyphs')
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);
 }

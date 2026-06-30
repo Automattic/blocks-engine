@@ -100,6 +100,9 @@ final class FigKiwiDecodePolicy
             'masks_effects' => array_values(array_unique(array_merge($this->nodeEffectFields(), array('mask', 'isMask', 'maskType', 'isClip', 'frameMaskDisabled')))),
             'vectors' => array_values(array_unique(array_merge($this->nodeVectorAndImageFields(), array('Path', 'VectorPath', 'VectorData', 'commandsBlob', 'vectorNetworkBlob', 'vectorNetwork')))),
             'prototype_links' => $this->nodePrototypeLinkFields(),
+            'variables_bindings' => array('variableConsumptionMap', 'parameterConsumptionMap', 'variableDataValues', 'variableResolvedType', 'variableSetID', 'variableScopes', 'variableSetModes', 'VariableDataMap', 'VariableDataValues', 'VariableResolvedDataType', 'VariableSetID', 'VariableScope', 'VariableSetMode'),
+            'export_metadata' => array('exportSettings', 'ExportSettings'),
+            'document_metadata' => array('phase', 'autoRename', 'editInfo', 'pluginData', 'version', 'userFacingVersion', 'isPublishable', 'locked', 'isSoftDeleted', 'annotations', 'annotationCategories', 'publishID', 'sourceLibraryKey', 'ancestorPathBeforeDeletion', 'internalOnly', 'isPageDivider', 'pluginRelaunchData', 'slideThemeMap', 'ackID', 'originFileKey', 'sessionID'),
         );
     }
 
@@ -116,20 +119,29 @@ final class FigKiwiDecodePolicy
         );
     }
 
-    public function classifySkippedFieldRole(string $fieldName, string $type): string
+    public function classifySkippedFieldRole(string $fieldName, string $type, string $parentMessage = ''): string
     {
-        $name = strtolower($fieldName . ' ' . $type);
+        $name = strtolower($fieldName . ' ' . $type . ' ' . $parentMessage);
+        if ( str_contains($name, 'variable') || str_contains($name, 'varvalue') || str_contains($name, 'parameter') || str_contains($name, 'consumption') ) {
+            return 'variables_bindings';
+        }
         if ( str_contains($name, 'bound') || str_contains($name, 'layout') || str_contains($name, 'constraint') || str_contains($name, 'padding') || str_contains($name, 'size') || str_contains($name, 'transform') || str_contains($name, 'corner') || str_contains($name, 'stack') ) {
             return 'geometry_layout';
         }
-        if ( str_contains($name, 'paint') || str_contains($name, 'fill') || str_contains($name, 'stroke') || str_contains($name, 'image') || str_contains($name, 'blob') || str_contains($name, 'blendmode') ) {
+        if ( str_contains($name, 'paint') || str_contains($name, 'fill') || str_contains($name, 'stroke') || str_contains($name, 'image') || str_contains($name, 'blob') || str_contains($name, 'blendmode') || str_contains($name, 'background') ) {
             return 'fills_images';
         }
         if ( str_contains($name, 'mask') || str_contains($name, 'effect') || str_contains($name, 'shadow') || str_contains($name, 'blur') ) {
             return 'masks_effects';
         }
-        if ( str_contains($name, 'text') || str_contains($name, 'font') || str_contains($name, 'style') || str_contains($name, 'letter') || str_contains($name, 'paragraph') ) {
+        if ( str_contains($name, 'text') || str_contains($name, 'font') || str_contains($name, 'style') || str_contains($name, 'letter') || str_contains($name, 'paragraph') || str_contains($name, 'glyph') || str_contains($name, 'character') || str_contains($name, 'truncat') || str_contains($name, 'bidi') || str_contains($name, 'ligature') || str_contains($name, 'leadingtrim') || str_contains($name, 'opentype') || str_contains($name, 'decoration') || str_contains($name, 'hangingpunctuation') ) {
             return 'text_style';
+        }
+        if ( str_contains($name, 'export') ) {
+            return 'export_metadata';
+        }
+        if ( str_contains($name, 'phase') || str_contains($name, 'autorename') || str_contains($name, 'editinfo') || str_contains($name, 'plugindata') || str_contains($name, 'version') || str_contains($name, 'publish') || str_contains($name, 'locked') || str_contains($name, 'softdeleted') || str_contains($name, 'annotation') || str_contains($name, 'librarykey') || str_contains($name, 'internalonly') || str_contains($name, 'pagedivider') || str_contains($name, 'relaunch') || str_contains($name, 'slidetheme') || str_contains($name, 'ackid') || str_contains($name, 'originfilekey') || str_contains($name, 'sessionid') ) {
+            return 'document_metadata';
         }
         if ( str_contains($name, 'component') || str_contains($name, 'symbol') || str_contains($name, 'override') || str_contains($name, 'prop') || str_contains($name, 'variant') ) {
             return 'component_overrides';
