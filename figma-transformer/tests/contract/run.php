@@ -3571,6 +3571,54 @@ $assert('kiwi_message' === ($guardedChunks[1]['payload']['classification'] ?? nu
 $assert('selective' === ($guardedChunks[1]['payload']['kiwi_message_decode'] ?? null), 'kiwi-parser-selective-message-mode');
 $assert(in_array('figma_transformer_kiwi_message_selective_decode_used', $guardedDiagnosticCodes, true), 'kiwi-parser-selective-message-diagnostic');
 
+$kiwiFrameMaskDecoder = new FigKiwiDecoder();
+$kiwiFrameMaskSchema = $kiwiFrameMaskDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_frame_mask_schema_fixture());
+$kiwiFrameMaskMessage = $kiwiFrameMaskDecoder->decodeMessageSelective(
+    blocks_engine_figma_transformer_kiwi_frame_mask_message_fixture(),
+    $kiwiFrameMaskSchema['schema'] ?? array()
+);
+$kiwiFrameMaskNode = $kiwiFrameMaskMessage['message']['nodeChanges'][0] ?? array();
+$assert(false === ($kiwiFrameMaskNode['frameMaskDisabled'] ?? null), 'kiwi-selective-decodes-frame-mask-disabled');
+
+$kiwiFrameMaskResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'document' => array(
+        'id'       => 'kiwi-mask:document',
+        'type'     => 'DOCUMENT',
+        'name'     => 'Document',
+        'children' => array(
+            array(
+                'id'                => 'kiwi-mask:frame',
+                'type'              => 'FRAME',
+                'name'              => 'Kiwi Mask Frame',
+                'width'             => 120,
+                'height'            => 80,
+                'frameMaskDisabled' => false,
+            ),
+        ),
+    ),
+));
+$kiwiFrameMaskDisabledResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'document' => array(
+        'id'       => 'kiwi-mask:disabled-document',
+        'type'     => 'DOCUMENT',
+        'name'     => 'Document',
+        'children' => array(
+            array(
+                'id'                => 'kiwi-mask:disabled-frame',
+                'type'              => 'FRAME',
+                'name'              => 'Kiwi Disabled Mask Frame',
+                'width'             => 120,
+                'height'            => 80,
+                'frameMaskDisabled' => true,
+            ),
+        ),
+    ),
+));
+$kiwiFrameMaskCss = $fileContent($kiwiFrameMaskResult, 'style.css');
+$kiwiFrameMaskDisabledCss = $fileContent($kiwiFrameMaskDisabledResult, 'style.css');
+$assert(str_contains($kiwiFrameMaskCss, '.figma-node-kiwi-mask-frame-kiwi-mask-frame{width:120px;height:80px;overflow:hidden}'), 'kiwi-frame-mask-disabled-false-clips-content');
+$assert(str_contains($kiwiFrameMaskDisabledCss, '.figma-node-kiwi-mask-disabled-frame-kiwi-disabled-mask-frame{width:120px;height:80px}'), 'kiwi-frame-mask-disabled-true-does-not-clip');
+
 $wirePayload = SyntheticFigKiwiFixtureBuilder::sampleWirePayload();
 $wireCanvasResult = ( new FigKiwiParser() )->parse(
     SyntheticFigKiwiFixtureBuilder::canvas(array(SyntheticFigKiwiFixtureBuilder::zlibChunk($wirePayload)))
@@ -8529,6 +8577,45 @@ function blocks_engine_figma_transformer_kiwi_message_fixture(): string
         . blocks_engine_figma_transformer_wire_varint(2)
         . blocks_engine_figma_transformer_kiwi_string('alpha')
         . blocks_engine_figma_transformer_kiwi_string('beta')
+        . blocks_engine_figma_transformer_wire_varint(0);
+}
+
+function blocks_engine_figma_transformer_kiwi_frame_mask_schema_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(3)
+        // def0: ENUM MessageType { NODE_CHANGES = 1 }
+        . blocks_engine_figma_transformer_kiwi_string('MessageType')
+        . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('NODE_CHANGES', 0, false, 1)
+        // def1: MESSAGE NodeChange { type, name, frameMaskDisabled }
+        . blocks_engine_figma_transformer_kiwi_string('NodeChange')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('frameMaskDisabled', -1, false, 3)
+        // def2: MESSAGE Message { type, nodeChanges[] }
+        . blocks_engine_figma_transformer_kiwi_string('Message')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 1, true, 2);
+}
+
+function blocks_engine_figma_transformer_kiwi_frame_mask_message_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_string('FRAME')
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('Masked Frame')
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);
 }
 

@@ -4204,7 +4204,7 @@ final class ScenegraphNormalizer
             $layout['align'] = strtoupper((string) $node['stackChildAlignSelf']);
         }
 
-        if ( true === ($node['clipsContent'] ?? false) || true === ($node['isClip'] ?? false) ) {
+        if ( true === ($node['clipsContent'] ?? false) || true === ($node['isClip'] ?? false) || false === ($node['frameMaskDisabled'] ?? null) ) {
             $layout['clips_content'] = true;
         }
 
