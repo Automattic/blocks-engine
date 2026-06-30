@@ -5992,6 +5992,39 @@ $nestedImageOverrideCss = $fileContent($nestedImageOverrideResult, 'style.css');
 $assert(str_contains($nestedImageOverrideCss, '.figma-node-instance-preview-700-4-700-2-image'), 'nested-image-override-emits-nested-image-node');
 $assert(str_contains($nestedImageOverrideCss, 'background-image:url("assets/override-image.bin"),url("assets/default-image.bin")'), 'nested-image-override-preserves-instance-fill-paints');
 
+$lateNestedInstanceSourceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'        => 'Late Nested Instance Source Fixture',
+    'nodeChanges' => array(
+        array('guid' => array('sessionID' => 1, 'localID' => 1), 'type' => 'FRAME', 'name' => 'Page'),
+        array('guid' => array('sessionID' => 10, 'localID' => 1), 'type' => 'COMPONENT', 'name' => 'Inner component'),
+        array(
+            'guid'        => array('sessionID' => 10, 'localID' => 2),
+            'parentIndex' => array('guid' => array('sessionID' => 10, 'localID' => 1)),
+            'type'        => 'TEXT',
+            'name'        => 'Inner text',
+            'characters'  => 'Nested source content',
+        ),
+        array('guid' => array('sessionID' => 20, 'localID' => 1), 'type' => 'COMPONENT', 'name' => 'Outer component'),
+        array(
+            'guid'        => array('sessionID' => 100, 'localID' => 1),
+            'parentIndex' => array('guid' => array('sessionID' => 1, 'localID' => 1)),
+            'type'        => 'INSTANCE',
+            'name'        => 'Outer instance',
+            'symbolData'  => array('symbolID' => array('sessionID' => 20, 'localID' => 1)),
+        ),
+        array(
+            'guid'        => array('sessionID' => 200, 'localID' => 1),
+            'parentIndex' => array('guid' => array('sessionID' => 20, 'localID' => 1)),
+            'type'        => 'INSTANCE',
+            'name'        => 'Inner slot',
+            'symbolData'  => array('symbolID' => array('sessionID' => 10, 'localID' => 1)),
+        ),
+    ),
+));
+$lateNestedInstanceSourceHtml = $fileContent($lateNestedInstanceSourceResult, 'index.html');
+$assert(str_contains($lateNestedInstanceSourceHtml, 'Nested source content'), 'late-nested-instance-source-renders-descendants');
+$assert(str_contains($lateNestedInstanceSourceHtml, 'data-figma-node-id="100:1/200:1/10:2"'), 'late-nested-instance-source-preserves-namespaced-descendant-id');
+
 // Component-property (componentPropAssignments) text overrides (#329 / FSE Pilot).
 //
 // Figma binds per-instance text content through component properties rather than
