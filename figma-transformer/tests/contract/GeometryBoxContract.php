@@ -98,4 +98,52 @@ function blocks_engine_figma_transformer_run_geometry_box_contract(callable $ass
     $assert(0.0 === ($selectedFrameBox['x'] ?? null) && 0.0 === ($selectedFrameBox['y'] ?? null), 'geometry-box-selected-frame-rebased-root-origin');
     $assert(GeometryBox::CLASSIFICATION_PARENT_LOCAL === GeometryBox::classifyNormalizedBox($selectedChildBox), 'geometry-box-selected-frame-child-local-coordinate-space');
     $assert(50.0 === ($selectedChildBox['x'] ?? null) && 40.0 === ($selectedChildBox['y'] ?? null), 'geometry-box-selected-frame-child-rebased-position');
+
+    $documentModeResult = $normalizer->normalize(
+        array(
+            'name'  => 'Document Mode Rebase Geometry Fixture',
+            'nodes' => array(
+                array(
+                    'id'                  => 'geometry:doc-home',
+                    'type'                => 'FRAME',
+                    'name'                => 'Home page',
+                    'absoluteBoundingBox' => array('x' => 800, 'y' => 200, 'width' => 320, 'height' => 240),
+                    'children'            => array(
+                        array(
+                            'id'                  => 'geometry:doc-home-child',
+                            'type'                => 'RECTANGLE',
+                            'name'                => 'Home card',
+                            'absoluteBoundingBox' => array('x' => 830, 'y' => 250, 'width' => 100, 'height' => 60),
+                        ),
+                    ),
+                ),
+                array(
+                    'id'                  => 'geometry:doc-about',
+                    'type'                => 'FRAME',
+                    'name'                => 'About page',
+                    'absoluteBoundingBox' => array('x' => 1400, 'y' => 900, 'width' => 320, 'height' => 240),
+                    'children'            => array(
+                        array(
+                            'id'                  => 'geometry:doc-about-child',
+                            'type'                => 'TEXT',
+                            'name'                => 'About copy',
+                            'characters'          => 'About',
+                            'absoluteBoundingBox' => array('x' => 1415, 'y' => 920, 'width' => 80, 'height' => 20),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array('render_document' => true, 'document_frame_ids' => array('geometry:doc-home', 'geometry:doc-about'))
+    );
+    $documentHomeBox = $documentModeResult['nodes'][0]['box'] ?? array();
+    $documentHomeChildBox = $documentModeResult['nodes'][0]['children'][0]['box'] ?? array();
+    $documentAboutBox = $documentModeResult['nodes'][1]['box'] ?? array();
+    $documentAboutChildBox = $documentModeResult['nodes'][1]['children'][0]['box'] ?? array();
+    $assert(GeometryBox::CLASSIFICATION_PAGE_LOCAL === GeometryBox::classifyNormalizedBox($documentHomeBox, true), 'geometry-box-document-mode-home-page-local-coordinate-space');
+    $assert(0.0 === ($documentHomeBox['x'] ?? null) && 0.0 === ($documentHomeBox['y'] ?? null), 'geometry-box-document-mode-home-rebased-root-origin');
+    $assert(30.0 === ($documentHomeChildBox['x'] ?? null) && 50.0 === ($documentHomeChildBox['y'] ?? null), 'geometry-box-document-mode-home-child-rebased-position');
+    $assert(GeometryBox::CLASSIFICATION_PAGE_LOCAL === GeometryBox::classifyNormalizedBox($documentAboutBox, true), 'geometry-box-document-mode-about-page-local-coordinate-space');
+    $assert(0.0 === ($documentAboutBox['x'] ?? null) && 0.0 === ($documentAboutBox['y'] ?? null), 'geometry-box-document-mode-about-rebased-root-origin');
+    $assert(15.0 === ($documentAboutChildBox['x'] ?? null) && 20.0 === ($documentAboutChildBox['y'] ?? null), 'geometry-box-document-mode-about-child-rebased-position');
 }

@@ -198,6 +198,33 @@ $assert(str_contains($css, '.figma-node-1-4-hero-image-rectangle{width:320px;hei
 $assert(str_contains($css, '.figma-node-1-5-nested-image-paint{') && str_contains($css, 'background-image:url("assets/fixture-photo.jpg")'), 'css-nested-image-hash-asset-style');
 $assert('fixture image bytes' === $fileContent($result, 'assets/fixture-photo.jpg'), 'asset-content-preserved');
 
+$missingEmissionResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Missing Emission Diagnostics Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'missing:root',
+            'type'     => 'FRAME',
+            'name'     => 'Missing emission root',
+            'width'    => 320,
+            'height'   => 180,
+            'children' => array(
+                array('id' => 'missing:text', 'type' => 'TEXT', 'name' => 'Visible text', 'characters' => 'Synthetic visible copy', 'width' => 180, 'height' => 24),
+                array('id' => 'missing:asset', 'type' => 'RECTANGLE', 'name' => 'Missing asset', 'width' => 80, 'height' => 60, 'asset_id' => 'missing-image'),
+                array('id' => 'missing:vector', 'type' => 'VECTOR', 'name' => 'Missing vector geometry', 'width' => 20, 'height' => 20),
+            ),
+        ),
+    ),
+));
+$missingEmissionHtml = $fileContent($missingEmissionResult, 'index.html');
+$missingEmissionQualitySignalCodes = $artifactQualitySignalCodes($missingEmissionResult);
+$missingAssetsSignal = $artifactQualitySignal($missingEmissionResult, 'missing_render_assets');
+$vectorPlaceholderSignal = $artifactQualitySignal($missingEmissionResult, 'vector_placeholders');
+$assert(str_contains($missingEmissionHtml, 'Synthetic visible copy'), 'missing-emission-text-still-emits');
+$assert(in_array('missing_render_assets', $missingEmissionQualitySignalCodes, true), 'missing-emission-missing-asset-signal');
+$assert(1 === ($missingAssetsSignal['count'] ?? null), 'missing-emission-missing-asset-count');
+$assert(in_array('vector_placeholders', $missingEmissionQualitySignalCodes, true), 'missing-emission-vector-placeholder-signal');
+$assert(1 === ($vectorPlaceholderSignal['count'] ?? null), 'missing-emission-vector-placeholder-count');
+
 $cliOutputRoot = sys_get_temp_dir() . '/figma-transformer-cli-output-' . getmypid() . '-' . bin2hex(random_bytes(4));
 $cliScenegraphPath = $cliOutputRoot . '/scenegraph.json';
 $cliScenegraph = array(
