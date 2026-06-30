@@ -19,7 +19,9 @@ await esbuild.build({
   platform: 'node',
   target: 'node20',
   minify: true,
-  sourcemap: true,
+  // No sourcemap: the bundle is minified WP internals (~20 MB) and a map would
+  // add another ~52 MB to the published package with no value for consumers.
+  // Regenerate locally with `sourcemap: true` if needed for debugging.
   alias,
   external: ['jsdom', 'cheerio', 'domhandler'],
   // Force CJS resolution: @wordpress/block-library → @wordpress/block-editor CJS build references window/document at module init.
