@@ -2031,7 +2031,7 @@ final class ScenegraphNormalizer
      * @param array<string, array<string, mixed>> $overrides
      * @return array<int, mixed>
      */
-    private function applyInstanceOverridesToChildren(array $children, array $overrides, array $nodeMap, array $components, array &$diagnostics, array $blobs = array(), array $paintStyles = array(), array $textStyles = array()): array
+    private function applyInstanceOverridesToChildren(array $children, array $overrides, array $nodeMap, array $components, array &$diagnostics, array $blobs = array(), array $paintStyles = array(), array $textStyles = array(), array $parentSourcePaths = array()): array
     {
 		foreach ( $children as $index => $child ) {
 			if ( ! is_array($child) ) {
@@ -2042,7 +2042,8 @@ final class ScenegraphNormalizer
 			$sourceNode = '' !== $id && is_array($nodeMap[$id] ?? null) ? $nodeMap[$id] : array();
 			$sourceChildBox = is_array($sourceNode['box'] ?? null) ? $sourceNode['box'] : (is_array($child['box'] ?? null) ? $child['box'] : null);
 			$hasFieldOverride = false;
-            $overrideFields = $this->instanceOverrideFieldsForChild($child, $overrides);
+            $sourcePaths = $this->instanceChildOverrideSourcePaths($child, $parentSourcePaths);
+            $overrideFields = $this->instanceOverrideFieldsForChild($child, $overrides, $sourcePaths);
             $swapComponentId = isset($overrideFields['_figma_instance_swap_component_id']) && is_scalar($overrideFields['_figma_instance_swap_component_id']) ? (string) $overrideFields['_figma_instance_swap_component_id'] : null;
             unset($overrideFields['_figma_instance_swap_component_id']);
             $nestedComponentPropertyOverrides = $this->nestedComponentPropertyOverridesForChild($child, $overrideFields, $components);
@@ -2075,7 +2076,7 @@ final class ScenegraphNormalizer
 
             if ( is_array($child['children'] ?? null) ) {
                 $childOverrides = $this->descendantInstanceOverrideFieldsForChild($child, $overrides);
-                $child['children'] = $this->applyInstanceOverridesToChildren($child['children'], array_merge($overrides, $childOverrides, $nestedComponentPropertyOverrides), $nodeMap, $components, $diagnostics, $blobs, $paintStyles, $textStyles);
+                $child['children'] = $this->applyInstanceOverridesToChildren($child['children'], array_merge($overrides, $childOverrides, $nestedComponentPropertyOverrides), $nodeMap, $components, $diagnostics, $blobs, $paintStyles, $textStyles, $sourcePaths);
             }
 
             $children[$index] = $child;
@@ -2141,27 +2142,44 @@ final class ScenegraphNormalizer
      * @param array<string, array<string, mixed>> $overrides
      * @return array<string, mixed>
      */
-    private function instanceOverrideFieldsForChild(array $child, array $overrides): array
+    private function instanceOverrideFieldsForChild(array $child, array $overrides, array $sourcePaths = array()): array
     {
         $fields = array();
         foreach ( $this->instanceChildOverrideAliases($child) as $alias ) {
             if ( isset($overrides[$alias]) && is_array($overrides[$alias]) ) {
                 $fields = array_merge($fields, $overrides[$alias]);
             }
+        }
 
-            foreach ( $overrides as $target => $overrideFields ) {
-                if ( ! is_string($target) || ! is_array($overrideFields) || ! str_contains($target, '/') ) {
-                    continue;
-                }
-
-                $parts = explode('/', $target);
-                if ( $alias === end($parts) ) {
-                    $fields = array_merge($fields, $overrideFields);
-                }
+        foreach ( $sourcePaths as $sourcePath ) {
+            if ( isset($overrides[$sourcePath]) && is_array($overrides[$sourcePath]) ) {
+                $fields = array_merge($fields, $overrides[$sourcePath]);
             }
         }
 
         return $fields;
+    }
+
+    /**
+     * @param array<string, mixed> $child
+     * @param array<int, string>   $parentSourcePaths
+     * @return array<int, string>
+     */
+    private function instanceChildOverrideSourcePaths(array $child, array $parentSourcePaths = array()): array
+    {
+        $aliases = $this->instanceChildOverrideAliases($child);
+        if ( empty($parentSourcePaths) ) {
+            return $aliases;
+        }
+
+        $paths = array();
+        foreach ( $parentSourcePaths as $parentSourcePath ) {
+            foreach ( $aliases as $alias ) {
+                $paths[] = $parentSourcePath . '/' . $alias;
+            }
+        }
+
+        return array_values(array_unique($paths));
     }
 
     /**
