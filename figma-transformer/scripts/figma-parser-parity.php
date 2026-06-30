@@ -286,6 +286,9 @@ function blocks_engine_figma_parser_parity_report(string $input, array $source, 
     $rawComponentPropNodeIds = blocks_engine_figma_parser_parity_node_ids_with_paths($rawNodes, array('componentProperties', 'componentPropertyDefinitions', 'component_property_definitions', 'symbolData', 'derivedSymbolData'));
     $rawAssetRefs = blocks_engine_figma_parser_parity_raw_asset_reference_node_ids($rawNodes);
     $emittedNodeIds = array_fill_keys(array_values(array_unique(array_merge($visualNodeIds, $htmlNodeIds))), true);
+    $emittedNodeIdList = array_keys($emittedNodeIds);
+    $rawEmittedNodeIds = blocks_engine_figma_parser_parity_ids_in_covered_scope(array_keys($rawNodes), $emittedNodeIdList);
+    $rawEmittedVectorNodeIds = blocks_engine_figma_parser_parity_ids_in_covered_scope($rawVectorNodeIds, $emittedNodeIdList);
 
     return array(
         'schema' => 'blocks-engine/figma-transformer/parser-parity/v1',
@@ -330,10 +333,10 @@ function blocks_engine_figma_parser_parity_report(string $input, array $source, 
         ),
         'coverage' => array(
             'raw_to_normalized_node' => blocks_engine_figma_parser_parity_id_coverage(array_keys($rawNodes), array_keys($normalizedNodes), $sampleLimit),
-            'raw_to_emitted_node' => blocks_engine_figma_parser_parity_id_coverage(array_keys($rawNodes), array_keys($emittedNodeIds), $sampleLimit),
+            'raw_to_emitted_node' => blocks_engine_figma_parser_parity_id_coverage($rawEmittedNodeIds, $emittedNodeIdList, $sampleLimit, true),
             'raw_text_to_normalized_text' => blocks_engine_figma_parser_parity_id_coverage($rawTextNodeIds, blocks_engine_figma_parser_parity_normalized_text_node_ids($normalized), $sampleLimit),
             'raw_asset_refs_to_normalized_asset_refs' => blocks_engine_figma_parser_parity_id_coverage($rawAssetRefs, blocks_engine_figma_parser_parity_normalized_asset_reference_node_ids($normalized), $sampleLimit),
-            'raw_vector_to_emitted' => blocks_engine_figma_parser_parity_id_coverage($rawVectorNodeIds, array_keys($emittedNodeIds), $sampleLimit),
+            'raw_vector_to_emitted' => blocks_engine_figma_parser_parity_id_coverage($rawEmittedVectorNodeIds, $emittedNodeIdList, $sampleLimit, true),
             'raw_component_props_to_normalized' => blocks_engine_figma_parser_parity_id_coverage($rawComponentPropNodeIds, array_keys($normalizedNodes), $sampleLimit),
         ),
         'top_missing_field_paths' => $rawFieldReport['top_missing_field_paths'],
@@ -342,6 +345,21 @@ function blocks_engine_figma_parser_parity_report(string $input, array $source, 
             'emitted_sample' => array_slice(is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array(), 0, $limit),
         ),
     );
+}
+
+/**
+ * @return array<int, string>
+ */
+function blocks_engine_figma_parser_parity_ids_in_covered_scope(array $sourceIds, array $scopeIds): array
+{
+    $scoped = array();
+    foreach ( array_values(array_unique(array_map('strval', $sourceIds))) as $sourceId ) {
+        if ( blocks_engine_figma_parser_parity_id_is_covered_by($sourceId, $scopeIds) ) {
+            $scoped[] = $sourceId;
+        }
+    }
+
+    return $scoped;
 }
 
 /**
@@ -720,11 +738,15 @@ function blocks_engine_figma_parser_parity_normalized_text_node_ids(array $norma
 /**
  * @return array<string, mixed>
  */
-function blocks_engine_figma_parser_parity_id_coverage(array $sourceIds, array $coveredIds, int $sampleLimit): array
+function blocks_engine_figma_parser_parity_id_coverage(array $sourceIds, array $coveredIds, int $sampleLimit, bool $allowCloneSuffix = false): array
 {
     $sourceIds = array_values(array_unique(array_map('strval', $sourceIds)));
     $covered = array_fill_keys(array_values(array_unique(array_map('strval', $coveredIds))), true);
-    $missing = array_values(array_filter($sourceIds, static fn (string $id): bool => ! isset($covered[$id])));
+    $coveredIdList = array_keys($covered);
+    $missing = array_values(array_filter(
+        $sourceIds,
+        static fn (string $id): bool => ! isset($covered[$id]) && (! $allowCloneSuffix || ! blocks_engine_figma_parser_parity_id_is_covered_by($id, $coveredIdList))
+    ));
     $coveredCount = count($sourceIds) - count($missing);
     return array(
         'source_count' => count($sourceIds),
@@ -733,6 +755,22 @@ function blocks_engine_figma_parser_parity_id_coverage(array $sourceIds, array $
         'coverage_ratio' => 0 === count($sourceIds) ? 1.0 : round($coveredCount / count($sourceIds), 4),
         'missing_sample_node_ids' => array_slice($missing, 0, $sampleLimit),
     );
+}
+
+function blocks_engine_figma_parser_parity_id_is_covered_by(string $sourceId, array $coveredIds): bool
+{
+    if ( '' === $sourceId ) {
+        return false;
+    }
+
+    foreach ( $coveredIds as $coveredId ) {
+        $coveredId = (string) $coveredId;
+        if ( $sourceId === $coveredId || str_ends_with($coveredId, '/' . $sourceId) ) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 function blocks_engine_figma_parser_parity_file_content(array $result, string $path): string

@@ -25,43 +25,84 @@ function blocks_engine_figma_transformer_run_parser_parity_contract(callable $as
         ),
         'nodes'  => array(
             array(
-                'id'                           => 'parity:frame',
-                'type'                         => 'FRAME',
-                'name'                         => 'Parity Frame',
-                'width'                        => 600,
-                'height'                       => 320,
-                'componentPropertyDefinitions' => array('Variant' => array('type' => 'TEXT')),
-                'children'                     => array(
+                'id'       => 'parity:canvas',
+                'type'     => 'CANVAS',
+                'name'     => 'Parser Parity Canvas',
+                'children' => array(
                     array(
-                        'id'         => 'parity:text',
-                        'type'       => 'TEXT',
-                        'name'       => 'Parity Text',
-                        'characters' => 'Parity copy',
-                        'fontSize'   => 24,
+                        'id'                           => 'parity:frame',
+                        'type'                         => 'FRAME',
+                        'name'                         => 'Parity Frame',
+                        'width'                        => 600,
+                        'height'                       => 320,
+                        'componentPropertyDefinitions' => array('Variant' => array('type' => 'TEXT')),
+                        'children'                     => array(
+                            array(
+                                'id'         => 'parity:text',
+                                'type'       => 'TEXT',
+                                'name'       => 'Parity Text',
+                                'characters' => 'Parity copy',
+                                'fontSize'   => 24,
+                            ),
+                            array(
+                                'id'       => 'parity:asset',
+                                'type'     => 'RECTANGLE',
+                                'name'     => 'Parity Asset',
+                                'width'    => 100,
+                                'height'   => 80,
+                                'asset_id' => 'fixture-asset',
+                            ),
+                            array(
+                                'id'          => 'parity:icon-instance',
+                                'type'        => 'INSTANCE',
+                                'name'        => 'Parity Icon Instance',
+                                'componentId' => 'component:icon',
+                                'width'       => 20,
+                                'height'      => 20,
+                            ),
+                            array(
+                                'id'         => 'parity:image-ref',
+                                'type'       => 'RECTANGLE',
+                                'name'       => 'Parity Image Ref',
+                                'width'      => 64,
+                                'height'     => 48,
+                                'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'paint-asset')),
+                            ),
+                        ),
                     ),
                     array(
-                        'id'       => 'parity:asset',
-                        'type'     => 'RECTANGLE',
-                        'name'     => 'Parity Asset',
+                        'id'       => 'component:icon',
+                        'type'     => 'COMPONENT',
+                        'name'     => 'Icon Component',
+                        'width'    => 20,
+                        'height'   => 20,
+                        'children' => array(
+                            array(
+                                'id'           => 'component:icon/vector',
+                                'type'         => 'VECTOR',
+                                'name'         => 'Icon Vector',
+                                'width'        => 20,
+                                'height'       => 20,
+                                'fillGeometry' => array(array('commandsBlob' => 0)),
+                            ),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'parity:outside-frame',
+                        'type'     => 'FRAME',
+                        'name'     => 'Outside Frame',
                         'width'    => 100,
-                        'height'   => 80,
-                        'asset_id' => 'fixture-asset',
-                    ),
-                    array(
-                        'id'           => 'parity:vector',
-                        'type'         => 'VECTOR',
-                        'name'         => 'Parity Vector',
-                        'width'        => 20,
-                        'height'       => 20,
-                        'fillGeometry' => array(array('commandsBlob' => 0)),
-                    ),
-                    array(
-                        'id'         => 'parity:image-ref',
-                        'type'       => 'RECTANGLE',
-                        'name'       => 'Parity Image Ref',
-                        'width'      => 64,
-                        'height'     => 48,
-                        'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'paint-asset')),
+                        'height'   => 100,
+                        'children' => array(
+                            array(
+                                'id'           => 'parity:outside-vector',
+                                'type'         => 'VECTOR',
+                                'name'         => 'Outside Vector',
+                                'width'        => 10,
+                                'height'       => 10,
+                                'fillGeometry' => array(array('commandsBlob' => 0)),
+                            ),
+                        ),
                     ),
                     array(
                         'id'         => 'parity:instance-ref',
@@ -108,14 +149,17 @@ function blocks_engine_figma_transformer_run_parser_parity_contract(callable $as
     $assert(is_array($report), 'parser-parity-json-output');
     $assert('blocks-engine/figma-transformer/parser-parity/v1' === ($report['schema'] ?? null), 'parser-parity-schema');
     $assert('parity:frame' === ($report['options']['frame_id'] ?? null), 'parser-parity-frame-option');
-    $assert(7 === ($report['raw']['node_count'] ?? null), 'parser-parity-raw-node-count');
-    $assert(7 === ($report['normalized']['node_count'] ?? null), 'parser-parity-normalized-node-count');
+    $assert(12 === ($report['raw']['node_count'] ?? null), 'parser-parity-raw-node-count');
+    $assert(12 === ($report['normalized']['node_count'] ?? null), 'parser-parity-normalized-node-count');
     $assert(1 === ($report['raw']['blob_count'] ?? null), 'parser-parity-raw-blob-count');
     $assert(2 === ($report['raw']['asset_count'] ?? null), 'parser-parity-raw-asset-count');
     $assert(1 === ($report['raw']['text_node_count'] ?? null), 'parser-parity-raw-text-node-count');
-    $assert(1 === ($report['raw']['vector_node_count'] ?? null), 'parser-parity-raw-vector-node-count');
+    $assert(2 === ($report['raw']['vector_node_count'] ?? null), 'parser-parity-raw-vector-node-count');
     $assert(2 === ($report['raw']['component_prop_node_count'] ?? null), 'parser-parity-component-prop-node-count');
-    $assert(7 === ($report['coverage']['raw_to_normalized_node']['covered_count'] ?? null), 'parser-parity-raw-normalized-node-coverage');
+    $assert(12 === ($report['coverage']['raw_to_normalized_node']['covered_count'] ?? null), 'parser-parity-raw-normalized-node-coverage');
+    $assert(1 === ($report['coverage']['raw_vector_to_emitted']['source_count'] ?? null), 'parser-parity-vector-emitted-selected-scope');
+    $assert(1 === ($report['coverage']['raw_vector_to_emitted']['covered_count'] ?? null), 'parser-parity-vector-emitted-clone-suffix-coverage');
+    $assert(0 === ($report['coverage']['raw_vector_to_emitted']['missing_count'] ?? null), 'parser-parity-vector-emitted-no-missing-clone-suffix');
     $assert(4 === ($report['coverage']['raw_asset_refs_to_normalized_asset_refs']['covered_count'] ?? null), 'parser-parity-asset-reference-coverage');
     $assert(is_array($report['top_missing_field_paths'] ?? null), 'parser-parity-missing-field-paths-present');
 
