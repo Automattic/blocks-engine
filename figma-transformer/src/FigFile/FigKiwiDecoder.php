@@ -494,7 +494,7 @@ final class FigKiwiDecoder
             'size', 'transform', 'useAbsoluteBounds', 'cornerRadius',
             'rectangleTopLeftCornerRadius', 'rectangleTopRightCornerRadius',
             'rectangleBottomLeftCornerRadius', 'rectangleBottomRightCornerRadius',
-            'horizontalConstraint', 'verticalConstraint', 'resizeToFit', 'isClip', 'minSize', 'maxSize',
+            'horizontalConstraint', 'verticalConstraint', 'resizeToFit', 'isClip', 'frameMaskDisabled', 'minSize', 'maxSize',
         );
     }
 
