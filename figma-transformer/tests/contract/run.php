@@ -6062,6 +6062,69 @@ $componentPropVisibilityIcon = is_array($componentPropVisibilityWrapper['childre
 $assert(true === ($componentPropVisibilityWrapper['visible'] ?? null), 'component-prop-visibility-shows-hidden-wrapper');
 $assert(true === ($componentPropVisibilityIcon['visible'] ?? null), 'component-prop-visibility-shows-hidden-nested-icon');
 
+$componentPropInstanceSwapNormalizer = new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer();
+$componentPropInstanceSwapNormalized = $componentPropInstanceSwapNormalizer->normalize(array(
+    'name'  => 'Component Property Instance Swap Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'component:icon-default',
+            'type'     => 'COMPONENT',
+            'name'     => 'Default icon component',
+            'key'      => 'default-icon-key',
+            'children' => array(
+                array('id' => 'component:icon-default/vector', 'type' => 'VECTOR', 'name' => 'Default icon vector', 'width' => 10, 'height' => 10, 'pathData' => 'M0 0H10V10Z'),
+            ),
+        ),
+        array(
+            'guid'     => array('sessionID' => 7001, 'localID' => 1),
+            'type'     => 'COMPONENT',
+            'name'     => 'Swapped icon component',
+            'children' => array(
+                array('guid' => array('sessionID' => 7001, 'localID' => 2), 'type' => 'TEXT', 'name' => 'Swapped icon label', 'characters' => 'Swapped icon'),
+            ),
+        ),
+        array(
+            'id'       => 'component:button-with-swap',
+            'type'     => 'COMPONENT',
+            'name'     => 'Button with swappable icon',
+            'key'      => 'button-swap-key',
+            'children' => array(
+                array(
+                    'id'          => 'component:button-with-swap/icon-slot',
+                    'type'        => 'INSTANCE',
+                    'name'        => 'Icon slot',
+                    'componentId' => 'default-icon-key',
+                    'width'       => 10,
+                    'height'      => 10,
+                    'componentPropRefs' => array(
+                        array(
+                            'defID'                  => array('sessionID' => 7001, 'localID' => 9),
+                            'componentPropNodeField' => 'OVERRIDDEN_SYMBOL_ID',
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array(
+            'id'          => 'instance:button-with-swap',
+            'type'        => 'INSTANCE',
+            'name'        => 'Button with swapped icon',
+            'componentId' => 'button-swap-key',
+            'componentPropAssignments' => array(
+                array(
+                    'defID' => array('sessionID' => 7001, 'localID' => 9),
+                    'value' => array('guidValue' => array('sessionID' => 7001, 'localID' => 1)),
+                ),
+            ),
+        ),
+    ),
+));
+$componentPropInstanceSwap = $componentPropInstanceSwapNormalized['node_map']['instance:button-with-swap'] ?? array();
+$componentPropInstanceSwapSlot = is_array($componentPropInstanceSwap['children'][0] ?? null) ? $componentPropInstanceSwap['children'][0] : array();
+$componentPropInstanceSwapLabel = is_array($componentPropInstanceSwapSlot['children'][0] ?? null) ? $componentPropInstanceSwapSlot['children'][0] : array();
+$assert('Swapped icon' === ($componentPropInstanceSwapLabel['characters'] ?? null), 'component-prop-instance-swap-replaces-default-component');
+$assert('instance:button-with-swap/component:button-with-swap/icon-slot' === ($componentPropInstanceSwapSlot['id'] ?? null), 'component-prop-instance-swap-preserves-slot-id');
+
 $instanceCloneNormalizer = new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer();
 $instanceCloneNormalized = $instanceCloneNormalizer->normalize(array(
     'name'  => 'Instance Clone Pattern Fixture',
