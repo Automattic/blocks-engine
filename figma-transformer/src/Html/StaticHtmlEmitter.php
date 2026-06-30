@@ -197,7 +197,7 @@ final class StaticHtmlEmitter
         $files = $this->withInlineCssFiles($files, $css);
 
         $visualNodeMap = $this->visualNodeMap($nodes);
-        $transformDiagnostics = $this->transformDiagnostics($nodes, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics);
+        $transformDiagnostics = $this->transformDiagnostics($nodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics);
         foreach ( $this->unresolvedSourceFontDiagnostics($fontResolution) as $diagnostic ) {
             $diagnostics[] = $diagnostic;
         }
@@ -394,7 +394,7 @@ final class StaticHtmlEmitter
         $files = $this->withInlineCssFiles($files, $css);
 
         $visualNodeMap = $this->visualNodeMap($renderedNodes);
-        $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics);
+        $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics);
         foreach ( $this->unresolvedSourceFontDiagnostics($fontResolution) as $diagnostic ) {
             $diagnostics[] = $diagnostic;
         }
@@ -1938,6 +1938,7 @@ final class StaticHtmlEmitter
      * Build production-transform diagnostics for Figma import development.
      *
      * @param array<int, array<string, mixed>> $nodes
+     * @param array<int, array<string, mixed>> $visualNodeMap
      * @param array<int, array<string, mixed>> $assetFiles
      * @param array<int, string> $fontFamilies
      * @param array<int, array<string, mixed>> $fontUsage
@@ -1945,7 +1946,7 @@ final class StaticHtmlEmitter
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<string, mixed>
      */
-    private function transformDiagnostics(array $nodes, array $assetFiles, array $fontFamilies, array $fontUsage, array $fontResolution, string $css, array $diagnostics): array
+    private function transformDiagnostics(array $nodes, array $visualNodeMap, array $assetFiles, array $fontFamilies, array $fontUsage, array $fontResolution, string $css, array $diagnostics): array
     {
         $image = array(
             'paint_refs'      => 0,
@@ -1966,10 +1967,19 @@ final class StaticHtmlEmitter
             'placeholder_reasons'         => array(),
             'placeholder_nodes'           => array(),
         );
+        $nodeDiagnosticIndex = $this->nodeDiagnosticIndex($nodes);
+        $cssOffsetDiagnostics = $this->cssAbsoluteOffsetDiagnostics($css, $nodeDiagnosticIndex);
+        $visualOffsetDiagnostics = $this->visualOffCanvasDiagnostics($visualNodeMap, $nodeDiagnosticIndex);
         $layout = array(
             'large_negative_left_count' => preg_match_all('/left:-[0-9]{3,}/', $css),
+            'large_css_offset_count' => count($cssOffsetDiagnostics),
+            'large_css_offset_nodes' => $cssOffsetDiagnostics,
+            'off_canvas_visual_node_count' => count($visualOffsetDiagnostics),
+            'off_canvas_visual_nodes' => $visualOffsetDiagnostics,
             'large_absolute_offset_count' => 0,
             'large_absolute_offset_nodes' => array(),
+            'empty_visible_container_count' => 0,
+            'empty_visible_containers' => array(),
             'decorative_underlays'      => array(
                 'count' => 0,
                 'nodes' => array(),
@@ -1992,6 +2002,8 @@ final class StaticHtmlEmitter
         $layout['decorative_underlays']['nodes'] = array_values($layout['decorative_underlays']['nodes']);
         $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
         $layout['large_absolute_offset_nodes'] = array_values($layout['large_absolute_offset_nodes']);
+        $layout['empty_visible_containers'] = array_values($layout['empty_visible_containers']);
+        $layout['empty_visible_container_count'] = count($layout['empty_visible_containers']);
         $layout['image_heavy_landmark_candidates'] = array_values($layout['image_heavy_landmark_candidates']);
         $generatedSvgAssets = $this->generatedSvgAssetDiagnostics($assetFiles);
         $assets = array(
@@ -2070,6 +2082,15 @@ final class StaticHtmlEmitter
                 'severity' => 'warning',
                 'code' => 'off_canvas_left_css',
                 'count' => (int) $layout['large_negative_left_count'],
+                'sample_nodes' => array_slice(is_array($layout['large_css_offset_nodes'] ?? null) ? $layout['large_css_offset_nodes'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($layout['off_canvas_visual_node_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'off_canvas_visual_nodes',
+                'count' => (int) $layout['off_canvas_visual_node_count'],
+                'sample_nodes' => array_slice(is_array($layout['off_canvas_visual_nodes'] ?? null) ? $layout['off_canvas_visual_nodes'] : array(), 0, 10),
             );
         }
         if ( ! empty($layout['large_absolute_offset_count']) ) {
@@ -2153,7 +2174,10 @@ final class StaticHtmlEmitter
                 'externalized_svg_asset_count' => (int) ($generatedSvgAssets['count'] ?? 0),
                 'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
                 'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
+                'large_css_offset_count' => (int) ($layout['large_css_offset_count'] ?? 0),
+                'off_canvas_visual_node_count' => (int) ($layout['off_canvas_visual_node_count'] ?? 0),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
+                'empty_visible_container_count' => (int) ($layout['empty_visible_container_count'] ?? 0),
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
                 'layout_mismatch_count' => (int) ($layout['layout_mismatch_count'] ?? 0),
                 'layout_mismatch_status' => (string) ($layout['layout_mismatch_status'] ?? 'not_evaluated'),
@@ -2395,6 +2419,11 @@ final class StaticHtmlEmitter
             $layout['decorative_underlays']['nodes'][] = $this->decorativeUnderlayDiagnostic($node, $parentNode);
         }
 
+        $emptyContainer = $this->emptyVisibleContainerDiagnostic($node);
+        if ( null !== $emptyContainer ) {
+            $layout['empty_visible_containers'][] = $emptyContainer;
+        }
+
         $landmarkCandidate = $this->imageHeavyLandmarkCandidate($node);
         if ( null !== $landmarkCandidate ) {
             $layout['image_heavy_landmark_candidates'][] = $landmarkCandidate;
@@ -2522,11 +2551,197 @@ final class StaticHtmlEmitter
             'node_id' => (string) ($node['id'] ?? ''),
             'name' => (string) ($node['name'] ?? ''),
             'type' => strtoupper((string) ($node['type'] ?? '')),
+            'class' => $this->nodeDiagnosticClass($node),
             'parent_id' => (string) ($parentNode['id'] ?? ''),
             'left' => null === $left ? null : $this->reportNumericValue($left),
             'top' => null === $top ? null : $this->reportNumericValue($top),
+            'width' => $this->reportNumericValue($width),
+            'height' => $this->reportNumericValue($height),
             'parent_width' => null === $parentWidth ? null : $this->reportNumericValue($parentWidth),
             'parent_height' => null === $parentHeight ? null : $this->reportNumericValue($parentHeight),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodes
+     * @return array{by_id: array<string, array<string, mixed>>, by_class: array<string, array<string, mixed>>}
+     */
+    private function nodeDiagnosticIndex(array $nodes): array
+    {
+        $index = array('by_id' => array(), 'by_class' => array());
+        foreach ( $nodes as $node ) {
+            if ( is_array($node) ) {
+                $this->appendNodeDiagnosticIndex($node, $index);
+            }
+        }
+
+        return $index;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array{by_id: array<string, array<string, mixed>>, by_class: array<string, array<string, mixed>>} $index
+     */
+    private function appendNodeDiagnosticIndex(array $node, array &$index): void
+    {
+        $entry = array(
+            'node_id' => (string) ($node['id'] ?? ''),
+            'name' => (string) ($node['name'] ?? ''),
+            'type' => strtoupper((string) ($node['type'] ?? '')),
+            'class' => $this->nodeDiagnosticClass($node),
+        );
+        if ( '' !== $entry['node_id'] ) {
+            $index['by_id'][$entry['node_id']] = $entry;
+        }
+        if ( '' !== $entry['class'] ) {
+            $index['by_class'][$entry['class']] = $entry;
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) ) {
+                $this->appendNodeDiagnosticIndex($child, $index);
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodeDiagnosticClass(array $node): string
+    {
+        return 'figma-node-' . $this->slug((string) ($node['id'] ?? '') . '-' . (string) ($node['name'] ?? ''));
+    }
+
+    /**
+     * @param array{by_id: array<string, array<string, mixed>>, by_class: array<string, array<string, mixed>>} $nodeIndex
+     * @return array<int, array<string, mixed>>
+     */
+    private function cssAbsoluteOffsetDiagnostics(string $css, array $nodeIndex): array
+    {
+        $samples = array();
+        if ( ! preg_match_all('/\.(figma-node-[A-Za-z0-9_-]+)\{([^}]*)\}/s', $css, $rules, PREG_SET_ORDER) ) {
+            return $samples;
+        }
+
+        foreach ( $rules as $rule ) {
+            $className = (string) ($rule[1] ?? '');
+            $body = (string) ($rule[2] ?? '');
+            $left = $this->cssPixelDeclarationValue($body, 'left');
+            $top = $this->cssPixelDeclarationValue($body, 'top');
+            if ( (null === $left || abs($left) < 1000.0) && (null === $top || abs($top) < 1000.0) ) {
+                continue;
+            }
+
+            $node = is_array($nodeIndex['by_class'][$className] ?? null) ? $nodeIndex['by_class'][$className] : array();
+            $samples[] = array_filter(array(
+                'node_id' => (string) ($node['node_id'] ?? ''),
+                'name' => (string) ($node['name'] ?? ''),
+                'type' => (string) ($node['type'] ?? ''),
+                'class' => $className,
+                'left' => null === $left ? null : $this->reportNumericValue($left),
+                'top' => null === $top ? null : $this->reportNumericValue($top),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+        }
+
+        return array_values($samples);
+    }
+
+    private function cssPixelDeclarationValue(string $body, string $property): ?float
+    {
+        return preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . ':\s*(-?\d+(?:\.\d+)?)px(?:;|$)/', $body, $match)
+            ? (float) $match[1]
+            : null;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $visualNodeMap
+     * @param array{by_id: array<string, array<string, mixed>>, by_class: array<string, array<string, mixed>>} $nodeIndex
+     * @return array<int, array<string, mixed>>
+     */
+    private function visualOffCanvasDiagnostics(array $visualNodeMap, array $nodeIndex): array
+    {
+        $byId = array();
+        foreach ( $visualNodeMap as $entry ) {
+            if ( is_array($entry) && isset($entry['id']) && is_scalar($entry['id']) ) {
+                $byId[(string) $entry['id']] = $entry;
+            }
+        }
+
+        $samples = array();
+        foreach ( $visualNodeMap as $entry ) {
+            if ( ! is_array($entry) || ! isset($entry['parent_id']) || '' === (string) $entry['parent_id'] || ! is_array($entry['rect'] ?? null) ) {
+                continue;
+            }
+            $parent = $byId[(string) $entry['parent_id']] ?? null;
+            if ( ! is_array($parent) || ! is_array($parent['rect'] ?? null) ) {
+                continue;
+            }
+            $rect = $entry['rect'];
+            $parentRect = $parent['rect'];
+            foreach ( array('x', 'y', 'width', 'height') as $key ) {
+                if ( ! is_numeric($rect[$key] ?? null) || ! is_numeric($parentRect[$key] ?? null) ) {
+                    continue 2;
+                }
+            }
+
+            $offCanvas = (float) $rect['x'] < (float) $parentRect['x'] - 100.0
+                || (float) $rect['x'] > (float) $parentRect['x'] + (float) $parentRect['width'] + 100.0
+                || (float) $rect['x'] + (float) $rect['width'] < (float) $parentRect['x'] - 100.0
+                || (float) $rect['y'] < (float) $parentRect['y'] - 100.0
+                || (float) $rect['y'] > (float) $parentRect['y'] + (float) $parentRect['height'] + 100.0
+                || (float) $rect['y'] + (float) $rect['height'] < (float) $parentRect['y'] - 100.0;
+            if ( ! $offCanvas ) {
+                continue;
+            }
+
+            $node = is_array($nodeIndex['by_id'][(string) ($entry['id'] ?? '')] ?? null) ? $nodeIndex['by_id'][(string) $entry['id']] : array();
+            $samples[] = array_filter(array(
+                'node_id' => (string) ($entry['id'] ?? ''),
+                'name' => (string) ($entry['name'] ?? ($node['name'] ?? '')),
+                'type' => (string) ($entry['type'] ?? ($node['type'] ?? '')),
+                'class' => (string) ($node['class'] ?? ''),
+                'parent_id' => (string) ($entry['parent_id'] ?? ''),
+                'left' => $this->reportNumericValue((float) $rect['x'] - (float) $parentRect['x']),
+                'top' => $this->reportNumericValue((float) $rect['y'] - (float) $parentRect['y']),
+                'x' => $this->reportNumericValue((float) $rect['x']),
+                'y' => $this->reportNumericValue((float) $rect['y']),
+                'width' => $this->reportNumericValue((float) $rect['width']),
+                'height' => $this->reportNumericValue((float) $rect['height']),
+                'parent_width' => $this->reportNumericValue((float) $parentRect['width']),
+                'parent_height' => $this->reportNumericValue((float) $parentRect['height']),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+        }
+
+        return array_values($samples);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>|null
+     */
+    private function emptyVisibleContainerDiagnostic(array $node): ?array
+    {
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'SECTION'), true) || false === ($node['visible'] ?? true) ) {
+            return null;
+        }
+        if ( ! empty($this->nodeList($node)) || '' !== trim($this->textContent($node)) || ! empty($this->nodeImagePaints($node)) || ! empty($this->explicitNodeAssetReferences($node)) ) {
+            return null;
+        }
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : 0.0;
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : 0.0;
+        if ( $width <= 0.0 || $height <= 0.0 ) {
+            return null;
+        }
+
+        return array(
+            'node_id' => (string) ($node['id'] ?? ''),
+            'name' => (string) ($node['name'] ?? ''),
+            'type' => $type,
+            'class' => $this->nodeDiagnosticClass($node),
+            'width' => $this->reportNumericValue($width),
+            'height' => $this->reportNumericValue($height),
         );
     }
 
