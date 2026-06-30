@@ -407,6 +407,63 @@ $assert(! in_array('off_canvas_visual_nodes', $normalLocalSignalCodes, true), 'q
 $assert(0 === ($normalLocalPlacementResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['large_absolute_offset_count'] ?? null), 'quality-diagnostics-normal-local-large-offset-count-zero');
 $assert(0 === ($normalLocalPlacementResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['off_canvas_visual_node_count'] ?? null), 'quality-diagnostics-normal-local-visual-offset-count-zero');
 
+$emptyVisibleContainerResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Empty Visible Container Classification Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'empty-container:root',
+            'type'     => 'FRAME',
+            'name'     => 'Empty visible root',
+            'width'    => 480,
+            'height'   => 320,
+            'children' => array(
+                array('id' => 'empty-container:separator', 'type' => 'FRAME', 'name' => '–', 'width' => 320, 'height' => 0.0002),
+                array('id' => 'empty-container:instance', 'type' => 'INSTANCE', 'name' => 'Missing component body', 'width' => 180, 'height' => 48),
+                array('id' => 'empty-container:frame', 'type' => 'FRAME', 'name' => 'Empty visual frame', 'width' => 24, 'height' => 24),
+            ),
+        ),
+    ),
+));
+$emptyVisibleLayout = $emptyVisibleContainerResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+$assert(3 === ($emptyVisibleLayout['empty_visible_container_count'] ?? null), 'empty-visible-container-classification-count');
+$assert(2 === ($emptyVisibleLayout['empty_visible_container_blocker_count'] ?? null), 'empty-visible-container-classification-blocker-count');
+$assert(1 === ($emptyVisibleLayout['empty_visible_container_categories']['decorative_zero_height_separator'] ?? null), 'empty-visible-container-classification-decorative-count');
+$assert(1 === ($emptyVisibleLayout['empty_visible_container_categories']['missing_instance_descendants'] ?? null), 'empty-visible-container-classification-instance-count');
+$assert(1 === ($emptyVisibleLayout['empty_visible_container_categories']['empty_visible_container'] ?? null), 'empty-visible-container-classification-frame-count');
+$emptyVisibleById = array();
+foreach ( is_array($emptyVisibleLayout['empty_visible_containers'] ?? null) ? $emptyVisibleLayout['empty_visible_containers'] : array() as $sample ) {
+    if ( is_array($sample) ) {
+        $emptyVisibleById[(string) ($sample['node_id'] ?? '')] = $sample;
+    }
+}
+$assert(false === ($emptyVisibleById['empty-container:separator']['blocks_parity'] ?? null), 'empty-visible-container-decorative-non-blocking');
+$assert(true === ($emptyVisibleById['empty-container:instance']['blocks_parity'] ?? null), 'empty-visible-container-instance-blocking');
+$assert('missing_instance_descendants' === ($emptyVisibleById['empty-container:instance']['category'] ?? null), 'empty-visible-container-instance-category');
+
+$multiPageEmptyVisibleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Multi Page Empty Visible Classification Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'multi-empty:canvas',
+            'type'     => 'CANVAS',
+            'name'     => 'Pages',
+            'children' => array(
+                array('id' => 'multi-empty:one', 'type' => 'FRAME', 'name' => 'One', 'width' => 320, 'height' => 240, 'children' => array(
+                    array('id' => 'multi-empty:one-separator', 'type' => 'FRAME', 'name' => '–', 'width' => 280, 'height' => 0.0002),
+                )),
+                array('id' => 'multi-empty:two', 'type' => 'FRAME', 'name' => 'Two', 'width' => 320, 'height' => 240, 'children' => array(
+                    array('id' => 'multi-empty:two-instance', 'type' => 'INSTANCE', 'name' => 'Missing component body', 'width' => 120, 'height' => 32),
+                )),
+            ),
+        ),
+    ),
+), array('multi_page' => true, 'frame_ids' => array('multi-empty:one', 'multi-empty:two'), 'entry_frame_id' => 'multi-empty:one'));
+$multiPageEmptyVisibleLayout = $multiPageEmptyVisibleResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+$assert(2 === ($multiPageEmptyVisibleLayout['empty_visible_container_count'] ?? null), 'empty-visible-container-multi-page-count');
+$assert(1 === ($multiPageEmptyVisibleLayout['empty_visible_container_blocker_count'] ?? null), 'empty-visible-container-multi-page-blocker-count');
+$assert(1 === ($multiPageEmptyVisibleLayout['empty_visible_container_categories']['decorative_zero_height_separator'] ?? null), 'empty-visible-container-multi-page-decorative-count');
+$assert(1 === ($multiPageEmptyVisibleLayout['empty_visible_container_categories']['missing_instance_descendants'] ?? null), 'empty-visible-container-multi-page-instance-count');
+
 $multiPageOffCanvasResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Multi Page Off Canvas Diagnostics Fixture',
     'nodes' => array(
