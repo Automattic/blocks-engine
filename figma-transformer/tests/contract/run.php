@@ -5837,6 +5837,66 @@ $assert(substr_count($componentPropTextHtml, 'Welcome to LEGO City') === 1 && su
 $assert(substr_count($componentPropTextHtml, '>Post Title<') === 2, 'component-prop-text-default-only-without-assignment');
 $assert(str_contains($componentPropTextHtml, 'data-figma-node-id="instance:card-c/component:post-heading"'), 'component-prop-text-no-override-preserves-default-node');
 
+$componentPropVisibilityNormalizer = new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer();
+$componentPropVisibilityNormalized = $componentPropVisibilityNormalizer->normalize(array(
+    'name'  => 'Component Property Visibility Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'component:search-input',
+            'type'     => 'COMPONENT',
+            'name'     => 'Search input component',
+            'key'      => 'search-input-key',
+            'children' => array(
+                array(
+                    'id'      => 'component:search-input/icon-wrapper',
+                    'type'    => 'FRAME',
+                    'name'    => 'Search icon wrapper',
+                    'visible' => false,
+                    'componentPropRefs' => array(
+                        array(
+                            'defID'                  => array('sessionID' => 4169, 'localID' => 36),
+                            'componentPropNodeField' => 'VISIBLE',
+                        ),
+                    ),
+                    'children' => array(
+                        array(
+                            'id'      => 'component:search-input/icon',
+                            'type'    => 'VECTOR',
+                            'name'    => 'Search icon',
+                            'visible' => false,
+                            'width'   => 12,
+                            'height'  => 12,
+                            'componentPropRefs' => array(
+                                array(
+                                    'defID'                  => array('sessionID' => 4169, 'localID' => 36),
+                                    'componentPropNodeField' => 'VISIBLE',
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array(
+            'id'          => 'instance:search-input',
+            'type'        => 'INSTANCE',
+            'name'        => 'Search input instance',
+            'componentId' => 'search-input-key',
+            'componentPropAssignments' => array(
+                array(
+                    'defID' => array('sessionID' => 4169, 'localID' => 36),
+                    'value' => array('boolValue' => true),
+                ),
+            ),
+        ),
+    ),
+));
+$componentPropVisibilityInstance = $componentPropVisibilityNormalized['node_map']['instance:search-input'] ?? array();
+$componentPropVisibilityWrapper = $componentPropVisibilityInstance['children'][0] ?? array();
+$componentPropVisibilityIcon = is_array($componentPropVisibilityWrapper['children'][0] ?? null) ? $componentPropVisibilityWrapper['children'][0] : array();
+$assert(true === ($componentPropVisibilityWrapper['visible'] ?? null), 'component-prop-visibility-shows-hidden-wrapper');
+$assert(true === ($componentPropVisibilityIcon['visible'] ?? null), 'component-prop-visibility-shows-hidden-nested-icon');
+
 $instanceCloneNormalizer = new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer();
 $instanceCloneNormalized = $instanceCloneNormalizer->normalize(array(
     'name'  => 'Instance Clone Pattern Fixture',

@@ -1144,8 +1144,22 @@ final class ScenegraphNormalizer
             'instance_id'        => (string) ($instance['id'] ?? $component['id'] ?? ''),
             'component_id'       => $componentId,
             'definition_node_id' => (string) ($component['id'] ?? ''),
-            'overrides'          => $this->mergeComponentPropertyTextOverrides($overrides, $instance, $component),
+            'overrides'          => $this->mergeComponentPropertyOverrides($overrides, $instance, $component),
         );
+    }
+
+    /**
+     * Fold component-property assignments into the override map.
+     *
+     * @param array<string, array<string, mixed>> $overrides Existing override map keyed by node id.
+     * @param array<string, mixed>                 $instance  Instance node carrying componentPropAssignments.
+     * @param array<string, mixed>                 $component Component definition whose nodes carry componentPropRefs.
+     * @return array<string, array<string, mixed>>
+     */
+    private function mergeComponentPropertyOverrides(array $overrides, array $instance, array $component): array
+    {
+        $overrides = $this->mergeComponentPropertyTextOverrides($overrides, $instance, $component);
+        return $this->mergeComponentPropertyVisibilityOverrides($overrides, $instance, $component);
     }
 
     /**
@@ -1305,6 +1319,150 @@ final class ScenegraphNormalizer
 
             $field = strtoupper((string) ($ref['componentPropNodeField'] ?? ''));
             if ( 'TEXT_DATA' !== $field && 'TEXT' !== $field && 'CHARACTERS' !== $field ) {
+                continue;
+            }
+
+            $defId = $this->readGuidId($ref['defID'] ?? $ref['defId'] ?? null);
+            if ( null !== $defId && '' !== $defId ) {
+                $defIds[] = $defId;
+            }
+        }
+
+        return $defIds;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $overrides Existing override map keyed by node id.
+     * @param array<string, mixed>                 $instance  Instance node carrying componentPropAssignments.
+     * @param array<string, mixed>                 $component Component definition whose nodes carry componentPropRefs.
+     * @return array<string, array<string, mixed>>
+     */
+    private function mergeComponentPropertyVisibilityOverrides(array $overrides, array $instance, array $component): array
+    {
+        $assignments = $this->componentPropertyBooleanAssignments($instance);
+        if ( empty($assignments) ) {
+            return $overrides;
+        }
+
+        $targets = array();
+        $this->collectComponentPropertyVisibilityTargets($component, $assignments, $targets);
+
+        foreach ( $targets as $nodeId => $visible ) {
+            if ( ! isset($overrides[$nodeId]['visible']) ) {
+                $overrides[$nodeId]['visible'] = $visible;
+            }
+        }
+
+        return $overrides;
+    }
+
+    /**
+     * @param array<string, mixed> $instance
+     * @return array<string, bool> Map of property definition id => assigned visibility.
+     */
+    private function componentPropertyBooleanAssignments(array $instance): array
+    {
+        $assignmentsRaw = $instance['componentPropAssignments'] ?? null;
+        if ( ! is_array($assignmentsRaw) ) {
+            return array();
+        }
+
+        $assignments = array();
+        foreach ( $assignmentsRaw as $assignment ) {
+            if ( ! is_array($assignment) ) {
+                continue;
+            }
+
+            $defId = $this->readGuidId($assignment['defID'] ?? $assignment['defId'] ?? null);
+            if ( null === $defId || '' === $defId ) {
+                continue;
+            }
+
+            $visible = $this->readComponentPropertyAssignmentBoolean($assignment);
+            if ( null !== $visible ) {
+                $assignments[$defId] = $visible;
+            }
+        }
+
+        return $assignments;
+    }
+
+    /**
+     * @param array<string, mixed> $assignment
+     */
+    private function readComponentPropertyAssignmentBoolean(array $assignment): ?bool
+    {
+        $paths = array(
+            array('value', 'boolValue'),
+            array('value', 'booleanValue'),
+            array('varValue', 'value', 'boolValue'),
+            array('varValue', 'value', 'booleanValue'),
+        );
+
+        foreach ( $paths as $path ) {
+            $cursor = $assignment;
+            foreach ( $path as $key ) {
+                if ( ! is_array($cursor) || ! array_key_exists($key, $cursor) ) {
+                    $cursor = null;
+                    break;
+                }
+                $cursor = $cursor[$key];
+            }
+            if ( is_bool($cursor) ) {
+                return $cursor;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, bool>  $assignments Map of property definition id => visibility.
+     * @param array<string, bool>  $targets Accumulator keyed by node id.
+     */
+    private function collectComponentPropertyVisibilityTargets(array $node, array $assignments, array &$targets): void
+    {
+        foreach ( $this->componentPropertyVisibilityRefDefIds($node) as $defId ) {
+            if ( ! array_key_exists($defId, $assignments) ) {
+                continue;
+            }
+
+            $nodeId = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
+            if ( '' !== $nodeId ) {
+                $targets[$nodeId] = $assignments[$defId];
+            }
+            break;
+        }
+
+        if ( is_array($node['children'] ?? null) ) {
+            foreach ( $node['children'] as $child ) {
+                if ( is_array($child) ) {
+                    $this->collectComponentPropertyVisibilityTargets($child, $assignments, $targets);
+                }
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function componentPropertyVisibilityRefDefIds(array $node): array
+    {
+        $refs = $node['componentPropRefs'] ?? $node['componentPropRef'] ?? null;
+        if ( ! is_array($refs) ) {
+            return array();
+        }
+
+        $defIds = array();
+        foreach ( $refs as $ref ) {
+            if ( ! is_array($ref) ) {
+                continue;
+            }
+
+            $field = strtoupper((string) ($ref['componentPropNodeField'] ?? ''));
+            if ( 'VISIBLE' !== $field && 'VISIBILITY' !== $field ) {
                 continue;
             }
 
