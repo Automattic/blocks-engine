@@ -3663,8 +3663,7 @@ $kiwiDerivedText = $kiwiDerivedTextMessage['message']['nodeChanges'][0]['derived
 $assert(120.0 === ($kiwiDerivedText['layoutSize']['x'] ?? null), 'kiwi-selective-decodes-derived-text-layout-width');
 $assert(1 === count($kiwiDerivedText['baselines'] ?? array()), 'kiwi-selective-decodes-derived-text-baselines');
 $assert(24.0 === ($kiwiDerivedText['baselines'][0]['lineHeight'] ?? null), 'kiwi-selective-decodes-derived-text-baseline-line-height');
-$assert(7 === ($kiwiDerivedText['glyphs'][0]['commandsBlob'] ?? null), 'kiwi-selective-decodes-derived-text-glyph-commands-blob');
-$assert(0.5 === ($kiwiDerivedText['glyphs'][0]['advance'] ?? null), 'kiwi-selective-decodes-derived-text-glyph-advance');
+$assert(! array_key_exists('glyphs', $kiwiDerivedText), 'kiwi-selective-skips-derived-text-glyphs');
 $assert('Inter' === ($kiwiDerivedText['fontMetaData']['key']['family'] ?? null), 'kiwi-selective-decodes-derived-text-font-family');
 $assert(700 === ($kiwiDerivedText['fontMetaData']['fontWeight'] ?? null), 'kiwi-selective-decodes-derived-text-font-weight');
 

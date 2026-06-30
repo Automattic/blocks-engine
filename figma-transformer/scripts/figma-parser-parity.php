@@ -7,8 +7,7 @@ use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCapability;
 use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCommandDecoder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiParser;
-use Automattic\BlocksEngine\FigmaTransformer\FigmaTransformer;
-use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphIndex;
+use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 
 $autoload = __DIR__ . '/../vendor/autoload.php';
@@ -35,9 +34,10 @@ $zstdCommand = is_string($zstdCommand) && '' !== $zstdCommand ? $zstdCommand : n
 $limit = max(1, (int) ($options['limit'] ?? 20));
 $sampleLimit = max(1, (int) ($options['sample_limit'] ?? 5));
 $maxNodes = isset($options['max_nodes']) ? (int) $options['max_nodes'] : null;
+$archiveOptions = blocks_engine_figma_parser_parity_archive_options($options);
 
 $archive = null;
-$source = blocks_engine_figma_parser_parity_read_source($input, $zstdCommand, $archive);
+$source = blocks_engine_figma_parser_parity_read_source($input, $zstdCommand, $archiveOptions, $archive);
 $scenegraph = is_array($source['scenegraph'] ?? null) ? $source['scenegraph'] : array();
 $transformOptions = array();
 if ( isset($options['frame_id']) && '' !== (string) $options['frame_id'] ) {
@@ -49,13 +49,14 @@ if ( null !== $maxNodes ) {
 
 $archiveReader = blocks_engine_figma_parser_parity_archive_reader($zstdCommand);
 $normalizer = new ScenegraphNormalizer();
-$normalized = $normalizer->normalize($scenegraph, $transformOptions);
-$transformer = new FigmaTransformer($archiveReader);
-$result = str_ends_with(strtolower($input), '.json')
-    ? $transformer->transformScenegraph($scenegraph, $transformOptions)->toArray()
-    : $transformer->transformFile($input, $transformOptions)->toArray();
+$transformScenegraph = str_ends_with(strtolower($input), '.json')
+    ? $scenegraph
+    : blocks_engine_figma_parser_parity_scenegraph_with_archive_assets($scenegraph, $archive);
+$normalized = $normalizer->normalize($transformScenegraph, $transformOptions);
+unset($transformScenegraph);
+$result = blocks_engine_figma_parser_parity_emit_result($normalized, $transformOptions);
 
-$report = blocks_engine_figma_parser_parity_report($input, $source, $archive, $scenegraph, $normalized, $result, $transformOptions, $limit, $sampleLimit, $zstdCommand);
+$report = blocks_engine_figma_parser_parity_report($input, $source, $archive, $scenegraph, $normalized, $result, $transformOptions, $archiveOptions, $limit, $sampleLimit, $zstdCommand);
 $json = blocks_engine_figma_parser_parity_json_encode($report) . "\n";
 
 if ( isset($options['output']) && '' !== (string) $options['output'] ) {
@@ -96,13 +97,34 @@ function blocks_engine_figma_parser_parity_options(array $argv): array
 
 function blocks_engine_figma_parser_parity_usage(mixed $stream): void
 {
-    fwrite($stream, "Usage: figma-parser-parity.php <path-to-fig-or-scenegraph-json> [--frame-id=<id>] [--zstd-command=/opt/homebrew/bin/zstd] [--max-nodes=5000] [--limit=20] [--sample-limit=5] [--output=/tmp/parity.json]\n");
+    fwrite($stream, "Usage: figma-parser-parity.php <path-to-fig-or-scenegraph-json> [--frame-id=<id>] [--zstd-command=/opt/homebrew/bin/zstd] [--max-nodes=5000] [--max-kiwi-message-decode-bytes=1] [--include-asset-content=0] [--limit=20] [--sample-limit=5] [--output=/tmp/parity.json]\n");
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_parser_parity_archive_options(array $options): array
+{
+    return array(
+        'include_asset_content' => blocks_engine_figma_parser_parity_bool_option($options['include_asset_content'] ?? false),
+        'max_kiwi_message_decode_bytes' => max(1, (int) ($options['max_kiwi_message_decode_bytes'] ?? 1)),
+    );
+}
+
+function blocks_engine_figma_parser_parity_bool_option(mixed $value): bool
+{
+    if ( is_bool($value) ) {
+        return $value;
+    }
+
+    $normalized = strtolower((string) $value);
+    return in_array($normalized, array('1', 'true', 'yes', 'on'), true);
 }
 
 /**
  * @return array{scenegraph: array<string, mixed>, shape: string, decoded_scenegraph?: array<string, mixed>}
  */
-function blocks_engine_figma_parser_parity_read_source(string $input, ?string $zstdCommand, ?array &$archive): array
+function blocks_engine_figma_parser_parity_read_source(string $input, ?string $zstdCommand, array $archiveOptions, ?array &$archive): array
 {
     if ( str_ends_with(strtolower($input), '.json') ) {
         $decoded = is_readable($input) ? json_decode((string) file_get_contents($input), true) : null;
@@ -110,12 +132,62 @@ function blocks_engine_figma_parser_parity_read_source(string $input, ?string $z
     }
 
     $archiveReader = blocks_engine_figma_parser_parity_archive_reader($zstdCommand);
-    $archive = $archiveReader->read($input);
+    $archive = $archiveReader->read($input, $archiveOptions);
     $candidate = blocks_engine_figma_parser_parity_decoded_scenegraph_candidate($archive);
     return array(
         'scenegraph' => is_array($candidate['payload'] ?? null) ? $candidate['payload'] : array(),
         'shape' => 'fig',
         'decoded_scenegraph' => is_array($candidate['report'] ?? null) ? $candidate['report'] : array(),
+    );
+}
+
+/**
+ * @param array<string, mixed>|null $archive
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_parser_parity_scenegraph_with_archive_assets(array $scenegraph, ?array $archive): array
+{
+    $archiveAssets = is_array($archive) && is_array($archive['assets'] ?? null) ? $archive['assets'] : array();
+    if ( empty($archiveAssets) ) {
+        return $scenegraph;
+    }
+
+    $assets = is_array($scenegraph['assets'] ?? null) ? $scenegraph['assets'] : array();
+    foreach ( $archiveAssets as $asset ) {
+        if ( ! is_array($asset) ) {
+            continue;
+        }
+
+        $id = (string) ($asset['id'] ?? $asset['hash'] ?? $asset['path'] ?? count($assets));
+        $assets[$id] = $asset;
+    }
+
+    $scenegraph['assets'] = $assets;
+    return $scenegraph;
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_parser_parity_emit_result(array $normalized, array $transformOptions): array
+{
+    $artifact = (new StaticHtmlEmitter())->emit($normalized, $transformOptions);
+    $diagnostics = array_merge(
+        is_array($normalized['diagnostics'] ?? null) ? $normalized['diagnostics'] : array(),
+        is_array($artifact['diagnostics'] ?? null) ? $artifact['diagnostics'] : array()
+    );
+
+    return array(
+        'status' => $artifact['status'] ?? 'success_with_warnings',
+        'diagnostics' => $diagnostics,
+        'files' => is_array($artifact['files'] ?? null) ? $artifact['files'] : array(),
+        'assets' => is_array($artifact['assets'] ?? null) ? $artifact['assets'] : array(),
+        'source_reports' => array(
+            'figma' => array(
+                'scenegraph' => $normalized['source_report'] ?? array(),
+                'html' => is_array($artifact['source_report'] ?? null) ? $artifact['source_report'] : array(),
+            ),
+        ),
     );
 }
 
@@ -191,18 +263,16 @@ function blocks_engine_figma_parser_parity_scenegraph_shape(array $payload): str
 function blocks_engine_figma_parser_parity_scenegraph_score(array $payload, string $shape): int
 {
     $score = 'document' === $shape ? 40 : ('nodes' === $shape ? 30 : 20);
-    $index = (new ScenegraphIndex())->build($payload);
-    return $score + count(is_array($index['nodes'] ?? null) ? $index['nodes'] : array());
+    return $score + count(blocks_engine_figma_parser_parity_flat_node_map($payload));
 }
 
 /**
  * @param array<string, mixed>|null $archive
  * @return array<string, mixed>
  */
-function blocks_engine_figma_parser_parity_report(string $input, array $source, ?array $archive, array $scenegraph, array $normalized, array $result, array $transformOptions, int $limit, int $sampleLimit, ?string $zstdCommand): array
+function blocks_engine_figma_parser_parity_report(string $input, array $source, ?array $archive, array $scenegraph, array $normalized, array $result, array $transformOptions, array $archiveOptions, int $limit, int $sampleLimit, ?string $zstdCommand): array
 {
-    $rawIndex = (new ScenegraphIndex())->build($scenegraph);
-    $rawNodes = is_array($rawIndex['nodes'] ?? null) ? $rawIndex['nodes'] : array();
+    $rawNodes = blocks_engine_figma_parser_parity_flat_node_map($scenegraph);
     $normalizedNodes = is_array($normalized['node_map'] ?? null) ? $normalized['node_map'] : array();
     $htmlReport = is_array($result['source_reports']['figma']['html'] ?? null) ? $result['source_reports']['figma']['html'] : array();
     $visualNodeIds = blocks_engine_figma_parser_parity_visual_node_ids($htmlReport);
@@ -224,6 +294,7 @@ function blocks_engine_figma_parser_parity_report(string $input, array $source, 
             'shape' => $source['shape'] ?? null,
             'decoded_scenegraph' => $source['decoded_scenegraph'] ?? null,
             'archive_input' => is_array($archive) ? ($archive['input'] ?? null) : null,
+            'archive_options' => $archiveOptions,
             'zstd_command' => $zstdCommand,
         ), static fn (mixed $value): bool => null !== $value),
         'options' => $transformOptions,
@@ -271,6 +342,112 @@ function blocks_engine_figma_parser_parity_report(string $input, array $source, 
             'emitted_sample' => array_slice(is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array(), 0, $limit),
         ),
     );
+}
+
+/**
+ * @return array<string, array<string, mixed>>
+ */
+function blocks_engine_figma_parser_parity_flat_node_map(array $source): array
+{
+    $nodes = array();
+    foreach ( blocks_engine_figma_parser_parity_root_nodes($source) as $key => $root ) {
+        if ( is_array($root) ) {
+            blocks_engine_figma_parser_parity_collect_flat_node($root, is_string($key) ? $key : null, $nodes);
+        }
+    }
+
+    ksort($nodes, SORT_NATURAL);
+    return $nodes;
+}
+
+/**
+ * @return array<mixed>
+ */
+function blocks_engine_figma_parser_parity_root_nodes(array $source): array
+{
+    foreach ( array('NODE_CHANGES', 'node_changes', 'nodeChanges') as $key ) {
+        if ( is_array($source[$key] ?? null) ) {
+            return $source[$key];
+        }
+    }
+
+    if ( is_array($source['document'] ?? null) ) {
+        return array($source['document']);
+    }
+
+    if ( is_array($source['nodes'] ?? null) ) {
+        return $source['nodes'];
+    }
+
+    return $source;
+}
+
+/**
+ * @param array<string, array<string, mixed>> $nodes
+ */
+function blocks_engine_figma_parser_parity_collect_flat_node(array $value, ?string $fallbackId, array &$nodes): void
+{
+    $node = blocks_engine_figma_parser_parity_unwrap_node($value);
+    if ( null === $node ) {
+        return;
+    }
+
+    $id = blocks_engine_figma_parser_parity_node_id($node) ?? $fallbackId;
+    if ( null === $id || '' === $id ) {
+        return;
+    }
+
+    $children = is_array($node['children'] ?? null) ? $node['children'] : array();
+    unset($node['children']);
+    $node['id'] = $id;
+    $nodes[$id] = $node;
+
+    foreach ( $children as $key => $child ) {
+        if ( is_array($child) ) {
+            blocks_engine_figma_parser_parity_collect_flat_node($child, is_string($key) ? $key : null, $nodes);
+        }
+    }
+}
+
+/**
+ * @return array<string, mixed>|null
+ */
+function blocks_engine_figma_parser_parity_unwrap_node(array $value): ?array
+{
+    foreach ( array('node', 'document', 'newValue', 'value') as $key ) {
+        if ( is_array($value[$key] ?? null) ) {
+            return $value[$key];
+        }
+    }
+
+    if ( isset($value['type']) || isset($value['id']) || isset($value['guid']) || isset($value['children']) ) {
+        return $value;
+    }
+
+    return null;
+}
+
+function blocks_engine_figma_parser_parity_node_id(array $node): ?string
+{
+    foreach ( array('id', 'node_id', 'nodeId') as $key ) {
+        if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== (string) $node[$key] ) {
+            return (string) $node[$key];
+        }
+    }
+
+    $guid = $node['guid'] ?? null;
+    if ( is_array($guid) ) {
+        $session = $guid['sessionID'] ?? null;
+        $local = $guid['localID'] ?? null;
+        if ( is_scalar($session) && is_scalar($local) ) {
+            return (string) $session . ':' . (string) $local;
+        }
+        if ( is_scalar($local) ) {
+            return (string) $local;
+        }
+    }
+
+    return null;
 }
 
 /**
