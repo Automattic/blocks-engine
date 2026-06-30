@@ -223,7 +223,7 @@ final class FigKiwiDecodePolicy
      */
     private function nodeIdentityFields(): array
     {
-        return array('guid', 'parentIndex', 'type', 'name', 'visible', 'opacity', 'blendMode');
+        return array('guid', 'parentIndex', 'sortPosition', 'type', 'name', 'visible', 'opacity', 'blendMode');
     }
 
     /**
