@@ -30,12 +30,12 @@ final class PaintNormalizer
         }
 
         $styleFillId = $this->readStyleGuidId($node['styleIdForFill'] ?? null);
-        if ( null !== $styleFillId && ! empty($paintStyles[$styleFillId]['fills']) ) {
+        if ( null !== $styleFillId && ( empty($collections['fills']) || ! $this->hasGeometryPaintSource($node) ) && ! empty($paintStyles[$styleFillId]['fills']) ) {
             $collections['fills'] = $paintStyles[$styleFillId]['fills'];
         }
 
         $styleStrokeId = $this->readStyleGuidId($node['styleIdForStrokeFill'] ?? $node['styleIdForStroke'] ?? null);
-        if ( null !== $styleStrokeId && ! empty($paintStyles[$styleStrokeId]['fills']) ) {
+        if ( null !== $styleStrokeId && ( empty($collections['strokes']) || ! $this->hasGeometryPaintSource($node) ) && ! empty($paintStyles[$styleStrokeId]['fills']) ) {
             $collections['strokes'] = $paintStyles[$styleStrokeId]['fills'];
         }
 
@@ -127,6 +127,26 @@ final class PaintNormalizer
         }
 
         return $this->readGuidId($style);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasGeometryPaintSource(array $node): bool
+    {
+        foreach ( array('fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths') as $key ) {
+            if ( ! empty($node[$key]) ) {
+                return true;
+            }
+        }
+
+        foreach ( array('pathData', 'path', 'd') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== trim((string) $node[$key]) ) {
+                return true;
+            }
+        }
+
+        return isset($node['vectorData']) && is_array($node['vectorData']) && ! empty($node['vectorData']);
     }
 
     /**

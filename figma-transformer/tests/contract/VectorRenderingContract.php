@@ -147,7 +147,33 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(1 === (int) ($readyGeometryCoverage['placeholders'] ?? 0), 'ready-geometry-decode-coverage-placeholder-count');
     $assert(0.5 === ($readyGeometryCoverage['coverage_ratio'] ?? null), 'ready-geometry-decode-coverage-ratio');
     $assert(1 === (int) ($readyGeometryCoverage['placeholder_reason_categories']['no_geometry_available'] ?? 0), 'ready-geometry-decode-coverage-no-geometry-category');
-    
+
+    $localPaintWithStyleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Local Paint With Style Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'paint-style:white',
+                'type'       => 'RECTANGLE',
+                'name'       => 'White paint style',
+                'styleType'  => 'FILL',
+                'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+            ),
+            array(
+                'id'             => 'vector:local-paint-with-style',
+                'type'           => 'ROUNDED_RECTANGLE',
+                'name'           => 'Local Paint With Style',
+                'width'          => 28,
+                'height'         => 3,
+                'styleIdForFill' => 'paint-style:white',
+                'fillPaints'     => array(array('type' => 'SOLID', 'color' => array('r' => 0.850980401, 'g' => 0.850980401, 'b' => 0.850980401, 'a' => 1))),
+                'fillGeometry'   => array(array('path' => 'M 0 0 L 28 0 L 28 3 L 0 3 Z', 'windingRule' => 'NONZERO')),
+            ),
+        ),
+    ));
+    $localPaintWithStyleCss = $fileContent($localPaintWithStyleResult, 'style.css');
+    $assert(str_contains($localPaintWithStyleCss, '.figma-node-vector-local-paint-with-style-local-paint-with-style{width:28px;height:3px;background:#d9d9d9'), 'local-fill-paint-wins-over-style-fill');
+    $assert(! str_contains($localPaintWithStyleCss, '.figma-node-vector-local-paint-with-style-local-paint-with-style{width:28px;height:3px;background:#ffffff'), 'style-fill-does-not-overwrite-local-fill-paint');
+     
     $externalizedEquivalentVectorPath = 'M0,0' . str_repeat('L10,10', 12000) . 'Z';
     $externalizedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Externalized Vector Fixture',
