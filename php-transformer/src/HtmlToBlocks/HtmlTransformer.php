@@ -1065,7 +1065,7 @@ final class HtmlTransformer
 
         if ( $this->isInlineContentElement($tagName) ) {
             if ( $this->isRuntimeDomTarget($element) ) {
-                return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
+                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
             }
 
             $dynamicText = $this->dynamicTextContent($element);
@@ -1452,8 +1452,11 @@ final class HtmlTransformer
                 return null;
             }
 
-            $this->captureCanvasFallback($element, $fallbacks);
-            return null;
+            $this->recordRuntimeIsland($element, 'canvas', 'canvas_requires_runtime', 'canvas_element_and_client_script_execution', array(
+                'script_dependency_hint' => 'Scripts may target this canvas and call canvas APIs such as getContext(); preserving the native element keeps the runtime addressable.',
+                'required_scripts'        => $this->requiredScriptsForElement($element),
+            ));
+            return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
         }
 
         if ( 'script' === $tagName ) {
