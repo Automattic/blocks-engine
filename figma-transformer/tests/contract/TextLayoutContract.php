@@ -78,6 +78,8 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert(146.5 === ($derivedTextVisualNode['text']['derived_layout']['size']['width'] ?? null), 'visual-node-derived-text-layout-width');
     $assert(! isset($derivedTextVisualNode['text']['derived_layout']['glyph_paths']), 'visual-node-derived-text-default-omits-glyph-paths');
     $assert('dom_text' === ($derivedTextVisualNode['text']['glyph_rendering'] ?? null), 'visual-node-derived-text-default-dom-rendering');
+    $derivedTextLayoutCss = $fileContent($derivedTextLayoutResult, 'style.css');
+    $assert(str_contains($derivedTextLayoutCss, '.figma-node-text-derived-layout-measured-text{') && str_contains($derivedTextLayoutCss, 'width:146.5px;height:32.25px') && str_contains($derivedTextLayoutCss, 'line-height:22px'), 'single-line-derived-baseline-line-height-css');
     $assert(false === ($derivedTextLayoutResult['source_reports']['figma']['html']['render_text_glyph_paths'] ?? null), 'derived-text-glyph-rendering-default-disabled');
     $assert(! str_contains($fileContent($derivedTextLayoutResult, 'index.html'), 'data-figma-text-glyphs="true"'), 'derived-text-default-avoids-glyph-svg');
     
@@ -472,7 +474,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
         ),
     ));
     $derivedHugTextHeightCss = $fileContent($derivedHugTextHeightResult, 'style.css');
-    $assert(str_contains($derivedHugTextHeightCss, '.figma-node-text-derived-hug-text-height-trimmed-heading{') && str_contains($derivedHugTextHeightCss, 'width:320px;height:86px') && str_contains($derivedHugTextHeightCss, 'font-size:128px;line-height:0.9'), 'derived-hug-text-height-preserves-measured-box');
+    $assert(str_contains($derivedHugTextHeightCss, '.figma-node-text-derived-hug-text-height-trimmed-heading{') && str_contains($derivedHugTextHeightCss, 'width:320px;height:86px') && str_contains($derivedHugTextHeightCss, 'font-size:128px') && str_contains($derivedHugTextHeightCss, 'line-height:115.2px'), 'derived-hug-text-height-preserves-measured-box');
     $assert(! str_contains($derivedHugTextHeightCss, '.figma-node-text-derived-hug-text-height-trimmed-heading{width:320px;height:fit-content'), 'derived-hug-text-height-not-fit-content');
     $assert(str_contains($derivedHugTextHeightCss, '.figma-node-frame-derived-hug-text-height-measured-text-stack{width:320px;height:140px;display:flex;flex-direction:column;gap:32px}'), 'derived-hug-text-height-parent-gap-preserved');
     

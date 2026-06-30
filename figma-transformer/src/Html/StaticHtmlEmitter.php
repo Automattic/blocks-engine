@@ -4366,7 +4366,7 @@ final class StaticHtmlEmitter
     {
         $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
         $baselines = is_array($derivedLayout['baselines'] ?? null) ? $derivedLayout['baselines'] : array();
-        if ( 2 > count($baselines) ) {
+        if ( empty($baselines) ) {
             return null;
         }
 
