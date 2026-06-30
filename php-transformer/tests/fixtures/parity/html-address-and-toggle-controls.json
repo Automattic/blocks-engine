@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-address-and-toggle-controls",
-  "description": "Preserves semantic address content and keeps empty runtime-only toggle controls available for scripts.",
+  "description": "Preserves semantic address content and drops the redundant JS hamburger menu-toggle when its controlled menu converts to core/navigation; the toggle's runtime intent stays available via interaction candidates.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-address-and-toggle-controls.json",
-    "notes": "Generic fixture for semantic address text and navigation/menu toggle chrome."
+    "notes": "Generic fixture for semantic address text and redundant navigation/menu toggle chrome."
   },
   "legacy_comparison": {
     "skip": true,
@@ -16,11 +16,8 @@
     "content": "<header><button id=\"nav-toggle\" class=\"hamburger nav-toggle\" aria-label=\"Open navigation menu\" aria-expanded=\"false\" aria-controls=\"site-menu\" data-action=\"toggle-menu\"><span></span><span></span><span></span></button><nav><ul id=\"site-menu\"><li><a href=\"/about\">About</a></li></ul></nav></header><footer><address class=\"footer-address\">48 Elm Street<br><a href=\"mailto:hello@example.com\">hello@example.com</a></address></footer>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/button", "attrs": { "anchor": "nav-toggle", "className": "hamburger nav-toggle", "tagName": "button", "aria-label": "Open navigation menu", "aria-expanded": "false", "aria-controls": "site-menu", "data-action": "toggle-menu" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation" },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "About", "url": "/about" } },
+    { "path": "blocks.0", "name": "core/navigation" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "About", "url": "/about" } },
     { "path": "blocks.1", "name": "core/paragraph", "attrs": { "className": "footer-address", "content": "48 Elm Street<br><a href=\"mailto:hello@example.com\">hello@example.com</a>" } }
   ],
   "expected_fallbacks": [],
@@ -31,13 +28,11 @@
     { "path": "source_reports.interaction_candidates.0.target", "assert": "equals", "value": "#site-menu" },
     { "path": "serialized_blocks", "assert": "contains", "value": "footer-address" },
     { "path": "serialized_blocks", "assert": "contains", "value": "hello@example.com" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "Open navigation menu" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "id=\"nav-toggle\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link wp-element-button hamburger nav-toggle\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "aria-controls=\"site-menu\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "data-action=\"toggle-menu\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<span></span><span></span><span></span>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "wp:button" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp:navigation" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp:navigation-link" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:button" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "nav-toggle" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "data-action=\"toggle-menu\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:html" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]

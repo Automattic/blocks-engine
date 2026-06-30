@@ -9,12 +9,117 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Scenegraph;
  */
 final class ScenegraphPagePlanner
 {
+    /**
+     * Frame-candidate ceiling for planning-time responsive detection.
+     *
+     * Responsive grouping is a frame-level question: it only needs the small
+     * set of page-candidate FRAMEs the planner already holds in memory (name,
+     * dimensions, device hint, ancestor ids) — NOT an index of every
+     * descendant node. Detection therefore runs over that frame set without
+     * rebuilding a second whole-scenegraph {@see ScenegraphIndex}, so TOTAL
+     * node count no longer drives detection memory and grouping stays ON for
+     * large designs (e.g. the 293MB "WP.Cloud 2.0" .fig) instead of degrading
+     * to one-page-per-frame. The only remaining bound guards the genuinely
+     * pathological case of an absurd number of frame candidates, where the
+     * O(frames^2) sibling scan would dominate; above it the planner emits a
+     * {@see ScenegraphPagePlanner::plan()} `responsive_detection_bounded`
+     * diagnostic and degrades to one-page-per-frame. Overridable via the
+     * `responsive_detection_frame_limit` plan option.
+     */
+    private const RESPONSIVE_DETECTION_FRAME_LIMIT = 5000;
+
+    /**
+     * Minimum absolute width delta (px) for a sibling-group to count as a real
+     * responsive breakpoint spread rather than same-width duplicate drafts.
+     */
+    private const RESPONSIVE_WIDTH_MATERIAL_PX = 200.0;
+
+    /**
+     * Minimum relative width spread (max-min / max) for a responsive group when
+     * device hints alone do not distinguish the members.
+     */
+    private const RESPONSIVE_WIDTH_MATERIAL_RATIO = 0.2;
+
+    /**
+     * Page-candidacy dimension band. A real page artboard is a tall, scrolling
+     * frame whose width sits in the realistic device range (small mobile through
+     * wide desktop). Frames outside this band are top-level on the canvas but are
+     * not pages: layout-grid guides / chips (narrower than {@see PAGE_MIN_WIDTH_PX}),
+     * oversized presentation / overview / style-guide boards (wider than
+     * {@see PAGE_MAX_WIDTH_PX}), and decorative dividers / cover thumbnails /
+     * device mockups (shorter than {@see PAGE_MIN_HEIGHT_PX}). Explicit
+     * `frame_ids` bypass this band so any requested frame stays selectable.
+     */
+    private const PAGE_MIN_WIDTH_PX  = 320.0;
+    private const PAGE_MAX_WIDTH_PX  = 2048.0;
+    private const PAGE_MIN_HEIGHT_PX = 700.0;
+
     public function __construct(
-        private readonly ScenegraphIndex $index = new ScenegraphIndex()
+        private readonly ScenegraphIndex $index = new ScenegraphIndex(),
+        private readonly ScenegraphFrameInspector $frameInspector = new ScenegraphFrameInspector(),
+        private readonly ScenegraphFrameClassifier $frameClassifier = new ScenegraphFrameClassifier()
     ) {
     }
 
     /**
+     * Build deterministic page plans, collapsing responsive sibling-groups.
+     *
+     * When {@see ScenegraphFrameInspector} reports that several FRAME nodes
+     * represent the same page at different widths (a responsive sibling-group),
+     * those frames collapse into a SINGLE page plan that carries an ordered list
+     * of breakpoint variants instead of emitting one page per frame. Frames with
+     * no detected siblings still produce one single-variant page each, so the
+     * top-level page fields stay backward compatible. If the inspector cannot
+     * determine a group, the planner falls back to one-page-per-frame.
+     *
+     * Each entry in the returned `pages` list has this shape (the contract the
+     * downstream `@media`-aware emitter consumes):
+     *
+     *     array(
+     *         // Primary (widest/desktop) variant drives these page-level fields.
+     *         'frame_id'              => string,   // primary variant frame id
+     *         'name'                  => string,
+     *         'slug'                  => string,   // deduped, derived from primary
+     *         'path'                  => string,   // index.html for the entrypoint
+     *         'entrypoint'            => bool,
+     *         // Frame role classification (#247). Only ROLE_PAGE frames are
+     *         // selected as pages; design_system frames are excluded upstream.
+     *         'role'                  => string,   // ScenegraphFrameClassifier::ROLE_PAGE
+     *         'page_type'             => string,   // front_page|single|archive|page|unknown
+     *                                              //   (maps to the WP template hierarchy:
+     *                                              //    front_page→front-page.php,
+     *                                              //    single→single.php,
+     *                                              //    archive→archive.php/index.php,
+     *                                              //    page→page.php, unknown→fallback)
+     *         'classification_signals' => array<int, string>, // why this page_type was chosen
+     *         'figma_page_id'         => string|null,
+     *         'figma_page_name'       => string|null,
+     *         'section_id'            => string|null,
+     *         'section_name'          => string|null,
+     *         'width'                 => float|null, // primary variant width
+     *         'height'                => float|null, // primary variant height
+     *         'node_count'            => int,
+     *         'text_count'            => int,
+     *         'asset_reference_count' => int,
+     *         // Responsive grouping contract.
+     *         'responsive'            => bool, // true when more than one variant
+     *         'breakpoint_count'      => int,  // count($variants)
+     *         'variants'              => array<int, array{
+     *             frame_id: string,
+     *             name: string,
+     *             slug: string,           // identity for the variant frame
+     *             device_hint: string,    // desktop|tablet|mobile|unknown
+     *             viewport_width: float|null,
+     *             viewport_height: float|null,
+     *             primary: bool,          // true for the widest/desktop variant
+     *             order: int,             // 0-based, widest first
+     *         }>,
+     *         'diagnostics'           => array<int, array<string, mixed>>,
+     *     )
+     *
+     * Variants are ordered widest-first (desktop, tablet, mobile, unknown), so
+     * `variants[0]` is always the primary that drives the page slug/identity.
+     *
      * @param array<string, mixed> $source Decoded Figma scenegraph source array.
      * @param array<string, mixed> $options Page planning options.
      * @return array<string, mixed>
@@ -28,47 +133,138 @@ final class ScenegraphPagePlanner
         $diagnostics = is_array($index['diagnostics'] ?? null) ? $index['diagnostics'] : array();
         $statsMemo = array();
         $explicitFrameIds = $this->explicitFrameIds($options);
-        $includeAllPages = true === ($options['include_all_pages'] ?? false) || ! empty($options['frame_ids']);
+        $includeAllPages = true === ($options['include_all_pages'] ?? false)
+            || true === ($options['multi_page'] ?? false)
+            || ! empty($options['frame_ids']);
         $maxPages = isset($options['max_pages']) && is_numeric($options['max_pages']) ? max(1, (int) $options['max_pages']) : null;
         $entryFrameId = isset($options['entry_frame_id']) && is_scalar($options['entry_frame_id']) ? (string) $options['entry_frame_id'] : null;
         $slugMap = is_array($options['frame_slug_map'] ?? null) ? $options['frame_slug_map'] : array();
         $candidates = array();
 
+        // Page candidates are TOP-LEVEL frames: FRAME nodes that sit directly on
+        // a CANVAS (or the document root), with only transparent SECTION grouping
+        // allowed in between. The deeply nested frames (annotation cards like
+        // "Buttons"/"Legend", layout-grid guides, component internals) are NOT
+        // pages and must not drown the real pages or misdirect dev-status
+        // selection. Restricting candidacy to the top level collapses the
+        // candidate set from "every FRAME at any depth" to the handful of real
+        // page frames. Explicit `frame_ids` bypass this scoping (built on demand
+        // in the selection branch below) so a requested frame at any depth stays
+        // selectable.
         foreach ( $nodes as $id => $node ) {
             if ( ! is_string($id) || ! is_array($node) || 'FRAME' !== strtoupper((string) ($node['type'] ?? '')) ) {
                 continue;
             }
+            if ( ! $this->isTopLevelFrame($id, $nodes, $parentIndex) ) {
+                continue;
+            }
 
-            $stats = $this->subtreeStats($id, $nodes, $childrenIndex, $statsMemo);
-            $dimensions = $this->dimensions($node);
-            $candidates[$id] = array(
-                'id'         => $id,
-                'node'       => $node,
-                'stats'      => $stats,
-                'dimensions' => $dimensions,
-                'score'      => $this->scoreCandidate($id, $node, $dimensions, $stats, $nodes, $parentIndex),
+            $candidates[$id] = $this->buildCandidate($id, $node, $nodes, $childrenIndex, $parentIndex, $statsMemo);
+        }
+
+        // Frame role classification (#247): decide WHAT each top-level frame IS
+        // before any pixels are emitted. Design-system / style-guide frames are
+        // excluded from page selection; real pages carry a WP-template-aligned
+        // page_type. Classification runs over the frame-level signals already in
+        // memory, so it adds no extra scenegraph traversal.
+        $classifications = array();
+        foreach ( $candidates as $candidateId => $candidate ) {
+            $classifications[(string) $candidateId] = $this->classifyCandidate(
+                (string) $candidateId,
+                $candidate,
+                $nodes,
+                $childrenIndex,
+                $parentIndex
             );
         }
+        $designSystemIds = array();
+        foreach ( $classifications as $candidateId => $classification ) {
+            if ( ScenegraphFrameClassifier::ROLE_DESIGN_SYSTEM === ($classification['role'] ?? '') ) {
+                $designSystemIds[(string) $candidateId] = true;
+            }
+        }
+
+        // The SELECTABLE page pool: top-level candidates that are neither
+        // design-system frames nor off-page-sized noise (grid guides, decorative
+        // dividers, cover/device boards, oversized overview artboards). Selection,
+        // dev-status ranking, responsive detection and grouping all operate over
+        // THIS pool so noise frames never become pages and never get pulled into a
+        // real page's responsive group. The full `$candidates` set is retained for
+        // candidate_count and classification coverage. If dimension filtering
+        // empties the pool (unusual designs), fall back to all non-design-system
+        // candidates so a plan is still produced and single-page never yields zero.
+        $pageCandidates = array();
+        foreach ( $candidates as $candidateId => $candidate ) {
+            if ( isset($designSystemIds[$candidateId]) ) {
+                continue;
+            }
+            if ( ! $this->isPageSizedCandidate(
+                (float) ($candidate['dimensions']['width'] ?? 0),
+                (float) ($candidate['dimensions']['height'] ?? 0)
+            ) ) {
+                continue;
+            }
+            $pageCandidates[$candidateId] = $candidate;
+        }
+        if ( array() === $pageCandidates ) {
+            $pageCandidates = array_diff_key($candidates, $designSystemIds);
+        }
+
+        // Figma Dev Mode status (#280): when ANY node in the file carries a
+        // normalized dev status, it becomes the PRIMARY frame-selection signal.
+        $nodeDevStatus = $this->resolveNodeDevStatus($nodes);
+        $frameDevStatus = $this->resolveFrameDevStatus($candidates, $nodeDevStatus, $parentIndex);
+        $fileHasDevStatus = array() !== $nodeDevStatus;
 
         $selectedIds = array();
         $explicitSelected = false;
+        $selectionSource = 'heuristic';
+        // Dev-status is the PRIMARY selector ONLY when a real top-level page
+        // candidate carries a mark. Because page candidacy is top-level scoped,
+        // dev marks that live solely on nested/annotation frames never enter
+        // this set, so they can no longer suppress unmarked real pages —
+        // selection then falls back to the heuristic ranking over top-level
+        // page candidates. Design-system frames never become pages even when
+        // dev-marked.
+        $markedPageCandidates = array_intersect_key($pageCandidates, $frameDevStatus);
         if ( ! empty($explicitFrameIds) ) {
             $explicitSelected = true;
             foreach ( $explicitFrameIds as $id ) {
-                if ( isset($candidates[$id]) ) {
-                    $selectedIds[] = $id;
-                    continue;
-                }
+                if ( ! isset($candidates[$id]) ) {
+                    $node = is_array($nodes[$id] ?? null) ? $nodes[$id] : null;
+                    if ( null === $node || 'FRAME' !== strtoupper((string) ($node['type'] ?? '')) ) {
+                        $diagnostics[] = array(
+                            'severity' => 'warning',
+                            'code'     => 'figma_page_plan_frame_missing',
+                            'message'  => 'Skipped a requested frame because it was not found as a FRAME node.',
+                            'frame_id' => $id,
+                        );
+                        continue;
+                    }
 
-                $diagnostics[] = array(
-                    'severity' => 'warning',
-                    'code'     => 'figma_page_plan_frame_missing',
-                    'message'  => 'Skipped a requested frame because it was not found as a FRAME node.',
-                    'frame_id' => $id,
-                );
+                    // Explicit selection bypasses top-level + page-size scoping:
+                    // build the requested frame as a candidate on demand so a
+                    // frame at any depth stays selectable and emits a page, and
+                    // add it to the page pool so it still participates in
+                    // responsive grouping with its explicitly-selected siblings.
+                    $candidates[$id] = $this->buildCandidate($id, $node, $nodes, $childrenIndex, $parentIndex, $statsMemo);
+                    $classifications[$id] = $this->classifyCandidate($id, $candidates[$id], $nodes, $childrenIndex, $parentIndex);
+                }
+                $pageCandidates[$id] = $candidates[$id];
+
+                $selectedIds[] = $id;
+            }
+        } elseif ( $fileHasDevStatus && array() !== $markedPageCandidates ) {
+            // Prefer ready_for_dev/completed frames (and frames under a marked
+            // section); skip WIP/unmarked frames. Heuristics stay as the order
+            // within the marked set and as the fallback when no frame qualifies.
+            $selectionSource = 'dev_status';
+            $selectedIds = $this->rankedCandidateIdsByDevStatus($markedPageCandidates, $frameDevStatus);
+            if ( ! $includeAllPages ) {
+                $selectedIds = array_slice($selectedIds, 0, 1);
             }
         } else {
-            $selectedIds = $this->rankedCandidateIds($candidates);
+            $selectedIds = $this->rankedCandidateIds($pageCandidates);
             if ( ! $includeAllPages ) {
                 $selectedIds = array_slice($selectedIds, 0, 1);
             }
@@ -86,22 +282,110 @@ final class ScenegraphPagePlanner
             }
         }
 
+        $detectionResult = $this->detectResponsive($pageCandidates, $nodes, $parentIndex, $options);
+        $detectionById = $detectionResult['detection'];
+        if ( $detectionResult['bounded'] ) {
+            $diagnostics[] = array(
+                'severity'              => 'info',
+                'code'                  => 'responsive_detection_bounded',
+                'message'               => 'Responsive sibling detection was skipped because the design has an unusually large number of frame candidates; emitting one page per frame.',
+                'frame_candidate_count' => $detectionResult['frame_candidate_count'],
+                'frame_candidate_limit' => $detectionResult['frame_candidate_limit'],
+            );
+        }
+
+        $grouping = $this->responsiveGroups($pageCandidates, $detectionById);
+        $responsiveGroups = $grouping['groups'];
+        foreach ( $grouping['diagnostics'] as $groupDiagnostic ) {
+            $diagnostics[] = $groupDiagnostic;
+        }
+
+        // Orphan mobile menu/component-demo exclusion: when the file has at
+        // least one real responsive desktop+mobile pair, lone mobile-width
+        // frames that never grouped with a desktop sibling AND carry a
+        // menu/nav/component-demo name AND have no recognizable page-type
+        // signal are component demos of the open-menu state — NOT pages.
+        // Explicit frame selection bypasses this filter so a requested frame
+        // is always emitted. The filter never empties the selected set (safety
+        // guard for pathological inputs where every candidate is an orphan).
+        if ( ! $explicitSelected && ! empty($responsiveGroups) ) {
+            $filtered = $this->filterOrphanMenuDemoFrames(
+                $selectedIds,
+                $pageCandidates,
+                $responsiveGroups,
+                $classifications,
+                $detectionById
+            );
+            if ( ! empty($filtered) ) {
+                $selectedIds = $filtered;
+            }
+        }
+
+        // Entrypoint (index.html) assignment. The downstream php-transformer and
+        // WordPress treat index.html as the FRONT PAGE, so the page classified
+        // `front_page` must own it rather than whichever page merely ranked first.
+        // An explicit `entry_frame_id` always wins; otherwise the highest-ranked
+        // `front_page` page is the entrypoint, falling back to rank order when no
+        // page classifies as a front page.
+        $entrypointPrimaryId = null;
+        if ( null === $entryFrameId ) {
+            $seenPrimary = array();
+            $rankFirstPrimaryId = null;
+            foreach ( $selectedIds as $id ) {
+                $members = $responsiveGroups[$id] ?? array($id);
+                $primaryId = $members[0];
+                if ( isset($seenPrimary[$primaryId]) ) {
+                    continue;
+                }
+                $seenPrimary[$primaryId] = true;
+                if ( null === $rankFirstPrimaryId ) {
+                    $rankFirstPrimaryId = $primaryId;
+                }
+                $primaryClassification = $classifications[$primaryId]
+                    ?? $this->classifyCandidate($primaryId, $candidates[$primaryId], $nodes, $childrenIndex, $parentIndex);
+                if ( ScenegraphFrameClassifier::PAGE_TYPE_FRONT_PAGE === ($primaryClassification['page_type'] ?? '') ) {
+                    $entrypointPrimaryId = $primaryId;
+                    break;
+                }
+            }
+            if ( null === $entrypointPrimaryId ) {
+                $entrypointPrimaryId = $rankFirstPrimaryId;
+            }
+        }
+
         $slugs = array();
         $pages = array();
-        foreach ( $selectedIds as $position => $id ) {
-            $candidate = $candidates[$id];
+        $consumed = array();
+        foreach ( $selectedIds as $id ) {
+            if ( isset($consumed[$id]) ) {
+                continue;
+            }
+
+            $members = $responsiveGroups[$id] ?? array($id);
+            foreach ( $members as $memberId ) {
+                $consumed[$memberId] = true;
+            }
+
+            $primaryId = $members[0];
+            $candidate = $candidates[$primaryId];
             $node = $candidate['node'];
-            $page = $this->nearestAncestor($id, array('CANVAS'), $nodes, $parentIndex);
-            $section = $this->nearestAncestor($id, array('SECTION'), $nodes, $parentIndex);
-            $name = (string) ($node['name'] ?? $id);
-            $slug = $this->dedupeSlug($this->configuredSlug($id, $slugMap) ?? $this->slugify($name), $slugs);
+            $page = $this->nearestAncestor($primaryId, array('CANVAS'), $nodes, $parentIndex);
+            $section = $this->nearestAncestor($primaryId, array('SECTION'), $nodes, $parentIndex);
+            $name = (string) ($node['name'] ?? $primaryId);
+            $slug = $this->dedupeSlug($this->pageSlug($primaryId, $name, $members, $slugMap), $slugs);
+            $entrypoint = null !== $entryFrameId ? in_array($entryFrameId, $members, true) : $primaryId === $entrypointPrimaryId;
+            $variants = $this->breakpointVariants($members, $primaryId, $candidates, $detectionById);
+            $classification = $classifications[$primaryId] ?? $this->classifyCandidate($primaryId, $candidate, $nodes, $childrenIndex, $parentIndex);
 
             $pages[] = array(
-                'frame_id'              => $id,
+                'frame_id'              => $primaryId,
                 'name'                  => $name,
                 'slug'                  => $slug,
-                'path'                  => (null !== $entryFrameId ? $id === $entryFrameId : 0 === $position) ? 'index.html' : $slug . '.html',
-                'entrypoint'            => null !== $entryFrameId ? $id === $entryFrameId : 0 === $position,
+                'path'                  => $entrypoint ? 'index.html' : $slug . '.html',
+                'entrypoint'            => $entrypoint,
+                'role'                  => $classification['role'],
+                'page_type'             => $classification['page_type'] ?? ScenegraphFrameClassifier::PAGE_TYPE_UNKNOWN,
+                'classification_signals' => $classification['signals'],
                 'figma_page_id'         => $page['id'] ?? null,
                 'figma_page_name'       => $page['name'] ?? null,
                 'section_id'            => $section['id'] ?? null,
@@ -111,16 +395,482 @@ final class ScenegraphPagePlanner
                 'node_count'            => $candidate['stats']['nodes'],
                 'text_count'            => $candidate['stats']['texts'],
                 'asset_reference_count' => $candidate['stats']['assets'],
-                'diagnostics'           => $this->pageDiagnostics($id, $node, $candidate['dimensions'], $explicitSelected),
+                'responsive'            => count($members) > 1,
+                'breakpoint_count'      => count($members),
+                'variants'              => $variants,
+                'diagnostics'           => $this->pageDiagnostics($primaryId, $node, $candidate['dimensions'], $explicitSelected),
+            );
+        }
+
+        $classificationCoverage = $this->classificationCoverage($candidates, $classifications, $pages);
+        // The full coverage report is always available via the
+        // `classification_coverage` plan key. Emit it as a diagnostic only when
+        // it carries actionable signal — a design-system frame was excluded from
+        // pages, or a selected page fell to an `unknown` page type — so files
+        // whose every frame classifies cleanly keep an empty diagnostics list
+        // (and a clean `success` transform status).
+        $excludedDesignSystem = (int) ($classificationCoverage['excluded_design_system_count'] ?? 0);
+        $unknownPageTypes = (int) ($classificationCoverage['page_types'][ScenegraphFrameClassifier::PAGE_TYPE_UNKNOWN] ?? 0);
+        if ( $excludedDesignSystem > 0 || $unknownPageTypes > 0 ) {
+            $diagnostics[] = array(
+                'severity' => $unknownPageTypes > 0 ? 'warning' : 'info',
+                'code'     => 'figma_frame_classification_coverage',
+                'message'  => $excludedDesignSystem > 0
+                    ? 'Excluded design-system frames from page selection; see coverage for role/page-type breakdown.'
+                    : 'Some selected pages fell to an unknown page type; see coverage for the breakdown.',
+                'coverage' => $classificationCoverage,
+            );
+        }
+
+        $devStatusCoverage = $this->devStatusCoverage($nodes, $frameDevStatus, $selectionSource, $fileHasDevStatus);
+        // Emit the coverage as a diagnostic only when a dev-status signal is
+        // actually present, so files without dev-status keep a clean (empty)
+        // diagnostics list. The coverage report is always available via the
+        // `dev_status_coverage` plan key regardless.
+        if ( $fileHasDevStatus ) {
+            $diagnostics[] = array(
+                'severity' => 'info',
+                'code'     => 'figma_dev_status_coverage',
+                'message'  => 'dev_status' === $selectionSource
+                    ? 'Frame selection was driven by Figma dev-status.'
+                    : 'Dev-status present but no FRAME qualified; heuristics drove selection.',
+                'coverage' => $devStatusCoverage,
             );
         }
 
         return array(
-            'schema'          => 'blocks-engine/figma-transformer/page-plan/v1',
-            'page_count'      => count($pages),
-            'candidate_count' => count($candidates),
-            'pages'           => $pages,
-            'diagnostics'     => $diagnostics,
+            'schema'                  => 'blocks-engine/figma-transformer/page-plan/v1',
+            'page_count'              => count($pages),
+            'candidate_count'         => count($candidates),
+            'pages'                   => $pages,
+            'selection_source'        => $selectionSource,
+            'dev_status_coverage'     => $devStatusCoverage,
+            'classification_coverage' => $classificationCoverage,
+            'diagnostics'             => $diagnostics,
+        );
+    }
+
+    /**
+     * Whether a FRAME node is a TOP-LEVEL page candidate: walking up its ancestor
+     * chain reaches a CANVAS or the document root WITHOUT first passing through
+     * another container FRAME/GROUP/INSTANCE/COMPONENT. SECTION nodes are
+     * transparent because they are Figma's on-canvas organizational grouping (a
+     * dev-handoff "folder"), so a page frame placed inside a section is still
+     * top-level; likewise a frame at the document root (a CANVAS-less synthetic
+     * source) is top-level. This is the generic structural test that separates
+     * real page frames from the nested frames (annotation cards, layout-grid
+     * guides, component internals) that must never compete for page selection.
+     *
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, string|null>          $parentIndex
+     */
+    private function isTopLevelFrame(string $id, array $nodes, array $parentIndex): bool
+    {
+        $cursor = $parentIndex[$id] ?? null;
+        $guard = 0;
+        while ( is_string($cursor) && isset($nodes[$cursor]) && is_array($nodes[$cursor]) && $guard < 4096 ) {
+            ++$guard;
+            $type = strtoupper((string) ($nodes[$cursor]['type'] ?? ''));
+            if ( 'CANVAS' === $type ) {
+                return true;
+            }
+            if ( 'SECTION' !== $type ) {
+                // Nested inside another frame/group/component → content, not a page.
+                return false;
+            }
+            $cursor = $parentIndex[$cursor] ?? null;
+        }
+
+        // Reached the document root (no parent, or only SECTIONs above) without
+        // passing through a container frame: a depth-1 frame, i.e. a page.
+        return true;
+    }
+
+    /**
+     * Whether a candidate frame has PAGE-SIZED dimensions: a width inside the
+     * realistic page-width band (mobile through wide desktop) and a height tall
+     * enough to be a scrolling page. This is the dimension half of page
+     * candidacy — it drops top-level frames that are structurally on the canvas
+     * but are plainly not pages: layout-grid guides and chips (too narrow),
+     * decorative "Title Card" dividers / cover thumbnails / device mockups (too
+     * short), and oversized presentation/overview artboards (too wide, e.g. a
+     * 2238px "Home Page – Desktop" overview board colliding with the real 1440px
+     * page). Explicit `frame_ids` bypass this gate entirely.
+     */
+    private function isPageSizedCandidate(float $width, float $height): bool
+    {
+        return $width >= self::PAGE_MIN_WIDTH_PX
+            && $width <= self::PAGE_MAX_WIDTH_PX
+            && $height >= self::PAGE_MIN_HEIGHT_PX;
+    }
+
+    /**
+     * Build a single page-candidate record (subtree stats, dimensions, score).
+     * Shared by the top-level candidacy scan and the explicit-`frame_ids`
+     * on-demand path so a requested frame at any depth is scored identically.
+     *
+     * @param array<string, mixed>                $node
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, array<int, string>>   $childrenIndex
+     * @param array<string, string|null>          $parentIndex
+     * @param array<string, array<string, int>>   $statsMemo
+     * @return array{id:string,node:array<string, mixed>,stats:array{nodes:int,texts:int,assets:int},dimensions:array{width:float|null,height:float|null},score:int}
+     */
+    private function buildCandidate(string $id, array $node, array $nodes, array $childrenIndex, array $parentIndex, array &$statsMemo): array
+    {
+        $stats = $this->subtreeStats($id, $nodes, $childrenIndex, $statsMemo);
+        $dimensions = $this->dimensions($node);
+
+        return array(
+            'id'         => $id,
+            'node'       => $node,
+            'stats'      => $stats,
+            'dimensions' => $dimensions,
+            'score'      => $this->scoreCandidate($id, $node, $dimensions, $stats, $nodes, $parentIndex),
+        );
+    }
+
+    /**
+     * Classify a single FRAME candidate into a role + page type via
+     * {@see ScenegraphFrameClassifier}, gathering the content-shape signals
+     * (swatch/specimen tiles, repeating post cards) from the already-built
+     * node/children indexes so no extra scenegraph traversal is required.
+     *
+     * @param array<string, mixed>                $candidate
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, array<int, string>>   $childrenIndex
+     * @param array<string, string|null>          $parentIndex
+     * @return array{role: string, page_type: string|null, signals: array<int, string>, is_page: bool}
+     */
+    private function classifyCandidate(string $id, array $candidate, array $nodes, array $childrenIndex, array $parentIndex): array
+    {
+        $node = is_array($candidate['node'] ?? null) ? $candidate['node'] : array();
+        $stats = is_array($candidate['stats'] ?? null) ? $candidate['stats'] : array();
+        $dimensions = is_array($candidate['dimensions'] ?? null) ? $candidate['dimensions'] : array();
+        $section = $this->nearestAncestor($id, array('SECTION'), $nodes, $parentIndex);
+        $page = $this->nearestAncestor($id, array('CANVAS'), $nodes, $parentIndex);
+        $contentShape = $this->contentShapeSignals($id, $nodes, $childrenIndex);
+
+        return $this->frameClassifier->classify(array(
+            'name'                 => (string) ($node['name'] ?? ''),
+            'width'                => $dimensions['width'] ?? null,
+            'height'               => $dimensions['height'] ?? null,
+            'text_count'           => (int) ($stats['texts'] ?? 0),
+            'asset_count'          => (int) ($stats['assets'] ?? 0),
+            'uniform_tile_count'   => $contentShape['uniform_tile_count'],
+            'repeating_card_count' => $contentShape['repeating_card_count'],
+            'section_name'         => $section['name'] ?? null,
+            'page_name'            => $page['name'] ?? null,
+        ));
+    }
+
+    /**
+     * Derive content-shape signals from a frame's descendant structure:
+     *
+     *   - uniform_tile_count: the largest group of near-uniform, small sibling
+     *     containers sharing one parent (a swatch/type-specimen grid tell).
+     *   - repeating_card_count: the largest group of structurally-similar sibling
+     *     subtrees sharing one parent (a list-of-post-cards / archive tell).
+     *
+     * Both are computed by scanning every node in the frame's subtree once and,
+     * for each parent, bucketing its direct children by a coarse shape signature
+     * (child count + presence of a TEXT/IMAGE descendant). The largest matching
+     * bucket per category wins. This stays frame-local and deterministic.
+     *
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, array<int, string>>   $childrenIndex
+     * @return array{uniform_tile_count: int, repeating_card_count: int}
+     */
+    private function contentShapeSignals(string $rootId, array $nodes, array $childrenIndex): array
+    {
+        $uniformTiles = 0;
+        $repeatingCards = 0;
+
+        $stack = array($rootId);
+        $guard = 0;
+        while ( array() !== $stack && $guard < 200000 ) {
+            ++$guard;
+            $parentId = (string) array_pop($stack);
+            $childIds = is_array($childrenIndex[$parentId] ?? null) ? $childrenIndex[$parentId] : array();
+
+            $tileBuckets = array();
+            $cardBuckets = array();
+            foreach ( $childIds as $childId ) {
+                if ( ! is_string($childId) ) {
+                    continue;
+                }
+                $stack[] = $childId;
+
+                $childNode = is_array($nodes[$childId] ?? null) ? $nodes[$childId] : array();
+                $type = strtoupper((string) ($childNode['type'] ?? ''));
+                if ( ! in_array($type, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'RECTANGLE', 'ELLIPSE'), true) ) {
+                    continue;
+                }
+
+                $grandChildren = is_array($childrenIndex[$childId] ?? null) ? $childrenIndex[$childId] : array();
+                $grandCount = count($grandChildren);
+                $dimensions = $this->dimensions($childNode);
+                $width = (float) ($dimensions['width'] ?? 0);
+                $height = (float) ($dimensions['height'] ?? 0);
+                $area = $width * $height;
+
+                if ( $grandCount <= 2 && $area > 0 && $area <= 90000 ) {
+                    // Small, leaf-like tile (swatch / specimen chip).
+                    $tileKey = $this->dimensionBucketKey($width, $height);
+                    $tileBuckets[$tileKey] = ($tileBuckets[$tileKey] ?? 0) + 1;
+                }
+
+                if ( $grandCount >= 2 ) {
+                    // Composite container (a card with media + text). Signature
+                    // groups by child count so a repeating card layout clusters.
+                    $cardKey = $type . ':' . min(12, $grandCount);
+                    $cardBuckets[$cardKey] = ($cardBuckets[$cardKey] ?? 0) + 1;
+                }
+            }
+
+            $uniformTiles = max($uniformTiles, array() === $tileBuckets ? 0 : max($tileBuckets));
+            $repeatingCards = max($repeatingCards, array() === $cardBuckets ? 0 : max($cardBuckets));
+        }
+
+        return array(
+            'uniform_tile_count'   => $uniformTiles,
+            'repeating_card_count' => $repeatingCards,
+        );
+    }
+
+    private function dimensionBucketKey(float $width, float $height): string
+    {
+        // Bucket to the nearest 16px so near-uniform swatches cluster together
+        // while genuinely different shapes stay apart.
+        $bucket = static fn (float $value): int => (int) round($value / 16.0);
+
+        return $bucket($width) . 'x' . $bucket($height);
+    }
+
+    /**
+     * Build the classification coverage report: per-role and per-page-type
+     * counts plus, for every selected page, the signals that drove its
+     * classification — the diagnostic that explains WHY each frame landed where
+     * it did.
+     *
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array<string, mixed>> $classifications
+     * @param array<int, array<string, mixed>>    $pages
+     * @return array<string, mixed>
+     */
+    private function classificationCoverage(array $candidates, array $classifications, array $pages): array
+    {
+        $roles = array(
+            ScenegraphFrameClassifier::ROLE_DESIGN_SYSTEM => 0,
+            ScenegraphFrameClassifier::ROLE_PAGE          => 0,
+        );
+        $pageTypes = array(
+            ScenegraphFrameClassifier::PAGE_TYPE_FRONT_PAGE => 0,
+            ScenegraphFrameClassifier::PAGE_TYPE_SINGLE     => 0,
+            ScenegraphFrameClassifier::PAGE_TYPE_ARCHIVE    => 0,
+            ScenegraphFrameClassifier::PAGE_TYPE_PAGE       => 0,
+            ScenegraphFrameClassifier::PAGE_TYPE_UNKNOWN    => 0,
+        );
+        $excludedDesignSystemFrameIds = array();
+
+        foreach ( $classifications as $candidateId => $classification ) {
+            $role = (string) ($classification['role'] ?? ScenegraphFrameClassifier::ROLE_PAGE);
+            $roles[$role] = ($roles[$role] ?? 0) + 1;
+            if ( ScenegraphFrameClassifier::ROLE_DESIGN_SYSTEM === $role ) {
+                $excludedDesignSystemFrameIds[] = (string) $candidateId;
+            }
+        }
+
+        $selectedSignals = array();
+        foreach ( $pages as $page ) {
+            if ( ! is_array($page) ) {
+                continue;
+            }
+            $pageType = (string) ($page['page_type'] ?? ScenegraphFrameClassifier::PAGE_TYPE_UNKNOWN);
+            $pageTypes[$pageType] = ($pageTypes[$pageType] ?? 0) + 1;
+            $selectedSignals[] = array(
+                'frame_id'  => (string) ($page['frame_id'] ?? ''),
+                'name'      => (string) ($page['name'] ?? ''),
+                'role'      => (string) ($page['role'] ?? ScenegraphFrameClassifier::ROLE_PAGE),
+                'page_type' => $pageType,
+                'signals'   => is_array($page['classification_signals'] ?? null) ? $page['classification_signals'] : array(),
+            );
+        }
+
+        sort($excludedDesignSystemFrameIds);
+
+        return array(
+            'schema'                          => 'blocks-engine/figma-transformer/frame-classification/v1',
+            'candidate_count'                 => count($candidates),
+            'classified_count'                => count($classifications),
+            'roles'                           => $roles,
+            'page_types'                      => $pageTypes,
+            'excluded_design_system_count'    => count($excludedDesignSystemFrameIds),
+            'excluded_design_system_frame_ids' => $excludedDesignSystemFrameIds,
+            'selected_page_classifications'   => $selectedSignals,
+        );
+    }
+
+    /**
+     * Resolve normalized dev status (ready_for_dev|completed) for every node
+     * that carries one. Nodes without a status, or with an unmapped raw token,
+     * are omitted so they never count as a selection signal.
+     *
+     * @param array<string, array<string, mixed>> $nodes
+     * @return array<string, string> node id => normalized status
+     */
+    private function resolveNodeDevStatus(array $nodes): array
+    {
+        $statusById = array();
+        foreach ( $nodes as $id => $node ) {
+            if ( ! is_string($id) || ! is_array($node) ) {
+                continue;
+            }
+
+            $resolved = ScenegraphDevStatus::resolve($node);
+            if ( null !== $resolved && null !== $resolved['normalized'] ) {
+                $statusById[$id] = $resolved['normalized'];
+            }
+        }
+
+        return $statusById;
+    }
+
+    /**
+     * Map each FRAME candidate to its effective dev status: the frame's own
+     * normalized status, or the nearest ancestor (e.g. its SECTION) that carries
+     * one. Frames with no marked status anywhere in their ancestry are omitted.
+     *
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, string>               $nodeDevStatus
+     * @param array<string, string|null>          $parentIndex
+     * @return array<string, string> frame id => normalized status
+     */
+    private function resolveFrameDevStatus(array $candidates, array $nodeDevStatus, array $parentIndex): array
+    {
+        if ( array() === $nodeDevStatus ) {
+            return array();
+        }
+
+        $frameStatus = array();
+        foreach ( array_keys($candidates) as $frameId ) {
+            $frameId = (string) $frameId;
+            $cursor = $frameId;
+            $guard = 0;
+            while ( is_string($cursor) && '' !== $cursor && $guard < 4096 ) {
+                if ( isset($nodeDevStatus[$cursor]) ) {
+                    $frameStatus[$frameId] = $nodeDevStatus[$cursor];
+                    break;
+                }
+                $cursor = $parentIndex[$cursor] ?? null;
+                ++$guard;
+            }
+        }
+
+        return $frameStatus;
+    }
+
+    /**
+     * Rank dev-status-marked FRAME candidates: completed first, then
+     * ready_for_dev, with the existing heuristic score as the tiebreak so order
+     * within a status band stays deterministic and backward compatible.
+     *
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, string>               $statusById
+     * @return array<int, string>
+     */
+    private function rankedCandidateIdsByDevStatus(array $candidates, array $statusById): array
+    {
+        uasort(
+            $candidates,
+            function (array $left, array $right) use ($statusById): int {
+                $leftRank = $this->devStatusRank((string) ($statusById[(string) ($left['id'] ?? '')] ?? ''));
+                $rightRank = $this->devStatusRank((string) ($statusById[(string) ($right['id'] ?? '')] ?? ''));
+                if ( $leftRank !== $rightRank ) {
+                    return $leftRank <=> $rightRank;
+                }
+
+                return $right['score'] <=> $left['score']
+                    ?: strcmp((string) ($left['id'] ?? ''), (string) ($right['id'] ?? ''));
+            }
+        );
+
+        $ids = array_keys($candidates);
+        $nonWrapperIds = array_values(array_filter(
+            $ids,
+            fn (string $id): bool => ! $this->isWrapperName((string) ($candidates[$id]['node']['name'] ?? ''))
+        ));
+
+        return empty($nonWrapperIds) ? $ids : $nonWrapperIds;
+    }
+
+    private function devStatusRank(string $status): int
+    {
+        return match ( $status ) {
+            ScenegraphDevStatus::COMPLETED     => 0,
+            ScenegraphDevStatus::READY_FOR_DEV => 1,
+            default                            => 2,
+        };
+    }
+
+    /**
+     * Build the dev-status coverage diagnostic: per-status counts for SECTION
+     * and FRAME nodes, raw-token tallies, and the signal that drove selection.
+     *
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, string>               $frameDevStatus
+     * @return array<string, mixed>
+     */
+    private function devStatusCoverage(array $nodes, array $frameDevStatus, string $selectionSource, bool $fileHasDevStatus): array
+    {
+        $sections = array('ready_for_dev' => 0, 'completed' => 0, 'unmapped' => 0);
+        $frames = array('ready_for_dev' => 0, 'completed' => 0, 'unmapped' => 0);
+        $rawTokens = array();
+        $nodesWithRawStatus = 0;
+
+        foreach ( $nodes as $node ) {
+            if ( ! is_array($node) ) {
+                continue;
+            }
+
+            $resolved = ScenegraphDevStatus::resolve($node);
+            if ( null === $resolved ) {
+                continue;
+            }
+
+            ++$nodesWithRawStatus;
+            $rawKey = $resolved['raw'];
+            $rawTokens[$rawKey] = ($rawTokens[$rawKey] ?? 0) + 1;
+
+            $bucket = match ( $resolved['normalized'] ) {
+                ScenegraphDevStatus::READY_FOR_DEV => 'ready_for_dev',
+                ScenegraphDevStatus::COMPLETED     => 'completed',
+                default                            => 'unmapped',
+            };
+
+            $type = strtoupper((string) ($node['type'] ?? ''));
+            if ( 'SECTION' === $type ) {
+                ++$sections[$bucket];
+            } elseif ( 'FRAME' === $type ) {
+                ++$frames[$bucket];
+            }
+        }
+
+        $frameEffective = array('ready_for_dev' => 0, 'completed' => 0);
+        foreach ( $frameDevStatus as $status ) {
+            if ( isset($frameEffective[$status]) ) {
+                ++$frameEffective[$status];
+            }
+        }
+
+        return array(
+            'selection_source'        => $selectionSource,
+            'file_has_dev_status'     => $fileHasDevStatus,
+            'nodes_with_raw_status'   => $nodesWithRawStatus,
+            'sections'                => $sections,
+            'frames'                  => $frames,
+            'frames_effective'        => $frameEffective,
+            'raw_tokens'              => $rawTokens,
         );
     }
 
@@ -142,6 +892,423 @@ final class ScenegraphPagePlanner
         }
 
         return array_values(array_unique(array_filter($ids, static fn (string $id): bool => '' !== $id)));
+    }
+
+    /**
+     * Resolve responsive detection, bounding it against the NUMBER OF FRAME
+     * CANDIDATES — not total node count.
+     *
+     * The prior implementation re-inspected the source, forcing a SECOND full
+     * {@see ScenegraphIndex} build over every node; on the 293MB "WP.Cloud 2.0"
+     * .fig that second index OOMed, so #265 skipped detection above a
+     * 25k-node ceiling and responsive grouping silently switched off at scale.
+     * Detection only needs frame-level data (name, width, height, device hint,
+     * ancestor ids), all of which the planner already holds in memory after its
+     * single index build, so it now runs regardless of total node count. The
+     * only remaining bound guards the genuinely pathological case of an absurd
+     * number of frame candidates; the `bounded` flag lets
+     * {@see ScenegraphPagePlanner::plan()} surface a
+     * `responsive_detection_bounded` diagnostic.
+     *
+     * @param array<string, array<string, mixed>> $candidates   FRAME candidates the planner tracks.
+     * @param array<string, array<string, mixed>> $nodes        Already-built node map (for ancestor lookup).
+     * @param array<string, string|null>          $parentIndex  Already-built parent index.
+     * @param array<string, mixed>                $options
+     * @return array{detection: array<string, array<string, mixed>>, bounded: bool, frame_candidate_count: int, frame_candidate_limit: int}
+     */
+    private function detectResponsive(array $candidates, array $nodes, array $parentIndex, array $options): array
+    {
+        $limit = isset($options['responsive_detection_frame_limit']) && is_numeric($options['responsive_detection_frame_limit'])
+            ? max(1, (int) $options['responsive_detection_frame_limit'])
+            : self::RESPONSIVE_DETECTION_FRAME_LIMIT;
+        $frameCount = count($candidates);
+
+        if ( $frameCount > $limit ) {
+            return array(
+                'detection'             => array(),
+                'bounded'               => true,
+                'frame_candidate_count' => $frameCount,
+                'frame_candidate_limit' => $limit,
+            );
+        }
+
+        return array(
+            'detection'             => $this->detectionById($candidates, $nodes, $parentIndex),
+            'bounded'               => false,
+            'frame_candidate_count' => $frameCount,
+            'frame_candidate_limit' => $limit,
+        );
+    }
+
+    /**
+     * Build the frame-level detection report (device_hint / sibling_group_key /
+     * responsive_siblings) WITHOUT building a second scenegraph index.
+     *
+     * The planner already holds every FRAME candidate's dimensions plus the
+     * node/parent indexes in memory, so it extracts only the minimal
+     * frame-level records the detection heuristics need (name, dimensions,
+     * page/section/parent ids) and hands them to
+     * {@see ScenegraphFrameInspector::detectResponsiveFrames()}. No descendant
+     * node index is materialized for detection — the question is answered from
+     * frame-level data alone, which is what keeps grouping memory-safe at
+     * scale.
+     *
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, string|null>          $parentIndex
+     * @return array<string, array<string, mixed>>
+     */
+    private function detectionById(array $candidates, array $nodes, array $parentIndex): array
+    {
+        $frames = array();
+        foreach ( $candidates as $id => $candidate ) {
+            $id = (string) $id;
+            $node = is_array($candidate['node'] ?? null) ? $candidate['node'] : array();
+            $page = $this->nearestAncestor($id, array('CANVAS'), $nodes, $parentIndex);
+            $section = $this->nearestAncestor($id, array('SECTION'), $nodes, $parentIndex);
+            $parentId = $parentIndex[$id] ?? null;
+            $frames[] = array(
+                'id'         => $id,
+                'name'       => (string) ($node['name'] ?? ''),
+                'width'      => $candidate['dimensions']['width'] ?? null,
+                'height'     => $candidate['dimensions']['height'] ?? null,
+                'page_id'    => $page['id'] ?? null,
+                'section_id' => $section['id'] ?? null,
+                'parent_id'  => is_string($parentId) ? $parentId : null,
+            );
+        }
+
+        return $this->frameInspector->detectResponsiveFrames($frames);
+    }
+
+    /**
+     * Cluster FRAME candidates into responsive sibling-groups.
+     *
+     * Builds connected components over the inspector's `responsive_siblings`
+     * edges (restricted to FRAME ids the planner tracks), then GUARDS each
+     * multi-member component: a real responsive group must have distinct device
+     * hints OR a material width spread. Same-name + same-device-hint + ~same
+     * width siblings are duplicate/iteration drafts (e.g. the "For Hosts" frame
+     * that grouped 4 desktop-1440 drafts differing only in height) — they stay
+     * as separate pages and surface a `duplicate_draft_frames` diagnostic rather
+     * than collapsing into bogus breakpoint variants.
+     *
+     * Returns a map from every grouped member frame id to its full, ordered
+     * variant list (so the page loop can look up the group from whichever member
+     * was selected first) plus the grouping-rationale / rejection diagnostics.
+     *
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array<string, mixed>> $detectionById
+     * @return array{groups: array<string, array<int, string>>, diagnostics: array<int, array<string, mixed>>}
+     */
+    private function responsiveGroups(array $candidates, array $detectionById): array
+    {
+        $parent = array();
+        foreach ( array_keys($candidates) as $id ) {
+            $parent[(string) $id] = (string) $id;
+        }
+
+        $find = static function (string $node) use (&$parent): string {
+            while ( $parent[$node] !== $node ) {
+                $parent[$node] = $parent[$parent[$node]];
+                $node = $parent[$node];
+            }
+
+            return $node;
+        };
+
+        foreach ( array_keys($candidates) as $id ) {
+            $id = (string) $id;
+            $siblings = is_array($detectionById[$id]['responsive_siblings'] ?? null) ? $detectionById[$id]['responsive_siblings'] : array();
+            foreach ( $siblings as $sibling ) {
+                $siblingId = is_array($sibling) && isset($sibling['id']) && is_scalar($sibling['id']) ? (string) $sibling['id'] : '';
+                if ( '' !== $siblingId && isset($parent[$siblingId]) ) {
+                    $parent[$find($id)] = $find($siblingId);
+                }
+            }
+        }
+
+        $components = array();
+        foreach ( array_keys($candidates) as $id ) {
+            $components[$find((string) $id)][] = (string) $id;
+        }
+
+        $groups = array();
+        $diagnostics = array();
+        foreach ( $components as $members ) {
+            if ( count($members) < 2 ) {
+                continue;
+            }
+
+            $ordered = $this->orderVariantIds($members, $candidates, $detectionById);
+            $assessment = $this->assessResponsiveGroup($ordered, $candidates, $detectionById);
+
+            if ( $assessment['is_responsive'] ) {
+                foreach ( $ordered as $memberId ) {
+                    $groups[$memberId] = $ordered;
+                }
+                $diagnostics[] = array(
+                    'severity'              => 'info',
+                    'code'                  => 'responsive_group_formed',
+                    'message'               => 'Collapsed frames into one responsive page.',
+                    'primary_frame_id'      => $ordered[0],
+                    'frame_ids'             => $ordered,
+                    'reasons'               => $assessment['reasons'],
+                    'device_hints'          => $assessment['device_hints'],
+                    'distinct_device_hints' => $assessment['distinct_hint_count'],
+                    'width_spread_px'       => $assessment['width_spread_px'],
+                );
+                continue;
+            }
+
+            // Duplicate/iteration drafts: keep them as separate pages (omitted
+            // from the group map so the page loop falls back to one-per-frame).
+            $canonicalId = $this->canonicalDraftId($ordered, $candidates);
+            $diagnostics[] = array(
+                'severity'           => 'warning',
+                'code'               => 'duplicate_draft_frames',
+                'message'            => 'Frames share a name, device hint, and width; treated as duplicate drafts rather than responsive breakpoints.',
+                'canonical_frame_id' => $canonicalId,
+                'draft_frame_ids'    => array_values(array_filter($ordered, static fn (string $id): bool => $id !== $canonicalId)),
+                'frame_ids'          => $ordered,
+                'device_hint'        => $assessment['device_hints'][0] ?? 'unknown',
+                'width'              => (float) ($candidates[$canonicalId]['dimensions']['width'] ?? 0),
+            );
+        }
+
+        return array('groups' => $groups, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * Decide whether an ordered sibling cluster is a genuine responsive group.
+     *
+     * A cluster qualifies when it has at least two distinct (non-unknown) device
+     * hints OR a material width spread (both an absolute and a relative
+     * threshold), which separates real breakpoints from same-width duplicate
+     * drafts. The rationale is returned so the caller can emit it as a
+     * diagnostic.
+     *
+     * @param array<int, string>                  $members Ordered frame ids (widest first).
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array<string, mixed>> $detectionById
+     * @return array{is_responsive: bool, reasons: array<int, string>, device_hints: array<int, string>, distinct_hint_count: int, width_spread_px: float, width_spread_ratio: float}
+     */
+    private function assessResponsiveGroup(array $members, array $candidates, array $detectionById): array
+    {
+        $hints = array();
+        $widths = array();
+        foreach ( $members as $id ) {
+            $hints[] = (string) ($detectionById[$id]['device_hint'] ?? 'unknown');
+            $width = $candidates[$id]['dimensions']['width'] ?? null;
+            if ( is_numeric($width) ) {
+                $widths[] = (float) $width;
+            }
+        }
+
+        $distinctKnownHints = array_values(array_unique(array_filter(
+            $hints,
+            static fn (string $hint): bool => 'unknown' !== $hint
+        )));
+        $distinctHintCount = count($distinctKnownHints);
+
+        $minWidth = array() === $widths ? 0.0 : min($widths);
+        $maxWidth = array() === $widths ? 0.0 : max($widths);
+        $spread = $maxWidth - $minWidth;
+        $ratio = $maxWidth > 0.0 ? $spread / $maxWidth : 0.0;
+
+        $reasons = array();
+        if ( $distinctHintCount >= 2 ) {
+            $reasons[] = 'device_hint_diversity';
+        }
+        if ( $spread >= self::RESPONSIVE_WIDTH_MATERIAL_PX && $ratio >= self::RESPONSIVE_WIDTH_MATERIAL_RATIO ) {
+            $reasons[] = 'width_spread';
+        }
+
+        return array(
+            'is_responsive'       => array() !== $reasons,
+            'reasons'             => $reasons,
+            'device_hints'        => $hints,
+            'distinct_hint_count' => $distinctHintCount,
+            'width_spread_px'     => $spread,
+            'width_spread_ratio'  => $ratio,
+        );
+    }
+
+    /**
+     * Pick the canonical frame from a duplicate-draft cluster (highest score,
+     * then deterministic id tiebreak) for the diagnostic record.
+     *
+     * @param array<int, string>                  $members
+     * @param array<string, array<string, mixed>> $candidates
+     */
+    private function canonicalDraftId(array $members, array $candidates): string
+    {
+        $canonical = $members[0];
+        foreach ( $members as $id ) {
+            $score = (int) ($candidates[$id]['score'] ?? 0);
+            $bestScore = (int) ($candidates[$canonical]['score'] ?? 0);
+            if ( $score > $bestScore || ( $score === $bestScore && strcmp($id, $canonical) < 0 ) ) {
+                $canonical = $id;
+            }
+        }
+
+        return $canonical;
+    }
+
+    /**
+     * Order group members widest-first so the primary variant sorts first.
+     *
+     * @param array<int, string>                  $ids
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array<string, mixed>> $detectionById
+     * @return array<int, string>
+     */
+    private function orderVariantIds(array $ids, array $candidates, array $detectionById): array
+    {
+        usort(
+            $ids,
+            function (string $left, string $right) use ($candidates, $detectionById): int {
+                $leftWidth = (float) ($candidates[$left]['dimensions']['width'] ?? 0);
+                $rightWidth = (float) ($candidates[$right]['dimensions']['width'] ?? 0);
+                if ( $leftWidth !== $rightWidth ) {
+                    return $rightWidth <=> $leftWidth;
+                }
+
+                $leftRank = $this->deviceRank((string) ($detectionById[$left]['device_hint'] ?? 'unknown'));
+                $rightRank = $this->deviceRank((string) ($detectionById[$right]['device_hint'] ?? 'unknown'));
+
+                return $leftRank <=> $rightRank ?: strcmp($left, $right);
+            }
+        );
+
+        return array_values($ids);
+    }
+
+    private function deviceRank(string $deviceHint): int
+    {
+        return match ( $deviceHint ) {
+            'desktop' => 0,
+            'tablet'  => 1,
+            'mobile'  => 2,
+            default   => 3,
+        };
+    }
+
+    /**
+     * Build the ordered breakpoint-variant list for one page plan.
+     *
+     * @param array<int, string>                  $members Ordered frame ids (widest first).
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array<string, mixed>> $detectionById
+     * @return array<int, array<string, mixed>>
+     */
+    private function breakpointVariants(array $members, string $primaryId, array $candidates, array $detectionById): array
+    {
+        $variants = array();
+        foreach ( $members as $order => $memberId ) {
+            $candidate = $candidates[$memberId];
+            $name = (string) ($candidate['node']['name'] ?? $memberId);
+            $variants[] = array(
+                'frame_id'        => $memberId,
+                'name'            => $name,
+                'slug'            => $this->slugify($name),
+                'device_hint'     => (string) ($detectionById[$memberId]['device_hint'] ?? 'unknown'),
+                'viewport_width'  => $candidate['dimensions']['width'],
+                'viewport_height' => $candidate['dimensions']['height'],
+                'primary'         => $memberId === $primaryId,
+                'order'           => $order,
+            );
+        }
+
+        return $variants;
+    }
+
+    /**
+     * Remove orphan mobile-width frames that are nav/menu component demos from
+     * the selected ID list when the file has real responsive paired pages.
+     *
+     * A frame is filtered when ALL three structural signals fire:
+     *   1. It is NOT part of any responsive group (orphan — no desktop partner).
+     *   2. Its width sits in the mobile range (≤ {@see ORPHAN_MOBILE_MAX_WIDTH_PX}).
+     *   3. Its name matches the menu/nav/component-demo pattern.
+     *
+     * The file-has-responsive-pairs guard (non-empty $responsiveGroups) is
+     * checked by the caller so a mobile-only design (no desktop variants at all)
+     * never triggers the filter — there are no responsive groups to compare
+     * against, so every frame is treated as a potential page.
+     *
+     * Page_type is intentionally NOT a signal here: a nav-menu component demo
+     * with text nodes (nav links) classifies as `page` rather than `unknown`,
+     * so gating on `unknown` would silently fail to exclude the common case.
+     * The name pattern is specific enough (mobile menu / hamburger / nav drawer
+     * vocabulary) that false positives are near-impossible once the orphan +
+     * mobile-width guards have already narrowed the candidate set.
+     *
+     * @param array<int, string>                  $selectedIds
+     * @param array<string, array<string, mixed>> $pageCandidates
+     * @param array<string, array<int, string>>   $responsiveGroups  member id → ordered group
+     * @param array<string, array<string, mixed>> $classifications    unused; reserved for future expansion
+     * @param array<string, array<string, mixed>> $detectionById      unused; reserved for future expansion
+     * @return array<int, string>
+     */
+    private function filterOrphanMenuDemoFrames(
+        array $selectedIds,
+        array $pageCandidates,
+        array $responsiveGroups,
+        array $classifications,
+        array $detectionById
+    ): array {
+        return array_values(array_filter(
+            $selectedIds,
+            function (string $id) use ($pageCandidates, $responsiveGroups): bool {
+                // Signal 1: part of a responsive group → keep (it has a partner).
+                if ( isset($responsiveGroups[$id]) ) {
+                    return true;
+                }
+
+                // Signal 2: width must be mobile-range to be an orphan mobile frame.
+                $width = (float) ($pageCandidates[$id]['dimensions']['width'] ?? 0);
+                if ( $width > self::ORPHAN_MOBILE_MAX_WIDTH_PX ) {
+                    return true;
+                }
+
+                // Signal 3: name must match a menu/nav/component-demo pattern.
+                $name = (string) ($pageCandidates[$id]['node']['name'] ?? '');
+                if ( ! $this->isMenuOrComponentDemoName($name) ) {
+                    return true;
+                }
+
+                // All three signals fired: exclude as orphan menu/component demo.
+                return false;
+            }
+        ));
+    }
+
+    /**
+     * Maximum width (px) for a frame to be considered a mobile-width orphan
+     * in {@see filterOrphanMenuDemoFrames}. Covers common device widths (320,
+     * 375, 390, 414, 428, 430) with a comfortable margin above the widest
+     * production mobile width while staying well below the tablet range.
+     */
+    private const ORPHAN_MOBILE_MAX_WIDTH_PX = 500.0;
+
+    /**
+     * Whether a frame name matches a navigation menu or component-demo pattern.
+     *
+     * Matches names that describe a menu/nav UI component state (e.g. "Mobile
+     * Menu", "Mobile Nav", "Hamburger Menu", "Nav Drawer") rather than a real
+     * page. The pattern is deliberately focused on navigation-component
+     * vocabulary to avoid false positives on content pages like "Our Menu"
+     * or "Products". The other three structural signals in
+     * {@see filterOrphanMenuDemoFrames} serve as a multi-layer guard so the
+     * pattern does not need to be exhaustive.
+     */
+    private function isMenuOrComponentDemoName(string $name): bool
+    {
+        return 1 === preg_match(
+            '/\b(mobile\s+menu|mobile\s+nav(igation)?|nav(igation)?\s+menu|nav(igation)?\s+(drawer|overlay|open)|hamburger(\s+menu)?|menu\s+(open|expanded|overlay|demo|state)|mobile\s+header|mobile\s+drawer|flyout(\s+menu)?|side\s*bar\s+menu)\b/i',
+            $name
+        );
     }
 
     /**
@@ -333,6 +1500,31 @@ final class ScenegraphPagePlanner
     private function isWebLikeDimensions(float $width, float $height): bool
     {
         return $width >= 320 && $width <= 2400 && $height >= 700 && $height <= 20000;
+    }
+
+    /**
+     * Resolve a page's slug source. A configured `frame_slug_map` entry always
+     * wins. For a RESPONSIVE page (more than one breakpoint variant) the slug is
+     * derived from the normalized page name so it reflects the page rather than
+     * its widest variant — "Home Page – Desktop" + "Home Page – Mobile" collapse
+     * to the slug "home-page", not "home-page-desktop". A single-variant page
+     * keeps its own name (e.g. "Mobile Menu" stays "mobile-menu").
+     *
+     * @param array<int, string>   $members
+     * @param array<string, mixed> $slugMap
+     */
+    private function pageSlug(string $primaryId, string $name, array $members, array $slugMap): string
+    {
+        $configured = $this->configuredSlug($primaryId, $slugMap);
+        if ( null !== $configured ) {
+            return $configured;
+        }
+
+        if ( count($members) > 1 ) {
+            return $this->slugify($this->frameInspector->normalizedPageName($name));
+        }
+
+        return $this->slugify($name);
     }
 
     /**

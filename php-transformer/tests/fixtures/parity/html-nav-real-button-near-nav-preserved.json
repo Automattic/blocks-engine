@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nav-real-button-near-nav-preserved",
+  "description": "Negative-case guard for the generalized hamburger-drop: a real labeled action button sitting in a header beside a converting core/navigation menu is NOT a nav toggle and must be preserved as a core/button. The bar-stack hamburger drop only removes labelless controls whose sole content is stacked empty <span> bars; a button carrying visible text ('Get Started') keeps its content and converts normally, so legitimate header CTAs survive next to the navigation.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nav-real-button-near-nav-preserved.json",
+    "notes": "Proves the conservative boundary of redundant nav-toggle detection: presence beside a nav does not cause real buttons to be dropped."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header class=\"site-header\"><nav class=\"main-nav\" aria-label=\"Main\"><ul><li><a href=\"/about\">About</a></li><li><a href=\"/blog\">Blog</a></li></ul></nav><button class=\"cta\">Get Started</button></header>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/navigation", "attrs": { "className": "main-nav", "overlayMenu": "mobile" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/button", "attrs": { "className": "cta", "tagName": "button", "text": "Get Started" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:button" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Get Started" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"overlayMenu\":\"mobile\"" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

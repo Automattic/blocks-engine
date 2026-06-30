@@ -1,0 +1,48 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-semantic-selector-preservation",
+  "description": "Preserves generic semantic header, navigation, and section selectors on generated block wrappers while filtering JavaScript behavior hooks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-semantic-selector-preservation.json",
+    "notes": "Product-neutral coverage for stable semantic selector preservation in generated block markup."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header id=\"site-header\" class=\"site-header js js-site-header jsHeader\"><nav id=\"mobile-nav\" class=\"site-nav js-site-nav js_nav\" aria-label=\"Primary\"><ul><li><a href=\"/\">Home</a></li><li><a href=\"/services\">Services</a></li></ul></nav></header><section id=\"feature-section\" class=\"feature-section reveal js-reveal\"><h2>Featured</h2><p>Stable source selectors remain available.</p></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "anchor": "site-header", "className": "site-header", "tagName": "header" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/navigation", "attrs": { "anchor": "mobile-nav", "className": "site-nav", "overlayMenu": "mobile" } },
+    { "path": "blocks.1", "name": "core/group", "attrs": { "anchor": "feature-section", "className": "feature-section reveal", "tagName": "section" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"anchor\":\"site-header\",\"className\":\"site-header\",\"tagName\":\"header\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<header id=\"site-header\" class=\"wp-block-group site-header\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation {\"anchor\":\"mobile-nav\",\"className\":\"site-nav\",\"overlayMenu\":\"mobile\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"anchor\":\"feature-section\",\"className\":\"feature-section reveal\",\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<section id=\"feature-section\" class=\"wp-block-group feature-section reveal\">" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "js-site-header" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "jsHeader" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "js-site-nav" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "js_nav" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "js-reveal" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "class=\"js\"" },
+    { "path": "source_reports.html.source_provenance.0.selector", "assert": "equals", "value": "header:nth-of-type(1)" },
+    { "path": "source_reports.html.source_provenance.0.source_attributes.id", "assert": "equals", "value": "site-header" },
+    { "path": "source_reports.html.source_provenance.0.source_attributes.class", "assert": "equals", "value": "site-header js js-site-header jsHeader" },
+    { "path": "source_reports.html.source_provenance.1.selector", "assert": "equals", "value": "header:nth-of-type(1) > nav:nth-of-type(1)" },
+    { "path": "source_reports.html.source_provenance.1.source_attributes.id", "assert": "equals", "value": "mobile-nav" },
+    { "path": "source_reports.html.source_provenance.4.selector", "assert": "equals", "value": "section:nth-of-type(1)" },
+    { "path": "source_reports.html.source_provenance.4.source_attributes.id", "assert": "equals", "value": "feature-section" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "static-style-parity-compare-match",
+  "description": "When the candidate preserves source classes, tags, and effective CSS, the deterministic static parity comparator returns a perfect score (1.0), pass status, and zero findings.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/static-style-parity-compare-match.json",
+    "notes": "Identity case proves the render-free signal yields a clean pass with no flakiness."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Static style parity comparison emits the shared visual-parity report contract."
+  },
+  "operation": "static_style_parity.compare",
+  "input": {
+    "source_content": "<style>body{font-family:\"Inter\",sans-serif;color:#111}.hero{background-color:#0a0a0a;color:#fff;padding:40px}h1{font-size:48px;font-weight:700}.btn{background-color:#ff5a1f;border-radius:8px;color:#fff}</style><body><section class=\"hero\"><h1>Welcome</h1><a class=\"btn\" href=\"/x\">Get started</a></section></body>",
+    "target_content": "<style>body{font-family:\"Inter\",sans-serif;color:#111}.hero{background-color:#0a0a0a;color:#fff;padding:40px}h1{font-size:48px;font-weight:700}.btn{background-color:#ff5a1f;border-radius:8px;color:#fff}</style><body><section class=\"hero\"><h1>Welcome</h1><a class=\"btn\" href=\"/x\">Get started</a></section></body>"
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/visual-parity-report/v1" },
+    { "path": "status", "assert": "equals", "value": "pass" },
+    { "path": "severity", "assert": "equals", "value": "none" },
+    { "path": "parity.score", "assert": "equals", "value": 1.0 },
+    { "path": "parity.property_parity", "assert": "equals", "value": 1.0 },
+    { "path": "parity.coverage", "assert": "equals", "value": 1.0 },
+    { "path": "summary.matched_total", "assert": "equals", "value": 3 },
+    { "path": "summary.absorbed_source_total", "assert": "equals", "value": 0 },
+    { "path": "summary.covered_total", "assert": "equals", "value": 3 },
+    { "path": "summary.compared_properties", "assert": "equals", "value": 11 },
+    { "path": "summary.agreed_properties", "assert": "equals", "value": 11 },
+    { "path": "summary.finding_total", "assert": "equals", "value": 0 },
+    { "path": "matches.0.match_tier", "assert": "equals", "value": "selector" }
+  ]
+}

@@ -723,7 +723,7 @@
      ================================================================== */
   function roundRect(ctx, x, y, w, h, r) {
     if (w < 0) { x += w; w = -w; } if (h < 0) { y += h; h = -h; }
-    r = Math.min(r, w / 2, h / 2);
+    r = Math.max(0, Math.min(r, w / 2, h / 2));
     ctx.beginPath();
     ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r);
     ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r);

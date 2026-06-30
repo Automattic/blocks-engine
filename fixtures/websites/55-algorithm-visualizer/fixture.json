@@ -1,0 +1,12 @@
+{
+  "class": "canvas/webgl/audio/runtime-heavy",
+  "tags": [
+    "algorithm",
+    "visualizer",
+    "education",
+    "canvas",
+    "animation",
+    "data-viz"
+  ],
+  "complexity": 4
+}

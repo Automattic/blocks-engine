@@ -25,13 +25,31 @@
     { "path": "blocks.0.innerBlocks.2", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.2.innerBlocks.2", "name": "core/buttons" }
   ],
-  "expected_fallbacks": [],
+  "expected_fallbacks": [
+    { "type": "html", "reason": "commerce_product_grid_detected", "tag": "section", "diagnostic_code": "html_product_grid_fallback", "kind": "html_product_grid_fallback", "product_count": 2 }
+  ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
     { "path": "serialized_blocks", "assert": "contains", "value": "Signal Hoodie" },
     { "path": "serialized_blocks", "assert": "contains", "value": "#signal-hoodie" },
-    { "path": "fallbacks", "assert": "count", "count": 0 }
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_product_grid_fallback" },
+    { "path": "fallbacks.0.kind", "assert": "equals", "value": "html_product_grid_fallback" },
+    { "path": "fallbacks.0.reason_code", "assert": "equals", "value": "html_product_grid_fallback" },
+    { "path": "fallbacks.0.pattern_family", "assert": "equals", "value": "commerce_product_grid" },
+    { "path": "fallbacks.0.repair_bucket", "assert": "equals", "value": "materialize_commerce_products" },
+    { "path": "fallbacks.0.container_selector", "assert": "equals", "value": "section:nth-of-type(1)" },
+    { "path": "fallbacks.0.products", "assert": "count", "count": 2 },
+    { "path": "fallbacks.0.products.0.name", "assert": "equals", "value": "Signal Hoodie" },
+    { "path": "fallbacks.0.products.0.price", "assert": "equals", "value": "$64.00" },
+    { "path": "fallbacks.0.products.0.has_cart_control", "assert": "equals", "value": true },
+    { "path": "fallbacks.0.products.0.image.src", "assert": "equals", "value": "assets/signal-hoodie.jpg" },
+    { "path": "fallbacks.0.products.0.image.alt", "assert": "equals", "value": "Signal Hoodie" },
+    { "path": "fallbacks.0.products.0.source_selector", "assert": "equals", "value": "section:nth-of-type(1) > article:nth-of-type(1)" },
+    { "path": "fallbacks.0.products.1.name", "assert": "equals", "value": "Field Notes" },
+    { "path": "fallbacks.0.products.1.price", "assert": "equals", "value": "$12" },
+    { "path": "fallbacks.0.products.1.has_cart_control", "assert": "equals", "value": true }
   ]
 }

@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-custom-block-generation",
+  "description": "A high-confidence custom_block subtree that maps to nothing native/Automattic (a custom-element wrapping repeated content tiles) is generated as a dynamic PHP-only block: the output carries a self-closing block reference (attrs only, no innerHTML) and a matching generated_blocks type definition, instead of a raw core/html fallback (issue #497).",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-custom-block-generation.json",
+    "notes": "Product-neutral custom element; name/title derive from generic structure (repeatable children) only."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New producer-link behavior with no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<my-pricing><div class=\"tier\"><h3>Basic</h3><p>$9</p></div><div class=\"tier\"><h3>Pro</h3><p>$19</p></div><div class=\"tier\"><h3>Max</h3><p>$49</p></div></my-pricing>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "custom/collection-623e0f92" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "custom/collection-623e0f92" },
+    { "path": "blocks.0.innerHTML", "assert": "equals", "value": "" },
+    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "<h3>Basic</h3>" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.generated_blocks", "assert": "count", "count": 1 },
+    { "path": "source_reports.generated_blocks.0.name", "assert": "equals", "value": "collection-623e0f92" },
+    { "path": "source_reports.generated_blocks.0.block_json.title", "assert": "equals", "value": "Custom Collection" },
+    { "path": "source_reports.generated_blocks.0.block_json.render", "assert": "equals", "value": "file:./render.php" },
+    { "path": "source_reports.generated_blocks.0.render", "assert": "contains", "value": "wp_kses_post" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:custom/collection-623e0f92 " }
+  ]
+}

@@ -8,11 +8,11 @@ The package name is `automattic/blocks-engine-php-transformer`.
 
 php-transformer is product-level primitive and old repos are downstream consumers.
 
-The canonical package identity is only the Composer package name, the `php-transformer/` package root, and the `Automattic\BlocksEngine\PhpTransformer\` namespace. Do not include old repository names, compatibility wrapper names, or product plugin names in package identity, package metadata, namespaces, or release labels.
+The canonical package identity is only the Composer package name, the `php-transformer` package root, and the PSR-4 namespace rooted at `src/` (for example `Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer`). Do not include old repository names, compatibility wrapper names, or product plugin names in package identity, package metadata, namespaces, or release labels.
 
-The package root is `php-transformer/` inside this repository. It should be installable as a Composer package from that directory during review and from a tagged release after merge.
+The package root is `php-transformer` inside this repository. It should be installable as a Composer package from that directory during review and from a tagged release after merge.
 
-The public namespace remains `Automattic\BlocksEngine\PhpTransformer\`. Downstream wrappers and product plugins should depend on this namespace through Composer autoloading, not by copying package files or requiring `php-transformer` to know the old repositories.
+The public namespace is the PSR-4 root mapped to `src/` (for example `Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer`). Downstream wrappers and product plugins should depend on this namespace through Composer autoloading, not by copying package files or requiring `php-transformer` to know the old repositories.
 
 ## Existing Package Name Continuity
 
@@ -21,9 +21,7 @@ These Composer package names are known public entrypoints and should keep resolv
 | Existing package | Current role | Continuity plan |
 | --- | --- | --- |
 | `chubes4/html-to-blocks-converter` | WordPress plugin and Composer package for HTML-to-block conversion. | Publish compatibility releases that keep `html_to_blocks_*` functions and plugin hooks while delegating to tagged transformer APIs. |
-| `chubes4/block-format-bridge` | WordPress plugin and Composer package for format conversion across HTML, Markdown, and blocks. | Publish compatibility releases that keep `bfb_*`, adapter, REST, CLI, ability, and report contracts while routing internals through transformer adapters. |
-| `chubes4/block-artifact-compiler` | WordPress plugin and Composer package for generated website artifact compilation. | Publish compatibility releases that keep BAC functions/classes and report fields while mapping tagged transformer envelopes to existing shapes. |
-| `chubes4/static-site-importer` | Product plugin that consumes BFB/BAC and owns WordPress import workflows. | Keep as an active product package. Adopt tagged compatibility releases first, then move product-owned adapters to direct transformer calls when parity evidence is available. |
+| `chubes4/static-site-importer` | Product plugin that consumes `php-transformer` and owns WordPress import workflows. | Keep as an active product package with product-owned adapters that call tagged transformer APIs directly. |
 
 The old names should not be archived at the transformer merge point. Archive decisions wait until tagged compatibility releases have shipped, supported product paths no longer require the old entrypoints, and issue traffic shows no active external dependency on those packages.
 
@@ -87,7 +85,7 @@ After the transformer release is tagged, downstream consumers should remove cust
 }
 ```
 
-The package is rooted at `php-transformer/`; release and packaging checks should run from that directory. Do not package the full Blocks Engine repository as the Composer artifact, and do not move the transformer files into a downstream repository to make Composer resolution easier.
+The package is rooted at `php-transformer`; release and packaging checks should run from that directory. Do not package the full Blocks Engine repository as the Composer artifact, and do not move the transformer files into a downstream repository to make Composer resolution easier.
 
 Use a VCS repository when the consumer branch runs outside this machine or in CI:
 
@@ -174,8 +172,6 @@ Use explicit review constraints only while PRs are draft:
 | --- | --- | --- |
 | `automattic/blocks-engine-php-transformer` | `dev-cook/php-transformer-migration-no-perma-legacy as 0.1.x-dev` | `^0.1.0` after the first transformer tag. |
 | `chubes4/html-to-blocks-converter` | `dev-cook/php-transformer-html-wrapper` for dependent wrapper/product review only. | First tagged compatibility release, expected `^0.1.0` unless maintainers choose a different existing scheme. |
-| `chubes4/block-format-bridge` | `dev-cook/php-transformer-format-wrapper` for Static Site Importer review only. | First tagged compatibility release, expected `^0.1.0` unless maintainers choose a different existing scheme. |
-| `chubes4/block-artifact-compiler` | `dev-cook/php-transformer-artifact-wrapper` for Static Site Importer review only. | First tagged compatibility release, expected `^0.1.0` unless maintainers choose a different existing scheme. |
 
 Review branches may use path repositories for local parity work and VCS repositories for CI. Merge candidates must use tags, not path repositories, unpublished branches, or inline aliases.
 
@@ -187,9 +183,7 @@ Release downstream wrappers after the transformer package has a tag that contain
 
 1. Tag `automattic/blocks-engine-php-transformer` with stable package metadata, autoloading, result envelopes, and fixture coverage.
 2. Release `chubes4/html-to-blocks-converter` as a temporary downstream wrapper over transformer HTML conversion while preserving current public helpers and plugin behavior.
-3. Release `chubes4/block-format-bridge` as a temporary downstream wrapper with transformer-backed adapters while preserving current `bfb_*` functions, format support, conversion reports, and capability metadata.
-4. Release `chubes4/block-artifact-compiler` as a temporary downstream wrapper with transformer-backed compiler behavior while preserving current public compiler functions and report fields.
-5. Update `chubes4/static-site-importer` to depend on compatibility releases first, then move product-owned adapter internals to direct transformer calls when parity evidence is available.
+3. Update `chubes4/static-site-importer` to move product-owned adapter internals to direct transformer calls when parity evidence is available.
 
 ## Archive And Thin-Shim Exit Paths
 
@@ -210,7 +204,7 @@ Static Site Importer should not require unpublished wrapper branches on merge. I
 
 The PR can leave draft when the package is reviewable as a releasable Composer library.
 
-- `php-transformer/composer.json` declares the package name, PHP constraint, autoload rules, scripts, and package metadata needed by wrapper PRs.
+- `composer.json` declares the package name, PHP constraint, autoload rules, scripts, and package metadata needed by wrapper PRs.
 - The README states package boundaries, draft status, and where wrapper/product migration plans live.
 - Contract docs cover result envelopes and parity fixtures for downstream wrapper checks.
 - Packaging docs define VCS/path repository use, versioning, prefixing ownership, and release order.

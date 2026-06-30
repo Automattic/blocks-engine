@@ -210,12 +210,18 @@ Operator-only release checklist after the release-readiness PR merges:
 - Update downstream wrapper/product PRs from review-only constraints to tagged constraints.
 - Decide whether GitHub Releases are part of this first package publication path.
 
-Homeboy owns the local release preflight for this package through `php-transformer/homeboy.json`. The only version target is `VERSION`, currently `0.1.0`; release automation should tag from the package subtree after the upstream PRs are merged, without adding wrapper-package names to this package metadata.
+Homeboy owns the local release preflight for this package through `php-transformer/homeboy.json`. Run Homeboy with `php-transformer/` as the component path so release automation detects the monorepo path and uses `php-transformer-v*` tags, without adding wrapper-package names to this package metadata.
 
 Recommended post-merge dry-run:
 
 ```sh
 homeboy release php-transformer --dry-run --skip-publish --no-github-release
+```
+
+When running from outside the package directory, pass the package path explicitly:
+
+```sh
+homeboy release php-transformer --path /path/to/blocks-engine/php-transformer --dry-run --skip-publish --no-github-release
 ```
 
 Recommended first release command after the dry-run passes and the merge commit is ready to tag:

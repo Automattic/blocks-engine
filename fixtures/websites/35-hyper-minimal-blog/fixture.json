@@ -1,0 +1,11 @@
+{
+  "class": "docs/blog",
+  "tags": [
+    "blog",
+    "minimal",
+    "personal",
+    "has-nav",
+    "multipage"
+  ],
+  "complexity": 1
+}

@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "visual-parity-typography-extract",
+  "description": "Extracts normalized heading and body typography probes (font-family, font-weight, type scale) from rendered HTML, including inherited body font-family.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/visual-parity-typography-extract.json",
+    "notes": "Generic typography visual probe fixture; not coupled to any source site."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Probe output is a new upstream diagnostic surface."
+  },
+  "operation": "typography_parity_probe.extract",
+  "input": {
+    "content": "<style>body{font-family:\"Inter\",sans-serif}h1{font-family:\"Playfair Display\",serif;font-size:48px;font-weight:700;text-transform:uppercase}p{font-size:18px;line-height:1.6}</style><body><article><h1>Welcome Home</h1><p>Some intro body copy here.</p></article></body>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/visual-parity-probes/v1" },
+    { "path": "summary.total", "assert": "equals", "value": 2 },
+    { "path": "summary.by_role.heading", "assert": "equals", "value": 1 },
+    { "path": "summary.by_role.body", "assert": "equals", "value": 1 },
+    { "path": "summary.type_scale.h1", "assert": "equals", "value": "48px" },
+    { "path": "probes.0.role", "assert": "equals", "value": "heading" },
+    { "path": "probes.0.level", "assert": "equals", "value": 1 },
+    { "path": "probes.0.typography.font-family", "assert": "equals", "value": "\"Playfair Display\",serif" },
+    { "path": "probes.0.typography.font-weight", "assert": "equals", "value": "700" },
+    { "path": "probes.0.typography.text-transform", "assert": "equals", "value": "uppercase" },
+    { "path": "probes.1.role", "assert": "equals", "value": "body" },
+    { "path": "probes.1.typography.font-family", "assert": "equals", "value": "\"Inter\",sans-serif" },
+    { "path": "probes.1.typography.font-size", "assert": "equals", "value": "18px" }
+  ]
+}

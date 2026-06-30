@@ -76,9 +76,9 @@ Use these Static Site Importer fixtures to compare the legacy BFB/BAC path again
 
 | Fixture | SSI reference | Adapter surfaces | Acceptance focus |
 | --- | --- | --- | --- |
-| `wordpress-is-dead` | `tests/fixtures/wordpress-is-dead`, exercised by `tests/smoke-wordpress-is-dead-fixture.php` | `convert_fragment()`, `blocks_to_html()` | Multi-page HTML import, header/footer extraction, navigation rewriting, CSS preservation, zero empty HTML fallback regressions, visual/semantic comparison target reporting. |
-| `mixed-source-site` | `tests/fixtures/mixed-source-site`, exercised by `tests/smoke-mixed-source-fixture.php` and `tests/smoke-mixed-source-link-rewrites.php` | `convert_fragment()` for HTML fragments, transformer document/report mapping for Markdown documents | Markdown page creation, skipped MDX diagnostics, link rewrites away from `.md`, source-document report counts. |
-| `website-artifact-bundle` | `tests/fixtures/website-artifact-bundle/artifact.json` | `compile_website_artifact()`, `summarize_result()` | Canonical result envelope, `serialized_blocks`, materializable CSS/JS/file artifacts, provenance, diagnostics, and import-report summary fields. |
+| `wordpress-is-dead` | `tests/fixtures/parity/wordpress-is-dead-hero.json` | `convert_fragment()`, `blocks_to_html()` | Multi-page HTML import, header/footer extraction, navigation rewriting, CSS preservation, zero empty HTML fallback regressions, visual/semantic comparison target reporting. |
+| `mixed-source-site` | `tests/fixtures/parity/mixed-source-markdown.json` | `convert_fragment()` for HTML fragments, transformer document/report mapping for Markdown documents | Markdown page creation, skipped MDX diagnostics, link rewrites away from `.md`, source-document report counts. |
+| `website-artifact-bundle` | `tests/fixtures/parity/website-artifact-bundle.json` | `compile_website_artifact()`, `summarize_result()` | Canonical result envelope, `serialized_blocks`, materializable CSS/JS/file artifacts, provenance, diagnostics, and import-report summary fields. |
 
 The adapter PR should include an old-versus-adapter report table for these fixtures before switching the adapter default to transformer-backed conversion.
 

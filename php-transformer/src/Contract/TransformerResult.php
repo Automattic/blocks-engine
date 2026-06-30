@@ -128,7 +128,7 @@ final class TransformerResult
             throw new InvalidArgumentException('Canonical transformer result conversion report is missing source_format.');
         }
 
-        foreach ( array( 'source_summary', 'selector_summary', 'fallback_diagnostics', 'asset_refs', 'navigation_candidates', 'interaction_candidates', 'presentation_gaps', 'metrics' ) as $key ) {
+        foreach ( array( 'source_summary', 'selector_summary', 'fallback_diagnostics', 'asset_refs', 'navigation_candidates', 'interaction_candidates', 'runtime_islands', 'presentation_gaps', 'metrics' ) as $key ) {
             if ( array_key_exists($key, $conversionReport) && ! is_array($conversionReport[$key]) ) {
                 throw new InvalidArgumentException(sprintf('Canonical transformer result conversion report %s must be an array.', $key));
             }

@@ -1,0 +1,45 @@
+name: JS Fidelity Ratchet
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/js-bench.yml"
+      - "packages/blocks-engine/**"
+  push:
+    branches:
+      - trunk
+    paths:
+      - ".github/workflows/js-bench.yml"
+      - "packages/blocks-engine/**"
+
+jobs:
+  ratchet:
+    name: Reconstruct fidelity ratchet
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: packages/blocks-engine
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Tier-A only: deterministic, offline (no model, no network, no secrets).
+      # Exit 1 = a fixture regressed below its committed baseline; exit 2 = harness error.
+      # Read-only — never records results or updates baselines in CI.
+      - name: Fidelity ratchet
+        run: pnpm bench

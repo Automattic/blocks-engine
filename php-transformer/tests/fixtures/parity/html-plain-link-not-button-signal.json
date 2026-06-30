@@ -1,0 +1,28 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-plain-link-not-button-signal",
+  "description": "Negative guard for button-signal detection: a plain inline text link with no button class, role, or button-shape styling stays an anchor inside a paragraph and is never promoted to core/buttons.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-plain-link-not-button-signal.json",
+    "notes": "Regression guard ensuring ordinary links are not mistaken for buttons."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Negative guard for new generic button-signal detection."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><p>Read our <a href=\"/about\">about page</a> for details.</p></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/paragraph" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/about\">about page</a>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:buttons" }
+  ]
+}

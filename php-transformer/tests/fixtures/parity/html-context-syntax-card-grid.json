@@ -16,7 +16,7 @@
     "content": "<section id=\"features\" class=\"cards-grid\" data-source-kind=\"static\" style=\"display:grid\"><h2>Features</h2><pre><code class=\"language-js\"><span class=\"token keyword\">const</span> count = <span data-token=\"number\">2</span>;</code></pre><article class=\"feature-card\"><p>First card</p></article><article class=\"feature-card\"><p>Second card</p></article><x-widget onclick=\"hydrate()\" data-action=\"open\"><span>Runtime widget</span></x-widget></section><figure class=\"testimonial\"><blockquote><p>Readable output.</p><footer><cite>Casey</cite> Engineer</footer></blockquote></figure>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "cards-grid", "style": "display:grid", "layout": { "type": "grid" } } },
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "cards-grid", "layout": { "type": "grid" } } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Features", "level": 2 } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/code", "attrs": { "className": "language-js", "content": "<span class=\"token keyword\">const</span> count = <span data-token=\"number\">2</span>;" } },
     { "path": "blocks.0.innerBlocks.2", "name": "core/group", "attrs": { "className": "feature-card" } },
@@ -24,13 +24,14 @@
     { "path": "blocks.1", "name": "core/quote", "attrs": { "className": "testimonial", "citation": "<cite>Casey</cite> Engineer" } }
   ],
   "expected_fallbacks": [
-    { "type": "unsupported_element", "reason": "unsupported_element", "diagnostic_code": "html_unsupported_element", "tag": "x-widget" }
+    { "type": "unsupported_element", "reason": "unsupported_element", "diagnostic_code": "html_unsupported_element", "tag": "x-widget" },
+    { "type": "html", "reason": "interactive_control_behavior_lost", "diagnostic_code": "interactive_control_behavior_lost", "severity": "warning", "conversion_classification": "behavior_loss", "suggested_repair_class": "restore_interactive_behavior", "pattern_family": "interactive_control", "tag": "x-widget" }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 2 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 4 },
-    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 2 },
     { "path": "fallbacks.0.context.parent_tag", "assert": "equals", "value": "section" },
     { "path": "fallbacks.0.context.nearest_heading", "assert": "equals", "value": "Features" },
     { "path": "fallbacks.0.context.data_attributes.data-action", "assert": "equals", "value": "open" },

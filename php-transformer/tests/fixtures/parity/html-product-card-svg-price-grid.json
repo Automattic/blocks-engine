@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-product-card-svg-price-grid",
-  "description": "Preserves product cards with SVG imagery, product names, prices, and CTA buttons inside a card grid.",
+  "description": "Preserves product cards with illustrative inline SVG imagery (kept inline as a core/html block, since WordPress blocks SVG uploads and an externalized .svg asset would not render), product names, prices, and CTA buttons inside a card grid.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-product-card-svg-price-grid.json",
@@ -18,18 +18,32 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "product-grid", "layout": { "type": "grid" } } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "product-card" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "className": "product-image", "alt": "Ceramic bowl" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/html" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "className": "product-name", "content": "Ceramic Bowl", "level": 3 } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/paragraph", "attrs": { "className": "product-price", "content": "$42" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.3", "name": "core/buttons" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.3.innerBlocks.0", "name": "core/button", "attrs": { "className": "product-cta", "text": "Buy now", "url": "/products/bowl" } }
   ],
-  "expected_fallbacks": [],
+  "expected_fallbacks": [
+    { "type": "html", "reason": "commerce_product_grid_detected", "tag": "div", "diagnostic_code": "html_product_grid_fallback", "kind": "html_product_grid_fallback", "product_count": 2 }
+  ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<svg class=\"product-image\" role=\"img\" aria-label=\"Ceramic bowl\" viewBox=\"0 0 10 10\">" },
+    { "path": "assets", "assert": "count", "count": 0 },
     { "path": "serialized_blocks", "assert": "contains", "value": "product-price" },
     { "path": "source_reports.html.structure_signals.3.signals.price_like", "assert": "equals", "value": true },
-    { "path": "source_reports.html.structure_signals.14.signals.grid_like", "assert": "equals", "value": true }
+    { "path": "source_reports.html.structure_signals.14.signals.grid_like", "assert": "equals", "value": true },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_product_grid_fallback" },
+    { "path": "fallbacks.0.container_selector", "assert": "equals", "value": "div:nth-of-type(1)" },
+    { "path": "fallbacks.0.products", "assert": "count", "count": 2 },
+    { "path": "fallbacks.0.products.0.name", "assert": "equals", "value": "Ceramic Bowl" },
+    { "path": "fallbacks.0.products.0.price", "assert": "equals", "value": "$42" },
+    { "path": "fallbacks.0.products.0.has_cart_control", "assert": "equals", "value": true },
+    { "path": "fallbacks.0.products.1.name", "assert": "equals", "value": "Linen Towel" },
+    { "path": "fallbacks.0.products.1.price", "assert": "equals", "value": "$18" },
+    { "path": "fallbacks.0.products.1.has_cart_control", "assert": "equals", "value": true }
   ]
 }

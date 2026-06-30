@@ -3,11 +3,29 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
+
 /**
  * @internal Block construction is owned by HtmlTransformer.
  */
 final class BlockFactory
 {
+    /**
+     * Semantic container tags `core/group` may render as its wrapper element.
+     * `div` is the canonical default; the rest mirror the semantic HTML5
+     * landmarks core's group block exposes via its `tagName` attribute.
+     *
+     * @var array<int, string>
+     */
+    private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main' );
+
+    private ?StyleAttributeMapper $styleMapper = null;
+
+    private function styleMapper(): StyleAttributeMapper
+    {
+        return $this->styleMapper ??= new StyleAttributeMapper();
+    }
+
     /**
      * @param array<string, mixed> $attrs
      * @param array<int, array<string, mixed>> $innerBlocks
@@ -59,7 +77,7 @@ final class BlockFactory
         if ( 'core/heading' === $name ) {
             $level = (int) ($attrs['level'] ?? 2);
             $level = max(1, min(6, $level));
-            return '<h' . $level . $this->blockSupportAttrs($attrs) . '>' . ($attrs['content'] ?? '') . '</h' . $level . '>';
+            return '<h' . $level . $this->blockSupportAttrs($attrs, 'wp-block-heading') . '>' . ($attrs['content'] ?? '') . '</h' . $level . '>';
         }
 
         if ( 'core/paragraph' === $name ) {
@@ -76,7 +94,7 @@ final class BlockFactory
 
         if ( 'core/list' === $name ) {
             $tagName = ! empty($attrs['ordered']) ? 'ol' : 'ul';
-            return array( 'opening' => '<' . $tagName . $this->blockSupportAttrs($attrs) . '>', 'closing' => '</' . $tagName . '>' );
+            return array( 'opening' => '<' . $tagName . $this->blockSupportAttrs($attrs, 'wp-block-list') . '>', 'closing' => '</' . $tagName . '>' );
         }
 
         if ( 'core/quote' === $name ) {
@@ -95,6 +113,21 @@ final class BlockFactory
                 $content = htmlspecialchars($content, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
             return '<pre class="wp-block-code"><code>' . $content . '</code></pre>';
+        }
+
+        if ( 'core/math' === $name ) {
+            return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-math') . '>' . ($attrs['content'] ?? '') . '</div>';
+        }
+
+        if ( 'core/icon' === $name ) {
+            $support = $this->styleSupport($attrs['style'] ?? null);
+            $iconAttrs = array(
+                'class'       => $this->mergeClassNames('wp-block-icon', $support['classes'], (string) ($attrs['className'] ?? '')),
+                'style'       => $support['style'],
+                'aria-label'  => (string) ($attrs['label'] ?? ''),
+                'aria-hidden' => ! empty($attrs['ariaHidden']) ? 'true' : '',
+            );
+            return '<div' . $this->htmlAttrs($iconAttrs) . '>' . ($attrs['svg'] ?? '') . '</div>';
         }
 
         if ( 'core/preformatted' === $name ) {
@@ -131,6 +164,25 @@ final class BlockFactory
             );
         }
 
+        if ( 'core/accordion' === $name ) {
+            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-accordion') . '>', 'closing' => '</div>' );
+        }
+
+        if ( 'core/accordion-item' === $name ) {
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), ! empty($attrs['openByDefault']) ? 'is-open' : '');
+            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-accordion-item') . '>', 'closing' => '</div>' );
+        }
+
+        if ( 'core/accordion-heading' === $name ) {
+            $level = (int) ($attrs['level'] ?? 3);
+            $level = max(1, min(6, $level));
+            return '<h' . $level . $this->blockSupportAttrs($attrs, 'wp-block-accordion-heading') . '><button type="button" class="wp-block-accordion-heading__toggle"><span class="wp-block-accordion-heading__toggle-title">' . ($attrs['title'] ?? '') . '</span></button></h' . $level . '>';
+        }
+
+        if ( 'core/accordion-panel' === $name ) {
+            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-accordion-panel') . '>', 'closing' => '</div>' );
+        }
+
         if ( 'core/image' === $name ) {
             return $this->imageHtml($attrs);
         }
@@ -156,6 +208,10 @@ final class BlockFactory
             return $this->mediaHtml('audio', $attrs);
         }
 
+        if ( 'core/search' === $name ) {
+            return $this->searchHtml($attrs);
+        }
+
         if ( 'core/html' === $name ) {
             return (string) ($attrs['content'] ?? '');
         }
@@ -165,6 +221,20 @@ final class BlockFactory
         }
 
         if ( 'core/button' === $name ) {
+            $support = $this->buttonStyleSupport($attrs);
+
+            // Match core/button save(): useBlockProps.save() lives on the OUTER
+            // wrapper <div>, so the block className and the anchor id belong on
+            // the wrapper. The inner <a>/<button> carries only the structural
+            // wp-block-button__link / wp-element-button classes plus color and
+            // border support classes/styles. Routing the source className onto
+            // the inner element instead leaves the stored markup divergent from
+            // save() and the editor flags the block invalid.
+            $wrapperAttrs = array(
+                'id'    => (string) ($attrs['anchor'] ?? ''),
+                'class' => $this->mergeClassNames('wp-block-button', (string) ($attrs['className'] ?? '')),
+            );
+
             if ( 'button' === ($attrs['tagName'] ?? '') ) {
                 $buttonAttrs = array_intersect_key($attrs, array_flip(array( 'type', 'role', 'aria-label', 'aria-controls', 'aria-expanded', 'aria-haspopup' )));
                 foreach ( $attrs as $attrName => $attrValue ) {
@@ -173,38 +243,37 @@ final class BlockFactory
                     }
                 }
                 $buttonAttrs = array_merge(array(
-                    'id'    => (string) ($attrs['anchor'] ?? ''),
-                    'class' => $this->mergeClassNames('wp-block-button__link wp-element-button', (string) ($attrs['className'] ?? '')),
-                    'style' => (string) ($attrs['style'] ?? ''),
+                    'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button'),
+                    'style' => $support['style'],
                 ), $buttonAttrs);
 
-                return '<div class="wp-block-button"><button' . $this->htmlAttrs($buttonAttrs) . '>' . ($attrs['text'] ?? '') . '</button></div>';
+                return '<div' . $this->htmlAttrs($wrapperAttrs) . '><button' . $this->htmlAttrs($buttonAttrs) . '>' . ($attrs['text'] ?? '') . '</button></div>';
             }
 
             $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-            $wrapperClass = $this->mergeClassNames('wp-block-button', in_array('is-style-outline', preg_split('/\s+/', (string) ($attrs['className'] ?? '')) ?: array(), true) ? 'is-style-outline' : '');
             $linkAttrs = array(
-                'class' => $this->mergeClassNames('wp-block-button__link wp-element-button', (string) ($attrs['className'] ?? '')),
-                'style' => (string) ($attrs['style'] ?? ''),
+                'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button'),
+                'style' => $support['style'],
             );
-            return '<div class="' . htmlspecialchars($wrapperClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"><a' . $this->htmlAttrs($linkAttrs) . $href . '>' . ($attrs['text'] ?? '') . '</a></div>';
+            return '<div' . $this->htmlAttrs($wrapperAttrs) . '><a' . $this->htmlAttrs($linkAttrs) . $href . '>' . ($attrs['text'] ?? '') . '</a></div>';
         }
 
-        if ( 'core/navigation' === $name ) {
-            return array( 'opening' => '<nav' . $this->blockSupportAttrs($attrs, 'wp-block-navigation') . '><ul class="wp-block-navigation__container">', 'closing' => '</ul></nav>' );
+        // The navigation family (`core/navigation`, `core/navigation-link`,
+        // `core/navigation-submenu`) are dynamic, server-rendered blocks:
+        // `supports.html` is false and each registers a `render_callback`, so
+        // their `save()` returns null. WordPress stores only the block comment
+        // delimiters (plus serialized inner blocks); the `<nav>`/`<ul>`/`<li>`
+        // chrome is produced at render time. Emitting that static markup into the
+        // stored block makes `wp.blocks.validateBlock` re-run `save()` (empty),
+        // see the leftover tags, and flag every navigation block invalid in the
+        // editor. The label/url/className ride in the comment attributes, so the
+        // canonical save()-matching shape carries no inner HTML at all.
+        if ( 'core/navigation' === $name || 'core/navigation-submenu' === $name ) {
+            return array( 'opening' => '', 'closing' => '' );
         }
 
         if ( 'core/navigation-link' === $name ) {
-            $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-            return '<li' . $this->blockSupportAttrs($attrs, 'wp-block-navigation-item wp-block-navigation-link') . '><a' . $this->navigationAnchorAttrs($attrs, $href) . '><span class="wp-block-navigation-item__label">' . ($attrs['label'] ?? '') . '</span></a></li>';
-        }
-
-        if ( 'core/navigation-submenu' === $name ) {
-            $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-            return array(
-                'opening' => '<li' . $this->blockSupportAttrs($attrs, 'wp-block-navigation-item has-child wp-block-navigation-submenu') . '><a' . $this->navigationAnchorAttrs($attrs, $href) . '><span class="wp-block-navigation-item__label">' . ($attrs['label'] ?? '') . '</span></a><ul' . $this->navigationSubmenuAttrs($attrs) . '>',
-                'closing' => '</ul></li>',
-            );
+            return '';
         }
 
         if ( 'core/shortcode' === $name ) {
@@ -212,10 +281,22 @@ final class BlockFactory
         }
 
         if ( 'core/group' === $name ) {
-            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-group') . '>', 'closing' => '</div>' );
+            $tag = $this->groupTagName($attrs['tagName'] ?? null);
+            return array( 'opening' => '<' . $tag . $this->blockSupportAttrs($attrs, 'wp-block-group') . '>', 'closing' => '</' . $tag . '>' );
         }
 
         return '';
+    }
+
+    /**
+     * Resolve the wrapper tag for a `core/group`. Core's group `save()` renders
+     * `<TagName>` from the `tagName` attribute, defaulting to `div`. Only the
+     * semantic container tags core treats as group wrappers are honored; any
+     * other value falls back to `div` so output never diverges from `save()`.
+     */
+    private function groupTagName(mixed $tagName): string
+    {
+        return is_string($tagName) && in_array($tagName, self::GROUP_TAG_NAMES, true) ? $tagName : 'div';
     }
 
     /**
@@ -271,6 +352,7 @@ final class BlockFactory
         if ( ! empty($attrs['href']) ) {
             $linkAttrs = array(
                 'href'        => (string) $attrs['href'],
+                'id'          => (string) ($attrs['linkAnchor'] ?? ''),
                 'target'      => (string) ($attrs['linkTarget'] ?? ''),
                 'rel'         => (string) ($attrs['rel'] ?? ''),
                 'class'       => (string) ($attrs['linkClass'] ?? ''),
@@ -342,6 +424,104 @@ final class BlockFactory
         return '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-' . $tagName) . '><' . $tagName . $this->htmlAttrs($mediaAttrs) . '></' . $tagName . '>' . $caption . '</figure>';
     }
 
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function searchHtml(array $attrs): string
+    {
+        $inputId = (string) ($attrs['inputAnchor'] ?? '');
+        $label = (string) ($attrs['label'] ?? 'Search');
+        $labelAttrs = array(
+            'class' => 'wp-block-search__label',
+            'for'   => $inputId,
+        );
+        $inputAttrs = array(
+            'type'        => 'search',
+            'id'          => $inputId,
+            'class'       => $this->mergeClassNames('wp-block-search__input', (string) ($attrs['inputClassName'] ?? '')),
+            'name'        => 's',
+            'placeholder' => (string) ($attrs['placeholder'] ?? ''),
+        );
+        $buttonText = (string) ($attrs['buttonText'] ?? 'Search');
+        $button = '' !== trim($buttonText) ? '<button type="submit" class="wp-block-search__button wp-element-button">' . $buttonText . '</button>' : '';
+
+        return '<form role="search" method="get"' . $this->blockSupportAttrs($attrs, 'wp-block-search') . '><label' . $this->htmlAttrs($labelAttrs) . '>' . $label . '</label><div class="wp-block-search__inside-wrapper"><input' . $this->htmlAttrs($inputAttrs) . ' />' . $button . '</div></form>';
+    }
+
+    /**
+     * Translate a core/button block's native style support into the rendered
+     * has-* support classes and the inline style string WordPress emits for
+     * custom colors and borders. Accepts the canonical `style` object; falls back
+     * to a legacy raw `style` string when present for backward compatibility.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array{classes: string, style: string}
+     */
+    private function buttonStyleSupport(array $attrs): array
+    {
+        $style = $attrs['style'] ?? null;
+        if ( ! is_array($style) ) {
+            return array(
+                'classes' => '',
+                'style'   => is_string($style) ? $style : '',
+            );
+        }
+
+        $classes = array();
+        $declarations = array();
+
+        $background = (string) ($style['color']['background'] ?? '');
+        $text = (string) ($style['color']['text'] ?? '');
+        if ( '' !== $text ) {
+            $classes[] = 'has-text-color';
+            $declarations[] = 'color:' . $text;
+        }
+        if ( '' !== $background ) {
+            $classes[] = 'has-background';
+            $declarations[] = 'background-color:' . $background;
+        }
+
+        $border = is_array($style['border'] ?? null) ? $style['border'] : array();
+        if ( isset($border['color']) && '' !== (string) $border['color'] ) {
+            $classes[] = 'has-border-color';
+            $declarations[] = 'border-color:' . (string) $border['color'];
+        }
+        if ( isset($border['width']) && '' !== (string) $border['width'] ) {
+            $declarations[] = 'border-width:' . (string) $border['width'];
+        }
+        if ( isset($border['style']) && '' !== (string) $border['style'] ) {
+            $declarations[] = 'border-style:' . (string) $border['style'];
+        }
+        if ( isset($border['radius']) && '' !== (string) $border['radius'] ) {
+            $declarations[] = 'border-radius:' . (string) $border['radius'];
+        }
+
+        $padding = is_array($style['spacing']['padding'] ?? null) ? $style['spacing']['padding'] : array();
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
+            if ( isset($padding[$side]) && '' !== (string) $padding[$side] ) {
+                $declarations[] = 'padding-' . $side . ':' . (string) $padding[$side];
+            }
+        }
+
+        $typography = is_array($style['typography'] ?? null) ? $style['typography'] : array();
+        $typographyMap = array(
+            'fontSize'      => 'font-size',
+            'fontWeight'    => 'font-weight',
+            'lineHeight'    => 'line-height',
+            'textTransform' => 'text-transform',
+        );
+        foreach ( $typographyMap as $attrName => $cssName ) {
+            if ( isset($typography[$attrName]) && '' !== (string) $typography[$attrName] ) {
+                $declarations[] = $cssName . ':' . (string) $typography[$attrName];
+            }
+        }
+
+        return array(
+            'classes' => implode(' ', $classes),
+            'style'   => implode(';', $declarations),
+        );
+    }
+
     private function mergeClassNames(string ...$classNames): string
     {
         $classes = array();
@@ -361,34 +541,33 @@ final class BlockFactory
      */
     private function blockSupportAttrs(array $attrs, string $baseClass = ''): string
     {
-        $classes = $this->mergeClassNames($baseClass, (string) ($attrs['className'] ?? ''));
+        $support = $this->styleSupport($attrs['style'] ?? null);
+        $classes = $this->mergeClassNames($baseClass, $support['classes'], (string) ($attrs['className'] ?? ''));
         return $this->htmlAttrs(array(
             'id'    => (string) ($attrs['anchor'] ?? ''),
             'class' => $classes,
-            'style' => (string) ($attrs['style'] ?? ''),
+            'style' => $support['style'],
         ));
     }
 
     /**
-     * @param array<string, mixed> $attrs
+     * Serialize the canonical block `style` OBJECT into the has-* support classes
+     * and inline CSS string WordPress emits in `save()`. A legacy raw `style`
+     * string is passed through unchanged for backward compatibility.
+     *
+     * @param mixed $style
+     * @return array{classes: string, style: string}
      */
-    private function navigationAnchorAttrs(array $attrs, string $href): string
+    private function styleSupport(mixed $style): array
     {
-        return $this->htmlAttrs(array(
-            'class' => $this->mergeClassNames('wp-block-navigation-item__content', (string) ($attrs['anchorClassName'] ?? '')),
-            'style' => (string) ($attrs['anchorStyle'] ?? ''),
-        )) . $href;
-    }
+        if ( is_array($style) ) {
+            return $this->styleMapper()->serialize($style);
+        }
 
-    /**
-     * @param array<string, mixed> $attrs
-     */
-    private function navigationSubmenuAttrs(array $attrs): string
-    {
-        return $this->htmlAttrs(array(
-            'class' => $this->mergeClassNames('wp-block-navigation__submenu-container', (string) ($attrs['submenuClassName'] ?? '')),
-            'style' => (string) ($attrs['submenuStyle'] ?? ''),
-        ));
+        return array(
+            'classes' => '',
+            'style'   => is_string($style) ? $style : '',
+        );
     }
 
     /**

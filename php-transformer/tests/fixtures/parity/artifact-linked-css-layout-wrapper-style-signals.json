@@ -31,10 +31,12 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "hero-grid" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "display:grid;grid-template-columns:1fr 420px;gap:clamp(24px,4vw,64px);align-items:center" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"hero-grid\",\"layout\":{\"type\":\"grid\"}} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "shift-card" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:start" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"services-cards\",\"style\":\"display:flex;gap:24px;align-items:stretch\",\"layout\":{\"type\":\"flex\"}} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"shift-card\",\"layout\":{\"type\":\"grid\"},\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<section class=\"wp-block-group shift-card\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"services-cards\",\"layout\":{\"type\":\"flex\"},\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<section class=\"wp-block-group services-cards\">" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }

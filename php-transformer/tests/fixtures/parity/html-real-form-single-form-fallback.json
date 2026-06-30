@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-real-form-single-form-fallback",
+  "description": "A real <form> with the same email + submit pairing as the div pseudo-form still emits exactly one html_form_fallback finding (tag form) and is never double-counted by the new div-based pseudo-form detection.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-real-form-single-form-fallback.json",
+    "notes": "Guards against double emission: the <form> path owns the subtree, so the div-based pseudo-form detection must not also fire for the form or any wrapper around it."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><div class=\"wrapper\"><form class=\"signup\"><label for=\"e\">Email address</label><input type=\"email\" id=\"e\" name=\"email\" placeholder=\"you@example.com\" required><button>Subscribe</button></form></div></main>"
+  },
+  "expected_fallbacks": [
+    { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
+    { "path": "fallbacks.0.tag", "assert": "equals", "value": "form" },
+    { "path": "fallbacks.0.control_count", "assert": "equals", "value": 2 },
+    { "path": "source_reports.runtime_islands", "assert": "count", "count": 1 },
+    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "form" }
+  ]
+}

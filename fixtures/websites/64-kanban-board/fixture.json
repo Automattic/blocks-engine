@@ -1,0 +1,11 @@
+{
+  "class": "app/dashboard",
+  "tags": [
+    "kanban",
+    "board",
+    "app",
+    "productivity",
+    "drag-and-drop"
+  ],
+  "complexity": 4
+}

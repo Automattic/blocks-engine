@@ -2,13 +2,11 @@
 
 These files are downstream-only migration sketches for wrapper and product PRs. They are copy/adapt references, not package API shipped by `automattic/blocks-engine-php-transformer`, and they are not examples for installed package usage.
 
-Use them with the release playbooks in `php-transformer/docs/consumer-prs/`:
+Use them with the release playbooks in `docs/consumer-prs/`:
 
 | Example | Downstream owner | Release use |
 | --- | --- | --- |
 | `html-to-blocks-converter-wrapper.php` | `chubes4/html-to-blocks-converter` | Preserve `html_to_blocks_*` helpers while delegating HTML conversion to `HtmlTransformer`. |
-| `block-format-bridge-wrapper.php` | `chubes4/block-format-bridge` | Preserve `bfb_*` functions and capability/report shapes while delegating supported conversions to `FormatBridge`. |
-| `block-artifact-compiler-wrapper.php` | `chubes4/block-artifact-compiler` | Preserve BAC functions and summaries while delegating artifact compilation to `ArtifactCompiler`. |
 | `static-site-importer-transformer-adapter.php` | `chubes4/static-site-importer` | Keep importer workflows product-owned while consuming canonical transformer results through an SSI-owned adapter. |
 
 Before using an example in a release branch:

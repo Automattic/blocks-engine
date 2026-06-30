@@ -1,0 +1,11 @@
+{
+  "class": "canvas/webgl/audio/runtime-heavy",
+  "tags": [
+    "webgl",
+    "shader",
+    "gallery",
+    "canvas",
+    "graphics"
+  ],
+  "complexity": 4
+}

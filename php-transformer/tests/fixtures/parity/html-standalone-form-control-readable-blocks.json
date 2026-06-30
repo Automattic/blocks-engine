@@ -1,0 +1,46 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-standalone-form-control-readable-blocks",
+  "description": "Converts standalone form controls into readable blocks while preserving runtime-targeted controls as runtime islands.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-standalone-form-control-readable-blocks.json",
+    "notes": "Covers generic SSI fixture matrix form-control fallbacks without fixture-specific selectors."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Readable standalone form-control blocks are an upstream primitive with no legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><input type=\"number\" id=\"amount\" name=\"custom-amount\" class=\"form-input\" placeholder=\"Enter amount\" min=\"1\" aria-label=\"Custom donation amount\"><select class=\"sort-select\" aria-label=\"Sort products\"><option value=\"featured\" selected>Featured</option><option value=\"price-asc\">Price: Low to High</option><option value=\"price-desc\">Price: High to Low</option></select><select class=\"js-sort-select\" aria-label=\"Runtime sort\"><option>Newest</option></select></main>",
+    "options": {
+      "runtime_dom_selectors": [".js-sort-select"]
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/list" },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.2.innerBlocks.1", "name": "core/list" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Custom donation amount: Enter amount" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Sort products" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Featured (selected)" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Price: Low to High" },
+    { "path": "source_reports.html.runtime_islands.0.kind", "assert": "equals", "value": "control" },
+    { "path": "source_reports.html.runtime_islands.0.selector", "assert": "equals", "value": ".js-sort-select" },
+    { "path": "source_reports.html.runtime_islands.0.source_snippet", "assert": "contains", "value": "<select class=\"js-sort-select\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Runtime sort" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Newest" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<select class=\"js-sort-select\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<select class=\"sort-select\"" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

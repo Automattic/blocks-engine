@@ -1,0 +1,38 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-empty-inline-runtime-target-preserved",
+  "description": "Preserves an empty inline DOM target nested inside text when first-party script mutates it at runtime.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-empty-inline-runtime-target-preserved.json",
+    "notes": "Generic regression coverage for dynamic status/loading spans whose initial text is intentionally empty."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Runtime dependency parity is an upstream artifact compiler contract with no legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<footer><div class=\"status-indicator\"><span id=\"status-text\">Synchronizing<span id=\"sync-dots\"></span></span></div><script src=\"status.js\"></script></footer>"
+        },
+        {
+          "path": "status.js",
+          "kind": "js",
+          "content": "const dots = document.getElementById('sync-dots'); dots.textContent = '...'; document.getElementById('status-text').addEventListener('click', function () { dots.textContent = ''; });"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "id=\"sync-dots\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "id=\"status-text\"" }
+  ]
+}

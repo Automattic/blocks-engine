@@ -11,10 +11,15 @@ use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatAdapterInterface;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerInterface;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationView;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbe;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbeComparator;
 
 if ( ! function_exists('serialize_blocks') ) {
     /**
@@ -83,10 +88,35 @@ $assert('assets/logo.png' === ($referenceReports['asset_references'][0]['asset_p
 $assert('theme/fonts/fonts.css' === ($referenceReports['asset_references'][1]['asset_path'] ?? ''), 'reference analyzer assembles CSS @import asset reference reports');
 $assert('assets/paper.png' === ($referenceReports['asset_references'][2]['asset_path'] ?? ''), 'reference analyzer resolves CSS url() reports relative to source CSS');
 $assert('theme/FixtureSans.woff2' === ($referenceReports['asset_references'][3]['asset_path'] ?? ''), 'reference analyzer assembles @font-face local font reference reports');
+$assert(2 === count($referenceReports['image_references']), 'reference analyzer projects HTML and CSS image asset references');
+$assert('assets/paper.png' === ($referenceReports['image_references'][1]['asset_path'] ?? ''), 'reference analyzer projects CSS background images into image references');
+$assert('css-url' === ($referenceReports['image_references'][1]['context'] ?? ''), 'reference analyzer preserves CSS background image context');
 
-$assertNormalizedFallbackDiagnostic = static function (array $diagnostic, string $code, string $severity, string $runtimeRequirement, string $suggestedPrimitive) use ($assert): void {
+$imageReferenceReports = $referenceAnalyzer->referenceReports(array(
+    array('path' => 'pages/index.html', 'kind' => 'html', 'content' => '<picture><source srcset="../assets/hero-small.png 480w, ../assets/hero-large.png 960w"><img src="../assets/logo.png" srcset="../assets/logo@2x.png 2x" alt="Logo"></picture><section style="background-image:url(../assets/panel.png)"></section><svg><image href="../assets/vector.png"></image></svg>', 'binary' => false),
+    array('path' => 'assets/hero-small.png', 'kind' => 'image', 'content_base64' => base64_encode('small'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 5),
+    array('path' => 'assets/hero-large.png', 'kind' => 'image', 'content_base64' => base64_encode('large'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 5),
+    array('path' => 'assets/logo.png', 'kind' => 'image', 'content_base64' => base64_encode('logo'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 4),
+    array('path' => 'assets/logo@2x.png', 'kind' => 'image', 'content_base64' => base64_encode('retina'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 6),
+    array('path' => 'assets/panel.png', 'kind' => 'image', 'content_base64' => base64_encode('panel'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 5),
+    array('path' => 'assets/vector.png', 'kind' => 'image', 'content_base64' => base64_encode('vector'), 'binary' => true, 'mime_type' => 'image/png', 'role' => 'asset', 'bytes' => 6),
+));
+$assert(6 === count($imageReferenceReports['image_references']), 'image reference analysis reports src, srcset, inline background, picture source, and SVG image href references');
+$assert('source' === ($imageReferenceReports['image_references'][0]['element'] ?? ''), 'image reference analysis reports picture source elements');
+$assert('srcset' === ($imageReferenceReports['image_references'][0]['attribute'] ?? ''), 'image reference analysis preserves srcset attributes');
+$assert('assets/hero-small.png' === ($imageReferenceReports['image_references'][0]['asset_path'] ?? ''), 'image reference analysis resolves source srcset paths relative to the HTML document');
+$assert('inline-style' === ($imageReferenceReports['image_references'][4]['context'] ?? ''), 'image reference analysis reports inline CSS background image references');
+$assert('assets/panel.png' === ($imageReferenceReports['image_references'][4]['asset_path'] ?? ''), 'image reference analysis resolves inline style image paths relative to the HTML document');
+$assert('image' === ($imageReferenceReports['image_references'][5]['element'] ?? ''), 'image reference analysis reports SVG image href elements');
+$assert('assets/vector.png' === ($imageReferenceReports['image_references'][5]['asset_path'] ?? ''), 'image reference analysis resolves SVG image href paths relative to the HTML document');
+
+$assertNormalizedFallbackDiagnostic = static function (array $diagnostic, string $code, string $severity, string $runtimeRequirement, string $suggestedPrimitive, string $conversionClassification = '') use ($assert): void {
     $assert($code === ($diagnostic['diagnostic_code'] ?? ''), "conversion report exposes {$code} diagnostic code");
     $assert($severity === ($diagnostic['severity'] ?? ''), "conversion report exposes {$code} severity");
+    if ( '' !== $conversionClassification ) {
+        $assert($conversionClassification === ($diagnostic['conversion_classification'] ?? ''), "conversion report exposes {$code} conversion classification");
+        $assert(isset($diagnostic['preservation_strategy']) && '' !== $diagnostic['preservation_strategy'], "conversion report exposes {$code} preservation strategy");
+    }
     $assert($runtimeRequirement === ($diagnostic['runtime_requirement'] ?? ''), "conversion report exposes {$code} runtime requirement");
     $assert(isset($diagnostic['recoverability']) && '' !== $diagnostic['recoverability'], "conversion report exposes {$code} recoverability");
     $assert(isset($diagnostic['actionability']) && '' !== $diagnostic['actionability'], "conversion report exposes {$code} actionability");
@@ -164,6 +194,35 @@ try {
     $assert(str_contains($exception->getMessage(), 'unsupported component kind'), 'visual parity report rejects product-specific match kinds', $exception->getMessage());
 }
 
+// Typography visual probe comparator emits reports through the shared
+// VisualParityReportContract: findings when source vs target typography drifts,
+// none when they align.
+$typographyProbe = new TypographyVisualProbe();
+$typographyComparator = new TypographyVisualProbeComparator();
+$typographySource = '<style>body{font-family:"Inter",sans-serif}h1{font-family:"Playfair Display",serif;font-size:48px;font-weight:700}p{font-size:18px}</style><body><article><h1>Welcome Home</h1><p>Intro body copy here.</p></article></body>';
+$typographyTarget = '<style>body{font-family:Arial,sans-serif}h1{font-size:32px;font-weight:400}p{font-size:18px}</style><body><article><h1>Welcome Home</h1><p>Intro body copy here.</p></article></body>';
+
+$typographyMismatchReport = $typographyComparator->compare(
+    $typographyProbe->extract($typographySource),
+    $typographyProbe->extract($typographyTarget)
+);
+VisualParityReportContract::assertReport($typographyMismatchReport);
+$assert(VisualParityReportContract::REPORT_SCHEMA === ($typographyMismatchReport['schema'] ?? ''), 'typography probe emits the visual parity report contract schema');
+$assert('warning' === ($typographyMismatchReport['status'] ?? ''), 'typography probe report warns when source vs target typography differs');
+$assert(count($typographyMismatchReport['findings'] ?? array()) > 0, 'typography probe emits findings on typography drift');
+$typographyCategories = array_map(static fn (array $finding): string => (string) ($finding['category'] ?? ''), $typographyMismatchReport['findings'] ?? array());
+$assert(in_array('typography', $typographyCategories, true), 'typography probe findings use the typography category');
+$typographyMatchKinds = array_map(static fn (array $match): string => (string) ($match['kind'] ?? ''), $typographyMismatchReport['matches'] ?? array());
+$assert(array() === array_diff($typographyMatchKinds, array('generic')), 'typography probe matches use the generic component kind');
+
+$typographyMatchReport = $typographyComparator->compare(
+    $typographyProbe->extract($typographySource),
+    $typographyProbe->extract($typographySource)
+);
+VisualParityReportContract::assertReport($typographyMatchReport);
+$assert('pass' === ($typographyMatchReport['status'] ?? ''), 'typography probe report passes when source and target typography match');
+$assert(array() === ($typographyMatchReport['findings'] ?? array('non-empty')), 'typography probe emits no findings when typography matches');
+
 $assert('assets/logo.png' === ArtifactPath::safeRelativePath(' ./assets//logo.png '), 'artifact paths trim relative markers and duplicate separators');
 $assert('' === ArtifactPath::safeRelativePath('/assets/logo.png'), 'artifact paths reject root-absolute paths');
 $assert('' === ArtifactPath::safeRelativePath('C:\\assets\\logo.png'), 'artifact paths reject drive-absolute paths');
@@ -171,6 +230,81 @@ $assert('' === ArtifactPath::safeRelativePath('../secrets/logo.png'), 'artifact 
 $assert('assets/logo.png' === ArtifactPath::resolveRelativePath('../assets/logo.png?version=1#hash', 'pages/home.html'), 'artifact references resolve relative paths without query or fragment');
 $assert('' === ArtifactPath::resolveRelativePath('https://example.com/logo.png', 'pages/home.html'), 'artifact references reject URL references');
 $assert('' === ArtifactPath::resolveRelativePath('../../logo.png', 'pages/home.html'), 'artifact references reject traversal above the artifact root');
+
+$registryDocument = new DOMDocument();
+$registryDocument->loadHTML('<div></div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+$registryElement = $registryDocument->getElementsByTagName('div')->item(0);
+$registry = new PatternRecognizerRegistry(array(
+    new class implements PatternRecognizerInterface {
+        public function match(DOMElement $element, PatternContext $context): ?array
+        {
+            return 'div' === strtolower($element->tagName) ? array('blockName' => 'core/group') : null;
+        }
+    },
+));
+$registryContext = new PatternContext(
+    static fn (DOMElement $element): array => array(),
+    static fn (DOMElement $element): string => '',
+    static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $innerBlocks)
+);
+$assert($registryElement instanceof DOMElement, 'pattern registry fixture element parses');
+$assert('core/group' === ($registry->firstMatch($registryElement, $registryContext)['blockName'] ?? null), 'pattern registry returns the first recognizer match');
+
+$navigationResult = ( new HtmlTransformer() )->transform('<nav class="primary"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();
+$navigationBlock = $navigationResult['blocks'][0] ?? array();
+$assert('core/navigation' === ($navigationBlock['blockName'] ?? null), 'navigation conversion still emits a navigation block');
+$assert(2 === count($navigationBlock['innerBlocks'] ?? array()), 'navigation conversion still preserves direct navigation links');
+$assert('About' === ($navigationBlock['innerBlocks'][0]['attrs']['label'] ?? null), 'navigation conversion still preserves link labels');
+$assert('/about' === ($navigationBlock['innerBlocks'][0]['attrs']['url'] ?? null), 'navigation conversion still preserves link URLs');
+
+$accordionResult = ( new HtmlTransformer() )->transform('<section class="faq"><div class="faq-item active"><button class="faq-question" aria-expanded="true" aria-controls="answer-a">What is covered?</button><div id="answer-a" class="faq-answer"><p>Assessment and treatment planning.</p></div></div><div class="faq-item"><button class="faq-question" aria-expanded="false" aria-controls="answer-b">How long is a visit?</button><div id="answer-b" class="faq-answer"><p>Most visits take 45 minutes.</p></div></div></section>')->toArray();
+$accordionBlock = $accordionResult['blocks'][0] ?? array();
+$accordionItems = $accordionBlock['innerBlocks'] ?? array();
+$assert('core/accordion' === ($accordionBlock['blockName'] ?? null), 'clean FAQ containers convert to core accordion');
+$assert(2 === count($accordionItems), 'accordion conversion preserves repeated items');
+$assert('core/accordion-item' === ($accordionItems[0]['blockName'] ?? null), 'accordion conversion emits core accordion items');
+$assert(true === ($accordionItems[0]['attrs']['openByDefault'] ?? null), 'accordion conversion maps obvious expanded state');
+$assert('What is covered?' === ($accordionItems[0]['innerBlocks'][0]['attrs']['title'] ?? null), 'accordion conversion preserves item heading text');
+$assert('core/accordion-panel' === ($accordionItems[0]['innerBlocks'][1]['blockName'] ?? null), 'accordion conversion emits core accordion panels');
+$assert('Assessment and treatment planning.' === ($accordionItems[0]['innerBlocks'][1]['innerBlocks'][0]['attrs']['content'] ?? null), 'accordion conversion preserves panel text');
+$assert(str_contains((string) ($accordionResult['serialized_blocks'] ?? ''), '<!-- wp:accordion '), 'accordion conversion serializes native accordion block comments');
+
+$complexAccordionResult = ( new HtmlTransformer() )->transform('<section class="faq"><div class="faq-item"><button aria-controls="a">Question A</button><div id="a"><script src="accordion.js"></script><p>Answer A</p></div></div><div class="faq-item"><button aria-controls="b">Question B</button><div id="b"><p>Answer B</p></div></div></section>')->toArray();
+$assert('core/accordion' !== (($complexAccordionResult['blocks'][0] ?? array())['blockName'] ?? null), 'runtime-heavy accordion markup is not forced into native accordion');
+
+$detailsAccordionResult = ( new HtmlTransformer() )->transform('<div class="accordion"><details open><summary>Can I reschedule?</summary><p>Yes, with notice.</p></details><details><summary>Do you take cards?</summary><p>Yes.</p></details></div>')->toArray();
+$detailsAccordionItems = $detailsAccordionResult['blocks'][0]['innerBlocks'] ?? array();
+$assert('core/accordion' === (($detailsAccordionResult['blocks'][0] ?? array())['blockName'] ?? null), 'repeated details inside accordion wrappers convert to core accordion');
+$assert(true === ($detailsAccordionItems[0]['attrs']['openByDefault'] ?? null), 'details open state maps to accordion item open state');
+$assert('Can I reschedule?' === ($detailsAccordionItems[0]['innerBlocks'][0]['attrs']['title'] ?? null), 'details summary text maps to accordion heading');
+$assert('Yes, with notice.' === ($detailsAccordionItems[0]['innerBlocks'][1]['innerBlocks'][0]['attrs']['content'] ?? null), 'details body text maps to accordion panel');
+
+// A single disclosure widget (toggle control + collapsible region) carries no
+// faq/accordion class, only the structural WAI-ARIA disclosure shape, and is
+// converted to a native zero-JS core/details block instead of leaking a dead
+// toggle button and an always-visible panel.
+$disclosureResult = ( new HtmlTransformer() )->transform('<div><button aria-expanded="false" aria-controls="answer-1">What is your refund policy?</button><div id="answer-1" hidden><p>Full refund within 30 days.</p></div></div>')->toArray();
+$disclosureBlock = $disclosureResult['blocks'][0] ?? array();
+$assert('core/details' === ($disclosureBlock['blockName'] ?? null), 'a single aria disclosure widget converts to core/details');
+$assert('What is your refund policy?' === ($disclosureBlock['attrs']['summary'] ?? null), 'disclosure toggle text maps to the details summary');
+$assert('Full refund within 30 days.' === ($disclosureBlock['innerBlocks'][0]['attrs']['content'] ?? null), 'disclosure panel content is preserved inside core/details');
+$assert(str_contains((string) ($disclosureResult['serialized_blocks'] ?? ''), '<!-- wp:details'), 'disclosure conversion serializes a native details block comment');
+
+// A heading-wrapped toggle (button nested inside the header) is recognized by
+// the same structural signal.
+$headingDisclosureResult = ( new HtmlTransformer() )->transform('<div class="item"><h3><button aria-expanded="false" aria-controls="panel-1">Shipping times?</button></h3><div id="panel-1" role="region"><p>Ships in 2 days.</p></div></div>')->toArray();
+$assert('core/details' === (($headingDisclosureResult['blocks'][0] ?? array())['blockName'] ?? null), 'a heading-wrapped disclosure toggle converts to core/details');
+$assert('Shipping times?' === (($headingDisclosureResult['blocks'][0] ?? array())['attrs']['summary'] ?? null), 'heading-wrapped disclosure toggle text maps to the details summary');
+
+// Negative guard: a plain heading followed by text is NOT a disclosure (no
+// toggle control, aria-expanded, or aria-controls) and must stay as a heading +
+// paragraph rather than being forced into core/details.
+$plainResult = ( new HtmlTransformer() )->transform('<div><h3>About us</h3><p>We are a company.</p></div>')->toArray();
+$plainBlock = $plainResult['blocks'][0] ?? array();
+$assert('core/details' !== ($plainBlock['blockName'] ?? null), 'a plain heading followed by text is not converted to core/details');
+$plainInner = $plainBlock['innerBlocks'] ?? array();
+$assert('core/heading' === ($plainInner[0]['blockName'] ?? null), 'plain heading remains a core/heading');
+$assert('core/paragraph' === ($plainInner[1]['blockName'] ?? null), 'plain body text remains a core/paragraph');
 
 $fixture = file_get_contents(dirname(__DIR__) . '/fixtures/simple-html.html');
 $result  = ( new HtmlTransformer() )->transform($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><canvas>Fallback</canvas>")->toArray();
@@ -185,6 +319,30 @@ $assert(! array_key_exists('legacy_mapping', $result), 'canonical result omits c
 $assertInvalidCanonicalEnvelope(array_merge($result, array('legacy_mapping' => array())), 'legacy_mapping', 'canonical validation rejects legacy mapping aliases');
 $assertInvalidCanonicalEnvelope(array_merge($result, array('conversion_report' => $result['source_reports']['conversion_report'])), 'only under source_reports', 'canonical validation rejects top-level conversion report aliases');
 $assertInvalidCanonicalEnvelope(array_merge($result, array('materialization_plan' => array())), 'only under source_reports', 'canonical validation rejects top-level materialization plan aliases');
+$coverage = $result['coverage'][0] ?? array();
+$supportedBlocks = $coverage['supported_blocks'] ?? array();
+$nativeTargetBlocks = $coverage['native_target_blocks'] ?? array();
+$availableCoreBlocks = $coverage['available_core_blocks'] ?? array();
+$conversionReportNativeTargetBlocks = $result['source_reports']['conversion_report']['native_target_blocks'] ?? array();
+$assert(in_array('core/paragraph', $supportedBlocks, true), 'coverage preserves existing supported block metadata');
+$assert(in_array('core/accordion', $nativeTargetBlocks, true), 'coverage exposes core/accordion as an available native target');
+$assert(in_array('core/icon', $nativeTargetBlocks, true), 'coverage exposes core/icon as an available native target');
+$assert(in_array('core/math', $nativeTargetBlocks, true), 'coverage exposes core/math as an available native target');
+$assert($nativeTargetBlocks === $availableCoreBlocks, 'coverage aliases available core blocks to native target blocks');
+$assert($nativeTargetBlocks === $conversionReportNativeTargetBlocks, 'conversion report exposes native target block metadata');
+$assert(! in_array('core/accordion', $supportedBlocks, true), 'coverage does not claim unsupported native targets as converted support');
+$runtimeCanvasResult = ( new HtmlTransformer() )->transform('<main><canvas id="fixture-canvas">Fallback</canvas></main>', array('runtime_canvas_selectors' => array('#fixture-canvas')))->toArray();
+$assert('canvas' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['kind'] ?? ''), 'HTML transform reports runtime-targeted canvas fallback as a runtime island');
+$assert('canvas_requires_runtime' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['preservation_reason'] ?? ''), 'runtime island exposes canvas preservation reason');
+$assert(str_contains((string) ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['source_snippet'] ?? ''), '<canvas id="fixture-canvas">Fallback</canvas>'), 'runtime island exposes bounded source snippet');
+$assert('runtime_canvas' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['pattern_family'] ?? ''), 'runtime island exposes generic pattern family metadata');
+$assert('1,0,0' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['source_selector_specificity']['score'] ?? ''), 'runtime island exposes source selector specificity');
+$assert('preserve_runtime_island' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['suggested_generic_repair_class'] ?? ''), 'runtime island exposes generic repair class metadata');
+$assert($runtimeCanvasResult['source_reports']['runtime_islands'] === ($runtimeCanvasResult['source_reports']['conversion_report']['runtime_islands'] ?? array()), 'conversion report projects runtime islands');
+
+$assert(array() === ($runtimeCanvasResult['fallbacks'] ?? array()), 'runtime-targeted canvas preservation does not emit a fallback warning');
+$assert('core/html' === ($runtimeCanvasResult['blocks'][0]['blockName'] ?? null), 'runtime-targeted canvas is materialized as bounded raw HTML');
+$assert(str_contains((string) ($runtimeCanvasResult['serialized_blocks'] ?? ''), 'id="fixture-canvas"'), 'runtime-targeted canvas remains addressable in serialized blocks');
 
 $invalidStatus = $result;
 $invalidStatus['status'] = 'ok';
@@ -201,15 +359,16 @@ $assertInvalidCanonicalEnvelope($missingConversionReport, 'source_reports.conver
 $assertInvalidCanonicalEnvelope($result, 'source_reports.materialization_plan', 'canonical validation can require materialization plans for downstream artifact consumers', true);
 
 $contextual = ( new HtmlTransformer() )->transform(
-    '<main><h1>Context</h1><canvas>Fallback</canvas></main>',
+    '<main><h1>Context</h1><canvas id="runtime-context">Fallback</canvas></main>',
     array(
         'source'          => 'fixture:contextual-html',
         'source_scope'    => 'contract-test',
         'strict'          => true,
         'allow_fallbacks' => false,
+        'runtime_canvas_selectors' => array('#runtime-context'),
     )
 )->toArray();
-$assert('failed' === $contextual['status'], 'strict HTML transform fails when fallbacks are disallowed', (string) $contextual['status']);
+$assert('success' === $contextual['status'], 'strict HTML transform succeeds when runtime-targeted canvas is preserved without fallbacks', (string) $contextual['status']);
 $assert(true === ($contextual['context']['strict'] ?? null), 'HTML transform context exposes strict mode');
 $assert(false === ($contextual['context']['allow_fallbacks'] ?? null), 'HTML transform context exposes fallback policy');
 $assert('fixture:contextual-html' === ($contextual['provenance'][0]['source'] ?? ''), 'HTML provenance exposes generic source metadata');
@@ -218,21 +377,97 @@ $assert('contract-test' === ($contextual['provenance'][0]['scope'] ?? ''), 'HTML
 $formFallback = ( new HtmlTransformer() )->transform(
     '<main><form action="/contact" method="post" data-action="contact-submit"><label for="email">Email</label><input id="email" name="email" type="email" required><select name="topic"><option value="support" selected>Support</option></select><button type="submit">Send</button></form></main>'
 )->toArray();
-$formDiagnostic = $formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
-$assert(array() === ($formFallback['blocks'] ?? array()), 'form fallback does not synthesize canonical blocks');
-$assertNormalizedFallbackDiagnostic($formDiagnostic, 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
+$formRuntimeIsland = $formFallback['source_reports']['runtime_islands'][0] ?? array();
+$formFallbackBlocks = $formFallback['blocks'][0]['innerBlocks'] ?? array();
+$formFallbackDiagnostic = $formFallback['fallbacks'][0] ?? array();
+$assert(1 === count($formFallback['fallbacks'] ?? array()), 'data-entry runtime form surfaces a materializable form fallback finding');
+$assert('html_form_fallback' === ($formFallbackDiagnostic['diagnostic_code'] ?? ''), 'data-entry runtime form fallback carries the form diagnostic code');
+$assert('email' === ($formFallbackDiagnostic['controls'][0]['name'] ?? ''), 'data-entry runtime form fallback carries generic control metadata');
+$assert('/contact' === ($formFallbackDiagnostic['form']['action'] ?? ''), 'data-entry runtime form fallback carries form action metadata');
+$assertNormalizedFallbackDiagnostic($formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array(), 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
+$assert('core/group' === ($formFallback['blocks'][0]['blockName'] ?? ''), 'runtime form materializes readable control blocks');
+$assert('core/paragraph' === ($formFallbackBlocks[0]['blockName'] ?? ''), 'runtime form exposes readable input text');
+$assert('core/group' === ($formFallbackBlocks[1]['blockName'] ?? ''), 'runtime form exposes readable select options');
+$assert('core/buttons' === ($formFallbackBlocks[2]['blockName'] ?? ''), 'runtime form exposes readable submit button');
 $assert('form' === ($formFallback['source_reports']['interaction_candidates'][0]['kind'] ?? ''), 'HTML source report exposes form interaction candidate');
 $assert('form' === ($formFallback['source_reports']['conversion_report']['interaction_candidates'][0]['kind'] ?? ''), 'conversion report projects interaction candidates');
 $assert('/contact' === ($formFallback['source_reports']['interaction_candidates'][0]['target'] ?? ''), 'form interaction candidate exposes action target');
-$assert('html_form_fallback' === ($formDiagnostic['diagnostic_code'] ?? ''), 'conversion report exposes form fallback diagnostic code');
-$assert('/contact' === ($formDiagnostic['form']['action'] ?? ''), 'conversion report exposes form action metadata');
-$assert('post' === ($formDiagnostic['form']['method'] ?? ''), 'conversion report exposes normalized form method metadata');
-$assert(3 === ($formDiagnostic['control_count'] ?? null), 'conversion report exposes form control count');
-$assert('email' === ($formDiagnostic['controls'][0]['name'] ?? ''), 'conversion report exposes form control names');
-$assert('Email' === ($formDiagnostic['controls'][0]['label'] ?? ''), 'conversion report exposes form control labels');
-$assert(true === ($formDiagnostic['controls'][0]['required'] ?? null), 'conversion report exposes required form controls');
-$assert('support' === ($formDiagnostic['controls'][1]['options'][0]['value'] ?? ''), 'conversion report exposes select option values');
-$assert(is_int($formDiagnostic['html_bytes'] ?? null), 'conversion report exposes bounded fallback HTML byte size');
+$assert('form' === ($formRuntimeIsland['kind'] ?? ''), 'readable runtime form reports as a runtime island');
+$assert('form_requires_runtime' === ($formRuntimeIsland['preservation_reason'] ?? ''), 'form runtime island exposes preservation reason');
+$assert('interactive_form' === ($formRuntimeIsland['pattern_family'] ?? ''), 'form runtime island exposes generic pattern family');
+$assert('preserve_runtime_island' === ($formRuntimeIsland['suggested_generic_repair_class'] ?? ''), 'form runtime island exposes generic repair class metadata');
+$assert('/contact' === ($formRuntimeIsland['form']['action'] ?? ''), 'form runtime island exposes form action metadata');
+$assert('post' === ($formRuntimeIsland['form']['method'] ?? ''), 'form runtime island exposes normalized form method metadata');
+$assert(3 === ($formRuntimeIsland['control_count'] ?? null), 'form runtime island exposes form control count');
+$assert('email' === ($formRuntimeIsland['controls'][0]['name'] ?? ''), 'form runtime island exposes form control names');
+$assert('Email' === ($formRuntimeIsland['controls'][0]['label'] ?? ''), 'form runtime island exposes form control labels');
+$assert(true === ($formRuntimeIsland['controls'][0]['required'] ?? null), 'form runtime island exposes required form controls');
+$assert('support' === ($formRuntimeIsland['controls'][1]['options'][0]['value'] ?? ''), 'form runtime island exposes select option values');
+$assert(is_int($formRuntimeIsland['source_bytes'] ?? null), 'form runtime island exposes bounded source byte size');
+$assert('core/group' === ($formRuntimeIsland['readable_blocks'][0]['blockName'] ?? ''), 'form runtime island carries its readable approximation metadata');
+
+$scriptOnlyFormFallback = ( new HtmlTransformer() )->transform('<main><form action="/contact" method="post"><script>window.submitContact()</script></form></main>')->toArray();
+$scriptOnlyFormDiagnostic = $scriptOnlyFormFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
+$assertNormalizedFallbackDiagnostic($scriptOnlyFormDiagnostic, 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
+$assert('interactive_form' === ($scriptOnlyFormDiagnostic['pattern_family'] ?? ''), 'conversion report exposes form fallback pattern family');
+$assert('inside_main' === ($scriptOnlyFormDiagnostic['parent_reason'] ?? ''), 'conversion report exposes fallback parent reason');
+$assert('0,2,2' === ($scriptOnlyFormDiagnostic['source_selector_specificity']['score'] ?? ''), 'conversion report exposes fallback selector specificity');
+$assert('preserve_runtime_island' === ($scriptOnlyFormDiagnostic['suggested_generic_repair_class'] ?? ''), 'conversion report exposes form fallback generic repair class');
+$assert(array() === ($scriptOnlyFormFallback['blocks'] ?? array()), 'runtime form without readable controls still falls back only as metadata');
+
+$rangeControlResult = ( new HtmlTransformer() )->transform(
+    '<main><section><label for="density">Density</label><input type="range" id="density" min="6" max="60" step="2" value="28"></section></main>'
+)->toArray();
+$rangeControlText = (string) ($rangeControlResult['blocks'][0]['innerBlocks'][1]['attrs']['content'] ?? '');
+$assert(array() === ($rangeControlResult['fallbacks'] ?? array()), 'standalone readable range input converts without unsupported-element fallback');
+$assert(str_contains($rangeControlText, 'Density: 28'), 'range input summary preserves current value');
+$assert(str_contains($rangeControlText, 'min 6, max 60, step 2'), 'range input summary preserves bounds');
+
+$standaloneControls = ( new HtmlTransformer() )->transform(
+    '<main><input id="donation" type="number" aria-label="Custom donation amount" placeholder="Enter amount"><select aria-label="Sort products"><option selected>Featured</option><option>Price: Low to High</option></select><select class="js-sort-select" aria-label="Runtime sort"><option>Newest</option></select></main>',
+    array('runtime_dom_selectors' => array('.js-sort-select'))
+)->toArray();
+$standaloneControlBlocks = $standaloneControls['blocks'][0]['innerBlocks'] ?? array();
+$assert(array() === ($standaloneControls['fallbacks'] ?? array()), 'standalone readable controls convert without unsupported-element fallback');
+$assert('core/paragraph' === ($standaloneControlBlocks[0]['blockName'] ?? ''), 'standalone non-runtime input converts to readable paragraph');
+$assert('core/list' === ($standaloneControlBlocks[1]['innerBlocks'][1]['blockName'] ?? ''), 'standalone non-runtime select options convert to readable list');
+$assert('core/list' === ($standaloneControlBlocks[2]['innerBlocks'][1]['blockName'] ?? ''), 'runtime-targeted select converts to readable list output');
+$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'Featured (selected)'), 'readable select summary preserves selected option state');
+$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'Runtime sort'), 'runtime-targeted select readable output preserves label text');
+$assert(str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'id="donation"'), 'readable input output preserves source id as a block anchor');
+$assert(! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), 'js-sort-select'), 'readable select output omits behavior-hook classes from generated blocks');
+$assert(! str_contains((string) ($standaloneControls['serialized_blocks'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted select native markup is preserved in runtime metadata instead of serialized blocks');
+$assert(1 === count($standaloneControls['source_reports']['runtime_islands'] ?? array()), 'runtime islands report only the explicitly runtime-targeted standalone control');
+$assert('control' === ($standaloneControls['source_reports']['runtime_islands'][0]['kind'] ?? ''), 'runtime-targeted standalone control reports as a control island');
+$assert('.js-sort-select' === ($standaloneControls['source_reports']['runtime_islands'][0]['selector'] ?? ''), 'runtime-targeted standalone control reports selector metadata');
+$assert('select' === ($standaloneControls['source_reports']['runtime_islands'][0]['control']['tag'] ?? ''), 'runtime-targeted standalone control reports control metadata');
+$assert(str_contains((string) ($standaloneControls['source_reports']['runtime_islands'][0]['source_snippet'] ?? ''), '<select class="js-sort-select"'), 'runtime-targeted standalone control preserves source snippet metadata');
+
+$artifactControlSelectors = ( new ArtifactCompiler() )->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><input id="newsletter-email" class="email-field" type="email" placeholder="you@example.com"><select id="sort-select" class="sort-select"><option selected>Featured</option><option>Newest</option></select><input id="live-filter" class="live-filter" type="text" placeholder="Filter"><script src="js/app.js"></script></main>',
+            'js/app.js' => 'document.getElementById("newsletter-email"); document.querySelector(".sort-select"); const liveFilter = document.getElementById("live-filter"); liveFilter.addEventListener("input", function () { window.__changed = true; });',
+        ),
+    )
+)->toArray();
+$artifactControlMarkup = (string) ($artifactControlSelectors['serialized_blocks'] ?? '');
+$assert(! str_contains($artifactControlMarkup, '<input id="newsletter-email"'), 'artifact compiler converts generically queried static input to readable block output');
+$assert(! str_contains($artifactControlMarkup, '<select id="sort-select"'), 'artifact compiler converts generically queried static select to readable block output');
+$assert(str_contains($artifactControlMarkup, 'you@example.com'), 'artifact static input readable output preserves placeholder text');
+$assert(str_contains($artifactControlMarkup, 'Featured (selected)'), 'artifact static select readable output preserves selected option state');
+$assert(! str_contains($artifactControlMarkup, '<input id="live-filter"'), 'artifact compiler preserves behavior-bearing control native DOM in runtime metadata instead of serialized blocks');
+$assert(str_contains($artifactControlMarkup, 'Filter'), 'artifact behavior-bearing control readable output preserves placeholder text');
+$assert(str_contains($artifactControlMarkup, 'id="newsletter-email"'), 'artifact readable static input preserves source id as a block anchor');
+$assert(str_contains($artifactControlMarkup, 'sort-select'), 'artifact readable static select preserves source class on generated markup');
+$assert(str_contains($artifactControlMarkup, 'id="live-filter"'), 'artifact readable runtime control preserves source id on generated markup');
+$artifactControlIslands = $artifactControlSelectors['source_reports']['runtime_islands'] ?? array();
+$assert(1 === count($artifactControlIslands), 'artifact compiler reports only behavior-bearing controls as runtime islands');
+$assert('#live-filter' === ($artifactControlIslands[0]['selector'] ?? ''), 'artifact runtime control island points at behavior-bearing control selector');
+$assert(str_contains((string) ($artifactControlIslands[0]['source_snippet'] ?? ''), '<input id="live-filter"'), 'artifact runtime control island preserves source snippet metadata');
+$artifactControlRuntimeReport = $artifactControlSelectors['source_reports']['runtime_dependency_parity'] ?? array();
+$assert('pass' === ($artifactControlRuntimeReport['status'] ?? ''), 'runtime parity does not flag readable static controls as missing runtime targets');
 
 $buttonResult = ( new HtmlTransformer() )->transform(
     '<main><a class="primary-button" href="#"><h3>Reserve now</h3><span aria-hidden="true"></span></a><button><strong>Call us</strong></button></main>'
@@ -302,6 +537,39 @@ $invalidBlockLevelButtonReport = ( new \Automattic\BlocksEngine\PhpTransformer\W
 $invalidBlockLevelButtonCodes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $invalidBlockLevelButtonReport['findings'] ?? array());
 $assert(in_array('button_block_level_link_markup', $invalidBlockLevelButtonCodes, true), 'runtime reports invalid block-level button link markup');
 
+// A doubled structural class token on the inner element (the historic core/button
+// leak that merged wp-element-button on top of a source className already carrying
+// it) makes the stored markup diverge from save(). The canonical save()-shape
+// validator must flag it as duplicate_class_token in the pure-PHP loop so the
+// regression is caught off the editor gate, even though the duplicate sits on a
+// structural child the wrapper shape assertions never inspect.
+$duplicateClassTokenButtonBlocks = array(
+    array(
+        'blockName'    => 'core/button',
+        'attrs'        => array('text' => 'Book now', 'url' => '/book'),
+        'innerBlocks'  => array(),
+        'innerHTML'    => '<div class="wp-block-button"><a class="wp-element-button wp-block-button__link has-text-color has-background wp-element-button" href="/book">Book now</a></div>',
+        'innerContent' => array('<div class="wp-block-button"><a class="wp-element-button wp-block-button__link has-text-color has-background wp-element-button" href="/book">Book now</a></div>'),
+    ),
+);
+$duplicateClassTokenReport = ( new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime() )->validateBlockSerialization($duplicateClassTokenButtonBlocks);
+$duplicateClassTokenCodes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $duplicateClassTokenReport['findings'] ?? array());
+$assert('warning' === ($duplicateClassTokenReport['status'] ?? ''), 'runtime warns on a button carrying a doubled class token');
+$assert(in_array('duplicate_class_token', $duplicateClassTokenCodes, true), 'canonical save()-shape validator flags a duplicate class token on the inner button element');
+$duplicateClassTokenFinding = null;
+foreach ( $duplicateClassTokenReport['findings'] ?? array() as $finding ) {
+    if ( 'duplicate_class_token' === ($finding['code'] ?? '') ) {
+        $duplicateClassTokenFinding = $finding;
+        break;
+    }
+}
+$assert(is_array($duplicateClassTokenFinding) && in_array('wp-element-button', $duplicateClassTokenFinding['details']['duplicate_tokens'] ?? array(), true), 'duplicate_class_token finding names the doubled wp-element-button token');
+
+// A canonical button (each class emitted once) must not be false-flagged.
+$canonicalButtonValidity = (array) ($buttonResult['source_reports']['wp_block_validity'] ?? array());
+$canonicalButtonCodes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $canonicalButtonValidity['findings'] ?? array());
+$assert(! in_array('duplicate_class_token', $canonicalButtonCodes, true), 'canonical generated buttons are not flagged for duplicate class tokens');
+
 $inlineSvgVisualWrapper = ( new HtmlTransformer() )->transform(
     '<main><section class="visual-region"><div class="map-layer"><div class="map-image" style="background-image:url(assets/map.png)"><svg><path d="M0 0h1v1z"></path></svg></div></div></section></main>'
 )->toArray();
@@ -331,21 +599,47 @@ $safeInlineSvgSerialized = (string) ($safeInlineSvg['serialized_blocks'] ?? '');
 $assert('success' === ($safeInlineSvg['status'] ?? ''), 'safe inline SVG does not trip strict fallback gates', (string) ($safeInlineSvg['status'] ?? ''));
 $assert(array() === ($safeInlineSvg['fallbacks'] ?? array()), 'safe decorative inline SVG is consumed instead of recorded as fallback metadata');
 $assert('core/group' === ($safeInlineSvg['blocks'][0]['blockName'] ?? ''), 'decorative inline SVG preserves its CSS-addressable wrapper when present');
-$assert(! str_contains($safeInlineSvgSerialized, '<!-- wp:html'), 'safe inline SVG conversion avoids raw HTML blocks');
+$assert('core/html' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'icon-context decorative SVG is preserved faithfully as a core/html block, not a dynamic core/icon (which discards inline SVG markup and renders empty)');
+$assert(str_contains($safeInlineSvgSerialized, '<!-- wp:html'), 'icon-context inline SVG is preserved through a faithful core/html block so the verbatim <svg> element survives rendering');
 $assert(! str_contains($safeInlineSvgSerialized, 'data:image/svg+xml,'), 'decorative inline SVG avoids image data URI noise');
-$assert(! str_contains(rawurldecode($safeInlineSvgSerialized), '<svg'), 'decorative inline SVG markup is omitted from serialized blocks');
+$assert(str_contains($safeInlineSvgSerialized, '<svg viewBox="0 0 16 16"'), 'decorative icon SVG markup is preserved verbatim with correct-case viewBox');
 
 $safeInlineSvgAsset = ( new HtmlTransformer() )->transform(
     '<svg role="img" aria-label="Status badge" viewBox="0 0 10 10"><title>Status badge</title><circle cx="5" cy="5" r="4"></circle></svg>'
 )->toArray();
-$safeInlineSvgAssetPath = (string) ($safeInlineSvgAsset['blocks'][0]['attrs']['url'] ?? '');
-$assert(str_starts_with($safeInlineSvgAssetPath, 'assets/inline-svg-'), 'safe accessible inline SVG image references a generated SVG asset');
-$assert('image/svg+xml' === ($safeInlineSvgAsset['assets'][0]['mime_type'] ?? ''), 'safe accessible inline SVG exposes a materializable SVG asset');
-$assert(str_contains((string) ($safeInlineSvgAsset['assets'][0]['content'] ?? ''), 'aria-label="Status badge"'), 'safe accessible inline SVG asset preserves accessible label');
+$safeInlineSvgAssetContent = (string) ($safeInlineSvgAsset['blocks'][0]['attrs']['content'] ?? '');
+$assert('core/html' === ($safeInlineSvgAsset['blocks'][0]['blockName'] ?? ''), 'simple accessible inline SVG is preserved faithfully as a core/html block, not a dynamic core/icon');
+$assert(str_contains($safeInlineSvgAssetContent, 'aria-label="Status badge"') && str_contains($safeInlineSvgAssetContent, 'viewBox="0 0 10 10"'), 'safe accessible inline SVG preserves its accessible label and correct-case viewBox in faithful markup');
+$assert(array() === ($safeInlineSvgAsset['assets'] ?? array()), 'safe accessible inline SVG icon does not generate an image asset');
 $assert(! str_contains((string) ($safeInlineSvgAsset['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'safe accessible inline SVG avoids data URI serialization');
 
+$complexSvgAsset = ( new HtmlTransformer() )->transform(
+    '<svg role="img" aria-label="Site illustration" viewBox="0 0 400 200"><title>Site illustration</title><path d="M0 0h400v200H0z"></path></svg>'
+)->toArray();
+$complexSvgContent = (string) ($complexSvgAsset['blocks'][0]['attrs']['content'] ?? '');
+$assert('core/html' === ($complexSvgAsset['blocks'][0]['blockName'] ?? ''), 'large illustrative inline SVG is preserved inline as a core/html block (WordPress blocks SVG uploads, so an externalized .svg asset would not render)');
+$assert(array() === ($complexSvgAsset['assets'] ?? array()), 'inline illustrative SVG is not externalized to a generated .svg image asset');
+$assert(str_contains($complexSvgContent, '<svg') && str_contains($complexSvgContent, 'viewBox="0 0 400 200"'), 'inline illustrative SVG preserves its viewBox casing so it scales correctly');
+$assert(str_contains($complexSvgContent, 'role="img"') && str_contains($complexSvgContent, 'aria-label="Site illustration"'), 'inline illustrative SVG preserves accessibility attributes');
+
+$mathMlResult = ( new HtmlTransformer() )->transform('<main><math><mi>x</mi><mo>=</mo><mn>2</mn></math></main>')->toArray();
+$mathMlBlock = $mathMlResult['blocks'][0] ?? array();
+$assert('core/math' === ($mathMlBlock['blockName'] ?? ''), 'MathML converts to a core math block');
+$assert(str_contains((string) ($mathMlBlock['attrs']['content'] ?? ''), '<math>'), 'MathML core math block preserves the expression markup');
+
+$texClassResult = ( new HtmlTransformer() )->transform('<main><span class="katex">E = mc^2</span><p>\(a^2 + b^2 = c^2\)</p></main>')->toArray();
+$texClassBlocks = $texClassResult['blocks'][0]['innerBlocks'] ?? array();
+$assert('core/math' === ($texClassBlocks[0]['blockName'] ?? ''), 'math-like class wrapper converts to a core math block');
+$assert('E = mc^2' === ($texClassBlocks[0]['attrs']['content'] ?? ''), 'math-like class wrapper preserves expression text');
+$assert('core/math' === ($texClassBlocks[1]['blockName'] ?? ''), 'TeX-delimited text wrapper converts to a core math block');
+$assert(str_contains((string) ($texClassBlocks[1]['attrs']['content'] ?? ''), 'a^2 + b^2 = c^2'), 'TeX-delimited math preserves expression content');
+
 $unsafeInlineSvg = ( new HtmlTransformer() )->transform('<main><svg onload="alert(1)"><path d="M0 0h1v1z"></path></svg></main>')->toArray();
-$assert('html_unsafe_inline_svg' === ($unsafeInlineSvg['fallbacks'][0]['diagnostic_code'] ?? ''), 'unsafe inline SVG remains a fallback diagnostic');
+$unsafeInlineSvgContent = (string) ($unsafeInlineSvg['blocks'][0]['attrs']['content'] ?? '');
+$assert('core/html' === ($unsafeInlineSvg['blocks'][0]['blockName'] ?? ''), 'unsafe inline SVG is sanitized and preserved as a core/html block instead of being dropped');
+$assert(array() === ($unsafeInlineSvg['fallbacks'] ?? array()), 'inline SVG with stripped unsafe parts keeps its artwork and emits no fallback diagnostic');
+$assert(str_contains($unsafeInlineSvgContent, '<svg') && str_contains($unsafeInlineSvgContent, '<path'), 'sanitized inline SVG keeps its shape markup');
+$assert(! str_contains($unsafeInlineSvgContent, 'onload'), 'sanitized inline SVG strips event-handler attributes while keeping the shapes');
 
 $asideContainer = ( new HtmlTransformer() )->transform(
     '<main><aside class="sidebar"><h2>Docs</h2><nav><a href="/start">Start</a><a href="/api">API</a></nav></aside><section><h1>Content</h1></section></main>',
@@ -380,16 +674,226 @@ $assert(true === ($nonprofitBlockMenu['represented_as_core_navigation'] ?? null)
 $assert('The Measure' === ($nonprofitBlockMenu['items'][1]['label'] ?? ''), 'semantic parity preserves navigation item labels');
 $assert('/vote-yes/' === ($nonprofitBlockMenu['items'][6]['url'] ?? ''), 'semantic parity preserves navigation item URLs');
 
+$navigationLabelResult = ( new HtmlTransformer() )->transform(
+    '<header><nav><a href="/docs"><h3>Docs</h3><span aria-hidden="true"></span></a><ul><li><a href="/guides"><div>Guides</div></a><ul><li><a href="/api"><p>API</p></a></li></ul></li></ul></nav></header>'
+)->toArray();
+$navigationLabelBlocks = $navigationLabelResult['blocks'][0]['innerBlocks'] ?? array();
+$assert('Docs' === ($navigationLabelBlocks[0]['attrs']['label'] ?? ''), 'direct navigation link label unwraps block-level markup for valid inline RichText');
+$assert('Guides' === ($navigationLabelBlocks[1]['attrs']['label'] ?? ''), 'navigation submenu label unwraps block-level markup for valid inline RichText');
+$assert('API' === ($navigationLabelBlocks[1]['innerBlocks'][0]['attrs']['label'] ?? ''), 'nested navigation link label unwraps block-level markup for valid inline RichText');
+$assert(! str_contains((string) ($navigationLabelResult['serialized_blocks'] ?? ''), '<h3>Docs</h3>'), 'navigation serialization avoids heading markup inside link text');
+$assert(! str_contains((string) ($navigationLabelResult['serialized_blocks'] ?? ''), '<div>Guides</div>'), 'navigation serialization avoids div markup inside submenu link text');
+$assert('pass' === ($navigationLabelResult['source_reports']['wp_block_validity']['status'] ?? ''), 'navigation labels with block-level source markup pass WordPress block validity');
+
+$footerNavigationSections = ( new HtmlTransformer() )->transform(
+    '<footer><div class="footer-grid"><nav aria-label="Product"><h3>Product</h3><ul><li><a class="footer-link" href="/features">Features</a></li><li><a class="footer-link" href="/pricing">Pricing</a></li></ul></nav><nav aria-label="Company"><p class="nav-title">Company</p><a class="footer-link" href="/about">About</a><a class="footer-link" href="/contact">Contact</a></nav><nav class="social-links" aria-label="Social"><a class="social-link" href="https://example.com/mastodon" aria-label="Mastodon"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><a class="social-link" href="https://example.com/github" title="GitHub"><span aria-hidden="true"></span></a></nav></div></footer>'
+)->toArray();
+$footerNavigationParity = $footerNavigationSections['source_reports']['semantic_parity'] ?? array();
+$footerNavigationMenus = $footerNavigationParity['navigation_menus']['blocks'] ?? array();
+$footerNavigationSerialized = (string) ($footerNavigationSections['serialized_blocks'] ?? '');
+$assert('pass' === ($footerNavigationParity['status'] ?? ''), 'footer navigation sections with headings and social labels pass semantic parity');
+$assert(3 === count($footerNavigationMenus), 'footer navigation sections emit one core/navigation block per source nav landmark');
+$assert(2 === ($footerNavigationMenus[0]['item_count'] ?? null), 'footer heading nav preserves list link count');
+$assert('Mastodon' === ($footerNavigationMenus[2]['items'][0]['label'] ?? ''), 'icon-only social links use aria-label as navigation label');
+$assert('GitHub' === ($footerNavigationMenus[2]['items'][1]['label'] ?? ''), 'icon-only social links use title as navigation label');
+$assert(str_contains($footerNavigationSerialized, 'footer-link'), 'footer navigation preserves link classes for styling and script targets');
+$assert(str_contains($footerNavigationSerialized, 'social-link'), 'social navigation preserves social link classes for styling and script targets');
+
+$complexHeaderNavigation = ( new HtmlTransformer() )->transform(
+    '<header class="site-header"><div class="header-inner"><button class="menu-toggle" aria-expanded="false" aria-controls="menu">Menu</button><nav class="primary-nav" aria-label="Primary"><div id="menu" class="nav-list"><a href="/">Home</a><a class="nav-divider" role="separator" href="#">/</a><span class="separator">|</span><button class="dropdown-toggle" aria-expanded="false">More</button><a href="/shop"><span>Shop</span><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><ul><li><a href="/services">Services</a><ul><li><a href="/consulting">Consulting</a></li></ul></li></ul><a class="icon-button" href="/cart" aria-label="Cart"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a></div></nav><div class="mobile-nav overlay"><div class="drawer-panel"><nav class="drawer-nav" aria-label="Mobile"><a href="/">Home</a><a href="/shop">Shop</a><ul><li><a href="/services">Services</a><ul><li><a href="/consulting">Consulting</a></li></ul></li></ul><a class="icon-button" href="/cart" aria-label="Cart"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a></nav></div></div></div></header>'
+)->toArray();
+$complexHeaderParity = $complexHeaderNavigation['source_reports']['semantic_parity'] ?? array();
+$complexHeaderBlockMenus = $complexHeaderParity['navigation_menus']['blocks'] ?? array();
+$complexHeaderSourceMenus = $complexHeaderParity['navigation_menus']['source'] ?? array();
+$assert('pass' === ($complexHeaderParity['status'] ?? ''), 'complex header navigation chrome preserves semantic parity');
+$assert(1 === count($complexHeaderSourceMenus), 'source semantic parity dedupes duplicated mobile drawer navigation');
+$assert(1 === count($complexHeaderBlockMenus), 'generated navigation dedupes duplicated mobile drawer navigation');
+$assert(5 === ($complexHeaderBlockMenus[0]['item_count'] ?? null), 'complex header navigation skips chrome and preserves real item count');
+$assert('Cart' === ($complexHeaderBlockMenus[0]['items'][4]['label'] ?? ''), 'icon-only header navigation links use accessible labels');
+$assert(! str_contains((string) ($complexHeaderNavigation['serialized_blocks'] ?? ''), 'drawer-nav'), 'complex header navigation removes duplicate mobile drawer core/navigation children');
+
+$brandedHeaderNavigation = ( new HtmlTransformer() )->transform(
+    '<header><div class="container"><nav class="nav-inner" aria-label="Main navigation"><a href="/" class="nav-logo" aria-label="Acme home"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg><span>Acme</span></a><ul class="nav-links"><li><a href="/work">Work</a></li><li><a href="/pricing">Pricing</a></li><li><a href="/about">About</a></li></ul><div class="nav-actions"><a href="/start" class="button">Get Started</a><button class="nav-toggle" aria-label="Open menu" aria-expanded="false"><span></span><span></span></button></div></nav></div></header>'
+)->toArray();
+$brandedHeaderParity = $brandedHeaderNavigation['source_reports']['semantic_parity'] ?? array();
+$brandedHeaderBlockMenu = $brandedHeaderParity['navigation_menus']['blocks'][0] ?? array();
+$assert('pass' === ($brandedHeaderParity['status'] ?? ''), 'branded header nav with mobile toggle preserves semantic parity');
+$assert(3 === ($brandedHeaderBlockMenu['item_count'] ?? null), 'branded header nav counts signaled menu links while preserving surrounding chrome separately');
+$assert('Work' === ($brandedHeaderBlockMenu['items'][0]['label'] ?? ''), 'branded header nav preserves first menu link label');
+$assert(3 === ($brandedHeaderParity['navigation_menus']['source'][0]['item_count'] ?? null), 'branded header source parity counts the same signaled menu subset as generated navigation');
+
+$dropdownHeaderNavigation = ( new HtmlTransformer() )->transform(
+    '<header><nav class="main-nav" aria-label="Main navigation"><div class="nav-item"><a href="/shop" class="nav-link">Shop All</a></div><div class="nav-item"><a href="/outing" class="nav-link">By Outing <svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a><div class="dropdown"><a href="/outing#day" class="dropdown__link">Day Hike</a><a href="/outing#camp" class="dropdown__link">Weekend Camp</a></div></div><div class="nav-item"><a href="/bundles" class="nav-link">Bundles</a></div></nav></header>'
+)->toArray();
+$dropdownHeaderParity = $dropdownHeaderNavigation['source_reports']['semantic_parity'] ?? array();
+$dropdownHeaderBlockMenu = $dropdownHeaderParity['navigation_menus']['blocks'][0] ?? array();
+$assert('pass' === ($dropdownHeaderParity['status'] ?? ''), 'dropdown header nav wrappers preserve semantic parity');
+$assert(5 === ($dropdownHeaderBlockMenu['item_count'] ?? null), 'dropdown header nav counts parent and submenu items consistently');
+$assert('Day Hike' === ($dropdownHeaderBlockMenu['items'][2]['label'] ?? ''), 'dropdown header nav preserves submenu item labels');
+
+// Regression: a <nav> that sits as a SIBLING of a brand/logo and a menu-toggle
+// inside header/footer "chrome" container divs (direct-anchor menus, no <ul>)
+// must still be represented as core/navigation. This locks in the diagnostic
+// findings html_semantic_parity_landmark_count_mismatch (header nav) and
+// html_semantic_parity_navigation_menu_missing (footer nav) reported against an
+// earlier deployed transformer for shared-chrome static sites. Markup is generic
+// (structural signals only — no fixture-specific class names).
+$chromeHeaderNavigation = ( new HtmlTransformer() )->transform(
+    '<header class="masthead" role="banner"><div class="bar inner"><a class="logo" href="/" aria-label="Brand home"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0h1v1z"></path></svg><span>Brand</span></a><nav class="primary" aria-label="Primary navigation"><a href="/">Home</a><a href="/about">About</a><a href="/teams">Teams</a><a href="/contact">Contact</a></nav><button class="burger" aria-label="Open navigation menu" aria-expanded="false" aria-controls="drawer"><span></span><span></span><span></span></button></div></header><nav class="drawer" id="drawer" aria-label="Mobile navigation"><a href="/">Home</a><a href="/about">About</a><a href="/teams">Teams</a><a href="/contact">Contact</a></nav>'
+)->toArray();
+$chromeHeaderParity = $chromeHeaderNavigation['source_reports']['semantic_parity'] ?? array();
+$chromeHeaderBlockMenu = $chromeHeaderParity['navigation_menus']['blocks'][0] ?? array();
+$chromeHeaderFindingCodes = array_map(static fn ($f): string => (string) ($f['code'] ?? ''), $chromeHeaderParity['findings'] ?? array());
+$assert('pass' === ($chromeHeaderParity['status'] ?? ''), 'header chrome sibling nav (brand + nav + toggle) preserves semantic parity');
+$assert(! in_array('landmark_count_mismatch', $chromeHeaderFindingCodes, true), 'header chrome sibling nav avoids landmark_count_mismatch loss');
+$assert(($chromeHeaderParity['landmarks']['source']['nav'] ?? -1) === ($chromeHeaderParity['landmarks']['blocks']['nav'] ?? -2), 'header chrome sibling nav generates one core navigation landmark per source nav landmark');
+$assert(1 === count($chromeHeaderParity['navigation_menus']['blocks'] ?? array()), 'header chrome sibling nav dedupes the mobile drawer duplicate menu');
+$assert(true === ($chromeHeaderBlockMenu['represented_as_core_navigation'] ?? null), 'header chrome sibling nav is represented as core/navigation');
+$assert(4 === ($chromeHeaderBlockMenu['item_count'] ?? null), 'header chrome sibling nav preserves all direct-anchor menu items');
+$assert('Home' === ($chromeHeaderBlockMenu['items'][0]['label'] ?? ''), 'header chrome sibling nav preserves menu item labels');
+
+$chromeFooterNavigation = ( new HtmlTransformer() )->transform(
+    '<footer class="colophon"><div class="wrap"><div class="cols"><div class="about"><span>Brand Org</span></div><nav class="secondary" aria-label="Footer navigation"><a href="/">Home</a><a href="/about">About</a><a href="/teams">Teams</a><a href="/contact">Contact</a></nav></div><div class="legal">(c) 2026 Brand.</div></div></footer>'
+)->toArray();
+$chromeFooterParity = $chromeFooterNavigation['source_reports']['semantic_parity'] ?? array();
+$chromeFooterBlockMenu = $chromeFooterParity['navigation_menus']['blocks'][0] ?? array();
+$chromeFooterFindingCodes = array_map(static fn ($f): string => (string) ($f['code'] ?? ''), $chromeFooterParity['findings'] ?? array());
+$assert('pass' === ($chromeFooterParity['status'] ?? ''), 'footer chrome nested-div sibling nav preserves semantic parity');
+$assert(! in_array('navigation_menu_missing', $chromeFooterFindingCodes, true), 'footer chrome nested-div sibling nav avoids navigation_menu_missing loss');
+$assert(true === ($chromeFooterBlockMenu['represented_as_core_navigation'] ?? null), 'footer chrome nested-div nav is represented as core/navigation');
+$assert(4 === ($chromeFooterBlockMenu['item_count'] ?? null), 'footer chrome nested-div nav preserves all direct-anchor menu items');
+$assert('Contact' === ($chromeFooterBlockMenu['items'][3]['label'] ?? ''), 'footer chrome nested-div nav preserves last menu item label');
+
+// Regression: a JS-only hamburger menu-toggle that opens a nav which converts to
+// core/navigation is redundant chrome (core/navigation ships its own responsive
+// overlay) and must be dropped instead of emitted as a dead core/button. The
+// toggle is detected by generic structural signals (aria-controls/aria-expanded
+// plus empty decorative bars), never by a fixture-specific class string.
+$redundantToggleHeader = ( new HtmlTransformer() )->transform(
+    '<header><div class="header-inner"><a class="brand" href="/">Logo</a><nav class="nav-links"><a href="/">Home</a><a href="/about">About</a><a href="/contact">Contact</a></nav><button class="nav-toggle" aria-label="Open navigation menu" aria-controls="mobile-nav" aria-expanded="false"><span></span><span></span><span></span></button></div></header><nav class="mobile-nav" id="mobile-nav"><a href="/">Home</a><a href="/about">About</a><a href="/contact">Contact</a></nav>'
+)->toArray();
+$redundantToggleSerialized = (string) ($redundantToggleHeader['serialized_blocks'] ?? '');
+$assert(str_contains($redundantToggleSerialized, '<!-- wp:navigation'), 'redundant menu-toggle header still converts the nav to core/navigation');
+$assert(! str_contains($redundantToggleSerialized, '<!-- wp:button'), 'redundant JS hamburger menu-toggle is dropped instead of emitted as a dead core/button');
+$assert(! str_contains($redundantToggleSerialized, 'nav-toggle'), 'redundant menu-toggle chrome class is not emitted into block output');
+
+// Negative: a real labeled button, and a toggle-looking control with no associated
+// navigation, must still convert to core/button — only redundant chrome is dropped.
+$labeledButtons = ( new HtmlTransformer() )->transform(
+    '<div class="cta"><button type="submit">Sign Up</button></div><header><button aria-controls="missing" aria-expanded="false"><span></span></button></header>'
+)->toArray();
+$labeledButtonsSerialized = (string) ($labeledButtons['serialized_blocks'] ?? '');
+$assert(str_contains($labeledButtonsSerialized, '<!-- wp:button'), 'labeled/standalone buttons still convert to core/button');
+$assert(str_contains($labeledButtonsSerialized, 'Sign Up'), 'labeled button text is preserved as core/button');
+$assert(str_contains($labeledButtonsSerialized, 'aria-controls="missing"'), 'a toggle-looking control with no associated nav still converts to core/button');
+
+// Recursively counts blocks by name across the block tree (the serialized string
+// renders nested navigation/buttons without block-comment delimiters, so structural
+// counts are the reliable signal).
+$countBlockName = static function (array $blocks, string $name) use (&$countBlockName): int {
+    $count = 0;
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        if ( $name === ( $block['blockName'] ?? '' ) ) {
+            $count++;
+        }
+        if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+            $count += $countBlockName($block['innerBlocks'], $name);
+        }
+    }
+    return $count;
+};
+
+// Regression (#232): the common "navbar" header — a brand/logo anchor + a list of
+// nav links + a hamburger toggle inside ONE <nav> — must convert the link list to
+// core/navigation, lift the brand out separately (not as a menu item), and drop the
+// dead hamburger. Generic structural markup only (no fixture-specific class names).
+$navbarHeader = ( new HtmlTransformer() )->transform(
+    '<nav class="masthead" role="navigation" aria-label="Main navigation"><a href="/" class="brand">Studio <em>Vale</em></a><ul class="primary-menu"><li><a href="/">Home</a></li><li><a href="/music">Music</a></li><li><a href="/tour">Tour</a></li></ul><button class="burger" aria-label="Toggle menu" aria-expanded="false"><span></span><span></span><span></span></button></nav>'
+)->toArray();
+$navbarBlocks = $navbarHeader['blocks'] ?? array();
+$navbarSerialized = (string) ($navbarHeader['serialized_blocks'] ?? '');
+$navbarParity = $navbarHeader['source_reports']['semantic_parity'] ?? array();
+$navbarBlockMenu = $navbarParity['navigation_menus']['blocks'][0] ?? array();
+$assert('pass' === ($navbarParity['status'] ?? ''), 'navbar (brand + ul links + toggle) preserves semantic parity');
+$assert(true === ($navbarBlockMenu['represented_as_core_navigation'] ?? null), 'navbar link list is represented as core/navigation');
+$assert(1 === $countBlockName($navbarBlocks, 'core/navigation'), 'navbar emits exactly one core/navigation block for the link list');
+$assert(3 === ($navbarBlockMenu['item_count'] ?? null), 'navbar core/navigation carries the link list while the brand is lifted out separately');
+$assert(str_contains($navbarSerialized, 'Studio'), 'navbar brand/logo is preserved (lifted out of the menu) rather than dropped');
+$assert(0 === $countBlockName($navbarBlocks, 'core/button'), 'navbar hamburger toggle is dropped instead of emitted as a dead core/button');
+$assert(! str_contains($navbarSerialized, 'burger'), 'navbar hamburger toggle chrome class is not emitted into block output');
+
+// Regression (#232): broaden #221 — a hamburger toggle associated with a nav that
+// does NOT convert to core/navigation (e.g. its list has a non-link item) must STILL
+// be dropped, never emitted as an always-visible dead core/button the source hid
+// behind responsive CSS/JS the importer cannot carry ("added UI" defect).
+$nonConvertingNavbar = ( new HtmlTransformer() )->transform(
+    '<header><a class="brand" href="/">Studio</a><nav class="primary" aria-label="Primary"><ul class="primary-menu"><li>Plain announcement copy</li><li><a href="/music">Music</a></li></ul></nav><button class="burger" aria-label="Toggle menu" aria-controls="primary-menu" aria-expanded="false"><span></span><span></span></button></header>'
+)->toArray();
+$nonConvertingBlocks = $nonConvertingNavbar['blocks'] ?? array();
+$nonConvertingSerialized = (string) ($nonConvertingNavbar['serialized_blocks'] ?? '');
+$assert(0 === $countBlockName($nonConvertingBlocks, 'core/button'), 'hamburger toggle for a non-converting nav is dropped rather than emitted as a dead core/button');
+$assert(! str_contains($nonConvertingSerialized, 'burger'), 'non-converting navbar hamburger toggle chrome class is not emitted into block output');
+$assert(str_contains($nonConvertingSerialized, 'Studio'), 'non-converting navbar preserves the brand/logo content');
+
+// Negative (#232): a labelless toggle-shaped control with no associated navigation in
+// scope must NOT be over-suppressed by the broadened rule — it still converts to
+// core/button (only navigation-associated dead hamburgers are dropped).
+$standaloneToggle = ( new HtmlTransformer() )->transform(
+    '<section class="widget"><button aria-controls="panel" aria-expanded="false"><span></span><span></span></button></section>'
+)->toArray();
+$standaloneToggleBlocks = $standaloneToggle['blocks'] ?? array();
+$assert(1 === $countBlockName($standaloneToggleBlocks, 'core/button'), 'a toggle-shaped control with no navigation in scope still converts to core/button');
+
+$runtimeTargetNavigation = ( new HtmlTransformer() )->transform(
+    '<nav aria-label="Docs"><ul><li><a class="nav-link" href="/guide">Guide</a></li></ul></nav>',
+    array('runtime_dom_selectors' => array('.nav-link'))
+)->toArray();
+$runtimeTargetNavigationSerialized = (string) ($runtimeTargetNavigation['serialized_blocks'] ?? '');
+$runtimeTargetNavigationItemAttrs = $runtimeTargetNavigation['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
+$assert('nav-link' === ($runtimeTargetNavigationItemAttrs['className'] ?? ''), 'runtime-target navigation link classes are preserved on navigation item attrs');
+// core/navigation-link is dynamic (save() returns null): the canonical stored
+// block carries no static <li> markup, so the runtime-target class rides in the
+// block comment className attribute, which core's className support renders onto
+// the navigation item at runtime. Emitting a static <li> here would make
+// wp.blocks.validateBlock flag the block invalid in the editor.
+$assert(str_contains($runtimeTargetNavigationSerialized, '"className":"nav-link"'), 'runtime-target navigation link classes are preserved in the canonical navigation-link block comment');
+$assert(! str_contains($runtimeTargetNavigationSerialized, '<li class="wp-block-navigation-item'), 'canonical navigation-link emits no static <li> markup that the editor would reject');
+
+$headerCluster = ( new HtmlTransformer() )->transform(
+    '<header class="site-header"><a class="site-logo" href="/">Acme Lab</a><nav class="primary-nav" aria-label="Primary"><a class="nav-link" href="/work">Work</a><a class="nav-link" href="/docs"><span>Docs</span></a></nav><form class="site-search" role="search" action="/search"><label for="q">Search</label><input id="q" type="search" name="q" placeholder="Search docs"><button type="submit">Search</button></form><div class="header-actions"><a class="cta" href="/start">Get started</a></div></header>'
+)->toArray();
+$headerClusterSerialized = (string) ($headerCluster['serialized_blocks'] ?? '');
+$headerClusterParity = $headerCluster['source_reports']['semantic_parity'] ?? array();
+$assert('pass' === ($headerClusterParity['status'] ?? ''), 'header logo/nav/search/CTA clusters preserve source navigation semantic parity');
+$assert(str_contains($headerClusterSerialized, 'site-logo'), 'header cluster preserves logo link wrapper');
+$assert(str_contains($headerClusterSerialized, 'nav-link'), 'header cluster preserves nav link class target');
+$assert(str_contains($headerClusterSerialized, '<!-- wp:search'), 'header cluster converts search form to core/search');
+$assert(str_contains($headerClusterSerialized, '<!-- wp:buttons'), 'header cluster converts CTA action to buttons');
+
 $unmappedNavigation = ( new HtmlTransformer() )->transform(
     '<main><nav aria-label="Main navigation"><ul><li><a href="/">Home</a></li></ul><p>Unexpected helper copy</p></nav></main>'
 )->toArray();
 $unmappedSemanticParity = $unmappedNavigation['source_reports']['semantic_parity'] ?? array();
 $unmappedFinding = $unmappedSemanticParity['findings'][0] ?? array();
+$unmappedNavigationFinding = $unmappedSemanticParity['findings'][1] ?? array();
 $assert('warning' === ($unmappedSemanticParity['status'] ?? ''), 'semantic parity warns when source nav is not represented as core navigation');
 $assert('landmark_count_mismatch' === ($unmappedFinding['code'] ?? ''), 'semantic parity reports a precise missing nav landmark finding');
 $assert('nav' === ($unmappedFinding['kind'] ?? ''), 'semantic parity missing landmark finding names the nav kind');
 $assert(1 === ($unmappedFinding['source_count'] ?? null), 'semantic parity missing landmark finding exposes source count');
 $assert(0 === ($unmappedFinding['block_count'] ?? null), 'semantic parity missing landmark finding exposes generated block count');
+$assert('navigation_menu_missing' === ($unmappedNavigationFinding['code'] ?? ''), 'semantic parity reports missing navigation menu diagnostics');
+$assert(array('label' => 'Home', 'url' => '/') === (($unmappedNavigationFinding['source_items'] ?? array())[0] ?? array()), 'semantic parity missing navigation diagnostics expose source nav items');
+$assert(array() === ($unmappedNavigationFinding['block_items'] ?? null), 'semantic parity missing navigation diagnostics expose empty generated nav items');
+
+$quoteCitationFooter = ( new HtmlTransformer() )->transform(
+    '<main><section><blockquote><p>Lovely dinner.</p><footer>Local Guide</footer></blockquote></section></main><footer>Restaurant footer</footer>'
+)->toArray();
+$quoteCitationParity = $quoteCitationFooter['source_reports']['semantic_parity'] ?? array();
+$assert('pass' === ($quoteCitationParity['status'] ?? ''), 'blockquote citation footer is not counted as a page footer landmark');
+$assert(1 === ($quoteCitationParity['landmarks']['source']['footer'] ?? null), 'semantic parity counts only the actual page footer landmark');
 
 $assertNoInnerContentChildCountMismatch = static function (array $result, string $message) use ($assert): void {
     $findingCodes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $result['source_reports']['wp_block_validity']['findings'] ?? array());
@@ -438,21 +942,156 @@ foreach ( $normalizedDiagnostics as $diagnostic ) {
 }
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_unsafe_inline_svg'] ?? array(), 'html_unsafe_inline_svg', 'warning', 'sanitization_review', 'image_asset');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_script_fallback'] ?? array(), 'html_script_fallback', 'warning', 'client_script_execution', 'script_asset');
-$assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_canvas_runtime_fallback'] ?? array(), 'html_canvas_runtime_fallback', 'warning', 'canvas_element_and_client_script_execution', 'runtime_canvas');
+$assert('runtime_island_preserved' === ($diagnosticsByCode['html_script_fallback']['conversion_classification'] ?? ''), 'script fallback is classified as runtime island preservation');
+$assert('runtime_island_preserved' === ($diagnosticsByCode['html_script_fallback']['loss_class'] ?? ''), 'script fallback exposes preserved runtime island loss class');
+$assert('runtime_island_preserved' === ($diagnosticsByCode['html_script_fallback']['diagnostic_class'] ?? ''), 'script fallback exposes preserved runtime island diagnostic class');
+$assert('preserve_runtime_island' === ($diagnosticsByCode['html_script_fallback']['suggested_repair_class'] ?? ''), 'script fallback routes to runtime island preservation rather than unsupported HTML replacement');
+$assert('runtime_script' === ($diagnosticsByCode['html_script_fallback']['pattern_family'] ?? ''), 'script fallback exposes generic pattern family');
+$assert('preserve_runtime_island' === ($diagnosticsByCode['html_script_fallback']['suggested_generic_repair_class'] ?? ''), 'script fallback exposes generic repair class');
+$scriptRuntimeIslands = array_values(array_filter($normalizedFallbacks['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'script' === ($island['kind'] ?? '')));
+$assert(1 === count($scriptRuntimeIslands), 'runtime script fallback projects as a runtime island');
+$assert('script_requires_runtime' === ($scriptRuntimeIslands[0]['preservation_reason'] ?? ''), 'runtime script island exposes preservation reason');
+$preservedRuntimeDiagnostics = array_values(array_filter($normalizedFallbacks['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'preserved_runtime_island' === ($diagnostic['code'] ?? '')));
+$assert(1 <= count($preservedRuntimeDiagnostics), 'runtime script fallback emits preserved_runtime_island diagnostics');
+$assert('runtime_island_preserved' === ($preservedRuntimeDiagnostics[0]['diagnostic_class'] ?? ''), 'preserved_runtime_island diagnostic exposes runtime-island diagnostic class');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallback'] ?? array(), 'html_iframe_embed_fallback', 'warning', 'third_party_embed_runtime', 'embed');
-$assert(! isset($diagnosticsByCode['html_inline_svg_fallback']), 'safe inline SVGs convert to image blocks instead of fallback diagnostics');
+$assert(! isset($diagnosticsByCode['html_inline_svg_fallback']), 'safe inline SVGs convert to inline core/html blocks instead of fallback diagnostics');
+$assert(! isset($diagnosticsByCode['html_canvas_runtime_fallback']), 'non-runtime canvas does not emit runtime canvas fallback diagnostics');
+
+$safeProviderIframe = ( new HtmlTransformer() )->transform(
+    '<main><iframe title="Demo" src="https://www.youtube.com/embed/dQw4w9WgXcQ" width="560" height="315"></iframe></main>'
+)->toArray();
+$safeProviderBlock = $safeProviderIframe['blocks'][0] ?? array();
+$assert('core/embed' === ($safeProviderBlock['blockName'] ?? ''), 'safe provider iframe converts to core/embed');
+$assert('https://www.youtube.com/watch?v=dQw4w9WgXcQ' === ($safeProviderBlock['attrs']['url'] ?? ''), 'safe provider iframe canonicalizes embed URL');
+$assert('youtube' === ($safeProviderBlock['attrs']['providerNameSlug'] ?? ''), 'safe provider iframe records provider slug');
+$assert(array() === ($safeProviderIframe['fallbacks'] ?? array()), 'safe provider iframe does not emit fallback metadata');
+
+$unknownIframe = ( new HtmlTransformer() )->transform(
+    '<main><section><h2>Playground</h2><p>Before embed.</p><iframe title="Interactive demo" src="https://example.test/playground" width="640" height="360" allow="fullscreen"></iframe><p>After embed.</p></section></main>'
+)->toArray();
+$unknownDiagnostics = $unknownIframe['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$unknownIframeDiagnostics = array_values(array_filter($unknownDiagnostics, static fn (array $diagnostic): bool => 'html_iframe_embed_fallback' === ($diagnostic['diagnostic_code'] ?? '')));
+$assert(1 === count($unknownIframeDiagnostics), 'unknown iframe emits one iframe fallback diagnostic');
+$assert('runtime_island_preserved' === ($unknownIframeDiagnostics[0]['conversion_classification'] ?? ''), 'unknown iframe fallback is classified as runtime island preservation');
+$assert('https://example.test/playground' === ($unknownIframe['fallbacks'][0]['attributes']['src'] ?? ''), 'unknown iframe fallback preserves bounded safe src metadata');
+$unknownIframeIslands = array_values(array_filter($unknownIframe['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'iframe' === ($island['kind'] ?? '')));
+$assert(1 === count($unknownIframeIslands), 'unknown iframe projects as a runtime island');
+$assert('iframe_requires_embed_runtime' === ($unknownIframeIslands[0]['preservation_reason'] ?? ''), 'unknown iframe runtime island exposes preservation reason');
+$unknownSerialized = (string) ($unknownIframe['serialized_blocks'] ?? '');
+$assert(! str_contains($unknownSerialized, '<!-- wp:embed'), 'unknown iframe does not become a provider embed block');
+$assert(! str_contains($unknownSerialized, '<!-- wp:html'), 'unknown iframe does not force raw HTML fallback materialization');
+$assert(str_contains($unknownSerialized, 'Playground'), 'ancestor content around unknown iframe still converts heading content');
+$assert(str_contains($unknownSerialized, 'Before embed.'), 'ancestor content before unknown iframe still converts');
+$assert(str_contains($unknownSerialized, 'After embed.'), 'ancestor content after unknown iframe still converts');
+
+$staticTemplate = ( new HtmlTransformer() )->transform(
+    '<main><section><h2>Visible</h2><template><article><h3>Deferred article</h3><p>Readable metadata.</p></article></template><p>After.</p></section></main>'
+)->toArray();
+$staticTemplateDiagnostics = $staticTemplate['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$staticTemplateMetadata = array_values(array_filter($staticTemplateDiagnostics, static fn (array $diagnostic): bool => 'html_template_metadata' === ($diagnostic['diagnostic_code'] ?? '')));
+$assert(1 === count($staticTemplateMetadata), 'static HTML template emits bounded metadata instead of unsupported fallback');
+$assert('native_conversion' === ($staticTemplateMetadata[0]['conversion_classification'] ?? ''), 'static HTML template metadata is not classified as unsupported loss');
+$assert('inert_template_metadata' === ($staticTemplateMetadata[0]['pattern_family'] ?? ''), 'static HTML template exposes generic inert template pattern family');
+$assert('none' === ($staticTemplateMetadata[0]['runtime_requirement'] ?? ''), 'static HTML template metadata does not require runtime');
+$staticTemplateUnsupported = array_values(array_filter($staticTemplateDiagnostics, static fn (array $diagnostic): bool => 'html_unsupported_element' === ($diagnostic['diagnostic_code'] ?? '')));
+$assert(array() === $staticTemplateUnsupported, 'static HTML template does not emit unsupported element fallback diagnostics');
+$assert(! str_contains((string) ($staticTemplate['serialized_blocks'] ?? ''), 'Deferred article'), 'static HTML template content is omitted from visual block output');
+
+$runtimeTemplate = ( new HtmlTransformer() )->transform(
+    '<main><div id="content-store" hidden><template data-content="readme"><article><h1>Runtime readme</h1><p>Loaded by app.js.</p></article></template></div><script src="/app.js"></script></main>'
+)->toArray();
+$runtimeTemplateDiagnostics = $runtimeTemplate['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$runtimeTemplateFallbacks = array_values(array_filter($runtimeTemplateDiagnostics, static fn (array $diagnostic): bool => 'html_template_runtime_fallback' === ($diagnostic['diagnostic_code'] ?? '')));
+$assert(1 === count($runtimeTemplateFallbacks), 'runtime HTML template emits template runtime fallback metadata');
+$assert('runtime_island_preserved' === ($runtimeTemplateFallbacks[0]['conversion_classification'] ?? ''), 'runtime HTML template fallback is classified as preserved runtime island');
+$assert('runtime_template' === ($runtimeTemplateFallbacks[0]['pattern_family'] ?? ''), 'runtime HTML template exposes generic runtime template pattern family');
+$templateRuntimeIslands = array_values(array_filter($runtimeTemplate['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'template' === ($island['kind'] ?? '')));
+$assert(1 === count($templateRuntimeIslands), 'runtime HTML template projects as a runtime island');
+$assert('template_requires_runtime' === ($templateRuntimeIslands[0]['preservation_reason'] ?? ''), 'runtime HTML template island exposes preservation reason');
+$assert('data_template' === ($templateRuntimeIslands[0]['template_role'] ?? ''), 'runtime HTML template island preserves source role metadata');
+$assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<!-- wp:html'), 'runtime HTML template does not emit raw HTML fallback blocks');
+$assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<template'), 'runtime HTML template does not serialize inert template markup into visual output');
 
 $canvasFallback = ( new HtmlTransformer() )->transform(
-    '<main><canvas id="bonsai" class="stage" width="640" height="360">Fallback</canvas><script src="/js/script.js"></script></main>'
+    '<main><canvas id="bonsai" class="stage" width="640" height="360">Fallback</canvas><script src="/js/script.js"></script></main>',
+    array('runtime_canvas_selectors' => array('#bonsai'))
 )->toArray();
-$canvasDiagnostic = $canvasFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
-$assertNormalizedFallbackDiagnostic($canvasDiagnostic, 'html_canvas_runtime_fallback', 'warning', 'canvas_element_and_client_script_execution', 'runtime_canvas');
-$assert('canvas_requires_runtime' === ($canvasDiagnostic['reason'] ?? ''), 'canvas fallback exposes runtime-specific reason');
-$assert('bonsai' === ($canvasFallback['fallbacks'][0]['attributes']['id'] ?? ''), 'canvas fallback preserves id for runtime mapping');
-$assert(str_contains((string) ($canvasFallback['fallbacks'][0]['html'] ?? ''), '<canvas id="bonsai"'), 'canvas fallback preserves bounded safe canvas markup');
-$assert(str_contains((string) ($canvasDiagnostic['script_dependency_hint'] ?? ''), '#bonsai'), 'canvas diagnostic flags id-based script dependency risk');
-$assert(! str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'canvas fallback does not emit core/html');
-$assert(! str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<canvas'), 'canvas fallback does not smuggle raw canvas markup into generated core blocks');
+$canvasIsland = $canvasFallback['source_reports']['runtime_islands'][0] ?? array();
+$canvasFallbackRows = array_values(array_filter($canvasFallback['fallbacks'] ?? array(), static fn (array $fallback): bool => 'canvas_requires_runtime' === ($fallback['reason'] ?? '')));
+$assert(array() === $canvasFallbackRows, 'runtime canvas preservation does not emit canvas fallback diagnostics');
+$assert('canvas' === ($canvasIsland['kind'] ?? ''), 'runtime canvas projects as a runtime island');
+$assert('canvas_requires_runtime' === ($canvasIsland['preservation_reason'] ?? ''), 'runtime canvas island exposes preservation reason');
+$assert('runtime_canvas' === ($canvasIsland['pattern_family'] ?? ''), 'runtime canvas island exposes generic pattern family');
+$assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), 'id="bonsai"'), 'runtime canvas serialized output preserves id for runtime mapping');
+$canvasRuntimeIslands = array_values(array_filter($canvasFallback['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'canvas' === ($island['kind'] ?? '')));
+$assert(1 === count($canvasRuntimeIslands), 'runtime canvas projects as a bounded runtime island');
+$assert('#bonsai' === ($canvasRuntimeIslands[0]['selector'] ?? ''), 'runtime canvas island preserves script-addressable selector');
+$assert(str_contains((string) ($canvasRuntimeIslands[0]['source_snippet'] ?? ''), '<canvas id="bonsai"'), 'runtime canvas island preserves bounded source snippet for runtime mapping');
+$assert(1 === count($canvasRuntimeIslands[0]['required_scripts'] ?? array()), 'runtime canvas island preserves required script context');
+$assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'runtime canvas emits bounded core/html preservation blocks');
+$assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<canvas id="bonsai"'), 'runtime canvas serializes raw canvas markup into block output');
+
+$runtimePreserved = ( new HtmlTransformer() )->transform(
+    '<main><canvas id="stage" aria-hidden="true"></canvas><input id="amount" value="10"><div id="app-shell">Runtime shell</div></main>',
+    array(
+        'runtime_canvas_selectors' => array('#stage'),
+        'runtime_dom_selectors'    => array('#amount', '#app-shell'),
+    )
+)->toArray();
+$runtimeSelectors = $runtimePreserved['source_reports']['conversion_report']['selector_summary']['selectors'] ?? array();
+$runtimeClassifications = array();
+foreach ( $runtimeSelectors as $selector ) {
+    if ( 'block' === ($selector['kind'] ?? '') && 'core/html' === ($selector['block_name'] ?? '') ) {
+        $runtimeClassifications[$selector['tag'] ?? ''] = $selector['conversion_classification'] ?? '';
+    }
+    if ( 'runtime_island' === ($selector['kind'] ?? '') ) {
+        $runtimeClassifications[$selector['tag'] ?? ''] = $selector['conversion_classification'] ?? '';
+    }
+}
+$assert('runtime_island_preserved' === ($runtimeClassifications['canvas'] ?? ''), 'runtime-preserved canvas metadata is classified as runtime island preservation');
+$assert('runtime_island_preserved' === ($runtimeClassifications['input'] ?? ''), 'runtime-preserved control metadata is classified as runtime island preservation');
+$runtimePreservedIslandKinds = array_map(static fn (array $island): string => (string) ($island['kind'] ?? ''), $runtimePreserved['source_reports']['runtime_islands'] ?? array());
+$assert(in_array('dom', $runtimePreservedIslandKinds, true), 'runtime-preserved DOM target projects as a runtime island');
+$runtimeSummary = $runtimePreserved['source_reports']['conversion_report']['conversion_classification_summary']['by_classification'] ?? array();
+$assert(3 <= ($runtimeSummary['runtime_island_preserved'] ?? 0), 'conversion report summarizes runtime island preservation counts');
+
+$unsupportedLoss = ( new HtmlTransformer() )->transform('<main><applet code="clock.class"></applet></main>')->toArray();
+$unsupportedDiagnostic = $unsupportedLoss['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
+$assert('html_unsupported_element' === ($unsupportedDiagnostic['diagnostic_code'] ?? ''), 'unsupported element emits fallback diagnostic');
+$assert('unsupported_loss' === ($unsupportedDiagnostic['conversion_classification'] ?? ''), 'true unsupported fallback is classified as unsupported loss');
+$assert('unsupported_applet' === ($unsupportedDiagnostic['pattern_family'] ?? ''), 'unsupported fallback exposes tag-specific pattern family');
+$assert('add_generic_pattern_recognizer' === ($unsupportedDiagnostic['suggested_generic_repair_class'] ?? ''), 'unsupported fallback exposes generic recognizer repair class');
+$assert('inside_main' === ($unsupportedDiagnostic['parent_reason'] ?? ''), 'unsupported fallback exposes parent context reason');
+
+$decorativeCanvas = ( new HtmlTransformer() )->transform(
+    '<main><section class="hero"><canvas id="stars" aria-hidden="true"></canvas><h1>Stars</h1></section></main>',
+    array(
+        'strict'          => true,
+        'allow_fallbacks' => false,
+    )
+)->toArray();
+$assert('success' === ($decorativeCanvas['status'] ?? ''), 'decorative canvas without runtime selectors does not trip strict fallback gates', (string) ($decorativeCanvas['status'] ?? ''));
+$assert(array() === ($decorativeCanvas['fallbacks'] ?? array()), 'decorative canvas without runtime selectors is omitted instead of reported as runtime fallback');
+$assert(! str_contains((string) ($decorativeCanvas['serialized_blocks'] ?? ''), '<canvas'), 'decorative canvas without runtime selectors is not emitted as raw markup');
+
+$staticCanvas = ( new HtmlTransformer() )->transform(
+    '<main><canvas id="static-canvas" class="preview" width="640" height="360"></canvas><h2>Static preview</h2></main>',
+    array(
+        'strict'          => true,
+        'allow_fallbacks' => false,
+    )
+)->toArray();
+$assert('success' === ($staticCanvas['status'] ?? ''), 'static canvas without runtime selectors does not trip strict fallback gates', (string) ($staticCanvas['status'] ?? ''));
+$assert(array() === ($staticCanvas['fallbacks'] ?? array()), 'static canvas without runtime selectors is omitted instead of reported as runtime fallback');
+$assert(! str_contains((string) ($staticCanvas['serialized_blocks'] ?? ''), '<canvas'), 'static canvas without runtime selectors is not emitted as raw markup');
+
+$starfieldCanvas = ( new HtmlTransformer() )->transform(
+    '<main><canvas class="starfield" aria-hidden="true"></canvas><h1>Night sky</h1></main>'
+)->toArray();
+$assert(array() === ($starfieldCanvas['source_reports']['runtime_islands'] ?? array()), 'decorative starfield canvas without runtime selectors is not reported as a runtime island');
+$assert(array() === ($starfieldCanvas['fallbacks'] ?? array()), 'decorative starfield canvas without runtime selectors does not emit runtime fallback diagnostics');
+$assert(! str_contains((string) ($starfieldCanvas['serialized_blocks'] ?? ''), 'starfield'), 'decorative starfield canvas without runtime selectors is omitted from serialized blocks');
 
 $safeDecorativeSvg = ( new HtmlTransformer() )->transform(
     '<main><svg aria-hidden="true" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5"></circle></svg><div class="site-logo"><svg viewBox="0 0 10 10"><path d="M0 0h10v10H0z"></path></svg></div></main>'
@@ -461,18 +1100,19 @@ $safeDecorativeDiagnostics = $safeDecorativeSvg['source_reports']['conversion_re
 $assert(array() === $safeDecorativeDiagnostics, 'safe decorative inline SVGs do not emit fallback diagnostics');
 $assert(1 <= ($safeDecorativeSvg['metrics']['block_count'] ?? 0), 'safe decorative inline SVG wrappers still materialize when they carry presentation signals');
 $assert(! str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'safe decorative inline SVGs do not serialize as image data URIs');
-$assert(! str_contains(rawurldecode((string) ($safeDecorativeSvg['serialized_blocks'] ?? '')), '<svg'), 'safe decorative inline SVG markup is omitted');
+$assert(str_contains(rawurldecode((string) ($safeDecorativeSvg['serialized_blocks'] ?? '')), '<svg'), 'safe logo-like inline SVG markup is preserved inline instead of externalized to a blocked .svg asset');
+$assert(array() === ($safeDecorativeSvg['assets'] ?? array()), 'safe decorative inline SVG does not generate an external .svg image asset');
 $assert(str_contains((string) ($safeDecorativeSvg['serialized_blocks'] ?? ''), 'site-logo'), 'safe logo-like inline SVG context preserves its wrapper class');
 
 $unsafeDecorativeSvg = ( new HtmlTransformer() )->transform(
     '<main><svg aria-hidden="true" viewBox="0 0 10 10"><script>alert(1)</script><circle onclick="alert(1)" cx="5" cy="5" r="5"></circle></svg></main>'
 )->toArray();
-$unsafeDecorativeDiagnostics = $unsafeDecorativeSvg['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
-$unsafeDecorativeDiagnostic = $unsafeDecorativeDiagnostics[0] ?? array();
-$assert(array() === ($unsafeDecorativeSvg['blocks'] ?? array()), 'unsafe decorative inline SVG does not materialize as a block');
-$assertNormalizedFallbackDiagnostic($unsafeDecorativeDiagnostic, 'html_unsafe_inline_svg', 'warning', 'sanitization_review', 'image_asset');
-$assert(! str_contains((string) ($unsafeDecorativeDiagnostic['html'] ?? ''), '<script'), 'unsafe inline SVG fallback metadata strips scripts');
-$assert(! str_contains((string) ($unsafeDecorativeDiagnostic['html'] ?? ''), 'onclick='), 'unsafe inline SVG fallback metadata strips event attributes');
+$unsafeDecorativeContent = (string) ($unsafeDecorativeSvg['blocks'][0]['attrs']['content'] ?? '');
+$assert('core/html' === ($unsafeDecorativeSvg['blocks'][0]['blockName'] ?? ''), 'unsafe decorative inline SVG is sanitized and preserved as a core/html block rather than dropped');
+$assert(array() === ($unsafeDecorativeSvg['source_reports']['conversion_report']['fallback_diagnostics'] ?? array()), 'sanitized decorative inline SVG keeps its artwork and emits no fallback diagnostic');
+$assert(str_contains($unsafeDecorativeContent, '<circle'), 'unsafe decorative inline SVG keeps its shape markup after sanitization');
+$assert(! str_contains($unsafeDecorativeContent, '<script'), 'unsafe decorative inline SVG strips scripts while keeping the shapes');
+$assert(! str_contains($unsafeDecorativeContent, 'onclick'), 'unsafe decorative inline SVG strips event-handler attributes while keeping the shapes');
 
 $interactions = ( new HtmlTransformer() )->transform(
     '<main><button aria-controls="panel" aria-expanded="false" data-action="toggle">Toggle</button><section id="panel">Panel</section><div role="tablist"><button role="tab" aria-controls="tab-one">One</button></div><div id="tab-one">Tab one</div><dialog id="signup">Join</dialog><div class="hero-carousel"><button class="carousel-next">Next</button></div></main>'
@@ -489,6 +1129,54 @@ $emptyRuntimeControl = ( new HtmlTransformer() )->transform(
 )->toArray();
 $assert(str_contains((string) ($emptyRuntimeControl['serialized_blocks'] ?? ''), 'nav-toggle'), 'empty runtime control button class is preserved for scripts');
 $assert(str_contains((string) ($emptyRuntimeControl['serialized_blocks'] ?? ''), 'aria-expanded="false"'), 'empty runtime control button ARIA state is preserved');
+
+// Behavior-loss diagnostic: an interactive control converted to a static block
+// without its behavior must surface a generic, severity-warning finding so the
+// loss is no longer silent. Detection is structural (handler attributes, ARIA
+// control state, declarative JS hooks, button role on a non-button), never a
+// fixture-specific class string.
+$behaviorLossCollect = static function (array $result): array {
+    $codes = array();
+    foreach ( $result['fallbacks'] ?? array() as $fallback ) {
+        if ( 'interactive_control_behavior_lost' === ($fallback['diagnostic_code'] ?? '') ) {
+            $codes[] = $fallback;
+        }
+    }
+    return $codes;
+};
+
+$handlerControl = ( new HtmlTransformer() )->transform('<main><button onclick="doThing()">Act</button></main>')->toArray();
+$handlerFindings = $behaviorLossCollect($handlerControl);
+$assert(1 === count($handlerFindings), 'a button with an onclick handler that becomes a static block emits one behavior-loss finding');
+$assert(in_array('onclick', $handlerFindings[0]['interaction_signals'] ?? array(), true), 'behavior-loss finding records the structural interaction signal');
+$assert('warning' === ($handlerFindings[0]['severity'] ?? ''), 'behavior-loss finding is a warning');
+$assert('behavior_loss' === ($handlerFindings[0]['conversion_classification'] ?? ''), 'behavior-loss finding is classified as behavior loss');
+$assert('restore_interactive_behavior' === ($handlerFindings[0]['suggested_repair_class'] ?? ''), 'behavior-loss finding routes to the feature-parity repair bucket');
+$assert('interactive_control' === ($handlerFindings[0]['pattern_family'] ?? ''), 'behavior-loss finding exposes the generic interactive control pattern family');
+$handlerLossDiagnostic = array_values(array_filter($handlerControl['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'interactive_control_behavior_lost' === ($diagnostic['code'] ?? '')));
+$assert(1 === count($handlerLossDiagnostic), 'behavior-loss finding is projected into the diagnostics stream');
+
+$ariaToggleNoNav = ( new HtmlTransformer() )->transform('<main><header><button aria-controls="missing" aria-expanded="false"><span></span></button></header></main>')->toArray();
+$assert(1 === count($behaviorLossCollect($ariaToggleNoNav)), 'an aria-controls toggle with no associated navigation that becomes a dead core/button emits a behavior-loss finding');
+
+$roleButtonControl = ( new HtmlTransformer() )->transform('<main><div role="button" data-action="open">Open</div></main>')->toArray();
+$assert(1 === count($behaviorLossCollect($roleButtonControl)), 'a non-button element with role=button plus a declarative handler emits a behavior-loss finding');
+
+// Negatives: ordinary content must stay silent.
+$plainButton = ( new HtmlTransformer() )->transform('<main><button type="submit">Sign Up</button></main>')->toArray();
+$assert(array() === $behaviorLossCollect($plainButton), 'a plain button with no interaction signals does not emit a behavior-loss finding');
+
+$plainLink = ( new HtmlTransformer() )->transform('<main><a href="/about">About</a></main>')->toArray();
+$assert(array() === $behaviorLossCollect($plainLink), 'a plain link does not emit a behavior-loss finding');
+
+$roleButtonLink = ( new HtmlTransformer() )->transform('<main><a role="button" href="/buy">Buy</a></main>')->toArray();
+$assert(array() === $behaviorLossCollect($roleButtonLink), 'a real link styled with role=button preserves navigation and does not emit a behavior-loss finding');
+
+$valueDataAttribute = ( new HtmlTransformer() )->transform('<main><span data-target="47200">0</span></main>')->toArray();
+$assert(array() === $behaviorLossCollect($valueDataAttribute), 'a data-* attribute that carries a value rather than binding behavior does not emit a behavior-loss finding');
+
+$foldedNavToggle = ( new HtmlTransformer() )->transform('<header><div class="header-inner"><a class="brand" href="/">Logo</a><nav class="nav-links"><a href="/">Home</a><a href="/about">About</a></nav><button class="nav-toggle" aria-label="Open navigation menu" aria-controls="mobile-nav" aria-expanded="false"><span></span><span></span><span></span></button></div></header><nav class="mobile-nav" id="mobile-nav"><a href="/">Home</a><a href="/about">About</a></nav>')->toArray();
+$assert(array() === $behaviorLossCollect($foldedNavToggle), 'a hamburger toggle folded into core/navigation does not emit a behavior-loss finding');
 
 $assetMetadataOptions = array(
     'context' => array(
@@ -507,6 +1195,13 @@ $assert('https://example.test/wp-content/uploads/hero.jpg' === ($resolvedImageAt
 $assert('Hero alt' === ($resolvedImageAttrs['alt'] ?? ''), 'HTML image transform preserves original alt text while resolving asset metadata');
 $assert(str_contains((string) ($resolvedImage['serialized_blocks'] ?? ''), 'src="https://example.test/wp-content/uploads/hero.jpg"'), 'HTML image transform serializes resolved asset URL');
 $assert(str_contains((string) ($resolvedImage['serialized_blocks'] ?? ''), 'class="wp-image-42"'), 'HTML image transform serializes resolved image id class');
+
+$linkedRuntimeImage = ( new HtmlTransformer() )->transform(
+    '<main><a id="productHero" class="product-detail__main-image" href="/product"><img src="assets/product.jpg" alt="Product"></a></main>'
+)->toArray();
+$linkedRuntimeImageSerialized = (string) ($linkedRuntimeImage['serialized_blocks'] ?? '');
+$assert(str_contains($linkedRuntimeImageSerialized, 'id="productHero"'), 'linked image conversion preserves linked media anchor IDs for runtime selectors');
+$assert(str_contains($linkedRuntimeImageSerialized, 'class="product-detail__main-image"'), 'linked image conversion preserves linked media classes for runtime selectors');
 
 $bridgeImageBlocks = ( new FormatBridge() )->toBlocks('<main><img src="assets/hero.jpg" alt="Hero alt"></main>', 'html', $assetMetadataOptions);
 $bridgeImageAttrs = $bridgeImageBlocks[0]['attrs'] ?? array();
@@ -546,12 +1241,11 @@ $artifactInlineSvg = $compiler->compile(
         'generated_html' => '<svg role="img" aria-label="Inline logo" viewBox="0 0 12 12"><title>Inline logo</title><path d="M0 0h12v12H0z"></path></svg>',
     )
 )->toArray();
-$artifactInlineSvgPath = (string) ($artifactInlineSvg['blocks'][0]['attrs']['url'] ?? '');
-$artifactInlineSvgAsset = $artifactInlineSvg['source_reports']['materialization_plan']['assets'][0] ?? array();
-$assert(str_starts_with($artifactInlineSvgPath, 'assets/inline-svg-'), 'artifact safe inline SVG block references a generated SVG asset');
-$assert($artifactInlineSvgPath === ($artifactInlineSvgAsset['path'] ?? ''), 'artifact materialization plan includes generated inline SVG asset path');
-$assert('image/svg+xml' === ($artifactInlineSvgAsset['mime_type'] ?? ''), 'artifact generated inline SVG asset has SVG MIME type');
-$assert(str_contains((string) ($artifactInlineSvgAsset['content'] ?? ''), 'aria-label="Inline logo"'), 'artifact generated inline SVG asset preserves sanitized SVG content');
+$artifactInlineSvgContent = (string) ($artifactInlineSvg['blocks'][0]['attrs']['content'] ?? '');
+$artifactInlineSvgAssets = $artifactInlineSvg['source_reports']['materialization_plan']['assets'] ?? array();
+$assert('core/html' === ($artifactInlineSvg['blocks'][0]['blockName'] ?? ''), 'artifact safe inline SVG is preserved inline as a core/html block (WordPress blocks SVG uploads, so an externalized .svg asset would not render)');
+$assert(array() === $artifactInlineSvgAssets, 'artifact safe inline SVG is not externalized to a generated .svg image asset');
+$assert(str_contains($artifactInlineSvgContent, 'aria-label="Inline logo"'), 'artifact inline SVG block preserves sanitized SVG content');
 $assert(! str_contains((string) ($artifactInlineSvg['serialized_blocks'] ?? ''), 'data:image/svg+xml,'), 'artifact safe inline SVG avoids data URI serialization');
 
 $artifactNonEntryInlineSvg = $compiler->compile(
@@ -564,10 +1258,9 @@ $artifactNonEntryInlineSvg = $compiler->compile(
     )
 )->toArray();
 $artifactNonEntryInlineSvgPage = $artifactNonEntryInlineSvg['source_reports']['materialization_plan']['pages'][1] ?? array();
-$artifactNonEntryInlineSvgAsset = $artifactNonEntryInlineSvg['source_reports']['materialization_plan']['assets'][0] ?? array();
-$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), 'assets/inline-svg-'), 'non-entry artifact page references generated inline SVG asset');
-$assert('image/svg+xml' === ($artifactNonEntryInlineSvgAsset['mime_type'] ?? ''), 'non-entry artifact generated inline SVG asset is materialized');
-$assert(str_contains((string) ($artifactNonEntryInlineSvgAsset['content'] ?? ''), 'aria-label="About icon"'), 'non-entry artifact generated inline SVG asset preserves safe SVG content');
+$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), '<!-- wp:html'), 'non-entry artifact simple icon SVG is preserved faithfully as a core/html block, not a dynamic core/icon');
+$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), 'aria-label="About icon"') && str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), 'viewBox="0 0 8 8"'), 'non-entry artifact faithful SVG preserves its accessible label and correct-case viewBox');
+$assert(array() === ($artifactNonEntryInlineSvg['source_reports']['materialization_plan']['assets'] ?? array()), 'non-entry artifact simple icon SVG does not materialize a generated image asset');
 
 $artifactInlineScript = $compiler->compile(
     array(
@@ -666,9 +1359,10 @@ $runtimeDependencySite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
         'files'      => array(
-            'index.html' => '<main><canvas id="canvas" class="stage"></canvas><canvas id="unused-canvas"></canvas><div id="status-container"><h2>Status</h2><p>Ready</p></div><script src="js/script.js"></script><script src="js/rum.js"></script></main>',
+            'index.html' => '<main><canvas id="canvas" class="stage"></canvas><canvas id="unused-canvas"></canvas><div id="status-container"><h2>Status</h2><p>Ready</p></div><script src="js/script.js"></script><script src="js/rum.js"></script><script id="netlify-rum-container" src="js/self-rum.js" data-netlify-cwv-token="token"></script></main>',
             'js/script.js' => 'const canvas = document.getElementById("canvas"); canvas.getContext("2d"); const stage = document.querySelector(".stage"); stage.getContext("2d"); const status = document.querySelector("#status-container"); status.addEventListener("click", function () {});',
             'js/rum.js' => 'document.querySelector("#netlify-rum-target");',
+            'js/self-rum.js' => 'document.querySelector("#netlify-rum-container")?.getAttribute("data-netlify-cwv-token");',
         ),
     )
 )->toArray();
@@ -677,6 +1371,7 @@ $runtimeDependencyConversionReport = $runtimeDependencySite['source_reports']['c
 $runtimeFindings = $runtimeDependencyReport['findings'] ?? array();
 $canvasFinding = null;
 $rumFinding = null;
+$selfRumFinding = null;
 foreach ( $runtimeFindings as $finding ) {
     if ( '#canvas' === ($finding['selector'] ?? '') ) {
         $canvasFinding = $finding;
@@ -684,10 +1379,14 @@ foreach ( $runtimeFindings as $finding ) {
     if ( '#netlify-rum-target' === ($finding['selector'] ?? '') ) {
         $rumFinding = $finding;
     }
+    if ( '#netlify-rum-container' === ($finding['selector'] ?? '') ) {
+        $selfRumFinding = $finding;
+    }
 }
 $canvasDependency = null;
 $stageDependency = null;
 $statusDependency = null;
+$selfRumDependency = null;
 foreach ( $runtimeDependencyReport['dependencies'] ?? array() as $dependency ) {
     if ( '#canvas' === ($dependency['selector'] ?? '') ) {
         $canvasDependency = $dependency;
@@ -697,6 +1396,9 @@ foreach ( $runtimeDependencyReport['dependencies'] ?? array() as $dependency ) {
     }
     if ( '#status-container' === ($dependency['selector'] ?? '') ) {
         $statusDependency = $dependency;
+    }
+    if ( '#netlify-rum-container' === ($dependency['selector'] ?? '') ) {
+        $selfRumDependency = $dependency;
     }
 }
 $runtimeDependencyMarkup = (string) ($runtimeDependencySite['serialized_blocks'] ?? '');
@@ -713,18 +1415,57 @@ $assert(null !== $stageDependency, 'runtime dependency parity records canvas cla
 $assert(true === ($stageDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved canvas class target');
 $assert(str_contains($runtimeDependencyMarkup, '<canvas id="canvas" class="stage"></canvas>'), 'artifact compiler emits referenced canvas runtime target markup');
 $assert(! str_contains($runtimeDependencyMarkup, 'unused-canvas'), 'artifact compiler does not preserve unreferenced canvas markup');
+$runtimeDependencyIslands = $runtimeDependencySite['source_reports']['runtime_islands'] ?? array();
+$runtimeDependencyIslandsByKind = array();
+foreach ( $runtimeDependencyIslands as $island ) {
+    $runtimeDependencyIslandsByKind[$island['kind'] ?? ''][] = $island;
+}
+$assert(1 === count($runtimeDependencyIslandsByKind['canvas'] ?? array()), 'artifact compiler reports the preserved canvas as a runtime island');
+$assert(1 === count($runtimeDependencyIslandsByKind['dom'] ?? array()), 'artifact compiler reports the runtime DOM target as a runtime island');
+$runtimeDependencyCanvasIsland = $runtimeDependencyIslandsByKind['canvas'][0] ?? array();
+$runtimeDependencyDomIsland = $runtimeDependencyIslandsByKind['dom'][0] ?? array();
+$assert('canvas' === ($runtimeDependencyCanvasIsland['kind'] ?? ''), 'artifact runtime island identifies canvas kind');
+$assert('#canvas' === ($runtimeDependencyCanvasIsland['selector'] ?? ''), 'artifact runtime island exposes canvas selector');
+$assert('stage' === ($runtimeDependencyCanvasIsland['attributes']['class'] ?? ''), 'artifact runtime island exposes canvas class for runtime dependency parity');
+$assert(str_contains((string) ($runtimeDependencyCanvasIsland['source_snippet'] ?? ''), '<canvas id="canvas" class="stage"></canvas>'), 'artifact runtime island exposes canvas source snippet');
+$assert(! empty($runtimeDependencyCanvasIsland['required_scripts'] ?? array()), 'artifact runtime island exposes required script metadata');
+$assert('#status-container' === ($runtimeDependencyDomIsland['selector'] ?? ''), 'artifact DOM runtime island exposes selector');
+$assert('runtime_dom_target' === ($runtimeDependencyDomIsland['preservation_reason'] ?? ''), 'artifact DOM runtime island exposes preservation reason');
+$assert($runtimeDependencyIslands === ($runtimeDependencySite['source_reports']['conversion_report']['runtime_islands'] ?? array()), 'artifact conversion report projects runtime islands');
 $assert(null !== $statusDependency, 'runtime dependency parity records preserved status container dependency');
 $assert('index.html' === ($statusDependency['source_path'] ?? ''), 'runtime dependency parity records source path for preserved DOM dependency');
 $assert(true === ($statusDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved div id target');
+$assert(false === ($statusDependency['canvas_api'] ?? null), 'runtime dependency parity does not mark non-canvas DOM targets as canvas API dependencies');
 $assert(! empty($statusDependency['events'] ?? array()), 'runtime dependency parity records simple addEventListener usage');
 $assert('info' === ($rumFinding['severity'] ?? ''), 'telemetry-like runtime dependency misses are info severity');
+$assert(null === $selfRumFinding, 'telemetry script self-target is not reported as a missing block DOM target');
+$assert(null !== $selfRumDependency, 'runtime dependency parity records telemetry script self-target dependency');
+$assert('script' === ($selfRumDependency['target_kind'] ?? ''), 'runtime dependency parity identifies telemetry script self-target kind');
+
+$decorativeCanvasSite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><canvas id="hero-canvas" aria-hidden="true"></canvas><canvas id="lab-canvas" class="stage" aria-label="Live pattern"></canvas><script src="js/app.js"></script></main>',
+            'js/app.js' => 'const lab = document.getElementById("lab-canvas"); lab.getContext("2d"); document.getElementById("hero-canvas");',
+        ),
+    )
+)->toArray();
+$decorativeCanvasMarkup = (string) ($decorativeCanvasSite['serialized_blocks'] ?? '');
+$decorativeCanvasFallbacks = $decorativeCanvasSite['fallbacks'] ?? array();
+$assert(str_contains($decorativeCanvasMarkup, '<canvas id="lab-canvas" class="stage" aria-label="Live pattern"></canvas>'), 'artifact compiler emits runtime canvas markup in serialized blocks');
+$assert(! str_contains($decorativeCanvasMarkup, 'hero-canvas'), 'artifact compiler omits decorative canvas touched by script without canvas API usage');
+$assert(array() === $decorativeCanvasFallbacks, 'artifact compiler preserves runtime canvas without fallback diagnostics');
+$assert(1 === count($decorativeCanvasSite['source_reports']['runtime_islands'] ?? array()), 'decorative canvas is not over-reported as a runtime island');
+$assert('#lab-canvas' === ($decorativeCanvasSite['source_reports']['runtime_islands'][0]['selector'] ?? ''), 'runtime island provenance points to the interactive canvas');
+$assert(str_contains((string) ($decorativeCanvasSite['source_reports']['runtime_islands'][0]['source_snippet'] ?? ''), '<canvas id="lab-canvas" class="stage" aria-label="Live pattern"></canvas>'), 'artifact compiler preserves direct canvas API target as runtime island metadata');
 
 $runtimeTargetContainerSite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
         'files'      => array(
-            'index.html' => '<main><section class="reveal"><h2>Reveal</h2></section><header><nav class="primary-nav"><a href="/">Home</a></nav><div class="mobile-nav-overlay"><div class="mobile-nav"><nav class="drawer-nav"><a href="/">Home</a></nav></div></div></header><div class="faq-item"><h3>Question</h3><p>Answer</p></div><div class="filter-bar"><button class="filter-btn">All</button><div class="filter-chips"><span>Popular</span></div></div><section id="contact-form"><h2>Contact</h2></section><div id="form-success"></div><script src="js/app.js"></script></main>',
-            'js/app.js' => 'document.querySelectorAll(".reveal"); document.querySelector(".mobile-nav-overlay"); document.querySelector(".mobile-nav"); document.querySelector(".faq-item"); document.querySelector(".filter-btn").addEventListener("click", function () {}); document.querySelector(".filter-bar"); document.querySelector(".filter-chips"); document.getElementById("contact-form"); document.getElementById("form-success");',
+            'index.html' => '<main><section class="reveal"><h2>Reveal</h2></section><header><button class="nav-toggle" aria-label="Open navigation" aria-expanded="false">Menu</button><div class="menu-shell"><nav class="primary-nav"><a href="/">Home</a></nav></div><div class="mobile-nav-overlay"><div class="mobile-nav"><nav class="drawer-nav"><a href="/">Home</a></nav></div></div></header><div class="faq-item"><h3>Question</h3><p>Answer</p></div><div class="filter-bar"><div class="button-shell"><button class="filter-btn">All</button></div><div class="filter-chips"><span>Popular</span></div></div><div class="search-shell"><input id="note-search" class="search-input" type="search" placeholder="Search notes"></div><form class="filters"><select class="js-sort-select"><option>Newest</option></select><input class="js-filter-check" type="checkbox" name="available"></form><section id="contact-form"><h2>Contact</h2></section><div id="form-success"></div><script src="js/app.js"></script></main>',
+            'js/app.js' => 'document.querySelectorAll(".reveal"); document.querySelector(".nav-toggle").addEventListener("click", function () {}); const menuShell = document.querySelector(".menu-shell"); menuShell.querySelector(".primary-nav"); document.querySelector(".mobile-nav-overlay"); document.querySelector(".mobile-nav"); document.querySelector(".faq-item"); document.querySelector(".filter-btn").addEventListener("click", function () {}); document.querySelector(".filter-btn").closest(".button-shell"); document.querySelector(".filter-bar"); document.querySelector(".filter-chips"); document.getElementById("note-search"); document.querySelector(".search-input"); document.querySelector(".js-sort-select"); document.querySelector(".js-filter-check"); document.getElementById("contact-form"); document.getElementById("form-success");',
         ),
     )
 )->toArray();
@@ -734,11 +1475,35 @@ foreach ( $runtimeTargetContainerReport['dependencies'] ?? array() as $dependenc
     $runtimeTargetDependencies[$dependency['selector'] ?? ''] = $dependency;
 }
 $assert('pass' === ($runtimeTargetContainerReport['status'] ?? ''), 'runtime dependency parity passes generic preserved JS target containers');
-foreach ( array( '.reveal', '.mobile-nav-overlay', '.mobile-nav', '.faq-item', '.filter-btn', '.filter-bar', '.filter-chips', '#contact-form', '#form-success' ) as $selector ) {
+foreach ( array( '.reveal', '.nav-toggle', '.menu-shell', '.primary-nav', '.mobile-nav-overlay', '.mobile-nav', '.faq-item', '.filter-btn', '.button-shell', '.filter-bar', '.filter-chips', '#contact-form', '#form-success' ) as $selector ) {
     $assert(true === ($runtimeTargetDependencies[$selector]['generated_present'] ?? null), 'runtime dependency parity records preserved target ' . $selector);
 }
+$assert(str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'nav-toggle'), 'artifact block markup preserves runtime-targeted menu toggle class');
 $assert(str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'mobile-nav-overlay'), 'artifact block markup preserves mobile nav overlay target class after navigation dedupe');
 $assert(! str_contains((string) ($runtimeTargetContainerSite['serialized_blocks'] ?? ''), 'drawer-nav'), 'artifact block markup still removes duplicate drawer navigation links after preserving target wrapper');
+
+$externalFormStatusTargetSite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><form class="contact-form"><label>Email<input type="email" name="email"></label><button type="submit">Send</button></form><div class="form-success js-form-success" role="status" aria-live="polite"></div><p class="form-error"></p></main>',
+            'website/nav.js' => 'document.querySelector(".form-success"); document.querySelector(".form-error");',
+        ),
+    )
+)->toArray();
+$externalFormStatusMarkup = (string) ($externalFormStatusTargetSite['serialized_blocks'] ?? '');
+$externalFormStatusReport = $externalFormStatusTargetSite['source_reports']['runtime_dependency_parity'] ?? array();
+$externalFormStatusDependencies = array();
+foreach ( $externalFormStatusReport['dependencies'] ?? array() as $dependency ) {
+    $externalFormStatusDependencies[$dependency['selector'] ?? ''] = $dependency;
+}
+$assert('pass' === ($externalFormStatusReport['status'] ?? ''), 'runtime dependency parity passes external-script form feedback targets');
+$assert(true === ($externalFormStatusDependencies['.form-success']['generated_present'] ?? null), 'external script .form-success target remains present in generated block markup');
+$assert(true === ($externalFormStatusDependencies['.form-error']['generated_present'] ?? null), 'external script .form-error target remains present in generated block markup');
+$assert(str_contains($externalFormStatusMarkup, 'form-success'), 'generated block markup preserves form success feedback class');
+$assert(str_contains($externalFormStatusMarkup, 'form-error'), 'generated block markup preserves form error feedback class');
+$assert(! str_contains($externalFormStatusMarkup, 'js-form-success'), 'generated block markup still omits behavior-hook feedback classes');
+$assert(! str_contains($externalFormStatusMarkup, '<div class="form-success js-form-success"'), 'form feedback target is not preserved as raw HTML fallback markup');
 
 $legacyFrontPageSite = $compiler->compile(
     array(
@@ -825,6 +1590,27 @@ $assert('font/woff2' === ($fontCompiledAsset['media_type'] ?? ''), 'compiled sit
 $assert('css-font-face' === ($fontCompiledAsset['references'][0]['context'] ?? ''), 'compiled site assets expose structured reference metadata');
 $assert('css-font-face' === ($fontPlanAsset['references'][0]['context'] ?? ''), 'materialization plan assets preserve structured reference metadata');
 
+$imageReferenceSite = $compiler->compile(
+    array(
+        'entrypoint' => 'pages/index.html',
+        'files'      => array(
+            'pages/index.html' => '<main><picture><source srcset="../assets/hero-small.png 480w, ../assets/hero-large.png 960w"><img src="../assets/logo.png" alt="Logo"></picture><section style="background-image:url(../assets/panel.png)"></section><svg><image href="../assets/vector.png"></image></svg></main>',
+            'assets/hero-small.png' => array('content_base64' => base64_encode('small'), 'mime_type' => 'image/png'),
+            'assets/hero-large.png' => array('content_base64' => base64_encode('large'), 'mime_type' => 'image/png'),
+            'assets/logo.png' => array('content_base64' => base64_encode('logo'), 'mime_type' => 'image/png'),
+            'assets/panel.png' => array('content_base64' => base64_encode('panel'), 'mime_type' => 'image/png'),
+            'assets/vector.png' => array('content_base64' => base64_encode('vector'), 'mime_type' => 'image/png'),
+        ),
+    )
+)->toArray();
+$imageReferencePlanAssets = array();
+foreach ( $imageReferenceSite['source_reports']['materialization_plan']['assets'] ?? array() as $asset ) {
+    $imageReferencePlanAssets[$asset['path'] ?? ''] = $asset;
+}
+$assert('source' === ($imageReferencePlanAssets['assets/hero-small.png']['references'][0]['element'] ?? ''), 'materialization plan image rows preserve picture source references');
+$assert('inline-style' === ($imageReferencePlanAssets['assets/panel.png']['references'][0]['context'] ?? ''), 'materialization plan image rows preserve inline background references');
+$assert('image' === ($imageReferencePlanAssets['assets/vector.png']['references'][0]['element'] ?? ''), 'materialization plan image rows preserve SVG image href references');
+
 $materializationView = ( new MaterializationView() )->fromResult($staticSite);
 $assert(MaterializationView::SCHEMA === ($materializationView['schema'] ?? ''), 'materialization view exposes its own schema');
 $assert(TransformerResult::SCHEMA === ($materializationView['result_schema'] ?? ''), 'materialization view exposes transformer result schema');
@@ -876,6 +1662,144 @@ $fontAwarePlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(array(
 $assert(array(array('family' => 'Open Sans', 'weights' => array(400, 700)), array('family' => 'Poppins', 'weights' => array(500))) === ($fontAwarePlan['theme']['font_usage'] ?? null), 'materialization plan preserves theme font usage');
 $assert('blocks-engine/php-transformer/font-materialization-plan/v1' === ($fontAwarePlan['theme']['font_materialization']['schema'] ?? null), 'materialization plan builds font materialization plan');
 $assert('@import url("https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;700&family=Poppins:wght@500&display=swap");' === ($fontAwarePlan['theme']['font_materialization']['css'] ?? null), 'materialization plan builds google font css from usage');
+
+// Web-font detection from linked Google Fonts stylesheets + font-family declarations.
+$webFontHtml = '<head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&amp;family=Inter:wght@400;500;600&amp;display=swap"></head>';
+$webFontCss = 'h1,h2,h3 { font-family: "Oswald", "Inter", system-ui, sans-serif; } body { font-family: "Inter", system-ui, sans-serif; }';
+$webFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources($webFontHtml, $webFontCss);
+$webFontFamilies = array_map(static fn (array $font): string => (string) $font['family'], $webFontPlan['fonts'] ?? array());
+$assert(array('Inter', 'Oswald') === $webFontFamilies, 'web-font detection captures both linked css2 families');
+$assert(array(400, 500, 600, 700) === ($webFontPlan['fonts'][1]['weights'] ?? null), 'web-font detection parses :wght@ axis weights');
+$assert('Oswald' === ($webFontPlan['roles']['heading'] ?? null), 'web-font detection maps heading typeface from font-family declaration');
+$assert('Inter' === ($webFontPlan['roles']['body'] ?? null), 'web-font detection maps body typeface from font-family declaration');
+$assert('@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Oswald:wght@400;500;600;700&display=swap");' === ($webFontPlan['css'] ?? null), 'web-font detection materializes deterministic google fonts css');
+
+// Legacy css (v1) link syntax with `|`-separated families and comma weight lists.
+$legacyFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:400,700|Lora">',
+    ''
+);
+$assert(array('Lora', 'Roboto') === array_map(static fn (array $font): string => (string) $font['family'], $legacyFontPlan['fonts'] ?? array()), 'web-font detection handles legacy css family pipes');
+$assert(array(400, 700) === ($legacyFontPlan['fonts'][1]['weights'] ?? null), 'web-font detection parses legacy comma weight lists');
+
+// Web-font sources flow through the full materialization plan theme contract.
+$webFontMaterializationPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(array(
+    'theme' => array(
+        'font_link_html' => $webFontHtml,
+        'static_css'     => $webFontCss,
+    ),
+));
+$assert('Oswald' === ($webFontMaterializationPlan['theme']['font_materialization']['roles']['heading'] ?? null), 'materialization plan materializes heading font from web-font sources');
+
+// CSS custom-property (var()) font-families resolve to their concrete typeface.
+// Sources frequently apply fonts through `var(--font-body)` defined in :root.
+// An unresolved `var(--font-body)` token must never reach the Google Fonts
+// request: it is not a real family and corrupts the css2 endpoint (HTTP 400),
+// which drops every linked font and renders the system fallback. The resolver
+// must expand the variable to its real family and assign roles accordingly.
+$varFontHtml = '<head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&amp;family=Lora:wght@400;500&amp;display=swap"></head>';
+$varFontCss  = ":root{--font-disp:'Playfair Display',Georgia,serif;--font-body:'Lora',Georgia,serif;}body{font-family:var(--font-body);}h1,h2,h3{font-family:var(--font-disp);}";
+$varFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources($varFontHtml, $varFontCss);
+$varFontFamilies = array_map(static fn (array $font): string => (string) $font['family'], $varFontPlan['fonts'] ?? array());
+$assert(array('Lora', 'Playfair Display') === $varFontFamilies, 'var() font-family resolves to concrete families and emits no var token family');
+$assert('Lora' === ($varFontPlan['roles']['body'] ?? null), 'var() body font-family resolves to its defined typeface');
+$assert('Playfair Display' === ($varFontPlan['roles']['heading'] ?? null), 'var() heading font-family resolves to its defined typeface');
+$assert(! str_contains((string) ($varFontPlan['css'] ?? ''), 'var('), 'materialized google fonts css carries no unresolved var() token');
+$assert(! str_contains((string) ($varFontPlan['css'] ?? ''), '%28'), 'materialized google fonts css carries no encoded parenthesis family');
+
+// An unresolvable var() (no :root definition, no fallback) must be dropped, not
+// emitted as a bogus family that would break the linked Google Fonts request.
+$unresolvedVarPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
+    '<head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400&display=swap"></head>',
+    'body{font-family:var(--font-undefined);}'
+);
+$assert(array('Lora') === array_map(static fn (array $font): string => (string) $font['family'], $unresolvedVarPlan['fonts'] ?? array()), 'unresolvable var() font-family is dropped from materialized fonts');
+$assert(! str_contains((string) ($unresolvedVarPlan['css'] ?? ''), 'var('), 'unresolvable var() never reaches the materialized google fonts css');
+
+// Typography/web-font parity diagnostic (semantic-parity finding family).
+$semanticFindings = static function (array $result): array {
+    return $result['source_reports']['semantic_parity']['findings'] ?? array();
+};
+$findingsByCode = static function (array $findings, string $code): array {
+    return array_values(array_filter($findings, static fn (array $finding): bool => ($finding['code'] ?? '') === $code));
+};
+
+// Positive: a heading web-font declared only in an inline <style> block (no link, no static css)
+// is genuinely dropped and must surface a typography parity finding.
+$droppedHeadingFontResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><head><style>h1,h2{font-family:"Display Custom",sans-serif}</style></head><body><main><h1>Heading</h1><p>Copy</p></main></body></html>',
+    array()
+)->toArray();
+$droppedHeadingFindings = $findingsByCode($semanticFindings($droppedHeadingFontResult), 'typography_font_family_dropped');
+$assert(array() !== $droppedHeadingFindings, 'dropped heading web-font emits typography_font_family_dropped finding');
+$assert('Display Custom' === ($droppedHeadingFindings[0]['font_family'] ?? null), 'typography finding records the dropped font family generically');
+$assert(str_contains((string) ($droppedHeadingFindings[0]['source_snippet'] ?? ''), 'Display Custom'), 'typography finding carries bounded source snippet');
+$assert('none' === ($droppedHeadingFindings[0]['observed_block'] ?? null), 'dropped typography finding records explicit none observed_block');
+$assert('typography_font_family_dropped' === ($droppedHeadingFindings[0]['reason_code'] ?? null), 'typography finding carries stable reason_code');
+
+// Positive: a web-font family linked from a non-materializing provider surfaces web_font_not_materialized.
+$nonMaterializedLinkResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><head><link rel="stylesheet" href="https://use.typekit.net/css?family=Brand+Face:wght@400;700"></head><body><main><h1>Heading</h1></main></body></html>',
+    array()
+)->toArray();
+$nonMaterializedFindings = $findingsByCode($semanticFindings($nonMaterializedLinkResult), 'web_font_not_materialized');
+$assert(array() !== $nonMaterializedFindings, 'non-materializing linked web-font emits web_font_not_materialized finding');
+$assert('Brand Face' === ($nonMaterializedFindings[0]['font_family'] ?? null), 'web_font_not_materialized finding records the linked family generically');
+$assert(str_contains((string) ($nonMaterializedFindings[0]['source_snippet'] ?? ''), '<link'), 'web_font_not_materialized finding carries the source link snippet');
+
+// Negative: a font that materializes (Google Fonts link + matching css) must NOT produce any typography finding.
+$materializedFontResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Display+Custom:wght@400;700&display=swap"></head><body><main><h1>Heading</h1></main></body></html>',
+    array('static_css' => 'h1,h2,h3{font-family:"Display Custom",sans-serif}')
+)->toArray();
+$materializedTypographyFindings = array_filter(
+    $semanticFindings($materializedFontResult),
+    static fn (array $finding): bool => in_array($finding['code'] ?? '', array('typography_font_family_dropped', 'web_font_not_materialized'), true)
+);
+$assert(array() === $materializedTypographyFindings, 'materialized web-font produces no typography parity finding');
+
+// Negative: the base/body font-family is the document's foundational typography
+// and must survive into materialized output even when declared only in an inline
+// <style> block (no link, no static css). It is carried into the base typography
+// the transformer emits, so it must NOT surface a typography_font_family_dropped:body finding.
+$inlineBodyFontResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><head><style>body{font-family:"Brand Sans",sans-serif}</style></head><body><main><h1>Heading</h1><p>Copy</p></main></body></html>',
+    array()
+)->toArray();
+$inlineBodyDropped = $findingsByCode($semanticFindings($inlineBodyFontResult), 'typography_font_family_dropped');
+$assert(array() === $inlineBodyDropped, 'inline <style> base/body font-family is materialized and not reported dropped');
+$inlineBodyPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
+    '<head><style>body{font-family:"Brand Sans",sans-serif}</style></head>',
+    ''
+);
+$assert('Brand Sans' === ($inlineBodyPlan['roles']['body'] ?? null), 'inline <style> base/body font-family flows into materialized body role');
+$assert('Brand Sans' === ($inlineBodyPlan['fonts'][0]['family'] ?? null), 'inline <style> base/body font-family is preserved in materialized fonts');
+
+// Positive: a heading-only font in an inline <style> block (no body declaration)
+// still requires a loaded web-font to render, so it remains a reported drop.
+$inlineHeadingOnlyResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><head><style>h1,h2{font-family:"Display Custom",sans-serif}</style></head><body><main><h1>Heading</h1></main></body></html>',
+    array()
+)->toArray();
+$inlineHeadingOnlyDropped = $findingsByCode($semanticFindings($inlineHeadingOnlyResult), 'typography_font_family_dropped');
+$assert(array() !== $inlineHeadingOnlyDropped, 'inline <style> heading-only font without a loaded web-font is still reported dropped');
+$assert('heading' === ($inlineHeadingOnlyDropped[0]['font_role'] ?? null), 'inline <style> heading-only drop carries the heading role');
+
+// Enrichment: every semantic-parity finding (landmark/navigation) carries source_snippet, observed_block, and reason_code.
+$underSpecifiedResult = ( new HtmlTransformer() )->transform(
+    '<body><header><nav><span>Menu</span></nav></header><main><p>Copy</p></main></body>',
+    array()
+)->toArray();
+$semanticParityFindings = $semanticFindings($underSpecifiedResult);
+$assert(array() !== $semanticParityFindings, 'navigation/landmark drop produces semantic-parity findings');
+foreach ( $semanticParityFindings as $finding ) {
+    $assert(isset($finding['reason_code']) && '' !== (string) $finding['reason_code'], 'semantic-parity finding carries reason_code');
+    $assert(isset($finding['source_snippet']) && '' !== (string) $finding['source_snippet'], 'semantic-parity finding carries source_snippet');
+    $assert(isset($finding['observed_block']), 'semantic-parity finding carries observed_block');
+}
+$navMissingFindings = $findingsByCode($semanticParityFindings, 'navigation_menu_missing');
+$assert(array() !== $navMissingFindings, 'navigation_menu_missing finding is emitted for unrepresented nav');
+$assert(str_contains((string) ($navMissingFindings[0]['source_snippet'] ?? ''), '<nav'), 'navigation_menu_missing finding source_snippet contains the source nav markup');
 
 $fragment = $compiler->compileFragment('<main><h2>Fragment</h2><p>Copy</p></main>', 'fixture:fragment')->toArray();
 $assert('success' === $fragment['status'], 'fragment compiles successfully', (string) $fragment['status']);
@@ -1000,6 +1924,160 @@ $unnamedBlock = $compiler->compile(
 $assert('generated/fallback' === ($unnamedBlock['block_types'][0]['name'] ?? ''), 'unnamed block.json receives stable generated name');
 $assert(in_array('block_json_missing_name', array_column($unnamedBlock['diagnostics'], 'code'), true), 'unnamed block.json emits a diagnostic');
 
+// Companion-plugin payload producer (issue #491 slice 2): generated blocks are
+// packaged into a payload whose shape matches the SSI #492 scaffold() consumer.
+$companion = $compiler->compile(
+    array(
+        'site'  => array( 'name' => 'Acme Co', 'slug' => 'acme' ),
+        'files' => array(
+            'index.html'             => '<main><section class="hero"><h1>Hi</h1></section></main>',
+            'blocks/hero/block.json' => json_encode(
+                array(
+                    'apiVersion'   => 3,
+                    'name'         => 'acme/hero',
+                    'title'        => 'Hero',
+                    'category'     => 'design',
+                    'render'       => 'file:./render.php',
+                    'viewScript'   => 'file:./view.js',
+                    'style'        => 'file:./style.css',
+                    'editorScript' => 'file:./index.js',
+                ),
+                JSON_UNESCAPED_SLASHES
+            ),
+            'blocks/hero/render.php' => '<?php echo "<div>hero</div>";',
+            'blocks/hero/view.js'    => 'console.log("hero island");',
+            'blocks/hero/style.css'  => '.wp-block-acme-hero{padding:2rem}',
+            'blocks/hero/index.js'   => 'import metadata from "./block.json";',
+        ),
+    )
+)->toArray();
+$companionPayload = $companion['source_reports']['companion_plugin_payload'] ?? null;
+$assert(is_array($companionPayload), 'companion_plugin_payload is emitted when a generated block is present');
+$assert('static-site-importer/companion-plugin/v1' === ($companionPayload['schema'] ?? ''), 'companion payload stamps the shared consumer schema');
+$assert('acme' === ($companionPayload['site_slug'] ?? ''), 'companion payload derives site_slug from the artifact');
+$assert('Acme Co' === ($companionPayload['site_name'] ?? ''), 'companion payload derives site_name from the artifact');
+$assert(array() === ($companionPayload['preserved_js'] ?? null), 'companion payload exposes an empty preserved_js slot');
+$assert(1 === count($companionPayload['blocks'] ?? array()), 'companion payload carries one block');
+$companionBlock = $companionPayload['blocks'][0] ?? array();
+$assert('hero' === ($companionBlock['name'] ?? ''), 'companion block name is the local slug for SSI namespacing');
+$assert('acme/hero' === ($companionBlock['block_json']['name'] ?? ''), 'companion block carries the decoded block.json');
+$assert(str_contains((string) ($companionBlock['render'] ?? ''), '<div>hero</div>'), 'companion block carries render content');
+$assert(str_contains((string) ($companionBlock['view_js'] ?? ''), 'hero island'), 'companion block carries view JS content');
+$assert(str_contains((string) ($companionBlock['assets']['style.css'] ?? ''), 'padding'), 'companion block carries non-render/view assets');
+$assert(isset($companionBlock['assets']['index.js']), 'companion block carries editor script asset');
+$assert(! isset($companionBlock['assets']['render.php']), 'render is not duplicated into the assets map');
+$assert(! isset($companionBlock['assets']['view.js']), 'view JS is not duplicated into the assets map');
+$assert(! isset($companionBlock['assets']['block.json']), 'block.json is not duplicated into the assets map');
+
+$companionNoSite = $compiler->compile(
+    array(
+        'files' => array(
+            'index.html'             => '<main></main>',
+            'blocks/card/block.json' => json_encode(array( 'apiVersion' => 3, 'name' => 'x/card', 'render' => 'file:./render.php' )),
+            'blocks/card/render.php' => '<?php echo "card";',
+        ),
+    )
+)->toArray();
+$companionNoSitePayload = $companionNoSite['source_reports']['companion_plugin_payload'] ?? null;
+$assert(is_array($companionNoSitePayload), 'companion payload is emitted even without site identity');
+$assert(! isset($companionNoSitePayload['site_slug']), 'companion payload omits site_slug when the artifact carries none (SSI fills it)');
+
+$companionAbsent = $compiler->compile(
+    array( 'files' => array( 'index.html' => '<main><h1>Plain</h1><p>No blocks</p></main>' ) )
+)->toArray();
+$assert(! array_key_exists('companion_plugin_payload', $companionAbsent['source_reports']), 'companion_plugin_payload is absent when no generated blocks exist');
+
+// Runtime-island package producer (issue #491 slice 2): preserved runtime
+// islands are packaged into a generic, product-neutral envelope a downstream
+// materializer maps to its own runtime. The package names no host product.
+$runtimeIslandPackageBuilder = new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeIslandPackageBuilder();
+$assert('blocks-engine/php-transformer/runtime-island-package/v1' === \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeIslandPackageBuilder::SCHEMA, 'runtime-island package uses a generic, product-neutral schema');
+$assert(! str_contains(strtolower(\Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeIslandPackageBuilder::SCHEMA), 'static-site') && ! str_contains(strtolower(\Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeIslandPackageBuilder::SCHEMA), 'companion'), 'runtime-island package schema carries no consumer/product name');
+$assert(array() === $runtimeIslandPackageBuilder->fromRuntimeIslands(array()), 'runtime-island package is empty when there are no islands');
+
+$runtimeIslandFixture = json_decode((string) file_get_contents(dirname(__DIR__) . '/fixtures/contract/runtime-island-package.json'), true);
+$assert('blocks-engine/php-transformer/runtime-island-package-fixture/v1' === ($runtimeIslandFixture['schema'] ?? ''), 'runtime-island package fixture exposes its schema');
+
+$findIslandByKind = static function (array $package, string $kind): array {
+    foreach ( $package['islands'] ?? array() as $island ) {
+        if ( ($island['kind'] ?? '') === $kind ) {
+            return $island;
+        }
+    }
+    return array();
+};
+$findIslandByScriptRole = static function (array $package, string $role, string $kind = ''): array {
+    foreach ( $package['islands'] ?? array() as $island ) {
+        if ( '' !== $kind && ($island['kind'] ?? '') !== $kind ) {
+            continue;
+        }
+        foreach ( $island['scripts'] ?? array() as $script ) {
+            if ( ($script['role'] ?? '') === $role ) {
+                return $island;
+            }
+        }
+    }
+    return array();
+};
+
+foreach ( $runtimeIslandFixture['cases'] as $runtimeIslandCase ) {
+    $caseName = (string) ($runtimeIslandCase['name'] ?? '');
+    $compiled = $compiler->compile($runtimeIslandCase['artifact'])->toArray();
+    $package = $compiled['source_reports']['runtime_island_package'] ?? array();
+    $assert(is_array($package) && array() !== $package, 'runtime-island package is produced for fixture case ' . $caseName);
+    $assert('blocks-engine/php-transformer/runtime-island-package/v1' === ($package['schema'] ?? ''), 'runtime-island package stamps the generic schema for case ' . $caseName);
+
+    $expect = $runtimeIslandCase['expect_island'];
+    if ( isset($expect['select_by_role']) ) {
+        $island = $findIslandByScriptRole($package, (string) $expect['select_by_role'], (string) ($expect['kind'] ?? ''));
+    } else {
+        $island = $findIslandByKind($package, (string) ($expect['select_by_kind'] ?? $expect['kind']));
+    }
+    $assert(array() !== $island, 'runtime-island package exposes the expected island for case ' . $caseName);
+    $assert(($expect['kind'] ?? null) === ($island['kind'] ?? ''), 'island kind matches for case ' . $caseName);
+    $assert(($expect['disposition'] ?? null) === ($island['disposition'] ?? ''), 'island disposition matches for case ' . $caseName);
+    $assert(($expect['js_handling'] ?? null) === ($island['js_handling'] ?? ''), 'island js_handling matches for case ' . $caseName);
+    $assert(($expect['markup_fidelity'] ?? null) === ($island['markup_fidelity'] ?? ''), 'island markup is tagged verbatim for case ' . $caseName);
+    $assert(isset($island['id']) && str_starts_with((string) $island['id'], 'island_'), 'island exposes a stable id for case ' . $caseName);
+    $assert(isset($island['handle_hint']) && str_starts_with((string) $island['handle_hint'], 'runtime-island-'), 'island exposes a generic enqueue handle hint for case ' . $caseName);
+
+    if ( isset($expect['markup_contains']) ) {
+        $assert(str_contains((string) ($island['markup'] ?? ''), (string) $expect['markup_contains']), 'island carries verbatim markup for case ' . $caseName);
+    }
+
+    if ( isset($expect['script_source_kind']) ) {
+        $script = $island['scripts'][0] ?? array();
+        $assert(($expect['script_source_kind'] ?? null) === ($script['source_kind'] ?? ''), 'island script source kind matches for case ' . $caseName);
+        $assert(($expect['script_role'] ?? null) === ($script['role'] ?? ''), 'island script role classification matches for case ' . $caseName);
+        if ( isset($expect['content_contains']) ) {
+            $assert(str_contains((string) ($script['content'] ?? ''), (string) $expect['content_contains']), 'island preserves verbatim inline JS for case ' . $caseName);
+        }
+        if ( array_key_exists('materialized', $expect) ) {
+            $assert(($expect['materialized']) === ($script['materialized'] ?? null), 'island external script materialization flag matches for case ' . $caseName);
+        }
+        if ( true === ($expect['droppable'] ?? null) ) {
+            $assert(true === ($script['droppable'] ?? null), 'telemetry island script is marked droppable for case ' . $caseName);
+        }
+        if ( false === ($expect['droppable'] ?? null) ) {
+            $assert(! array_key_exists('droppable', $script), 'first-party island script is not marked droppable for case ' . $caseName);
+        }
+    }
+
+    if ( isset($expect['has_external_script']) ) {
+        $externalScripts = array_values(array_filter($island['scripts'] ?? array(), static fn (array $s): bool => 'external' === ($s['source_kind'] ?? '')));
+        $inlineScripts = array_values(array_filter($island['scripts'] ?? array(), static fn (array $s): bool => 'inline' === ($s['source_kind'] ?? '')));
+        $assert(array() !== $externalScripts, 'island carries an external script for case ' . $caseName);
+        $assert(array() !== $inlineScripts, 'island carries an inline script for case ' . $caseName);
+        $external = $externalScripts[0];
+        if ( true === ($expect['external_materialized'] ?? null) ) {
+            $assert(true === ($external['materialized'] ?? null), 'island external script is materialized for case ' . $caseName);
+            $assert(str_contains((string) ($external['content'] ?? ''), (string) ($expect['external_content_contains'] ?? '')), 'island external script carries materialized content for case ' . $caseName);
+        }
+        $firstParty = array_values(array_filter($island['scripts'] ?? array(), static fn (array $s): bool => 'first_party' === ($s['role'] ?? '')));
+        $assert(count($firstParty) >= (int) ($expect['first_party_scripts_min'] ?? 0), 'island carries the expected first-party scripts for case ' . $caseName);
+    }
+}
+
 $normalized = $compiler->compile(
     array(
         'entry'   => 'public/index.html',
@@ -1102,17 +2180,15 @@ assertSame(1, $result['blocks'][0]['innerBlocks'][0]['attrs']['level'], 'h1 leve
 assertSame('core/paragraph', $result['blocks'][0]['innerBlocks'][1]['blockName'], 'p should convert to a paragraph block.');
 assertSame('core/list', $result['blocks'][1]['blockName'], 'ul should convert to a list block.');
 assertSame('core/list-item', $result['blocks'][1]['innerBlocks'][0]['blockName'], 'li should convert to list-item blocks.');
-assertSame('html', $result['fallbacks'][0]['type'], 'canvas elements should be reported as HTML runtime fallbacks.');
-assertSame('canvas_requires_runtime', $result['fallbacks'][0]['reason'], 'canvas fallbacks should expose a runtime-specific reason.');
-assertSame('html_canvas_runtime_fallback', $result['fallbacks'][0]['diagnostic_code'], 'canvas fallbacks should expose a runtime-specific diagnostic code for cross-process consumers.');
-assertSame('html', $result['fallbacks'][0]['source_format'], 'fallbacks should expose the source format.');
-assertSame('canvas', $result['fallbacks'][0]['tag'], 'fallback should identify the unsupported tag.');
+assertSame(array(), $runtimeCanvasResult['fallbacks'], 'runtime-targeted canvas elements should be preserved without fallback diagnostics.');
+assertSame('core/html', $runtimeCanvasResult['blocks'][0]['blockName'], 'runtime-targeted canvas elements should be materialized as bounded raw HTML.');
+$assert(str_contains((string) ($runtimeCanvasResult['serialized_blocks'] ?? ''), 'id="fixture-canvas"'), 'runtime-targeted canvas serialized output should preserve the native target.');
 assertContains('html_to_blocks_core_slice', array_column($result['diagnostics'], 'code'), 'expanded core-slice conversion diagnostic should be present.');
 assertSame('html', $result['provenance'][0]['source_format'], 'source provenance should identify HTML input.');
 assertSame(strlen($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><canvas>Fallback</canvas>"), $result['metrics']['input_bytes'], 'HTML metrics should expose input bytes.');
 assertSame(strlen($result['serialized_blocks']), $result['metrics']['output_bytes'], 'HTML metrics should expose output bytes.');
 assertSame(6, $result['metrics']['block_count'], 'HTML metrics should count nested blocks.');
-assertSame(1, $result['metrics']['fallback_count'], 'HTML metrics should expose fallback count.');
+assertSame(0, $result['metrics']['fallback_count'], 'HTML metrics should not count non-runtime canvas as a runtime fallback.');
 assertSame(count($result['diagnostics']), $result['metrics']['diagnostic_count'], 'HTML metrics should expose diagnostic count.');
 $assert(is_float($result['metrics']['transform_duration_ms'] ?? null), 'HTML metrics expose transform duration');
 
@@ -1120,6 +2196,116 @@ if ( ! str_contains($result['serialized_blocks'], '<!-- wp:heading {"content":"H
     fwrite(STDERR, "Serialized blocks did not include the expected heading block.\n");
     exit(1);
 }
+
+// Canonical block style attributes (#261 / #259): core blocks must carry a
+// structured `style` OBJECT (style.typography/color/spacing/border) plus the
+// `layout` attribute, never a raw inline `style` STRING. Anything unmappable to
+// a block support rides on `className`, and responsive/JS-revealed base hidden
+// states (display:none) are never frozen onto content-bearing elements.
+$canonicalStyleResult = ( new HtmlTransformer() )->transform(
+    '<style>.class-owned-flex{display:flex;flex-direction:column;gap:1rem}</style>'
+    . '<main>'
+    . '<h2 class="eyebrow" style="font-size:2rem;color:#c0392b;font-weight:700">Styled heading</h2>'
+    . '<p class="lede" style="color:#222;line-height:1.6">Styled paragraph</p>'
+    . '<div class="hero" style="display:flex;gap:1rem;padding:2rem;background:#101010;color:#fff;position:fixed;inset:0;overflow:hidden">'
+    . '<h3>Hero heading</h3><p>Hero content</p></div>'
+    . '<div class="class-owned-flex"><p>Class-owned layout</p></div>'
+    . '<nav class="main-nav" style="display:none;gap:1.6rem"><a href="/a">Home</a></nav>'
+    . '</main>'
+)->toArray();
+
+$collectStyleViolations = static function (array $blocks) use (&$collectStyleViolations): array {
+    $violations = array();
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        $style = $block['attrs']['style'] ?? null;
+        if ( is_string($style) ) {
+            $violations[] = ($block['blockName'] ?? '?') . ' => ' . $style;
+        }
+        $violations = array_merge($violations, $collectStyleViolations($block['innerBlocks'] ?? array()));
+    }
+    return $violations;
+};
+
+$findBlock = static function (array $blocks, string $name) use (&$findBlock): ?array {
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        if ( ($block['blockName'] ?? '') === $name ) {
+            return $block;
+        }
+        $found = $findBlock($block['innerBlocks'] ?? array(), $name);
+        if ( null !== $found ) {
+            return $found;
+        }
+    }
+    return null;
+};
+
+// Guard: no emitted core block carries a raw string `style` attribute.
+$styleViolations = $collectStyleViolations($canonicalStyleResult['blocks']);
+$assert(array() === $styleViolations, 'core blocks must never emit a raw style string', implode('; ', $styleViolations));
+$assert(! str_contains($canonicalStyleResult['serialized_blocks'], 'style="display:'), 'serialized blocks must not carry a raw display style', $canonicalStyleResult['serialized_blocks']);
+
+// Positive: a styled heading maps to canonical typography + color.
+$heading = $findBlock($canonicalStyleResult['blocks'], 'core/heading');
+$assert(is_array($heading), 'styled heading block is emitted');
+$assert(is_array($heading['attrs']['style'] ?? null), 'heading style is a canonical object');
+assertSame('2rem', $heading['attrs']['style']['typography']['fontSize'] ?? null, 'heading font-size maps to style.typography.fontSize');
+assertSame('700', $heading['attrs']['style']['typography']['fontWeight'] ?? null, 'heading font-weight maps to style.typography.fontWeight');
+assertSame('#c0392b', $heading['attrs']['style']['color']['text'] ?? null, 'heading color maps to style.color.text');
+
+// Positive: a styled paragraph maps to canonical color.
+$paragraph = $findBlock($canonicalStyleResult['blocks'], 'core/paragraph');
+$assert(is_array($paragraph), 'styled paragraph block is emitted');
+$assert(is_array($paragraph['attrs']['style'] ?? null), 'paragraph style is a canonical object');
+assertSame('#222', $paragraph['attrs']['style']['color']['text'] ?? null, 'paragraph color maps to style.color.text');
+
+// Positive + negative: display:flex maps to layout; unmappable props (position,
+// inset, overflow) drop to className instead of a raw style string; the mappable
+// color/padding still ride canonically.
+$findBlockByClass = static function (array $blocks, string $class) use (&$findBlockByClass): ?array {
+    foreach ( $blocks as $block ) {
+        if ( ! is_array($block) ) {
+            continue;
+        }
+        $classes = preg_split('/\s+/', (string) ($block['attrs']['className'] ?? '')) ?: array();
+        if ( in_array($class, $classes, true) ) {
+            return $block;
+        }
+        $found = $findBlockByClass($block['innerBlocks'] ?? array(), $class);
+        if ( null !== $found ) {
+            return $found;
+        }
+    }
+    return null;
+};
+
+$hero = $findBlockByClass($canonicalStyleResult['blocks'], 'hero');
+$assert(is_array($hero), 'styled container block is emitted');
+assertSame('flex', $hero['attrs']['layout']['type'] ?? null, 'display:flex maps to the layout attribute');
+$assert(! is_string($hero['attrs']['style'] ?? null), 'container style is never a raw string');
+assertSame('#fff', $hero['attrs']['style']['color']['text'] ?? null, 'container color maps to style.color.text');
+$assert(str_contains((string) ($hero['attrs']['className'] ?? ''), 'hero'), 'container className is preserved for unmappable CSS');
+
+$classOwnedFlex = $findBlockByClass($canonicalStyleResult['blocks'], 'class-owned-flex');
+$assert(is_array($classOwnedFlex), 'class-owned flex container block is emitted');
+$assert(! isset($classOwnedFlex['attrs']['layout']), 'class-owned flex CSS does not synthesize a WordPress layout attribute');
+
+// Hidden-state safety (#259): a base display:none on content-bearing nav is not
+// frozen; it is normalized away and surfaced as a frozen_hidden_state finding.
+$nav = $findBlock($canonicalStyleResult['blocks'], 'core/navigation');
+$assert(is_array($nav), 'navigation block is emitted');
+$assert(! is_string($nav['attrs']['style'] ?? null), 'navigation style is never a raw string');
+$navStyle = $nav['attrs']['style'] ?? array();
+$assert(! (is_array($navStyle) && isset($navStyle['display'])), 'navigation must not freeze display:none');
+$frozen = $canonicalStyleResult['source_reports']['html']['frozen_hidden_state'] ?? array();
+$assert(is_array($frozen) && array() !== $frozen, 'frozen hidden state finding is surfaced for the hidden nav');
+
+fwrite(STDOUT, "Canonical block style attributes contract passed.\n");
 
 fwrite(STDOUT, "HTML-to-blocks contract passed.\n");
 
@@ -1139,7 +2325,7 @@ assertSame('core/heading', $markdownToBlocksResult['blocks'][0]['blockName'], 'M
 $blocksToHtmlResult = $bridge->convertResult('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', 'blocks', 'html')->toArray();
 assertSame('<p>Hello</p>', $blocksToHtmlResult['documents'][0]['content'], 'Serialized blocks should render to HTML through the default blocks/html adapters.');
 $markdownToHtmlResult = $bridge->convertResult("# Title\n\nBody", 'markdown', 'html')->toArray();
-assertStringContains('<h1>Title</h1>', $markdownToHtmlResult['documents'][0]['content'], 'Markdown should convert to HTML through the block pivot.');
+assertStringContains('<h1 class="wp-block-heading">Title</h1>', $markdownToHtmlResult['documents'][0]['content'], 'Markdown should convert to HTML through the block pivot with the canonical heading class core save() emits.');
 $blocksToMarkdownResult = $bridge->convertResult('<!-- wp:heading {"content":"Hello","level":1} --><h1>Hello</h1><!-- /wp:heading -->', 'blocks', 'markdown')->toArray();
 assertStringContains('# Hello', $blocksToMarkdownResult['documents'][0]['content'], 'Serialized blocks should convert to markdown through rendered HTML.');
 $htmlToBlocksResult = $bridge->convertResult('<h2>Hello</h2>', 'html', 'blocks')->toArray();

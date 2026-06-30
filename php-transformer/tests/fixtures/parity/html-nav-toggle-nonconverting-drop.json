@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nav-toggle-nonconverting-drop",
+  "description": "Broadens #221: a navbar whose link list does NOT convert to core/navigation (it contains a non-link list item) must still drop its dead JS hamburger menu-toggle rather than emit it as an always-visible core/button the source hid behind responsive CSS/JS. The brand/logo is lifted out as a paragraph and the menu degrades to core/list, but the spurious hamburger is gone. Detected generically (aria-controls/aria-expanded plus empty decorative bars + an associated nav landmark), never by a fixture-specific class string.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nav-toggle-nonconverting-drop.json",
+    "notes": "Generic navbar header where the menu list cannot be represented as core/navigation, so the toggle's nav never converts."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header class=\"masthead\"><nav class=\"primary-nav\" role=\"navigation\" aria-label=\"Primary\"><a href=\"index.html\" class=\"brand\">Northwind</a><ul class=\"nav-menu\"><li>Seasonal hours vary</li><li><a href=\"gatherings.html\">Gatherings</a></li><li><a href=\"stories.html\">Stories</a></li></ul><button class=\"hamburger\" aria-label=\"Open navigation menu\" aria-controls=\"nav-menu\" aria-expanded=\"false\"><span></span><span></span><span></span></button></nav></header>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "masthead" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "primary-nav" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "brand" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/list", "attrs": { "className": "nav-menu" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:button" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "hamburger" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Northwind" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

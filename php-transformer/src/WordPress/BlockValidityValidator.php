@@ -8,6 +8,22 @@ final class BlockValidityValidator
     public const SCHEMA = 'blocks-engine/php-transformer/wp-block-validity-report/v1';
 
     /**
+     * Dynamic, server-rendered core blocks whose registered `save()` returns
+     * null, so WordPress stores no static markup for them — only the block
+     * comment delimiters plus serialized inner blocks. `wp.blocks.validateBlock`
+     * re-runs `save()` (empty) and flags the block invalid the moment the stored
+     * markup carries any static wrapper HTML. The fast loop asserts these blocks
+     * round-trip as empty so the regression is caught off the editor gate.
+     *
+     * @var array<int, string>
+     */
+    private const DYNAMIC_EMPTY_SAVE_BLOCKS = array(
+        'core/navigation',
+        'core/navigation-link',
+        'core/navigation-submenu',
+    );
+
+    /**
      * @param array<int, array<string, mixed>> $blocks
      * @return array<string, mixed>
      */
@@ -70,6 +86,17 @@ final class BlockValidityValidator
                 }
             }
 
+            if ( null !== $blockName && in_array($blockName, self::DYNAMIC_EMPTY_SAVE_BLOCKS, true) && '' !== trim($staticInnerHTML) ) {
+                $this->addFinding(
+                    $findings,
+                    'dynamic_block_static_markup',
+                    'warning',
+                    $path,
+                    $blockName,
+                    'Dynamic block carries static wrapper markup, but its save() returns null; WordPress stores only the block comment, so wp.blocks.validateBlock flags the stored markup invalid in the editor.'
+                );
+            }
+
             if ( count($innerBlocks) !== $nullCount ) {
                 $this->addFinding(
                     $findings,
@@ -97,10 +124,6 @@ final class BlockValidityValidator
 
         if ( 'core/button' === $blockName ) {
             $this->validateLinkLikeBlock($block, $path, $findings, 'text', 'url', 'button');
-        }
-
-        if ( in_array($blockName, array('core/navigation-link', 'core/navigation-submenu'), true) ) {
-            $this->validateLinkLikeBlock($block, $path, $findings, 'label', 'url', 'navigation');
         }
 
         foreach ( $innerBlocks as $index => $innerBlock ) {

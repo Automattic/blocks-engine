@@ -1,0 +1,37 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nav-decorative-labels",
+  "description": "Strips decorative SVG and empty icon spans from navigation labels while preserving the link URLs and submenu structure.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nav-decorative-labels.json",
+    "notes": "Generic fixture based on static-site desktop dropdown navigation with chevrons and icon dots in anchors."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<nav class=\"main-nav\" aria-label=\"Main navigation\"><div class=\"nav-item\"><a href=\"by-outing.html\" class=\"nav-link\">By Outing <svg class=\"nav-chevron\" viewBox=\"0 0 10 6\"><path d=\"M1 1l4 4 4-4\"></path></svg></a><div class=\"dropdown\"><a href=\"by-outing.html#day-hike\" class=\"dropdown__link\"><span class=\"dropdown__dot\"></span>Day Hike</a><a href=\"by-outing.html#camp\" class=\"dropdown__link\"><span class=\"dropdown__dot\"></span>Weekend Camp</a></div></div><div class=\"nav-item\"><a href=\"bundles.html\" class=\"nav-link\">Bundles</a></div></nav>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "main-nav" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-submenu", "attrs": { "label": "By Outing", "url": "by-outing.html", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Day Hike", "url": "by-outing.html#day-hike", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Weekend Camp", "url": "by-outing.html#camp", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Bundles", "url": "bundles.html", "kind": "custom" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"label\":\"By Outing\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"label\":\"Day Hike\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "nav-chevron" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "dropdown__dot" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

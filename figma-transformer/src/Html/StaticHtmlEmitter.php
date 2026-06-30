@@ -9,6 +9,15 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class StaticHtmlEmitter
 {
+    /**
+     * Minimum intrinsic width (px) at which a page root frame is rendered as a
+     * centered fluid container instead of a fixed canvas width. Roots at least
+     * this wide are treated as full-page desktop canvases that must fit the
+     * viewport; narrower roots are typically embedded components and keep their
+     * intrinsic size.
+     */
+    private const FLUID_ROOT_MIN_WIDTH = 1024.0;
+
     private const MAX_RAW_SVG_PATH_DATA_BYTES = 20000;
     private const MAX_DECODED_FIGMA_SVG_PATH_DATA_BYTES = 4194304;
     private const EXTERNAL_VECTOR_SVG_BYTES = 65536;
@@ -35,6 +44,74 @@ final class StaticHtmlEmitter
 
     private bool $renderTextGlyphPaths = false;
 
+    private ?FontResolver $fontResolver = null;
+
+    private function fontResolver(): FontResolver
+    {
+        return $this->fontResolver ??= new FontResolver();
+    }
+
+    private ?DesignSystemExtractor $designSystemExtractor = null;
+
+    private function designSystemExtractor(): DesignSystemExtractor
+    {
+        return $this->designSystemExtractor ??= new DesignSystemExtractor();
+    }
+
+    private function layoutIntentClassifier(): LayoutIntentClassifier
+    {
+        return new LayoutIntentClassifier($this->assetsById);
+    }
+
+    /**
+     * Resolved destination-node-id => page-path map used to turn NODE/prototype links into slug hrefs.
+     *
+     * @var array<string, string>
+     */
+    private array $linkTargetPaths = array();
+
+    /**
+     * Running link-coverage tallies populated while emitting nodes.
+     *
+     * @var array<string, mixed>
+     */
+    private array $linkCoverage = array();
+
+    /**
+     * Page-relative typographic hierarchy: rounded font-size key => heading tag
+     * (h1-h6). Populated per emitted page so the largest/boldest text becomes the
+     * top heading and smaller sizes descend.
+     *
+     * @var array<string, string>
+     */
+    private array $headingLevels = array();
+
+    /**
+     * Memoized list-item id sets keyed by container node id, so list-container
+     * (<ul>) and list-item (<li>) decisions stay consistent within a page.
+     *
+     * @var array<string, array<int, string>>
+     */
+    private array $listItemIdCache = array();
+
+    /**
+     * Tree depth at which a frame can read as a top-level <section> for the page
+     * being emitted. When the page is a single wrapping frame, its bands sit one
+     * level down (depth 1); when bands are emitted as sibling root nodes, they
+     * sit at the root (depth 0). Set per emitted page; everything deeper than
+     * this is nested structure and stays a <div>.
+     */
+    private int $sectionDepth = 0;
+
+    /**
+     * Maps each per-node CSS class (the `figma-node-*` hook) to a human-readable
+     * base name derived from the node's name/role. Used to mint shared,
+     * authored-looking class names when several nodes share identical styles.
+     *
+     * @var array<string, string>
+     */
+    private array $nodeReadableNames = array();
+
     /**
      * @param array<string, mixed> $scenegraph Normalized Figma scenegraph.
      * @param array<string, mixed> $options Transformation options.
@@ -46,26 +123,36 @@ final class StaticHtmlEmitter
         $this->usedAssetPaths = array();
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
+        $this->nodeReadableNames = array();
+        $this->linkTargetPaths = $this->normalizeLinkTargetPaths($options);
+        $this->linkCoverage = $this->newLinkCoverage();
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $nodes = $this->nodeList($scenegraph);
+        $this->listItemIdCache = array();
+        $this->prepareHeadingRanking($nodes);
         $diagnostics = array();
         $nodeStyleDiagnostics = array();
         $assetFiles = $this->normalizeAssets($scenegraph['assets'] ?? array(), $diagnostics);
+
+        $this->sectionDepth = $this->sectionDepthFor($nodes);
 
         $body = '';
         $cssRules = array(
             'html{box-sizing:border-box}',
             '*,*::before,*::after{box-sizing:inherit}',
-            'body{margin:0;overflow-x:auto}',
-            '.figma-root{position:relative;width:max-content;min-width:100%;overflow-x:visible}',
+            'body{margin:0}',
+            '.figma-root{position:relative;width:100%}',
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
+            'ul,ol{margin:0;padding:0;list-style:none}',
             'img{display:block;max-width:100%;height:auto}',
+            'a.figma-link{display:contents;color:inherit;text-decoration:inherit}',
             '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
         );
         if ( $this->renderTextGlyphPaths ) {
             $cssRules[] = '.figma-text-glyphs{display:block;width:100%;height:100%;overflow:visible}';
         }
-        $fontCss = $this->fontCss($options);
+        $operatorFontCss = $this->fontCss($options);
+        $familyOverrides = $this->fontFamilyOverrides($options);
 
         foreach ( $nodes as $node ) {
             if ( ! is_array($node) ) {
@@ -76,7 +163,23 @@ final class StaticHtmlEmitter
 
         $assetFiles = array_merge($this->referencedAssetFiles($assetFiles), array_values($this->generatedAssetFiles));
 
-        $css = ('' !== $fontCss ? $fontCss . "\n" : '') . implode("\n", $cssRules) . "\n";
+        $shared   = $this->applySharedStyleClasses($cssRules);
+        $cssRules = $shared['rules'];
+        $body     = $this->applySharedClassMapToHtml($body, $shared['class_map']);
+
+        $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
+        $fontUsage = $this->fontUsage($nodeStyleDiagnostics);
+        $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss, $familyOverrides);
+        $fontCss = (string) $fontResolution['css'];
+
+        $designSystem = $this->designSystemExtractor()->extract($scenegraph);
+        foreach ( $this->designSystemDiagnostics($designSystem) as $diagnostic ) {
+            $diagnostics[] = $diagnostic;
+        }
+
+        $css = ('' !== $fontCss ? $fontCss . "\n" : '')
+            . ('' !== $designSystem['css'] ? $designSystem['css'] : '')
+            . implode("\n", $cssRules) . "\n";
         $files = array(
             array(
                 'path'      => 'index.html',
@@ -96,21 +199,12 @@ final class StaticHtmlEmitter
             $files[] = $assetFile;
         }
 
+        $files = (new InlineCssFileInjector())->inject($files, $css);
+
         $visualNodeMap = $this->visualNodeMap($nodes);
-        $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
-        $transformDiagnostics = $this->transformDiagnostics($nodes, $assetFiles, $fontFamilies, $fontCss, $css, $diagnostics);
-        if ( '' === $fontCss ) {
-            foreach ( $fontFamilies as $fontFamily ) {
-                if ( $this->isWebSafeFontFamily($fontFamily) ) {
-                    continue;
-                }
-                $diagnostics[] = array(
-                    'severity' => 'info',
-                    'code' => 'font_css_missing_for_source_font',
-                    'message' => 'Source font family was emitted without supplied font CSS; browser font fallback may reduce visual parity.',
-                    'context' => array('font_family' => $fontFamily),
-                );
-            }
+        $transformDiagnostics = $this->transformDiagnostics($nodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics, $body);
+        foreach ( $this->unresolvedSourceFontDiagnostics($fontResolution) as $diagnostic ) {
+            $diagnostics[] = $diagnostic;
         }
 
         return array(
@@ -128,9 +222,13 @@ final class StaticHtmlEmitter
                 'visual_node_count'            => count($visualNodeMap),
                 'visual_node_map'              => $visualNodeMap,
                 'font_families'                => $fontFamilies,
-                'font_usage'                   => $this->fontUsage($nodeStyleDiagnostics),
-                'font_css_supplied'            => '' !== $fontCss,
+                'font_usage'                   => $fontUsage,
+                'font_css_supplied'            => (bool) $fontResolution['operator_supplied'],
                 'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
+                'design_system'                => array(
+                    'coverage'    => $designSystem['coverage'],
+                    'frame_names' => $designSystem['frame_names'],
+                ),
                 'transform_diagnostics'        => $transformDiagnostics,
             ),
             'metrics'       => array(
@@ -152,6 +250,9 @@ final class StaticHtmlEmitter
         $this->usedAssetPaths = array();
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
+        $this->nodeReadableNames = array();
+        $this->linkTargetPaths = $this->linkTargetPathsFromPagePlan($pagePlan, $options);
+        $this->linkCoverage = $this->newLinkCoverage();
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $diagnostics = array();
         $nodeStyleDiagnostics = array();
@@ -161,20 +262,24 @@ final class StaticHtmlEmitter
         $cssRules = array(
             'html{box-sizing:border-box}',
             '*,*::before,*::after{box-sizing:inherit}',
-            'body{margin:0;overflow-x:auto}',
-            '.figma-root{position:relative;width:max-content;min-width:100%;overflow-x:visible}',
+            'body{margin:0}',
+            '.figma-root{position:relative;width:100%}',
             'p,h1,h2,h3,h4,h5,h6{margin:0}',
+            'ul,ol{margin:0;padding:0;list-style:none}',
             'img{display:block;max-width:100%;height:auto}',
+            'a.figma-link{display:contents;color:inherit;text-decoration:inherit}',
             '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
         );
         if ( $this->renderTextGlyphPaths ) {
             $cssRules[] = '.figma-text-glyphs{display:block;width:100%;height:100%;overflow:visible}';
         }
-        $fontCss = $this->fontCss($options);
+        $operatorFontCss = $this->fontCss($options);
+        $familyOverrides = $this->fontFamilyOverrides($options);
         $files = array();
         $pages = array();
         $renderedNodes = array();
         $seenPaths = array();
+        $mediaBlocks = array();
         $plannedPages = $this->plannedPages($pagePlan);
 
         foreach ( $plannedPages as $index => $page ) {
@@ -208,6 +313,11 @@ final class StaticHtmlEmitter
             }
             $seenPaths[$path] = true;
 
+            $this->listItemIdCache = array();
+            $this->prepareHeadingRanking(array($frameNode));
+            // A planned page is a single wrapping frame; its bands are its
+            // direct children one level down.
+            $this->sectionDepth = 1;
             $body = $this->emitNode($frameNode, $cssRules, $diagnostics, $nodeStyleDiagnostics, 0, null);
             $files[] = array(
                 'path'      => $path,
@@ -216,6 +326,11 @@ final class StaticHtmlEmitter
                 'content'   => $this->htmlDocument($this->sanitizeText($pageName), $this->stylesheetHref($path), $body),
             );
             $renderedNodes[] = $frameNode;
+
+            foreach ( $this->breakpointMediaBlocks($page, $frameNode, $nodeMap) as $mediaBlock ) {
+                $mediaBlocks[] = $mediaBlock;
+            }
+
             $pages[] = array(
                 'frame_id'   => $frameId,
                 'name'       => $pageName,
@@ -226,6 +341,7 @@ final class StaticHtmlEmitter
         }
 
         if ( empty($files) ) {
+            $this->sectionDepth = $this->sectionDepthFor($this->nodeList($scenegraph));
             foreach ( $this->nodeList($scenegraph) as $node ) {
                 if ( ! is_array($node) ) {
                     continue;
@@ -242,7 +358,33 @@ final class StaticHtmlEmitter
         }
 
         $assetFiles = array_merge($this->referencedAssetFiles($assetFiles), array_values($this->generatedAssetFiles));
-        $css = ('' !== $fontCss ? $fontCss . "\n" : '') . implode("\n", array_values(array_unique($cssRules))) . "\n";
+
+        $shared   = $this->applySharedStyleClasses($cssRules);
+        $cssRules = $shared['rules'];
+        if ( ! empty($shared['class_map']) ) {
+            foreach ( $files as $fileIndex => $file ) {
+                if ( 'text/html' === ($file['mime_type'] ?? '') && isset($file['content']) ) {
+                    $files[$fileIndex]['content'] = $this->applySharedClassMapToHtml((string) $file['content'], $shared['class_map']);
+                }
+            }
+        }
+
+        $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
+        $fontUsage = $this->fontUsage($nodeStyleDiagnostics);
+        $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss, $familyOverrides);
+        $fontCss = (string) $fontResolution['css'];
+        $designSystem = $this->designSystemExtractor()->extract($scenegraph);
+        foreach ( $this->designSystemDiagnostics($designSystem) as $diagnostic ) {
+            $diagnostics[] = $diagnostic;
+        }
+        $css = ('' !== $fontCss ? $fontCss . "\n" : '')
+            . ('' !== $designSystem['css'] ? $designSystem['css'] : '')
+            . implode("\n", array_values(array_unique($cssRules))) . "\n";
+        if ( ! empty($mediaBlocks) ) {
+            // Responsive overrides cascade AFTER the widest-first base rules so
+            // narrower breakpoints win at their own viewport width.
+            $css .= implode("\n", $mediaBlocks) . "\n";
+        }
         $files[] = array(
             'path'      => 'style.css',
             'role'      => 'stylesheet',
@@ -254,21 +396,12 @@ final class StaticHtmlEmitter
             $files[] = $assetFile;
         }
 
+        $files = (new InlineCssFileInjector())->inject($files, $css);
+
         $visualNodeMap = $this->visualNodeMap($renderedNodes);
-        $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
-        $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $assetFiles, $fontFamilies, $fontCss, $css, $diagnostics);
-        if ( '' === $fontCss ) {
-            foreach ( $fontFamilies as $fontFamily ) {
-                if ( $this->isWebSafeFontFamily($fontFamily) ) {
-                    continue;
-                }
-                $diagnostics[] = array(
-                    'severity' => 'info',
-                    'code' => 'font_css_missing_for_source_font',
-                    'message' => 'Source font family was emitted without supplied font CSS; browser font fallback may reduce visual parity.',
-                    'context' => array('font_family' => $fontFamily),
-                );
-            }
+        $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics, $this->htmlFilesContent($files));
+        foreach ( $this->unresolvedSourceFontDiagnostics($fontResolution) as $diagnostic ) {
+            $diagnostics[] = $diagnostic;
         }
 
         return array(
@@ -287,9 +420,13 @@ final class StaticHtmlEmitter
                 'visual_node_count'            => count($visualNodeMap),
                 'visual_node_map'              => $visualNodeMap,
                 'font_families'                => $fontFamilies,
-                'font_usage'                   => $this->fontUsage($nodeStyleDiagnostics),
-                'font_css_supplied'            => '' !== $fontCss,
+                'font_usage'                   => $fontUsage,
+                'font_css_supplied'            => (bool) $fontResolution['operator_supplied'],
                 'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
+                'design_system'                => array(
+                    'coverage'    => $designSystem['coverage'],
+                    'frame_names' => $designSystem['frame_names'],
+                ),
                 'transform_diagnostics'        => $transformDiagnostics,
             ),
             'metrics'       => array(
@@ -300,9 +437,198 @@ final class StaticHtmlEmitter
         );
     }
 
+    /**
+     * Build the `@media (max-width: …)` CSS blocks for one responsive page.
+     *
+     * The primary (widest) variant frame is already rendered as the base layout
+     * by {@see emitSite}. For every narrower breakpoint variant this walks the
+     * variant frame, computes per-node style declarations with the same
+     * machinery the base used, maps each variant node onto its base counterpart
+     * by structural position, and emits only the declarations that DIFFER from
+     * the base inside a `max-width` media block keyed on the variant viewport.
+     *
+     * Single-variant pages return an empty list, so they render exactly as
+     * before with no `@media` output.
+     *
+     * @param array<string, mixed>                $page     Planned page (carries `variants`).
+     * @param array<string, mixed>                $baseNode Primary variant frame node.
+     * @param array<string, array<string, mixed>> $nodeMap  Id => node lookup.
+     * @return array<int, string>
+     */
+    private function breakpointMediaBlocks(array $page, array $baseNode, array $nodeMap): array
+    {
+        $variants = is_array($page['variants'] ?? null) ? array_values($page['variants']) : array();
+        if ( count($variants) < 2 ) {
+            return array();
+        }
+
+        $baseStyles = array();
+        $this->collectVariantNodeStyles($baseNode, 0, null, 'r', $baseStyles);
+
+        // Derive the primary (base) viewport width from the variants list so we
+        // can compute midpoint breakpoints between adjacent variant widths.
+        $primaryViewportWidth = null;
+        foreach ( $variants as $variant ) {
+            if ( is_array($variant) && true === ($variant['primary'] ?? false) && is_numeric($variant['viewport_width'] ?? null) ) {
+                $primaryViewportWidth = (float) $variant['viewport_width'];
+                break;
+            }
+        }
+
+        $blocks = array();
+        // Variants are ordered widest-first, so iterating in order emits the
+        // narrower breakpoints later in the cascade — exactly the precedence
+        // overlapping `max-width` queries need.
+        // Track the previously seen (wider) viewport width so each breakpoint
+        // keys at the midpoint between adjacent variant widths rather than at
+        // the narrow variant's own width, which would be too narrow for most
+        // browsers and phones.
+        $prevViewportWidth = $primaryViewportWidth;
+        foreach ( $variants as $variant ) {
+            if ( ! is_array($variant) || true === ($variant['primary'] ?? false) ) {
+                continue;
+            }
+
+            $variantId = isset($variant['frame_id']) && is_scalar($variant['frame_id']) ? (string) $variant['frame_id'] : '';
+            $viewportWidth = $variant['viewport_width'] ?? null;
+            if ( '' === $variantId || ! isset($nodeMap[$variantId]) || ! is_numeric($viewportWidth) ) {
+                continue;
+            }
+
+            $variantStyles = array();
+            $this->collectVariantNodeStyles($nodeMap[$variantId], 0, null, 'r', $variantStyles);
+
+            $rules = $this->breakpointDiffRules($baseStyles, $variantStyles);
+            if ( empty($rules) ) {
+                $prevViewportWidth = (float) $viewportWidth;
+                continue;
+            }
+
+            // Key the breakpoint at the midpoint between this variant and its
+            // next-wider neighbour (the previous iteration, or the primary).
+            // Midpoint avoids keying at the narrow variant's own width (e.g.
+            // 390px) which would leave most desktop-resized browsers outside
+            // the mobile styles. Falls back to the variant's own width when no
+            // wider neighbour width is known.
+            if ( null !== $prevViewportWidth && $prevViewportWidth > (float) $viewportWidth ) {
+                $breakpointPx = (int) round(($prevViewportWidth + (float) $viewportWidth) / 2);
+            } else {
+                $breakpointPx = (int) round((float) $viewportWidth);
+            }
+
+            $blocks[] = '@media (max-width:' . $this->number((float) $breakpointPx) . 'px){'
+                . "\n" . implode("\n", $rules) . "\n}";
+
+            $prevViewportWidth = (float) $viewportWidth;
+        }
+
+        return $blocks;
+    }
+
+    /**
+     * Walk a variant frame and record each node's emitted class name and ordered
+     * style declarations, keyed by a deterministic structural path. The
+     * traversal mirrors {@see emitNode} (same child skipping and the same
+     * BOOLEAN_OPERATION vector short-circuit) so a node at a given position
+     * always resolves to the same key across breakpoint variants — that key is
+     * what lets base and narrower styles be diffed without re-deriving layout.
+     *
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $map  pathKey => array{class: string, styles: array<int, string>}
+     */
+    private function collectVariantNodeStyles(array $node, int $depth, ?array $parentNode, string $pathKey, array &$map): void
+    {
+        $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
+        $name = (string) ($node['name'] ?? '');
+        $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
+        $className = 'figma-node-' . $this->slug($id . '-' . $name);
+
+        $map[$pathKey] = array(
+            'class'  => $className,
+            'styles' => $this->styleDeclarations($node, $type, $parentNode),
+        );
+
+        $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
+        if ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) {
+            return;
+        }
+
+        $childOrdinal = 0;
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) || $this->isFullyClippedDecorativeChild($child, $node) ) {
+                continue;
+            }
+
+            $childType = strtoupper((string) ($child['type'] ?? 'FRAME'));
+            $childKey = $pathKey . '/' . $childOrdinal . ':' . $childType;
+            $this->collectVariantNodeStyles($child, $depth + 1, $node, $childKey, $map);
+            ++$childOrdinal;
+        }
+    }
+
+    /**
+     * Diff a narrower variant's per-node styles against the base styles, keeping
+     * only declarations whose value changed (or that the base lacked). Rules are
+     * keyed on the BASE class name so the overrides land on the already-rendered
+     * elements, and are emitted in base-traversal order for deterministic output.
+     *
+     * @param array<string, array<string, mixed>> $baseStyles
+     * @param array<string, array<string, mixed>> $variantStyles
+     * @return array<int, string>
+     */
+    private function breakpointDiffRules(array $baseStyles, array $variantStyles): array
+    {
+        $rules = array();
+        foreach ( $baseStyles as $pathKey => $base ) {
+            if ( ! isset($variantStyles[$pathKey]) ) {
+                continue;
+            }
+
+            $baseMap = $this->styleDeclarationMap(is_array($base['styles'] ?? null) ? $base['styles'] : array());
+            $variantDeclarations = is_array($variantStyles[$pathKey]['styles'] ?? null) ? $variantStyles[$pathKey]['styles'] : array();
+
+            $changed = array();
+            foreach ( $variantDeclarations as $declaration ) {
+                $parts = explode(':', (string) $declaration, 2);
+                if ( 2 !== count($parts) ) {
+                    continue;
+                }
+
+                $property = trim($parts[0]);
+                $value = trim($parts[1]);
+                if ( ! array_key_exists($property, $baseMap) || $baseMap[$property] !== $value ) {
+                    $changed[] = $property . ':' . $value;
+                }
+            }
+
+            if ( empty($changed) ) {
+                continue;
+            }
+
+            $rules[] = '.' . (string) $base['class'] . '{' . implode(';', $changed) . '}';
+        }
+
+        return $rules;
+    }
+
     private function htmlDocument(string $title, string $stylesheetHref, string $body): string
     {
         return "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>" . $title . "</title>\n<link rel=\"stylesheet\" href=\"" . $this->sanitizeAttribute($stylesheetHref) . "\">\n</head>\n<body>\n<main class=\"figma-root\" data-figma-root=\"true\">\n" . $body . "</main>\n</body>\n</html>\n";
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function htmlFilesContent(array $files): string
+    {
+        $html = '';
+        foreach ( $files as $file ) {
+            if ( is_array($file) && 'text/html' === ($file['mime_type'] ?? null) && isset($file['content']) && is_scalar($file['content']) ) {
+                $html .= "\n" . (string) $file['content'];
+            }
+        }
+
+        return $html;
     }
 
     /**
@@ -312,22 +638,44 @@ final class StaticHtmlEmitter
      */
     private function emitNode(array $node, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics, int $depth, ?array $parentNode): string
     {
+        // Designer-hidden layers carry an explicit `visible: false` from Figma.
+        // Skip emitting them and their entire subtree. Absent/null `visible`
+        // means visible, so only an explicit false is honored. A hidden node
+        // emitted as a top-level render root (depth 0, e.g. an explicitly
+        // selected frame) still renders; hidden descendants never do.
+        if ( $depth > 0 && false === ($node['visible'] ?? null) ) {
+            return '';
+        }
+
         $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
         $name = (string) ($node['name'] ?? '');
         $attributeName = $this->sanitizeAttribute($name);
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
-        $text = 'TEXT' === $type ? ( $this->textGlyphSvg($node) ?? $this->textContent($node) ) : $this->textContent($node);
-        $tag = $this->tagName($type, $name, $depth);
+        if ( 'TEXT' === $type ) {
+            $text = $this->textGlyphSvg($node);
+            if ( null === $text ) {
+                // Multi-paragraph text splits into per-paragraph boxes so
+                // `paragraphSpacing` lands as a margin; otherwise render the node
+                // as a single element.
+                $text = $this->multiParagraphTextContent($node) ?? $this->textContent($node);
+            }
+        } else {
+            $text = $this->textContent($node);
+        }
+        $tag = $this->semanticTag($node, $type, $name, $depth, $parentNode);
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
         $children = $this->nodeList($node);
         $content = $text;
-        $vectorSvg = $this->supportedVectorSvg($node, $type);
+        $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
         $assetPath = $this->nodeAssetPath($node);
         $hasVectorAssetFallback = $this->isUnsupportedVectorType($type) && null !== $assetPath;
 
         if ( ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) ) {
             foreach ( $children as $child ) {
                 if ( is_array($child) ) {
+                    if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
+                        continue;
+                    }
                     $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node);
                 }
             }
@@ -337,14 +685,13 @@ final class StaticHtmlEmitter
             $content = $this->vectorSvgMarkup($vectorSvg, $node, $type) . $content;
         }
 
-        if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback ) {
+        $hasRenderableVectorFallback = '' !== trim($content);
+        if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback && ! $hasRenderableVectorFallback ) {
             $diagnostics[] = array(
                 'severity' => 'warning',
                 'code'     => 'unsupported_vector_node_placeholder',
                 'message'  => 'Unsupported vector-like Figma node emitted as a static placeholder.',
-                'node_id'  => (string) ($node['id'] ?? ''),
-                'type'     => $type,
-            );
+            ) + $this->vectorPlaceholderDiagnostic($node, $type, $parentNode);
 
             $content = '';
         }
@@ -352,34 +699,187 @@ final class StaticHtmlEmitter
         $styles = $this->styleDeclarations($node, $type, $parentNode);
         if ( ! empty($styles) ) {
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
+            $this->nodeReadableNames[$className] = $this->sharedClassBaseName($name, $type);
         }
         $nodeStyleDiagnostics[] = $this->nodeStyleDiagnostic($node, $type, $className, $tag, $styles, $parentNode);
+
+        if ( 'TEXT' === $type ) {
+            $paragraphSpacingDiagnostic = $this->paragraphSpacingDiagnostic($node);
+            if ( null !== $paragraphSpacingDiagnostic ) {
+                $diagnostics[] = $paragraphSpacingDiagnostic;
+            }
+        }
 
         $attributes = sprintf(' class="%1$s" data-figma-node-id="%2$s" data-figma-node-name="%3$s"', $className, $id, $attributeName);
         if ( 'RECTANGLE' === $type && '' === $content ) {
             $attributes .= ' aria-hidden="true"';
         }
-        if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback ) {
+        if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback && ! $hasRenderableVectorFallback ) {
             $attributes .= ' data-figma-unsupported-vector="true" aria-hidden="true"';
         } elseif ( $hasVectorAssetFallback ) {
             $attributes .= ' role="img" aria-label="' . $this->sanitizeAttribute('' !== $name ? $name : $type) . '"';
         }
 
-        return sprintf("<%1\$s%2\$s>%3\$s</%1\$s>\n", $tag, $attributes, $content);
+        $element = sprintf("<%1\$s%2\$s>%3\$s</%1\$s>\n", $tag, $attributes, $content);
+
+        return $this->wrapWithLink($node, $element, $diagnostics, $this->isButtonLike($node));
     }
 
-    private function tagName(string $type, string $name, int $depth): string
+    /**
+     * Selects a semantic HTML element for a node from its type, name, position,
+     * and content. Landmarks (header/nav/section/footer/article) come from
+     * structure and position; content tags (h1-h6/p/ul/li/button/span) come from
+     * the page-relative typographic hierarchy and node shape. Falls back to the
+     * historical name-based mapping and a generic section/div when no stronger
+     * signal exists.
+     *
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function semanticTag(array $node, string $type, string $name, int $depth, ?array $parentNode): string
     {
         $lowerName = strtolower($name);
 
         if ( 'TEXT' === $type ) {
-            if ( str_contains($lowerName, 'title') || str_contains($lowerName, 'heading') || str_contains($lowerName, 'headline') ) {
-                return 0 === $depth ? 'h1' : 'h2';
+            // A label inside a button-like control is inline phrasing content.
+            if ( null !== $parentNode && $this->isButtonLike($parentNode) ) {
+                return 'span';
+            }
+
+            $heading = $this->headingLevel($node, $lowerName, $depth);
+            if ( null !== $heading ) {
+                return $heading;
             }
 
             return 'p';
         }
 
+        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
+
+        // List items: a repeated, structurally-similar child of a list container.
+        if ( null !== $parentNode && $this->isListItemOf($node, $parentNode) ) {
+            return 'li';
+        }
+
+        // A standalone button-like control (no link) becomes a real <button>.
+        // Linked controls stay structural and gain a button class on their anchor.
+        if ( empty($node['figma_link']) && $this->isButtonLike($node) ) {
+            return 'button';
+        }
+
+        $landmark = $this->landmarkTag($node, $lowerName, $children, $depth, $parentNode);
+        if ( null !== $landmark ) {
+            return $landmark;
+        }
+
+        // A container of repeated sibling items reads as an unordered list.
+        if ( ! empty($this->listItemIds($node)) ) {
+            return 'ul';
+        }
+
+        // A <section> is reserved for genuine top-level content regions — the
+        // page bands a hand-author would wrap in <section>. Every other frame
+        // (nested wrappers, rows, columns, cards, decorative groups) stays a
+        // <div>, so a typical page emits a handful of sections, not hundreds.
+        if ( 'FRAME' === $type && $this->isTopLevelSection($node, $depth, $parentNode, $children) ) {
+            return 'section';
+        }
+
+        return 'div';
+    }
+
+    /**
+     * Decides whether a frame is a genuine top-level content region worthy of a
+     * <section>, rather than a nested structural container. The signals are
+     * generic and position/size/content based — no file-specific names:
+     *
+     *  - Position: a top-level page band — exactly one level below the page
+     *    root ({@see $sectionDepth}), so only the bands a hand-author wraps in
+     *    <section> qualify, never the structure nested inside them.
+     *  - Size: spans most of the page width, like a full-width content band.
+     *  - Significance: holds meaningful mixed content (multiple text runs, or
+     *    sub-regions), not a thin wrapper around a single element.
+     *
+     * Deeper frames — rows, columns, cards, wrappers, and decorative groups —
+     * are never sections; they stay <div>. That is what keeps a page to a
+     * handful of sections instead of hundreds.
+     *
+     * @param array<string, mixed>             $node
+     * @param array<string, mixed>|null        $parentNode
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function isTopLevelSection(array $node, int $depth, ?array $parentNode, array $children): bool
+    {
+        // Only the page's top-level bands qualify: the single level directly
+        // below the page root. Anything deeper is nested structure (a <div>).
+        if ( $depth !== $this->sectionDepth ) {
+            return false;
+        }
+
+        // A band needs real content, not an empty or single-element wrapper:
+        // either several text runs, or more than one structural sub-region.
+        $textRuns = $this->textDescendantCount($node);
+        if ( $textRuns < 2 && count($children) < 2 ) {
+            return false;
+        }
+
+        // A band spans most of the page: its width is a large fraction of the
+        // wrapping page frame's width. Narrow columns and side rails stay <div>.
+        // Root-level bands (depth 0) have no parent frame to measure against;
+        // their content significance alone settles it.
+        if ( null !== $parentNode ) {
+            $width = $this->boxValue($node, 'width');
+            $parentWidth = $this->boxValue($parentNode, 'width');
+            if ( null !== $width && null !== $parentWidth && $parentWidth > 0.0 ) {
+                return ( $width / $parentWidth ) >= 0.6;
+            }
+        }
+
+        // Without reliable geometry, fall back to the content signal alone: a
+        // top-level band carrying meaningful mixed content reads as a section.
+        return true;
+    }
+
+    /**
+     * Determines the tree depth at which top-level page bands live for a set of
+     * root nodes. When the page is a single frame that wraps several band
+     * frames, the bands are its direct children (depth 1). When the bands are
+     * emitted as sibling root nodes — or when the single root frame is itself a
+     * content region rather than a wrapper — the bands sit at the root (depth 0).
+     *
+     * @param array<int, mixed> $rootNodes
+     */
+    private function sectionDepthFor(array $rootNodes): int
+    {
+        $frames = array_values(array_filter(
+            $rootNodes,
+            static fn ($node): bool => is_array($node) && 'FRAME' === strtoupper((string) ($node['type'] ?? ''))
+        ));
+
+        // A single root frame is a page wrapper only when it groups several band
+        // frames of its own. Otherwise it is itself a content region.
+        if ( 1 === count($frames) ) {
+            $childFrames = array_filter(
+                $this->nodeList($frames[0]),
+                static fn ($child): bool => is_array($child) && 'FRAME' === strtoupper((string) ($child['type'] ?? ''))
+            );
+
+            return count($childFrames) >= 2 ? 1 : 0;
+        }
+
+        return 0;
+    }
+
+    /**
+     * Maps a container to a landmark element from explicit name signals first,
+     * then position + content heuristics for generically-named regions.
+     *
+     * @param array<string, mixed> $node
+     * @param array<int, array<string, mixed>> $children
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function landmarkTag(array $node, string $lowerName, array $children, int $depth, ?array $parentNode): ?string
+    {
         if ( str_contains($lowerName, 'header') ) {
             return 'header';
         }
@@ -396,11 +896,542 @@ final class StaticHtmlEmitter
             return 'article';
         }
 
-        if ( 'FRAME' === $type ) {
-            return 'section';
+        if ( empty($children) ) {
+            return null;
         }
 
-        return 'div';
+        $linkCount = $this->linkChildCount($children);
+
+        // Top region with a logo and a cluster of links reads as a site header;
+        // a bottom region with links or legal text reads as a footer.
+        if ( $depth <= 1 && null !== $parentNode ) {
+            $region = $this->verticalRegion($node, $parentNode);
+            if ( 'top' === $region && $this->hasLogoChild($children) && ( $linkCount >= 1 || count($children) >= 2 ) ) {
+                return 'header';
+            }
+            if ( 'bottom' === $region && ( $linkCount >= 1 || $this->hasLegalText($node) ) ) {
+                return 'footer';
+            }
+        }
+
+        // A tight cluster whose children are all links reads as navigation; a
+        // region that merely contains a couple of link-bearing sub-areas does not.
+        if ( $linkCount >= 2 && $linkCount === count($children) ) {
+            return 'nav';
+        }
+
+        return null;
+    }
+
+    /**
+     * Builds the page-relative heading ranking. The most common text size is
+     * treated as body copy; distinct larger sizes are ranked descending into
+     * h1..h6 (largest/boldest first).
+     *
+     * @param array<int, mixed> $nodes
+     */
+    private function prepareHeadingRanking(array $nodes): void
+    {
+        $this->headingLevels = array();
+        $sizes = array();
+        $this->collectTextSizes($nodes, $sizes);
+        if ( empty($sizes) ) {
+            return;
+        }
+
+        $bodySize = $this->modeFontSize($sizes);
+        $headingSizes = array();
+        foreach ( $sizes as $size ) {
+            if ( $size > $bodySize ) {
+                $headingSizes[$this->sizeKey($size)] = $size;
+            }
+        }
+        if ( empty($headingSizes) ) {
+            return;
+        }
+
+        $values = array_values($headingSizes);
+        rsort($values);
+        $level = 1;
+        foreach ( $values as $size ) {
+            $this->headingLevels[$this->sizeKey($size)] = 'h' . min($level, 6);
+            $level++;
+        }
+    }
+
+    /**
+     * @param array<int, mixed> $nodes
+     * @param array<int, float> $sizes
+     */
+    private function collectTextSizes(array $nodes, array &$sizes): void
+    {
+        foreach ( $nodes as $node ) {
+            if ( ! is_array($node) ) {
+                continue;
+            }
+            if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+                $size = $this->textFontSize($node);
+                if ( null !== $size ) {
+                    $sizes[] = $size;
+                }
+            }
+            $this->collectTextSizes($this->nodeList($node), $sizes);
+        }
+    }
+
+    /**
+     * @param array<int, float> $sizes
+     */
+    private function modeFontSize(array $sizes): float
+    {
+        $counts = array();
+        foreach ( $sizes as $size ) {
+            $key = $this->sizeKey($size);
+            $counts[$key] = ($counts[$key] ?? 0) + 1;
+        }
+
+        $bestCount = -1;
+        $bestSize = 0.0;
+        foreach ( $sizes as $size ) {
+            $count = $counts[$this->sizeKey($size)];
+            if ( $count > $bestCount || ( $count === $bestCount && $size < $bestSize ) ) {
+                $bestCount = $count;
+                $bestSize = $size;
+            }
+        }
+
+        return $bestSize;
+    }
+
+    private function sizeKey(float $size): string
+    {
+        return number_format($size, 1, '.', '');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function headingLevel(array $node, string $lowerName, int $depth): ?string
+    {
+        $size = $this->textFontSize($node);
+        if ( null !== $size ) {
+            $key = $this->sizeKey($size);
+            // Long running text at a heading size still reads as a paragraph.
+            if ( isset($this->headingLevels[$key]) && $this->textWordCount($node) <= 24 ) {
+                return $this->headingLevels[$key];
+            }
+        }
+
+        // Name-based fallback preserves explicit title/heading/headline intent.
+        if ( str_contains($lowerName, 'title') || str_contains($lowerName, 'heading') || str_contains($lowerName, 'headline') ) {
+            return 0 === $depth ? 'h1' : 'h2';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function textFontSize(array $node): ?float
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        if ( isset($style['font_size']) && is_numeric($style['font_size']) ) {
+            return (float) $style['font_size'];
+        }
+        if ( isset($node['fontSize']) && is_numeric($node['fontSize']) ) {
+            return (float) $node['fontSize'];
+        }
+
+        return null;
+    }
+
+    /**
+     * Identifies a button-like control: a small container with a single text
+     * label that is filled, rounded, or named like a button.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function isButtonLike(array $node): bool
+    {
+        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+            return false;
+        }
+        if ( 1 !== $this->textDescendantCount($node) ) {
+            return false;
+        }
+
+        $width = $this->boxValue($node, 'width');
+        if ( null !== $width && $width > 480.0 ) {
+            return false;
+        }
+        $height = $this->boxValue($node, 'height');
+        if ( null !== $height && $height > 160.0 ) {
+            return false;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $nameHint = str_contains($name, 'button') || str_contains($name, 'btn') || str_contains($name, 'cta');
+
+        return $nameHint || null !== $this->backgroundColor($node) || $this->cornerRadius($node) > 0.0;
+    }
+
+    /**
+     * Returns the ids of a container's children when they form a list: at least
+     * three structurally-similar, text-bearing siblings of one type that are not
+     * a navigation/landmark cluster. Empty otherwise.
+     *
+     * @param array<string, mixed> $container
+     * @return array<int, string>
+     */
+    private function listItemIds(array $container): array
+    {
+        $id = (string) ($container['id'] ?? '');
+        if ( '' !== $id && array_key_exists($id, $this->listItemIdCache) ) {
+            return $this->listItemIdCache[$id];
+        }
+
+        $result = $this->computeListItemIds($container);
+        if ( '' !== $id ) {
+            $this->listItemIdCache[$id] = $result;
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $container
+     * @return array<int, string>
+     */
+    private function computeListItemIds(array $container): array
+    {
+        $name = strtolower((string) ($container['name'] ?? ''));
+        foreach ( array('header', 'footer', 'nav', 'menu', 'article') as $hint ) {
+            if ( str_contains($name, $hint) ) {
+                return array();
+            }
+        }
+
+        $children = array_values(array_filter($this->nodeList($container), 'is_array'));
+        if ( 3 > count($children) ) {
+            return array();
+        }
+
+        // Link-saturated clusters read as navigation, not generic content lists.
+        if ( $this->linkChildCount($children) >= count($children) ) {
+            return array();
+        }
+
+        $type = strtoupper((string) ($children[0]['type'] ?? ''));
+        $heights = array();
+        foreach ( $children as $child ) {
+            if ( strtoupper((string) ($child['type'] ?? '')) !== $type ) {
+                return array();
+            }
+            if ( ! $this->subtreeHasText($child) ) {
+                return array();
+            }
+            $height = $this->boxValue($child, 'height');
+            if ( null !== $height ) {
+                $heights[] = $height;
+            }
+        }
+
+        if ( count($heights) >= 2 ) {
+            $min = min($heights);
+            $max = max($heights);
+            if ( $min > 0.0 && ( $max / $min ) > 1.5 ) {
+                return array();
+            }
+        }
+
+        $ids = array();
+        foreach ( $children as $child ) {
+            $ids[] = (string) ($child['id'] ?? '');
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isListItemOf(array $node, array $parentNode): bool
+    {
+        $id = (string) ($node['id'] ?? '');
+        if ( '' === $id ) {
+            return false;
+        }
+
+        return in_array($id, $this->listItemIds($parentNode), true);
+    }
+
+    /**
+     * Classifies a node's vertical position among its siblings as top, bottom,
+     * or middle, using box coordinates and falling back to source order.
+     *
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function verticalRegion(array $node, array $parentNode): ?string
+    {
+        $siblings = array_values(array_filter($this->nodeList($parentNode), 'is_array'));
+        if ( 2 > count($siblings) ) {
+            return 'middle';
+        }
+
+        $thisId = (string) ($node['id'] ?? '');
+        $positions = array();
+        $haveAll = true;
+        foreach ( $siblings as $sibling ) {
+            $y = $this->boxValue($sibling, 'y');
+            if ( null === $y ) {
+                $haveAll = false;
+                break;
+            }
+            $positions[(string) ($sibling['id'] ?? '')] = $y;
+        }
+
+        if ( $haveAll && isset($positions[$thisId]) ) {
+            $y = $positions[$thisId];
+            if ( $y <= min($positions) ) {
+                return 'top';
+            }
+            if ( $y >= max($positions) ) {
+                return 'bottom';
+            }
+
+            return 'middle';
+        }
+
+        $firstId = (string) ($siblings[0]['id'] ?? '');
+        $lastId = (string) ($siblings[count($siblings) - 1]['id'] ?? '');
+        if ( $thisId === $firstId ) {
+            return 'top';
+        }
+        if ( $thisId === $lastId ) {
+            return 'bottom';
+        }
+
+        return 'middle';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function linkChildCount(array $children): int
+    {
+        $count = 0;
+        foreach ( $children as $child ) {
+            if ( is_array($child) && $this->subtreeHasLink($child) ) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function subtreeHasLink(array $node): bool
+    {
+        if ( ! empty($node['figma_link']) ) {
+            return true;
+        }
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && $this->subtreeHasLink($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function hasLogoChild(array $children): bool
+    {
+        foreach ( $children as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $name = strtolower((string) ($child['name'] ?? ''));
+            if ( str_contains($name, 'logo') || str_contains($name, 'brand') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasLegalText(array $node): bool
+    {
+        $text = strtolower($this->subtreePlainText($node));
+
+        return str_contains($text, '©') || str_contains($text, 'copyright') || str_contains($text, 'rights reserved');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function textDescendantCount(array $node): int
+    {
+        $count = 0;
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            if ( 'TEXT' === strtoupper((string) ($child['type'] ?? '')) ) {
+                $count++;
+            }
+            $count += $this->textDescendantCount($child);
+        }
+
+        return $count;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function subtreeHasText(array $node): bool
+    {
+        return '' !== trim($this->subtreePlainText($node));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function subtreePlainText(array $node): string
+    {
+        $parts = array();
+        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+            $own = $this->nodePlainText($node);
+            if ( '' !== $own ) {
+                $parts[] = $own;
+            }
+        }
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $childText = $this->subtreePlainText($child);
+            if ( '' !== $childText ) {
+                $parts[] = $childText;
+            }
+        }
+
+        return implode(' ', $parts);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodePlainText(array $node): string
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        if ( isset($text['characters']) && is_scalar($text['characters']) ) {
+            return (string) $text['characters'];
+        }
+
+        $segments = is_array($text['segments'] ?? null) ? $text['segments'] : array();
+        if ( ! empty($segments) ) {
+            $out = '';
+            foreach ( $segments as $segment ) {
+                if ( is_array($segment) && isset($segment['characters']) && is_scalar($segment['characters']) ) {
+                    $out .= (string) $segment['characters'];
+                }
+            }
+            if ( '' !== $out ) {
+                return $out;
+            }
+        }
+
+        foreach ( array('characters', 'text') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
+                return (string) $node[$key];
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function textWordCount(array $node): int
+    {
+        $words = preg_split('/\s+/', trim($this->nodePlainText($node)));
+        if ( ! is_array($words) ) {
+            return 0;
+        }
+
+        return count(array_filter($words, static fn (string $word): bool => '' !== $word));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function cornerRadius(array $node): float
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        if ( isset($box['corner_radius']) && is_numeric($box['corner_radius']) ) {
+            return (float) $box['corner_radius'];
+        }
+
+        return 0.0;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function boxValue(array $node, string $key): ?float
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        if ( isset($box[$key]) && is_numeric($box[$key]) ) {
+            return (float) $box[$key];
+        }
+        if ( isset($node[$key]) && is_numeric($node[$key]) ) {
+            return (float) $node[$key];
+        }
+
+        return null;
+    }
+
+    /**
+     * Build the design-system coverage diagnostic: an informational record of
+     * how many color/type/spacing tokens were extracted from how many detected
+     * style-guide frames. Returns an empty list when no design-system frame was
+     * detected, so files without one stay silent.
+     *
+     * @param array{css: string, coverage: array<string, int>, frame_names: array<int, string>} $designSystem
+     * @return array<int, array<string, mixed>>
+     */
+    private function designSystemDiagnostics(array $designSystem): array
+    {
+        $coverage = is_array($designSystem['coverage'] ?? null) ? $designSystem['coverage'] : array();
+        if ( (int) ($coverage['frame_count'] ?? 0) < 1 ) {
+            return array();
+        }
+
+        return array(
+            array(
+                'severity'       => 'info',
+                'code'           => 'design_system_extracted',
+                'message'        => 'Extracted a global design system from detected style-guide frames.',
+                'frame_count'    => (int) ($coverage['frame_count'] ?? 0),
+                'color_tokens'   => (int) ($coverage['color_tokens'] ?? 0),
+                'type_tokens'    => (int) ($coverage['type_tokens'] ?? 0),
+                'spacing_tokens' => (int) ($coverage['spacing_tokens'] ?? 0),
+                'frame_names'    => is_array($designSystem['frame_names'] ?? null) ? $designSystem['frame_names'] : array(),
+            ),
+        );
     }
 
     /**
@@ -413,6 +1444,25 @@ final class StaticHtmlEmitter
         }
 
         return '';
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, string>
+     */
+    private function fontFamilyOverrides(array $options): array
+    {
+        $overrides = $options['font_family_overrides'] ?? array();
+        if ( ! is_array($overrides) ) {
+            return array();
+        }
+        $result = array();
+        foreach ( $overrides as $family => $css ) {
+            if ( is_string($family) && '' !== $family && is_string($css) ) {
+                $result[strtolower($family)] = $css;
+            }
+        }
+        return $result;
     }
 
     /**
@@ -497,17 +1547,7 @@ final class StaticHtmlEmitter
      */
     private function expectedTextStyleData(array $node): array
     {
-        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
-        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
-        if ( ! isset($style['color']) ) {
-            $paints = is_array($node['figma_paints']['fills'] ?? null) ? $node['figma_paints']['fills'] : array();
-            $color = $this->firstSolidPaint($paints);
-            if ( null !== $color ) {
-                $style['css_color'] = $color;
-            }
-        }
-
-        $declarations = $this->styleDeclarationMap($this->textStyleDeclarations($style));
+        $declarations = $this->styleDeclarationMap($this->textStyles($node));
         return array(
             'text_color'  => $declarations['color'] ?? null,
             'font_family' => $declarations['font-family'] ?? null,
@@ -582,8 +1622,8 @@ final class StaticHtmlEmitter
         $families = array();
         foreach ( $nodeStyleDiagnostics as $diagnostic ) {
             $family = $diagnostic['expected']['font_family'] ?? null;
-            if ( is_scalar($family) && '' !== (string) $family ) {
-                $families[] = trim((string) $family, '"');
+            if ( is_scalar($family) && '' !== $this->primaryFontFamily((string) $family) ) {
+                $families[] = $this->primaryFontFamily((string) $family);
             }
         }
 
@@ -593,40 +1633,280 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<int, array<string, mixed>> $nodeStyleDiagnostics
-     * @return array<int, array{family:string,weights:array<int,int>}>
+     * @return array<int, array<string, mixed>>
      */
     private function fontUsage(array $nodeStyleDiagnostics): array
     {
-        $weightsByFamily = array();
+        $usageByFamily = array();
         foreach ( $nodeStyleDiagnostics as $diagnostic ) {
             $expected = is_array($diagnostic['expected'] ?? null) ? $diagnostic['expected'] : array();
             if ( ! isset($expected['font_family']) || ! is_scalar($expected['font_family']) ) {
                 continue;
             }
 
-            $family = trim((string) $expected['font_family'], " \t\n\r\0\x0B\"");
+            $family = $this->primaryFontFamily((string) $expected['font_family']);
             if ( '' === $family ) {
                 continue;
             }
 
+            $node = is_array($diagnostic['node'] ?? null) ? $diagnostic['node'] : array();
             $weight = isset($expected['font_weight']) && is_numeric($expected['font_weight']) ? (int) $expected['font_weight'] : 400;
-            $weightsByFamily[$family][] = $weight;
+            $usageByFamily[$family] ??= array('weights' => array(), 'weight_counts' => array(), 'text_node_count' => 0, 'visible_text_area_px' => 0.0, 'sample_nodes' => array());
+            $usageByFamily[$family]['weights'][] = $weight;
+            $usageByFamily[$family]['weight_counts'][(string) $weight] = ($usageByFamily[$family]['weight_counts'][(string) $weight] ?? 0) + 1;
+            $usageByFamily[$family]['text_node_count']++;
+            $usageByFamily[$family]['visible_text_area_px'] += $this->diagnosticTextArea($expected);
+            if ( count($usageByFamily[$family]['sample_nodes']) < 10 ) {
+                $usageByFamily[$family]['sample_nodes'][] = array(
+                    'node_id' => (string) ($node['id'] ?? ''),
+                    'name' => (string) ($node['name'] ?? ''),
+                    'weight' => $weight,
+                );
+            }
         }
 
-        ksort($weightsByFamily);
+        ksort($usageByFamily);
         $usage = array();
-        foreach ( $weightsByFamily as $family => $weights ) {
-            $weights = array_values(array_unique($weights));
+        foreach ( $usageByFamily as $family => $data ) {
+            $weights = array_values(array_unique($data['weights']));
             sort($weights);
-            $usage[] = array('family' => $family, 'weights' => $weights);
+            ksort($data['weight_counts']);
+            $usage[] = array(
+                'family' => $family,
+                'weights' => $weights,
+                'weight_counts' => $data['weight_counts'],
+                'text_node_count' => (int) $data['text_node_count'],
+                'visible_text_area_px' => (int) round((float) $data['visible_text_area_px']),
+                'sample_nodes' => $data['sample_nodes'],
+            );
         }
 
         return $usage;
     }
 
-    private function isWebSafeFontFamily(string $family): bool
+    /**
+     * @param array<string, string|null> $expected
+     */
+    private function diagnosticTextArea(array $expected): float
     {
-        return in_array(strtolower($family), array('arial', 'georgia', 'helvetica', 'serif', 'sans-serif', 'times new roman', 'verdana'), true);
+        $width = $this->cssPxValue($expected['width'] ?? null);
+        $height = $this->cssPxValue($expected['height'] ?? null);
+        return max(0.0, $width) * max(0.0, $height);
+    }
+
+    private function cssPxValue(mixed $value): float
+    {
+        if ( ! is_scalar($value) ) {
+            return 0.0;
+        }
+
+        $value = trim((string) $value);
+        return preg_match('/^-?\d+(?:\.\d+)?px$/', $value) ? (float) substr($value, 0, -2) : 0.0;
+    }
+
+    /**
+     * Extract the primary family from a (possibly multi-value) font-family
+     * declaration, dropping the generic fallback so font detection keys on the
+     * source family.
+     */
+    private function primaryFontFamily(string $value): string
+    {
+        $first = explode(',', $value, 2)[0];
+
+        return trim($first, " \t\n\r\0\x0B\"'");
+    }
+
+    /**
+     * Build one info diagnostic per unresolved source font family so operators
+     * know exactly which families still need a supplied font.
+     *
+     * @param array<string, mixed> $fontResolution
+     * @return array<int, array<string, mixed>>
+     */
+    private function unresolvedSourceFontDiagnostics(array $fontResolution): array
+    {
+        $diagnostics = array();
+        foreach ( array_values($fontResolution['unresolved_families'] ?? array()) as $fontFamily ) {
+            $diagnostics[] = array(
+                'severity' => 'info',
+                'code' => 'font_css_missing_for_source_font',
+                'message' => 'Source font family could not be resolved to embedded or CDN font CSS; supply font_css to restore visual parity.',
+                'context' => array('font_family' => (string) $fontFamily),
+            );
+        }
+
+        return $diagnostics;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function newLinkCoverage(): array
+    {
+        return array(
+            'sources_found'      => 0,
+            'anchors_emitted'    => 0,
+            'url_links'          => 0,
+            'node_links'         => 0,
+            'unresolved'         => 0,
+            'unresolved_targets' => array(),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, string>
+     */
+    private function normalizeLinkTargetPaths(array $options): array
+    {
+        $map = array();
+        $raw = is_array($options['link_target_paths'] ?? null) ? $options['link_target_paths'] : array();
+        foreach ( $raw as $nodeId => $path ) {
+            if ( is_scalar($nodeId) && is_scalar($path) && '' !== (string) $nodeId && '' !== (string) $path ) {
+                $map[(string) $nodeId] = (string) $path;
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param array<string, mixed> $pagePlan
+     * @param array<string, mixed> $options
+     * @return array<string, string>
+     */
+    private function linkTargetPathsFromPagePlan(array $pagePlan, array $options): array
+    {
+        $map = $this->normalizeLinkTargetPaths($options);
+        foreach ( $this->plannedPages($pagePlan) as $index => $page ) {
+            if ( ! is_array($page) ) {
+                continue;
+            }
+
+            $frameId = isset($page['frame_id']) && is_scalar($page['frame_id']) ? (string) $page['frame_id'] : '';
+            if ( '' === $frameId || isset($map[$frameId]) ) {
+                continue;
+            }
+
+            $name = (string) ($page['name'] ?? $frameId);
+            $map[$frameId] = $this->pagePath($page, $name, is_int($index) ? $index : 0);
+        }
+
+        return $map;
+    }
+
+    /**
+     * Wrap an emitted element in a real anchor when the node carries Figma link data.
+     *
+     * @param array<string, mixed>             $node
+     * @param array<int, array<string, mixed>> $diagnostics
+     */
+    private function wrapWithLink(array $node, string $element, array &$diagnostics, bool $buttonLike = false): string
+    {
+        $link = is_array($node['figma_link'] ?? null) ? $node['figma_link'] : array();
+        if ( empty($link) ) {
+            return $element;
+        }
+
+        $this->linkCoverage['sources_found']++;
+        $type = (string) ($link['type'] ?? '');
+        $nodeId = (string) ($node['id'] ?? '');
+        $targetNodeId = (string) ($link['target_node_id'] ?? '');
+        $href = null;
+        $resolved = false;
+
+        if ( 'url' === $type ) {
+            $this->linkCoverage['url_links']++;
+            $href = $this->sanitizeLinkUrl((string) ($link['url'] ?? ''));
+            $resolved = '#' !== $href;
+        } elseif ( 'node' === $type ) {
+            $this->linkCoverage['node_links']++;
+            if ( '' !== $targetNodeId && isset($this->linkTargetPaths[$targetNodeId]) ) {
+                $href = $this->linkTargetPaths[$targetNodeId];
+                $resolved = true;
+            } else {
+                $href = '#';
+            }
+        }
+
+        if ( null === $href ) {
+            return $element;
+        }
+
+        if ( ! $resolved ) {
+            $this->linkCoverage['unresolved']++;
+            if ( count($this->linkCoverage['unresolved_targets']) < 50 ) {
+                $this->linkCoverage['unresolved_targets'][] = array(
+                    'node_id'        => $nodeId,
+                    'link_type'      => $type,
+                    'target_node_id' => $targetNodeId,
+                    'source'         => (string) ($link['source'] ?? ''),
+                );
+            }
+            $diagnostics[] = array(
+                'severity' => 'info',
+                'code'     => 'link_target_unresolved',
+                'message'  => 'Figma link target could not be resolved to a generated page and was emitted as a placeholder anchor.',
+                'context'  => array(
+                    'node_id'        => $nodeId,
+                    'link_type'      => $type,
+                    'target_node_id' => $targetNodeId,
+                    'source'         => (string) ($link['source'] ?? ''),
+                ),
+            );
+        }
+
+        $this->linkCoverage['anchors_emitted']++;
+
+        return sprintf(
+            "<a class=\"%4\$s\" href=\"%1\$s\" data-figma-link-type=\"%2\$s\">%3\$s</a>\n",
+            $this->sanitizeAttribute($href),
+            $this->sanitizeAttribute($type),
+            $element,
+            $buttonLike ? 'figma-link button' : 'figma-link'
+        );
+    }
+
+    private function sanitizeLinkUrl(string $url): string
+    {
+        $url = trim($url);
+        if ( '' === $url ) {
+            return '#';
+        }
+
+        if ( str_starts_with($url, '#') || str_starts_with($url, '/') || str_starts_with($url, '?') ) {
+            return $url;
+        }
+
+        if ( 1 === preg_match('/^(https?:|mailto:|tel:)/i', $url) ) {
+            return $url;
+        }
+
+        // Reject unsafe or unsupported schemes (javascript:, data:, etc.).
+        if ( 1 === preg_match('#^[a-z][a-z0-9+.\-]*:#i', $url) ) {
+            return '#';
+        }
+
+        // Schemeless relative reference (e.g. about.html, ../contact/).
+        return $url;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function linkDiagnostics(): array
+    {
+        $coverage = $this->linkCoverage;
+
+        return array(
+            'schema'             => 'blocks-engine/figma-transformer/link-coverage/v1',
+            'sources_found'      => (int) ($coverage['sources_found'] ?? 0),
+            'anchors_emitted'    => (int) ($coverage['anchors_emitted'] ?? 0),
+            'url_links'          => (int) ($coverage['url_links'] ?? 0),
+            'node_links'         => (int) ($coverage['node_links'] ?? 0),
+            'unresolved'         => (int) ($coverage['unresolved'] ?? 0),
+            'unresolved_targets' => array_values(is_array($coverage['unresolved_targets'] ?? null) ? $coverage['unresolved_targets'] : array()),
+        );
     }
 
     /**
@@ -635,46 +1915,69 @@ final class StaticHtmlEmitter
      */
     private function visualNodeMap(array $nodes): array
     {
-        $map = array();
-        foreach ( $nodes as $node ) {
-            if ( is_array($node) ) {
-                $this->appendVisualNodeMap($node, $map, 0.0, 0.0, null);
-            }
-        }
-
-        return $map;
+        return (new VisualNodeMapBuilder($this->assetsById, $this->renderTextGlyphPaths))->build($nodes);
     }
 
     /**
      * Build production-transform diagnostics for Figma import development.
      *
      * @param array<int, array<string, mixed>> $nodes
+     * @param array<int, array<string, mixed>> $visualNodeMap
      * @param array<int, array<string, mixed>> $assetFiles
      * @param array<int, string> $fontFamilies
+     * @param array<int, array<string, mixed>> $fontUsage
+     * @param array<string, mixed> $fontResolution
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<string, mixed>
      */
-    private function transformDiagnostics(array $nodes, array $assetFiles, array $fontFamilies, string $fontCss, string $css, array $diagnostics): array
+    private function transformDiagnostics(array $nodes, array $visualNodeMap, array $assetFiles, array $fontFamilies, array $fontUsage, array $fontResolution, string $css, array $diagnostics, string $html = ''): array
     {
         $image = array(
             'paint_refs'      => 0,
             'node_refs'       => 0,
             'resolved_assets' => 0,
+            'image_block_count' => 0,
+            'total_node_count' => 0,
+            'image_block_nodes' => array(),
             'missing_assets'  => array(),
         );
         $vectors = array(
-            'nodes'                    => 0,
-            'rendered_paths'           => 0,
-            'rendered_asset_fallbacks' => 0,
-            'placeholders'             => 0,
-            'placeholder_nodes'        => array(),
+            'nodes'                       => 0,
+            'rendered_paths'              => 0,
+            'rendered_asset_fallbacks'    => 0,
+            'vector_network_decoded'      => 0,
+            'boolean_operations_composed' => 0,
+            'placeholders'                => 0,
+            'placeholder_reasons'         => array(),
+            'placeholder_nodes'           => array(),
         );
+        $nodeDiagnosticIndex = $this->nodeDiagnosticIndex($nodes);
+        $cssOffsetDiagnostics = $this->cssAbsoluteOffsetDiagnostics($css, $nodeDiagnosticIndex);
+        $visualOffsetDiagnostics = $this->visualOffCanvasDiagnostics($visualNodeMap, $nodeDiagnosticIndex);
+        $visualClipDiagnostics = $this->visualClipDiagnostics($visualNodeMap, $nodeDiagnosticIndex);
         $layout = array(
             'large_negative_left_count' => preg_match_all('/left:-[0-9]{3,}/', $css),
+            'large_css_offset_count' => count($cssOffsetDiagnostics),
+            'large_css_offset_nodes' => $cssOffsetDiagnostics,
+            'off_canvas_visual_node_count' => count($visualOffsetDiagnostics),
+            'off_canvas_visual_nodes' => $visualOffsetDiagnostics,
+            'clipped_visual_node_count' => (int) ($visualClipDiagnostics['clipped_visual_node_count'] ?? 0),
+            'clipped_visual_area_ratio' => (float) ($visualClipDiagnostics['clipped_visual_area_ratio'] ?? 0.0),
+            'clipped_visual_area_px' => (int) ($visualClipDiagnostics['clipped_visual_area_px'] ?? 0),
+            'clipped_visual_nodes' => is_array($visualClipDiagnostics['clipped_visual_nodes'] ?? null) ? $visualClipDiagnostics['clipped_visual_nodes'] : array(),
+            'large_absolute_offset_count' => 0,
+            'large_absolute_offset_nodes' => array(),
+            'empty_visible_container_count' => 0,
+            'empty_visible_container_blocker_count' => 0,
+            'empty_visible_container_categories' => array(),
+            'empty_visible_containers' => array(),
             'decorative_underlays'      => array(
                 'count' => 0,
                 'nodes' => array(),
             ),
+            'image_heavy_landmark_candidates' => array(),
+            'layout_mismatch_count' => 0,
+            'layout_mismatch_status' => 'not_evaluated',
         );
 
         foreach ( $nodes as $node ) {
@@ -684,28 +1987,356 @@ final class StaticHtmlEmitter
         }
 
         $image['missing_assets'] = array_values($image['missing_assets']);
+        $image['image_block_nodes'] = array_values($image['image_block_nodes']);
         $vectors['placeholder_nodes'] = array_values($vectors['placeholder_nodes']);
+        $vectors['decode_coverage'] = $this->vectorDecodeCoverage($vectors);
         $layout['decorative_underlays']['nodes'] = array_values($layout['decorative_underlays']['nodes']);
         $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
+        $layout['large_absolute_offset_nodes'] = array_values($layout['large_absolute_offset_nodes']);
+        $layout['empty_visible_containers'] = array_values($layout['empty_visible_containers']);
+        $layout['empty_visible_container_count'] = count($layout['empty_visible_containers']);
+        $layout['empty_visible_container_blocker_count'] = count(array_filter(
+            $layout['empty_visible_containers'],
+            static fn (array $container): bool => true === ($container['blocks_parity'] ?? true)
+        ));
+        ksort($layout['empty_visible_container_categories']);
+        $layout['image_heavy_landmark_candidates'] = array_values($layout['image_heavy_landmark_candidates']);
+        $generatedSvgAssets = $this->generatedSvgAssetDiagnostics($assetFiles);
+        $assets = array(
+            'emitted_files' => count($assetFiles),
+            'paths'         => array_values(array_map(static fn (array $file): string => (string) ($file['path'] ?? ''), $assetFiles)),
+        );
+        $fontCss = (string) ($fontResolution['css'] ?? '');
+        $fonts = array(
+            'families'                => $fontFamilies,
+            'usage'                   => $fontUsage,
+            'count'                   => count($fontFamilies),
+            'css_supplied'            => (bool) ($fontResolution['operator_supplied'] ?? false),
+            'materialized'            => '' !== $fontCss,
+            'missing_css'             => array_values($fontResolution['unresolved_families'] ?? array()),
+            'resolved_css'            => array_values($fontResolution['resolved_families'] ?? array()),
+            'cdn_families'            => array_values($fontResolution['cdn_families'] ?? array()),
+            'family_overrides_applied' => array_values($fontResolution['family_overrides_applied'] ?? array()),
+            'coverage'                => array_values($fontResolution['coverage'] ?? array()),
+        );
+
+        $text = $this->textCoverageDiagnostics($nodes, $html);
+        $links = $this->linkDiagnostics();
 
         return array(
             'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
+            'selection' => $this->selectionDiagnostics($nodes),
             'images' => $image,
             'vectors' => $vectors,
-            'fonts' => array(
-                'families'      => $fontFamilies,
-                'count'         => count($fontFamilies),
-                'css_supplied'  => '' !== $fontCss,
-                'materialized'  => '' !== $fontCss,
-                'missing_css'   => '' === $fontCss ? array_values(array_filter($fontFamilies, fn (string $family): bool => ! $this->isWebSafeFontFamily($family))) : array(),
-            ),
-            'assets' => array(
-                'emitted_files' => count($assetFiles),
-                'paths'         => array_values(array_map(static fn (array $file): string => (string) ($file['path'] ?? ''), $assetFiles)),
-            ),
-            'generated_svg_assets' => $this->generatedSvgAssetDiagnostics($assetFiles),
+            'fonts' => $fonts,
+            'text' => $text,
+            'assets' => $assets,
+            'generated_svg_assets' => $generatedSvgAssets,
             'layout' => $layout,
+            'links' => $links,
+            'artifact_quality' => $this->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text),
             'diagnostic_codes' => $this->diagnosticCodeCounts($diagnostics),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $image
+     * @param array<string, mixed> $vectors
+     * @param array<string, mixed> $fonts
+     * @param array<string, mixed> $assets
+     * @param array<string, mixed> $generatedSvgAssets
+     * @param array<string, mixed> $layout
+     * @param array<string, mixed> $links
+     * @return array<string, mixed>
+     */
+    private function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $text = array()): array
+    {
+        $signals = array();
+
+        if ( ! empty($image['missing_assets']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'missing_render_assets',
+                'count' => count($image['missing_assets']),
+            );
+        }
+        if ( ! empty($vectors['placeholders']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'vector_placeholders',
+                'count' => (int) $vectors['placeholders'],
+            );
+        }
+        if ( ! empty($fonts['missing_css']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'font_css_missing',
+                'count' => count($fonts['missing_css']),
+                'font_usage' => $this->fontUsageForFamilies(is_array($fonts['usage'] ?? null) ? $fonts['usage'] : array(), $fonts['missing_css']),
+            );
+        }
+        if ( ! empty($layout['large_negative_left_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'off_canvas_left_css',
+                'count' => (int) $layout['large_negative_left_count'],
+                'sample_nodes' => array_slice(is_array($layout['large_css_offset_nodes'] ?? null) ? $layout['large_css_offset_nodes'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($layout['off_canvas_visual_node_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'off_canvas_visual_nodes',
+                'count' => (int) $layout['off_canvas_visual_node_count'],
+                'sample_nodes' => array_slice(is_array($layout['off_canvas_visual_nodes'] ?? null) ? $layout['off_canvas_visual_nodes'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($layout['clipped_visual_node_count']) && (float) ($layout['clipped_visual_area_ratio'] ?? 0.0) >= 0.25 ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'clipped_visual_area',
+                'count' => (int) $layout['clipped_visual_node_count'],
+                'clipped_area_ratio' => (float) ($layout['clipped_visual_area_ratio'] ?? 0.0),
+                'sample_nodes' => array_slice(is_array($layout['clipped_visual_nodes'] ?? null) ? $layout['clipped_visual_nodes'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($layout['large_absolute_offset_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'large_absolute_offsets',
+                'count' => (int) $layout['large_absolute_offset_count'],
+                'sample_nodes' => array_slice(is_array($layout['large_absolute_offset_nodes'] ?? null) ? $layout['large_absolute_offset_nodes'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($layout['image_heavy_landmark_candidates']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'image_heavy_landmark_candidate',
+                'count' => count($layout['image_heavy_landmark_candidates']),
+            );
+        }
+        $imageBlockCount = (int) ($image['image_block_count'] ?? 0);
+        $totalNodeCount = max(0, (int) ($image['total_node_count'] ?? 0));
+        $imageNodeDensity = $totalNodeCount > 0 ? $imageBlockCount / $totalNodeCount : 0.0;
+        if ( $imageBlockCount >= 12 && ($imageNodeDensity >= 0.35 || ! empty($layout['image_heavy_landmark_candidates'])) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'excessive_image_blocks',
+                'count' => $imageBlockCount,
+                'threshold' => 12,
+                'image_node_density' => round($imageNodeDensity, 3),
+                'sample_nodes' => array_slice(is_array($image['image_block_nodes'] ?? null) ? $image['image_block_nodes'] : array(), 0, 10),
+            );
+        }
+        if ( (int) ($vectors['rendered_asset_fallbacks'] ?? 0) >= 8 ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'excessive_vector_image_fallbacks',
+                'count' => (int) $vectors['rendered_asset_fallbacks'],
+            );
+        }
+        if ( (int) ($generatedSvgAssets['bytes'] ?? 0) > 1048576 ) {
+            $signals[] = array(
+                'severity' => 'info',
+                'code' => 'large_generated_svg_assets',
+                'count' => (int) ($generatedSvgAssets['count'] ?? 0),
+                'bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
+            );
+        }
+        if ( ! empty($links['unresolved']) ) {
+            $signals[] = array(
+                'severity' => 'info',
+                'code' => 'link_target_unresolved',
+                'count' => (int) $links['unresolved'],
+                'sample_nodes' => array_slice(is_array($links['unresolved_targets'] ?? null) ? $links['unresolved_targets'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($text['missing_emitted_text_node_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'decoded_text_not_emitted',
+                'count' => (int) $text['missing_emitted_text_node_count'],
+                'sample_nodes' => array_slice(is_array($text['missing_emitted_text_nodes'] ?? null) ? $text['missing_emitted_text_nodes'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($text['empty_decoded_text_node_count']) ) {
+            $signals[] = array(
+                'severity' => 'info',
+                'code' => 'decoded_text_empty',
+                'count' => (int) $text['empty_decoded_text_node_count'],
+                'sample_nodes' => array_slice(is_array($text['empty_decoded_text_nodes'] ?? null) ? $text['empty_decoded_text_nodes'] : array(), 0, 10),
+            );
+        }
+
+        $failCodes = array('missing_render_assets', 'vector_placeholders');
+        $failCount = count(array_filter($signals, static fn (array $signal): bool => in_array((string) ($signal['code'] ?? ''), $failCodes, true)));
+        $warningCount = count(array_filter($signals, static fn (array $signal): bool => 'warning' === ($signal['severity'] ?? null)));
+        $qualityStatus = $failCount > 0 ? 'fail' : (empty($signals) ? 'pass' : 'warn');
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/artifact-quality/v1',
+            'status' => $warningCount > 0 ? 'needs_review' : (empty($signals) ? 'clean' : 'info'),
+            'quality_status' => $qualityStatus,
+            'signals' => $signals,
+            'summary' => array(
+                'missing_asset_nodes' => count($image['missing_assets'] ?? array()),
+                'vector_placeholders' => (int) ($vectors['placeholders'] ?? 0),
+                'missing_font_css' => count($fonts['missing_css'] ?? array()),
+                'emitted_asset_files' => (int) ($assets['emitted_files'] ?? 0),
+                'image_block_count' => $imageBlockCount,
+                'image_node_density' => round($imageNodeDensity, 3),
+                'total_node_count' => $totalNodeCount,
+                'vector_image_fallbacks' => (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
+                'vector_nodes' => (int) ($vectors['nodes'] ?? 0),
+                'vector_decoded_to_svg' => (int) ($vectors['rendered_paths'] ?? 0),
+                'vector_network_decoded' => (int) ($vectors['vector_network_decoded'] ?? 0),
+                'boolean_operations_composed' => (int) ($vectors['boolean_operations_composed'] ?? 0),
+                'vector_decode_coverage_ratio' => (float) ($vectors['decode_coverage']['coverage_ratio'] ?? 0.0),
+                'vector_placeholder_reason_categories' => is_array($vectors['decode_coverage']['placeholder_reason_categories'] ?? null) ? $vectors['decode_coverage']['placeholder_reason_categories'] : array(),
+                'generated_svg_count' => (int) ($vectors['rendered_paths'] ?? 0),
+                'externalized_svg_asset_count' => (int) ($generatedSvgAssets['count'] ?? 0),
+                'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
+                'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
+                'large_css_offset_count' => (int) ($layout['large_css_offset_count'] ?? 0),
+                'off_canvas_visual_node_count' => (int) ($layout['off_canvas_visual_node_count'] ?? 0),
+                'clipped_visual_node_count' => (int) ($layout['clipped_visual_node_count'] ?? 0),
+                'clipped_visual_area_ratio' => (float) ($layout['clipped_visual_area_ratio'] ?? 0.0),
+                'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
+                'empty_visible_container_count' => (int) ($layout['empty_visible_container_count'] ?? 0),
+                'empty_visible_container_blocker_count' => (int) ($layout['empty_visible_container_blocker_count'] ?? 0),
+                'decoded_text_nodes' => (int) ($text['decoded_text_node_count'] ?? 0),
+                'emitted_text_nodes' => (int) ($text['emitted_text_node_count'] ?? 0),
+                'empty_decoded_text_nodes' => (int) ($text['empty_decoded_text_node_count'] ?? 0),
+                'missing_emitted_text_nodes' => (int) ($text['missing_emitted_text_node_count'] ?? 0),
+                'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
+                'layout_mismatch_count' => (int) ($layout['layout_mismatch_count'] ?? 0),
+                'layout_mismatch_status' => (string) ($layout['layout_mismatch_status'] ?? 'not_evaluated'),
+                'link_sources_found' => (int) ($links['sources_found'] ?? 0),
+                'anchors_emitted' => (int) ($links['anchors_emitted'] ?? 0),
+                'link_targets_unresolved' => (int) ($links['unresolved'] ?? 0),
+            ),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fontUsage
+     * @param array<int, string> $families
+     * @return array<int, array<string, mixed>>
+     */
+    private function fontUsageForFamilies(array $fontUsage, array $families): array
+    {
+        $wanted = array_fill_keys(array_map('strtolower', $families), true);
+        return array_values(array_filter(
+            $fontUsage,
+            static fn (array $usage): bool => isset($wanted[strtolower((string) ($usage['family'] ?? ''))])
+        ));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodes
+     * @return array<string, mixed>
+     */
+    private function selectionDiagnostics(array $nodes): array
+    {
+        $frames = array();
+        foreach ( $nodes as $node ) {
+            if ( is_array($node) ) {
+                $frames[] = $this->selectedFrameDiagnostic($node, 'index.html', true);
+            }
+        }
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/selection/v1',
+            'mode' => count($frames) > 1 ? 'root_nodes' : 'single_root',
+            'page_count' => count($frames),
+            'selected_frames' => $frames,
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function selectedFrameDiagnostic(array $node, string $path, bool $entrypoint): array
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $assetReferences = $this->countAssetReferences($node);
+
+        return array_filter(array(
+            'frame_id' => isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '',
+            'name' => isset($node['name']) && is_scalar($node['name']) ? (string) $node['name'] : '',
+            'type' => strtoupper((string) ($node['type'] ?? '')),
+            'path' => $path,
+            'entrypoint' => $entrypoint,
+            'width' => $this->reportNumericValue($box['width'] ?? null),
+            'height' => $this->reportNumericValue($box['height'] ?? null),
+            'node_count' => $this->countNodes(array($node)),
+            'asset_reference_count' => $assetReferences,
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function countAssetReferences(array $node): int
+    {
+        $count = (! empty($this->explicitNodeAssetReferences($node)) || ! empty($this->nodeImagePaints($node))) ? 1 : 0;
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) ) {
+                $count += $this->countAssetReferences($child);
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * Summarize vector-decode coverage: how many vector-like nodes became real
+     * inline SVG geometry versus how many remain placeholders, with the remaining
+     * placeholders grouped into actionable reason categories.
+     *
+     * @param array<string, mixed> $vectors
+     * @return array<string, mixed>
+     */
+    private function vectorDecodeCoverage(array $vectors): array
+    {
+        $nodes = (int) ($vectors['nodes'] ?? 0);
+        $decoded = (int) ($vectors['rendered_paths'] ?? 0);
+        $assetFallbacks = (int) ($vectors['rendered_asset_fallbacks'] ?? 0);
+        $networkDecoded = (int) ($vectors['vector_network_decoded'] ?? 0);
+        $booleanComposed = (int) ($vectors['boolean_operations_composed'] ?? 0);
+        $placeholders = (int) ($vectors['placeholders'] ?? 0);
+        $reasons = is_array($vectors['placeholder_reasons'] ?? null) ? $vectors['placeholder_reasons'] : array();
+
+        $categoryByReason = array(
+            'missing_vector_geometry'                => 'no_geometry_available',
+            'missing_dimensions'                     => 'no_geometry_available',
+            'unsupported_vector_network_blob'        => 'vector_network_blob_unsupported',
+            'unsupported_path_data'                  => 'path_data_unsupported',
+            'oversized_path_data'                    => 'path_data_unsupported',
+            'unsupported_vector_geometry'            => 'path_data_unsupported',
+            'unsupported_boolean_operation_children' => 'boolean_operation_unsupported',
+            'unresolved_asset_fallback'              => 'asset_unresolved',
+        );
+
+        $categories = array();
+        foreach ( $reasons as $reason => $count ) {
+            $category = $categoryByReason[(string) $reason] ?? 'other';
+            $categories[$category] = (int) ($categories[$category] ?? 0) + (int) $count;
+        }
+        ksort($categories);
+
+        return array(
+            'schema'                     => 'blocks-engine/figma-transformer/vector-decode-coverage/v1',
+            'vector_nodes'               => $nodes,
+            'decoded_to_svg'             => $decoded,
+            'vector_network_decoded'     => $networkDecoded,
+            'boolean_operations_composed' => $booleanComposed,
+            'asset_fallbacks'            => $assetFallbacks,
+            'placeholders'               => $placeholders,
+            'coverage_ratio'             => $nodes > 0 ? round($decoded / $nodes, 3) : 0.0,
+            'placeholder_reasons'        => $reasons,
+            'placeholder_reason_categories' => $categories,
         );
     }
 
@@ -723,13 +2354,13 @@ final class StaticHtmlEmitter
             }
 
             $content = (string) ($file['content'] ?? '');
-            $assets[] = array(
+            $assets[] = array_merge(array(
                 'id'        => $sourceId,
                 'path'      => (string) ($file['path'] ?? ''),
                 'mime_type' => 'image/svg+xml',
                 'bytes'     => strlen($content),
                 'hash'      => hash('sha256', $content),
-            );
+            ), $this->svgAssetMetrics($content));
         }
 
         usort($assets, static fn (array $a, array $b): int => ((int) $b['bytes'] <=> (int) $a['bytes']) ?: strcmp((string) $a['path'], (string) $b['path']));
@@ -739,10 +2370,59 @@ final class StaticHtmlEmitter
             'threshold_bytes' => self::EXTERNAL_VECTOR_SVG_BYTES,
             'count' => count($assets),
             'bytes' => array_sum(array_map(static fn (array $asset): int => (int) ($asset['bytes'] ?? 0), $assets)),
+            'gzip_bytes' => $this->sumNullableAssetMetric($assets, 'gzip_bytes'),
+            'path_element_count' => array_sum(array_map(static fn (array $asset): int => (int) ($asset['path_element_count'] ?? 0), $assets)),
+            'path_data_bytes' => array_sum(array_map(static fn (array $asset): int => (int) ($asset['path_data_bytes'] ?? 0), $assets)),
+            'largest_path_data_bytes' => empty($assets) ? 0 : max(array_map(static fn (array $asset): int => (int) ($asset['largest_path_data_bytes'] ?? 0), $assets)),
+            'unique_path_data_count' => $this->uniqueAssetPathDataCount($assets),
+            'duplicate_path_data_count' => $this->duplicateAssetPathDataCount($assets),
             'paths' => array_values(array_map(static fn (array $asset): string => (string) ($asset['path'] ?? ''), $assets)),
             'largest_assets' => array_slice($assets, 0, 10),
             'assets' => $assets,
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assets
+     */
+    private function sumNullableAssetMetric(array $assets, string $key): ?int
+    {
+        $sum = 0;
+        foreach ( $assets as $asset ) {
+            if ( ! array_key_exists($key, $asset) || null === $asset[$key] ) {
+                return null;
+            }
+            $sum += (int) $asset[$key];
+        }
+
+        return $sum;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assets
+     */
+    private function uniqueAssetPathDataCount(array $assets): int
+    {
+        $hashes = array();
+        foreach ( $assets as $asset ) {
+            foreach ( is_array($asset['path_data_hashes'] ?? null) ? $asset['path_data_hashes'] : array() as $hash ) {
+                if ( is_scalar($hash) && '' !== (string) $hash ) {
+                    $hashes[(string) $hash] = true;
+                }
+            }
+        }
+
+        return count($hashes);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assets
+     */
+    private function duplicateAssetPathDataCount(array $assets): int
+    {
+        $pathDataCount = array_sum(array_map(static fn (array $asset): int => (int) ($asset['path_data_count'] ?? 0), $assets));
+
+        return max(0, $pathDataCount - $this->uniqueAssetPathDataCount($assets));
     }
 
     /**
@@ -753,8 +2433,32 @@ final class StaticHtmlEmitter
      */
     private function collectTransformDiagnostics(array $node, array &$image, array &$vectors, array &$layout, ?array $parentNode = null): void
     {
+        ++$image['total_node_count'];
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+
+        if ( null !== $parentNode ) {
+            $offset = $this->largeAbsoluteOffsetDiagnostic($node, $parentNode);
+            if ( null !== $offset ) {
+                ++$layout['large_absolute_offset_count'];
+                $layout['large_absolute_offset_nodes'][] = $offset;
+            }
+        }
+
         if ( null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode) ) {
             $layout['decorative_underlays']['nodes'][] = $this->decorativeUnderlayDiagnostic($node, $parentNode);
+        }
+
+        $emptyContainer = $this->emptyVisibleContainerDiagnostic($node, $parentNode);
+        if ( null !== $emptyContainer ) {
+            $layout['empty_visible_containers'][] = $emptyContainer;
+            $category = (string) ($emptyContainer['category'] ?? 'empty_visible_container');
+            $layout['empty_visible_container_categories'][$category] = (int) ($layout['empty_visible_container_categories'][$category] ?? 0) + 1;
+        }
+
+        $landmarkCandidate = $this->imageHeavyLandmarkCandidate($node);
+        if ( null !== $landmarkCandidate ) {
+            $layout['image_heavy_landmark_candidates'][] = $landmarkCandidate;
         }
 
         $imagePaints = $this->nodeImagePaints($node);
@@ -768,6 +2472,12 @@ final class StaticHtmlEmitter
             ++$image['node_refs'];
             if ( null !== $this->nodeAssetPath($node) ) {
                 ++$image['resolved_assets'];
+                ++$image['image_block_count'];
+                $image['image_block_nodes'][] = array(
+                    'node_id' => (string) ($node['id'] ?? ''),
+                    'name'    => (string) ($node['name'] ?? ''),
+                    'type'    => strtoupper((string) ($node['type'] ?? '')),
+                );
             } else {
                 $image['missing_assets'][] = array(
                     'node_id' => (string) ($node['id'] ?? ''),
@@ -779,27 +2489,648 @@ final class StaticHtmlEmitter
         }
 
         $type = strtoupper((string) ($node['type'] ?? ''));
+        $booleanComposedChildren = false;
         if ( $this->isUnsupportedVectorType($type) ) {
             ++$vectors['nodes'];
-            if ( null !== $this->supportedVectorSvg($node, $type) ) {
+            $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
+            if ( null !== $vectorSvg ) {
                 ++$vectors['rendered_paths'];
+                if ( $this->vectorPathsIncludeNetworkSource($node) ) {
+                    ++$vectors['vector_network_decoded'];
+                }
+                if ( 'BOOLEAN_OPERATION' === $type && ! empty($this->nodeList($node)) ) {
+                    ++$vectors['boolean_operations_composed'];
+                    $booleanComposedChildren = true;
+                }
             } elseif ( null !== $this->nodeAssetPath($node) ) {
                 ++$vectors['rendered_asset_fallbacks'];
             } else {
                 ++$vectors['placeholders'];
-                $vectors['placeholder_nodes'][] = array(
-                    'node_id' => (string) ($node['id'] ?? ''),
-                    'name'    => (string) ($node['name'] ?? ''),
-                    'type'    => $type,
+                $placeholder = $this->vectorPlaceholderDiagnostic($node, $type, $parentNode);
+                $reason = (string) ($placeholder['reason'] ?? 'unknown');
+                $vectors['placeholder_reasons'][$reason] = (int) ($vectors['placeholder_reasons'][$reason] ?? 0) + 1;
+                $vectors['placeholder_nodes'][] = $placeholder;
+            }
+        }
+
+        // A composed boolean operation folds its child geometry into one SVG, so
+        // the children are not emitted separately; mirror that here to keep the
+        // vector counts aligned with what is actually rendered.
+        if ( $booleanComposedChildren ) {
+            return;
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) ) {
+                if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
+                    continue;
+                }
+                $this->collectTransformDiagnostics($child, $image, $vectors, $layout, $node);
+            }
+        }
+    }
+
+    /**
+     * Whether a node's decoded vector geometry originates from a raw Figma
+     * vectorNetwork blob, used to credit network-decode coverage distinctly
+     * from ready-made path/command-blob geometry.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function vectorPathsIncludeNetworkSource(array $node): bool
+    {
+        if ( ! is_array($node['figma_vector_paths'] ?? null) ) {
+            return false;
+        }
+
+        foreach ( $node['figma_vector_paths'] as $path ) {
+            if ( is_array($path) && str_starts_with((string) ($path['source'] ?? ''), 'vectorData.vectorNetworkBlob') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     * @return array<string, mixed>|null
+     */
+    private function largeAbsoluteOffsetDiagnostic(array $node, array $parentNode): ?array
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( $this->isDecorativeFlexUnderlay($node, $parentNode) || ('absolute' !== ($layout['positioning'] ?? null) && ! $this->isFreeformContainer($parentNode)) ) {
+            return null;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        $left = $this->positionOffset($box, $parentBox, 'x', $parentNode);
+        $top = $this->positionOffset($box, $parentBox, 'y', $parentNode);
+        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : 0.0;
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : 0.0;
+        $parentWidth = isset($parentBox['width']) && is_numeric($parentBox['width']) ? (float) $parentBox['width'] : null;
+        $parentHeight = isset($parentBox['height']) && is_numeric($parentBox['height']) ? (float) $parentBox['height'] : null;
+        $offCanvas = (null !== $left && ($left < -100.0 || (null !== $parentWidth && $left > $parentWidth + 100.0) || $left + $width < -100.0))
+            || (null !== $top && ($top < -100.0 || (null !== $parentHeight && $top > $parentHeight + 100.0) || $top + $height < -100.0));
+
+        if ( ! $offCanvas ) {
+            return null;
+        }
+
+        return array(
+            'node_id' => (string) ($node['id'] ?? ''),
+            'name' => (string) ($node['name'] ?? ''),
+            'type' => strtoupper((string) ($node['type'] ?? '')),
+            'class' => $this->nodeDiagnosticClass($node),
+            'parent_id' => (string) ($parentNode['id'] ?? ''),
+            'left' => null === $left ? null : $this->reportNumericValue($left),
+            'top' => null === $top ? null : $this->reportNumericValue($top),
+            'width' => $this->reportNumericValue($width),
+            'height' => $this->reportNumericValue($height),
+            'parent_width' => null === $parentWidth ? null : $this->reportNumericValue($parentWidth),
+            'parent_height' => null === $parentHeight ? null : $this->reportNumericValue($parentHeight),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodes
+     * @return array{by_id: array<string, array<string, mixed>>, by_class: array<string, array<string, mixed>>}
+     */
+    private function nodeDiagnosticIndex(array $nodes): array
+    {
+        $index = array('by_id' => array(), 'by_class' => array());
+        foreach ( $nodes as $node ) {
+            if ( is_array($node) ) {
+                $this->appendNodeDiagnosticIndex($node, $index);
+            }
+        }
+
+        return $index;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array{by_id: array<string, array<string, mixed>>, by_class: array<string, array<string, mixed>>} $index
+     */
+    private function appendNodeDiagnosticIndex(array $node, array &$index): void
+    {
+        $entry = array(
+            'node_id' => (string) ($node['id'] ?? ''),
+            'name' => (string) ($node['name'] ?? ''),
+            'type' => strtoupper((string) ($node['type'] ?? '')),
+            'class' => $this->nodeDiagnosticClass($node),
+            'empty_visible_container' => null !== $this->emptyVisibleContainerDiagnostic($node),
+            'component_clone_geometry' => $this->hasComponentCloneGeometry($node),
+        );
+        if ( '' !== $entry['node_id'] ) {
+            $index['by_id'][$entry['node_id']] = $entry;
+        }
+        if ( '' !== $entry['class'] ) {
+            $index['by_class'][$entry['class']] = $entry;
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) ) {
+                $this->appendNodeDiagnosticIndex($child, $index);
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodeDiagnosticClass(array $node): string
+    {
+        return 'figma-node-' . $this->slug((string) ($node['id'] ?? '') . '-' . (string) ($node['name'] ?? ''));
+    }
+
+    /**
+     * @param array{by_id: array<string, array<string, mixed>>, by_class: array<string, array<string, mixed>>} $nodeIndex
+     * @return array<int, array<string, mixed>>
+     */
+    private function cssAbsoluteOffsetDiagnostics(string $css, array $nodeIndex): array
+    {
+        $samples = array();
+        if ( ! preg_match_all('/\.(figma-node-[A-Za-z0-9_-]+)\{([^}]*)\}/s', $css, $rules, PREG_SET_ORDER) ) {
+            return $samples;
+        }
+
+        foreach ( $rules as $rule ) {
+            $className = (string) ($rule[1] ?? '');
+            $body = (string) ($rule[2] ?? '');
+            $left = $this->cssPixelDeclarationValue($body, 'left');
+            $top = $this->cssPixelDeclarationValue($body, 'top');
+            if ( (null === $left || abs($left) < 1000.0) && (null === $top || abs($top) < 1000.0) ) {
+                continue;
+            }
+
+            $node = is_array($nodeIndex['by_class'][$className] ?? null) ? $nodeIndex['by_class'][$className] : array();
+            $sample = array_filter(array(
+                'node_id' => (string) ($node['node_id'] ?? ''),
+                'name' => (string) ($node['name'] ?? ''),
+                'type' => (string) ($node['type'] ?? ''),
+                'class' => $className,
+                'left' => null === $left ? null : $this->reportNumericValue($left),
+                'top' => null === $top ? null : $this->reportNumericValue($top),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+            $classification = $this->largeCssOffsetClassification($node);
+            if ( '' !== $classification ) {
+                $sample['classification'] = $classification;
+            }
+            $samples[] = $sample;
+        }
+
+        return array_values($samples);
+    }
+
+    private function cssPixelDeclarationValue(string $body, string $property): ?float
+    {
+        return preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . ':\s*(-?\d+(?:\.\d+)?)px(?:;|$)/', $body, $match)
+            ? (float) $match[1]
+            : null;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $visualNodeMap
+     * @param array{by_id: array<string, array<string, mixed>>, by_class: array<string, array<string, mixed>>} $nodeIndex
+     * @return array<int, array<string, mixed>>
+     */
+    private function visualOffCanvasDiagnostics(array $visualNodeMap, array $nodeIndex): array
+    {
+        $byId = array();
+        foreach ( $visualNodeMap as $entry ) {
+            if ( is_array($entry) && isset($entry['id']) && is_scalar($entry['id']) ) {
+                $byId[(string) $entry['id']] = $entry;
+            }
+        }
+
+        $samples = array();
+        foreach ( $visualNodeMap as $entry ) {
+            if ( ! is_array($entry) || ! isset($entry['parent_id']) || '' === (string) $entry['parent_id'] || ! is_array($entry['rect'] ?? null) ) {
+                continue;
+            }
+            $parent = $byId[(string) $entry['parent_id']] ?? null;
+            if ( ! is_array($parent) || ! is_array($parent['rect'] ?? null) ) {
+                continue;
+            }
+            $rect = $entry['rect'];
+            $parentRect = $parent['rect'];
+            foreach ( array('x', 'y', 'width', 'height') as $key ) {
+                if ( ! is_numeric($rect[$key] ?? null) || ! is_numeric($parentRect[$key] ?? null) ) {
+                    continue 2;
+                }
+            }
+
+            $offCanvas = (float) $rect['x'] < (float) $parentRect['x'] - 100.0
+                || (float) $rect['x'] > (float) $parentRect['x'] + (float) $parentRect['width'] + 100.0
+                || (float) $rect['x'] + (float) $rect['width'] < (float) $parentRect['x'] - 100.0
+                || (float) $rect['y'] < (float) $parentRect['y'] - 100.0
+                || (float) $rect['y'] > (float) $parentRect['y'] + (float) $parentRect['height'] + 100.0
+                || (float) $rect['y'] + (float) $rect['height'] < (float) $parentRect['y'] - 100.0;
+            if ( ! $offCanvas ) {
+                continue;
+            }
+
+            $node = is_array($nodeIndex['by_id'][(string) ($entry['id'] ?? '')] ?? null) ? $nodeIndex['by_id'][(string) $entry['id']] : array();
+            $sample = array_filter(array(
+                'node_id' => (string) ($entry['id'] ?? ''),
+                'name' => (string) ($entry['name'] ?? ($node['name'] ?? '')),
+                'type' => (string) ($entry['type'] ?? ($node['type'] ?? '')),
+                'class' => (string) ($node['class'] ?? ''),
+                'parent_id' => (string) ($entry['parent_id'] ?? ''),
+                'left' => $this->reportNumericValue((float) $rect['x'] - (float) $parentRect['x']),
+                'top' => $this->reportNumericValue((float) $rect['y'] - (float) $parentRect['y']),
+                'x' => $this->reportNumericValue((float) $rect['x']),
+                'y' => $this->reportNumericValue((float) $rect['y']),
+                'width' => $this->reportNumericValue((float) $rect['width']),
+                'height' => $this->reportNumericValue((float) $rect['height']),
+                'parent_width' => $this->reportNumericValue((float) $parentRect['width']),
+                'parent_height' => $this->reportNumericValue((float) $parentRect['height']),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+            $classification = $this->visualOffCanvasClassification($entry, $parent);
+            if ( '' !== $classification ) {
+                $sample['classification'] = $classification;
+            }
+            $samples[] = $sample;
+        }
+
+        return array_values($samples);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function largeCssOffsetClassification(array $node): string
+    {
+        if ( true === ($node['component_clone_geometry'] ?? false) ) {
+            return 'component_clone_geometry_leak';
+        }
+
+        if ( true === ($node['empty_visible_container'] ?? false) ) {
+            return 'empty_visible_container';
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     * @param array<string, mixed> $parent
+     */
+    private function visualOffCanvasClassification(array $entry, array $parent): string
+    {
+        $parentLayout = is_array($parent['layout'] ?? null) ? $parent['layout'] : array();
+        $entryLayout = is_array($entry['layout'] ?? null) ? $entry['layout'] : array();
+        if ( in_array((string) ($parentLayout['display'] ?? ''), array('flex', 'inline-flex'), true) && 'absolute' !== ($entryLayout['positioning'] ?? null) ) {
+            return 'flex_flow_overflow';
+        }
+
+        if ( true === ($entry['component_clone_geometry'] ?? false) ) {
+            return 'component_clone_geometry_leak';
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasComponentCloneGeometry(array $node): bool
+    {
+        if ( true === ($node['_component_source_clone_geometry'] ?? false) ) {
+            return true;
+        }
+
+        foreach ( array('box', 'figma_box') as $boxKey ) {
+            $box = is_array($node[$boxKey] ?? null) ? $node[$boxKey] : array();
+            if ( 'component_source_clone' === ($box['geometry_semantics'] ?? null) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $visualNodeMap
+     * @param array{by_id: array<string, array<string, mixed>>, by_class: array<string, array<string, mixed>>} $nodeIndex
+     * @return array<string, mixed>
+     */
+    private function visualClipDiagnostics(array $visualNodeMap, array $nodeIndex): array
+    {
+        $samples = array();
+        $sourceArea = 0.0;
+        $visibleArea = 0.0;
+
+        foreach ( $visualNodeMap as $entry ) {
+            if ( ! is_array($entry) || ! is_array($entry['rect'] ?? null) || ! is_array($entry['visible_rect'] ?? null) ) {
+                continue;
+            }
+
+            $rect = $entry['rect'];
+            $visibleRect = $entry['visible_rect'];
+            foreach ( array('width', 'height') as $key ) {
+                if ( ! is_numeric($rect[$key] ?? null) || ! is_numeric($visibleRect[$key] ?? null) ) {
+                    continue 2;
+                }
+            }
+
+            $entryArea = max(0.0, (float) $rect['width']) * max(0.0, (float) $rect['height']);
+            $entryVisibleArea = max(0.0, (float) $visibleRect['width']) * max(0.0, (float) $visibleRect['height']);
+            if ( $entryArea <= 0.0 || $entryVisibleArea >= $entryArea ) {
+                continue;
+            }
+
+            $sourceArea += $entryArea;
+            $visibleArea += $entryVisibleArea;
+            $node = is_array($nodeIndex['by_id'][(string) ($entry['id'] ?? '')] ?? null) ? $nodeIndex['by_id'][(string) $entry['id']] : array();
+            $samples[] = array_filter(array(
+                'node_id' => (string) ($entry['id'] ?? ''),
+                'name' => (string) ($entry['name'] ?? ($node['name'] ?? '')),
+                'type' => (string) ($entry['type'] ?? ($node['type'] ?? '')),
+                'class' => (string) ($node['class'] ?? ''),
+                'parent_id' => (string) ($entry['parent_id'] ?? ''),
+                'source_area_px' => $this->reportNumericValue($entryArea),
+                'visible_area_px' => $this->reportNumericValue($entryVisibleArea),
+                'clipped_area_px' => $this->reportNumericValue($entryArea - $entryVisibleArea),
+                'clipped_area_ratio' => round(($entryArea - $entryVisibleArea) / $entryArea, 3),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+        }
+
+        usort($samples, static fn (array $a, array $b): int => ((float) ($b['clipped_area_px'] ?? 0.0) <=> (float) ($a['clipped_area_px'] ?? 0.0)) ?: strcmp((string) ($a['node_id'] ?? ''), (string) ($b['node_id'] ?? '')));
+        $clippedArea = max(0.0, $sourceArea - $visibleArea);
+
+        return array(
+            'clipped_visual_node_count' => count($samples),
+            'clipped_visual_area_px' => $this->reportNumericValue($clippedArea),
+            'visible_visual_area_px' => $this->reportNumericValue($visibleArea),
+            'source_visual_area_px' => $this->reportNumericValue($sourceArea),
+            'clipped_visual_area_ratio' => $sourceArea > 0.0 ? round($clippedArea / $sourceArea, 3) : 0.0,
+            'clipped_visual_nodes' => array_slice($samples, 0, 25),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodes
+     * @return array<string, mixed>
+     */
+    private function textCoverageDiagnostics(array $nodes, string $html): array
+    {
+        $coverage = array(
+            'schema' => 'blocks-engine/figma-transformer/text-coverage/v1',
+            'decoded_text_node_count' => 0,
+            'emitted_text_node_count' => 0,
+            'empty_decoded_text_node_count' => 0,
+            'missing_emitted_text_node_count' => 0,
+            'empty_decoded_text_nodes' => array(),
+            'missing_emitted_text_nodes' => array(),
+        );
+
+        foreach ( $nodes as $node ) {
+            if ( is_array($node) ) {
+                $page = array(
+                    'page_id' => (string) ($node['id'] ?? ''),
+                    'page_name' => (string) ($node['name'] ?? ''),
                 );
+                $this->appendTextCoverageDiagnostics($node, $html, $coverage, $page, true);
+            }
+        }
+
+        $coverage['empty_decoded_text_nodes'] = array_slice($coverage['empty_decoded_text_nodes'], 0, 25);
+        $coverage['missing_emitted_text_nodes'] = array_slice($coverage['missing_emitted_text_nodes'], 0, 25);
+
+        return $coverage;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $coverage
+     * @param array{page_id: string, page_name: string} $page
+     */
+    private function appendTextCoverageDiagnostics(array $node, string $html, array &$coverage, array $page, bool $isRoot): void
+    {
+        if ( ! $isRoot && false === ($node['visible'] ?? null) ) {
+            return;
+        }
+
+        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+            $rawText = $this->rawDecodedText($node);
+            if ( '' === trim($rawText) ) {
+                ++$coverage['empty_decoded_text_node_count'];
+                $coverage['empty_decoded_text_nodes'][] = $this->textCoverageNodeSample($node, $page, 0);
+            } else {
+                ++$coverage['decoded_text_node_count'];
+                if ( $this->htmlContainsNodeId($html, (string) ($node['id'] ?? '')) ) {
+                    ++$coverage['emitted_text_node_count'];
+                } else {
+                    ++$coverage['missing_emitted_text_node_count'];
+                    $coverage['missing_emitted_text_nodes'][] = $this->textCoverageNodeSample($node, $page, mb_strlen($rawText));
+                }
             }
         }
 
         foreach ( $this->nodeList($node) as $child ) {
             if ( is_array($child) ) {
-                $this->collectTransformDiagnostics($child, $image, $vectors, $layout, $node);
+                $this->appendTextCoverageDiagnostics($child, $html, $coverage, $page, false);
             }
         }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function rawDecodedText(array $node): string
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $segments = is_array($text['segments'] ?? null) ? $text['segments'] : array();
+        if ( ! empty($segments) ) {
+            $content = '';
+            foreach ( $segments as $segment ) {
+                if ( is_array($segment) && isset($segment['characters']) && is_scalar($segment['characters']) ) {
+                    $content .= (string) $segment['characters'];
+                }
+            }
+            if ( '' !== $content ) {
+                return $content;
+            }
+        }
+
+        if ( isset($text['characters']) && is_scalar($text['characters']) ) {
+            return (string) $text['characters'];
+        }
+
+        return (string) ($node['characters'] ?? $node['text'] ?? '');
+    }
+
+    private function htmlContainsNodeId(string $html, string $nodeId): bool
+    {
+        return '' !== $nodeId && str_contains($html, 'data-figma-node-id="' . $this->sanitizeAttribute($nodeId) . '"');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array{page_id: string, page_name: string} $page
+     * @return array<string, mixed>
+     */
+    private function textCoverageNodeSample(array $node, array $page, int $characterCount): array
+    {
+        return array_filter(array(
+            'node_id' => (string) ($node['id'] ?? ''),
+            'name' => (string) ($node['name'] ?? ''),
+            'type' => strtoupper((string) ($node['type'] ?? '')),
+            'class' => $this->nodeDiagnosticClass($node),
+            'page_id' => $page['page_id'],
+            'page_name' => $page['page_name'],
+            'character_count' => $characterCount,
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>|null
+     */
+    private function emptyVisibleContainerDiagnostic(array $node, ?array $parentNode = null): ?array
+    {
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'SECTION'), true) || false === ($node['visible'] ?? true) ) {
+            return null;
+        }
+        if ( ! empty($this->nodeList($node)) || '' !== trim($this->textContent($node)) || ! empty($this->nodeImagePaints($node)) || ! empty($this->explicitNodeAssetReferences($node)) ) {
+            return null;
+        }
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : 0.0;
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : 0.0;
+        if ( $width <= 0.0 || $height <= 0.0 ) {
+            return null;
+        }
+
+        $category = $this->emptyVisibleContainerCategory($node, $type, $width, $height, $parentNode);
+
+        return array(
+            'node_id' => (string) ($node['id'] ?? ''),
+            'name' => (string) ($node['name'] ?? ''),
+            'type' => $type,
+            'class' => $this->nodeDiagnosticClass($node),
+            'width' => $this->reportNumericValue($width),
+            'height' => $this->reportNumericValue($height),
+            'category' => $category,
+            'blocks_parity' => ! $this->isNonBlockingEmptyVisibleContainerCategory($category),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function emptyVisibleContainerCategory(array $node, string $type, float $width, float $height, ?array $parentNode = null): string
+    {
+        $name = trim((string) ($node['name'] ?? ''));
+        if ( $height <= 1.0 && preg_match('/^[\x{2013}\x{2014}-]+$/u', $name) ) {
+            return 'decorative_zero_height_separator';
+        }
+
+        if ( $this->isFormControlChrome($node, $parentNode, $width, $height) ) {
+            return 'form_control_chrome';
+        }
+
+        if ( 'INSTANCE' === $type ) {
+            return 'missing_instance_descendants';
+        }
+
+        return 'empty_visible_container';
+    }
+
+    private function isNonBlockingEmptyVisibleContainerCategory(string $category): bool
+    {
+        return in_array($category, array('decorative_zero_height_separator', 'form_control_chrome'), true);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function isFormControlChrome(array $node, ?array $parentNode, float $width, float $height): bool
+    {
+        if ( null === $parentNode || $width < 10.0 || $height < 10.0 || $width > 40.0 || $height > 40.0 || abs($width - $height) > 2.0 ) {
+            return false;
+        }
+
+        if ( empty($this->strokeStyles($node)) ) {
+            return false;
+        }
+
+        $layout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        if ( ! in_array((string) ($layout['flex_direction'] ?? ''), array('row', 'row-reverse'), true) && 'HORIZONTAL' !== ($layout['mode'] ?? null) ) {
+            return false;
+        }
+
+        $nodeId = (string) ($node['id'] ?? '');
+        foreach ( $this->nodeList($parentNode) as $sibling ) {
+            if ( ! is_array($sibling) || $nodeId === (string) ($sibling['id'] ?? '') ) {
+                continue;
+            }
+
+            if ( '' !== trim($this->subtreePlainText($sibling)) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>|null
+     */
+    private function imageHeavyLandmarkCandidate(array $node): ?array
+    {
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $role = str_contains($name, 'header') ? 'header' : (str_contains($name, 'footer') ? 'footer' : null);
+        if ( null === $role ) {
+            return null;
+        }
+
+        $summary = $this->subtreeVisualSummary($node);
+        if ( $summary['image_nodes'] < 3 || $summary['image_nodes'] < max(1, $summary['text_nodes'] * 2) ) {
+            return null;
+        }
+
+        return array(
+            'node_id' => (string) ($node['id'] ?? ''),
+            'name' => (string) ($node['name'] ?? ''),
+            'role' => $role,
+            'image_nodes' => $summary['image_nodes'],
+            'text_nodes' => $summary['text_nodes'],
+            'total_nodes' => $summary['total_nodes'],
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array{image_nodes: int, text_nodes: int, total_nodes: int}
+     */
+    private function subtreeVisualSummary(array $node): array
+    {
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        $summary = array(
+            'image_nodes' => null !== $this->nodeAssetPath($node) || ! empty($this->nodeImagePaints($node)) ? 1 : 0,
+            'text_nodes' => 'TEXT' === $type ? 1 : 0,
+            'total_nodes' => 1,
+        );
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $childSummary = $this->subtreeVisualSummary($child);
+            $summary['image_nodes'] += $childSummary['image_nodes'];
+            $summary['text_nodes'] += $childSummary['text_nodes'];
+            $summary['total_nodes'] += $childSummary['total_nodes'];
+        }
+
+        return $summary;
     }
 
     /**
@@ -897,81 +3228,57 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<string, mixed> $node
-     * @param array<int, array<string, mixed>> $map
      */
-    private function appendVisualNodeMap(array $node, array &$map, float $x, float $y, ?array $parentNode): void
+    private function isClippableDecorativeVisualNode(array $node): bool
     {
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return $this->layoutIntentClassifier()->isClippableDecorativeVisualNode($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isFullyClippedDecorativeChild(array $node, array $parentNode): bool
+    {
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        if ( true !== ($parentLayout['clips_content'] ?? false) || ! $this->isClippableDecorativeVisualNode($node) ) {
+            return false;
+        }
+
         $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-
-        if ( null !== $parentNode && $this->isFreeformContainer($parentNode) ) {
-            $x += $this->positionOffset($box, $parentBox, 'x', $parentNode) ?? 0.0;
-            $y += $this->positionOffset($box, $parentBox, 'y', $parentNode) ?? 0.0;
-        } elseif ( null !== $parentNode && 'absolute' === ($layout['positioning'] ?? null) ) {
-            $x += $this->positionOffset($box, $parentBox, 'x', $parentNode) ?? 0.0;
-            $y += $this->positionOffset($box, $parentBox, 'y', $parentNode) ?? 0.0;
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        if ( ! isset($parentBox['width'], $parentBox['height'], $box['width'], $box['height']) || ! is_numeric($parentBox['width']) || ! is_numeric($parentBox['height']) || ! is_numeric($box['width']) || ! is_numeric($box['height']) ) {
+            return false;
         }
 
-        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : null;
-        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
-        if ( null !== $width && null !== $height ) {
-            $imagePaint = $this->firstImagePaint($node);
-            $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
-            $map[] = array(
-                'id' => (string) ($node['id'] ?? ''),
-                'parent_id' => null !== $parentNode ? (string) ($parentNode['id'] ?? '') : '',
-                'name' => (string) ($node['name'] ?? ''),
-                'type' => strtoupper((string) ($node['type'] ?? '')),
-                'rect' => array(
-                    'x' => $x,
-                    'y' => $y,
-                    'width' => $width,
-                    'height' => $height,
-                ),
-                'layout' => array(
-                    'display' => $layout['display'] ?? null,
-                    'flex_direction' => $layout['flex_direction'] ?? null,
-                    'positioning' => $layout['positioning'] ?? null,
-                    'coordinate_space' => $box['coordinate_space'] ?? null,
-                ),
-                'image' => null === $imagePaint ? null : $this->visualImageMetadata($imagePaint),
-                'text' => empty($text) ? null : $this->visualTextMetadata($text),
-            );
+        $left = $this->positionOffset($box, $parentBox, 'x', $parentNode);
+        $top = $this->positionOffset($box, $parentBox, 'y', $parentNode);
+        if ( null === $left || null === $top ) {
+            return false;
         }
 
-        $children = $this->nodeList($node);
-        if ( empty($children) ) {
-            return;
+        $parentRect = array('x' => 0.0, 'y' => 0.0, 'width' => (float) $parentBox['width'], 'height' => (float) $parentBox['height']);
+        $childRect = array('x' => $left, 'y' => $top, 'width' => (float) $box['width'], 'height' => (float) $box['height']);
+
+        return null === $this->rectIntersection($parentRect, $childRect);
+    }
+
+    /**
+     * @param array{x: float, y: float, width: float, height: float} $rect
+     * @param array{x: float, y: float, width: float, height: float} $clipRect
+     * @return array{x: float, y: float, width: float, height: float}|null
+     */
+    private function rectIntersection(array $rect, array $clipRect): ?array
+    {
+        $left = max($rect['x'], $clipRect['x']);
+        $top = max($rect['y'], $clipRect['y']);
+        $right = min($rect['x'] + $rect['width'], $clipRect['x'] + $clipRect['width']);
+        $bottom = min($rect['y'] + $rect['height'], $clipRect['y'] + $clipRect['height']);
+        if ( $right <= $left || $bottom <= $top ) {
+            return null;
         }
 
-        $padding = is_array($layout['padding'] ?? null) ? $layout['padding'] : array();
-        $childX = $x + ( isset($padding['left']) && is_numeric($padding['left']) ? (float) $padding['left'] : 0.0 );
-        $childY = $y + ( isset($padding['top']) && is_numeric($padding['top']) ? (float) $padding['top'] : 0.0 );
-        $gap = isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ? (float) $layout['item_spacing'] : 0.0;
-        $cursorX = $childX;
-        $cursorY = $childY;
-        $isRow = 'row' === ($layout['flex_direction'] ?? null);
-
-        foreach ( $children as $child ) {
-            if ( ! is_array($child) ) {
-                continue;
-            }
-
-            $childLayout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
-            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
-            if ( $this->isFreeformContainer($node) || 'absolute' === ($childLayout['positioning'] ?? null) || $this->isDecorativeFlexUnderlay($child, $node) ) {
-                $this->appendVisualNodeMap($child, $map, $x, $y, $node);
-                continue;
-            }
-
-            $this->appendVisualNodeMap($child, $map, $cursorX, $cursorY, $node);
-            if ( $isRow ) {
-                $cursorX += ( isset($childBox['width']) && is_numeric($childBox['width']) ? (float) $childBox['width'] : 0.0 ) + $gap;
-            } else {
-                $cursorY += ( isset($childBox['height']) && is_numeric($childBox['height']) ? (float) $childBox['height'] : 0.0 ) + $gap;
-            }
-        }
+        return array('x' => $left, 'y' => $top, 'width' => $right - $left, 'height' => $bottom - $top);
     }
 
     /**
@@ -984,16 +3291,50 @@ final class StaticHtmlEmitter
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        $zeroHeightVectorFallbackHeight = $this->zeroHeightVectorFallbackHeight($node, $type);
         foreach ( array('width', 'height') as $dimension ) {
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
             $sizing = strtoupper((string) ($layout[$sizingKey] ?? ''));
             if ( 'HUG' === $sizing ) {
-                $styles[] = $dimension . ':fit-content';
+                $derivedTextSize = 'TEXT' === $type ? $this->derivedTextLayoutSize($node, $dimension) : null;
+                if ( null !== $derivedTextSize ) {
+                    $styles[] = $dimension . ':' . $this->number($derivedTextSize) . 'px';
+                } elseif ( 'flex' === ($layout['display'] ?? null) && isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
+                    $intrinsicMainAxisSize = $this->flexHugMainAxisIntrinsicSizeStyle($node, $dimension);
+                    $styles[] = $dimension . ':' . (null === $intrinsicMainAxisSize ? $this->number((float) $box[$dimension]) . 'px' : $intrinsicMainAxisSize);
+                } else {
+                    $styles[] = $dimension . ':fit-content';
+                }
             } elseif ( 'FILL' === $sizing ) {
                 $styles[] = $dimension . ':100%';
             } elseif ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
-                $property = null === $parentNode && 'height' === $dimension && 'flex' === ($layout['display'] ?? null) ? 'min-height' : $dimension;
-                $styles[] = $property . ':' . $this->number((float) $box[$dimension]) . 'px';
+                if ( 'width' === $dimension && null === $parentNode && (float) $box['width'] >= self::FLUID_ROOT_MIN_WIDTH ) {
+                    // Page root: centered fluid container. width:100% lets it shrink
+                    // below the design width without forcing horizontal scroll, while
+                    // max-width pins the intrinsic frame width so rendering stays
+                    // pixel-faithful at and above the native canvas size.
+                    $styles[] = 'width:100%';
+                    $styles[] = 'max-width:' . $this->number((float) $box['width']) . 'px';
+                    $styles[] = 'margin-left:auto';
+                    $styles[] = 'margin-right:auto';
+                } else {
+                    $property = $dimension;
+                    $value = 'height' === $dimension && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : (float) $box[$dimension];
+                    $styles[] = $property . ':' . $this->number($value) . 'px';
+                }
+            }
+        }
+
+        // Auto Layout min/max constraints (Kiwi minSize/maxSize). Skip a property
+        // the width/height pass already emitted (e.g. the fluid root max-width).
+        foreach ( array(
+            'min_width'  => 'min-width',
+            'max_width'  => 'max-width',
+            'min_height' => 'min-height',
+            'max_height' => 'max-height',
+        ) as $layoutKey => $property ) {
+            if ( isset($layout[$layoutKey]) && is_numeric($layout[$layoutKey]) && ! $this->stylesDeclareProperty($styles, $property) ) {
+                $styles[] = $property . ':' . $this->number((float) $layout[$layoutKey]) . 'px';
             }
         }
 
@@ -1009,19 +3350,19 @@ final class StaticHtmlEmitter
 
 		if ( null !== $parentNode && $this->isFreeformContainer($parentNode) ) {
 			$styles[] = 'position:absolute';
-			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode) as $style ) {
+			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode, $node) as $style ) {
 				$styles[] = $style;
 			}
         } elseif ( $isDecorativeFlexUnderlay ) {
             $styles[] = 'position:absolute';
-            foreach ( $this->absolutePositionStyles($box, $layout, $parentNode) as $style ) {
+			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode, $node) as $style ) {
                 $styles[] = $style;
             }
             $styles[] = 'z-index:0';
             $styles[] = 'pointer-events:none';
 		} elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
             $styles[] = 'position:absolute';
-            foreach ( $this->absolutePositionStyles($box, $layout, $parentNode) as $style ) {
+			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode, $node) as $style ) {
                 $styles[] = $style;
             }
         }
@@ -1029,6 +3370,10 @@ final class StaticHtmlEmitter
         if ( null !== $parentNode && ! $willPositionAbsolute && $this->hasDecorativeFlexUnderlayChild($parentNode) ) {
             $styles[] = 'position:relative';
             $styles[] = 'z-index:1';
+        }
+
+        if ( isset($layout['z_index']) && is_numeric($layout['z_index']) && ! $this->stylesDeclareProperty($styles, 'z-index') ) {
+            $styles[] = 'z-index:' . (string) (int) $layout['z_index'];
         }
 
         if ( 'TEXT' !== $type && ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) ) {
@@ -1043,7 +3388,14 @@ final class StaticHtmlEmitter
             $styles[] = 'opacity:' . $this->number((float) $box['opacity']);
         }
 
-        $transform = $this->transformStyle($box);
+        if ( isset($box['blend_mode']) && is_scalar($box['blend_mode']) ) {
+            $blendMode = $this->blendModeCss((string) $box['blend_mode']);
+            if ( null !== $blendMode ) {
+                $styles[] = 'mix-blend-mode:' . $blendMode;
+            }
+        }
+
+        $transform = $this->isNearZeroHeightContainer($node, $type) || $this->hasAbsoluteVisualBounds($node) ? null : $this->transformStyle($box);
         if ( null !== $transform ) {
             $styles[] = 'transform:' . $transform;
             if ( $this->hasExplicitTransformMatrix($box) ) {
@@ -1055,13 +3407,20 @@ final class StaticHtmlEmitter
             $styles[] = $style;
         }
 
-        foreach ( $this->strokeStyles($node) as $style ) {
-            $styles[] = $style;
+        if ( ! $this->rendersStrokeInsideInlineSvg($node, $type, $parentNode) ) {
+            foreach ( $this->strokeStyles($node) as $style ) {
+                $styles[] = $style;
+            }
         }
 
-        $assetPath = $this->nodeAssetPath($node);
-        if ( null !== $assetPath ) {
-            $styles[] = 'background-image:url("' . $assetPath . '")';
+        $assetPaths = $this->nodeAssetPaths($node);
+        if ( ! empty($assetPaths) ) {
+            $urlList = implode(',', array_map(static fn (string $p): string => 'url("' . $p . '")', $assetPaths));
+            $styles[] = 'background-image:' . $urlList;
+            $blendModes = $this->imageBackgroundBlendModes($node);
+            if ( ! empty($blendModes) ) {
+                $styles[] = 'background-blend-mode:' . implode(',', $blendModes);
+            }
             foreach ( $this->imageBackgroundStyles($node) as $style ) {
                 $styles[] = $style;
             }
@@ -1088,17 +3447,38 @@ final class StaticHtmlEmitter
                 $styles[] = $property . ':' . (string) $layout[$source];
             }
         }
+        if ( 'wrap' === ($layout['flex_wrap'] ?? null) ) {
+            $styles[] = 'align-content:flex-start';
+        }
 
         if ( isset($layout['padding']) && is_array($layout['padding']) ) {
             foreach ( array('top', 'right', 'bottom', 'left') as $edge ) {
                 if ( isset($layout['padding'][$edge]) && is_numeric($layout['padding'][$edge]) ) {
-                    $styles[] = 'padding-' . $edge . ':' . $this->number((float) $layout['padding'][$edge]) . 'px';
+                    $styles[] = 'padding-' . $edge . ':' . $this->number($this->cssPaddingValue($node, $edge)) . 'px';
                 }
             }
         }
 
-        if ( isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ) {
-            $styles[] = 'gap:' . $this->number((float) $layout['item_spacing']) . 'px';
+        $justifyContent = (string) ($layout['justify_content'] ?? '');
+        $usesDistributedMainAxis = in_array($justifyContent, array('space-between', 'space-around', 'space-evenly'), true);
+        if ( ! $usesDistributedMainAxis && isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ) {
+            $mainGap = $this->number((float) $layout['item_spacing']);
+            if ( 'wrap' === ($layout['flex_wrap'] ?? null)
+                && isset($layout['counter_axis_spacing'])
+                && is_numeric($layout['counter_axis_spacing'])
+                && (float) $layout['counter_axis_spacing'] !== (float) $layout['item_spacing'] ) {
+                // CSS `gap` shorthand is `row-gap column-gap`. In a wrapping flex
+                // row the main-axis item spacing is the column gap while the
+                // counter-axis spacing (the gap between wrapped rows) is the row
+                // gap; a wrapping column is the inverse.
+                $counterGap = $this->number((float) $layout['counter_axis_spacing']);
+                $isColumn = 'column' === ($layout['flex_direction'] ?? null);
+                $rowGap = $isColumn ? $mainGap : $counterGap;
+                $columnGap = $isColumn ? $counterGap : $mainGap;
+                $styles[] = 'gap:' . $rowGap . 'px ' . $columnGap . 'px';
+            } else {
+                $styles[] = 'gap:' . $mainGap . 'px';
+            }
         }
 
         if ( ! $isDecorativeFlexUnderlay ) {
@@ -1107,7 +3487,158 @@ final class StaticHtmlEmitter
             }
         }
 
-        return array_values(array_unique($styles));
+        return $this->mergeBoxShadowDeclarations(array_values(array_unique($styles)));
+    }
+
+    /**
+     * @param array<int, string> $styles
+     * @return array<int, string>
+     */
+    private function mergeBoxShadowDeclarations(array $styles): array
+    {
+        $merged = array();
+        $boxShadows = array();
+        $boxShadowIndex = null;
+
+        foreach ( $styles as $style ) {
+            if ( str_starts_with($style, 'box-shadow:') ) {
+                $boxShadows[] = substr($style, strlen('box-shadow:'));
+                if ( null === $boxShadowIndex ) {
+                    $boxShadowIndex = count($merged);
+                    $merged[] = $style;
+                }
+                continue;
+            }
+
+            $merged[] = $style;
+        }
+
+        if ( null !== $boxShadowIndex && count($boxShadows) > 1 ) {
+            $merged[$boxShadowIndex] = 'box-shadow:' . implode(',', $boxShadows);
+        }
+
+        return $merged;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function derivedTextLayoutSize(array $node, string $dimension): ?float
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
+        $size = is_array($derivedLayout['size'] ?? null) ? $derivedLayout['size'] : array();
+        if ( isset($size[$dimension]) && is_numeric($size[$dimension]) && 0.0 <= (float) $size[$dimension] ) {
+            return (float) $size[$dimension];
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function cssPaddingValue(array $node, string $edge): float
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        $padding = is_array($layout['padding'] ?? null) ? $layout['padding'] : array();
+        $value = isset($padding[$edge]) && is_numeric($padding[$edge]) ? (float) $padding[$edge] : 0.0;
+        $axis = in_array($edge, array('left', 'right'), true) ? 'horizontal' : 'vertical';
+        $dimension = 'horizontal' === $axis ? 'width' : 'height';
+        $sizingKey = 'horizontal' === $axis ? 'sizing_horizontal' : 'sizing_vertical';
+        if ( in_array(strtoupper((string) ($layout[$sizingKey] ?? '')), array('HUG', 'FILL'), true) ) {
+            return $value;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        if ( ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) ) {
+            return $value;
+        }
+
+        $start = 'horizontal' === $axis ? 'left' : 'top';
+        $end = 'horizontal' === $axis ? 'right' : 'bottom';
+        $startValue = isset($padding[$start]) && is_numeric($padding[$start]) ? (float) $padding[$start] : 0.0;
+        $endValue = isset($padding[$end]) && is_numeric($padding[$end]) ? (float) $padding[$end] : 0.0;
+        $sum = $startValue + $endValue;
+        $available = max(0.0, (float) $box[$dimension]);
+        if ( $sum <= 0.0 || $sum <= $available ) {
+            return $value;
+        }
+
+        return $value * ($available / $sum);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function flexHugMainAxisIntrinsicSizeStyle(array $node, string $dimension): ?string
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $isRow = 'row' === ($layout['flex_direction'] ?? null);
+        $mainAxis = $isRow ? 'width' : 'height';
+        if ( $dimension !== $mainAxis || 'wrap' === ($layout['flex_wrap'] ?? null) || ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) ) {
+            return null;
+        }
+
+        $children = $this->nodeList($node);
+        if ( empty($children) ) {
+            return null;
+        }
+
+        $childCount = 0;
+        $childMainSpan = 0.0;
+        foreach ( $children as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $childLayout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( 'absolute' === ($childLayout['positioning'] ?? null) || $this->isDecorativeFlexUnderlay($child, $node) ) {
+                continue;
+            }
+
+            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
+            if ( ! isset($childBox[$mainAxis]) || ! is_numeric($childBox[$mainAxis]) ) {
+                return null;
+            }
+
+            $childMainSpan += (float) $childBox[$mainAxis];
+            $childCount++;
+        }
+
+        if ( 0 === $childCount ) {
+            return null;
+        }
+
+        $padding = is_array($layout['padding'] ?? null) ? $layout['padding'] : array();
+        $paddingStart = $isRow ? 'left' : 'top';
+        $paddingEnd = $isRow ? 'right' : 'bottom';
+        $paddingSpan = 0.0;
+        foreach ( array($paddingStart, $paddingEnd) as $edge ) {
+            if ( isset($padding[$edge]) && is_numeric($padding[$edge]) ) {
+                $paddingSpan += (float) $padding[$edge];
+            }
+        }
+
+        $gap = isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ? (float) $layout['item_spacing'] : 0.0;
+        $intrinsicMainSpan = $childMainSpan + $paddingSpan + max(0, $childCount - 1) * $gap;
+
+        return $intrinsicMainSpan > (float) $box[$dimension] + 1.0 ? 'max-content' : null;
+    }
+
+    /**
+     * @param array<int, string> $styles
+     */
+    private function stylesDeclareProperty(array $styles, string $property): bool
+    {
+        foreach ( $styles as $style ) {
+            if ( is_string($style) && str_starts_with($style, $property . ':') ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1115,25 +3646,108 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $layout
      * @return array<int, string>
      */
-    private function absolutePositionStyles(array $box, array $layout, ?array $parentNode): array
+    private function absolutePositionStyles(array $box, array $layout, ?array $parentNode, ?array $node = null): array
     {
         $styles = array();
         $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
         $left = $this->positionOffset($box, $parentBox, 'x', $parentNode);
         $top = $this->positionOffset($box, $parentBox, 'y', $parentNode);
+        if ( null !== $node && $this->hasComponentCloneGeometry($node) ) {
+            $left = $this->componentCloneSourceOffset($node, $box, $parentBox, 'x', $left);
+            $top = $this->componentCloneSourceOffset($node, $box, $parentBox, 'y', $top);
+        }
         $constraints = is_array($layout['constraints'] ?? null) ? $layout['constraints'] : array();
 
-        if ( null !== $left ) {
-            $styles[] = 'left:' . $this->number($left) . 'px';
+        foreach ( $this->axisConstraintStyles('horizontal', is_scalar($constraints['horizontal'] ?? null) ? (string) $constraints['horizontal'] : null, $left, $parentBox, $box) as $style ) {
+            $styles[] = $style;
         }
-        if ( isset($constraints['horizontal'], $parentBox['width'], $box['width']) && 'LEFT_RIGHT' === $constraints['horizontal'] && null !== $left ) {
-            $styles[] = 'right:' . $this->number((float) $parentBox['width'] - $left - (float) $box['width']) . 'px';
+        foreach ( $this->axisConstraintStyles('vertical', is_scalar($constraints['vertical'] ?? null) ? (string) $constraints['vertical'] : null, $top, $parentBox, $box) as $style ) {
+            $styles[] = $style;
         }
-        if ( null !== $top ) {
-            $styles[] = 'top:' . $this->number($top) . 'px';
+
+        return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $parentBox
+     */
+    private function componentCloneSourceOffset(array $node, array $box, array $parentBox, string $dimension, ?float $offset): ?float
+    {
+        if ( null === $offset ) {
+            return null;
         }
-        if ( isset($constraints['vertical'], $parentBox['height'], $box['height']) && 'TOP_BOTTOM' === $constraints['vertical'] && null !== $top ) {
-            $styles[] = 'bottom:' . $this->number((float) $parentBox['height'] - $top - (float) $box['height']) . 'px';
+
+        $sizeKey = 'x' === $dimension ? 'width' : 'height';
+        if ( ! isset($parentBox[$sizeKey], $box[$sizeKey]) || ! is_numeric($parentBox[$sizeKey]) || ! is_numeric($box[$sizeKey]) ) {
+            return $offset;
+        }
+
+        $parentSize = (float) $parentBox[$sizeKey];
+        $boxSize = (float) $box[$sizeKey];
+        if ( $parentSize <= 0.0 || $boxSize <= 0.0 || ($offset >= -0.5 && $offset + $boxSize <= $parentSize + 0.5) ) {
+            return $offset;
+        }
+
+        $sourceBox = is_array($node['_component_source_clone_source_box'] ?? null) ? $node['_component_source_clone_source_box'] : array();
+        if ( isset($sourceBox[$dimension]) && is_numeric($sourceBox[$dimension]) ) {
+            return (float) $sourceBox[$dimension];
+        }
+
+        return 0.0;
+    }
+
+    /**
+     * Resolve the absolute-position CSS for a single axis from its Figma pin
+     * constraint. The near edge (left/top) is the default; LEFT_RIGHT/TOP_BOTTOM
+     * pin both edges, RIGHT/BOTTOM pin only the far edge, and CENTER holds a fixed
+     * offset from the parent center without relying on `transform` (which the
+     * emitter reserves for the node's own matrix). SCALE is percentage-based and
+     * has no clean pixel translation, so it falls back to the deterministic near
+     * pin instead of emitting a wrong guess.
+     *
+     * @param array<string, mixed> $parentBox
+     * @param array<string, mixed> $box
+     * @return array<int, string>
+     */
+    private function axisConstraintStyles(string $axis, ?string $constraint, ?float $offset, array $parentBox, array $box): array
+    {
+        $isHorizontal = 'horizontal' === $axis;
+        $startProp = $isHorizontal ? 'left' : 'top';
+        $endProp = $isHorizontal ? 'right' : 'bottom';
+        $sizeKey = $isHorizontal ? 'width' : 'height';
+        $bothPin = $isHorizontal ? 'LEFT_RIGHT' : 'TOP_BOTTOM';
+        $farPin = $isHorizontal ? 'RIGHT' : 'BOTTOM';
+        $parentSize = isset($parentBox[$sizeKey]) && is_numeric($parentBox[$sizeKey]) ? (float) $parentBox[$sizeKey] : null;
+        $boxSize = isset($box[$sizeKey]) && is_numeric($box[$sizeKey]) ? (float) $box[$sizeKey] : null;
+        $constraint = null === $constraint ? null : strtoupper($constraint);
+
+        $styles = array();
+
+        // Far-edge-only pin (REST RIGHT/BOTTOM, Kiwi MAX): anchor to the trailing
+        // edge and drop the leading offset so the node stays glued on resize.
+        if ( $farPin === $constraint && null !== $offset && null !== $parentSize && null !== $boxSize ) {
+            $styles[] = $endProp . ':' . $this->number($parentSize - $offset - $boxSize) . 'px';
+            return $styles;
+        }
+
+        // Center pin: keep a constant offset from the parent center. Using calc()
+        // off the leading edge avoids touching transform.
+        if ( 'CENTER' === $constraint && null !== $offset && null !== $parentSize ) {
+            $delta = $offset - ( $parentSize / 2.0 );
+            $sign = $delta < 0 ? '-' : '+';
+            $styles[] = $startProp . ':calc(50% ' . $sign . ' ' . $this->number(abs($delta)) . 'px)';
+            return $styles;
+        }
+
+        // Near-edge pin (LEFT/TOP/default, also SCALE fallback) plus an optional
+        // far-edge pin for the both-side stretch constraint.
+        if ( null !== $offset ) {
+            $styles[] = $startProp . ':' . $this->number($offset) . 'px';
+        }
+        if ( $bothPin === $constraint && null !== $offset && null !== $parentSize && null !== $boxSize ) {
+            $styles[] = $endProp . ':' . $this->number($parentSize - $offset - $boxSize) . 'px';
         }
 
         return $styles;
@@ -1161,26 +3775,20 @@ final class StaticHtmlEmitter
      */
     private function isFreeformContainer(array $node): bool
     {
-        if ( true === ($node['layout']['freeform'] ?? false) ) {
-            return true;
-        }
+        return $this->layoutIntentClassifier()->isFreeformContainer($node);
+    }
 
-        $children = $this->nodeList($node);
-        if ( true === ($node['figma_component']['resolved'] ?? false) && ! empty($children) && empty($node['layout']['display'] ?? null) ) {
-            return true;
-        }
-
-        if ( 1 !== count($children) || ! is_array($children[0]) ) {
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isNearZeroHeightContainer(array $node, string $type): bool
+    {
+        if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE'), true) || empty($this->nodeList($node)) ) {
             return false;
         }
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $childBox = is_array($children[0]['box'] ?? null) ? $children[0]['box'] : array();
-        if ( ! isset($box['width'], $box['height'], $childBox['width'], $childBox['height']) || ! is_numeric($box['width']) || ! is_numeric($box['height']) || ! is_numeric($childBox['width']) || ! is_numeric($childBox['height']) ) {
-            return false;
-        }
-
-        return (float) $childBox['width'] > (float) $box['width'] || (float) $childBox['height'] > (float) $box['height'];
+        return isset($box['height']) && is_numeric($box['height']) && 0.5 >= abs((float) $box['height']);
     }
 
     /**
@@ -1189,16 +3797,7 @@ final class StaticHtmlEmitter
      */
     private function relativeOffset(array $box, array $parentBox, string $dimension): ?float
     {
-        if ( ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) ) {
-            return null;
-        }
-
-        $offset = (float) $box[$dimension];
-        if ( isset($parentBox[$dimension]) && is_numeric($parentBox[$dimension]) ) {
-            $offset -= (float) $parentBox[$dimension];
-        }
-
-        return $offset;
+        return $this->layoutIntentClassifier()->relativeOffset($box, $parentBox, $dimension);
     }
 
     /**
@@ -1207,69 +3806,7 @@ final class StaticHtmlEmitter
      */
     private function positionOffset(array $box, array $parentBox, string $dimension, ?array $parentNode = null): ?float
     {
-        if ( ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) ) {
-            return null;
-        }
-
-        if ( 'local' === ($box['coordinate_space'] ?? null) ) {
-            return (float) $box[$dimension];
-        }
-
-        if ( null !== $parentNode && (! isset($parentBox[$dimension]) || $this->shouldInferZeroRootOrigin($parentBox, $parentNode, $dimension)) ) {
-            $origin = $this->inferredContainingBlockOrigin($parentNode, $dimension);
-            if ( null !== $origin ) {
-                return (float) $box[$dimension] - $origin;
-            }
-        }
-
-        return $this->relativeOffset($box, $parentBox, $dimension);
-    }
-
-    /**
-     * Figma plugin payloads can normalize a selected frame origin to 0 while
-     * preserving child coordinates in the original canvas space.
-     *
-     * @param array<string, mixed> $parentBox
-     * @param array<string, mixed> $parentNode
-     */
-    private function shouldInferZeroRootOrigin(array $parentBox, array $parentNode, string $dimension): bool
-    {
-        if ( ! isset($parentBox[$dimension]) || ! is_numeric($parentBox[$dimension]) || 0.0 !== (float) $parentBox[$dimension] ) {
-            return false;
-        }
-
-        if ( ! empty($parentNode['_parent_id']) ) {
-            return false;
-        }
-
-        $origin = $this->inferredContainingBlockOrigin($parentNode, $dimension);
-
-        return null !== $origin && $origin < 0.0;
-    }
-
-    /**
-     * Infer a root origin for selected frames that carry only size while their children remain in canvas coordinates.
-     *
-     * @param array<string, mixed> $parentNode
-     */
-    private function inferredContainingBlockOrigin(array $parentNode, string $dimension): ?float
-    {
-        $origin = null;
-        foreach ( $this->nodeList($parentNode) as $child ) {
-            if ( ! is_array($child) ) {
-                continue;
-            }
-
-            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
-            if ( 'local' === ($childBox['coordinate_space'] ?? null) || ! isset($childBox[$dimension]) || ! is_numeric($childBox[$dimension]) ) {
-                continue;
-            }
-
-            $value = (float) $childBox[$dimension];
-            $origin = null === $origin ? $value : min($origin, $value);
-        }
-
-        return $origin;
+        return $this->layoutIntentClassifier()->positionOffset($box, $parentBox, $dimension, $parentNode);
     }
 
     /**
@@ -1277,13 +3814,7 @@ final class StaticHtmlEmitter
      */
     private function hasAbsoluteChild(array $node): bool
     {
-        foreach ( $this->nodeList($node) as $child ) {
-            if ( is_array($child) && 'absolute' === ($child['layout']['positioning'] ?? null) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->layoutIntentClassifier()->hasAbsoluteChild($node);
     }
 
     /**
@@ -1291,13 +3822,7 @@ final class StaticHtmlEmitter
      */
     private function hasDecorativeFlexUnderlayChild(array $node): bool
     {
-        foreach ( $this->nodeList($node) as $child ) {
-            if ( is_array($child) && $this->isDecorativeFlexUnderlay($child, $node) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->layoutIntentClassifier()->hasDecorativeFlexUnderlayChild($node);
     }
 
     /**
@@ -1306,124 +3831,7 @@ final class StaticHtmlEmitter
      */
     private function isDecorativeFlexUnderlay(array $node, array $parentNode): bool
     {
-        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
-        if ( ! in_array((string) ($parentLayout['display'] ?? ''), array('flex', 'inline-flex'), true) ) {
-            return false;
-        }
-
-        if ( 'absolute' === ($node['layout']['positioning'] ?? null) || $this->treeHasText($node) || $this->treeHasImageReference($node) ) {
-            return false;
-        }
-
-        if ( ! $this->treeIsVectorShapeOnly($node) || ! $this->parentHasTextOutsideNode($parentNode, $node) ) {
-            return false;
-        }
-
-        return $this->isOversizedAgainstParent($node, $parentNode);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @param array<string, mixed> $parentNode
-     */
-    private function isOversizedAgainstParent(array $node, array $parentNode): bool
-    {
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-        foreach ( array('width', 'height') as $dimension ) {
-            if ( ! isset($box[$dimension], $parentBox[$dimension]) || ! is_numeric($box[$dimension]) || ! is_numeric($parentBox[$dimension]) || 0.0 >= (float) $parentBox[$dimension] ) {
-                return false;
-            }
-        }
-
-        if ( (float) $box['width'] < 300.0 && (float) $box['height'] < 300.0 ) {
-            return false;
-        }
-
-        $widthRatio = (float) $box['width'] / (float) $parentBox['width'];
-        $heightRatio = (float) $box['height'] / (float) $parentBox['height'];
-        $areaRatio = ((float) $box['width'] * (float) $box['height']) / ((float) $parentBox['width'] * (float) $parentBox['height']);
-
-        return 0.75 <= $widthRatio || 0.75 <= $heightRatio || 0.45 <= $areaRatio;
-    }
-
-    /**
-     * @param array<string, mixed> $parentNode
-     * @param array<string, mixed> $node
-     */
-    private function parentHasTextOutsideNode(array $parentNode, array $node): bool
-    {
-        $nodeId = (string) ($node['id'] ?? '');
-        foreach ( $this->nodeList($parentNode) as $sibling ) {
-            if ( ! is_array($sibling) || (string) ($sibling['id'] ?? '') === $nodeId ) {
-                continue;
-            }
-            if ( $this->treeHasText($sibling) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function treeHasText(array $node): bool
-    {
-        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
-            return '' !== trim(strip_tags($this->textContent($node)));
-        }
-
-        foreach ( $this->nodeList($node) as $child ) {
-            if ( is_array($child) && $this->treeHasText($child) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function treeHasImageReference(array $node): bool
-    {
-        if ( null !== $this->nodeAssetPath($node) || ! empty($this->explicitNodeAssetReferences($node)) || ! empty($this->nodeImagePaints($node)) ) {
-            return true;
-        }
-
-        foreach ( $this->nodeList($node) as $child ) {
-            if ( is_array($child) && $this->treeHasImageReference($child) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function treeIsVectorShapeOnly(array $node): bool
-    {
-        $type = strtoupper((string) ($node['type'] ?? ''));
-        $children = $this->nodeList($node);
-        if ( empty($children) ) {
-            return in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON', 'RECTANGLE'), true);
-        }
-
-        if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'BOOLEAN_OPERATION'), true) ) {
-            return false;
-        }
-
-        foreach ( $children as $child ) {
-            if ( ! is_array($child) || ! $this->treeIsVectorShapeOnly($child) ) {
-                return false;
-            }
-        }
-
-        return true;
+        return $this->layoutIntentClassifier()->isDecorativeFlexUnderlay($node, $parentNode);
     }
 
     /**
@@ -1446,6 +3854,15 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array<string, mixed> $node
+     */
+    private function hasAbsoluteVisualBounds(array $node): bool
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        return 'absolute' === ($box['coordinate_space'] ?? null);
+    }
+
+    /**
      * @param array<string, mixed> $box
      */
     private function hasExplicitTransformMatrix(array $box): bool
@@ -1458,6 +3875,24 @@ final class StaticHtmlEmitter
      */
     private function cssMatrix(array $transform): ?string
     {
+        $values = $this->cssTransformMatrixValues($transform);
+        if ( null === $values ) {
+            return null;
+        }
+
+        return 'matrix(' . implode(',', array_map(fn (mixed $value): string => $this->number((float) $value), $values)) . ')';
+    }
+
+    /**
+     * @param array<int|string, mixed>|null $transform
+     * @return array{0: float, 1: float, 2: float, 3: float, 4: float, 5: float}|null
+     */
+    private function cssTransformMatrixValues(?array $transform): ?array
+    {
+        if ( null === $transform ) {
+            return null;
+        }
+
         if ( isset($transform['m00'], $transform['m01'], $transform['m02'], $transform['m10'], $transform['m11'], $transform['m12']) ) {
             if ( 0.00001 > abs((float) $transform['m00'] - 1.0) && 0.00001 > abs((float) $transform['m01']) && 0.00001 > abs((float) $transform['m10']) && 0.00001 > abs((float) $transform['m11'] - 1.0) ) {
                 return null;
@@ -1475,7 +3910,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        return 'matrix(' . implode(',', array_map(fn (mixed $value): string => $this->number((float) $value), $values)) . ')';
+        return array_map(static fn (mixed $value): float => (float) $value, $values);
     }
 
     /**
@@ -1488,7 +3923,7 @@ final class StaticHtmlEmitter
         $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
         $isFlexChild = in_array((string) ($parentLayout['display'] ?? ''), array('flex', 'inline-flex'), true);
 
-        if ( 'FILL' === ($layout['sizing_horizontal'] ?? null) || 'FILL' === ($layout['sizing_vertical'] ?? null) ) {
+        if ( $this->layoutIntentClassifier()->fillsParentFlexMainAxis($layout, $parentNode) ) {
             $styles[] = 'flex-grow:1';
             $styles[] = 'flex-shrink:1';
         } elseif ( isset($layout['grow']) && is_numeric($layout['grow']) ) {
@@ -1523,13 +3958,7 @@ final class StaticHtmlEmitter
                     continue;
                 }
 
-                $segmentStyles = is_array($segment['style'] ?? null) ? $this->textStyleDeclarations($segment['style']) : array();
-                if ( empty($segmentStyles) ) {
-                    $content .= $this->sanitizeText($segmentText);
-                    continue;
-                }
-
-                $content .= '<span style="' . $this->sanitizeAttribute(implode(';', $segmentStyles)) . '">' . $this->sanitizeText($segmentText) . '</span>';
+                $content .= $this->segmentRunHtml($segmentText, is_array($segment['style'] ?? null) ? $segment['style'] : null);
             }
 
             if ( '' !== $content ) {
@@ -1538,10 +3967,203 @@ final class StaticHtmlEmitter
         }
 
         if ( isset($text['characters']) && is_scalar($text['characters']) ) {
-            return $this->sanitizeText($this->derivedLineBreakText((string) $text['characters'], $text));
+            $characters = (string) $text['characters'];
+            if ( $this->isUnresolvedComponentPlaceholderText($node, $characters) ) {
+                return '';
+            }
+
+            return $this->sanitizeText($this->derivedLineBreakText($characters, $text));
         }
 
-        return $this->sanitizeText((string) ($node['characters'] ?? $node['text'] ?? ''));
+        $characters = (string) ($node['characters'] ?? $node['text'] ?? '');
+        if ( $this->isUnresolvedComponentPlaceholderText($node, $characters) ) {
+            return '';
+        }
+
+        return $this->sanitizeText($characters);
+    }
+
+    /**
+     * Renders a single styled text run, wrapping it in a minimal `<span style>`
+     * only when the run carries overriding style declarations. Mirrors the inline
+     * segment rendering in {@see textContent} so per-character override spans
+     * (color/weight/etc.) emit identically whether the text node is a single
+     * element or split into per-paragraph boxes.
+     *
+     * @param array<string, mixed>|null $style
+     */
+    private function segmentRunHtml(string $characters, ?array $style): string
+    {
+        if ( '' === $characters ) {
+            return '';
+        }
+
+        $segmentStyles = is_array($style) ? $this->textStyleDeclarations($style) : array();
+        if ( empty($segmentStyles) ) {
+            return $this->sanitizeText($characters);
+        }
+
+        return '<span style="' . $this->sanitizeAttribute(implode(';', $segmentStyles)) . '">' . $this->sanitizeText($characters) . '</span>';
+    }
+
+    /**
+     * Splits a text node into per-paragraph buckets of styled runs.
+     *
+     * Figma encodes a hard paragraph break (the Enter key, the boundary
+     * `paragraphSpacing` applies between) as a `\n` in the node's characters.
+     * Soft line wraps are not present in the source characters — they are
+     * recovered separately as derived baselines — so this split keys only on the
+     * real `\n` separators and never treats a wrapped line as a paragraph.
+     *
+     * Each bucket is an ordered list of `['characters' => string, 'style' =>
+     * ?array]` runs. When a styled run straddles a `\n` it is divided at the
+     * break and the same style is carried into both paragraphs, so per-character
+     * override spans land in the correct paragraph. Leading/trailing empty
+     * paragraphs (from a stray boundary `\n`) are dropped; interior blank
+     * paragraphs are preserved.
+     *
+     * @param array<string, mixed> $node
+     * @return array<int, array<int, array{characters: string, style: array<string, mixed>|null}>>
+     */
+    private function paragraphBuckets(array $node): array
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $segments = is_array($text['segments'] ?? null) ? $text['segments'] : array();
+
+        $runs = array();
+        foreach ( $segments as $segment ) {
+            if ( ! is_array($segment) ) {
+                continue;
+            }
+            $segmentText = (string) ($segment['characters'] ?? '');
+            if ( '' === $segmentText ) {
+                continue;
+            }
+            $runs[] = array(
+                'characters' => $segmentText,
+                'style'      => is_array($segment['style'] ?? null) ? $segment['style'] : null,
+            );
+        }
+
+        if ( empty($runs) ) {
+            $characters = isset($text['characters']) && is_scalar($text['characters'])
+                ? (string) $text['characters']
+                : (string) ($node['characters'] ?? $node['text'] ?? '');
+            if ( '' === $characters || $this->isUnresolvedComponentPlaceholderText($node, $characters) ) {
+                return array();
+            }
+            $runs[] = array('characters' => $characters, 'style' => null);
+        }
+
+        $paragraphs = array(array());
+        foreach ( $runs as $run ) {
+            $parts = explode("\n", (string) $run['characters']);
+            foreach ( $parts as $index => $part ) {
+                if ( $index > 0 ) {
+                    $paragraphs[] = array();
+                }
+                if ( '' !== $part ) {
+                    $paragraphs[count($paragraphs) - 1][] = array(
+                        'characters' => $part,
+                        'style'      => $run['style'],
+                    );
+                }
+            }
+        }
+
+        // Drop empty paragraphs at the head and tail (a stray boundary newline),
+        // while keeping interior blank paragraphs that carry a real blank line.
+        while ( ! empty($paragraphs) && empty($paragraphs[0]) ) {
+            array_shift($paragraphs);
+        }
+        while ( ! empty($paragraphs) && empty($paragraphs[count($paragraphs) - 1]) ) {
+            array_pop($paragraphs);
+        }
+
+        return array_values($paragraphs);
+    }
+
+    /**
+     * Whether a text node carries real paragraph spacing that can be rendered by
+     * splitting it into separate per-paragraph boxes.
+     *
+     * Requires a positive `paragraphSpacing` and at least two real paragraphs
+     * (`\n`-separated). Glyph-rendered text has no paragraph boxes to carry a
+     * margin, so it is excluded and reported via {@see paragraphSpacingDiagnostic}.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function shouldSplitParagraphs(array $node): bool
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        if ( ! isset($style['paragraph_spacing']) || ! is_numeric($style['paragraph_spacing']) || 0.0 >= (float) $style['paragraph_spacing'] ) {
+            return false;
+        }
+
+        if ( null !== $this->textGlyphSvg($node) ) {
+            return false;
+        }
+
+        return count($this->paragraphBuckets($node)) >= 2;
+    }
+
+    /**
+     * Renders a multi-paragraph text node as one block element per paragraph so
+     * Figma `paragraphSpacing` lands as a real `margin-bottom` between paragraphs.
+     *
+     * Each paragraph is a block-level `<span>` (valid inside the node's `<p>` /
+     * heading container) and carries the spacing as `margin-bottom` on every
+     * paragraph except the last. Inline override spans are preserved within each
+     * paragraph via {@see segmentRunHtml}. Returns null when the node is not a
+     * splittable multi-paragraph node, so the caller falls back to {@see
+     * textContent}.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function multiParagraphTextContent(array $node): ?string
+    {
+        if ( ! $this->shouldSplitParagraphs($node) ) {
+            return null;
+        }
+
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        $spacing = (float) $style['paragraph_spacing'];
+
+        $paragraphs = $this->paragraphBuckets($node);
+        $last = count($paragraphs) - 1;
+
+        $html = '';
+        foreach ( $paragraphs as $index => $runs ) {
+            $inner = '';
+            foreach ( $runs as $run ) {
+                $inner .= $this->segmentRunHtml((string) $run['characters'], $run['style']);
+            }
+
+            $styles = array('display:block');
+            if ( $index < $last ) {
+                $styles[] = 'margin-bottom:' . $this->number($spacing) . 'px';
+            }
+
+            $html .= '<span style="' . $this->sanitizeAttribute(implode(';', $styles)) . '">' . $inner . '</span>';
+        }
+
+        return '' === $html ? null : $html;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isUnresolvedComponentPlaceholderText(array $node, string $characters): bool
+    {
+        $placeholder = strtolower(trim($characters));
+        if ( ! in_array($placeholder, array('button label'), true) ) {
+            return false;
+        }
+
+        $id = (string) ($node['id'] ?? '');
+        return str_contains($id, '/') || isset($node['figma_component_source_id']);
     }
 
     /**
@@ -1724,11 +4346,55 @@ final class StaticHtmlEmitter
             ));
             $styles[] = 'line-height:' . $this->number($derivedLineHeight) . 'px';
         }
-        if ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) {
+        if ( ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) && ! $this->shouldSplitParagraphs($node) ) {
             $styles[] = 'white-space:pre-line';
         }
 
         return $styles;
+    }
+
+    /**
+     * Reports a Figma `paragraphSpacing` value that genuinely cannot be applied.
+     *
+     * Multi-paragraph text is normally split into per-paragraph boxes that carry
+     * the spacing as `margin-bottom` ({@see multiParagraphTextContent}), so no
+     * diagnostic is emitted in that case. The value is only surfaced as an `info`
+     * diagnostic when the node has multiple real paragraphs but cannot be split —
+     * for example glyph-rendered text, which has no paragraph boxes to carry a
+     * margin. Single-paragraph nodes (including soft-wrap-only text) are ignored
+     * because paragraph spacing has no paragraph boundary to apply between.
+     *
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>|null
+     */
+    private function paragraphSpacingDiagnostic(array $node): ?array
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        if ( ! isset($style['paragraph_spacing']) || ! is_numeric($style['paragraph_spacing']) || 0.0 >= (float) $style['paragraph_spacing'] ) {
+            return null;
+        }
+
+        // Spacing is actually applied as per-paragraph margins — nothing to report.
+        if ( $this->shouldSplitParagraphs($node) ) {
+            return null;
+        }
+
+        // Only a node with multiple real paragraphs that could not be split is a
+        // genuine "not applied" case. Single-paragraph text has no boundary.
+        if ( count($this->paragraphBuckets($node)) < 2 ) {
+            return null;
+        }
+
+        return array(
+            'severity' => 'info',
+            'code'     => 'paragraph_spacing_not_applied',
+            'message'  => 'Figma paragraphSpacing could not be applied: this multi-paragraph text node cannot be split into per-paragraph boxes (for example glyph-rendered text); the value is reported but not emitted as CSS.',
+            'context'  => array(
+                'node_id'           => (string) ($node['id'] ?? ''),
+                'paragraph_spacing' => (float) $style['paragraph_spacing'],
+            ),
+        );
     }
 
     /**
@@ -1810,6 +4476,17 @@ final class StaticHtmlEmitter
             return null;
         }
 
+        $lineHeights = array();
+        foreach ( $baselines as $baseline ) {
+            if ( is_array($baseline) && isset($baseline['lineHeight']) && is_numeric($baseline['lineHeight']) && 0.0 < (float) $baseline['lineHeight'] ) {
+                $lineHeights[] = (float) $baseline['lineHeight'];
+            }
+        }
+        if ( ! empty($lineHeights) ) {
+            sort($lineHeights);
+            return $lineHeights[(int) floor(( count($lineHeights) - 1 ) / 2)];
+        }
+
         $positions = array();
         foreach ( $baselines as $baseline ) {
             if ( is_array($baseline) && isset($baseline['position_y']) && is_numeric($baseline['position_y']) ) {
@@ -1842,7 +4519,7 @@ final class StaticHtmlEmitter
         $styles = array();
 
         if ( isset($style['font_family']) && is_scalar($style['font_family']) ) {
-            $styles[] = 'font-family:' . $this->cssString((string) $style['font_family']);
+            $styles[] = 'font-family:' . $this->fontResolver()->fallbackStack((string) $style['font_family']);
         }
 
         if ( isset($style['font_size']) && is_numeric($style['font_size']) ) {
@@ -1865,6 +4542,12 @@ final class StaticHtmlEmitter
             $styles[] = 'letter-spacing:' . $this->number((float) $style['letter_spacing']) . 'px';
         } elseif ( isset($style['letter_spacing_em']) && is_numeric($style['letter_spacing_em']) ) {
             $styles[] = 'letter-spacing:' . $this->number((float) $style['letter_spacing_em']) . 'em';
+        }
+
+        // Figma `paragraphIndent` → CSS first-line indent. A zero indent is the
+        // default, so it is left implicit.
+        if ( isset($style['paragraph_indent']) && is_numeric($style['paragraph_indent']) && 0.0 !== (float) $style['paragraph_indent'] ) {
+            $styles[] = 'text-indent:' . $this->number((float) $style['paragraph_indent']) . 'px';
         }
 
         $color = $this->color($style['color'] ?? null);
@@ -1904,6 +4587,20 @@ final class StaticHtmlEmitter
         }
         if ( ! empty($decorations) ) {
             $styles[] = 'text-decoration:' . implode(' ', array_values(array_unique($decorations)));
+        }
+
+        if ( isset($style['text_transform']) && is_scalar($style['text_transform']) ) {
+            $transform = strtolower((string) $style['text_transform']);
+            if ( in_array($transform, array('uppercase', 'lowercase', 'capitalize'), true) ) {
+                $styles[] = 'text-transform:' . $transform;
+            }
+        }
+
+        if ( isset($style['font_variant']) && is_scalar($style['font_variant']) ) {
+            $variant = strtolower((string) $style['font_variant']);
+            if ( 'small-caps' === $variant ) {
+                $styles[] = 'font-variant:' . $variant;
+            }
         }
 
         return $styles;
@@ -1946,23 +4643,131 @@ final class StaticHtmlEmitter
             return array();
         }
 
-        $width = 1;
+        $width = 1.0;
         if ( isset($node['strokeWeight']) && is_numeric($node['strokeWeight']) ) {
             $width = (float) $node['strokeWeight'];
         }
 
+        $align     = strtoupper((string) ($node['strokeAlign'] ?? ''));
+        $sideWidths = $this->strokeSideWidths($node, $width);
+        $dashed    = $this->hasDashPattern($node);
+        // CSS borders can't reproduce an exact Figma dash array (border-style only
+        // exposes the `dashed` keyword), so a non-empty dashPattern degrades to a
+        // dashed border. Precise dash lengths would need an SVG/background stroke,
+        // which is out of scope here.
+        $lineStyle = $dashed ? 'dashed' : 'solid';
+
         if ( true === $stroke['gradient'] ) {
             return array(
-                'border:' . $this->number((float) $width) . 'px solid transparent',
+                'border:' . $this->number($width) . 'px ' . $lineStyle . ' transparent',
                 'border-image:' . $stroke['css'] . ' 1',
             );
         }
 
-        if ( 'OUTSIDE' === strtoupper((string) ($node['strokeAlign'] ?? '')) ) {
-            return array('box-shadow:0 0 0 ' . $this->number((float) $width) . 'px ' . $stroke['css']);
+        // Outside strokes don't grow the layout box; the emitter renders them as an
+        // outset box-shadow ring at the real weight. box-shadow can't express dashes
+        // or per-side weights, so those fall through to the border path below.
+        if ( 'OUTSIDE' === $align && null === $sideWidths && ! $dashed ) {
+            return array('box-shadow:0 0 0 ' . $this->number($width) . 'px ' . $stroke['css']);
         }
 
-        return array('border:' . $this->number((float) $width) . 'px solid ' . $stroke['css']);
+        if ( null !== $sideWidths || $dashed ) {
+            $styles = array();
+            if ( null !== $sideWidths ) {
+                foreach ( $sideWidths as $side => $sideWidth ) {
+                    $styles[] = 'border-' . $side . '-width:' . $this->number($sideWidth) . 'px';
+                }
+            } else {
+                $styles[] = 'border-width:' . $this->number($width) . 'px';
+            }
+            $styles[] = 'border-style:' . $lineStyle;
+            $styles[] = 'border-color:' . $stroke['css'];
+            // Inside strokes are drawn within the node bounds; keep the border from
+            // expanding the box so the design's dimensions stay intact.
+            if ( 'INSIDE' === $align ) {
+                $styles[] = 'box-sizing:border-box';
+            }
+
+            return $styles;
+        }
+
+        $styles = array('border:' . $this->number($width) . 'px solid ' . $stroke['css']);
+        if ( 'INSIDE' === $align ) {
+            $styles[] = 'box-sizing:border-box';
+        }
+
+        return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function rendersStrokeInsideInlineSvg(array $node, string $type, ?array $parentNode): bool
+    {
+        if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
+            return false;
+        }
+
+        if ( empty($this->strokeStyles($node)) ) {
+            return false;
+        }
+
+        return null !== $this->supportedVectorSvg($node, $type, $parentNode);
+    }
+
+    /**
+     * Resolve per-side stroke widths when a node carries independent border
+     * weights. Returns null when the stroke is uniform so callers use the
+     * single-weight border path.
+     *
+     * @param array<string, mixed> $node
+     * @return array<string, float>|null
+     */
+    private function strokeSideWidths(array $node, float $fallback): ?array
+    {
+        $sides = array(
+            'top'    => array('borderTopWeight', 'strokeTopWeight'),
+            'right'  => array('borderRightWeight', 'strokeRightWeight'),
+            'bottom' => array('borderBottomWeight', 'strokeBottomWeight'),
+            'left'   => array('borderLeftWeight', 'strokeLeftWeight'),
+        );
+
+        $widths = array();
+        $found  = false;
+        foreach ( $sides as $side => $keys ) {
+            $value = null;
+            foreach ( $keys as $key ) {
+                if ( isset($node[$key]) && is_numeric($node[$key]) ) {
+                    $value = (float) $node[$key];
+                    break;
+                }
+            }
+            if ( null !== $value ) {
+                $found = true;
+            }
+            $widths[$side] = null !== $value ? $value : $fallback;
+        }
+
+        return $found ? $widths : null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasDashPattern(array $node): bool
+    {
+        $pattern = $node['dashPattern'] ?? null;
+        if ( ! is_array($pattern) ) {
+            return false;
+        }
+
+        foreach ( $pattern as $value ) {
+            if ( is_numeric($value) && (float) $value > 0 ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -2158,16 +4963,49 @@ final class StaticHtmlEmitter
         $assets = array();
         foreach ( $assetFiles as $file ) {
             $content = (string) ($file['content'] ?? '');
-            $assets[] = array(
+            $asset = array(
                 'id'        => (string) ($file['source_id'] ?? ''),
                 'path'      => (string) $file['path'],
                 'mime_type' => (string) $file['mime_type'],
                 'bytes'     => strlen($content),
                 'hash'      => hash('sha256', $content),
             );
+            if ( 'image/svg+xml' === ($file['mime_type'] ?? null) && str_starts_with((string) ($file['source_id'] ?? ''), 'generated-vector-') ) {
+                $asset += $this->svgAssetMetrics($content);
+            }
+            $assets[] = $asset;
         }
 
         return $assets;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function svgAssetMetrics(string $content): array
+    {
+        $pathElementCount = preg_match_all('/<path\b[^>]*>/i', $content, $pathMatches);
+        $pathDataValues = array();
+        foreach ( $pathMatches[0] ?? array() as $pathElement ) {
+            if ( preg_match('/\bd\s*=\s*(["\'])(.*?)\1/is', (string) $pathElement, $pathDataMatch) ) {
+                $pathDataValues[] = html_entity_decode((string) $pathDataMatch[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            }
+        }
+
+        $pathDataBytes = array_map(static fn (string $pathData): int => strlen($pathData), $pathDataValues);
+        $pathDataHashes = array_map(static fn (string $pathData): string => hash('sha256', $pathData), $pathDataValues);
+        $uniquePathDataHashes = array_values(array_unique($pathDataHashes));
+
+        return array(
+            'gzip_bytes' => function_exists('gzencode') ? strlen((string) gzencode($content, 9)) : null,
+            'path_element_count' => false === $pathElementCount ? 0 : $pathElementCount,
+            'path_data_count' => count($pathDataValues),
+            'path_data_bytes' => array_sum($pathDataBytes),
+            'largest_path_data_bytes' => empty($pathDataBytes) ? 0 : max($pathDataBytes),
+            'unique_path_data_count' => count($uniquePathDataHashes),
+            'duplicate_path_data_count' => max(0, count($pathDataValues) - count($uniquePathDataHashes)),
+            'path_data_hashes' => $uniquePathDataHashes,
+        );
     }
 
     /**
@@ -2184,6 +5022,79 @@ final class StaticHtmlEmitter
         }
 
         return null;
+    }
+
+    /**
+     * Return all image-fill asset paths for a node ordered top→bottom (Figma's
+     * topmost paint first), matching CSS background-image layer stacking order.
+     * Figma stores fills bottom→top in the array, so fills are reversed before
+     * resolution. Paints with `visible === false` are skipped. Every resolved
+     * path is marked used so its blob is emitted.
+     *
+     * When a node carries no fill-based image paints the method falls back to
+     * the legacy node-level reference (same as {@see nodeAssetPath()}) so that
+     * simple `asset_id` nodes continue to work unchanged.
+     *
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function nodeAssetPaths(array $node): array
+    {
+        $paths = array();
+
+        foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
+            $paintCollections = array();
+            if ( is_array($node[$paintKey] ?? null) ) {
+                $paintCollections[] = $node[$paintKey];
+            }
+            if ( is_array($node['figma_paints'][$paintKey] ?? null) ) {
+                $paintCollections[] = $node['figma_paints'][$paintKey];
+            }
+
+            foreach ( $paintCollections as $paints ) {
+                // Figma stores fills bottom→top; reverse so topmost is first
+                // (CSS background-image: first url = topmost layer).
+                $orderedPaints = array_reverse(array_values($paints));
+                foreach ( $orderedPaints as $paint ) {
+                    if ( ! is_array($paint) || 'IMAGE' !== strtoupper((string) ($paint['type'] ?? '')) ) {
+                        continue;
+                    }
+                    // Honour Figma visibility flag.
+                    if ( false === ($paint['visible'] ?? true) ) {
+                        continue;
+                    }
+
+                    foreach ( array('ref', 'imageRef', 'imageHash', 'asset_id', 'image_ref') as $key ) {
+                        if ( ! isset($paint[$key]) || ! is_scalar($paint[$key]) || '' === (string) $paint[$key] ) {
+                            continue;
+                        }
+                        $assetId = (string) $paint[$key];
+                        if ( isset($this->assetsById[$assetId]) ) {
+                            $p = (string) $this->assetsById[$assetId]['path'];
+                            $this->usedAssetPaths[$p] = true;
+                            $paths[] = $p;
+                            break;
+                        }
+                        $slugged = $this->slug($assetId);
+                        if ( isset($this->assetsById[$slugged]) ) {
+                            $p = (string) $this->assetsById[$slugged]['path'];
+                            $this->usedAssetPaths[$p] = true;
+                            $paths[] = $p;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if ( ! empty($paths) ) {
+            return array_values(array_unique($paths));
+        }
+
+        // Fallback: node-level asset reference (e.g. explicit `asset_id` key
+        // not expressed as a fill paint).
+        $fallbackPath = $this->nodeAssetPath($node);
+        return null !== $fallbackPath ? array($fallbackPath) : array();
     }
 
     /**
@@ -2229,6 +5140,41 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @return array<int, string>
      */
+    private function imageBackgroundBlendModes(array $node): array
+    {
+        $blendModes = array();
+        foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
+            $paintCollections = array();
+            if ( is_array($node[$paintKey] ?? null) ) {
+                $paintCollections[] = $node[$paintKey];
+            }
+            if ( is_array($node['figma_paints'][$paintKey] ?? null) ) {
+                $paintCollections[] = $node['figma_paints'][$paintKey];
+            }
+
+            foreach ( $paintCollections as $paints ) {
+                foreach ( array_reverse(array_values($paints)) as $paint ) {
+                    if ( ! is_array($paint) || 'IMAGE' !== strtoupper((string) ($paint['type'] ?? '')) || false === ($paint['visible'] ?? true) ) {
+                        continue;
+                    }
+
+                    $blendMode = null;
+                    if ( isset($paint['blendMode']) && is_scalar($paint['blendMode']) ) {
+                        $blendMode = $this->blendModeCss((string) $paint['blendMode']);
+                    }
+
+                    $blendModes[] = $blendMode ?? 'normal';
+                }
+            }
+        }
+
+        return in_array(true, array_map(static fn (string $mode): bool => 'normal' !== $mode, $blendModes), true) ? $blendModes : array();
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
     private function imagePaintTransformStyles(array $node, string $scaleMode): array
     {
         if ( 'STRETCH' !== $scaleMode ) {
@@ -2265,69 +5211,6 @@ final class StaticHtmlEmitter
         }
 
         return array();
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @return array<string, mixed>|null
-     */
-    private function firstImagePaint(array $node): ?array
-    {
-        foreach ( $this->nodeImagePaints($node) as $paint ) {
-            return $paint;
-        }
-
-        return null;
-    }
-
-    /**
-     * @param array<string, mixed> $paint
-     * @return array<string, mixed>
-     */
-    private function visualImageMetadata(array $paint): array
-    {
-        $transform = $this->imagePaintTransformMatrix($paint);
-        $metadata = array(
-            'scale_mode' => strtoupper((string) ($paint['imageScaleMode'] ?? $paint['scaleMode'] ?? 'FILL')),
-            'has_transform' => null !== $transform && ! $this->isIdentityImageTransform($transform),
-            'color_managed' => true === ($paint['imageShouldColorManage'] ?? false),
-        );
-
-        foreach ( array('ref', 'imageHash', 'imageName', 'originalImageWidth', 'originalImageHeight', 'scale', 'rotation') as $key ) {
-            if ( isset($paint[$key]) && is_scalar($paint[$key]) ) {
-                $metadata[$key] = $paint[$key];
-            }
-        }
-
-        return $metadata;
-    }
-
-    /**
-     * @param array<string, mixed> $text
-     * @return array<string, mixed>
-     */
-    private function visualTextMetadata(array $text): array
-    {
-        $metadata = array(
-            'character_count' => isset($text['characters']) && is_scalar($text['characters']) ? strlen((string) $text['characters']) : 0,
-            'segment_count' => is_array($text['segments'] ?? null) ? count($text['segments']) : 0,
-        );
-
-        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
-        if ( ! empty($derivedLayout) ) {
-            $metadata['derived_layout'] = $derivedLayout;
-            $metadata['has_derived_layout'] = true;
-            $metadata['baseline_count'] = $derivedLayout['baseline_count'] ?? 0;
-            $metadata['glyph_count'] = $derivedLayout['glyph_count'] ?? 0;
-            $metadata['glyph_path_count'] = is_array($derivedLayout['glyph_paths'] ?? null) ? count($derivedLayout['glyph_paths']) : 0;
-            $characters = isset($text['characters']) && is_scalar($text['characters']) ? (string) $text['characters'] : '';
-            $metadata['glyph_rendering'] = $this->renderTextGlyphPaths && ! empty($derivedLayout['glyph_paths']) && $this->textAllowsGlyphRendering($characters, $text) ? 'svg_paths' : 'dom_text';
-        } else {
-            $metadata['has_derived_layout'] = false;
-            $metadata['glyph_rendering'] = 'dom_text';
-        }
-
-        return $metadata;
     }
 
     /**
@@ -2508,32 +5391,44 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function supportedVectorSvg(array $node, string $type): ?string
+    private function supportedVectorSvg(array $node, string $type, ?array $parentNode = null): ?string
     {
         if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
             return null;
         }
 
+        if ( 'BOOLEAN_OPERATION' === $type && $this->shouldComposeBooleanOperationChildren($node) ) {
+            $composed = $this->booleanOperationSvg($node, $parentNode);
+            if ( null !== $composed ) {
+                return $composed;
+            }
+        }
+
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $width = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width']) : 0.0;
         $height = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height']) : 0.0;
-        if ( $width <= 0 || $height <= 0 ) {
+        $zeroHeightVectorFallbackHeight = $this->zeroHeightVectorFallbackHeight($node, $type);
+        if ( $width <= 0 || ( $height <= 0 && null === $zeroHeightVectorFallbackHeight ) ) {
             return null;
         }
+        $renderHeight = $height <= 0 && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : $height;
 
         $elements = $this->vectorPathElements($node);
+        if ( empty($elements) && $height <= 0 && null !== $zeroHeightVectorFallbackHeight ) {
+            $elements = $this->zeroHeightVectorElements($node, $type, $width, $renderHeight);
+        }
         if ( empty($elements) ) {
-            $elements = $this->primitiveVectorElements($node, $type, $width, $height);
+            $elements = $this->primitiveVectorElements($node, $type, $width, $renderHeight, $parentNode);
         }
         if ( empty($elements) ) {
             return null;
         }
 
-        $viewBox = array('x' => 0.0, 'y' => 0.0, 'width' => $width, 'height' => $height);
+        $viewBox = array('x' => 0.0, 'y' => 0.0, 'width' => $width, 'height' => $renderHeight);
         $pathBounds = $this->vectorPathBounds($node);
         if ( null !== $pathBounds && ( $pathBounds['width'] > $width + 0.001 || $pathBounds['height'] > $height + 0.001 || $pathBounds['x'] < -0.001 || $pathBounds['y'] < -0.001 ) ) {
             $viewBox = $pathBounds;
-        } elseif ( null !== $pathBounds && $this->vectorPathTouchesViewBoxEdge($pathBounds, $viewBox) ) {
+        } elseif ( null !== $pathBounds && $this->vectorMayClipStrokeAtViewBoxEdge($node) && $this->vectorPathTouchesViewBoxEdge($pathBounds, $viewBox) ) {
             $padding = 0.5;
             $viewBox = array(
                 'x' => $viewBox['x'] - $padding,
@@ -2562,6 +5457,23 @@ final class StaticHtmlEmitter
         }
 
         return '<svg ' . implode(' ', $attributes) . '>' . $body . '</svg>';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function shouldComposeBooleanOperationChildren(array $node): bool
+    {
+        if ( empty($this->nodeList($node)) ) {
+            return false;
+        }
+
+        if ( ! $this->hasExplicitVectorSource($node) ) {
+            return true;
+        }
+
+        return 'UNION' === strtoupper(trim((string) ($node['booleanOperation'] ?? 'UNION')))
+            && ! empty($this->booleanOperationChildVectors($node));
     }
 
     /**
@@ -2602,6 +5514,14 @@ final class StaticHtmlEmitter
             || abs($pathBounds['y'] - $viewBox['y']) <= $epsilon
             || abs(($pathBounds['x'] + $pathBounds['width']) - ($viewBox['x'] + $viewBox['width'])) <= $epsilon
             || abs(($pathBounds['y'] + $pathBounds['height']) - ($viewBox['y'] + $viewBox['height'])) <= $epsilon;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function vectorMayClipStrokeAtViewBoxEdge(array $node): bool
+    {
+        return $this->hasSvgStroke($this->svgPaintAttributes($node));
     }
 
     /**
@@ -2659,6 +5579,29 @@ final class StaticHtmlEmitter
      */
     private function vectorPathElements(array $node): array
     {
+        $paint = $this->svgPaintAttributes($node);
+        $elements = array();
+        foreach ( $this->nodeVectorPathData($node) as $path ) {
+            $attributes = $paint;
+            if ( null !== ($path['windingRule'] ?? null) ) {
+                $attributes[] = 'fill-rule="' . $path['windingRule'] . '"';
+            }
+            $elements[] = '<path d="' . $this->sanitizeAttribute($path['d']) . '" ' . implode(' ', $attributes) . '/>';
+        }
+
+        return $elements;
+    }
+
+    /**
+     * Extract validated SVG path data and winding rule from a node's vector
+     * geometry sources, independent of paint, so the same geometry can drive
+     * inline `<path>` emission and boolean-operation composition.
+     *
+     * @param array<string, mixed> $node
+     * @return array<int, array{d: string, windingRule: string|null}>
+     */
+    private function nodeVectorPathData(array $node): array
+    {
         $rawPaths = array();
         if ( is_array($node['figma_vector_paths'] ?? null) ) {
             $rawPaths = array_merge($rawPaths, $node['figma_vector_paths']);
@@ -2674,7 +5617,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        $elements = array();
+        $paths = array();
         foreach ( $rawPaths as $rawPath ) {
             $path = is_array($rawPath) ? (string) ($rawPath['data'] ?? $rawPath['pathData'] ?? $rawPath['path'] ?? $rawPath['d'] ?? '') : (string) $rawPath;
             $path = $this->safeSvgPathData($path, $this->svgPathDataByteLimit($rawPath));
@@ -2682,24 +5625,192 @@ final class StaticHtmlEmitter
                 continue;
             }
 
-            $paint = $this->svgPaintAttributes($node);
+            $rule = null;
             if ( is_array($rawPath) && isset($rawPath['windingRule']) && is_scalar($rawPath['windingRule']) ) {
-                $rule = strtolower((string) $rawPath['windingRule']);
-                if ( in_array($rule, array('evenodd', 'nonzero'), true) ) {
-                    $paint[] = 'fill-rule="' . $rule . '"';
+                $candidate = strtolower((string) $rawPath['windingRule']);
+                if ( in_array($candidate, array('evenodd', 'nonzero'), true) ) {
+                    $rule = $candidate;
                 }
             }
 
-            $elements[] = '<path d="' . $this->sanitizeAttribute($path) . '" ' . implode(' ', $paint) . '/>';
+            $paths[] = array('d' => $path, 'windingRule' => $rule);
         }
 
-        return $elements;
+        return $paths;
+    }
+
+    /**
+     * Compose a BOOLEAN_OPERATION node from its child vector geometry.
+     *
+     * True path-boolean evaluation is out of scope in pure PHP, so this emits
+     * the child vector paths together inside one `<svg>`. For UNION (the common
+     * icon case) overlaying the child paths is visually correct. For
+     * SUBTRACT/INTERSECT/EXCLUDE the combined child geometry is rendered as one
+     * `fill-rule:evenodd` path when the children share the operation origin,
+     * which approximates hole-cutting; otherwise it falls back to the overlay.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function booleanOperationSvg(array $node, ?array $parentNode): ?string
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width']) : 0.0;
+        $height = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height']) : 0.0;
+        if ( $width <= 0 || $height <= 0 ) {
+            return null;
+        }
+
+        $children = $this->booleanOperationChildVectors($node);
+        if ( empty($children) ) {
+            return null;
+        }
+
+        $operation = strtoupper(trim((string) ($node['booleanOperation'] ?? 'UNION')));
+        $body = null;
+        if ( in_array($operation, array('SUBTRACT', 'INTERSECT', 'EXCLUDE'), true) ) {
+            $body = $this->booleanEvenOddBody($node, $children);
+        }
+        if ( null === $body ) {
+            $body = $this->booleanUnionBody($children);
+        }
+        if ( '' === $body ) {
+            return null;
+        }
+
+        $attributes = array(
+            'xmlns="http://www.w3.org/2000/svg"',
+            'viewBox="0 0 ' . $this->number($width) . ' ' . $this->number($height) . '"',
+            'width="100%"',
+            'height="100%"',
+            'role="img"',
+            'aria-label="' . $this->sanitizeAttribute((string) ($node['name'] ?? $operation)) . '"',
+            'data-figma-vector="true"',
+            'data-figma-boolean-operation="' . $this->sanitizeAttribute(strtolower($operation)) . '"',
+        );
+
+        return '<svg ' . implode(' ', $attributes) . '>' . $body . '</svg>';
+    }
+
+    /**
+     * Collect renderable vector geometry from a boolean node's descendants,
+     * translated into the boolean node's local coordinate space.
+     *
+     * @param array<string, mixed> $node
+     * @return array<int, array{paths: array<int, array{d: string, windingRule: string|null}>, paint: array<int, string>, dx: float, dy: float}>
+     */
+    private function booleanOperationChildVectors(array $node): array
+    {
+        $originBox = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : (is_array($node['box'] ?? null) ? $node['box'] : array());
+        $originX = isset($originBox['x']) && is_numeric($originBox['x']) ? (float) $originBox['x'] : 0.0;
+        $originY = isset($originBox['y']) && is_numeric($originBox['y']) ? (float) $originBox['y'] : 0.0;
+
+        $collected = array();
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) ) {
+                $this->collectBooleanChildVectors($child, $originX, $originY, $collected);
+            }
+        }
+
+        return $collected;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, array<string, mixed>> $collected
+     */
+    private function collectBooleanChildVectors(array $node, float $originX, float $originY, array &$collected): void
+    {
+        $paths = $this->nodeVectorPathData($node);
+        if ( ! empty($paths) ) {
+            $box = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : (is_array($node['box'] ?? null) ? $node['box'] : array());
+            $dx = isset($box['x']) && is_numeric($box['x']) ? (float) $box['x'] - $originX : 0.0;
+            $dy = isset($box['y']) && is_numeric($box['y']) ? (float) $box['y'] - $originY : 0.0;
+            $collected[] = array(
+                'paths' => $paths,
+                'paint' => $this->svgPaintAttributes($node),
+                'dx'    => $dx,
+                'dy'    => $dy,
+            );
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) ) {
+                $this->collectBooleanChildVectors($child, $originX, $originY, $collected);
+            }
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function booleanUnionBody(array $children): string
+    {
+        $body = '';
+        foreach ( $children as $child ) {
+            $paint = is_array($child['paint'] ?? null) && ! empty($child['paint']) ? $child['paint'] : array('fill="currentColor"');
+            $elements = '';
+            foreach ( is_array($child['paths'] ?? null) ? $child['paths'] : array() as $path ) {
+                $attributes = $paint;
+                if ( null !== ($path['windingRule'] ?? null) ) {
+                    $attributes[] = 'fill-rule="' . $path['windingRule'] . '"';
+                }
+                $elements .= '<path d="' . $this->sanitizeAttribute((string) $path['d']) . '" ' . implode(' ', $attributes) . '/>';
+            }
+            if ( '' === $elements ) {
+                continue;
+            }
+
+            $dx = (float) ($child['dx'] ?? 0.0);
+            $dy = (float) ($child['dy'] ?? 0.0);
+            if ( abs($dx) >= 0.0001 || abs($dy) >= 0.0001 ) {
+                $body .= '<g transform="translate(' . $this->number($dx) . ' ' . $this->number($dy) . ')">' . $elements . '</g>';
+            } else {
+                $body .= $elements;
+            }
+        }
+
+        return $body;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function booleanEvenOddBody(array $node, array $children): ?string
+    {
+        $combined = array();
+        foreach ( $children as $child ) {
+            $dx = (float) ($child['dx'] ?? 0.0);
+            $dy = (float) ($child['dy'] ?? 0.0);
+            if ( abs($dx) >= 0.0001 || abs($dy) >= 0.0001 ) {
+                return null;
+            }
+            foreach ( is_array($child['paths'] ?? null) ? $child['paths'] : array() as $path ) {
+                $combined[] = (string) $path['d'];
+            }
+        }
+        if ( empty($combined) ) {
+            return null;
+        }
+
+        $paint = $this->svgPaintAttributes($node);
+        if ( ( 'fill="none"' === ($paint[0] ?? '') ) && ! $this->hasSvgStroke($paint) ) {
+            foreach ( $children as $child ) {
+                if ( ! empty($child['paint']) && 'fill="none"' !== ($child['paint'][0] ?? '') ) {
+                    $paint = $child['paint'];
+                    break;
+                }
+            }
+        }
+
+        $paint[] = 'fill-rule="evenodd"';
+        return '<path d="' . $this->sanitizeAttribute(implode(' ', $combined)) . '" ' . implode(' ', $paint) . '/>';
     }
 
     /**
      * @return array<int, string>
      */
-    private function primitiveVectorElements(array $node, string $type, float $width, float $height): array
+    private function primitiveVectorElements(array $node, string $type, float $width, float $height, ?array $parentNode = null): array
     {
         $paint = $this->svgPaintAttributes($node);
         if ( 'LINE' === $type ) {
@@ -2721,7 +5832,258 @@ final class StaticHtmlEmitter
             $path = $this->primitivePolygonPath($width, $height, $this->polygonPointCount($node));
             return array('<path d="' . $this->sanitizeAttribute($path) . '" ' . implode(' ', $paint) . '/>');
         }
+        if ( in_array($type, array('VECTOR', 'BOOLEAN_OPERATION'), true) ) {
+            if ( 'BOOLEAN_OPERATION' === $type && ! empty($this->nodeList($node)) ) {
+                return array();
+            }
+            if ( 'fill="none"' === $paint[0] && ! $this->hasSvgStroke($paint) ) {
+                if ( $this->hasExplicitVectorSource($node) ) {
+                    return array();
+                }
+                $paint = $this->inheritedVectorPaintAttributes($parentNode);
+                if ( empty($paint) ) {
+                    return array();
+                }
+            }
+
+            return array('<rect x="0" y="0" width="' . $this->number($width) . '" height="' . $this->number($height) . '" ' . implode(' ', $paint) . '/>');
+        }
         return array();
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function zeroHeightVectorElements(array $node, string $type, float $width, float $height): array
+    {
+        $paint = $this->svgPaintAttributes($node);
+        if ( $this->hasSvgStroke($paint) ) {
+            $paint = array_values(array_filter($paint, static fn (string $attribute): bool => ! str_starts_with($attribute, 'fill=')));
+            return array('<line x1="0" y1="' . $this->number($height / 2) . '" x2="' . $this->number($width) . '" y2="' . $this->number($height / 2) . '" ' . implode(' ', $paint) . '/>');
+        }
+
+        if ( 'LINE' === $type ) {
+            return array('<line x1="0" y1="' . $this->number($height / 2) . '" x2="' . $this->number($width) . '" y2="' . $this->number($height / 2) . '" fill="none" stroke="currentColor" stroke-width="' . $this->number($height) . '"/>');
+        }
+
+        if ( $this->hasSvgFill($paint) ) {
+            return array('<rect x="0" y="0" width="' . $this->number($width) . '" height="' . $this->number($height) . '" ' . implode(' ', $paint) . '/>');
+        }
+
+        return array();
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function zeroHeightVectorFallbackHeight(array $node, string $type): ?float
+    {
+        if ( ! in_array($type, array('LINE', 'VECTOR'), true) ) {
+            return null;
+        }
+        if ( 'VECTOR' === $type && ! $this->hasExplicitVectorSource($node) ) {
+            return null;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : 0.0;
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : 0.0;
+        if ( $width <= 0.0 || $height > 0.0 ) {
+            return null;
+        }
+
+        $paint = $this->svgPaintAttributes($node);
+        if ( 'LINE' === $type || $this->hasSvgStroke($paint) || $this->hasSvgFill($paint) ) {
+            return max(1.0, $this->strokeWeight($node));
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function inheritedVectorPaintAttributes(?array $parentNode): array
+    {
+        if ( null === $parentNode ) {
+            return array();
+        }
+
+        $fill = $this->backgroundColor($parentNode);
+        return null === $fill ? array() : array('fill="' . $this->sanitizeAttribute($fill) . '"');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasExplicitVectorSource(array $node): bool
+    {
+        foreach ( array('figma_vector_paths', 'vectorPaths', 'paths', 'fillGeometry', 'strokeGeometry') as $key ) {
+            if ( ! empty($node[$key]) ) {
+                return true;
+            }
+        }
+
+        foreach ( array('pathData', 'path', 'd') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== trim((string) $node[$key]) ) {
+                return true;
+            }
+        }
+
+        return isset($node['vectorData']) && is_array($node['vectorData']) && ! empty($node['vectorData']);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function vectorPlaceholderDiagnostic(array $node, string $type, ?array $parentNode = null): array
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width']) : 0.0;
+        $height = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height']) : 0.0;
+        $sourceFields = $this->vectorSourceFieldNames($node);
+        $rejectedPathSources = $this->rejectedVectorPathSourceDiagnostics($node);
+        $missingFields = array();
+        $reason = 'missing_vector_geometry';
+
+        if ( $width <= 0.0 || ( $height <= 0.0 && null === $this->zeroHeightVectorFallbackHeight($node, $type) ) ) {
+            $reason = 'missing_dimensions';
+            if ( $width <= 0.0 ) {
+                $missingFields[] = 'box.width';
+            }
+            if ( $height <= 0.0 ) {
+                $missingFields[] = 'box.height';
+            }
+        } elseif ( ! empty($rejectedPathSources) ) {
+            $reason = $this->hasOversizedRejectedVectorPath($rejectedPathSources) ? 'oversized_path_data' : 'unsupported_path_data';
+        } elseif ( 'BOOLEAN_OPERATION' === $type && ! empty($this->nodeList($node)) ) {
+            $reason = 'unsupported_boolean_operation_children';
+        } elseif ( isset($node['vectorData']) && is_array($node['vectorData']) && array_key_exists('vectorNetworkBlob', $node['vectorData']) ) {
+            $reason = 'unsupported_vector_network_blob';
+        } elseif ( ! empty($this->explicitNodeAssetReferences($node)) || ! empty($this->nodeImagePaints($node)) ) {
+            $reason = 'unresolved_asset_fallback';
+        } elseif ( ! empty($sourceFields) ) {
+            $reason = 'unsupported_vector_geometry';
+        } else {
+            $missingFields[] = 'figma_vector_paths';
+            $missingFields[] = 'vectorPaths';
+            $missingFields[] = 'paths';
+            $missingFields[] = 'pathData';
+            $missingFields[] = 'vectorData.vectorNetworkBlob';
+        }
+
+        $diagnostic = array(
+            'node_id' => (string) ($node['id'] ?? ''),
+            'name' => (string) ($node['name'] ?? ''),
+            'type' => $type,
+            'reason' => $reason,
+            'source_fields' => $sourceFields,
+            'missing_fields' => array_values(array_unique($missingFields)),
+        );
+
+        if ( ! empty($rejectedPathSources) ) {
+            $diagnostic['rejected_path_sources'] = $rejectedPathSources;
+        }
+        if ( null !== $parentNode && empty($sourceFields) && ! empty($this->inheritedVectorPaintAttributes($parentNode)) ) {
+            $diagnostic['inherited_paint_available'] = true;
+        }
+
+        return $diagnostic;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function vectorSourceFieldNames(array $node): array
+    {
+        $fields = array();
+        foreach ( array('figma_vector_paths', 'vectorPaths', 'paths', 'fillGeometry', 'strokeGeometry') as $key ) {
+            if ( ! empty($node[$key]) ) {
+                $fields[] = $key;
+            }
+        }
+        foreach ( array('pathData', 'path', 'd') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== trim((string) $node[$key]) ) {
+                $fields[] = $key;
+            }
+        }
+        if ( isset($node['vectorData']) && is_array($node['vectorData']) && ! empty($node['vectorData']) ) {
+            foreach ( array_keys($node['vectorData']) as $key ) {
+                if ( is_scalar($key) ) {
+                    $fields[] = 'vectorData.' . (string) $key;
+                }
+            }
+        }
+
+        return array_values(array_unique($fields));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, array<string, mixed>>
+     */
+    private function rejectedVectorPathSourceDiagnostics(array $node): array
+    {
+        $rawPaths = array();
+        if ( is_array($node['figma_vector_paths'] ?? null) ) {
+            foreach ( $node['figma_vector_paths'] as $rawPath ) {
+                $rawPaths[] = array('field' => 'figma_vector_paths', 'value' => $rawPath);
+            }
+        }
+        foreach ( array('vectorPaths', 'paths') as $key ) {
+            if ( is_array($node[$key] ?? null) ) {
+                foreach ( $node[$key] as $rawPath ) {
+                    $rawPaths[] = array('field' => $key, 'value' => $rawPath);
+                }
+            }
+        }
+        foreach ( array('pathData', 'path', 'd') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
+                $rawPaths[] = array('field' => $key, 'value' => array('data' => (string) $node[$key]));
+            }
+        }
+
+        $rejected = array();
+        foreach ( $rawPaths as $rawPath ) {
+            $value = $rawPath['value'];
+            $path = is_array($value) ? (string) ($value['data'] ?? $value['pathData'] ?? $value['path'] ?? $value['d'] ?? '') : (string) $value;
+            if ( '' === trim($path) ) {
+                continue;
+            }
+            $limit = $this->svgPathDataByteLimit($value);
+            if ( null !== $this->safeSvgPathData($path, $limit) ) {
+                continue;
+            }
+
+            $reason = strlen($path) > $limit ? 'oversized_path_data' : 'unsupported_path_data';
+            $source = is_array($value) && isset($value['source']) && is_scalar($value['source']) ? (string) $value['source'] : (string) $rawPath['field'];
+            $rejected[] = array(
+                'field' => (string) $rawPath['field'],
+                'source' => $source,
+                'reason' => $reason,
+                'bytes' => strlen($path),
+                'limit_bytes' => $limit,
+            );
+        }
+
+        return $rejected;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rejectedPathSources
+     */
+    private function hasOversizedRejectedVectorPath(array $rejectedPathSources): bool
+    {
+        foreach ( $rejectedPathSources as $source ) {
+            if ( 'oversized_path_data' === ($source['reason'] ?? null) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function primitiveStarPath(float $width, float $height): string
@@ -2777,7 +6139,43 @@ final class StaticHtmlEmitter
             return null;
         }
 
-        return preg_match('/^[MmZzLlHhVvCcSsQqTtAa0-9,\.\-+\s]+$/', $path) ? $path : null;
+        if ( ! preg_match('/^[MmZzLlHhVvCcSsQqTtAa0-9,\.\-+\s]+$/', $path) ) {
+            return null;
+        }
+
+        return $this->canonicalSvgPathData($path);
+    }
+
+    private function canonicalSvgPathData(string $path): ?string
+    {
+        preg_match_all('/[MmZzLlHhVvCcSsQqTtAa]|[-+]?(?:\d*\.\d+|\d+\.?)(?:e[-+]?\d+)?/i', $path, $matches);
+        $tokens = $matches[0] ?? array();
+        if ( empty($tokens) ) {
+            return null;
+        }
+
+        $canonical = '';
+        $previousTokenType = '';
+        $previousCommand = '';
+        foreach ( $tokens as $token ) {
+            if ( 1 === strlen($token) && preg_match('/^[MmZzLlHhVvCcSsQqTtAa]$/', $token) ) {
+                if ( $token !== $previousCommand || in_array($token, array('M', 'm', 'Z', 'z'), true) ) {
+                    $canonical .= $token;
+                    $previousTokenType = 'command';
+                }
+                $previousCommand = $token;
+                continue;
+            }
+
+            $number = $this->number((float) $token);
+            if ( 'number' === $previousTokenType && ! str_starts_with($number, '-') ) {
+                $canonical .= ' ';
+            }
+            $canonical .= $number;
+            $previousTokenType = 'number';
+        }
+
+        return $canonical;
     }
 
     private function svgPathDataByteLimit(mixed $rawPath): int
@@ -2835,6 +6233,20 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array<int, string> $attributes
+     */
+    private function hasSvgFill(array $attributes): bool
+    {
+        foreach ( $attributes as $attribute ) {
+            if ( str_starts_with($attribute, 'fill=') && 'fill="none"' !== $attribute ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param array<string, mixed> $node
      */
     private function backgroundColor(array $node): ?string
@@ -2881,7 +6293,7 @@ final class StaticHtmlEmitter
                 }
             }
 
-            if ( in_array(($paint['type'] ?? null), array('GRADIENT_LINEAR', 'GRADIENT_RADIAL'), true) ) {
+            if ( in_array(($paint['type'] ?? null), array('GRADIENT_LINEAR', 'GRADIENT_RADIAL', 'GRADIENT_ANGULAR'), true) ) {
                 $gradient = $this->gradientPaint($paint);
                 if ( null !== $gradient ) {
                     return array('css' => $gradient, 'gradient' => true);
@@ -2946,10 +6358,190 @@ final class StaticHtmlEmitter
         }
 
         if ( 'GRADIENT_RADIAL' === ($paint['type'] ?? null) ) {
+            // Radial center/radius are encoded in the gradientTransform too, but
+            // recovering them faithfully is more involved; emit a centered circle
+            // as the supported baseline.
             return 'radial-gradient(circle,' . implode(',', $cssStops) . ')';
         }
 
-        return 'linear-gradient(180deg,' . implode(',', $cssStops) . ')';
+        if ( 'GRADIENT_ANGULAR' === ($paint['type'] ?? null) ) {
+            $geometry = $this->angularGradientGeometry($paint);
+
+            return 'conic-gradient(from ' . $this->number($geometry['from']) . 'deg at '
+                . $this->number($geometry['cx']) . '% ' . $this->number($geometry['cy']) . '%,'
+                . implode(',', $cssStops) . ')';
+        }
+
+        return 'linear-gradient(' . $this->number($this->linearGradientAngle($paint)) . 'deg,' . implode(',', $cssStops) . ')';
+    }
+
+    /**
+     * Computes the CSS conic-gradient geometry (start angle + center) for a
+     * Figma angular paint from its gradientTransform matrix.
+     *
+     * Figma evaluates an angular (conic) gradient in the same canonical space
+     * the linear/radial paths use: the 2x3 gradientTransform maps the shape's
+     * normalized bounding-box space (0..1, y-down) into the gradient's canonical
+     * space, and the angular parameter is t = atan2(v - 0.5, u - 0.5) / 2pi
+     * around the canonical center (0.5, 0.5). So t = 0 (the gradient's first
+     * stop / seam) points along the canonical +u axis -- the very same handle
+     * direction the linear path treats as start->end. Mapping +u back through
+     * the INVERSE matrix yields (d/det, -c/det), the t=0 radial direction in the
+     * shape's own y-down space.
+     *
+     * CSS conic-gradient `from` angles share the linear-gradient clock: 0deg
+     * points up, 90deg right, 180deg down, 270deg left, sweeping clockwise. For
+     * a y-down direction (dx, dy) the matching angle is atan2(dx, -dy), so the
+     * seam direction reuses the exact linearGradientAngle convention. The center
+     * is the canonical point (0.5, 0.5) mapped back through the inverse affine,
+     * expressed as percentages of the shape box.
+     *
+     * Returns `from 0deg at 50% 50%` (seam at top, centered) when no usable
+     * transform is present, so geometry-less angular paints stay deterministic.
+     *
+     * @param array<string, mixed> $paint
+     * @return array{from: float, cx: float, cy: float}
+     */
+    private function angularGradientGeometry(array $paint): array
+    {
+        $default = array('from' => 0.0, 'cx' => 50.0, 'cy' => 50.0);
+
+        $matrix = $paint['gradientTransform'] ?? null;
+        if ( ! is_array($matrix) || ! is_array($matrix[0] ?? null) || ! is_array($matrix[1] ?? null) ) {
+            return $default;
+        }
+
+        $a = $this->numericOrNull($matrix[0][0] ?? null);
+        $b = $this->numericOrNull($matrix[0][1] ?? null);
+        $tx = $this->numericOrNull($matrix[0][2] ?? null);
+        $c = $this->numericOrNull($matrix[1][0] ?? null);
+        $d = $this->numericOrNull($matrix[1][1] ?? null);
+        $ty = $this->numericOrNull($matrix[1][2] ?? null);
+        if ( null === $a || null === $b || null === $tx || null === $c || null === $d || null === $ty ) {
+            return $default;
+        }
+
+        $det = $a * $d - $b * $c;
+        if ( abs($det) < 1e-9 ) {
+            return $default;
+        }
+
+        // Canonical +u axis mapped to the shape's y-down space: the t=0 seam
+        // direction. Identical first column of the inverse linear part the
+        // linear path uses, so the seam angle matches linearGradientAngle.
+        $dx = $d / $det;
+        $dy = -$c / $det;
+        $from = 0.0;
+        if ( abs($dx) >= 1e-9 || abs($dy) >= 1e-9 ) {
+            $from = fmod(rad2deg(atan2($dx, -$dy)), 360.0);
+            if ( $from < 0.0 ) {
+                $from += 360.0;
+            }
+        }
+
+        // Canonical center (0.5, 0.5) mapped back through the inverse affine
+        // gives the conic center in the shape's normalized space.
+        $cx = ($d * (0.5 - $tx) - $b * (0.5 - $ty)) / $det;
+        $cy = ($a * (0.5 - $ty) - $c * (0.5 - $tx)) / $det;
+
+        return array(
+            'from' => $from,
+            'cx'   => $cx * 100.0,
+            'cy'   => $cy * 100.0,
+        );
+    }
+
+    /**
+     * Computes the CSS linear-gradient angle (degrees) for a Figma linear paint
+     * from its gradientTransform matrix.
+     *
+     * Figma encodes gradient direction with a 2x3 affine matrix that maps the
+     * shape's normalized bounding-box space (0..1, y-down) into the gradient's
+     * canonical parameter space, where the gradient runs along x from 0 (start)
+     * to 1 (end) at any y. To recover the start->end direction in the shape's own
+     * space we map the canonical points (0, 0.5) and (1, 0.5) back through the
+     * INVERSE matrix. Their difference equals the first column of the inverse
+     * linear part, (d/det, -c/det), where the linear part is [[a, b], [c, d]] and
+     * det = a*d - b*c.
+     *
+     * CSS linear-gradient angles run clockwise from "to top": 0deg points up,
+     * 90deg right, 180deg down, 270deg left. For a direction vector (dx, dy) in
+     * y-down space the matching angle is atan2(dx, -dy), normalized to [0, 360).
+     * A left-to-right vector (1, 0) yields 90deg; a top-to-bottom vector (0, 1)
+     * yields 180deg.
+     *
+     * Returns 180.0 (top-to-bottom) when no usable transform is present, so paints
+     * without geometry keep the historical default.
+     *
+     * @param array<string, mixed> $paint
+     */
+    private function linearGradientAngle(array $paint): float
+    {
+        $matrix = $paint['gradientTransform'] ?? null;
+        if ( ! is_array($matrix) || ! is_array($matrix[0] ?? null) || ! is_array($matrix[1] ?? null) ) {
+            return 180.0;
+        }
+
+        $a = $this->numericOrNull($matrix[0][0] ?? null);
+        $b = $this->numericOrNull($matrix[0][1] ?? null);
+        $c = $this->numericOrNull($matrix[1][0] ?? null);
+        $d = $this->numericOrNull($matrix[1][1] ?? null);
+        if ( null === $a || null === $b || null === $c || null === $d ) {
+            return 180.0;
+        }
+
+        $det = $a * $d - $b * $c;
+        if ( abs($det) < 1e-9 ) {
+            return 180.0;
+        }
+
+        // First column of the inverse linear part: the start->end direction in
+        // the shape's normalized (y-down) coordinate space.
+        $dx = $d / $det;
+        $dy = -$c / $det;
+        if ( abs($dx) < 1e-9 && abs($dy) < 1e-9 ) {
+            return 180.0;
+        }
+
+        $angle = fmod(rad2deg(atan2($dx, -$dy)), 360.0);
+        if ( $angle < 0.0 ) {
+            $angle += 360.0;
+        }
+
+        return $angle;
+    }
+
+    private function numericOrNull(mixed $value): ?float
+    {
+        return is_numeric($value) ? (float) $value : null;
+    }
+
+    /**
+     * Map a Figma node-level blendMode enum to the equivalent CSS
+     * `mix-blend-mode` keyword. Returns null for the default compositing
+     * modes (NORMAL / PASS_THROUGH) and any unrecognized value so no CSS
+     * is emitted in those cases.
+     */
+    private function blendModeCss(string $blendMode): ?string
+    {
+        return match ( strtoupper($blendMode) ) {
+            'MULTIPLY' => 'multiply',
+            'SCREEN' => 'screen',
+            'OVERLAY' => 'overlay',
+            'DARKEN' => 'darken',
+            'LIGHTEN' => 'lighten',
+            'COLOR_DODGE' => 'color-dodge',
+            'COLOR_BURN' => 'color-burn',
+            'HARD_LIGHT' => 'hard-light',
+            'SOFT_LIGHT' => 'soft-light',
+            'DIFFERENCE' => 'difference',
+            'EXCLUSION' => 'exclusion',
+            'HUE' => 'hue',
+            'SATURATION' => 'saturation',
+            'COLOR' => 'color',
+            'LUMINOSITY' => 'luminosity',
+            default => null,
+        };
     }
 
     private function color(mixed $value, mixed $opacity = null): ?string
@@ -3141,6 +6733,128 @@ final class StaticHtmlEmitter
         $slug = trim($slug, '-');
 
         return '' === $slug ? 'node' : $slug;
+    }
+
+    /**
+     * Derive a readable, authored-looking base class name from a node's name,
+     * falling back to its role/type when the node is unnamed. Never embeds raw
+     * Figma node ids, so shared classes read like `.hero-section` or `.card`.
+     */
+    private function sharedClassBaseName(string $name, string $type): string
+    {
+        $base = $this->slug($name);
+        if ( 'node' === $base || '' === $base ) {
+            $base = $this->slug($type);
+            if ( 'node' === $base || '' === $base ) {
+                $base = 'style';
+            }
+        }
+
+        return $base;
+    }
+
+    /**
+     * Collapse repeated per-node style rules into shared, readably-named CSS
+     * classes — the way a hand-authored stylesheet reuses `.card` or `.button`.
+     *
+     * Per-node rules (`.figma-node-*{...}`) whose declaration body is identical
+     * across two or more nodes are replaced by a single shared rule named after
+     * the first such node (deterministically, in stylesheet order). The original
+     * `figma-node-*` hooks remain on the elements for diagnostics; the shared
+     * class is appended so computed styles are byte-for-byte identical.
+     *
+     * @param array<int, string> $cssRules
+     * @return array{rules: array<int, string>, class_map: array<string, string>}
+     */
+    private function applySharedStyleClasses(array $cssRules): array
+    {
+        $pattern = '/^\.(figma-node-[A-Za-z0-9_-]+)\{(.*)\}$/s';
+
+        // Group per-node rules by declaration body, preserving first-seen order.
+        $bodyToSelectors = array();
+        $bodyFirstIndex  = array();
+        foreach ( $cssRules as $index => $rule ) {
+            if ( 1 === preg_match($pattern, $rule, $matches) ) {
+                $body = $matches[2];
+                $bodyToSelectors[$body][] = $matches[1];
+                if ( ! isset($bodyFirstIndex[$body]) ) {
+                    $bodyFirstIndex[$body] = $index;
+                }
+            }
+        }
+
+        // Mint a deterministic shared class name for every body used 2+ times.
+        $sharedOrder = array();
+        foreach ( $bodyToSelectors as $body => $selectors ) {
+            if ( count($selectors) >= 2 ) {
+                $sharedOrder[$body] = $bodyFirstIndex[$body];
+            }
+        }
+        asort($sharedOrder);
+
+        $reserved = array(
+            'figma-root'         => true,
+            'figma-link'         => true,
+            'figma-text-glyphs'  => true,
+            'figma-vector-asset' => true,
+        );
+        $usedNames        = array();
+        $bodyToSharedClass = array();
+        foreach ( array_keys($sharedOrder) as $body ) {
+            $firstSelector = $bodyToSelectors[$body][0];
+            $base = $this->nodeReadableNames[$firstSelector] ?? 'style';
+            $name = $base;
+            $suffix = 2;
+            while ( isset($usedNames[$name]) || isset($reserved[$name]) ) {
+                $name = $base . '-' . $suffix;
+                ++$suffix;
+            }
+            $usedNames[$name]        = true;
+            $bodyToSharedClass[$body] = $name;
+        }
+
+        // Rewrite the stylesheet: emit each shared rule once (in place of the
+        // first per-node rule that produced it) and drop the duplicates.
+        $rules        = array();
+        $emittedShared = array();
+        $classMap     = array();
+        foreach ( $cssRules as $rule ) {
+            if ( 1 === preg_match($pattern, $rule, $matches) ) {
+                $selector = $matches[1];
+                $body     = $matches[2];
+                if ( isset($bodyToSharedClass[$body]) ) {
+                    $shared            = $bodyToSharedClass[$body];
+                    $classMap[$selector] = $shared;
+                    if ( ! isset($emittedShared[$shared]) ) {
+                        $rules[]              = '.' . $shared . '{' . $body . '}';
+                        $emittedShared[$shared] = true;
+                    }
+                    continue;
+                }
+            }
+            $rules[] = $rule;
+        }
+
+        return array('rules' => $rules, 'class_map' => $classMap);
+    }
+
+    /**
+     * Append shared class names to the `figma-node-*` hooks already present in
+     * an emitted HTML fragment.
+     *
+     * @param array<string, string> $classMap
+     */
+    private function applySharedClassMapToHtml(string $html, array $classMap): string
+    {
+        foreach ( $classMap as $selector => $shared ) {
+            $html = str_replace(
+                'class="' . $selector . '"',
+                'class="' . $selector . ' ' . $shared . '"',
+                $html
+            );
+        }
+
+        return $html;
     }
 
     private function number(float $value): string

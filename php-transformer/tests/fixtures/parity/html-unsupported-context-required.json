@@ -21,14 +21,17 @@
     { "path": "blocks.0.innerBlocks.1", "name": "core/group" }
   ],
   "expected_fallbacks": [
-    { "type": "unsupported_element", "reason": "unsupported_element", "tag": "custom-card", "selector": "main:nth-of-type(1) > custom-card:nth-of-type(1)", "child_count": 1 }
+    { "type": "unsupported_element", "reason": "unsupported_element", "tag": "custom-card", "selector": "main:nth-of-type(1) > custom-card:nth-of-type(1)", "child_count": 1 },
+    { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
-    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 2 },
+    { "path": "fallbacks.1.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
+    { "path": "fallbacks.1.controls.0.name", "assert": "equals", "value": "email" },
     { "path": "diagnostics.1.selector", "assert": "equals", "value": "main:nth-of-type(1) > custom-card:nth-of-type(1)" },
     { "path": "serialized_blocks", "assert": "contains", "value": "email" },
-    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 2 }
   ]
 }

@@ -1,0 +1,16 @@
+{
+  "class": "ecommerce/catalog",
+  "tags": [
+    "ecommerce",
+    "woocommerce",
+    "catalog",
+    "outdoor",
+    "has-form",
+    "has-nav",
+    "multipage",
+    "product-grid",
+    "bundles",
+    "pricing"
+  ],
+  "complexity": 3
+}

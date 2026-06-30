@@ -25,6 +25,70 @@
       ]
     },
     {
+      "name": "valid-group-canonical-save-shape",
+      "input": "<!-- wp:group {\"className\":\"grid-3\",\"anchor\":\"foo\"} --><div class=\"wp-block-group grid-3\" id=\"foo\"></div><!-- /wp:group -->",
+      "expected_status": "pass",
+      "expected_codes": []
+    },
+    {
+      "name": "invalid-group-leaked-wrapper-class",
+      "input": "<!-- wp:group --><div class=\"wp-block-group sneaky-leak\"></div><!-- /wp:group -->",
+      "expected_status": "warning",
+      "expected_codes": [
+        "canonical_save_shape_violation"
+      ]
+    },
+    {
+      "name": "invalid-group-leaked-wrapper-id",
+      "input": "<!-- wp:group --><div class=\"wp-block-group\" id=\"leaked-id\"></div><!-- /wp:group -->",
+      "expected_status": "warning",
+      "expected_codes": [
+        "canonical_save_shape_violation"
+      ]
+    },
+    {
+      "name": "invalid-button-classname-routed-to-inner-anchor",
+      "input": "<!-- wp:button {\"className\":\"btn-primary\",\"text\":\"Go\",\"url\":\"/x\"} --><div class=\"wp-block-button\"><a class=\"wp-block-button__link wp-element-button btn-primary\" href=\"/x\">Go</a></div><!-- /wp:button -->",
+      "expected_status": "warning",
+      "expected_codes": [
+        "canonical_save_shape_violation"
+      ]
+    },
+    {
+      "name": "valid-button-classname-on-wrapper",
+      "input": "<!-- wp:button {\"className\":\"btn-primary\",\"text\":\"Go\",\"url\":\"/x\"} --><div class=\"wp-block-button btn-primary\"><a class=\"wp-block-button__link wp-element-button\" href=\"/x\">Go</a></div><!-- /wp:button -->",
+      "expected_status": "pass",
+      "expected_codes": []
+    },
+    {
+      "name": "valid-heading-canonical-save-shape",
+      "input": "<!-- wp:heading {\"level\":2} --><h2 class=\"wp-block-heading\">Section</h2><!-- /wp:heading -->",
+      "expected_status": "pass",
+      "expected_codes": []
+    },
+    {
+      "name": "invalid-heading-missing-generated-class",
+      "input": "<!-- wp:heading {\"level\":2} --><h2>Section</h2><!-- /wp:heading -->",
+      "expected_status": "warning",
+      "expected_codes": [
+        "canonical_save_shape_violation"
+      ]
+    },
+    {
+      "name": "valid-list-canonical-save-shape",
+      "input": "<!-- wp:list --><ul class=\"wp-block-list\"></ul><!-- /wp:list -->",
+      "expected_status": "pass",
+      "expected_codes": []
+    },
+    {
+      "name": "invalid-list-missing-generated-class",
+      "input": "<!-- wp:list --><ul></ul><!-- /wp:list -->",
+      "expected_status": "warning",
+      "expected_codes": [
+        "canonical_save_shape_violation"
+      ]
+    },
+    {
       "name": "invalid-navigation-serialized-child-comments",
       "blocks": [
         {
@@ -52,10 +116,52 @@
       ],
       "expected_status": "warning",
       "expected_codes": [
+        "dynamic_block_static_markup",
+        "dynamic_block_static_markup",
         "inner_content_child_count_mismatch",
         "missing_child_placeholders",
         "serialized_block_comment_in_inner_content",
         "serialized_block_comment_in_inner_html"
+      ]
+    },
+    {
+      "name": "valid-navigation-canonical-empty-save",
+      "blocks": [
+        {
+          "blockName": "core/navigation",
+          "attrs": { "overlayMenu": "mobile" },
+          "innerBlocks": [
+            {
+              "blockName": "core/navigation-link",
+              "attrs": { "label": "Home", "url": "/", "kind": "custom" },
+              "innerBlocks": [],
+              "innerHTML": "",
+              "innerContent": [ "" ]
+            }
+          ],
+          "innerHTML": "",
+          "innerContent": [ "", null, "" ]
+        }
+      ],
+      "expected_status": "pass",
+      "expected_codes": []
+    },
+    {
+      "name": "invalid-navigation-link-static-li-markup",
+      "blocks": [
+        {
+          "blockName": "core/navigation-link",
+          "attrs": { "label": "Home", "url": "/", "kind": "custom" },
+          "innerBlocks": [],
+          "innerHTML": "<li class=\"wp-block-navigation-item wp-block-navigation-link\"><a class=\"wp-block-navigation-item__content\" href=\"/\"><span class=\"wp-block-navigation-item__label\">Home</span></a></li>",
+          "innerContent": [
+            "<li class=\"wp-block-navigation-item wp-block-navigation-link\"><a class=\"wp-block-navigation-item__content\" href=\"/\"><span class=\"wp-block-navigation-item__label\">Home</span></a></li>"
+          ]
+        }
+      ],
+      "expected_status": "warning",
+      "expected_codes": [
+        "dynamic_block_static_markup"
       ]
     }
   ]

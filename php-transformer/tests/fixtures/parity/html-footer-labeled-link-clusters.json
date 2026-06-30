@@ -1,0 +1,41 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-footer-labeled-link-clusters",
+  "description": "Converts footer and mobile navigation link clusters introduced by labeled span headings into grouped navigation blocks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-footer-labeled-link-clusters.json",
+    "notes": "Generic fixture based on SSI footer CTA/navigation columns and mobile drawer sections."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<footer class=\"site-footer\" role=\"contentinfo\"><div class=\"footer-top\"><div><span class=\"footer-nav__heading\">Shop</span><a href=\"shop-all.html\" class=\"footer-nav__link\">Shop All</a><a href=\"bundles.html\" class=\"footer-nav__link\">Bundles</a><a href=\"by-outing.html\" class=\"footer-nav__link\">By Outing</a></div><div class=\"mobile-nav__section\"><span class=\"mobile-nav__label\">Support</span><a href=\"help.html\" class=\"mobile-nav__link\">Help Center</a><a href=\"returns.html\" class=\"mobile-nav__link\">Returns</a></div></div></footer>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-footer" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "footer-top" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/navigation" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Shop All", "url": "shop-all.html", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "mobile-nav__section" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1", "name": "core/navigation" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Help Center", "url": "help.html", "kind": "custom" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

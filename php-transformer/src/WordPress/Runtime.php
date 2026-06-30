@@ -6,6 +6,50 @@ namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
 final class Runtime
 {
     /**
+     * @var array<int, string>
+     */
+    private const FALLBACK_CORE_BLOCK_NAMES = array(
+        'core/accordion',
+        'core/audio',
+        'core/breadcrumbs',
+        'core/button',
+        'core/buttons',
+        'core/categories',
+        'core/code',
+        'core/column',
+        'core/columns',
+        'core/details',
+        'core/embed',
+        'core/file',
+        'core/footnotes',
+        'core/gallery',
+        'core/group',
+        'core/heading',
+        'core/icon',
+        'core/image',
+        'core/list',
+        'core/list-item',
+        'core/math',
+        'core/navigation',
+        'core/navigation-link',
+        'core/navigation-submenu',
+        'core/paragraph',
+        'core/post-terms',
+        'core/preformatted',
+        'core/pullquote',
+        'core/query-total',
+        'core/quote',
+        'core/search',
+        'core/separator',
+        'core/shortcode',
+        'core/spacer',
+        'core/table',
+        'core/tag-cloud',
+        'core/term-description',
+        'core/video',
+    );
+
+    /**
      * @var array<int, array<string, mixed>>
      */
     private array $diagnostics = array();
@@ -60,6 +104,53 @@ final class Runtime
     public function canEscapeAttribute(): bool
     {
         return function_exists('esc_attr');
+    }
+
+    /**
+     * Native core block names available as potential WordPress targets.
+     *
+     * @return array<int, string>
+     */
+    public function availableCoreBlockNames(): array
+    {
+        $registered = $this->registeredCoreBlockNames();
+        if ( array() !== $registered ) {
+            return $registered;
+        }
+
+        return self::FALLBACK_CORE_BLOCK_NAMES;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function registeredCoreBlockNames(): array
+    {
+        if ( ! class_exists('WP_Block_Type_Registry') || ! method_exists('WP_Block_Type_Registry', 'get_instance') ) {
+            return array();
+        }
+
+        $registry = \WP_Block_Type_Registry::get_instance();
+        if ( ! is_object($registry) || ! method_exists($registry, 'get_all_registered') ) {
+            return array();
+        }
+
+        $names = array();
+        foreach ( $registry->get_all_registered() as $key => $blockType ) {
+            $name = is_string($key) ? $key : '';
+            if ( '' === $name && is_object($blockType) && isset($blockType->name) && is_string($blockType->name) ) {
+                $name = $blockType->name;
+            }
+
+            if ( str_starts_with($name, 'core/') ) {
+                $names[] = $name;
+            }
+        }
+
+        $names = array_values(array_unique($names));
+        sort($names);
+
+        return $names;
     }
 
     /**
@@ -168,7 +259,7 @@ final class Runtime
     {
         if ( is_string($serializedBlocksOrBlocks) ) {
             $blocks = $this->parseBlocks($serializedBlocksOrBlocks);
-            $report = ( new BlockValidityValidator() )->validateBlocks($blocks);
+            $report = $this->buildBlockValidityReport($blocks);
 
             if ( array() === $blocks && str_contains($serializedBlocksOrBlocks, '<!-- wp:') ) {
                 $report['status'] = 'warning';
@@ -185,7 +276,33 @@ final class Runtime
             return $report;
         }
 
-        return ( new BlockValidityValidator() )->validateBlocks($serializedBlocksOrBlocks);
+        return $this->buildBlockValidityReport($serializedBlocksOrBlocks);
+    }
+
+    /**
+     * Run the serialization-structure validator and the canonical save()-shape
+     * validator over the same parsed block tree and merge their findings into a
+     * single wp_block_validity report. Both are pure-PHP and need no WordPress
+     * runtime, so the report stays usable in the standalone transformer loop.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<string, mixed>
+     */
+    private function buildBlockValidityReport(array $blocks): array
+    {
+        $report = ( new BlockValidityValidator() )->validateBlocks($blocks);
+
+        $saveShapeFindings = ( new CanonicalSaveShapeValidator() )->findings($blocks);
+        if ( array() !== $saveShapeFindings ) {
+            $report['findings'] = array_merge(
+                is_array($report['findings'] ?? null) ? $report['findings'] : array(),
+                $saveShapeFindings
+            );
+            $report['summary']['finding_count'] = count($report['findings']);
+            $report['status'] = 'warning';
+        }
+
+        return $report;
     }
 
     public function stripAllTags(string $text, bool $removeBreaks = false): string
@@ -312,24 +429,99 @@ final class Runtime
     }
 
     /**
+     * Serialize a single block to canonical comment-delimited block markup, the
+     * way WordPress core's serialize_block()/get_comment_delimited_block_content()
+     * do. The inner content is built by {@see serializeInnerContent()}, which walks
+     * innerContent and emits each nested block as block MARKUP (not rendered static
+     * HTML). This keeps dynamic/nested blocks — core/navigation and its
+     * navigation-link/submenu children, and any nested block — present in the
+     * serialized string instead of collapsing them to a self-closing comment or
+     * dropping them entirely.
+     *
      * @param array<string, mixed> $block
      */
     private function serializeBlock(array $block): string
     {
+        $blockContent = $this->serializeInnerContent($block);
+
         $blockName = isset($block['blockName']) ? (string) $block['blockName'] : '';
         if ( '' === $blockName ) {
-            return $this->renderStaticBlock($block);
+            return $blockContent;
         }
 
         $name  = str_starts_with($blockName, 'core/') ? substr($blockName, 5) : $blockName;
-        $attrs = empty($block['attrs']) ? '' : ' ' . $this->encodeJson($block['attrs']);
-        $inner = $this->renderStaticBlock($block);
+        $attrs = empty($block['attrs']) || ! is_array($block['attrs']) ? '' : ' ' . $this->serializeBlockAttributes($block['attrs']);
 
-        if ( '' === $inner ) {
+        if ( '' === $blockContent ) {
             return '<!-- wp:' . $name . $attrs . ' /-->';
         }
 
-        return '<!-- wp:' . $name . $attrs . ' -->' . $inner . '<!-- /wp:' . $name . ' -->';
+        return '<!-- wp:' . $name . $attrs . ' -->' . $blockContent . '<!-- /wp:' . $name . ' -->';
+    }
+
+    /**
+     * Serialize block attributes for the comment delimiter the way WordPress
+     * core's serialize_block_attributes() does: JSON-encode, then escape the
+     * characters that could otherwise break out of the surrounding HTML comment
+     * (`--`, `<`, `>`, `&`) plus escaped quotes. This keeps the delimiter
+     * comment-safe and WP-canonical even when an attribute value embeds raw HTML
+     * (e.g. a core/paragraph `content` carrying an inline `<a>`), so the comment
+     * stays a single parseable token. The codebase's unescaped-slash/unicode JSON
+     * convention is preserved via encodeJson().
+     *
+     * @param array<string, mixed> $attrs
+     */
+    private function serializeBlockAttributes(array $attrs): string
+    {
+        $encoded = $this->encodeJson($attrs);
+        $encoded = preg_replace('/--/', '\\u002d\\u002d', $encoded) ?? $encoded;
+        $encoded = preg_replace('/</', '\\u003c', $encoded) ?? $encoded;
+        $encoded = preg_replace('/>/', '\\u003e', $encoded) ?? $encoded;
+        $encoded = preg_replace('/&/', '\\u0026', $encoded) ?? $encoded;
+
+        return preg_replace('/\\\\"/', '\\u0022', $encoded) ?? $encoded;
+    }
+
+    /**
+     * Build a block's inner serialized content. Mirrors WordPress core's
+     * serialize_block() inner loop: walk innerContent, append literal string
+     * chunks verbatim, and replace each null placeholder with the recursively
+     * serialized markup of the next inner block. When innerContent is not a
+     * structured array, fall back to serializing any inner blocks as markup
+     * followed by the saved innerHTML so no nested block is silently dropped.
+     *
+     * @param array<string, mixed> $block
+     */
+    private function serializeInnerContent(array $block): string
+    {
+        $innerBlocks  = isset($block['innerBlocks']) && is_array($block['innerBlocks']) ? array_values($block['innerBlocks']) : array();
+        $innerContent = $block['innerContent'] ?? null;
+
+        if ( ! is_array($innerContent) ) {
+            $serialized = '';
+            foreach ( $innerBlocks as $innerBlock ) {
+                if ( is_array($innerBlock) ) {
+                    $serialized .= $this->serializeBlock($innerBlock);
+                }
+            }
+
+            return $serialized . (isset($block['innerHTML']) ? (string) $block['innerHTML'] : '');
+        }
+
+        $serialized = '';
+        $blockIndex = 0;
+        foreach ( $innerContent as $part ) {
+            if ( null === $part ) {
+                $innerBlock  = $innerBlocks[$blockIndex] ?? null;
+                $serialized .= is_array($innerBlock) ? $this->serializeBlock($innerBlock) : '';
+                ++$blockIndex;
+                continue;
+            }
+
+            $serialized .= (string) $part;
+        }
+
+        return $serialized;
     }
 
     /**

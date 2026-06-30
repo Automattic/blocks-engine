@@ -8,6 +8,10 @@ use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\ButtonMenuVisualProbe;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\ButtonMenuVisualProbeComparator;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityComparator;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityProbe;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbe;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbeComparator;
 
 if ( in_array('--legacy-child', $argv ?? array(), true) ) {
     runLegacyChildProcess();
@@ -310,6 +314,37 @@ function runFixture(array $fixture): array
         );
     }
 
+    if ( 'typography_parity_probe.extract' === $fixture['operation'] ) {
+        return ( new TypographyVisualProbe() )->extract((string) ($input['content'] ?? ''));
+    }
+
+    if ( 'typography_parity_probe.compare' === $fixture['operation'] ) {
+        $probe = new TypographyVisualProbe();
+        $report = ( new TypographyVisualProbeComparator() )->compare(
+            $probe->extract((string) ($input['source_content'] ?? '')),
+            $probe->extract((string) ($input['target_content'] ?? ''))
+        );
+        \Automattic\BlocksEngine\PhpTransformer\Contract\VisualParityReportContract::assertReport($report);
+        return $report;
+    }
+
+    if ( 'static_style_parity.extract' === $fixture['operation'] ) {
+        return ( new StaticStyleParityProbe() )->extract(
+            (string) ($input['content'] ?? ''),
+            (string) ($input['css'] ?? '')
+        );
+    }
+
+    if ( 'static_style_parity.compare' === $fixture['operation'] ) {
+        $probe = new StaticStyleParityProbe();
+        $report = ( new StaticStyleParityComparator() )->compare(
+            $probe->extract((string) ($input['source_content'] ?? ''), (string) ($input['source_css'] ?? '')),
+            $probe->extract((string) ($input['target_content'] ?? ''), (string) ($input['target_css'] ?? ''))
+        );
+        \Automattic\BlocksEngine\PhpTransformer\Contract\VisualParityReportContract::assertReport($report);
+        return $report;
+    }
+
     fail("Fixture {$fixture['name']} declares unsupported operation: {$fixture['operation']}");
 }
 
@@ -399,8 +434,6 @@ function legacyRepoForOperation(string $operation): string
 {
     return match ( $operation ) {
         'html_transformer.transform' => 'html-to-blocks-converter',
-        'format_bridge.normalize' => 'block-format-bridge',
-        'artifact_compiler.compile' => 'block-artifact-compiler',
         default => '',
     };
 }
@@ -409,8 +442,6 @@ function legacyCallableForOperation(string $operation): string
 {
     return match ( $operation ) {
         'html_transformer.transform' => 'html_to_blocks_convert',
-        'format_bridge.normalize' => 'bfb_normalize',
-        'artifact_compiler.compile' => 'bac_compile_website_artifact',
         default => '',
     };
 }
@@ -418,7 +449,7 @@ function legacyCallableForOperation(string $operation): string
 function legacyBootstrapForRepo(string $repo): string
 {
     return match ( $repo ) {
-        'html-to-blocks-converter', 'block-format-bridge', 'block-artifact-compiler' => 'library.php',
+        'html-to-blocks-converter' => 'library.php',
         default => '',
     };
 }

@@ -1,0 +1,38 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-runtime-canvas-target-preserved",
+  "description": "Preserves a native canvas DOM target required by a first-party script calling getContext().",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-runtime-canvas-target-preserved.json",
+    "notes": "Generic regression coverage for runtime canvas materialization: diagnostics metadata alone is not enough when the carried script expects a real canvas element."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Runtime dependency parity is an upstream artifact compiler contract with no legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<main><canvas id=\"canvas\"></canvas><section><h1>Runtime canvas</h1></section><script src=\"app.js\"></script></main>"
+        },
+        {
+          "path": "app.js",
+          "kind": "js",
+          "content": "const canvas = document.getElementById('canvas'); const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height);"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "id=\"canvas\"" },
+    { "path": "source_reports.runtime_island_package.islands.0.kind", "assert": "equals", "value": "canvas" }
+  ]
+}

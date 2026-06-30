@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-placeholder-media-recognizer-parity",
+  "description": "Top-level class-ratio placeholder media box with a labelled span. Proves the PlaceholderMediaPattern recognizer emits core/group output (merged className + label paragraph, no inline style) with zero fallbacks. The aspect ratio rides on the preserved ratio classNames + companion CSS; an inline style would invalidate the core/group block, so it is intentionally not emitted (#261).",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-placeholder-media-recognizer-parity.json",
+    "notes": "Product-neutral fixture pinning placeholder-media recognizer extraction parity."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"ph ratio-4x3 placeholder\"><span class=\"label\">Photo placeholder</span></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "ph ratio-4x3 placeholder blocks-engine-placeholder-media" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Photo placeholder" } }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/paragraph" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "ph ratio-4x3 placeholder blocks-engine-placeholder-media" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Photo placeholder" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

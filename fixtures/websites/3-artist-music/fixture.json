@@ -1,0 +1,13 @@
+{
+  "class": "marketing/static",
+  "tags": [
+    "music",
+    "artist",
+    "portfolio",
+    "has-form",
+    "has-nav",
+    "multipage",
+    "has-embeds"
+  ],
+  "complexity": 2
+}

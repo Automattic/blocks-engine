@@ -8,9 +8,7 @@ The first migration wave treats the existing open source repositories as downstr
 
 | Repository | Current role | Target role | Initial fate |
 | --- | --- | --- | --- |
-| `chubes4/html-to-blocks-converter` | Converts raw HTML to Gutenberg block arrays. | Compatibility package or plugin wrapper around `PhpTransformer\\HtmlToBlocks`. | Keep open until active callers can install `automattic/blocks-engine-php-transformer` directly or through a tagged shim. |
-| `chubes4/block-format-bridge` | Routes conversion between HTML, Markdown, and blocks. | Compatibility package around `PhpTransformer\\FormatBridge`. | Keep open while consumers still discover or require the bridge package name, `bfb_*` helpers, or current conversion reports. |
-| `chubes4/block-artifact-compiler` | Normalizes generated website artifacts into WordPress-native outputs. | Compatibility package around `PhpTransformer\\ArtifactCompiler`. | Keep open while generated-site tooling still imports its package name or public compiler entrypoints. |
+| `chubes4/html-to-blocks-converter` | Converts raw HTML to Gutenberg block arrays. | Compatibility package or plugin wrapper around `Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer`. | Keep open until active callers can install `automattic/blocks-engine-php-transformer` directly or through a tagged shim. |
 | `chubes4/static-site-importer` | WordPress plugin product for importing static sites into pages/themes. | Product integration that consumes `php-transformer`; remains independently useful. | Keep open as an active product repository. It is not a legacy library exit candidate. |
 
 ## Migration Rule

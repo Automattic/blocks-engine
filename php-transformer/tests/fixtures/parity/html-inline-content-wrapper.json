@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-inline-content-wrapper",
-  "description": "Converts generic block wrappers containing only phrasing content into one paragraph while preserving inline markup and line breaks.",
+  "description": "Converts generic block wrappers containing only phrasing content into one paragraph, preserving genuine inline formats and line breaks while unwrapping presentational class-only sibling spans whose class RichText cannot store.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-inline-content-wrapper.json",
@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "hours-row", "content": "<span class=\"hours-day\">Tuesday</span><span class=\"hours-time\">5:00 pm</span>" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "hours-row", "content": "Tuesday5:00 pm" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "address", "content": "<strong>412 Coalyard Lane</strong> Pearl District<br>Portland, OR" } },
     { "path": "blocks.0.innerBlocks.2", "name": "core/buttons" }
   ],

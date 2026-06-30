@@ -37,7 +37,8 @@ final class ArtifactCompiler
         $referenceReports = $this->referenceReports($normalized['files']);
         $components = $this->detectComponents($normalized['files'], $entryPath, $documents['components']);
         $blockTypes = $this->detectBlockTypes($normalized['files'], $diagnostics);
-        $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files']);
+        $companionPluginPayloadBuilder = new CompanionPluginPayload();
+        $entryBlocks = $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
         $assets = array_merge($this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references']), $entryBlocks['assets']);
         $diagnostics = array_merge($diagnostics, $entryBlocks['diagnostics']);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
@@ -76,7 +77,21 @@ final class ArtifactCompiler
         );
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks);
         $sourceReports['materialization_plan'] = ( new MaterializationPlanBuilder() )->fromCompiledSite($sourceReports['compiled_site']);
-        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath);
+        $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $entryBlocks['generated_blocks']);
+        if ( array() !== $companionPluginPayload ) {
+            $sourceReports['companion_plugin_payload'] = $companionPluginPayload;
+        }
+        if ( array() !== $entryBlocks['superseded_selectors'] ) {
+            $sourceReports['superseded_selectors'] = $entryBlocks['superseded_selectors'];
+        }
+        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors']);
+        if ( array() !== $entryBlocks['runtime_islands'] ) {
+            $sourceReports['runtime_islands'] = $entryBlocks['runtime_islands'];
+            $runtimeIslandPackage = ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath);
+            if ( array() !== $runtimeIslandPackage ) {
+                $sourceReports['runtime_island_package'] = $runtimeIslandPackage;
+            }
+        }
         $provenance = array(
             array(
                 'source_format' => 'artifact',
@@ -126,11 +141,11 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>}
      */
-    private function compileEntryBlocks(string $html, string $entryPath, array $files): array
+    private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = ''): array
     {
-        $result = $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry');
+        $result = $this->compileHtmlDocumentBlocks($html, $entryPath, $files, 'artifact-entry', $generatedBlockNamespace);
 
         return array(
             'blocks'            => $result['blocks'],
@@ -138,14 +153,18 @@ final class ArtifactCompiler
             'diagnostics'       => $this->entryTransformDiagnostics($result['diagnostics']),
             'fallbacks'         => $result['fallbacks'],
             'assets'            => $result['assets'],
+            'runtime_islands'   => $result['runtime_islands'],
+            'generated_blocks'  => $result['generated_blocks'],
+            'interaction_candidates' => $result['interaction_candidates'],
+            'superseded_selectors' => $result['superseded_selectors'],
         );
     }
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>}
      */
-    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope): array
+    private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = ''): array
     {
         if ( $this->containsBlockMarkup($html) ) {
             return array(
@@ -154,6 +173,10 @@ final class ArtifactCompiler
                 'diagnostics'       => array(),
                 'fallbacks'         => array(),
                 'assets'            => array(),
+                'runtime_islands'   => array(),
+                'generated_blocks'  => array(),
+                'interaction_candidates' => array(),
+                'superseded_selectors' => array(),
             );
         }
 
@@ -164,6 +187,10 @@ final class ArtifactCompiler
                 'diagnostics'       => array(),
                 'fallbacks'         => array(),
                 'assets'            => array(),
+                'runtime_islands'   => array(),
+                'generated_blocks'  => array(),
+                'interaction_candidates' => array(),
+                'superseded_selectors' => array(),
             );
         }
 
@@ -172,7 +199,10 @@ final class ArtifactCompiler
             'source_scope' => $sourceScope,
             'static_css'                => $this->linkedStylesheetCss($html, $sourcePath, $files),
             'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
+            'runtime_script_metadata'   => $this->runtimeScriptMetadataForSource($html, $sourcePath, $files),
+            'runtime_dom_selectors'     => $this->runtimeDomSelectors($html, $sourcePath, $files),
             'runtime_canvas_selectors' => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
+            'generated_block_namespace' => $generatedBlockNamespace,
         ))->toArray();
 
         return array(
@@ -181,7 +211,171 @@ final class ArtifactCompiler
             'diagnostics'       => is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array(),
             'fallbacks'         => is_array($result['fallbacks'] ?? null) ? $result['fallbacks'] : array(),
             'assets'            => is_array($result['assets'] ?? null) ? $result['assets'] : array(),
+            'runtime_islands'   => $this->runtimeIslandsWithMaterializedInlineScripts(
+                is_array($result['source_reports']['runtime_islands'] ?? null) ? $result['source_reports']['runtime_islands'] : array(),
+                $sourcePath,
+                $files
+            ),
+            'generated_blocks'  => is_array($result['source_reports']['generated_blocks'] ?? null) ? $result['source_reports']['generated_blocks'] : array(),
+            'interaction_candidates' => is_array($result['source_reports']['interaction_candidates'] ?? null) ? $result['source_reports']['interaction_candidates'] : array(),
+            'superseded_selectors' => array_values(array_filter(
+                is_array($result['source_reports']['superseded_selectors'] ?? null) ? $result['source_reports']['superseded_selectors'] : array(),
+                static fn (mixed $selector): bool => is_string($selector) && '' !== $selector
+            )),
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $runtimeIslands
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function runtimeIslandsWithMaterializedInlineScripts(array $runtimeIslands, string $sourcePath, array $files): array
+    {
+        $inlineScripts = array_values(array_filter($files, fn (mixed $file): bool => is_array($file) && 'inline-script' === ($file['source'] ?? '') && $sourcePath === ($file['source_path'] ?? '') && $this->isMaterializedScriptAsset($file)));
+        foreach ( $runtimeIslands as &$runtimeIsland ) {
+            if ( ! is_array($runtimeIsland) || 'script' === ($runtimeIsland['kind'] ?? '') ) {
+                continue;
+            }
+            $requiredScripts = is_array($runtimeIsland['required_scripts'] ?? null) ? $runtimeIsland['required_scripts'] : array();
+            foreach ( $inlineScripts as $file ) {
+                $content = is_scalar($file['content'] ?? null) ? trim((string) $file['content']) : '';
+                if ( '' === $content || ! $this->inlineScriptReferencesRuntimeIsland($content, $runtimeIsland) ) {
+                    continue;
+                }
+                $requiredScripts[] = array_filter(array(
+                    'script_source_kind' => 'inline',
+                    'script_role'        => 'first_party',
+                    'selector'           => is_scalar($file['selector'] ?? null) ? (string) $file['selector'] : '',
+                    'script_body'        => $content,
+                    'body_bytes'         => strlen($content),
+                    'body_truncated'     => false,
+                    'attributes'         => $this->inlineScriptAttributes($file),
+                ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+            }
+            $runtimeIsland['required_scripts'] = $this->dedupeArrayRows($requiredScripts);
+        }
+        unset($runtimeIsland);
+
+        foreach ( $files as $file ) {
+            if ( ! is_array($file) || 'inline-script' !== ($file['source'] ?? '') || $sourcePath !== ($file['source_path'] ?? '') || ! $this->isMaterializedScriptAsset($file) ) {
+                continue;
+            }
+
+            $selector = is_scalar($file['selector'] ?? null) ? (string) $file['selector'] : '';
+            $content = is_scalar($file['content'] ?? null) ? trim((string) $file['content']) : '';
+            if ( '' === $selector || '' === $content || $this->hasRuntimeIsland($runtimeIslands, 'script', $selector) ) {
+                continue;
+            }
+
+            $attributes = $this->inlineScriptAttributes($file);
+
+            $attributeHtml = '';
+            foreach ( $attributes as $name => $value ) {
+                if ( $name === $value ) {
+                    $attributeHtml .= ' ' . $name;
+                    continue;
+                }
+                $attributeHtml .= ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+
+            $runtimeIslands[] = array_filter(array(
+                'kind'                => 'script',
+                'selector'            => $selector,
+                'tag'                 => 'script',
+                'diagnostic_code'     => 'preserved_runtime_island',
+                'preservation_reason' => 'script_requires_runtime',
+                'runtime_requirement' => 'client_script_execution',
+                'source_snippet'      => '<script' . $attributeHtml . '></script>',
+                'source_bytes'        => strlen($content),
+                'source_truncated'    => false,
+                'attributes'          => $attributes,
+                'script_role'         => 'first_party',
+                'script_source_kind'  => 'inline',
+                'script_body'         => $content,
+                'body_bytes'          => strlen($content),
+                'body_truncated'      => false,
+                'required_assets'     => array(),
+                'required_scripts'    => array(),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+        }
+
+        return $runtimeIslands;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $runtimeIslands
+     */
+    private function hasRuntimeIsland(array $runtimeIslands, string $kind, string $selector): bool
+    {
+        foreach ( $runtimeIslands as $island ) {
+            if ( is_array($island) && $kind === ($island['kind'] ?? '') && $selector === ($island['selector'] ?? '') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $runtimeIsland
+     */
+    private function inlineScriptReferencesRuntimeIsland(string $content, array $runtimeIsland): bool
+    {
+        $attributes = is_array($runtimeIsland['attributes'] ?? null) ? $runtimeIsland['attributes'] : array();
+        $id = is_scalar($attributes['id'] ?? null) ? trim((string) $attributes['id']) : '';
+        if ( '' !== $id && str_contains($content, $id) ) {
+            return true;
+        }
+
+        $classes = preg_split('/\s+/', is_scalar($attributes['class'] ?? null) ? trim((string) $attributes['class']) : '') ?: array();
+        foreach ( $classes as $class ) {
+            if ( '' !== $class && str_contains($content, $class) ) {
+                return true;
+            }
+        }
+
+        $selector = is_scalar($runtimeIsland['selector'] ?? null) ? trim((string) $runtimeIsland['selector']) : '';
+        return '' !== $selector && str_contains($content, $selector);
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     * @return array<string, string>
+     */
+    private function inlineScriptAttributes(array $file): array
+    {
+        $attributes = array();
+        if ( isset($file['type']) && is_scalar($file['type']) && '' !== trim((string) $file['type']) ) {
+            $attributes['type'] = (string) $file['type'];
+        }
+        foreach ( array('defer', 'async') as $field ) {
+            if ( ! empty($file[$field]) ) {
+                $attributes[$field] = $field;
+            }
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * @param array<int, mixed> $rows
+     * @return array<int, mixed>
+     */
+    private function dedupeArrayRows(array $rows): array
+    {
+        $deduped = array();
+        $seen = array();
+        foreach ( $rows as $row ) {
+            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
+            if ( ! is_string($key) || isset($seen[$key]) ) {
+                continue;
+            }
+            $seen[$key] = true;
+            $deduped[] = $row;
+        }
+
+        return $deduped;
     }
 
     /**
@@ -291,6 +485,147 @@ final class ArtifactCompiler
     }
 
     /**
+     * Collect the `<link>` tags declared across the artifact's HTML sources so
+     * downstream font materialization can detect linked web-font stylesheets
+     * (e.g. Google Fonts) without re-parsing every document. Deduplicated to
+     * stay bounded for multi-page sites that repeat a shared `<head>`.
+     *
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function themeFontLinkHtml(array $files): string
+    {
+        $tags = array();
+        foreach ( $files as $file ) {
+            if ( 'html' !== ($file['kind'] ?? '') || ! is_string($file['content'] ?? null) ) {
+                continue;
+            }
+            if ( ! preg_match_all('/<link\b[^>]*>/i', (string) $file['content'], $matches) ) {
+                continue;
+            }
+            foreach ( $matches[0] as $tag ) {
+                $tags[trim((string) $tag)] = true;
+            }
+        }
+
+        return implode("\n", array_keys($tags));
+    }
+
+    /**
+     * Aggregate the artifact's authored CSS (linked stylesheet files plus inline
+     * `<style>` blocks) so downstream font materialization can read generic
+     * `font-family` declarations. Deduplicated and order-preserving.
+     *
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function themeStaticCss(array $files): string
+    {
+        $blocks = array();
+        foreach ( $files as $file ) {
+            $content = is_string($file['content'] ?? null) ? (string) $file['content'] : '';
+            if ( '' === trim($content) ) {
+                continue;
+            }
+
+            if ( 'css' === ($file['kind'] ?? '') ) {
+                $blocks[trim($content)] = true;
+                continue;
+            }
+
+            if ( 'html' === ($file['kind'] ?? '') && preg_match_all('/<style\b[^>]*>(.*?)<\/style>/is', $content, $matches) ) {
+                foreach ( $matches[1] as $style ) {
+                    $style = trim((string) $style);
+                    if ( '' !== $style ) {
+                        $blocks[$style] = true;
+                    }
+                }
+            }
+        }
+
+        return implode("\n", array_keys($blocks));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, string>
+     */
+    private function runtimeDomSelectors(string $html, string $sourcePath, array $files): array
+    {
+        $selectors = array();
+        $controlSelectors = $this->formControlSelectors($html);
+        $statusFeedbackSelectors = $this->formStatusFeedbackSelectors($html);
+        foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
+            $runtimeControlSelectors = $this->scriptControlRuntimeSelectors($script);
+            foreach ( $this->scriptDomSelectors($script) as $selector ) {
+                if ( isset($controlSelectors[$selector]) && ! isset($runtimeControlSelectors[$selector]) ) {
+                    continue;
+                }
+                $selectors[$selector] = true;
+            }
+        }
+
+        foreach ( $this->allScriptContents($files) as $script ) {
+            foreach ( $this->scriptDomSelectors($script) as $selector ) {
+                if ( isset($statusFeedbackSelectors[$selector]) ) {
+                    $selectors[$selector] = true;
+                }
+            }
+        }
+
+        return array_keys($selectors);
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    private function formStatusFeedbackSelectors(string $html): array
+    {
+        $selectors = array();
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if ( ! $loaded ) {
+            return array();
+        }
+
+        foreach ( $document->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement || ! $this->isFormStatusFeedbackElement($element) ) {
+                continue;
+            }
+
+            $id = trim($element->hasAttribute('id') ? $element->getAttribute('id') : '');
+            if ( '' !== $id ) {
+                $selectors['#' . $id] = true;
+            }
+            foreach ( preg_split('/\s+/', trim($element->hasAttribute('class') ? $element->getAttribute('class') : '')) ?: array() as $class ) {
+                if ( '' !== $class && ! $this->isBehaviorHookClassName($class) ) {
+                    $selectors['.' . $class] = true;
+                }
+            }
+        }
+
+        return $selectors;
+    }
+
+    private function isFormStatusFeedbackElement(DOMElement $element): bool
+    {
+        if ( in_array(strtolower($element->tagName), array('button', 'input', 'select', 'textarea', 'form', 'script', 'style'), true) ) {
+            return false;
+        }
+
+        $tokens = strtolower(trim(implode(' ', array(
+            $element->hasAttribute('id') ? $element->getAttribute('id') : '',
+            $element->hasAttribute('class') ? $element->getAttribute('class') : '',
+            $element->hasAttribute('role') ? $element->getAttribute('role') : '',
+            $element->hasAttribute('aria-live') ? 'aria-live' : '',
+        ))));
+
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:form|contact|newsletter|signup|subscribe|submission|submit|message|status|feedback|alert|notice|response|success|error|warning|confirmation|thanks?)(?:[^a-z0-9]|$)/', $tokens)
+            && (bool) preg_match('/(?:^|[^a-z0-9])(?:success|error|message|status|feedback|alert|notice|response|warning|confirmation|thanks?|aria-live)(?:[^a-z0-9]|$)/', $tokens);
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $files
      * @return array<int, string>
      */
@@ -303,9 +638,48 @@ final class ArtifactCompiler
 
         $selectors = array();
         foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
-            foreach ( $this->scriptDomSelectors($script) as $selector ) {
+            foreach ( $this->scriptCanvasSelectors($script) as $selector ) {
                 if ( isset($canvasSelectors[$selector]) ) {
                     $selectors[$selector] = true;
+                }
+            }
+        }
+
+        return array_keys($selectors);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function scriptCanvasSelectors(string $script): array
+    {
+        $selectors = array();
+        $getContextPattern = '\.\s*getContext\s*\(';
+
+        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*' . $getContextPattern . '/', $script, $matches) ) {
+            foreach ( $matches[2] as $id ) {
+                $selectors['#' . (string) $id] = true;
+            }
+        }
+
+        if ( preg_match_all('/document\s*\.\s*querySelector\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*' . $getContextPattern . '/', $script, $matches) ) {
+            foreach ( $matches[2] as $selector ) {
+                $selectors[(string) $selector] = true;
+            }
+        }
+
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+            foreach ( $assignments as $assignment ) {
+                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $getContextPattern . '/', $script) ) {
+                    $selectors['#' . (string) $assignment[3]] = true;
+                }
+            }
+        }
+
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*querySelector\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+            foreach ( $assignments as $assignment ) {
+                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $getContextPattern . '/', $script) ) {
+                    $selectors[(string) $assignment[3]] = true;
                 }
             }
         }
@@ -344,6 +718,61 @@ final class ArtifactCompiler
         }
 
         return $selectors;
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    private function formControlSelectors(string $html): array
+    {
+        $selectors = array();
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if ( ! $loaded ) {
+            return array();
+        }
+
+        foreach ( $document->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement || ! in_array(strtolower($element->tagName), array('button', 'input', 'select', 'textarea'), true) ) {
+                continue;
+            }
+
+            $id = trim($element->hasAttribute('id') ? $element->getAttribute('id') : '');
+            if ( '' !== $id ) {
+                $selectors['#' . $id] = true;
+            }
+            foreach ( preg_split('/\s+/', trim($element->hasAttribute('class') ? $element->getAttribute('class') : '')) ?: array() as $class ) {
+                if ( '' !== $class ) {
+                    $selectors['.' . $class] = true;
+                }
+            }
+        }
+
+        return $selectors;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, string>
+     */
+    private function allScriptContents(array $files): array
+    {
+        $scripts = array();
+        foreach ( $files as $file ) {
+            if ( $this->isMaterializedScriptAsset($file) && is_string($file['content'] ?? null) ) {
+                $scripts[] = (string) $file['content'];
+            }
+        }
+
+        return $scripts;
+    }
+
+    private function isBehaviorHookClassName(string $className): bool
+    {
+        return 1 === preg_match('/^js(?:$|[-_:]|[A-Z])/', $className);
     }
 
     /**
@@ -389,8 +818,54 @@ final class ArtifactCompiler
                 $selectors[(string) $selector] = true;
             }
         }
+        if ( preg_match_all('/\b(?!document\b)[A-Za-z_$][A-Za-z0-9_$]*\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
+            foreach ( $matches[2] as $selector ) {
+                $selectors[(string) $selector] = true;
+            }
+        }
+        if ( preg_match_all('/\.\s*closest\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
+            foreach ( $matches[2] as $selector ) {
+                $selectors[(string) $selector] = true;
+            }
+        }
 
         return array_keys($selectors);
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    private function scriptControlRuntimeSelectors(string $script): array
+    {
+        $selectors = array();
+        $runtimeUsePattern = '\.\s*(?:addEventListener|value|checked|selectedIndex|selectedOptions|options|files|validity|setCustomValidity|focus|select|click|dispatchEvent)\b';
+
+        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*(?:\.\s*[^;\n]*)?' . $runtimeUsePattern . '/', $script, $matches) ) {
+            foreach ( $matches[2] as $id ) {
+                $selectors['#' . (string) $id] = true;
+            }
+        }
+        if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*(?:\.\s*[^;\n]*)?' . $runtimeUsePattern . '/', $script, $matches) ) {
+            foreach ( $matches[2] as $selector ) {
+                $selectors[(string) $selector] = true;
+            }
+        }
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+            foreach ( $assignments as $assignment ) {
+                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $runtimeUsePattern . '/', $script) ) {
+                    $selectors['#' . (string) $assignment[3]] = true;
+                }
+            }
+        }
+        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])([#.][A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+            foreach ( $assignments as $assignment ) {
+                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $runtimeUsePattern . '/', $script) ) {
+                    $selectors[(string) $assignment[3]] = true;
+                }
+            }
+        }
+
+        return $selectors;
     }
 
     private function htmlAttribute(string $tag, string $name): string
@@ -510,19 +985,24 @@ final class ArtifactCompiler
             'assets'      => $this->compiledSiteAssets($assets),
             'template_parts' => $this->compiledSiteTemplateParts($artifact['files']),
             'visual_repair' => $this->compiledSiteVisualRepair($assets),
-            'theme'       => array(
-                'stylesheets' => $this->assetPathsByIntentOrRole($assets, 'style', 'stylesheet'),
-                'scripts'     => $this->assetPathsByIntentOrRole($assets, 'behavior', 'script'),
-                'fonts'       => $this->assetPathsByRole($assets, 'font'),
-                'images'      => $this->assetPathsByRole($assets, 'image'),
-                'template_parts' => array_values(array_map(
-                    static fn (array $part): string => (string) ($part['source_path'] ?? ''),
-                    $this->compiledSiteTemplateParts($artifact['files'])
-                )),
-                'block_types' => array_values(array_map(
-                    static fn (array $blockType): string => (string) ($blockType['name'] ?? ''),
-                    $blockTypes
-                )),
+            'theme'       => array_filter(
+                array(
+                    'stylesheets' => $this->assetPathsByIntentOrRole($assets, 'style', 'stylesheet'),
+                    'scripts'     => $this->assetPathsByIntentOrRole($assets, 'behavior', 'script'),
+                    'fonts'       => $this->assetPathsByRole($assets, 'font'),
+                    'images'      => $this->assetPathsByRole($assets, 'image'),
+                    'font_link_html' => $this->themeFontLinkHtml($artifact['files']),
+                    'static_css'  => $this->themeStaticCss($artifact['files']),
+                    'template_parts' => array_values(array_map(
+                        static fn (array $part): string => (string) ($part['source_path'] ?? ''),
+                        $this->compiledSiteTemplateParts($artifact['files'])
+                    )),
+                    'block_types' => array_values(array_map(
+                        static fn (array $blockType): string => (string) ($blockType['name'] ?? ''),
+                        $blockTypes
+                    )),
+                ),
+                static fn (mixed $value): bool => '' !== $value && array() !== $value
             ),
             'totals'      => array(
                 'pages'       => count($pages),
@@ -582,6 +1062,65 @@ final class ArtifactCompiler
         }
 
         return $metadata;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function runtimeScriptMetadataForSource(string $html, string $sourcePath, array $files): array
+    {
+        if ( ! preg_match_all('/<script\b[^>]*>/i', $html, $matches) ) {
+            return array();
+        }
+
+        $metadata = array();
+        foreach ( $matches[0] as $tag ) {
+            $src = $this->htmlAttribute((string) $tag, 'src');
+            if ( '' === $src ) {
+                continue;
+            }
+
+            $asset = $this->findAssetByHtmlReference($src, $sourcePath, $files);
+            if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) ) {
+                continue;
+            }
+
+            $metadata[] = array_filter(array(
+                'path'               => (string) ($asset['path'] ?? ''),
+                'selector'           => 'script[src="' . $src . '"]',
+                'attributes'         => array_filter(array(
+                    'src'   => $src,
+                    'type'  => $this->htmlAttribute((string) $tag, 'type'),
+                    'async' => $this->htmlAttribute((string) $tag, 'async'),
+                    'defer' => $this->htmlAttribute((string) $tag, 'defer'),
+                ), static fn (string $value): bool => '' !== $value),
+                'script_role'        => 'runtime',
+                'script_source_kind' => 'external',
+            ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
+        }
+
+        return $this->dedupeRows($metadata);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function dedupeRows(array $rows): array
+    {
+        $seen = array();
+        $deduped = array();
+        foreach ( $rows as $row ) {
+            $key = json_encode($row, JSON_UNESCAPED_SLASHES);
+            if ( ! is_string($key) || isset($seen[$key]) ) {
+                continue;
+            }
+            $seen[$key] = true;
+            $deduped[] = $row;
+        }
+
+        return $deduped;
     }
 
     /**
@@ -1767,12 +2306,19 @@ final class ArtifactCompiler
      */
     private function statusFromDiagnostics(array $diagnostics): string
     {
+        $warningDiagnostics = array();
         foreach ( $diagnostics as $diagnostic ) {
             if ( 'error' === ($diagnostic['severity'] ?? '') ) {
                 return 'failed';
             }
+
+            if ( 'preserved_runtime_island' === ($diagnostic['code'] ?? '') ) {
+                continue;
+            }
+
+            $warningDiagnostics[] = $diagnostic;
         }
-        return array() === $diagnostics ? 'success' : 'success_with_warnings';
+        return array() === $warningDiagnostics ? 'success' : 'success_with_warnings';
     }
 
     /**

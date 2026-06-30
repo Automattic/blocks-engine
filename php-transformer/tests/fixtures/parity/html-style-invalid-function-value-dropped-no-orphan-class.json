@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-style-invalid-function-value-dropped-no-orphan-class",
+  "description": "A genuinely invalid/truncated functional color value is dropped cleanly so the block never carries a has-background support class without a matching renderable style; the valid padding alongside it is preserved.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-style-invalid-function-value-dropped-no-orphan-class.json",
+    "notes": "Generic editor-validity invariant: block attributes must always match the rendered has-* classes + inline style."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New validity-guard behavior has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section style=\"padding: 2rem; background: rgba(1, 2\"><h2>Guard</h2></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "style": { "spacing": { "padding": { "top": "2rem", "right": "2rem", "bottom": "2rem", "left": "2rem" } } }, "tagName": "section" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-group\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "padding-top:2rem" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "has-background" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "background" }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-list-item-simple-list-not-decomposed",
+  "description": "A plain-text list and a simple link list stay normal core/list blocks: the structured-card decomposition keys off STRUCTURE (multiple class/style styling-hook inline fragments per item), so a list of plain text or a list of bare <a href> links — which round-trip through core/list-item RichText unchanged — is never over-decomposed into groups.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-list-item-simple-list-not-decomposed.json",
+    "notes": "Negative guard for html-list-item-structured-card-decompose: only the structured-card-in-list-item shape gets special handling."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This fixture asserts that simple lists are left as the legacy/normal core/list output."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<ul><li>Apples</li><li>Oranges</li></ul><ul><li><a href=\"/a\">Alpha</a></li><li><a href=\"/b\">Beta</a></li></ul>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/list" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/list-item", "attrs": { "content": "Apples" } },
+    { "path": "blocks.1", "name": "core/list" },
+    { "path": "blocks.1.innerBlocks.0", "name": "core/list-item", "attrs": { "content": "<a href=\"/a\">Alpha</a>" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<li>Apples</li>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<li><a href=\"/a\">Alpha</a></li>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp:list-item" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:group" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

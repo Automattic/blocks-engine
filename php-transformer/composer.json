@@ -36,6 +36,10 @@
   },
   "scripts": {
     "parity": "@test:parity",
+    "static-parity": "php tools/static-parity/run.php",
+    "live-wp-parity": "php tools/live-wp-parity/run.php",
+    "corpus-diagnostics": "php tools/corpus-diagnostics/run.php",
+    "content-round-trip": "php tools/content-round-trip/run.php",
     "test": [
       "@test:canonical",
       "@test:parity",
@@ -45,7 +49,18 @@
       "php tests/contract/runtime-no-wordpress.php",
       "php tests/contract/runtime-wordpress-stubs.php",
       "php tests/contract/plugin-bootstrap.php",
-      "php tests/contract/run.php"
+      "php tests/contract/run.php",
+      "php tests/contract/finding-contract.php",
+      "@test:unit"
+    ],
+    "test:unit": [
+      "php tests/unit/subtree-classifier.php",
+      "php tests/unit/custom-block-generator.php",
+      "php tests/unit/css-value-splitter.php",
+      "php tests/unit/content-round-trip-reporter.php",
+      "php tests/unit/content-round-trip-form-echo.php",
+      "php tests/unit/corpus-detectors.php",
+      "php tests/unit/live-wp-parity-runner.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",

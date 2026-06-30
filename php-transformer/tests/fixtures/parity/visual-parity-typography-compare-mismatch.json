@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "visual-parity-typography-compare-mismatch",
+  "description": "Compares source and target typography probes and emits a contract visual-parity report with findings when heading/body font-family, weight, and type scale drift.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/visual-parity-typography-compare-mismatch.json",
+    "notes": "Generic PHP-boundary typography comparison; emits the shared visual-parity report contract."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Typography comparison output is a diagnostic contract for visual parity review."
+  },
+  "operation": "typography_parity_probe.compare",
+  "input": {
+    "source_content": "<style>body{font-family:\"Inter\",sans-serif}h1{font-family:\"Playfair Display\",serif;font-size:48px;font-weight:700}p{font-size:18px}</style><body><article><h1>Welcome Home</h1><p>Some intro body copy here.</p></article></body>",
+    "target_content": "<style>body{font-family:Arial,sans-serif}h1{font-size:32px;font-weight:400}p{font-size:18px}</style><body><article><h1>Welcome Home</h1><p>Some intro body copy here.</p></article></body>"
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/visual-parity-report/v1" },
+    { "path": "status", "assert": "equals", "value": "warning" },
+    { "path": "severity", "assert": "equals", "value": "warning" },
+    { "path": "summary.matched_total", "assert": "equals", "value": 2 },
+    { "path": "summary.finding_total", "assert": "equals", "value": 4 },
+    { "path": "matches.0.kind", "assert": "equals", "value": "generic" },
+    { "path": "matches.0.typography.deltas.0.group", "assert": "equals", "value": "family" },
+    { "path": "matches.0.typography.deltas.1.group", "assert": "equals", "value": "weight" },
+    { "path": "matches.0.typography.deltas.2.group", "assert": "equals", "value": "scale" },
+    { "path": "findings.0.category", "assert": "equals", "value": "typography" },
+    { "path": "findings.0.property", "assert": "equals", "value": "font-family" },
+    { "path": "recommendations.0.finding_ids.0", "assert": "equals", "value": "typography-family-1" }
+  ]
+}

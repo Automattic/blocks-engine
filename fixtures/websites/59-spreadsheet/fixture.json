@@ -1,0 +1,11 @@
+{
+  "class": "app/dashboard",
+  "tags": [
+    "spreadsheet",
+    "app",
+    "productivity",
+    "formula-engine",
+    "data-viz"
+  ],
+  "complexity": 4
+}

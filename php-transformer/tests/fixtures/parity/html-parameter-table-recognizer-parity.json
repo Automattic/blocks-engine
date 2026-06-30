@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-parameter-table-recognizer-parity",
+  "description": "Locks byte-identical core/table output for .param-table/.param-row documentation tables after extracting the inline parameterTableBlockFromElement logic into the ParameterTablePattern recognizer. Asserts synthesized Parameter/Type/Description head row, exact body cell serialization, className passthrough, and zero fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-parameter-table-recognizer-parity.json",
+    "notes": "Mirrors the proven endpoint-card param-table shape (nested in a section so block paths are deterministic) to prove the recognizer emits the same bytes as the removed private method."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"endpoint-card\"><h2>GET /v1/widgets</h2><p>Lists widgets for the current account.</p><div class=\"param-table\"><div class=\"param-row\"><div class=\"param-name\"><code>limit</code></div><div class=\"param-type\">integer</div><div class=\"param-desc\">Maximum number of results.</div></div><div class=\"param-row\"><div class=\"param-name\"><code>offset</code></div><div class=\"param-type\">integer</div><div class=\"param-desc\">Result offset for pagination.</div></div></div></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "endpoint-card" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "GET /v1/widgets", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Lists widgets for the current account." } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/table", "attrs": { "className": "param-table" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks.2.attrs.head.0.cells", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks.2.attrs.body", "assert": "count", "count": 2 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<th>Parameter</th><th>Type</th><th>Description</th>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<td><code>limit</code></td><td>integer</td><td>Maximum number of results.</td>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<td><code>offset</code></td><td>integer</td><td>Result offset for pagination.</td>" }
+  ]
+}

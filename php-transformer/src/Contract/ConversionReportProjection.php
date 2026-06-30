@@ -20,18 +20,23 @@ final class ConversionReportProjection
     {
         $report = array(
             'schema'                => self::SCHEMA,
+            'finding_schema'        => ConversionFindingContract::SCHEMA,
             'source_format'         => $sourceFormat,
             'source'                => self::firstString($provenance, 'source'),
             'scope'                 => self::firstString($provenance, 'scope'),
             'source_summary'        => self::sourceSummary($sourceFormat, $blocks, $fallbacks, $sourceReports, $assets, $metrics),
             'selector_summary'      => self::selectorSummary($sourceReports, $fallbacks),
+            'conversion_classification_summary' => self::conversionClassificationSummary($sourceReports, $fallbacks),
             'fallback_diagnostics'  => self::fallbackDiagnostics($fallbacks),
             'asset_refs'            => self::assetReferences($blocks, $sourceReports),
             'navigation_candidates' => self::navigationCandidates($blocks, $sourceReports),
             'semantic_parity'       => self::semanticParity($sourceReports),
             'runtime_dependency_parity' => self::runtimeDependencyParity($sourceReports),
+            'runtime_islands'      => self::runtimeIslands($sourceReports),
             'interaction_candidates' => self::interactionCandidates($sourceReports),
             'presentation_gaps'     => self::presentationGaps($sourceReports),
+            'native_target_blocks'  => self::stringList($sourceReports, 'native_target_blocks'),
+            'available_core_blocks' => self::stringList($sourceReports, 'available_core_blocks'),
             'metrics'               => $metrics,
         );
 
@@ -93,6 +98,11 @@ final class ConversionReportProjection
             self::appendSourcePath($sources, $entry);
         }
 
+        foreach ( self::runtimeIslandSummaryEntries($sourceReports) as $entry ) {
+            self::appendSelector($selectors, $entry, 'runtime_island');
+            self::appendSourcePath($sources, $entry);
+        }
+
         foreach ( self::referenceReports($sourceReports) as $entry ) {
             self::appendSelector($selectors, $entry, 'reference');
             self::appendSourcePath($sources, $entry);
@@ -122,10 +132,18 @@ final class ConversionReportProjection
                     'reason'          => $fallback['reason'] ?? '',
                     'diagnostic_code' => $fallback['diagnostic_code'] ?? '',
                     'severity'        => $fallback['severity'] ?? '',
+                    'conversion_classification' => $fallback['conversion_classification'] ?? '',
+                    'loss_class'      => $fallback['loss_class'] ?? '',
+                    'diagnostic_class' => $fallback['diagnostic_class'] ?? '',
+                    'preservation_strategy' => $fallback['preservation_strategy'] ?? '',
                     'runtime_requirement' => $fallback['runtime_requirement'] ?? '',
                     'recoverability'  => $fallback['recoverability'] ?? '',
                     'actionability'   => $fallback['actionability'] ?? '',
+                    'suggested_repair_class' => $fallback['suggested_repair_class'] ?? '',
+                    'suggested_generic_repair_class' => $fallback['suggested_generic_repair_class'] ?? '',
                     'suggested_primitive' => $fallback['suggested_primitive'] ?? '',
+                    'pattern_family'       => $fallback['pattern_family'] ?? '',
+                    'pattern_family_detail' => $fallback['pattern_family_detail'] ?? '',
                     'materialization_hint' => $fallback['materialization_hint'] ?? '',
                     'source_format'   => $fallback['source_format'] ?? '',
                     'source'          => $fallback['source'] ?? '',
@@ -133,6 +151,10 @@ final class ConversionReportProjection
                     'source_path'            => $fallback['source_path'] ?? '',
                     'tag'                    => $fallback['tag'] ?? '',
                     'selector'               => $fallback['selector'] ?? '',
+                    'source_selector'        => $fallback['source_selector'] ?? '',
+                    'source_selector_specificity' => $fallback['source_selector_specificity'] ?? array(),
+                    'parent_reason'          => $fallback['parent_reason'] ?? '',
+                    'ancestor_reason'        => $fallback['ancestor_reason'] ?? '',
                     'child_count'            => $fallback['child_count'] ?? null,
                     'control_count'          => $fallback['control_count'] ?? null,
                     'form'                   => $fallback['form'] ?? array(),
@@ -147,9 +169,48 @@ final class ConversionReportProjection
                 ),
                 static fn (mixed $value): bool => null !== $value && '' !== $value
             );
+            // Stamp the canonical classification triplet so the compact
+            // conversion-report fallback projection clusters by root cause too;
+            // values carried from the source fallback are honored, not overwritten.
+            $diagnostics[count($diagnostics) - 1] = ConversionFindingContract::withClassification($diagnostics[count($diagnostics) - 1]);
         }
 
         return $diagnostics;
+    }
+
+    /**
+     * @param array<string, mixed> $sourceReports
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>
+     */
+    private static function conversionClassificationSummary(array $sourceReports, array $fallbacks): array
+    {
+        $byClassification = array();
+        $byStrategy = array();
+
+        foreach ( array_merge(self::sourceProvenance($sourceReports), self::fallbackDiagnostics($fallbacks), self::runtimeIslandSummaryEntries($sourceReports)) as $entry ) {
+            if ( ! is_array($entry) ) {
+                continue;
+            }
+
+            $classification = (string) ($entry['conversion_classification'] ?? '');
+            if ( '' !== $classification ) {
+                $byClassification[$classification] = ($byClassification[$classification] ?? 0) + 1;
+            }
+
+            $strategy = (string) ($entry['preservation_strategy'] ?? '');
+            if ( '' !== $strategy ) {
+                $byStrategy[$strategy] = ($byStrategy[$strategy] ?? 0) + 1;
+            }
+        }
+
+        return array_filter(
+            array(
+                'by_classification' => $byClassification,
+                'by_preservation_strategy' => $byStrategy,
+            ),
+            static fn (mixed $value): bool => array() !== $value
+        );
     }
 
     /**
@@ -277,6 +338,46 @@ final class ConversionReportProjection
 
     /**
      * @param array<string, mixed> $sourceReports
+     * @return array<int, array<string, mixed>>
+     */
+    private static function runtimeIslands(array $sourceReports): array
+    {
+        $islands = $sourceReports['runtime_islands'] ?? array();
+        if ( ! is_array($islands) ) {
+            $islands = array();
+        }
+
+        $html = is_array($sourceReports['html'] ?? null) ? $sourceReports['html'] : array();
+        $htmlIslands = is_array($html['runtime_islands'] ?? null) ? $html['runtime_islands'] : array();
+
+        return self::dedupeRows(array_values(array_filter(array_merge($islands, $htmlIslands), static fn (mixed $island): bool => is_array($island))));
+    }
+
+    /**
+     * @param array<string, mixed> $sourceReports
+     * @return array<int, array<string, mixed>>
+     */
+    private static function runtimeIslandSummaryEntries(array $sourceReports): array
+    {
+        $entries = array();
+        foreach ( self::runtimeIslands($sourceReports) as $island ) {
+            $entries[] = array_filter(
+                array(
+                    'selector'                  => $island['selector'] ?? '',
+                    'source_path'               => $island['source_path'] ?? '',
+                    'tag'                       => $island['tag'] ?? '',
+                    'conversion_classification' => 'runtime_island_preserved',
+                    'preservation_strategy'     => $island['preservation_strategy'] ?? 'scoped_runtime_metadata',
+                ),
+                static fn (mixed $value): bool => '' !== $value
+            );
+        }
+
+        return self::dedupeRows($entries);
+    }
+
+    /**
+     * @param array<string, mixed> $sourceReports
      * @return array<string, mixed>
      */
     private static function semanticParity(array $sourceReports): array
@@ -323,6 +424,19 @@ final class ConversionReportProjection
         }
 
         return '';
+    }
+
+    /**
+     * @param array<string, mixed> $sourceReports
+     * @return array<int, string>
+     */
+    private static function stringList(array $sourceReports, string $key): array
+    {
+        if ( ! is_array($sourceReports[$key] ?? null) ) {
+            return array();
+        }
+
+        return array_values(array_filter($sourceReports[$key], static fn (mixed $value): bool => is_string($value) && '' !== $value));
     }
 
     /**
@@ -383,6 +497,8 @@ final class ConversionReportProjection
                 'block_name'  => $entry['block_name'] ?? '',
                 'tag'         => $entry['tag'] ?? ($entry['element'] ?? ''),
                 'attribute'   => $entry['attribute'] ?? '',
+                'conversion_classification' => $entry['conversion_classification'] ?? '',
+                'preservation_strategy' => $entry['preservation_strategy'] ?? '',
             ),
             static fn (mixed $value): bool => '' !== $value
         );

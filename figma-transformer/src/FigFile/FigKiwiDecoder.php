@@ -12,6 +12,13 @@ final class FigKiwiDecoder
     private const TYPES = array('bool', 'byte', 'int', 'uint', 'float', 'string', 'int64', 'uint64');
     private const KINDS = array('ENUM', 'STRUCT', 'MESSAGE');
 
+    private FigKiwiDecodePolicy $decodePolicy;
+
+    public function __construct(?FigKiwiDecodePolicy $decodePolicy = null)
+    {
+        $this->decodePolicy = $decodePolicy ?? new FigKiwiDecodePolicy();
+    }
+
     /**
      * @return array{schema: array<string, mixed>|null, diagnostics: array<int, array<string, mixed>>}
      */
@@ -102,13 +109,48 @@ final class FigKiwiDecoder
                 return array('message' => null, 'diagnostics' => array($this->diagnostic('figma_transformer_kiwi_message_schema_missing', 'Kiwi schema does not define the expected root message.', $rootType)));
             }
 
-            $policy = empty($fieldPolicy) ? $this->defaultScenegraphFieldPolicy() : $fieldPolicy;
+            $policy = empty($fieldPolicy) ? $this->decodePolicy->defaultScenegraphFieldPolicy() : $fieldPolicy;
             $message = $this->decodeDefinitionSelective(new FigKiwiByteReader($payload), $definitions[$rootType], $definitions, $policy);
             return array('message' => is_array($message) ? $message : null, 'diagnostics' => array());
         } catch ( \Throwable $throwable ) {
             return array(
                 'message'     => null,
                 'diagnostics' => array($this->diagnostic('figma_transformer_kiwi_message_decode_failed', 'Kiwi message chunk could not be selectively decoded.', $throwable->getMessage())),
+            );
+        }
+    }
+
+    /**
+     * Inventory fields skipped by the selective scenegraph decoder without changing
+     * the production decoded payload shape.
+     *
+     * @param array<string, mixed> $schema
+     * @return array{inventory: array<string, mixed>|null, diagnostics: array<int, array<string, mixed>>}
+     */
+    public function inventorySkippedFieldsSelective(string $payload, array $schema, string $rootType = 'Message', array $fieldPolicy = array()): array
+    {
+        try {
+            $definitions = $this->definitionsByName($schema);
+            if ( ! isset($definitions[$rootType]) ) {
+                return array('inventory' => null, 'diagnostics' => array($this->diagnostic('figma_transformer_kiwi_message_schema_missing', 'Kiwi schema does not define the expected root message.', $rootType)));
+            }
+
+            $policy = empty($fieldPolicy) ? $this->decodePolicy->defaultScenegraphFieldPolicy() : $fieldPolicy;
+            $inventory = array(
+                'schema'        => 'blocks-engine/figma-transformer/kiwi-skipped-field-inventory/v1',
+                'root_type'     => $rootType,
+                'policy_groups' => $this->decodePolicy->scenegraphFieldPolicyGroups(),
+                'fields'        => array(),
+            );
+            $context = $this->decodePolicy->initialInventoryContext($rootType);
+
+            $this->inventoryDefinitionSelective(new FigKiwiByteReader($payload), $definitions[$rootType], $definitions, $policy, $inventory, $context);
+            $inventory['summary'] = $this->decodePolicy->summarizeSkippedFieldInventory($inventory['fields']);
+            return array('inventory' => $inventory, 'diagnostics' => array());
+        } catch ( \Throwable $throwable ) {
+            return array(
+                'inventory'   => null,
+                'diagnostics' => array($this->diagnostic('figma_transformer_kiwi_message_decode_failed', 'Kiwi message chunk could not be inventoried.', $throwable->getMessage())),
             );
         }
     }
@@ -375,49 +417,207 @@ final class FigKiwiDecoder
     /**
      * @return array<string, array<int, string>>
      */
-    private function defaultScenegraphFieldPolicy(): array
+    public function defaultScenegraphFieldPolicy(): array
     {
-        return array(
-            'Message' => array('type', 'nodeChanges', 'blobs', 'blobBaseIndex', 'fileVersion'),
-            'NodeChange' => array(
-                'guid', 'parentIndex', 'type', 'name', 'visible', 'opacity', 'size', 'transform',
-                'useAbsoluteBounds', 'cornerRadius', 'rectangleTopLeftCornerRadius',
-                'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius',
-                'rectangleBottomRightCornerRadius', 'fillPaints', 'strokePaints', 'backgroundPaints',
-                'fillGeometry', 'strokeGeometry', 'vectorData', 'key', 'componentKey',
-                'componentOrStateGroupKey', 'originComponentKey', 'componentId', 'mainComponentId',
-                'mainComponent', 'component', 'symbolData', 'derivedSymbolData', 'guidPath',
-                'fontSize', 'fontName', 'textData', 'lineHeight', 'letterSpacing',
-                'paragraphIndent', 'paragraphSpacing', 'styleID',
-                'textAlignHorizontal', 'textAlignVertical', 'textCase', 'textDecoration', 'textAutoResize', 'horizontalConstraint',
-                'verticalConstraint', 'stackWidth', 'stackHeight', 'stackPrimarySizing',
-                'stackMode', 'stackSpacing', 'stackHorizontalPadding', 'stackVerticalPadding',
-                'stackPadding', 'stackPaddingLeft', 'stackPaddingRight', 'stackPaddingTop', 'stackPaddingBottom',
-                'stackPrimaryAlignItems', 'stackCounterAlignItems', 'stackCounterSizing',
-                'stackWrap', 'stackCounterSpacing', 'stackReverseZIndex',
-                'stackChildPrimaryGrow', 'stackChildAlignSelf', 'stackPositioning', 'resizeToFit', 'isClip', 'minSize', 'maxSize',
-            ),
-            'GUID' => array('sessionID', 'localID'),
-            'ParentIndex' => array('guid', 'position'),
-            'Vector' => array('x', 'y'),
-            'Matrix' => array('m00', 'm01', 'm02', 'm10', 'm11', 'm12'),
-            'OptionalVector' => array('x', 'y'),
-            'Color' => array('r', 'g', 'b', 'a'),
-            'ColorStop' => array('position', 'color'),
-            'FontName' => array('family', 'style', 'postscript'),
-            'TextData' => array('characters', 'layoutSize'),
-            'Number' => array('value', 'units'),
-            'Paint' => array('type', 'color', 'opacity', 'visible', 'stops', 'transform', 'image', 'imageScaleMode', 'originalImageWidth', 'originalImageHeight', 'altText'),
-            'Image' => array('hash', 'name'),
-            'Blob' => array('bytes'),
-            'Path' => array('commandsBlob', 'windingRule', 'styleID'),
-            'VectorPath' => array('commandsBlob', 'windingRule', 'styleID'),
-            'VectorData' => array('vectorNetworkBlob', 'vectorNetwork'),
-            'SymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
-            'DerivedSymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
-            'GUIDPath' => array('guids'),
-            'StyleId' => array('guid'),
-        );
+        return $this->decodePolicy->defaultScenegraphFieldPolicy();
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    public function scenegraphFieldPolicyGroups(): array
+    {
+        return $this->decodePolicy->scenegraphFieldPolicyGroups();
+    }
+
+    /**
+     * @param array<string, mixed>                $definition
+     * @param array<string, array<string, mixed>> $definitions
+     * @param array<string, array<int, string>>   $fieldPolicy
+     * @param array<string, mixed>                $inventory
+     * @param array<string, mixed>                $context
+     */
+    private function inventoryDefinitionSelective(FigKiwiByteReader $reader, array $definition, array $definitions, array $fieldPolicy, array &$inventory, array $context): void
+    {
+        $typeName = (string) ($definition['name'] ?? '');
+        $allowed = array_flip($fieldPolicy[$typeName] ?? array());
+        $context['parent_type'] = $typeName;
+
+        if ( 'MESSAGE' === ($definition['kind'] ?? null) ) {
+            $fieldsByValue = array();
+            foreach ( $definition['fields'] ?? array() as $field ) {
+                if ( is_array($field) ) {
+                    $fieldsByValue[(int) ($field['value'] ?? 0)] = $field;
+                }
+            }
+
+            while ( true ) {
+                $fieldValue = $reader->readVarUint();
+                if ( 0 === $fieldValue ) {
+                    return;
+                }
+                if ( ! isset($fieldsByValue[$fieldValue]) ) {
+                    throw new \RuntimeException('Attempted to inventory invalid message field ' . $fieldValue . '.');
+                }
+
+                $field = $fieldsByValue[$fieldValue];
+                $fieldName = (string) ($field['name'] ?? '');
+                if ( isset($allowed[$fieldName]) ) {
+                    $this->inventoryDecodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $inventory, $context);
+                } else {
+                    $this->recordSkippedField($inventory, $field, $context);
+                    $this->skipField($reader, $field, $definitions);
+                }
+            }
+        }
+
+        foreach ( $definition['fields'] ?? array() as $field ) {
+            if ( ! is_array($field) ) {
+                continue;
+            }
+
+            $fieldName = (string) ($field['name'] ?? '');
+            if ( isset($allowed[$fieldName]) ) {
+                $this->inventoryDecodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $inventory, $context);
+            } else {
+                $this->recordSkippedField($inventory, $field, $context);
+                $this->skipField($reader, $field, $definitions);
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed>                $field
+     * @param array<string, array<string, mixed>> $definitions
+     * @param array<string, array<int, string>>   $fieldPolicy
+     * @param array<string, mixed>                $inventory
+     * @param array<string, mixed>                $context
+     */
+    private function inventoryDecodeFieldSelective(FigKiwiByteReader $reader, array $field, array $definitions, array $fieldPolicy, array &$inventory, array &$context): void
+    {
+        $fieldName = (string) ($field['name'] ?? '');
+        $type = (string) ($field['type'] ?? '');
+        $fieldPath = (string) ($context['path'] ?? '') . '.' . $fieldName;
+
+        if ( true === ($field['is_array'] ?? false) ) {
+            if ( 'byte' === $type ) {
+                $value = $reader->readByteArray();
+            } else {
+                $length = $reader->readVarUint();
+                $value = array();
+                for ( $i = 0; $i < $length; $i++ ) {
+                    $elementContext = $context;
+                    $elementContext['path'] = $fieldPath . '[]';
+                    $value[] = $this->inventoryDecodeValueSelective($reader, $type, $definitions, $fieldPolicy, $inventory, $elementContext);
+                }
+            }
+        } else {
+            $value = $this->inventoryDecodeValueSelective($reader, $type, $definitions, $fieldPolicy, $inventory, array_merge($context, array('path' => $fieldPath)));
+        }
+
+        if ( 'NodeChange' === ($context['parent_type'] ?? null) ) {
+            if ( 'type' === $fieldName && is_scalar($value) ) {
+                $context['node_type'] = (string) $value;
+            } elseif ( 'guid' === $fieldName ) {
+                $context['node_id'] = $this->decodePolicy->formatInventoryNodeId($value);
+            }
+        }
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $definitions
+     * @param array<string, array<int, string>>   $fieldPolicy
+     * @param array<string, mixed>                $inventory
+     * @param array<string, mixed>                $context
+     */
+    private function inventoryDecodeValueSelective(FigKiwiByteReader $reader, string $type, array $definitions, array $fieldPolicy, array &$inventory, array $context): mixed
+    {
+        return match ( $type ) {
+            'bool' => 0 !== $reader->readByte(),
+            'byte' => $reader->readByte(),
+            'int' => $reader->readVarInt(),
+            'uint' => $reader->readVarUint(),
+            'float' => $reader->readVarFloat(),
+            'string' => $reader->readString(),
+            'int64' => $reader->readVarInt64(),
+            'uint64' => $reader->readVarUint64(),
+            default => $this->inventoryDecodeNamedValueSelective($reader, $type, $definitions, $fieldPolicy, $inventory, $context),
+        };
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $definitions
+     * @param array<string, array<int, string>>   $fieldPolicy
+     * @param array<string, mixed>                $inventory
+     * @param array<string, mixed>                $context
+     */
+    private function inventoryDecodeNamedValueSelective(FigKiwiByteReader $reader, string $type, array $definitions, array $fieldPolicy, array &$inventory, array $context): mixed
+    {
+        $definition = $definitions[$type] ?? null;
+        if ( ! is_array($definition) ) {
+            throw new \RuntimeException('Invalid Kiwi type ' . $type . '.');
+        }
+
+        if ( 'ENUM' === ($definition['kind'] ?? null) ) {
+            $value = $reader->readVarUint();
+            foreach ( $definition['fields'] ?? array() as $field ) {
+                if ( is_array($field) && (int) ($field['value'] ?? -1) === $value ) {
+                    return (string) ($field['name'] ?? $value);
+                }
+            }
+            return $value;
+        }
+
+        if ( 'STRUCT' === ($definition['kind'] ?? null) ) {
+            return $this->decodeDefinitionSelective($reader, $definition, $definitions, $fieldPolicy);
+        }
+
+        $childContext = $context;
+        $childContext['parent_type'] = $type;
+        if ( 'NodeChange' === $type ) {
+            $childContext['node_type'] = null;
+            $childContext['node_id'] = null;
+        }
+
+        $this->inventoryDefinitionSelective($reader, $definition, $definitions, $fieldPolicy, $inventory, $childContext);
+        return array();
+    }
+
+    /**
+     * @param array<string, mixed> $inventory
+     * @param array<string, mixed> $field
+     * @param array<string, mixed> $context
+     */
+    private function recordSkippedField(array &$inventory, array $field, array $context): void
+    {
+        $fieldName = (string) ($field['name'] ?? '');
+        $type = (string) ($field['type'] ?? '');
+        $parentType = (string) ($context['parent_type'] ?? '');
+        $path = (string) ($context['path'] ?? $parentType) . '.' . $fieldName;
+        $role = $this->decodePolicy->classifySkippedFieldRole($fieldName, $type);
+        $key = $parentType . '|' . $path . '|' . $fieldName . '|' . $type;
+
+        if ( ! isset($inventory['fields'][$key]) ) {
+            $inventory['fields'][$key] = array(
+                'path'            => $path,
+                'field'           => $fieldName,
+                'type'            => $type,
+                'parent_message'  => $parentType,
+                'field_role'      => $role,
+                'is_array'        => true === ($field['is_array'] ?? false),
+                'occurrences'     => 0,
+                'node_types'      => array(),
+                'sample_node_ids' => array(),
+            );
+        }
+
+        $inventory['fields'][$key]['occurrences']++;
+        $nodeType = is_scalar($context['node_type'] ?? null) ? (string) $context['node_type'] : 'unknown';
+        $inventory['fields'][$key]['node_types'][$nodeType] = ($inventory['fields'][$key]['node_types'][$nodeType] ?? 0) + 1;
+        $nodeId = is_scalar($context['node_id'] ?? null) ? (string) $context['node_id'] : '';
+        if ( '' !== $nodeId && count($inventory['fields'][$key]['sample_node_ids']) < 5 && ! in_array($nodeId, $inventory['fields'][$key]['sample_node_ids'], true) ) {
+            $inventory['fields'][$key]['sample_node_ids'][] = $nodeId;
+        }
     }
 
     /**

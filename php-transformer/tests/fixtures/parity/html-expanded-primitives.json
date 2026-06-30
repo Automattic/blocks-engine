@@ -16,11 +16,11 @@
     "content": "<main><section class=\"feature-strip\" style=\"padding:2rem\"><h2 class=\"eyebrow\" style=\"color:red\">Specs</h2><p>Use <span class=\"tone\" style=\"font-weight:700\"><mark>inline</mark></span> marks.</p><dl class=\"definitions\"><dt>Latency</dt><dd><span class=\"metric\">Low</span> response time</dd><dt>Fallback</dt><dd>Preserved safely</dd></dl><address class=\"contact-card\"><strong>Studio</strong><br>142 Bay Street<br>Eureka, CA</address></section><form action=\"/subscribe\"><label>Email <input name=\"email\"></label><script>alert(1)</script></form></main>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "feature-strip", "style": "padding:2rem" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Specs", "level": 2, "className": "eyebrow", "style": "color:red" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Use <span class=\"tone\" style=\"font-weight:700\"><mark>inline</mark></span> marks." } },
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "feature-strip", "style": { "spacing": { "padding": { "top": "2rem", "right": "2rem", "bottom": "2rem", "left": "2rem" } } } } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Specs", "level": 2, "className": "eyebrow", "style": { "color": { "text": "red" } } } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Use <mark>inline</mark> marks." } },
     { "path": "blocks.0.innerBlocks.2", "name": "core/list", "attrs": { "className": "definitions" } },
-    { "path": "blocks.0.innerBlocks.2.innerBlocks.0", "name": "core/list-item", "attrs": { "content": "<strong>Latency</strong> <span class=\"metric\">Low</span> response time" } },
+    { "path": "blocks.0.innerBlocks.2.innerBlocks.0", "name": "core/list-item", "attrs": { "content": "<strong>Latency</strong> Low response time" } },
     { "path": "blocks.0.innerBlocks.2.innerBlocks.1", "name": "core/list-item", "attrs": { "content": "<strong>Fallback</strong> Preserved safely" } },
     { "path": "blocks.0.innerBlocks.3", "name": "core/paragraph", "attrs": { "className": "contact-card", "content": "<strong>Studio</strong><br>142 Bay Street<br>Eureka, CA" } }
   ],

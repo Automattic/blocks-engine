@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-button-style-fidelity-unstyled-default",
+  "description": "Negative case: a button-class anchor with no resolvable source color/border CSS is not fabricated with colors. It converts to a default core/button with no style attribute, has-background, or inline color styling.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-button-style-fidelity-unstyled-default.json",
+    "notes": "Generic style-fidelity negative fixture: unstyled buttons stay default (issue #233)."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New native button style-fidelity behavior has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><a class=\"btn cta-link\" href=\"/go\">Go now</a></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Go now", "url": "/go", "className": "btn cta-link" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button btn cta-link\"><a class=\"wp-block-button__link wp-element-button\" href=\"/go\">Go now</a></div>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "has-background" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "has-text-color" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "style=" }
+  ]
+}

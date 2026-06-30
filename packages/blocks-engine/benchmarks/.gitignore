@@ -1,0 +1,5 @@
+# Local tuning artifacts — not committed (per plan-deep-review).
+# Attribution history is a local tuning aid; the committed baselines/ carry the
+# cross-session regression signal.
+.cache/
+results.jsonl

@@ -1,0 +1,5 @@
+.claude/worktrees/
+.superpowers/
+dist/
+**/docs/superpowers/
+node_modules/

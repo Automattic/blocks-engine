@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-explicit-grid-class-non-card-children",
+  "description": "An explicit grid class (grid-3) emits layout:{type:grid} even when children are plain wrapper divs rather than recognized card markup, so the multi-column arrangement survives instead of collapsing to a vertical stack.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-explicit-grid-class-non-card-children.json",
+    "notes": "Derived from SSI website fixtures (e.g. realistic-small-business events/index) where grid-3 process steps use neutral reveal wrappers with no card token."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"section\"><div class=\"grid-3\" style=\"gap:1.5rem\"><div class=\"reveal reveal-delay-1\"><div class=\"step-number\">01</div><h4>You Call, We Plan</h4><p>We discuss your space and goals.</p></div><div class=\"reveal reveal-delay-2\"><div class=\"step-number\">02</div><h4>We Build</h4><p>Our team assembles everything.</p></div><div class=\"reveal reveal-delay-3\"><div class=\"step-number\">03</div><h4>You Enjoy</h4><p>Sit back and relax.</p></div></div></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "section" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "grid-3", "layout": { "type": "grid" } } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "reveal reveal-delay-1" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "reveal reveal-delay-2" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/group", "attrs": { "className": "reveal reveal-delay-3" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "level": 4 } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"grid-3\",\"layout\":{\"type\":\"grid\"}} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"className\":\"reveal reveal-delay-1\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:heading {\"content\":\"You Call, We Plan\",\"level\":4} -->" }
+  ]
+}

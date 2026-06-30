@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "static-style-parity-compare-mismatch",
+  "description": "When the candidate drops effective styling (an unstyled hero section and a button that lost its fill and radius), the deterministic static parity comparator reports a failing score and names exactly which CSS property on which selector diverged.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/static-style-parity-compare-mismatch.json",
+    "notes": "Regression case proves per-element / per-property actionability, replacing an opaque pixel ratio."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Static style parity comparison emits the shared visual-parity report contract."
+  },
+  "operation": "static_style_parity.compare",
+  "input": {
+    "source_content": "<style>body{font-family:\"Inter\",sans-serif;color:#111}.hero{background-color:#0a0a0a;color:#fff;padding:40px}h1{font-size:48px;font-weight:700}.btn{background-color:#ff5a1f;border-radius:8px;color:#fff}</style><body><section class=\"hero\"><h1>Welcome</h1><a class=\"btn\" href=\"/x\">Get started</a></section></body>",
+    "target_content": "<style>body{font-family:\"Inter\",sans-serif;color:#111}.hero{padding:40px}h1{font-size:48px;font-weight:700}.btn{color:#fff}</style><body><section class=\"hero\"><h1>Welcome</h1><a class=\"btn\" href=\"/x\">Get started</a></section></body>"
+  },
+  "expect": [
+    { "path": "schema", "assert": "equals", "value": "blocks-engine/php-transformer/visual-parity-report/v1" },
+    { "path": "status", "assert": "equals", "value": "fail" },
+    { "path": "severity", "assert": "equals", "value": "error" },
+    { "path": "parity.score", "assert": "equals", "value": 0.5455 },
+    { "path": "parity.coverage", "assert": "equals", "value": 1.0 },
+    { "path": "summary.matched_total", "assert": "equals", "value": 3 },
+    { "path": "summary.absorbed_source_total", "assert": "equals", "value": 0 },
+    { "path": "summary.finding_total", "assert": "equals", "value": 5 },
+    { "path": "findings.0.property", "assert": "equals", "value": "background-color" },
+    { "path": "findings.0.selector", "assert": "equals", "value": "section.hero" },
+    { "path": "findings.0.source_value", "assert": "equals", "value": "#0a0a0a" },
+    { "path": "matches.2.style_deltas.1.property", "assert": "equals", "value": "border-radius" }
+  ]
+}

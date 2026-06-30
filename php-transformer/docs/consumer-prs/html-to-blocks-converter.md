@@ -147,11 +147,11 @@ The first PR must preserve these callable names and return contracts:
 
 No new upstream fixture is required before opening the first downstream PR. This branch already has shared parity fixtures for the supported slice the first PR should target:
 
-- `php-transformer/tests/fixtures/parity/simple-html.json`
-- `php-transformer/tests/fixtures/parity/html-core-text-structure.json`
-- `php-transformer/tests/fixtures/parity/html-core-media-actions.json`
-- `php-transformer/tests/fixtures/parity/unsupported-fallback.json`
-- `php-transformer/tests/fixtures/parity/html-unsupported-context-required.json`
+- `tests/fixtures/parity/simple-html.json`
+- `tests/fixtures/parity/html-core-text-structure.json`
+- `tests/fixtures/parity/html-core-media-actions.json`
+- `tests/fixtures/parity/unsupported-fallback.json`
+- `tests/fixtures/parity/html-unsupported-context-required.json`
 
 The old repo should add migration comparison fixtures/tests that run the public facade, not the transformer directly:
 

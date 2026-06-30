@@ -1,0 +1,40 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-custom-block-companion-payload",
+  "description": "End-to-end producer link: an artifact whose entry HTML contains a high-confidence custom_block subtree compiles to a companion_plugin_payload whose blocks[] carries the generated dynamic block (name, block_json, dynamic render) in the exact shape the SSI companion-plugin scaffolder consumes. The block.json name is namespaced to the per-site companion plugin (ssi-<site_slug>) so emitted references match the registered block (issues #497 / #491).",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-custom-block-companion-payload.json",
+    "notes": "Product-neutral custom element; the payload entry is generic and derived from structure only."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New producer-link behavior with no downstream legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "schema": "blocks-engine/php-transformer/site-artifact/v1",
+      "site_slug": "acme-co",
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<html><body><main><my-pricing><div class=\"tier\"><h3>Basic</h3><p>$9</p></div><div class=\"tier\"><h3>Pro</h3><p>$19</p></div><div class=\"tier\"><h3>Max</h3><p>$49</p></div></my-pricing></main></body></html>"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.companion_plugin_payload.schema", "assert": "equals", "value": "static-site-importer/companion-plugin/v1" },
+    { "path": "source_reports.companion_plugin_payload.site_slug", "assert": "equals", "value": "acme-co" },
+    { "path": "source_reports.companion_plugin_payload.blocks", "assert": "count", "count": 1 },
+    { "path": "source_reports.companion_plugin_payload.blocks.0.name", "assert": "equals", "value": "collection-623e0f92" },
+    { "path": "source_reports.companion_plugin_payload.blocks.0.block_json.name", "assert": "equals", "value": "ssi-acme-co/collection-623e0f92" },
+    { "path": "source_reports.companion_plugin_payload.blocks.0.block_json.render", "assert": "equals", "value": "file:./render.php" },
+    { "path": "source_reports.companion_plugin_payload.blocks.0.render", "assert": "contains", "value": "wp_kses_post" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp:ssi-acme-co/collection-623e0f92" }
+  ]
+}

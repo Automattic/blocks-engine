@@ -6,10 +6,27 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DiagnosticsCollector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SemanticParityReporter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MathPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ParameterTablePattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMediaPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
 use DOMElement;
@@ -17,17 +34,90 @@ use DOMNode;
 
 final class HtmlTransformer
 {
+    use DomHelpersTrait;
+    use StyleResolutionTrait;
+
     private const MAX_INTERACTION_CANDIDATES = 100;
+
+    /**
+     * @var array<int, string>
+     */
+    private const SUPPORTED_BLOCKS = array(
+        'core/audio',
+        'core/button',
+        'core/buttons',
+        'core/code',
+        'core/column',
+        'core/columns',
+        'core/details',
+        'core/embed',
+        'core/file',
+        'core/gallery',
+        'core/group',
+        'core/heading',
+        'core/icon',
+        'core/image',
+        'core/list',
+        'core/list-item',
+        'core/math',
+        'core/navigation',
+        'core/navigation-link',
+        'core/paragraph',
+        'core/preformatted',
+        'core/pullquote',
+        'core/quote',
+        'core/separator',
+        'core/shortcode',
+        'core/spacer',
+        'core/navigation-submenu',
+        'core/table',
+        'core/video',
+        'core/search',
+    );
 
     private readonly BlockFactory $blockFactory;
 
     private readonly ButtonsPattern $buttonsPattern;
 
+    private readonly CodeWindowPattern $codeWindowPattern;
+
+    private readonly ColumnsPattern $columnsPattern;
+
     private readonly DetailsPattern $detailsPattern;
+
+    private readonly GalleryPattern $galleryPattern;
 
     private readonly LogoPattern $logoPattern;
 
-    private readonly NavigationPattern $navigationPattern;
+    private readonly MathPattern $mathPattern;
+
+    private readonly ParameterTablePattern $parameterTablePattern;
+
+    private readonly PlaceholderMediaPattern $placeholderMediaPattern;
+
+    private readonly QuotePattern $quotePattern;
+
+    private readonly SpacerPattern $spacerPattern;
+
+    private readonly PatternRecognizerRegistry $patternRecognizers;
+
+    private readonly DiagnosticsCollector $diagnosticsCollector;
+
+    private readonly SemanticParityReporter $semanticParityReporter;
+
+    private readonly ContentRoundTripReporter $contentRoundTripReporter;
+
+    /**
+     * Text the transformer SYNTHESIZES from form controls (label + value/
+     * placeholder/required state) rather than extracting from visible source.
+     * Declared to the content round-trip reporter so it is not mistaken for
+     * invented copy. Reset per transform().
+     *
+     * @var array<int, string>
+     */
+    private array $formControlEchoTexts = array();
+
+    private readonly FallbackEmitter $fallbackEmitter;
 
     /**
      * @var array<string, string>
@@ -38,6 +128,24 @@ final class HtmlTransformer
      * @var array<int, array<string, mixed>>
      */
     private array $presentationProvenance = array();
+
+    /**
+     * Responsive/JS-revealed hidden base states normalized away during style
+     * resolution (#259), surfaced for diagnostics.
+     *
+     * @var array<int, array<string, mixed>>
+     */
+    private array $frozenHiddenStateFindings = array();
+
+    /**
+     * Whole-element link wrappers (an <a> wrapping block-level content) whose
+     * link was dropped because the resulting core/group has no native link
+     * attribute (#260). Surfaced for diagnostics so navigation loss is
+     * detectable rather than emitted as an unsupported attribute.
+     *
+     * @var array<int, array<string, mixed>>
+     */
+    private array $droppedLinkWrapperFindings = array();
 
     /**
      * @var array<int, array<string, mixed>>
@@ -53,6 +161,49 @@ final class HtmlTransformer
      * @var array<int, array<string, mixed>>
      */
     private array $scriptMetadata = array();
+
+    /**
+     * @var array<int, array<string, mixed>>
+     */
+    private array $runtimeIslands = array();
+
+    /**
+     * Source elements whose subtree was folded into a native zero-JS disclosure
+     * block (`core/details`) or the native `core/accordion` block. The toggle
+     * controls inside these subtrees have their show/hide behavior carried
+     * natively, so they must not be reported as interactive-control behavior
+     * loss (analogous to core/navigation fold-in).
+     *
+     * Keyed by the source element's stable node path (libxml-derived XPath),
+     * since PHP DOM hands out a fresh wrapper object per traversal and
+     * `spl_object_id()` is therefore not stable across passes.
+     *
+     * @var array<string, true>
+     */
+    private array $nativeDisclosureRootIds = array();
+
+    /**
+     * Generated dynamic custom-block definitions produced at `core/html`
+     * fallback decisions (issue #497). Surfaced under
+     * `source_reports.generated_blocks` and packaged into the companion-plugin
+     * payload by the ArtifactCompiler.
+     *
+     * @var array<int, array<string, mixed>>
+     */
+    private array $generatedBlocks = array();
+
+    /**
+     * Block namespace for generated custom-block references. The ArtifactCompiler
+     * sets this to the per-site companion-plugin namespace (`ssi-<site_slug>`) so
+     * emitted references match the blocks SSI registers; standalone transforms
+     * fall back to a generic namespace.
+     */
+    private string $generatedBlockNamespace = 'custom';
+
+    /**
+     * @var array<int, array<string, mixed>>
+     */
+    private array $runtimeScriptMetadata = array();
 
     /**
      * @var array<string, array<string, mixed>>
@@ -77,7 +228,27 @@ final class HtmlTransformer
     /**
      * @var array<string, bool>
      */
+    private array $runtimeDomSelectors = array();
+
+    /**
+     * @var array<string, bool>
+     */
     private array $runtimeCanvasSelectors = array();
+
+    /**
+     * Source DOM selectors (id/class) the transformer intentionally removed
+     * because the element was superseded by a native block's own behavior — e.g.
+     * a redundant JS hamburger menu-toggle (and the menu/overlay it controlled)
+     * dropped because the navigation became a core/navigation with its own
+     * responsive overlay. Surfaced under `source_reports.superseded_selectors`
+     * so the runtime-dependency parity report can reclassify a "missing DOM
+     * target" finding for these selectors as an acceptable, superseded loss
+     * rather than a materialization bug (a preserved site script may still
+     * reference the removed selector, which is expected, not broken).
+     *
+     * @var array<string, bool>
+     */
+    private array $supersededRuntimeSelectors = array();
 
     private int $nextSourceProvenanceId = 1;
 
@@ -85,9 +256,27 @@ final class HtmlTransformer
     {
         $this->blockFactory      = new BlockFactory();
         $this->buttonsPattern    = new ButtonsPattern();
+        $this->codeWindowPattern = new CodeWindowPattern();
+        $this->columnsPattern    = new ColumnsPattern();
         $this->detailsPattern    = new DetailsPattern();
+        $this->galleryPattern    = new GalleryPattern();
         $this->logoPattern       = new LogoPattern();
-        $this->navigationPattern = new NavigationPattern();
+        $this->mathPattern       = new MathPattern();
+        $this->parameterTablePattern = new ParameterTablePattern();
+        $this->placeholderMediaPattern = new PlaceholderMediaPattern();
+        $this->quotePattern      = new QuotePattern();
+        $this->spacerPattern     = new SpacerPattern();
+        $this->patternRecognizers = new PatternRecognizerRegistry(array(
+            new AccordionPattern(),
+            new NavigationPattern(),
+        ));
+        $this->diagnosticsCollector = new DiagnosticsCollector();
+        $this->semanticParityReporter = new SemanticParityReporter($this->runtime);
+        $this->contentRoundTripReporter = new ContentRoundTripReporter();
+        $this->fallbackEmitter = new FallbackEmitter(
+            $this->runtime,
+            fn (DOMElement $element): array => $this->sourceContext($element)
+        );
     }
 
     /**
@@ -99,14 +288,26 @@ final class HtmlTransformer
         $startedAt                = hrtime(true);
         $this->fallbackProvenance = TransformationOptions::provenance($options);
         $this->presentationProvenance = array();
+        $this->frozenHiddenStateFindings = array();
+        $this->droppedLinkWrapperFindings = array();
         $this->sourceProvenance = array();
         $this->structureProvenance = array();
         $this->scriptMetadata = array();
+        $this->runtimeIslands = array();
+        $this->nativeDisclosureRootIds = array();
+        $this->generatedBlocks = array();
+        $this->formControlEchoTexts = array();
+        $this->generatedBlockNamespace = $this->generatedBlockNamespaceFromOptions($options);
+        $this->fallbackEmitter->resetGeneratedBlocks();
+        $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
         $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->generatedAssets = array();
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
+        $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
+        $this->supersededRuntimeSelectors = array();
+        $this->fallbackEmitter->configure($this->fallbackProvenance, $this->runtimeScriptMetadata, $this->runtimeCanvasSelectors);
         $this->nextSourceProvenanceId = 1;
         $provenance               = array(
             array_merge(array(
@@ -173,85 +374,45 @@ final class HtmlTransformer
 
         $fallbacks   = array();
         $interactionCandidates = $this->interactionCandidates($body);
+        $this->collectSupersededNavToggleSelectors($body);
         $blocks      = $this->deduplicateNavigationBlocks($this->convertChildren($body, $fallbacks, true));
+        $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
+        $this->appendProductGridFallbacks($body, $fallbacks);
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
-        $semanticParityReport = $this->semanticParityReport($body, $blocks, $sourceProvenance);
-        $diagnostics = array(
-            array(
-                'code'    => 'html_to_blocks_core_slice',
-                'message' => 'Converted supported core text, layout, media, gallery, embed, file, table, button, shortcode, spacer, definition-list, details, navigation, safe inline SVG images, and wrapper elements; unsupported elements are reported as fallbacks.',
-                'source'  => self::class,
-            ),
+        $semanticParityReport = $this->semanticParityReporter->report($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
+        $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->formControlEchoTexts);
+        $diagnostics = $this->diagnosticsCollector->collect(
+            self::class,
+            $this->scriptMetadata,
+            $fallbacks,
+            $this->runtimeIslands,
+            $blockValidityReport,
+            $semanticParityReport,
+            $contentRoundTripReport
         );
 
-        foreach ( $this->scriptMetadata as $metadata ) {
-            $diagnostics[] = array(
-                'code'        => 'html_static_script_metadata',
-                'message'     => 'Static script data was preserved as bounded metadata and does not require client script execution.',
-                'source'      => self::class,
-                'reason'      => 'script_static_metadata',
-                'tag'         => 'script',
-                'selector'    => $metadata['selector'] ?? null,
-                'script_role' => $metadata['script_role'] ?? null,
-            );
-        }
-
-        foreach ( $fallbacks as $fallback ) {
-            if ( ! empty($fallback['diagnostic_code']) ) {
-                $diagnostics[] = array(
-                    'code'                => $fallback['diagnostic_code'],
-                    'message'             => $fallback['message'] ?? 'HTML element preserved as fallback metadata.',
-                    'source'              => self::class,
-                    'reason'              => $fallback['reason'] ?? null,
-                    'severity'            => $fallback['severity'] ?? null,
-                    'runtime_requirement' => $fallback['runtime_requirement'] ?? null,
-                    'tag'                 => $fallback['tag'] ?? null,
-                    'selector'            => $fallback['selector'] ?? null,
-                );
-            }
-        }
-
-        foreach ( $blockValidityReport['findings'] ?? array() as $finding ) {
-            if ( ! is_array($finding) ) {
-                continue;
-            }
-
-            $diagnostics[] = array(
-                'code'       => 'wp_block_validity_' . (string) ($finding['code'] ?? 'warning'),
-                'message'    => (string) ($finding['summary'] ?? 'Generated block serialization may trigger WordPress block invalidity warnings.'),
-                'source'     => Runtime::class,
-                'severity'   => $finding['severity'] ?? 'warning',
-                'block_name' => $finding['block_name'] ?? null,
-                'path'       => $finding['path'] ?? null,
-            );
-        }
-
-        foreach ( $semanticParityReport['findings'] ?? array() as $finding ) {
-            if ( ! is_array($finding) ) {
-                continue;
-            }
-
-            $diagnostics[] = array(
-                'code'     => 'html_semantic_parity_' . (string) ($finding['code'] ?? 'warning'),
-                'message'  => (string) ($finding['summary'] ?? 'Generated blocks differ from source semantic structure.'),
-                'source'   => self::class,
-                'severity' => $finding['severity'] ?? 'warning',
-                'selector' => $finding['selector'] ?? null,
-            );
-        }
-
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
+        $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
         $sourceReports = array(
+            'native_target_blocks' => $nativeTargetBlocks,
+            'available_core_blocks' => $nativeTargetBlocks,
+            'runtime_islands' => $this->runtimeIslands,
+            'generated_blocks' => $this->generatedBlocks,
             'interaction_candidates' => $interactionCandidates,
+            'superseded_selectors' => array_keys($this->supersededRuntimeSelectors),
             'wp_block_validity' => $blockValidityReport,
             'semantic_parity' => $semanticParityReport,
+            'content_round_trip' => $contentRoundTripReport,
             'html' => array(
                 'presentation_signals' => $this->presentationProvenance,
+                'frozen_hidden_state'  => $this->frozenHiddenStateFindings,
+                'dropped_link_wrappers' => $this->droppedLinkWrapperFindings,
                 'source_provenance'    => $sourceProvenance,
                 'structure_signals'    => $this->structureProvenance,
                 'script_metadata'      => $this->scriptMetadata,
+                'runtime_islands'      => $this->runtimeIslands,
             ),
         );
         $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('html', $blocks, $fallbacks, $sourceReports, array(), $provenance, $metrics);
@@ -267,9 +428,11 @@ final class HtmlTransformer
             sourceReports: $sourceReports,
             coverage: array(
                 array(
-                    'supported_blocks' => array( 'core/audio', 'core/button', 'core/buttons', 'core/code', 'core/column', 'core/columns', 'core/details', 'core/embed', 'core/file', 'core/gallery', 'core/group', 'core/heading', 'core/image', 'core/list', 'core/list-item', 'core/navigation', 'core/navigation-link', 'core/paragraph', 'core/preformatted', 'core/pullquote', 'core/quote', 'core/separator', 'core/shortcode', 'core/spacer', 'core/navigation-submenu', 'core/table', 'core/video', 'core/search' ),
-                    'block_count'      => count($blocks),
-                    'fallback_count'   => count($fallbacks),
+                    'supported_blocks'      => self::SUPPORTED_BLOCKS,
+                    'native_target_blocks'  => $nativeTargetBlocks,
+                    'available_core_blocks' => $nativeTargetBlocks,
+                    'block_count'           => count($blocks),
+                    'fallback_count'        => count($fallbacks),
                     'source_provenance_count' => count($sourceProvenance),
                 ),
             ),
@@ -325,345 +488,6 @@ final class HtmlTransformer
 
     /**
      * @param array<int, array<string, mixed>> $blocks
-     * @param array<int, array<string, mixed>> $sourceProvenance
-     * @return array<string, mixed>
-     */
-    private function semanticParityReport(DOMElement $body, array $blocks, array $sourceProvenance): array
-    {
-        $sourceLandmarks = $this->sourceLandmarkReport($body);
-        $blockLandmarks = $this->blockLandmarkReport($blocks, $sourceProvenance, $sourceLandmarks);
-        $sourceMenus = $this->sourceNavigationMenus($body);
-        $blockMenus = $this->blockNavigationMenus($blocks);
-        $findings = $this->semanticParityFindings($sourceLandmarks, $blockLandmarks, $sourceMenus, $blockMenus);
-
-        return array(
-            'schema' => 'blocks-engine/php-transformer/semantic-parity/v1',
-            'status' => array() === $findings ? 'pass' : 'warning',
-            'landmarks' => array(
-                'source' => $sourceLandmarks['counts'],
-                'blocks' => $blockLandmarks['counts'],
-            ),
-            'navigation_menus' => array(
-                'source' => $sourceMenus,
-                'blocks' => $blockMenus,
-            ),
-            'findings' => $findings,
-        );
-    }
-
-    /**
-     * @return array{counts: array<string, int>, selectors: array<string, array<int, string>>}
-     */
-    private function sourceLandmarkReport(DOMElement $body): array
-    {
-        $counts = array('header' => 0, 'nav' => 0, 'main' => 0, 'footer' => 0);
-        $selectors = array('header' => array(), 'nav' => array(), 'main' => array(), 'footer' => array());
-        $this->collectSourceLandmarks($body, $counts, $selectors);
-
-        return array('counts' => $counts, 'selectors' => $selectors);
-    }
-
-    /**
-     * @param array<string, int> $counts
-     * @param array<string, array<int, string>> $selectors
-     */
-    private function collectSourceLandmarks(DOMElement $element, array &$counts, array &$selectors): void
-    {
-        $landmark = $this->landmarkKindForElement($element);
-        if ( '' !== $landmark ) {
-            ++$counts[$landmark];
-            $selectors[$landmark][] = $this->elementSelector($element);
-        }
-
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                $this->collectSourceLandmarks($child, $counts, $selectors);
-            }
-        }
-    }
-
-    private function landmarkKindForElement(DOMElement $element): string
-    {
-        $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'header', 'nav', 'main', 'footer' ), true) ) {
-            return 'nav' === $tagName ? 'nav' : $tagName;
-        }
-
-        return match ( strtolower($this->attr($element, 'role')) ) {
-            'banner' => 'header',
-            'navigation' => 'nav',
-            'main' => 'main',
-            'contentinfo' => 'footer',
-            default => '',
-        };
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $blocks
-     * @param array<int, array<string, mixed>> $sourceProvenance
-     * @param array{counts: array<string, int>, selectors: array<string, array<int, string>>} $sourceLandmarks
-     * @return array{counts: array<string, int>, selectors: array<string, array<int, string>>}
-     */
-    private function blockLandmarkReport(array $blocks, array $sourceProvenance, array $sourceLandmarks): array
-    {
-        $counts = array('header' => 0, 'nav' => 0, 'main' => 0, 'footer' => 0);
-        $selectors = array('header' => array(), 'nav' => array(), 'main' => array(), 'footer' => array());
-        $this->collectBlockNavigationLandmarks($blocks, $counts);
-
-        foreach ( array( 'header', 'main', 'footer' ) as $kind ) {
-            foreach ( $sourceLandmarks['selectors'][$kind] ?? array() as $sourceSelector ) {
-                if ( $this->sourceSelectorHasBlockRepresentation((string) $sourceSelector, $sourceProvenance) ) {
-                    $selectors[$kind][] = (string) $sourceSelector;
-                }
-            }
-            $counts[$kind] = count($selectors[$kind]);
-        }
-
-        return array('counts' => $counts, 'selectors' => $selectors);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $sourceProvenance
-     */
-    private function sourceSelectorHasBlockRepresentation(string $sourceSelector, array $sourceProvenance): bool
-    {
-        if ( '' === $sourceSelector ) {
-            return false;
-        }
-
-        foreach ( $sourceProvenance as $entry ) {
-            if ( ! is_array($entry) ) {
-                continue;
-            }
-
-            $blockSelector = (string) ($entry['selector'] ?? '');
-            if ( $sourceSelector === $blockSelector || str_starts_with($blockSelector, $sourceSelector . ' > ') ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $blocks
-     * @param array<string, int> $counts
-     */
-    private function collectBlockNavigationLandmarks(array $blocks, array &$counts): void
-    {
-        foreach ( $blocks as $block ) {
-            if ( ! is_array($block) ) {
-                continue;
-            }
-
-            if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
-                ++$counts['nav'];
-            }
-
-            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
-                $this->collectBlockNavigationLandmarks($block['innerBlocks'], $counts);
-            }
-        }
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function sourceNavigationMenus(DOMElement $body): array
-    {
-        $menus = array();
-        $this->collectSourceNavigationMenus($body, $menus);
-        return $menus;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $menus
-     */
-    private function collectSourceNavigationMenus(DOMElement $element, array &$menus): void
-    {
-        if ( 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role')) ) {
-            $items = array();
-            foreach ( $element->getElementsByTagName('a') as $anchor ) {
-                if ( $anchor instanceof DOMElement ) {
-                    $label = $this->normalizedNavigationLabel($anchor->textContent ?? '');
-                    if ( '' !== $label ) {
-                        $items[] = array(
-                            'label' => $label,
-                            'url' => $this->safeNavigationUrl($this->attr($anchor, 'href')),
-                        );
-                    }
-                }
-            }
-
-            $menus[] = array(
-                'selector' => $this->elementSelector($element),
-                'item_count' => count($items),
-                'items' => $items,
-            );
-        }
-
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                $this->collectSourceNavigationMenus($child, $menus);
-            }
-        }
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $blocks
-     * @return array<int, array<string, mixed>>
-     */
-    private function blockNavigationMenus(array $blocks): array
-    {
-        $menus = array();
-        $this->collectBlockNavigationMenus($blocks, 'blocks', $menus);
-        return $menus;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $blocks
-     * @param array<int, array<string, mixed>> $menus
-     */
-    private function collectBlockNavigationMenus(array $blocks, string $path, array &$menus): void
-    {
-        foreach ( $blocks as $index => $block ) {
-            if ( ! is_array($block) ) {
-                continue;
-            }
-
-            $blockPath = $path . '.' . $index;
-            if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
-                $items = array();
-                $this->collectBlockNavigationItems(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $items);
-                $menus[] = array(
-                    'block_path' => $blockPath,
-                    'represented_as_core_navigation' => true,
-                    'item_count' => count($items),
-                    'items' => $items,
-                );
-            }
-
-            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
-                $this->collectBlockNavigationMenus($block['innerBlocks'], $blockPath . '.innerBlocks', $menus);
-            }
-        }
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $blocks
-     * @param array<int, array<string, string>> $items
-     */
-    private function collectBlockNavigationItems(array $blocks, array &$items): void
-    {
-        foreach ( $blocks as $block ) {
-            if ( ! is_array($block) ) {
-                continue;
-            }
-
-            if ( in_array($block['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
-                $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-                $items[] = array(
-                    'label' => $this->normalizedNavigationLabel((string) ($attrs['label'] ?? '')),
-                    'url' => (string) ($attrs['url'] ?? ''),
-                );
-            }
-
-            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
-                $this->collectBlockNavigationItems($block['innerBlocks'], $items);
-            }
-        }
-    }
-
-    private function normalizedNavigationLabel(string $label): string
-    {
-        return trim(preg_replace('/\s+/', ' ', html_entity_decode($this->runtime->stripAllTags($label), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? $label);
-    }
-
-    /**
-     * @param array{counts: array<string, int>, selectors: array<string, array<int, string>>} $sourceLandmarks
-     * @param array{counts: array<string, int>, selectors: array<string, array<int, string>>} $blockLandmarks
-     * @param array<int, array<string, mixed>> $sourceMenus
-     * @param array<int, array<string, mixed>> $blockMenus
-     * @return array<int, array<string, mixed>>
-     */
-    private function semanticParityFindings(array $sourceLandmarks, array $blockLandmarks, array $sourceMenus, array $blockMenus): array
-    {
-        $findings = array();
-        foreach ( array( 'header', 'nav', 'main', 'footer' ) as $kind ) {
-            $sourceCount = (int) ($sourceLandmarks['counts'][$kind] ?? 0);
-            $blockCount = (int) ($blockLandmarks['counts'][$kind] ?? 0);
-            if ( $sourceCount > $blockCount ) {
-                $findings[] = array_filter(array(
-                    'code' => 'landmark_count_mismatch',
-                    'severity' => 'warning',
-                    'kind' => $kind,
-                    'source_count' => $sourceCount,
-                    'block_count' => $blockCount,
-                    'selector' => $sourceLandmarks['selectors'][$kind][0] ?? '',
-                    'summary' => 'Source ' . $kind . ' landmarks exceed generated core block representation.',
-                ), static fn (mixed $value): bool => '' !== $value);
-            }
-        }
-
-        foreach ( $sourceMenus as $index => $sourceMenu ) {
-            $blockMenu = $blockMenus[$index] ?? null;
-            if ( ! is_array($blockMenu) ) {
-                $findings[] = array(
-                    'code' => 'navigation_menu_missing',
-                    'severity' => 'warning',
-                    'selector' => $sourceMenu['selector'] ?? '',
-                    'source_item_count' => $sourceMenu['item_count'] ?? 0,
-                    'block_item_count' => 0,
-                    'summary' => 'Source navigation menu was not represented as a core/navigation block.',
-                );
-                continue;
-            }
-
-            if ( true !== ($blockMenu['represented_as_core_navigation'] ?? false) ) {
-                $findings[] = array(
-                    'code' => 'navigation_core_block_missing',
-                    'severity' => 'warning',
-                    'selector' => $sourceMenu['selector'] ?? '',
-                    'summary' => 'Generated navigation menu is not represented by core/navigation.',
-                );
-            }
-
-            $sourceItems = is_array($sourceMenu['items'] ?? null) ? array_values($sourceMenu['items']) : array();
-            $blockItems = is_array($blockMenu['items'] ?? null) ? array_values($blockMenu['items']) : array();
-            if ( count($sourceItems) !== count($blockItems) ) {
-                $findings[] = array(
-                    'code' => 'navigation_item_count_mismatch',
-                    'severity' => 'warning',
-                    'selector' => $sourceMenu['selector'] ?? '',
-                    'source_item_count' => count($sourceItems),
-                    'block_item_count' => count($blockItems),
-                    'summary' => 'Source navigation item count differs from generated core navigation items.',
-                );
-                continue;
-            }
-
-            foreach ( $sourceItems as $itemIndex => $sourceItem ) {
-                $blockItem = $blockItems[$itemIndex] ?? array();
-                if ( ($sourceItem['label'] ?? '') !== ($blockItem['label'] ?? '') || ($sourceItem['url'] ?? '') !== ($blockItem['url'] ?? '') ) {
-                    $findings[] = array(
-                        'code' => 'navigation_item_mismatch',
-                        'severity' => 'warning',
-                        'selector' => $sourceMenu['selector'] ?? '',
-                        'item_index' => $itemIndex,
-                        'source_item' => $sourceItem,
-                        'block_item' => $blockItem,
-                        'summary' => 'Source navigation item label or URL differs from generated core navigation item.',
-                    );
-                    break;
-                }
-            }
-        }
-
-        return $findings;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $blocks
      * @param array<string, bool> $seen
      * @return array<int, array<string, mixed>>
      */
@@ -682,7 +506,7 @@ final class HtmlTransformer
 
             if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
                 $signature = $this->navigationBlockSignature($block);
-                if ( '' !== $signature && isset($seen[$signature]) ) {
+                if ( '' !== $signature && isset($seen[$signature]) && $this->isMobileDuplicateNavigationBlock($block) ) {
                     continue;
                 }
                 if ( '' !== $signature ) {
@@ -694,6 +518,26 @@ final class HtmlTransformer
         }
 
         return $deduplicated;
+    }
+
+    /**
+     * @param array<string, mixed> $block
+     */
+    private function isMobileDuplicateNavigationBlock(array $block): bool
+    {
+        $provenanceId = $block['_source_provenance_id'] ?? null;
+        $source = is_int($provenanceId) ? ( $this->sourceProvenance[$provenanceId] ?? array() ) : array();
+        $attributes = is_array($source['source_attributes'] ?? null) ? $source['source_attributes'] : array();
+        $context = is_array($source['context'] ?? null) ? $source['context'] : array();
+        $classNames = is_array($context['class_names'] ?? null) ? implode(' ', $context['class_names']) : '';
+
+        $haystack = strtolower(trim(implode(' ', array(
+            (string) ($attributes['class'] ?? ''),
+            (string) ($attributes['id'] ?? ''),
+            $classNames,
+        ))));
+
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|hamburger|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', $haystack);
     }
 
     /**
@@ -756,7 +600,7 @@ final class HtmlTransformer
     {
         if ( in_array($block['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
             $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-            $links[] = trim((string) ($attrs['label'] ?? '')) . '>' . trim((string) ($attrs['url'] ?? ''));
+            $links[] = $this->normalizedNavigationLabel((string) ($attrs['label'] ?? '')) . '>' . trim((string) ($attrs['url'] ?? ''));
         }
 
         foreach ( is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array() as $innerBlock ) {
@@ -838,6 +682,336 @@ final class HtmlTransformer
         return $blocks;
     }
 
+    private function patternContext(bool $includeRuntimeDomTarget = true): PatternContext
+    {
+        return new PatternContext(
+            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement),
+            $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement) : null,
+            fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
+            fn (DOMElement $sourceElement, array $excludedTags): array => $this->convertPatternChildrenWithoutTags($sourceElement, $excludedTags)
+        );
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function convertPatternChildren(DOMElement $element): array
+    {
+        $fallbacks = array();
+        return $this->convertChildren($element, $fallbacks, true);
+    }
+
+    /**
+     * @param array<int, string> $excludedTags
+     * @return array<int, array<string, mixed>>
+     */
+    private function convertPatternChildrenWithoutTags(DOMElement $element, array $excludedTags): array
+    {
+        $fallbacks = array();
+        return $this->convertChildrenWithoutTags($element, $fallbacks, $excludedTags);
+    }
+
+    /**
+     * A JS-only hamburger menu-toggle that is redundant chrome whenever it is
+     * associated with a source navigation menu — whether or not that menu
+     * converts to core/navigation.
+     *
+     * The toggle is detected GENERICALLY by structural/semantic signals — never
+     * by a specific class string — so any framework's hamburger is recognized:
+     * a <button> (or <a role="button">) carrying aria-controls and/or
+     * aria-expanded whose visible content is empty/decorative bars (only empty
+     * spans or an icon, no text label). It is suppressed when it opens, lives
+     * inside, or sits beside a source navigation menu. A converted menu already
+     * ships its own responsive overlay hamburger; a menu that does NOT convert
+     * still must not gain an always-visible dead hamburger the source hid behind
+     * responsive CSS/JS the importer cannot carry (the "added UI" defect). Real
+     * labeled buttons, and toggle-shaped controls with no associated navigation,
+     * still convert to core/button normally.
+     */
+    private function isRedundantMenuToggleControl(DOMElement $element): bool
+    {
+        if ( ! $this->isHamburgerMenuToggleControl($element) ) {
+            return false;
+        }
+
+        return $this->hasAssociatedNavigationMenu($element);
+    }
+
+    /**
+     * Authoritatively record, in a single deterministic pass over the source
+     * document, the selectors made redundant by every hamburger menu-toggle the
+     * transformer treats as superseded by native navigation. A redundant
+     * menu-toggle is always dropped from the output — whether by the element
+     * converter, the navigation pattern's chrome handling, or the buttons
+     * container — so scanning the source by the same `isRedundantMenuToggleControl`
+     * predicate captures the superseded selectors independently of which drop
+     * path executed, with no per-path bookkeeping.
+     */
+    private function collectSupersededNavToggleSelectors(DOMElement $root): void
+    {
+        foreach ( $root->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && $this->isRedundantMenuToggleControl($element) ) {
+                $this->recordSupersededNavToggleSelectors($element);
+            }
+        }
+    }
+
+    /**
+     * Record the source selectors made redundant when a hamburger menu-toggle is
+     * dropped in favor of the native navigation overlay: the toggle's own id and
+     * class selectors, plus the id/class selectors of the menu/overlay it
+     * controlled via `aria-controls`. A preserved site script may still reference
+     * these selectors (e.g. `.nav-toggle`, `#nav-mobile`); the runtime-dependency
+     * parity report uses this set to mark a resulting "missing DOM target"
+     * finding as a superseded, acceptable loss rather than a materialization bug.
+     * Only selectors of menu-toggles the transformer actually removed are
+     * recorded, so genuinely-broken targets stay flagged.
+     */
+    private function recordSupersededNavToggleSelectors(DOMElement $toggle): void
+    {
+        $this->recordSupersededSelectorsForElement($toggle);
+
+        foreach ( preg_split('/\s+/', trim($this->attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
+            $controlledId = ltrim(trim($controlledId), '#');
+            if ( '' === $controlledId ) {
+                continue;
+            }
+
+            $this->supersededRuntimeSelectors['#' . $controlledId] = true;
+
+            $target = $this->elementWithId($toggle, $controlledId);
+            if ( $target instanceof DOMElement && ! $target->isSameNode($toggle) ) {
+                $this->recordSupersededSelectorsForElement($target);
+            }
+        }
+    }
+
+    private function recordSupersededSelectorsForElement(DOMElement $element): void
+    {
+        $id = trim($this->attr($element, 'id'));
+        if ( '' !== $id ) {
+            $this->supersededRuntimeSelectors['#' . $id] = true;
+        }
+
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+            if ( '' !== $class ) {
+                $this->supersededRuntimeSelectors['.' . $class] = true;
+            }
+        }
+    }
+
+    private function isHamburgerMenuToggleControl(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        $isButton = 'button' === $tagName;
+        $isButtonRoleAnchor = 'a' === $tagName && 'button' === strtolower($this->attr($element, 'role'));
+        if ( ! $isButton && ! $isButtonRoleAnchor ) {
+            return false;
+        }
+
+        if ( '' !== $this->visibleMenuToggleLabel($element) ) {
+            return false;
+        }
+
+        // ARIA-toggle shape: a labelless control that opens a menu via ARIA
+        // state (aria-controls/aria-expanded), regardless of its icon markup.
+        if ( $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded') ) {
+            return true;
+        }
+
+        // Icon-bars shape: a labelless control whose only content is the stacked
+        // empty <span> bars that draw a hamburger glyph, with no ARIA toggle
+        // wiring. Many themes draw the bars with CSS on empty spans and bind the
+        // open/close behavior in JS the importer cannot carry, so the control
+        // arrives with no aria-* hooks at all — only its bar-stack shape betrays
+        // it. Recognizing that shape (never a class string) lets these toggles be
+        // dropped too, instead of surfacing as an empty, always-visible button.
+        return $this->isHamburgerBarStackControl($element);
+    }
+
+    /**
+     * Whether the control's only content is a stack of two or more empty <span>
+     * bars: the framework-agnostic shape of a CSS-drawn hamburger glyph. A real
+     * button carries a text label, an image, or other meaningful content, so it
+     * is never matched. Genuinely empty controls (no bars) are not matched
+     * either; only the deliberate multi-bar stack qualifies.
+     */
+    private function isHamburgerBarStackControl(DOMElement $element): bool
+    {
+        $emptyBars = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return false;
+                }
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                return false;
+            }
+
+            if ( 'span' !== strtolower($child->tagName)
+                || '' !== trim($child->textContent ?? '')
+                || 0 !== $child->getElementsByTagName('img')->length
+                || 0 !== $child->getElementsByTagName('svg')->length ) {
+                return false;
+            }
+
+            ++$emptyBars;
+        }
+
+        return $emptyBars >= 2;
+    }
+
+    /**
+     * Visible text label of a control with decorative chrome (icons, empty
+     * hamburger bars) stripped. Empty means the control shows no text label.
+     */
+    private function visibleMenuToggleLabel(DOMElement $element): string
+    {
+        $html = $this->innerHtml($element);
+        $html = preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html;
+        $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>.*?<\/\1>/is', '', $html) ?? $html;
+
+        return trim($this->runtime->stripAllTags($html));
+    }
+
+    /**
+     * Whether the toggle is associated with a source navigation menu: it opens
+     * one via aria-controls, lives inside a navigation landmark, or sits beside a
+     * navigation menu within its enclosing landmark. Association does NOT require
+     * the menu to convert to core/navigation — a navbar whose links fail to
+     * convert must still drop its dead hamburger rather than emit it as an
+     * always-visible core/button.
+     */
+    private function hasAssociatedNavigationMenu(DOMElement $toggle): bool
+    {
+        $controlledIds = preg_split('/\s+/', trim($this->attr($toggle, 'aria-controls'))) ?: array();
+        foreach ( $controlledIds as $controlledId ) {
+            if ( '' === $controlledId ) {
+                continue;
+            }
+
+            $target = $this->elementWithId($toggle, $controlledId);
+            if ( $target instanceof DOMElement && ! $target->isSameNode($toggle) && $this->isAssociatedNavigationTarget($target) ) {
+                return true;
+            }
+        }
+
+        $scope = $this->menuToggleScope($toggle);
+        if ( $this->isNavigationLandmark($scope) ) {
+            return true;
+        }
+
+        foreach ( $scope->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($toggle) ) {
+                continue;
+            }
+
+            if ( $this->isAssociatedNavigationTarget($candidate) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether an element is a navigation menu the toggle can be bound to: a
+     * structural/semantic navigation menu candidate (nav landmark or signaled
+     * list), or any container that converts to core/navigation (e.g. a signaled
+     * direct-anchor menu div).
+     */
+    private function isAssociatedNavigationTarget(DOMElement $element): bool
+    {
+        return $this->isNavigationMenuCandidate($element) || $this->convertsToCoreNavigation($element);
+    }
+
+    private function isNavigationLandmark(DOMElement $element): bool
+    {
+        return 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role'));
+    }
+
+    /**
+     * Nearest enclosing navigation/header landmark, or the document body, used
+     * to bound the search for a sibling navigation menu.
+     */
+    private function menuToggleScope(DOMElement $toggle): DOMElement
+    {
+        for ( $node = $toggle->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $tagName = strtolower($node->tagName);
+            if ( 'body' === $tagName ) {
+                return $node;
+            }
+
+            if ( in_array($tagName, array( 'header', 'nav' ), true) || in_array(strtolower($this->attr($node, 'role')), array( 'banner', 'navigation' ), true) ) {
+                return $node;
+            }
+        }
+
+        return $toggle;
+    }
+
+    private function isNavigationMenuCandidate(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( 'nav' === $tagName || 'navigation' === strtolower($this->attr($element, 'role')) ) {
+            return true;
+        }
+
+        return in_array($tagName, array( 'ul', 'ol' ), true) && $this->hasSourceNavigationSignal($element);
+    }
+
+    private function convertsToCoreNavigation(DOMElement $element): bool
+    {
+        $navigation = $this->patternRecognizers->firstMatch($element, $this->probePatternContext());
+
+        return null !== $navigation && 'core/navigation' === ($navigation['blockName'] ?? '');
+    }
+
+    private function elementWithId(DOMElement $context, string $id): ?DOMElement
+    {
+        $document = $context->ownerDocument;
+        if ( ! $document instanceof DOMDocument ) {
+            return null;
+        }
+
+        foreach ( $document->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && $element->getAttribute('id') === $id ) {
+                return $element;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * A side-effect-free pattern context for probing whether an element would
+     * convert to a given block, without recording provenance or runtime islands.
+     */
+    private function probePatternContext(): PatternContext
+    {
+        return new PatternContext(
+            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+            static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array(
+                'blockName'   => $name,
+                'attrs'       => $attrs,
+                'innerBlocks' => $innerBlocks,
+            ),
+            null,
+            null,
+            null
+        );
+    }
+
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
@@ -845,6 +1019,23 @@ final class HtmlTransformer
     private function convertElement(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array
     {
         $tagName = strtolower($element->tagName);
+
+        if ( $this->isRedundantMenuToggleControl($element) ) {
+            return null;
+        }
+
+        $mathBlock = $this->mathPattern->match(
+            $element,
+            fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
+            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
+            fn (string $text): string => $this->runtime->escapeHtml($text),
+            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+        );
+        if ( null !== $mathBlock ) {
+            return $mathBlock;
+        }
 
         if ( preg_match('/^h([1-6])$/', $tagName, $matches) ) {
             $content = $this->innerHtml($element);
@@ -861,6 +1052,9 @@ final class HtmlTransformer
         if ( 'p' === $tagName ) {
             $content = $this->innerHtml($element);
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                if ( $this->isRuntimeDomTarget($element) ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
+                }
                 $textBlocks = $this->convertText(trim($element->textContent ?? ''));
                 return $textBlocks[0] ?? null;
             }
@@ -877,12 +1071,21 @@ final class HtmlTransformer
             return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
         }
 
-        $placeholderMedia = $this->placeholderMediaBlockFromElement($element);
+        $placeholderMedia = $this->placeholderMediaPattern->match(
+            $element,
+            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+            fn (string $value): string => $this->runtime->escapeHtml($value),
+            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+        );
         if ( null !== $placeholderMedia ) {
             return $placeholderMedia;
         }
 
         if ( $this->isInlineContentElement($tagName) ) {
+            if ( $this->isRuntimeDomTarget($element) ) {
+                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+            }
+
             $dynamicText = $this->dynamicTextContent($element);
             if ( null !== $dynamicText ) {
                 return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->runtime->escapeHtml($dynamicText) )), array(), $element);
@@ -908,14 +1111,16 @@ final class HtmlTransformer
         }
 
         if ( 'ul' === $tagName || 'ol' === $tagName ) {
-            $navigation = $this->navigationPattern->match(
-                $element,
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
+            $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext());
             if ( null !== $navigation ) {
-                return $navigation;
+                return $this->rememberAccordionDisclosureRoot($navigation, $element);
+            }
+
+            if ( $this->isStructuredCardList($element) ) {
+                $decomposed = $this->decomposeStructuredCardList($element, $fallbacks);
+                if ( null !== $decomposed ) {
+                    return $decomposed;
+                }
             }
 
             $items = $this->listItems($element, $fallbacks);
@@ -937,28 +1142,17 @@ final class HtmlTransformer
         }
 
         if ( 'blockquote' === $tagName ) {
-            $citation = $this->citationFromElement($element);
-            $value = $this->innerHtmlWithoutTags($element, array( 'cite', 'footer' ));
-            if ( '' === trim($this->runtime->stripAllTags($value)) ) {
-                return null;
-            }
-
-            if ( $this->hasClass($element, 'wp-block-pullquote') ) {
-                return $this->createBlock('core/pullquote', array_filter(array_merge($this->presentationAttributes($element), array(
-                    'value'    => $value,
-                    'citation' => $citation,
-                )), static fn ($value): bool => '' !== $value), array(), $element);
-            }
-
-            $innerBlocks = $this->phrasingQuoteChildren($element, $value);
-            if ( array() === $innerBlocks ) {
-                $innerBlocks = $this->convertChildrenWithoutTags($element, $fallbacks, array( 'cite', 'footer' ));
-            }
-            if ( array() === $innerBlocks ) {
-                $innerBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $value ));
-            }
-
-            return $this->createBlock('core/quote', array_filter(array_merge($this->presentationAttributes($element), array( 'citation' => $citation )), static fn ($value): bool => '' !== $value), $innerBlocks, $element);
+            return $this->quotePattern->matchBlockquote(
+                $element,
+                $fallbacks,
+                fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement),
+                fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags),
+                fn (string $html): string => $this->runtime->stripAllTags($html),
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags),
+                fn (string $inlineTagName): bool => $this->isInlineContentElement($inlineTagName),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
         }
 
         if ( 'address' === $tagName ) {
@@ -971,14 +1165,42 @@ final class HtmlTransformer
         }
 
         if ( 'figure' === $tagName ) {
-            $gallery = $this->galleryBlockFromElement($element, $fallbacks);
+            $gallery = $this->galleryPattern->match(
+                $element,
+                fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
+                fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
+                fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure),
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
             if ( null !== $gallery ) {
                 return $gallery;
             }
 
-            $codeWindow = $this->codeWindowBlockFromElement($element, $fallbacks);
+            $codeWindow = $this->codeWindowPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode),
+                fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
             if ( null !== $codeWindow ) {
                 return $codeWindow;
+            }
+
+            $linkedMedia = $this->figureLinkedMediaAnchor($element);
+            if ( $linkedMedia instanceof DOMElement ) {
+                $linkedPicture = $this->firstChildElement($linkedMedia, 'picture');
+                if ( $linkedPicture instanceof DOMElement ) {
+                    return $this->convertPictureElement($linkedPicture, $element, $linkedMedia);
+                }
+
+                $linkedImage = $this->firstChildElement($linkedMedia, 'img');
+                if ( $linkedImage instanceof DOMElement ) {
+                    return $this->convertImageElement($linkedImage, $element, null, $linkedMedia);
+                }
             }
 
             $image = $this->figureMediaElement($element, 'img');
@@ -993,8 +1215,74 @@ final class HtmlTransformer
 
             $blockquote = $this->firstChildElement($element, 'blockquote');
             if ( $blockquote instanceof DOMElement ) {
-                return $this->convertFigureBlockquote($element, $blockquote, $fallbacks);
+                return $this->quotePattern->matchFigureBlockquote(
+                    $element,
+                    $blockquote,
+                    $fallbacks,
+                    fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement),
+                    fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                    fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags),
+                    fn (string $html): string => $this->runtime->stripAllTags($html),
+                    fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                    fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags),
+                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+                );
             }
+
+            return $this->convertFigureGeneric($element, $fallbacks);
+        }
+
+        if ( 'figcaption' === $tagName ) {
+            $content = $this->innerHtml($element);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        }
+
+        if ( 'noscript' === $tagName ) {
+            $children = $this->convertChildren($element, $fallbacks, true);
+            if ( array() === $children ) {
+                $content = $this->innerHtml($element);
+                if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                    return null;
+                }
+
+                return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+            }
+
+            if ( 1 === count($children) && array() === $this->presentationAttributes($element) ) {
+                return $children[0];
+            }
+
+            return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+        }
+
+        if ( 'marquee' === $tagName || 'blink' === $tagName ) {
+            if ( $this->hasBlockContentChildren($element) ) {
+                $children = $this->convertChildren($element, $fallbacks, true);
+                if ( array() === $children ) {
+                    return null;
+                }
+
+                if ( 1 === count($children) && array() === $this->presentationAttributes($element) ) {
+                    return $children[0];
+                }
+
+                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+            }
+
+            $content = $this->innerHtml($element);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        }
+
+        if ( 'label' === $tagName ) {
+            return $this->readableFormControlBlockFromElement($element);
         }
 
         if ( 'pre' === $tagName ) {
@@ -1019,7 +1307,12 @@ final class HtmlTransformer
             return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
         }
 
-        $parameterTable = $this->parameterTableBlockFromElement($element);
+        $parameterTable = $this->parameterTablePattern->match(
+            $element,
+            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+        );
         if ( null !== $parameterTable ) {
             return $parameterTable;
         }
@@ -1088,6 +1381,7 @@ final class HtmlTransformer
                 $element,
                 fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
@@ -1099,7 +1393,13 @@ final class HtmlTransformer
             if ( $this->hasBlockContentChildren($element) ) {
                 $children = $this->convertChildren($element, $fallbacks, true);
                 if ( array() !== $children ) {
-                    return $this->createBlock('core/group', array_merge($this->presentationAttributes($element), $this->cardLinkAttributes($element)), $children, $element);
+                    // core/group has no native link attribute, so the wrapping
+                    // anchor's href/target/rel cannot live on the group without
+                    // becoming an unsupported attribute WordPress silently drops
+                    // (#260). Preserve the children as a valid group and surface
+                    // the dropped link wrapper for diagnostics instead.
+                    $this->recordDroppedLinkWrapper($element);
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
                 }
             }
 
@@ -1110,13 +1410,46 @@ final class HtmlTransformer
             return $this->buttonsPattern->matchButton(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
             );
         }
 
         if ( 'svg' === $tagName ) {
+            // Imported inline SVGs are preserved faithfully as raw markup
+            // (core/html via inlineSvgBlockFromElement). They are never routed
+            // through core/icon: that block is a dynamic block keyed on a
+            // registry slug (its `icon` attribute) and discards arbitrary inline
+            // SVG markup, so render_block_core_icon() returns empty output for
+            // imported SVGs. Faithful passthrough keeps the original element,
+            // its sizing class(es), and correct-case viewBox so the
+            // materialized source CSS can size it.
             if ( $this->isSafeDecorativeSvgElement($element) ) {
+                // Faithfully preserve any inline SVG that carries real drawable
+                // artwork — icons, diagrams, illustrations — even when it is
+                // marked aria-hidden / role=presentation. aria-hidden hides the
+                // graphic from the accessibility tree; it does NOT mean the
+                // artwork is visually disposable. WordPress cannot reconstruct
+                // arbitrary vector artwork from CSS, so routing such an SVG into
+                // the visual-layer group (empty) or dropping it (return null)
+                // silently erased every shape — service icons collapsed to empty
+                // blocks and pipe/boiler diagrams to whitespace + comments.
+                //
+                // The exception is genuine decorative chrome the materialized
+                // source CSS recreates: a positioned visual layer (an absolutely
+                // positioned full-bleed background) or a stretched-to-fit band
+                // (preserveAspectRatio="none", which distorts geometry and so is
+                // never used for meaningful icons/diagrams). Those still collapse
+                // to a styleable group / are dropped below.
+                $isDecorativeChrome = $this->isVisualLayerElement($element)
+                    || 'none' === strtolower(trim($this->attr($element, 'preserveaspectratio')));
+                if ( ! $isDecorativeChrome && $this->svgHasDrawableContent($element) ) {
+                    $svgBlock = $this->inlineSvgBlockFromElement($element);
+                    if ( null !== $svgBlock ) {
+                        return $svgBlock;
+                    }
+                }
                 if ( $this->isVisualLayerElement($element) ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
                 }
@@ -1133,12 +1466,15 @@ final class HtmlTransformer
         }
 
         if ( 'canvas' === $tagName ) {
-            $this->captureCanvasFallback($element, $fallbacks);
-            if ( $this->isRuntimeCanvasTarget($element) ) {
-                $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-                return $this->createBlock('core/html', array( 'content' => $boundedHtml['html'] ), array(), $element);
+            if ( ! $this->isRuntimeCanvasTarget($element) ) {
+                return null;
             }
-            return null;
+
+            $this->recordRuntimeIsland($element, 'canvas', 'canvas_requires_runtime', 'canvas_element_and_client_script_execution', array(
+                'script_dependency_hint' => 'Scripts may target this canvas and call canvas APIs such as getContext(); preserving the native element keeps the runtime addressable.',
+                'required_scripts'        => $this->requiredScriptsForElement($element),
+            ));
+            return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
         }
 
         if ( 'script' === $tagName ) {
@@ -1150,6 +1486,11 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( 'template' === $tagName ) {
+            $this->captureTemplateFallback($element, $fallbacks);
+            return null;
+        }
+
         if ( 'form' === $tagName ) {
             $searchBlock = $this->searchBlockFromForm($element);
             if ( null !== $searchBlock ) {
@@ -1157,51 +1498,57 @@ final class HtmlTransformer
             }
 
             $readableFormBlock = $this->readableFormBlockFromForm($element);
-            if ( null !== $readableFormBlock ) {
+            if ( null !== $readableFormBlock && ! $this->formRequiresRuntimePreservation($element) ) {
                 return $readableFormBlock;
             }
 
             $controls = $this->formControls($element);
             $readableFormBlock = $this->readableFormBlockFromForm($element, true);
-            $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-            $fallbacks[] = FallbackDiagnostic::build(array(
-                'type'            => 'html',
-                'reason'          => 'form_requires_runtime',
-                'diagnostic_code' => 'html_form_fallback',
-                'message'         => 'Form HTML requires runtime behavior and was preserved as safe fallback metadata.',
-                'source_format'   => 'html',
-                'tag'             => $tagName,
-                'selector'        => $this->elementSelector($element),
-                'attributes'      => $this->htmlAttributes($element),
+            $this->recordRuntimeIsland($element, 'form', 'form_requires_runtime', 'server_or_client_form_handler', array(
                 'form'            => $this->formMetadata($element),
-                'context'         => $this->sourceContext($element),
-                'events'          => $this->eventMetadata($element),
-                'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
                 'controls'        => $controls,
                 'control_count'   => count($controls),
-                'text_length'     => strlen(trim($element->textContent ?? '')),
-                'child_count'     => $this->childElementCount($element),
-                'html'            => $boundedHtml['html'],
-                'html_bytes'      => $boundedHtml['bytes'],
-                'html_truncated'  => $boundedHtml['truncated'],
-            ), $this->fallbackProvenance);
+                'events'          => $this->eventMetadata($element),
+                'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
+                'required_scripts' => $this->requiredScriptsForElement($element),
+            ));
 
-            return $this->shouldMaterializeReadableRuntimeForm($element) ? $readableFormBlock : null;
+            // Surface a form fallback finding so a downstream consumer can map the
+            // preserved control structure onto a working form provider. This fires
+            // when the form has no readable representation (legacy behavior) and
+            // also when the form collects user input, so a standard data-entry
+            // <form> that still renders as readable fallback content is detectable
+            // as a materializable form rather than silently flattened into prose.
+            // Carrying the generic control list (tag/type/name/required/options)
+            // keeps the transformer free of any provider or plugin knowledge.
+            if ( null === $readableFormBlock || $this->formHasDataEntryControls($element) ) {
+                $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
+            }
+
+            return $readableFormBlock;
         }
 
         if ( 'nav' === $tagName ) {
-            $navigation = $this->navigationPattern->match(
-                $element,
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
+            $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext(false));
             if ( null !== $navigation ) {
-                return $navigation;
+                return $this->rememberAccordionDisclosureRoot($navigation, $element);
             }
         }
 
         if ( in_array($tagName, array( 'article', 'aside', 'body', 'center', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+            // Div-based pseudo-form (issue #315 follow-up): some signup/contact
+            // widgets pair data-entry controls with a submit-like control inside a
+            // plain container and never wrap them in a <form>. Without a <form>
+            // element the form-detection path above never fires, so the controls
+            // flatten into prose plus a dead button. When the tightest container
+            // pairs a data-entry control with a submit-like control (and no real
+            // <form> owns the subtree), emit the SAME html_form_fallback finding so
+            // the downstream materializer treats it identically to a real form. The
+            // readable content still renders below; this only adds the finding.
+            if ( $this->isDivBasedPseudoForm($element) ) {
+                $fallbacks[] = $this->formFallbackFinding($element, $this->readableFormBlockFromForm($element, true));
+            }
+
             $logo = $this->logoPattern->match(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
@@ -1213,7 +1560,14 @@ final class HtmlTransformer
                 return $logo;
             }
 
-            $spacer = $this->spacerBlockFromElement($element);
+            $spacer = $this->spacerPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): int => $this->childElementCount($sourceElement),
+                fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
+                fn (DOMElement $sourceElement, string $className): bool => $this->hasClass($sourceElement, $className),
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
             if ( null !== $spacer ) {
                 return $spacer;
             }
@@ -1224,28 +1578,60 @@ final class HtmlTransformer
             }
 
             if ( ! $this->shouldDeferNavigationPatternToChildren($element) ) {
-                $navigation = $this->navigationPattern->match(
+                $navigation = $this->patternRecognizers->firstMatch($element, $this->patternContext());
+                if ( null !== $navigation ) {
+                    return $this->rememberAccordionDisclosureRoot($navigation, $element);
+                }
+            }
+
+            if ( in_array($tagName, array( 'div', 'section', 'article' ), true) ) {
+                $disclosure = $this->detailsPattern->matchDisclosure(
                     $element,
+                    fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
                     fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
                     fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
                     fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
                 );
-                if ( null !== $navigation ) {
-                    return $navigation;
+                if ( null !== $disclosure ) {
+                    $this->nativeDisclosureRootIds[ $element->getNodePath() ?? '' ] = true;
+
+                    return $disclosure;
                 }
             }
 
-            $columns = $this->columnsBlockFromElement($element, $fallbacks);
+            $columns = $this->columnsPattern->match(
+                $element,
+                $fallbacks,
+                fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): array => $this->convertChildren($sourceElement, $sourceFallbacks, $captureUnsupported),
+                fn (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported): ?array => $this->convertElement($sourceElement, $sourceFallbacks, $captureUnsupported),
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
             if ( null !== $columns ) {
                 return $columns;
             }
 
-            $gallery = $this->galleryBlockFromElement($element, $fallbacks);
+            $gallery = $this->galleryPattern->match(
+                $element,
+                fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
+                fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
+                fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure),
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
             if ( null !== $gallery ) {
                 return $gallery;
             }
 
-            $codeWindow = $this->codeWindowBlockFromElement($element, $fallbacks);
+            $codeWindow = $this->codeWindowPattern->match(
+                $element,
+                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+                fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode),
+                fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode),
+                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
+            );
             if ( null !== $codeWindow ) {
                 return $codeWindow;
             }
@@ -1253,6 +1639,11 @@ final class HtmlTransformer
             $namePriceRow = $this->namePriceRowBlockFromElement($element, $fallbacks);
             if ( null !== $namePriceRow ) {
                 return $namePriceRow;
+            }
+
+            $inlineTokenGroup = $this->inlineTokenGroupBlockFromElement($element, $fallbacks);
+            if ( null !== $inlineTokenGroup ) {
+                return $inlineTokenGroup;
             }
 
             $inlineContent = $this->paragraphBlockFromInlineContentWrapper($element);
@@ -1268,6 +1659,7 @@ final class HtmlTransformer
             $buttons = $this->buttonsPattern->matchContainer(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
                 fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
@@ -1282,6 +1674,10 @@ final class HtmlTransformer
             }
 
             $children = $this->convertChildren($element, $fallbacks, true);
+            $backgroundImage = $this->backgroundImageBlockFromElement($element);
+            if ( null !== $backgroundImage && ! $this->hasDirectMediaChild($element) ) {
+                array_unshift($children, $backgroundImage);
+            }
             if ( 1 === count($children) ) {
                 if ( $this->shouldPreserveWrapper($element) ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
@@ -1302,7 +1698,21 @@ final class HtmlTransformer
             return $readableControlBlock;
         }
 
+        if ( $this->preserveStandaloneFormControlAsRuntimeIsland($element) ) {
+            return null;
+        }
+
         if ( $captureUnsupported ) {
+            // Producer link (issue #497): this is a core/html fallback decision —
+            // the element mapped to nothing native/Automattic. If the structural
+            // classifier identifies it as a high-confidence custom_block, generate
+            // a dynamic block and emit a self-closing reference instead of raw
+            // core/html. Otherwise keep the existing fallback diagnostic.
+            $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks, $this->generatedBlockNamespace);
+            if ( null !== $generated ) {
+                return $this->createBlock($generated['blockName'], $generated['attrs'], array(), $element);
+            }
+
             $fallback = array(
                 'type'            => 'unsupported_element',
                 'reason'          => 'unsupported_element',
@@ -1312,6 +1722,7 @@ final class HtmlTransformer
                 'selector'        => $this->elementSelector($element),
                 'attributes'      => $this->htmlAttributes($element),
                 'context'         => $this->sourceContext($element),
+                'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
                 'events'          => $this->eventMetadata($element),
                 'text_length'     => strlen(trim($element->textContent ?? '')),
                 'child_count'     => $this->childElementCount($element),
@@ -1351,11 +1762,27 @@ final class HtmlTransformer
      */
     private function createBlock(string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array
     {
+        $attrs = $this->hoistContentWrappingSpans($name, $attrs);
+
         if ( $sourceElement instanceof DOMElement ) {
             $provenanceId = $this->nextSourceProvenanceId++;
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
             $this->recordStructureProvenance($name, $attrs, $sourceElement);
+            $sourceTagName = strtolower($sourceElement->tagName);
+            if ( $this->isRuntimeDomTarget($sourceElement) && ! $this->isFormControlElement($sourceElement) && ! in_array($sourceTagName, array( 'canvas', 'form', 'script' ), true) ) {
+                $this->recordRuntimeIsland($sourceElement, 'dom', 'runtime_dom_target', 'client_script_execution', array(
+                    'events'          => $this->eventMetadata($sourceElement),
+                    'required_scripts' => $this->requiredScriptsForElement($sourceElement),
+                ));
+            }
             $this->sourceProvenance[$provenanceId] = $this->sourceProvenanceEntry($name, $sourceElement);
+        }
+
+        if ( 'core/group' === $name && $sourceElement instanceof DOMElement && ! isset($attrs['tagName']) ) {
+            $semanticTag = $this->semanticGroupTagName($sourceElement);
+            if ( null !== $semanticTag ) {
+                $attrs['tagName'] = $semanticTag;
+            }
         }
 
         $block = $this->blockFactory->create($name, $attrs, $innerBlocks);
@@ -1364,6 +1791,208 @@ final class HtmlTransformer
         }
 
         return $block;
+    }
+
+    /**
+     * Lift class/style styling hooks out of a paragraph/heading/list-item's
+     * RichText `content` so the stored block round-trips through RichText
+     * unchanged.
+     *
+     * core/paragraph, core/heading, and core/list-item store `content` as
+     * RichText, which only preserves a fixed set of inline formats (a, strong,
+     * em, br, …). A `<span class="…">` / `<span style="…">` is not a format, so
+     * RichText drops its attributes on parse: the saved markup no longer matches
+     * the re-serialized block ("unexpected or invalid content"), and the class —
+     * a styling hook the materialized CSS targets — would be silently lost.
+     *
+     * The fix keys off STRUCTURE (a content-bearing span carrying only
+     * class/style), never on any specific class name:
+     *   - A SINGLE styling-hook span wrapping the ENTIRE content is UNWRAPPED and
+     *     its class/style are HOISTED onto the block (merged into `className` and
+     *     the canonical `style` object). The hook survives where RichText does
+     *     preserve it and the inner text/inline-format becomes valid content.
+     *     Nested wrappers are peeled across iterations.
+     *   - Remaining sibling/partial styling-hook spans are UNWRAPPED to their
+     *     inner content. Their per-span class styling cannot ride valid RichText
+     *     here, so this is best-effort; the emitted block is always valid.
+     * Genuine inline formats (strong/em/a/br/…) are never touched.
+     *
+     * A list item whose content carries block-level children (an image/heading/
+     * paragraph "card", e.g. a commerce product grid) is left untouched here:
+     * that is not flowing RichText, so it stays the job of the structured-card
+     * decomposition path and the commerce path rather than per-span unwrapping.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function hoistContentWrappingSpans(string $name, array $attrs): array
+    {
+        if ( ! in_array($name, array( 'core/paragraph', 'core/heading', 'core/list-item' ), true) ) {
+            return $attrs;
+        }
+
+        $content = (string) ($attrs['content'] ?? '');
+        if ( '' === $content || ! preg_match('/<span\b/i', $content) ) {
+            return $attrs;
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if ( ! $body instanceof DOMElement ) {
+            return $attrs;
+        }
+
+        if ( 'core/list-item' === $name && $this->hasBlockContentChildren($body) ) {
+            return $attrs;
+        }
+
+        $hoistedClasses      = '';
+        $hoistedDeclarations = array();
+
+        // Peel a single styling-hook span wrapping the whole content, hoisting it
+        // onto the block. Nested wrappers are peeled across iterations.
+        while ( ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
+            $hoistedClasses = trim($hoistedClasses . ' ' . $this->attr($wrapper, 'class'));
+            $wrapperStyle   = trim($this->attr($wrapper, 'style'));
+            if ( '' !== $wrapperStyle ) {
+                $hoistedDeclarations = array_merge($hoistedDeclarations, $this->cssDeclarations($wrapperStyle));
+            }
+            $this->unwrapElement($wrapper);
+        }
+
+        // Unwrap any remaining styling-hook spans (sibling / partial content):
+        // best-effort, the class styling is not representable as valid RichText.
+        foreach ( $this->stylingHookSpans($body) as $span ) {
+            $this->unwrapElement($span);
+        }
+
+        $newContent = $this->innerHtml($body);
+        if ( $newContent === $content && '' === $hoistedClasses && array() === $hoistedDeclarations ) {
+            return $attrs;
+        }
+
+        $attrs['content'] = $newContent;
+
+        if ( '' !== $hoistedClasses ) {
+            $promoted = $this->promotedClassName($hoistedClasses);
+            if ( '' !== trim($promoted) ) {
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $promoted);
+            }
+        }
+
+        if ( array() !== $hoistedDeclarations ) {
+            $mapped = $this->styleAttributeMapper()->map($hoistedDeclarations)['style'];
+            if ( array() !== $mapped ) {
+                $existing       = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+                $attrs['style'] = array_replace_recursive($mapped, $existing);
+            }
+        }
+
+        return $attrs;
+    }
+
+    /**
+     * The single styling-hook span that is the container's only significant
+     * child, or null when the content is plain text, inline formats, or sibling
+     * spans (which must not be hoisted as one block-level styling hook).
+     */
+    private function soleStylingHookSpan(DOMElement $container): ?DOMElement
+    {
+        $only = null;
+        foreach ( $container->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( null !== $only ) {
+                return null;
+            }
+            $only = $child;
+        }
+
+        return $only instanceof DOMElement && $this->isStylingHookSpan($only) ? $only : null;
+    }
+
+    /**
+     * A `<span>` whose only attributes are class and/or style (at least one
+     * non-empty). These are presentational styling hooks RichText cannot store,
+     * not semantic spans (a span carrying id, data-, or role is left intact).
+     */
+    private function isStylingHookSpan(DOMElement $element): bool
+    {
+        if ( 'span' !== strtolower($element->tagName) ) {
+            return false;
+        }
+
+        $hasStyling = false;
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            $attributeName = strtolower($attribute->nodeName);
+            if ( 'class' !== $attributeName && 'style' !== $attributeName ) {
+                return false;
+            }
+            if ( '' !== trim($attribute->nodeValue ?? '') ) {
+                $hasStyling = true;
+            }
+        }
+
+        return $hasStyling;
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function stylingHookSpans(DOMElement $container): array
+    {
+        $spans = array();
+        foreach ( $container->getElementsByTagName('span') as $span ) {
+            if ( $span instanceof DOMElement && $this->isStylingHookSpan($span) ) {
+                $spans[] = $span;
+            }
+        }
+
+        return $spans;
+    }
+
+    /**
+     * Replace an element with its children in place, dropping only the wrapper.
+     */
+    private function unwrapElement(DOMElement $element): void
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMNode ) {
+            return;
+        }
+
+        while ( null !== $element->firstChild ) {
+            $parent->insertBefore($element->firstChild, $element);
+        }
+
+        $parent->removeChild($element);
+    }
+
+    /**
+     * Semantic HTML5 container tags core's `core/group` block can render as its
+     * wrapper via the `tagName` attribute. A source `<header>`/`<section>`/etc.
+     * collapsed to a group keeps its real tag so tag-qualified source CSS
+     * (`header { ... }`, `section { ... }`) still matches the rendered output.
+     *
+     * `figure` is intentionally excluded — it has its own conversion path and is
+     * not a core/group wrapper option. Nav link lists are handled separately by
+     * the navigation path and never reach here.
+     *
+     * @var array<int, string>
+     */
+    private const SEMANTIC_GROUP_TAGS = array( 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main' );
+
+    private function semanticGroupTagName(DOMElement $element): ?string
+    {
+        $tag = strtolower($element->tagName);
+
+        return in_array($tag, self::SEMANTIC_GROUP_TAGS, true) ? $tag : null;
     }
 
     /**
@@ -1403,311 +2032,48 @@ final class HtmlTransformer
      */
     private function sourceProvenanceEntry(string $blockName, DOMElement $element): array
     {
-        return array(
+        return array_merge(array(
             'block_name'        => $blockName,
             'tag'               => strtolower($element->tagName),
             'selector'          => $this->elementSelector($element),
             'source_attributes' => $this->safeSourceAttributes($element),
             'source_fragment'   => $this->safeSourceFragment($element),
             'context'           => $this->sourceContext($element),
-        );
-    }
-
-    private function innerHtml(DOMElement $element): string
-    {
-        $html = '';
-        foreach ( $element->childNodes as $child ) {
-            $html .= $element->ownerDocument->saveHTML($child);
-        }
-
-        return trim($html);
-    }
-
-    private function innerHtmlPreservingWhitespace(DOMElement $element): string
-    {
-        $html = '';
-        foreach ( $element->childNodes as $child ) {
-            $html .= $element->ownerDocument->saveHTML($child);
-        }
-
-        return $html;
-    }
-
-    private function outerHtml(DOMElement $element): string
-    {
-        return trim($element->ownerDocument->saveHTML($element) ?: '');
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
+        ), $this->sourceConversionMetadata($blockName, $element));
     }
 
     /**
-     * @return array<string, mixed>
+     * @return array{conversion_classification: string, preservation_strategy: string}
      */
-    private function presentationAttributes(DOMElement $element): array
-    {
-        $style = $this->mergedPresentationStyle($element);
-
-        return array_filter(array(
-            'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
-            'className' => $this->promotedClassName($this->attr($element, 'class')),
-            'style'     => $style,
-            'layout'    => $this->layoutAttribute($element, $style),
-        ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
-    }
-
-    private function safeAnchor(string $id): string
-    {
-        $id = trim($id);
-        if ( '' === $id || ! preg_match('/^[A-Za-z][A-Za-z0-9_-]*$/', $id) ) {
-            return '';
-        }
-
-        return $id;
-    }
-
-    private function mergedPresentationStyle(DOMElement $element): string
-    {
-        $inlineStyle = $this->attr($element, 'style');
-        if ( array() === $this->staticStyleRules || ! $this->isHighValueStyledElement($element) ) {
-            return $inlineStyle;
-        }
-
-        $declarations = array();
-        foreach ( $this->staticStyleRules as $rule ) {
-            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
-                $declarations = array_merge($declarations, $rule['declarations']);
-            }
-        }
-
-        if ( array() === $declarations ) {
-            return $inlineStyle;
-        }
-
-        $declarations = array_merge($declarations, $this->cssDeclarations($inlineStyle));
-        return $this->cssDeclarationString($declarations);
-    }
-
-    private function isHighValueStyledElement(DOMElement $element): bool
+    private function sourceConversionMetadata(string $blockName, DOMElement $element): array
     {
         $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'button', 'nav', 'article' ), true) ) {
-            return true;
+
+        if ( 'core/html' === $blockName ) {
+            return array(
+                'conversion_classification' => 'runtime_island_preserved',
+                'preservation_strategy'     => 'bounded_raw_html_runtime_island',
+            );
         }
 
-        $tokens = strtolower(trim(implode(' ', array(
-            $this->attr($element, 'class'),
-            $this->attr($element, 'id'),
-            $this->attr($element, 'role'),
-        ))));
-
-        if ( preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action|nav|menu|cards?|tile|panel|pricing|price|product|grid|columns|layout|stack|cluster|row|wrap)(?:[^a-z0-9]|$)/', $tokens) ) {
-            return true;
+        if ( $this->isRuntimeDomTarget($element) ) {
+            return array(
+                'conversion_classification' => 'runtime_island_preserved',
+                'preservation_strategy'     => 'core_block_shell_with_runtime_target',
+            );
         }
 
-        if ( 'a' === $tagName ) {
-            for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
-                $ancestorTokens = strtolower($this->attr($node, 'class') . ' ' . $this->attr($node, 'id'));
-                if ( preg_match('/(?:^|[^a-z0-9])(?:actions?|btns?|buttons?|cta|nav|menu|card|tile|panel|pricing|product)(?:[^a-z0-9]|$)/', $ancestorTokens) ) {
-                    return true;
-                }
-            }
+        if ( in_array($tagName, array('form', 'input', 'select', 'textarea'), true) && 'core/search' !== $blockName ) {
+            return array(
+                'conversion_classification' => 'editable_approximation',
+                'preservation_strategy'     => 'readable_static_block_approximation',
+            );
         }
 
-        return false;
-    }
-
-    /**
-     * @return array<int, array{selector: string, declarations: array<string, string>}>
-     */
-    private function staticStyleRules(string $html, string $linkedCss): array
-    {
-        $css = trim($linkedCss);
-        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
-            $css .= ( '' === $css ? '' : "\n" ) . implode("\n", array_map('trim', $matches[1]));
-        }
-
-        if ( '' === trim($css) ) {
-            return array();
-        }
-
-        $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
-        $rules = array();
-        if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        foreach ( $matches as $match ) {
-            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $match[2]));
-            if ( array() === $declarations ) {
-                continue;
-            }
-            foreach ( explode(',', (string) $match[1]) as $selector ) {
-                $selector = trim($selector);
-                if ( '' !== $selector && $this->isSupportedCssSelector($selector) ) {
-                    $rules[] = array(
-                        'selector' => $selector,
-                        'declarations' => $declarations,
-                    );
-                }
-            }
-        }
-
-        return array_slice($rules, 0, 200);
-    }
-
-    /**
-     * @param array<string, string> $declarations
-     * @return array<string, string>
-     */
-    private function safeVisualDeclarations(array $declarations): array
-    {
-        $safe = array_flip(array(
-            'background',
-            'background-color',
-            'border',
-            'border-color',
-            'border-radius',
-            'border-style',
-            'border-width',
-            'box-shadow',
-            'color',
-            'align-items',
-            'column-gap',
-            'display',
-            'flex-direction',
-            'flex-wrap',
-            'font-size',
-            'font-weight',
-            'gap',
-            'grid-template-columns',
-            'grid-template-rows',
-            'justify-content',
-            'line-height',
-            'margin',
-            'margin-bottom',
-            'margin-left',
-            'margin-right',
-            'margin-top',
-            'padding',
-            'padding-bottom',
-            'padding-left',
-            'padding-right',
-            'padding-top',
-            'row-gap',
-            'text-align',
-            'text-decoration',
-            'text-transform',
-        ));
-
-        return array_intersect_key($declarations, $safe);
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function cssDeclarations(string $style): array
-    {
-        $declarations = array();
-        foreach ( explode(';', $style) as $declaration ) {
-            if ( ! str_contains($declaration, ':') ) {
-                continue;
-            }
-            [$name, $value] = array_map('trim', explode(':', $declaration, 2));
-            $name = strtolower($name);
-            $value = preg_replace('/\s+/', ' ', $value) ?? $value;
-            if ( '' !== $name && '' !== $value && ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $value) ) {
-                $declarations[$name] = $value;
-            }
-        }
-
-        return $declarations;
-    }
-
-    /**
-     * @param array<string, string> $declarations
-     */
-    private function cssDeclarationString(array $declarations): string
-    {
-        $parts = array();
-        foreach ( $declarations as $name => $value ) {
-            $parts[] = $name . ':' . $value;
-        }
-
-        return implode(';', $parts);
-    }
-
-    private function isSupportedCssSelector(string $selector): bool
-    {
-        $selector = $this->normalizeCssSelector($selector);
-        if ( '' === $selector || preg_match('/[>+~\[\]=]/', $selector) ) {
-            return false;
-        }
-
-        foreach ( preg_split('/\s+/', $selector) ?: array() as $part ) {
-            if ( ! preg_match('/^(?:[a-z][a-z0-9_-]*)?(?:\.[A-Za-z0-9_-]+)+$|^\.[A-Za-z0-9_-]+$/i', $part) ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private function matchesCssSelector(DOMElement $element, string $selector): bool
-    {
-        $parts = preg_split('/\s+/', $this->normalizeCssSelector($selector)) ?: array();
-        if ( array() === $parts ) {
-            return false;
-        }
-
-        if ( ! $this->matchesCssSelectorPart($element, $parts[count($parts) - 1]) ) {
-            return false;
-        }
-
-        $current = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
-        for ( $index = count($parts) - 2; $index >= 0; --$index ) {
-            $matched = false;
-            for ( $node = $current; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
-                if ( $this->matchesCssSelectorPart($node, $parts[$index]) ) {
-                    $matched = true;
-                    $current = $node->parentNode instanceof DOMElement ? $node->parentNode : null;
-                    break;
-                }
-            }
-            if ( ! $matched ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private function normalizeCssSelector(string $selector): string
-    {
-        return trim(preg_replace('/:(?:hover|focus|active|visited|before|after|focus-visible)\b.*/', '', $selector) ?? $selector);
-    }
-
-    private function matchesCssSelectorPart(DOMElement $element, string $selector): bool
-    {
-        if ( ! preg_match('/^(?:(?<tag>[a-z][a-z0-9_-]*))?(?<classes>(?:\.[A-Za-z0-9_-]+)+)$/i', $selector, $match) ) {
-            return false;
-        }
-
-        if ( ! empty($match['tag']) && strtolower($match['tag']) !== strtolower($element->tagName) ) {
-            return false;
-        }
-
-        $classes = preg_split('/\./', ltrim((string) $match['classes'], '.')) ?: array();
-        $elementClasses = preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array();
-        foreach ( $classes as $class ) {
-            if ( ! in_array($class, $elementClasses, true) ) {
-                return false;
-            }
-        }
-
-        return true;
+        return array(
+            'conversion_classification' => 'native_block_conversion',
+            'preservation_strategy'     => 'core_block',
+        );
     }
 
     /**
@@ -1751,7 +2117,7 @@ final class HtmlTransformer
     private function promotedClassName(string $className): string
     {
         if ( '' === trim($className) || array() === $this->staticClassPromotions ) {
-            return $className;
+            return $this->presentationClassName($className);
         }
 
         $classes = preg_split('/\s+/', trim($className)) ?: array();
@@ -1763,46 +2129,7 @@ final class HtmlTransformer
             }
         }
 
-        return implode(' ', $classes);
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function layoutAttribute(DOMElement $element, string $mergedStyle = ''): array
-    {
-        $declared = trim($this->attr($element, 'data-layout'));
-        if ( '' === $declared ) {
-            $declared = trim($this->attr($element, 'data-wp-layout'));
-        }
-
-        if ( '' !== $declared ) {
-            $decoded = json_decode($declared, true);
-            $type = is_array($decoded) ? (string) ($decoded['type'] ?? '') : $declared;
-            if ( in_array($type, array( 'constrained', 'flex', 'flow', 'grid' ), true) ) {
-                return array( 'type' => $type );
-            }
-        }
-
-        $style = strtolower('' !== trim($mergedStyle) ? $mergedStyle : $this->attr($element, 'style'));
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style) ) {
-            return array( 'type' => 'flex' );
-        }
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $style) ) {
-            return array( 'type' => 'grid' );
-        }
-
-        if ( $this->hasGridLikeClass($element) && 1 < $this->cardLikeChildCount($element) ) {
-            return array( 'type' => 'grid' );
-        }
-
-        return array();
-    }
-
-    private function hasGridLikeClass(DOMElement $element): bool
-    {
-        $className = strtolower($this->attr($element, 'class'));
-        return (bool) preg_match('/(?:^|[\s_-])(?:cards|grid|tiles|collection|gallery)(?:$|[\s_-])/', $className);
+        return $this->presentationClassName(implode(' ', $classes));
     }
 
     /**
@@ -1846,7 +2173,7 @@ final class HtmlTransformer
 
     private function shouldPreserveWrapper(DOMElement $element): bool
     {
-        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) && ( array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
+        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) && ( $this->isRuntimeDomTarget($element) || array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
     }
 
     private function shouldDeferNavigationPatternToChildren(DOMElement $element): bool
@@ -1890,7 +2217,7 @@ final class HtmlTransformer
 
     private function isInlineContentElement(string $tagName): bool
     {
-        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'font', 'i', 'mark', 'rp', 'rt', 'ruby', 'small', 'span', 'strong', 'sub', 'sup', 'time' ), true);
+        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'font', 'i', 'kbd', 'mark', 'rp', 'rt', 'ruby', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'var' ), true);
     }
 
     private function hasBlockContentChildren(DOMElement $element): bool
@@ -1939,6 +2266,96 @@ final class HtmlTransformer
         }
 
         return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+    }
+
+    private function inlineTokenGroupBlockFromElement(DOMElement $element, array &$fallbacks): ?array
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+            return null;
+        }
+
+        if ( ! $this->hasInlineTokenGroupSignal($element) ) {
+            return null;
+        }
+
+        $children = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return null;
+                }
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( ! $this->isInlineTokenItemElement($child) ) {
+                return null;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( in_array($tagName, array( 'a', 'button' ), true) ) {
+                $block = $this->convertElement($child, $fallbacks, true);
+                if ( null === $block ) {
+                    return null;
+                }
+                $children[] = $block;
+                continue;
+            }
+
+            $content = $this->innerHtml($child);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+            $children[] = $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($child), array( 'content' => $content )), array(), $child);
+        }
+
+        if ( count($children) < 2 ) {
+            return null;
+        }
+
+        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+    }
+
+    private function hasInlineTokenGroupSignal(DOMElement $element): bool
+    {
+        if ( $this->hasInlineTokenSignal($element) ) {
+            return true;
+        }
+
+        $tokenChildren = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->isInlineTokenItemElement($child) ) {
+                ++$tokenChildren;
+            }
+        }
+
+        return 1 < $tokenChildren;
+    }
+
+    private function isInlineTokenItemElement(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( ! in_array($tagName, array( 'a', 'button' ), true) && ! $this->isInlineContentElement($tagName) ) {
+            return false;
+        }
+
+        return $this->hasInlineTokenSignal($element);
+    }
+
+    private function hasInlineTokenSignal(DOMElement $element): bool
+    {
+        $tokens = strtolower(trim(implode(' ', array(
+            $this->attr($element, 'class'),
+            $this->attr($element, 'id'),
+            $this->attr($element, 'role'),
+            $this->attr($element, 'data-filter'),
+            $this->attr($element, 'data-tag'),
+        ))));
+
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:chips?|pills?|badges?|tags?|filters?|facets?)(?:[^a-z0-9]|$)/', $tokens);
     }
 
     private function paragraphBlockFromInlineContentWrapper(DOMElement $element): ?array
@@ -1991,33 +2408,6 @@ final class HtmlTransformer
         return $nonAnchorText;
     }
 
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function phrasingQuoteChildren(DOMElement $element, string $value): array
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType ) {
-                continue;
-            }
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            $tagName = strtolower($child->tagName);
-            if ( in_array($tagName, array( 'cite', 'footer' ), true) ) {
-                continue;
-            }
-            if ( 'br' === $tagName || $this->isInlineContentElement($tagName) ) {
-                continue;
-            }
-
-            return array();
-        }
-
-        return array( $this->createBlock('core/paragraph', array( 'content' => $value )) );
-    }
-
     private function dynamicTextContent(DOMElement $element): ?string
     {
         $target = trim($this->attr($element, 'data-target'));
@@ -2031,44 +2421,6 @@ final class HtmlTransformer
             : number_format((float) $target, 0, '.', ',');
 
         return $this->attr($element, 'data-prefix') . $value . $this->attr($element, 'data-suffix');
-    }
-
-    private function hasClass(DOMElement $element, string $className): bool
-    {
-        return in_array($className, preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array(), true);
-    }
-
-    private function elementSelector(DOMElement $element): string
-    {
-        $parts = array();
-        $current = $element;
-        while ( $current instanceof DOMElement && 'body' !== strtolower($current->tagName) ) {
-            $tagName = strtolower($current->tagName);
-            $index = 1;
-            for ( $sibling = $current->previousSibling; $sibling instanceof DOMNode; $sibling = $sibling->previousSibling ) {
-                if ( $sibling instanceof DOMElement && strtolower($sibling->tagName) === $tagName ) {
-                    ++$index;
-                }
-            }
-            array_unshift($parts, $tagName . ':nth-of-type(' . $index . ')');
-            $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null;
-        }
-
-        return implode(' > ', $parts);
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function htmlAttributes(DOMElement $element): array
-    {
-        $attributes = array();
-        foreach ( $element->attributes ?? array() as $attribute ) {
-            $attributes[$attribute->nodeName] = $attribute->nodeValue ?? '';
-        }
-
-        ksort($attributes);
-        return $attributes;
     }
 
     /**
@@ -2106,19 +2458,6 @@ final class HtmlTransformer
         ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
     }
 
-    /**
-     * @return array<int, string>
-     */
-    private function ancestorTags(DOMElement $element): array
-    {
-        $tags = array();
-        for ( $parent = $element->parentNode; $parent instanceof DOMElement && 'body' !== strtolower($parent->tagName); $parent = $parent->parentNode ) {
-            $tags[] = strtolower($parent->tagName);
-        }
-
-        return $tags;
-    }
-
     private function nearestPreviousHeadingText(DOMElement $element): string
     {
         for ( $node = $element->previousSibling; $node instanceof DOMNode; $node = $node->previousSibling ) {
@@ -2128,14 +2467,6 @@ final class HtmlTransformer
         }
 
         return '';
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function classNames(DOMElement $element): array
-    {
-        return array_values(array_filter(preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array()));
     }
 
     /**
@@ -2173,14 +2504,17 @@ final class HtmlTransformer
     private function structureSignals(DOMElement $element, array $attrs): array
     {
         $className = strtolower(trim($this->attr($element, 'class') . ' ' . (string) ($attrs['className'] ?? '')));
-        $style = strtolower(trim($this->attr($element, 'style') . ';' . (string) ($attrs['style'] ?? '')));
+        $style = strtolower(trim($this->attr($element, 'style') . ';' . (is_string($attrs['style'] ?? null) ? $attrs['style'] : '')));
         $signals = array();
 
-        if ( preg_match('/(?:^|[\s_-])(?:card|tile|panel|item)(?:$|[\s_-])/', $className) || 'article' === strtolower($element->tagName) ) {
+        if ( preg_match('/(?:^|[\s_-])(?:card|feature|service|provider|resource|post|project|stat|badge|tile|panel|item)(?:$|[\s_-])/', $className) || 'article' === strtolower($element->tagName) ) {
             $signals['card_like'] = true;
         }
-        if ( preg_match('/(?:^|[\s_-])(?:cards|grid|tiles|columns|collection|gallery)(?:$|[\s_-])/', $className) || preg_match('/(?:^|;)\s*(?:display\s*:\s*grid|grid-template-columns\s*:)/', $style) ) {
+        if ( preg_match('/(?:^|[\s_-])(?:cards|features|services|providers|testimonials|resources|posts|projects|stats|badges|grid|grid-[0-9]+|tiles|columns|collection|gallery)(?:$|[\s_-])/', $className) || preg_match('/(?:^|;)\s*(?:display\s*:\s*grid|grid-template-columns\s*:)/', $style) ) {
             $signals['grid_like'] = true;
+        }
+        if ( preg_match('/(?:^|[\s_-])(?:hero|masthead|intro|banner|container|wrap|wrapper|inner|shell)(?:$|[\s_-])/', $className) ) {
+            $signals['section_container_like'] = true;
         }
         if ( $this->isVisualLayerElement($element) ) {
             $signals['visual_layer'] = true;
@@ -2221,7 +2555,7 @@ final class HtmlTransformer
     private function isCardLikeElement(DOMElement $element): bool
     {
         $className = strtolower($this->attr($element, 'class'));
-        return 'article' === strtolower($element->tagName) || (bool) preg_match('/(?:^|[\s_-])(?:card|tile|panel|item)(?:$|[\s_-])/', $className);
+        return 'article' === strtolower($element->tagName) || (bool) preg_match('/(?:^|[\s_-])(?:card|feature|service|provider|resource|post|project|stat|badge|tile|panel|item)(?:$|[\s_-])/', $className);
     }
 
     private function isVisualLayerElement(DOMElement $element): bool
@@ -2279,18 +2613,6 @@ final class HtmlTransformer
         }
 
         return $html;
-    }
-
-    private function childElementCount(DOMElement $element): int
-    {
-        $count = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                ++$count;
-            }
-        }
-
-        return $count;
     }
 
     /**
@@ -2368,6 +2690,670 @@ final class HtmlTransformer
         }
 
         return $candidates;
+    }
+
+    /**
+     * Emit a generic behavior-loss diagnostic for interactive controls that
+     * convert to static, non-interactive blocks without their behavior being
+     * preserved or rebuilt.
+     *
+     * Detection is structural/semantic — handler attributes (on*), declarative
+     * JS hooks (data-action/toggle/target/...), ARIA control state
+     * (aria-controls/aria-expanded/aria-haspopup), or a button role on a
+     * non-button, non-link element — never a fixture-specific class string.
+     *
+     * Controls whose behavior survives conversion are intentionally excluded so
+     * ordinary content stays silent: forms (covered by html_form_fallback),
+     * script DOM targets (covered by the runtime dependency parity report),
+     * elements preserved as runtime islands, hamburger toggles folded into
+     * core/navigation, controls consumed by a menu that becomes core/navigation,
+     * and plain links/buttons with no interaction signals.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function appendInteractiveControlBehaviorLossFallbacks(DOMElement $body, array &$fallbacks): void
+    {
+        $emitted = 0;
+        $seen = array();
+        foreach ( $body->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( $emitted >= self::MAX_INTERACTION_CANDIDATES ) {
+                return;
+            }
+
+            $signals = $this->interactionSignalEvidence($element);
+            if ( array() === $signals || ! $this->isInteractiveControlBehaviorLoss($element) ) {
+                continue;
+            }
+
+            $key = strtolower($element->tagName) . '|' . $this->elementSelector($element);
+            if ( isset($seen[$key]) ) {
+                continue;
+            }
+            $seen[$key] = true;
+
+            $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+            $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
+                'type'                => 'html',
+                'reason'              => 'interactive_control_behavior_lost',
+                'diagnostic_code'     => 'interactive_control_behavior_lost',
+                'message'             => 'An interactive control was converted to a static block, so its source behavior is no longer wired to any runtime.',
+                'source_format'       => 'html',
+                'tag'                 => strtolower($element->tagName),
+                'selector'            => $this->elementSelector($element),
+                'attributes'          => $this->htmlAttributes($element),
+                'context'             => $this->sourceContext($element),
+                'events'              => $this->eventMetadata($element),
+                'interaction_signals' => $signals,
+                'controlled_target'   => $this->controlledTarget($element),
+                'html'                => $boundedHtml['html'],
+                'html_bytes'          => $boundedHtml['bytes'],
+                'html_truncated'      => $boundedHtml['truncated'],
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->fallbackProvenance);
+            ++$emitted;
+        }
+    }
+
+    /**
+     * Surface a generic product-grid finding so a downstream consumer can
+     * materialize the recognized products (e.g. as commerce products) without the
+     * transformer carrying any provider or plugin knowledge.
+     *
+     * This is purely ADDITIVE: the layout block output (grid -> group/columns) is
+     * unchanged; this only appends an `html_product_grid_fallback` diagnostic that
+     * a consumer may act on or ignore.
+     *
+     * Detection composes the existing commerce-recognition primitives
+     * (grid_like / repeated card children / price + name tokens) with schema.org
+     * microdata (`itemtype` Product / `itemprop` name|price|Offer). A product card
+     * is a repeated sibling (>= 2 under a grid_like or list container) that either
+     * declares schema.org Product/Offer structure OR carries the full structural
+     * triad: a name (heading or name token), a currency-formatted price, and an
+     * add-to-cart/buy control. Detection reads only structural/semantic signals
+     * and schema.org vocabulary — never fixture names or specific class strings.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function appendProductGridFallbacks(DOMElement $body, array &$fallbacks): void
+    {
+        $emitted = 0;
+        $coveredPaths = array();
+        foreach ( $body->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( $emitted >= self::MAX_INTERACTION_CANDIDATES ) {
+                return;
+            }
+
+            if ( ! $this->isProductGridContainer($element) ) {
+                continue;
+            }
+
+            // Prefer the innermost qualifying container: skip a grid whose products
+            // were already attributed to a nested grid emitted earlier in the walk.
+            $path = $element->getNodePath() ?? '';
+            foreach ( $coveredPaths as $coveredPath ) {
+                if ( '' !== $path && '' !== $coveredPath && str_starts_with($coveredPath, $path . '/') ) {
+                    continue 2;
+                }
+            }
+
+            $products = $this->productCardsForContainer($element);
+            if ( count($products) < 2 ) {
+                continue;
+            }
+
+            $coveredPaths[] = $path;
+
+            $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
+                'type'              => 'html',
+                'reason'            => 'commerce_product_grid_detected',
+                'diagnostic_code'   => 'html_product_grid_fallback',
+                'kind'              => 'html_product_grid_fallback',
+                'message'           => 'A product grid was detected; per-card commerce structure was extracted so a consumer can materialize the products.',
+                'source_format'     => 'html',
+                'tag'               => strtolower($element->tagName),
+                'selector'          => $this->elementSelector($element),
+                'container_selector' => $this->elementSelector($element),
+                'context'           => $this->sourceContext($element),
+                'products'          => $products,
+                'product_count'     => count($products),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->fallbackProvenance);
+            ++$emitted;
+        }
+    }
+
+    /**
+     * Whether an element is a plausible product-grid container: a list (ul/ol) or
+     * an element the structure classifier already flags as grid_like.
+     */
+    private function isProductGridContainer(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'ul', 'ol' ), true) ) {
+            return true;
+        }
+
+        $signals = $this->structureSignals($element, array());
+        return true === ($signals['grid_like'] ?? false);
+    }
+
+    /**
+     * Extract the qualifying product cards directly under a grid container. A card
+     * is a direct child element that declares schema.org Product/Offer structure or
+     * carries the full structural commerce triad (name + price + cart control).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function productCardsForContainer(DOMElement $container): array
+    {
+        $products = array();
+        foreach ( $container->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $product = $this->productCardData($child);
+            if ( null !== $product ) {
+                $products[] = $product;
+            }
+        }
+
+        return $products;
+    }
+
+    /**
+     * Build the per-card product payload when a card qualifies, else null.
+     *
+     * A card qualifies when it declares schema.org Product/Offer structure
+     * (microdata `itemtype` Product or both `itemprop` name and price), OR carries
+     * the structural triad: a name, a currency-formatted price, and an
+     * add-to-cart/buy control.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function productCardData(DOMElement $card): ?array
+    {
+        $name = $this->productNameText($card);
+        $prices = $this->productPriceTexts($card);
+        $hasCart = $this->hasCartControl($card);
+        $isSchemaProduct = $this->isSchemaProductCard($card);
+
+        if ( '' === $name || array() === $prices ) {
+            return null;
+        }
+
+        // schema.org Product/Offer is an authoritative commerce signal, so it
+        // qualifies a card on its own. Otherwise require the full structural triad
+        // (name + price + cart control) to avoid flagging generic content grids.
+        if ( ! $isSchemaProduct && ! $hasCart ) {
+            return null;
+        }
+
+        return array_filter(array(
+            'name'             => $name,
+            'price'            => $prices['price'],
+            'sale_price'       => $prices['sale_price'] ?? null,
+            'description'      => $this->productDescriptionText($card, $name),
+            'image'            => $this->productImage($card),
+            'has_cart_control' => $hasCart,
+            'source_selector'  => $this->elementSelector($card),
+        ), static fn (mixed $value, string $key): bool => in_array($key, array( 'sale_price', 'description', 'image' ), true) || ( null !== $value && '' !== $value ), ARRAY_FILTER_USE_BOTH);
+    }
+
+    /**
+     * Whether the card declares schema.org Product/Offer structure via microdata.
+     */
+    private function isSchemaProductCard(DOMElement $card): bool
+    {
+        $itemtype = strtolower($this->attr($card, 'itemtype'));
+        if ( str_contains($itemtype, 'schema.org/product') ) {
+            return true;
+        }
+
+        $hasName = null !== $this->firstDescendantWithItemprop($card, array( 'name' ));
+        $hasPrice = null !== $this->firstDescendantWithItemprop($card, array( 'price' ));
+        if ( $hasName && $hasPrice ) {
+            return true;
+        }
+
+        foreach ( $card->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && str_contains(strtolower($this->attr($descendant, 'itemtype')), 'schema.org/offer') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The product name text: schema.org `itemprop="name"`, else the first heading,
+     * else the first element carrying a name token.
+     */
+    private function productNameText(DOMElement $card): string
+    {
+        $schemaName = $this->firstDescendantWithItemprop($card, array( 'name' ));
+        if ( null !== $schemaName ) {
+            $text = $this->collapsedText($schemaName);
+            if ( '' !== $text ) {
+                return $text;
+            }
+        }
+
+        foreach ( $card->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && preg_match('/^h[1-6]$/', strtolower($descendant->tagName)) ) {
+                $text = $this->collapsedText($descendant);
+                if ( '' !== $text ) {
+                    return $text;
+                }
+            }
+        }
+
+        foreach ( $card->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->hasCommerceToken($descendant, array( 'name', 'title', 'product' )) ) {
+                $text = $this->collapsedText($descendant);
+                if ( '' !== $text ) {
+                    return $text;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Currency-formatted price text for the card, returning the regular price and
+     * an optional sale price. schema.org `itemprop="price"` is preferred; otherwise
+     * elements whose text is currency-formatted or carry a price token are used.
+     * A price element marked with a sale/discount token is treated as the sale
+     * price and the other as the regular price.
+     *
+     * @return array{price: string, sale_price?: string}
+     */
+    private function productPriceTexts(DOMElement $card): array
+    {
+        $regular = '';
+        $sale = '';
+        $fallback = '';
+
+        $schemaPrice = $this->firstDescendantWithItemprop($card, array( 'price' ));
+        if ( null !== $schemaPrice ) {
+            $content = trim($this->attr($schemaPrice, 'content'));
+            $regular = $this->currencyFormattedText('' !== $content ? $content : ($schemaPrice->textContent ?? ''), $schemaPrice);
+        }
+
+        foreach ( $card->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+
+            $text = $this->collapsedText($descendant);
+            if ( '' === $text || ! $this->isPriceElement($descendant) ) {
+                continue;
+            }
+            // Only consider leaf-ish price elements so a wrapper's concatenated
+            // text does not shadow the individual regular/sale amounts.
+            if ( $this->childElementCount($descendant) > 0 ) {
+                continue;
+            }
+
+            $formatted = $this->currencyFormattedText($text, $descendant);
+            if ( '' === $formatted ) {
+                continue;
+            }
+
+            if ( $this->hasCommerceToken($descendant, array( 'sale', 'discount', 'special', 'reduced', 'now' )) ) {
+                $sale = '' === $sale ? $formatted : $sale;
+                continue;
+            }
+
+            if ( '' === $regular ) {
+                $regular = $formatted;
+            } elseif ( '' === $fallback ) {
+                $fallback = $formatted;
+            }
+        }
+
+        if ( '' === $regular ) {
+            $regular = '' !== $fallback ? $fallback : $sale;
+            $sale = '' !== $fallback ? $sale : '';
+        }
+
+        if ( '' === $regular ) {
+            return array();
+        }
+
+        $result = array( 'price' => $regular );
+        if ( '' !== $sale && $sale !== $regular ) {
+            $result['sale_price'] = $sale;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Reduce raw text to its currency-formatted price token (e.g. "$24"), keeping
+     * the trimmed source when no currency token is present but the element is a
+     * declared price (schema.org / price token).
+     */
+    private function currencyFormattedText(string $text, DOMElement $element): string
+    {
+        $text = trim(preg_replace('/\s+/', ' ', $text) ?? '');
+        if ( '' === $text ) {
+            return '';
+        }
+
+        if ( preg_match('/\p{Sc}\s?\d[\d.,]*|\d[\d.,]*\s?(?:usd|eur|gbp|cad|aud)\b/iu', $text, $matches) ) {
+            return trim($matches[0]);
+        }
+
+        // A schema.org price content attribute is bare numeric (e.g. "24.00");
+        // keep it as-is when the element is a declared price.
+        if ( $this->hasCommerceToken($element, array( 'price', 'amount', 'cost' )) && preg_match('/\d/', $text) ) {
+            return $text;
+        }
+
+        return '';
+    }
+
+    /**
+     * Whether the card contains an add-to-cart / buy / purchase control. Detection
+     * is semantic: a button/link/input whose text, class, id, name, aria-label, or
+     * data-* carries cart/buy/add/purchase/checkout/order semantics.
+     */
+    private function hasCartControl(DOMElement $card): bool
+    {
+        $tokens = array( 'cart', 'buy', 'purchase', 'checkout', 'order', 'addtocart', 'add-to-cart' );
+        foreach ( $card->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($descendant->tagName);
+            $role = strtolower($this->attr($descendant, 'role'));
+            $isControl = in_array($tagName, array( 'button', 'a', 'input' ), true) || 'button' === $role;
+            if ( ! $isControl ) {
+                continue;
+            }
+
+            $haystack = strtolower(implode(' ', array(
+                $this->attr($descendant, 'class'),
+                $this->attr($descendant, 'id'),
+                $this->attr($descendant, 'name'),
+                $this->attr($descendant, 'aria-label'),
+                $this->attr($descendant, 'value'),
+                implode(' ', $this->safeDataAttributes($descendant)),
+                $this->collapsedText($descendant),
+            )));
+
+            foreach ( $tokens as $token ) {
+                if ( str_contains($haystack, $token) ) {
+                    return true;
+                }
+            }
+
+            // "add" alone is ambiguous, so require it to co-occur with a commerce
+            // context word ("cart"/"bag"/"basket") to count as a cart control.
+            if ( preg_match('/\badd\b/', $haystack) && preg_match('/\b(?:cart|bag|basket)\b/', $haystack) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * An optional short product description: the first paragraph in the card whose
+     * text is neither the name nor a price. Returns null when none is present.
+     */
+    private function productDescriptionText(DOMElement $card, string $name): ?string
+    {
+        foreach ( $card->getElementsByTagName('p') as $paragraph ) {
+            if ( ! $paragraph instanceof DOMElement ) {
+                continue;
+            }
+
+            $text = $this->collapsedText($paragraph);
+            if ( '' === $text || $text === $name || $this->looksLikePriceText($text) ) {
+                continue;
+            }
+
+            return mb_strlen($text) > 280 ? mb_substr($text, 0, 277) . '...' : $text;
+        }
+
+        return null;
+    }
+
+    /**
+     * The card's primary image as a generic { src, alt } pair, or null.
+     *
+     * @return array<string, string>|null
+     */
+    private function productImage(DOMElement $card): ?array
+    {
+        foreach ( $card->getElementsByTagName('img') as $image ) {
+            if ( ! $image instanceof DOMElement ) {
+                continue;
+            }
+
+            $src = trim($this->attr($image, 'src'));
+            if ( '' === $src && '' !== trim($this->attr($image, 'data-src')) ) {
+                $src = trim($this->attr($image, 'data-src'));
+            }
+            if ( '' === $src || preg_match('/^\s*javascript\s*:/i', $src) ) {
+                continue;
+            }
+
+            return array_filter(array(
+                'src' => $src,
+                'alt' => trim($this->attr($image, 'alt')),
+            ), static fn (mixed $value): bool => '' !== $value);
+        }
+
+        return null;
+    }
+
+    /**
+     * Find the nearest descendant (or the element itself) declaring one of the
+     * given schema.org `itemprop` values.
+     *
+     * @param array<int, string> $itemprops
+     */
+    private function firstDescendantWithItemprop(DOMElement $element, array $itemprops): ?DOMElement
+    {
+        if ( in_array(strtolower($this->attr($element, 'itemprop')), $itemprops, true) ) {
+            return $element;
+        }
+
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && in_array(strtolower($this->attr($descendant, 'itemprop')), $itemprops, true) ) {
+                return $descendant;
+            }
+        }
+
+        return null;
+    }
+
+    private function collapsedText(DOMElement $element): string
+    {
+        return trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
+    }
+
+    /**
+     * Whether an element carries structural interaction signals AND converts to
+     * a static block with its behavior dropped (not preserved or rebuilt).
+     */
+    private function isInteractiveControlBehaviorLoss(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+
+        // Elements with a dedicated preservation or diagnostic path. SVG (and
+        // its subtree) is sanitized/diagnosed by the inline-SVG fallback paths,
+        // which already account for any scriptable content.
+        if ( in_array($tagName, array( 'form', 'input', 'select', 'textarea', 'details', 'summary', 'script', 'svg' ), true) ) {
+            return false;
+        }
+
+        if ( $this->hasAncestorTag($element, array( 'svg' )) ) {
+            return false;
+        }
+
+        if ( array() === $this->interactionSignalEvidence($element) ) {
+            return false;
+        }
+
+        // Behavior is preserved or rebuilt elsewhere — not lost.
+        if ( $this->isRedundantMenuToggleControl($element) ) {
+            return false;
+        }
+
+        if ( $this->isFoldedIntoCoreNavigation($element) ) {
+            return false;
+        }
+
+        if ( $this->isFoldedIntoNativeDisclosure($element) ) {
+            return false;
+        }
+
+        if ( $this->isRuntimeDomTarget($element) ) {
+            return false;
+        }
+
+        if ( $this->isPreservedRuntimeIslandElement($element) ) {
+            return false;
+        }
+
+        if ( $this->hasAncestorTag($element, array( 'form' )) ) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Structural/semantic interaction signals on an element, as generic evidence
+     * tokens. Never matches class-name strings.
+     *
+     * @return array<int, string>
+     */
+    private function interactionSignalEvidence(DOMElement $element): array
+    {
+        $tagName = strtolower($element->tagName);
+        $evidence = array();
+
+        foreach ( $this->eventMetadata($element) as $event ) {
+            $attribute = (string) ($event['attribute'] ?? '');
+            if ( '' !== $attribute ) {
+                $evidence[] = $attribute;
+            }
+        }
+
+        foreach ( array( 'aria-controls', 'aria-expanded', 'aria-haspopup' ) as $ariaAttribute ) {
+            if ( '' !== trim($this->attr($element, $ariaAttribute)) ) {
+                $evidence[] = $ariaAttribute;
+            }
+        }
+
+        // Only data-* attributes that unambiguously BIND behavior count as a
+        // signal — never data-* that merely carries a value (e.g. data-target as
+        // a counter goal). data-action/on/event also surface via eventMetadata.
+        foreach ( array_keys($this->safeDataAttributes($element)) as $dataName ) {
+            if ( preg_match('/^data-(?:action|on|event|toggle)$/i', (string) $dataName) ) {
+                $evidence[] = strtolower((string) $dataName);
+            }
+        }
+
+        if ( 'button' === strtolower($this->attr($element, 'role')) && 'button' !== $tagName ) {
+            $href = 'a' === $tagName ? $this->safeLinkUrl($this->attr($element, 'href')) : '';
+            if ( '' === $href ) {
+                $evidence[] = 'role=button';
+            }
+        }
+
+        return array_values(array_unique($evidence));
+    }
+
+    /**
+     * Whether the element (or an ancestor) is a navigation menu that converts to
+     * core/navigation, which rebuilds its toggle/submenu behavior natively.
+     */
+    private function isFoldedIntoCoreNavigation(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $this->isNavigationMenuCandidate($node) && $this->convertsToCoreNavigation($node) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Record a source element whose subtree converted to the native
+     * `core/accordion` block, so its toggle controls are not later flagged as
+     * interactive-control behavior loss. Returns the block unchanged for use as
+     * a passthrough at recognizer call sites.
+     *
+     * @param array<string, mixed> $block
+     * @return array<string, mixed>
+     */
+    private function rememberAccordionDisclosureRoot(array $block, DOMElement $element): array
+    {
+        if ( 'core/accordion' === ( $block['blockName'] ?? '' ) ) {
+            $this->nativeDisclosureRootIds[ $element->getNodePath() ?? '' ] = true;
+        }
+
+        return $block;
+    }
+
+    /**
+     * Whether the element is a disclosure toggle whose containing widget was
+     * folded into a native zero-JS `core/details` block or the native
+     * `core/accordion` block. The show/hide behavior is then carried natively
+     * (no preserved JavaScript), so flagging behavior loss would be a false
+     * positive — the same way `isFoldedIntoCoreNavigation()` excludes controls
+     * rebuilt by `core/navigation`.
+     *
+     * The toggle is recognized structurally (its `aria-expanded`/`aria-controls`
+     * disclosure state), never by class string, and only inside a subtree that
+     * actually converted to a native disclosure block.
+     */
+    private function isFoldedIntoNativeDisclosure(DOMElement $element): bool
+    {
+        if ( array() === $this->nativeDisclosureRootIds ) {
+            return false;
+        }
+
+        $hasDisclosureState = '' !== trim($this->attr($element, 'aria-expanded'))
+            || '' !== trim($this->attr($element, 'aria-controls'));
+        if ( ! $hasDisclosureState ) {
+            return false;
+        }
+
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( isset($this->nativeDisclosureRootIds[ $node->getNodePath() ?? '' ]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isPreservedRuntimeIslandElement(DOMElement $element): bool
+    {
+        $selector = $this->runtimeIslandSelector($element);
+        foreach ( $this->runtimeIslands as $island ) {
+            if ( is_array($island) && ($island['selector'] ?? null) === $selector ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -2466,21 +3452,6 @@ final class HtmlTransformer
         };
     }
 
-    private function closestTagName(DOMElement $element): ?string
-    {
-        return $element->parentNode instanceof DOMElement ? strtolower($element->parentNode->tagName) : null;
-    }
-
-    private function firstChildElement(DOMElement $element, string $tagName): ?DOMElement
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && strtolower($child->tagName) === $tagName ) {
-                return $child;
-            }
-        }
-        return null;
-    }
-
     private function figureMediaElement(DOMElement $figure, string $tagName): ?DOMElement
     {
         $direct = $this->firstChildElement($figure, $tagName);
@@ -2512,37 +3483,26 @@ final class HtmlTransformer
         return $this->onlyChildElement($wrapper, $tagName);
     }
 
-    private function onlyChildElement(DOMElement $element, string $tagName): ?DOMElement
+    private function figureLinkedMediaAnchor(DOMElement $figure): ?DOMElement
     {
-        $match = null;
-        foreach ( $element->childNodes as $child ) {
+        $anchor = null;
+        foreach ( $figure->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'figcaption' === strtolower($child->tagName) ) {
+                continue;
+            }
+
             if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
                 continue;
             }
 
-            if ( ! $child instanceof DOMElement || strtolower($child->tagName) !== $tagName || null !== $match ) {
+            if ( ! $child instanceof DOMElement || 'a' !== strtolower($child->tagName) || null !== $anchor ) {
                 return null;
             }
 
-            $match = $child;
+            $anchor = $child;
         }
 
-        return $match;
-    }
-
-    /**
-     * @param array<int, string> $excludedTags
-     */
-    private function innerHtmlWithoutTags(DOMElement $element, array $excludedTags): string
-    {
-        $html = '';
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), $excludedTags, true) ) {
-                continue;
-            }
-            $html .= $element->ownerDocument->saveHTML($child);
-        }
-        return trim($html);
+        return $anchor instanceof DOMElement && $this->isImageOnlyAnchor($anchor) ? $anchor : null;
     }
 
     private function citationFromElement(DOMElement $element): string
@@ -2557,34 +3517,38 @@ final class HtmlTransformer
     }
 
     /**
+     * Convert a figure that wraps non-media content (table, code, multiple
+     * elements, or text) into the closest faithful native block(s).
+     *
+     * The figcaption is consumed as a trailing caption paragraph so it is never
+     * emitted as a separate orphan fallback. A figure with a single child and no
+     * caption unwraps to that child; otherwise the children plus caption are
+     * preserved inside a core/group that carries the figure's presentation.
+     *
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
-    private function convertFigureBlockquote(DOMElement $figure, DOMElement $blockquote, array &$fallbacks): ?array
+    private function convertFigureGeneric(DOMElement $figure, array &$fallbacks): ?array
     {
-        $citation = $this->citationFromElement($blockquote);
+        $children = $this->convertChildrenWithoutTags($figure, $fallbacks, array( 'figcaption' ));
+
         $caption = $this->firstChildElement($figure, 'figcaption');
-        if ( '' === $citation && $caption instanceof DOMElement ) {
-            $citation = $this->innerHtml($caption);
+        if ( $caption instanceof DOMElement ) {
+            $captionHtml = $this->innerHtml($caption);
+            if ( '' !== trim($this->runtime->stripAllTags($captionHtml)) ) {
+                $children[] = $this->createBlock('core/paragraph', array( 'content' => $captionHtml ), array(), $caption);
+            }
         }
 
-        $value = $this->innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' ));
-        if ( '' === trim($this->runtime->stripAllTags($value)) ) {
+        if ( array() === $children ) {
             return null;
         }
 
-        $attrs = array_filter(array_merge($this->presentationAttributes($figure), array( 'citation' => $citation )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value);
-
-        if ( $this->hasClass($figure, 'wp-block-pullquote') || $this->hasClass($blockquote, 'wp-block-pullquote') ) {
-            return $this->createBlock('core/pullquote', array_merge($attrs, array( 'value' => $value )), array(), $figure);
+        if ( 1 === count($children) && array() === $this->presentationAttributes($figure) ) {
+            return $children[0];
         }
 
-        $innerBlocks = $this->convertChildrenWithoutTags($blockquote, $fallbacks, array( 'cite', 'footer' ));
-        if ( array() === $innerBlocks ) {
-            $innerBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $value ));
-        }
-
-        return $this->createBlock('core/quote', $attrs, $innerBlocks, $figure);
+        return $this->createBlock('core/group', $this->presentationAttributes($figure), $children, $figure);
     }
 
     /**
@@ -2677,53 +3641,6 @@ final class HtmlTransformer
     }
 
     /**
-     * @return array<string, mixed>|null
-     */
-    private function parameterTableBlockFromElement(DOMElement $element): ?array
-    {
-        if ( ! $this->hasClass($element, 'param-table') ) {
-            return null;
-        }
-
-        $rows = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement || ! $this->hasClass($child, 'param-row') ) {
-                return null;
-            }
-
-            $name = $this->firstDirectChildWithClass($child, 'param-name');
-            $type = $this->firstDirectChildWithClass($child, 'param-type');
-            $desc = $this->firstDirectChildWithClass($child, 'param-desc');
-            if ( ! $name instanceof DOMElement || ! $type instanceof DOMElement || ! $desc instanceof DOMElement ) {
-                return null;
-            }
-
-            $rows[] = array( 'cells' => array(
-                array( 'content' => $this->innerHtml($name), 'tag' => 'td' ),
-                array( 'content' => $this->innerHtml($type), 'tag' => 'td' ),
-                array( 'content' => $this->innerHtml($desc), 'tag' => 'td' ),
-            ) );
-        }
-
-        if ( array() === $rows ) {
-            return null;
-        }
-
-        return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), array(
-            'head' => array( array( 'cells' => array(
-                array( 'content' => 'Parameter', 'tag' => 'th' ),
-                array( 'content' => 'Type', 'tag' => 'th' ),
-                array( 'content' => 'Description', 'tag' => 'th' ),
-            ) ) ),
-            'body' => $rows,
-        )), array(), $element);
-    }
-
-    /**
      * @return array<int, array<string, mixed>>
      */
     private function definitionListItems(DOMElement $list): array
@@ -2791,14 +3708,279 @@ final class HtmlTransformer
         return $items;
     }
 
-    private function safeFallbackHtml(DOMElement $element): string
+    /**
+     * Whether a `<ul>`/`<ol>` is a stack of "structured inline cards" rather than
+     * a normal list.
+     *
+     * A structured card list is one whose every content-bearing `<li>` is built
+     * from MULTIPLE class/style-carrying inline fragments — the universal
+     * blog/news/essay-index row of a title link plus dek/meta spans
+     * (`<a class>` + `<span class>` + `<span class>`). core/list-item stores its
+     * content as RichText, which only preserves a fixed set of inline formats, so
+     * the class on an inner `<a>`/`<span>` is dropped on parse (saved markup
+     * diverges from the regenerated block) and the per-fragment styling hooks the
+     * materialized CSS targets are lost. A single list item also cannot carry the
+     * distinct class of each fragment, so the row is really a mini-card.
+     *
+     * Keys off STRUCTURE (multiple styling-hook inline fragments), never on any
+     * specific class name. A plain-text list, a simple link list, a flowing
+     * sentence with one inline link, or a list item that carries block-level
+     * children (an image/heading/paragraph product card owned by the commerce
+     * path) is NOT a structured card and stays a normal core/list.
+     */
+    private function isStructuredCardList(DOMElement $list): bool
     {
-        $html = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $this->outerHtml($element)) ?? '';
-        $html = preg_replace('/\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
-        $html = preg_replace('/\s+(?:href|src|xlink:href)\s*=\s*("\s*javascript:[^"]*"|\'\s*javascript:[^\']*\'|javascript:[^\s>]+)/i', '', $html) ?? '';
-        $html = preg_replace('/\s+srcdoc\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
+        $cardItems = 0;
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+                continue;
+            }
+            if ( '' === trim($this->runtime->stripAllTags($this->innerHtmlWithoutTags($child, array( 'ul', 'ol' )))) ) {
+                continue;
+            }
+            if ( ! $this->isStructuredCardItem($child) ) {
+                return false;
+            }
+            ++$cardItems;
+        }
 
-        return trim($html);
+        return $cardItems > 0;
+    }
+
+    /**
+     * A `<li>` that is a structured inline card: all of its content is inline
+     * (text + inline formats/links — no block-level children), and it carries at
+     * least two class/style styling-hook inline fragments (e.g. a classed title
+     * link plus dek/meta spans). The "two hooks" threshold distinguishes a
+     * stacked card from flowing text that merely contains a single inline link.
+     */
+    private function isStructuredCardItem(DOMElement $item): bool
+    {
+        $stylingHookFragments = 0;
+        foreach ( $item->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tag = strtolower($child->tagName);
+            if ( in_array($tag, array( 'ul', 'ol' ), true) ) {
+                continue;
+            }
+
+            // A block-level child means this is not an inline card (e.g. a
+            // product card with <img>/<h3>/<p>); leave it to the normal path.
+            if ( 'br' !== $tag && 'a' !== $tag && ! $this->isInlineContentElement($tag) ) {
+                return false;
+            }
+
+            if ( $this->isStylingHookInline($child) ) {
+                ++$stylingHookFragments;
+            }
+        }
+
+        return $stylingHookFragments >= 2;
+    }
+
+    /**
+     * An inline element carrying a class/style styling hook RichText cannot
+     * store: a styling-hook `<span>` (class/style only), or any link/inline
+     * format element (`<a>`, `<strong>`, …) with a non-empty class or style.
+     */
+    private function isStylingHookInline(DOMElement $element): bool
+    {
+        $tag = strtolower($element->tagName);
+        if ( 'span' === $tag ) {
+            return $this->isStylingHookSpan($element);
+        }
+        if ( 'a' !== $tag && ! $this->isInlineContentElement($tag) ) {
+            return false;
+        }
+
+        return '' !== trim($this->attr($element, 'class')) || '' !== trim($this->attr($element, 'style'));
+    }
+
+    /**
+     * Decompose a structured card `<ul>`/`<ol>` into a `core/group` of per-item
+     * `core/group`s. Each fragment of an item becomes its own block carrying its
+     * hoisted styling hook, so the result is fully valid (group/paragraph
+     * round-trip and store a custom className) while the per-fragment styling
+     * hooks and the working link survive — which a single core/list-item cannot
+     * represent. The outer group inherits the list's presentation, each inner
+     * group inherits its `<li>`'s presentation.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function decomposeStructuredCardList(DOMElement $list, array &$fallbacks): ?array
+    {
+        $itemGroups = array();
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+                continue;
+            }
+
+            $itemGroup = $this->structuredCardItemGroup($child, $fallbacks);
+            if ( null !== $itemGroup ) {
+                $itemGroups[] = $itemGroup;
+            }
+        }
+
+        if ( array() === $itemGroups ) {
+            return null;
+        }
+
+        return $this->createBlock('core/group', $this->presentationAttributes($list), $itemGroups, $list);
+    }
+
+    /**
+     * Build the per-item `core/group` for one structured card `<li>`: a paragraph
+     * per inline fragment (the title link, the dek, the meta), each carrying the
+     * fragment's hoisted styling hook, plus any nested list converted in place.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function structuredCardItemGroup(DOMElement $item, array &$fallbacks): ?array
+    {
+        $fragmentBlocks = array();
+        foreach ( $item->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                $text = trim($child->textContent ?? '');
+                if ( '' !== $text ) {
+                    $fragmentBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($text) ));
+                }
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tag = strtolower($child->tagName);
+            if ( in_array($tag, array( 'ul', 'ol' ), true) ) {
+                $nested = $this->convertElement($child, $fallbacks, true);
+                if ( null !== $nested ) {
+                    $fragmentBlocks[] = $nested;
+                }
+                continue;
+            }
+
+            $block = $this->cardFragmentBlock($child);
+            if ( null !== $block ) {
+                $fragmentBlocks[] = $block;
+            }
+        }
+
+        if ( array() === $fragmentBlocks ) {
+            return null;
+        }
+
+        return $this->createBlock('core/group', $this->presentationAttributes($item), $fragmentBlocks, $item);
+    }
+
+    /**
+     * Turn one inline card fragment into a `core/paragraph` that round-trips
+     * through RichText while keeping the fragment's styling hook on the block.
+     *
+     *   - A link fragment stays a valid RichText anchor (`<a href>` with its
+     *     RichText-dropped class/style stripped) and its class/style are hoisted
+     *     onto the paragraph, so the styling hook survives and the link works.
+     *   - A styling-hook `<span>` is unwrapped to its inner content and its
+     *     class/style are hoisted onto the paragraph.
+     *   - Any other inline fragment is kept verbatim inside the paragraph;
+     *     createBlock's span hoisting normalizes any nested styling-hook spans.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function cardFragmentBlock(DOMElement $element): ?array
+    {
+        $tag = strtolower($element->tagName);
+
+        if ( 'a' === $tag ) {
+            $content = $this->anchorWithoutStylingAttributes($element);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/paragraph', array_merge(
+                $this->hoistedStylingAttributes($element),
+                array( 'content' => $content )
+            ));
+        }
+
+        if ( 'span' === $tag && $this->isStylingHookSpan($element) ) {
+            $content = $this->innerHtml($element);
+            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+                return null;
+            }
+
+            return $this->createBlock('core/paragraph', array_merge(
+                $this->hoistedStylingAttributes($element),
+                array( 'content' => $content )
+            ));
+        }
+
+        $content = $this->outerHtml($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            return null;
+        }
+
+        return $this->createBlock('core/paragraph', array( 'content' => $content ));
+    }
+
+    /**
+     * Map an element's source class/style into the block `className` + canonical
+     * `style` object attributes, so the styling hook rides where the block save()
+     * reproduces it.
+     *
+     * @return array<string, mixed>
+     */
+    private function hoistedStylingAttributes(DOMElement $element): array
+    {
+        $attrs = array();
+
+        $className = $this->promotedClassName($this->attr($element, 'class'));
+        if ( '' !== trim($className) ) {
+            $attrs['className'] = $className;
+        }
+
+        $style = trim($this->attr($element, 'style'));
+        if ( '' !== $style ) {
+            $mapped = $this->styleAttributeMapper()->map($this->cssDeclarations($style))['style'];
+            if ( array() !== $mapped ) {
+                $attrs['style'] = $mapped;
+            }
+        }
+
+        return $attrs;
+    }
+
+    /**
+     * Serialize an `<a>` with its RichText-dropped presentational attributes
+     * (class/style) removed and an unsafe href dropped, leaving a clean anchor
+     * RichText preserves. When no safe href remains, the link text is returned
+     * without the anchor so no broken/empty link is emitted.
+     */
+    private function anchorWithoutStylingAttributes(DOMElement $anchor): string
+    {
+        $attributes = array();
+        foreach ( $this->htmlAttributes($anchor) as $name => $value ) {
+            if ( in_array(strtolower($name), array( 'class', 'style' ), true) ) {
+                continue;
+            }
+            $attributes[$name] = $value;
+        }
+
+        $href = $this->safeNavigationUrl($this->attr($anchor, 'href'));
+        $inner = $this->innerHtml($anchor);
+        if ( '' === $href ) {
+            return $inner;
+        }
+
+        $attributes['href'] = $href;
+        return '<a' . $this->htmlAttributeString($attributes) . '>' . $inner . '</a>';
     }
 
     /**
@@ -2806,82 +3988,84 @@ final class HtmlTransformer
      */
     private function inlineSvgBlockFromElement(DOMElement $element): ?array
     {
-        if ( ! $this->isSafeSvgContent($this->outerHtml($element)) ) {
+        // Only preserve when there is actual artwork to keep. An SVG whose only
+        // content is unsafe (e.g. a lone <script>) has nothing left to render
+        // once sanitized, so it defers to the bounded fallback diagnostic.
+        if ( ! $this->svgHasDrawableContent($element) ) {
             return null;
         }
 
-        $html = $this->safeFallbackHtml($element);
+        // Preserve the artwork: sanitize the SVG in place — stripping only the
+        // genuinely-unsafe parts (script/style/foreignObject elements, event
+        // handlers, javascript: URLs) — instead of dropping the entire graphic
+        // the moment one unsafe attribute or element appears. The shape and
+        // structure markup (svg/path/circle/rect/g/text/...) is kept so the
+        // image renders, rather than collapsing to an empty block.
+        $html = $this->sanitizeInlineSvgMarkup($element);
+
+        // Safety gate: only emit raw inline SVG once the sanitized markup is
+        // provably free of script/event-handler/javascript: vectors and still
+        // contains an <svg>. If sanitization could not fully clean it, defer to
+        // the bounded fallback metadata path rather than emit unsafe markup.
         if ( ! $this->isSafeSvgContent($html) ) {
             return null;
         }
 
-        $attrs = array_filter(array_merge($this->presentationAttributes($element), array(
-            'url'    => $this->materializeInlineSvgAsset($html, $element),
-            'alt'    => $this->inlineSvgAltText($element),
-            'title'  => $this->inlineSvgTitleText($element),
-            'width'  => $this->attr($element, 'width'),
-            'height' => $this->attr($element, 'height'),
-        )), static fn ($value): bool => '' !== $value);
-
-        return $this->createBlock('core/image', $attrs, array(), $element);
+        // Keep illustrative/decorative inline SVG inline as a core/html block.
+        // Externalizing to an `assets/*.svg` file + core/image would be lost in
+        // WordPress, which blocks SVG uploads by default. The markup is already
+        // safe-sanitized above (scripts, event handlers, foreignObject, and
+        // javascript: URLs stripped via sanitizeInlineSvgMarkup + verified by
+        // isSafeSvgContent), and the original outer SVG preserves
+        // viewBox/role/aria-label/class.
+        return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($html) ), array(), $element);
     }
 
-    private function materializeInlineSvgAsset(string $html, DOMElement $element): string
+    /**
+     * Restore the canonical camelCase casing of SVG element and attribute names
+     * that the HTML parser lowercases (e.g. `viewbox` -> `viewBox`,
+     * `<lineargradient>` -> `<linearGradient>`). SVG element and attribute names
+     * are case-sensitive, so a lowercased `viewbox` is ignored (the SVG would not
+     * scale to its viewport) and a lowercased `<lineargradient>` is an unknown
+     * element the browser does not render (the gradient fill disappears).
+     */
+    private function restoreSvgCasing(string $html): string
     {
-        $hash = hash('sha256', $html);
-        $path = 'assets/inline-svg-' . substr($hash, 0, 16) . '.svg';
+        static $camelCaseAttributes = array(
+            'viewBox', 'preserveAspectRatio', 'baseProfile', 'attributeName', 'attributeType',
+            'repeatCount', 'repeatDur', 'calcMode', 'keyPoints', 'keySplines', 'keyTimes',
+            'gradientUnits', 'gradientTransform', 'spreadMethod', 'patternUnits',
+            'patternContentUnits', 'patternTransform', 'clipPath', 'clipPathUnits',
+            'maskUnits', 'maskContentUnits', 'markerWidth', 'markerHeight', 'markerUnits',
+            'refX', 'refY', 'stdDeviation', 'stitchTiles', 'surfaceScale', 'specularConstant',
+            'specularExponent', 'diffuseConstant', 'kernelMatrix', 'kernelUnitLength',
+            'numOctaves', 'baseFrequency', 'tableValues', 'targetX', 'targetY',
+            'lengthAdjust', 'textLength', 'startOffset', 'pathLength', 'filterUnits',
+            'primitiveUnits', 'edgeMode', 'limitingConeAngle', 'pointsAtX', 'pointsAtY',
+            'pointsAtZ', 'systemLanguage',
+        );
 
-        if ( ! isset($this->generatedAssets[$path]) ) {
-            $this->generatedAssets[$path] = array(
-                'source'           => 'html-inline-svg',
-                'path'             => $path,
-                'target_path'      => $path,
-                'kind'             => 'image',
-                'role'             => 'image',
-                'media_type'       => 'image/svg+xml',
-                'mime_type'        => 'image/svg+xml',
-                'bytes'            => strlen($html),
-                'binary'           => false,
-                'encoding'         => 'text',
-                'content_encoding' => 'text',
-                'content'          => $html,
-                'hash'             => $hash,
-                'references'       => array(
-                    array_filter(array(
-                        'selector'  => $this->elementSelector($element),
-                        'element'   => 'svg',
-                        'attribute' => 'generated-inline-svg',
-                    )),
-                ),
-            );
+        // Case-sensitive SVG element names. A lowercased tag is an unknown element
+        // to the browser, so the gradient/clip/filter it defines never applies.
+        static $camelCaseElements = array(
+            'linearGradient', 'radialGradient', 'clipPath', 'textPath', 'foreignObject',
+            'feBlend', 'feColorMatrix', 'feComponentTransfer', 'feComposite',
+            'feConvolveMatrix', 'feDiffuseLighting', 'feDisplacementMap', 'feDistantLight',
+            'feDropShadow', 'feFlood', 'feFuncA', 'feFuncB', 'feFuncG', 'feFuncR',
+            'feGaussianBlur', 'feImage', 'feMerge', 'feMergeNode', 'feMorphology',
+            'feOffset', 'fePointLight', 'feSpecularLighting', 'feSpotLight', 'feTile',
+            'feTurbulence', 'animateMotion', 'animateTransform',
+        );
+
+        foreach ( $camelCaseAttributes as $attribute ) {
+            $html = preg_replace('/(\s)' . preg_quote($attribute, '/') . '(\s*=)/i', '$1' . $attribute . '$2', $html) ?? $html;
         }
 
-        return $path;
-    }
-
-    private function inlineSvgAltText(DOMElement $element): string
-    {
-        if ( 'true' === strtolower($this->attr($element, 'aria-hidden')) || 'presentation' === strtolower($this->attr($element, 'role')) ) {
-            return '';
+        foreach ( $camelCaseElements as $tag ) {
+            $html = preg_replace('/<(\/?)' . preg_quote($tag, '/') . '(?=[\s\/>])/i', '<$1' . $tag, $html) ?? $html;
         }
 
-        $ariaLabel = trim($this->attr($element, 'aria-label'));
-        if ( '' !== $ariaLabel ) {
-            return $ariaLabel;
-        }
-
-        return $this->inlineSvgTitleText($element);
-    }
-
-    private function inlineSvgTitleText(DOMElement $element): string
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && 'title' === strtolower($child->tagName) ) {
-                return trim($child->textContent ?? '');
-            }
-        }
-
-        return '';
+        return $html;
     }
 
     /**
@@ -2889,27 +4073,7 @@ final class HtmlTransformer
      */
     private function captureInlineSvgFallback(DOMElement $element, array &$fallbacks): void
     {
-        $rawHtml = $this->outerHtml($element);
-        $safe = $this->isSafeSvgContent($rawHtml);
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-
-        $fallbacks[] = FallbackDiagnostic::build(array(
-            'type'            => 'inline_svg',
-            'reason'          => $safe ? 'inline_svg_fallback' : 'unsafe_inline_svg',
-            'diagnostic_code' => $safe ? 'html_inline_svg_fallback' : 'html_unsafe_inline_svg',
-            'message'         => $safe ? 'Inline SVG was preserved as sanitized bounded fallback metadata.' : 'Inline SVG contains scriptable content and was preserved only as sanitized bounded fallback metadata.',
-            'source_format'   => 'html',
-            'tag'             => 'svg',
-            'selector'        => $this->elementSelector($element),
-            'attributes'      => $this->safeSvgAttributes($element),
-            'context'         => $this->sourceContext($element),
-            'events'          => $this->eventMetadata($element),
-            'text_length'     => strlen(trim($element->textContent ?? '')),
-            'child_count'     => $this->childElementCount($element),
-            'html'            => $boundedHtml['html'],
-            'html_bytes'      => $boundedHtml['bytes'],
-            'html_truncated'  => $boundedHtml['truncated'],
-        ), $this->fallbackProvenance);
+        $this->fallbackEmitter->captureInlineSvgFallback($element, $fallbacks);
     }
 
     /**
@@ -2917,45 +4081,12 @@ final class HtmlTransformer
      */
     private function captureCanvasFallback(DOMElement $element, array &$fallbacks): void
     {
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-        $id = trim($this->attr($element, 'id'));
-
-        $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
-            'type'            => 'html',
-            'reason'          => 'canvas_requires_runtime',
-            'diagnostic_code' => 'html_canvas_runtime_fallback',
-            'message'         => 'Canvas HTML requires a native canvas element and client script runtime; core blocks cannot preserve it without raw HTML.',
-            'source_format'   => 'html',
-            'tag'             => 'canvas',
-            'selector'        => $this->elementSelector($element),
-            'attributes'      => $this->safeCanvasAttributes($element),
-            'context'         => $this->sourceContext($element),
-            'events'                 => $this->eventMetadata($element),
-            'script_dependency_hint' => '' !== $id
-                ? 'Scripts may target #' . $id . ' and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.'
-                : 'Scripts may target this canvas by selector and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.',
-            'text_length'            => strlen(trim($element->textContent ?? '')),
-            'child_count'            => $this->childElementCount($element),
-            'html'                   => $boundedHtml['html'],
-            'html_bytes'             => $boundedHtml['bytes'],
-            'html_truncated'         => $boundedHtml['truncated'],
-        ), static fn (mixed $value): bool => '' !== $value && array() !== $value), $this->fallbackProvenance);
+        $this->fallbackEmitter->captureCanvasFallback($element, $fallbacks, $this->runtimeIslands);
     }
 
     private function isRuntimeCanvasTarget(DOMElement $element): bool
     {
-        $id = trim($this->attr($element, 'id'));
-        if ( '' !== $id && isset($this->runtimeCanvasSelectors['#' . $id]) ) {
-            return true;
-        }
-
-        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
-            if ( '' !== $class && isset($this->runtimeCanvasSelectors['.' . $class]) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->fallbackEmitter->isRuntimeCanvasTarget($element);
     }
 
     /**
@@ -2964,8 +4095,86 @@ final class HtmlTransformer
      */
     private function runtimeCanvasSelectorsFromOptions(array $options): array
     {
+        return $this->runtimeSelectorsFromOptions($options, 'runtime_canvas_selectors');
+    }
+
+    private function isRuntimeDomTarget(DOMElement $element): bool
+    {
+        $id = trim($this->attr($element, 'id'));
+        if ( '' !== $id && isset($this->runtimeDomSelectors['#' . $id]) ) {
+            return true;
+        }
+
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+            if ( '' !== $class && isset($this->runtimeDomSelectors['.' . $class]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $metadata
+     */
+    private function recordRuntimeIsland(DOMElement $element, string $kind, string $reason, string $runtimeRequirement, array $metadata = array()): void
+    {
+        $this->fallbackEmitter->recordRuntimeIsland($element, $kind, $reason, $runtimeRequirement, $metadata, $this->runtimeIslands);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function requiredScriptsForElement(DOMElement $element): array
+    {
+        return $this->fallbackEmitter->requiredScriptsForElement($element);
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<int, array<string, mixed>>
+     */
+    private function runtimeScriptMetadataFromOptions(array $options): array
+    {
+        $metadata = array();
+        foreach ( $options['runtime_script_metadata'] ?? array() as $script ) {
+            if ( ! is_array($script) ) {
+                continue;
+            }
+
+            $metadata[] = array_filter(array(
+                'path'               => is_string($script['path'] ?? null) ? $script['path'] : '',
+                'selector'           => is_string($script['selector'] ?? null) ? $script['selector'] : '',
+                'attributes'         => is_array($script['attributes'] ?? null) ? $script['attributes'] : array(),
+                'script_role'        => 'runtime',
+                'script_source_kind' => is_string($script['script_source_kind'] ?? null) ? $script['script_source_kind'] : 'external',
+            ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
+        }
+
+        return $this->dedupeArrayRows($metadata);
+    }
+
+    /**
+     * Resolve the generated custom-block namespace from transform options,
+     * defaulting to a generic namespace for standalone transforms.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function generatedBlockNamespaceFromOptions(array $options): string
+    {
+        $namespace = is_scalar($options['generated_block_namespace'] ?? null) ? trim((string) $options['generated_block_namespace']) : '';
+
+        return '' !== $namespace ? $namespace : 'custom';
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @return array<string, bool>
+     */
+    private function runtimeSelectorsFromOptions(array $options, string $key): array
+    {
         $selectors = array();
-        foreach ( $options['runtime_canvas_selectors'] ?? array() as $selector ) {
+        foreach ( $options[$key] ?? array() as $selector ) {
             if ( is_string($selector) && preg_match('/^[#.][A-Za-z][A-Za-z0-9_-]*$/', $selector) ) {
                 $selectors[$selector] = true;
             }
@@ -2979,169 +4188,20 @@ final class HtmlTransformer
      */
     private function captureScriptFallback(DOMElement $element, array &$fallbacks): void
     {
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-        $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
-        $scriptRole = $this->scriptRole($element);
-        $fallbacks[] = FallbackDiagnostic::build(array(
-            'type'            => 'html',
-            'reason'          => 'script_requires_runtime',
-            'diagnostic_code' => 'html_script_fallback',
-            'message'         => 'Script HTML requires runtime behavior and was preserved as scoped safe fallback metadata.',
-            'source_format'   => 'html',
-            'tag'             => 'script',
-            'selector'        => $this->elementSelector($element),
-            'attributes'      => $this->safeScriptAttributes($element),
-            'context'         => $this->sourceContext($element),
-            'events'          => $this->eventMetadata($element),
-            'script_role'        => $scriptRole,
-            'script_source_kind' => '' !== trim($this->attr($element, 'src')) ? 'external' : 'inline',
-            'text_length'     => strlen(trim($element->textContent ?? '')),
-            'child_count'     => $this->childElementCount($element),
-            'html'            => $boundedHtml['html'],
-            'html_bytes'      => $boundedHtml['bytes'],
-            'html_truncated'  => $boundedHtml['truncated'],
-            'body'            => $boundedBody['text'],
-            'body_bytes'      => $boundedBody['bytes'],
-            'body_truncated'  => $boundedBody['truncated'],
-        ), $this->fallbackProvenance);
+        $this->fallbackEmitter->captureScriptFallback($element, $fallbacks, $this->runtimeIslands);
     }
 
     private function captureStaticScriptMetadata(DOMElement $element): bool
     {
-        if ( '' !== trim($this->attr($element, 'src')) ) {
-            return false;
-        }
-
-        $scriptRole = $this->scriptRole($element);
-        if ( 'data' !== $scriptRole ) {
-            return false;
-        }
-
-        $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
-        $this->scriptMetadata[] = array(
-            'type'               => 'script_metadata',
-            'reason'             => 'script_static_metadata',
-            'source_format'      => 'html',
-            'tag'                => 'script',
-            'selector'           => $this->elementSelector($element),
-            'attributes'         => $this->safeScriptAttributes($element),
-            'context'            => $this->sourceContext($element),
-            'script_role'        => $scriptRole,
-            'script_source_kind' => 'inline',
-            'body'               => $boundedBody['text'],
-            'body_bytes'         => $boundedBody['bytes'],
-            'body_truncated'     => $boundedBody['truncated'],
-        );
-
-        return true;
-    }
-
-    private function scriptRole(DOMElement $element): string
-    {
-        $type = strtolower(trim($this->attr($element, 'type')));
-        if ( '' === $type || in_array($type, array( 'text/javascript', 'application/javascript', 'module' ), true) ) {
-            return 'runtime';
-        }
-
-        if ( str_starts_with($type, 'application/ld+json') || in_array($type, array( 'application/json', 'importmap', 'speculationrules' ), true) ) {
-            return 'data';
-        }
-
-        if ( str_starts_with($type, 'text/') && ! in_array($type, array( 'text/javascript', 'text/ecmascript' ), true) ) {
-            return 'data';
-        }
-
-        return 'runtime';
+        return $this->fallbackEmitter->captureStaticScriptMetadata($element, $this->scriptMetadata);
     }
 
     /**
-     * @return array<string, string>
+     * @param array<int, array<string, mixed>> $fallbacks
      */
-    private function safeScriptAttributes(DOMElement $element): array
+    private function captureTemplateFallback(DOMElement $element, array &$fallbacks): void
     {
-        $safe = array();
-        $allowed = array_flip(array( 'async', 'class', 'defer', 'id', 'src', 'type' ));
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            if ( isset($allowed[$name]) && ! preg_match('/javascript\s*:/i', $value) ) {
-                $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
-            }
-        }
-
-        return $safe;
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function safeCanvasAttributes(DOMElement $element): array
-    {
-        $safe = array();
-        $allowed = array_flip(array( 'aria-label', 'class', 'height', 'id', 'role', 'style', 'title', 'width' ));
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            if ( isset($allowed[$name]) ) {
-                $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
-            }
-        }
-
-        return $safe;
-    }
-
-    /**
-     * @return array{html: string, bytes: int, truncated: bool}
-     */
-    private function boundedFallbackHtml(string $html): array
-    {
-        $bytes = strlen($html);
-        if ( $bytes > 2000 ) {
-            return array(
-                'html'      => substr($html, 0, 2000) . '...',
-                'bytes'     => $bytes,
-                'truncated' => true,
-            );
-        }
-
-        return array(
-            'html'      => $html,
-            'bytes'     => $bytes,
-            'truncated' => false,
-        );
-    }
-
-    /**
-     * @return array{text: string, bytes: int, truncated: bool}
-     */
-    private function boundedFallbackText(string $text): array
-    {
-        $bytes = strlen($text);
-        if ( $bytes > 2000 ) {
-            return array(
-                'text'      => substr($text, 0, 2000) . '...',
-                'bytes'     => $bytes,
-                'truncated' => true,
-            );
-        }
-
-        return array(
-            'text'      => $text,
-            'bytes'     => $bytes,
-            'truncated' => false,
-        );
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function safeSvgAttributes(DOMElement $element): array
-    {
-        $attributes = array();
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            if ( preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:/i', $value) ) {
-                continue;
-            }
-            $attributes[$name] = strlen($value) > 200 ? substr($value, 0, 200) . '...' : $value;
-        }
-
-        return $attributes;
+        $this->fallbackEmitter->captureTemplateFallback($element, $fallbacks, $this->runtimeIslands);
     }
 
     private function isSafeDecorativeSvgElement(DOMElement $element): bool
@@ -3182,8 +4242,32 @@ final class HtmlTransformer
 
     private function isPassiveSvgMarkup(DOMElement $element): bool
     {
-        $allowedTags = array_flip(array( 'circle', 'clippath', 'defs', 'desc', 'ellipse', 'g', 'line', 'lineargradient', 'mask', 'path', 'polygon', 'polyline', 'radialgradient', 'rect', 'stop', 'svg', 'title' ));
-        $allowedAttributes = array_flip(array( 'aria-hidden', 'class', 'clip-path', 'clip-rule', 'cx', 'cy', 'd', 'fill', 'fill-opacity', 'fill-rule', 'gradienttransform', 'gradientunits', 'height', 'id', 'offset', 'opacity', 'points', 'preserveaspectratio', 'r', 'role', 'rx', 'ry', 'stop-color', 'stop-opacity', 'stroke', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-opacity', 'stroke-width', 'style', 'transform', 'viewbox', 'width', 'x', 'x1', 'x2', 'xmlns', 'y', 'y1', 'y2' ));
+        // Full set of safe SVG structure/presentation/text elements. These carry
+        // only geometry, gradients, and text — no scripting or external embedding
+        // (script/style/foreignObject/image are deliberately excluded and are
+        // stripped by the sanitizer). <use>/<symbol> reference handling is gated
+        // separately: a <use> carries href/xlink:href which isPassiveSvgElement()
+        // always rejects, so use-bearing SVGs route through the faithful
+        // inline-preservation path (local refs) or the fallback diagnostic
+        // (external sprite refs) rather than this decorative classification.
+        $allowedTags = array_flip(array(
+            'circle', 'clippath', 'defs', 'desc', 'ellipse', 'g', 'line', 'lineargradient',
+            'marker', 'mask', 'path', 'pattern', 'polygon', 'polyline', 'radialgradient',
+            'rect', 'stop', 'svg', 'symbol', 'text', 'title', 'tspan', 'use',
+        ));
+        $allowedAttributes = array_flip(array(
+            'aria-hidden', 'aria-label', 'class', 'clip-path', 'clip-rule', 'cx', 'cy', 'd',
+            'dominant-baseline', 'dx', 'dy', 'fill', 'fill-opacity', 'fill-rule', 'font-family',
+            'font-size', 'font-style', 'font-weight', 'gradienttransform', 'gradientunits',
+            'height', 'id', 'letter-spacing', 'marker-end', 'marker-mid', 'marker-start',
+            'markerheight', 'markerunits', 'markerwidth', 'mask', 'offset', 'opacity', 'orient',
+            'patterncontentunits', 'patterntransform', 'patternunits', 'points',
+            'preserveaspectratio', 'r', 'refx', 'refy', 'role', 'rotate', 'rx', 'ry',
+            'spreadmethod', 'stop-color', 'stop-opacity', 'stroke', 'stroke-dasharray',
+            'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit',
+            'stroke-opacity', 'stroke-width', 'style', 'text-anchor', 'transform',
+            'vector-effect', 'viewbox', 'width', 'x', 'x1', 'x2', 'xmlns', 'y', 'y1', 'y2',
+        ));
 
         foreach ( $element->getElementsByTagName('*') as $child ) {
             if ( ! $child instanceof DOMElement || ! $this->isPassiveSvgElement($child, $allowedTags, $allowedAttributes) ) {
@@ -3297,6 +4381,7 @@ final class HtmlTransformer
         $inputLabel = $this->formControlLabel($textInput);
         $attrs = array_filter(array_merge(
             $this->presentationAttributes($form),
+            $this->searchInputRuntimeAttributes($textInput),
             array(
                 'label'       => '' !== $inputLabel ? $inputLabel : 'Search',
                 'placeholder' => $this->attr($textInput, 'placeholder'),
@@ -3349,6 +4434,7 @@ final class HtmlTransformer
 
         $attrs = array_filter(array_merge(
             $this->presentationAttributes($element),
+            $this->searchInputRuntimeAttributes($searchInput),
             array(
                 'label'       => $label,
                 'placeholder' => $this->attr($searchInput, 'placeholder'),
@@ -3381,9 +4467,17 @@ final class HtmlTransformer
                 continue;
             }
 
-            $summary = $this->readableFormControlText($control);
-            if ( '' !== $summary ) {
-                $contentBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $control);
+            if ( $this->isRuntimeDomTarget($control) ) {
+                $this->recordRuntimeIsland($control, 'control', 'runtime_dom_target', 'client_script_execution', array(
+                    'control'          => $this->formControlMetadata($control),
+                    'events'           => $this->eventMetadata($control),
+                    'required_scripts' => $this->requiredScriptsForElement($control),
+                ));
+            }
+
+            $readableControlBlock = $this->readableFormControlBlockFromElement($control);
+            if ( null !== $readableControlBlock ) {
+                $contentBlocks[] = $readableControlBlock;
             }
         }
 
@@ -3449,6 +4543,7 @@ final class HtmlTransformer
 
             $attrs = array_filter(array_merge(
                 $this->presentationAttributes($element),
+                $this->searchInputRuntimeAttributes($element),
                 array(
                     'label'       => $label,
                     'placeholder' => $this->attr($element, 'placeholder'),
@@ -3458,14 +4553,346 @@ final class HtmlTransformer
             return $this->createBlock('core/search', $attrs, array(), $element);
         }
 
+        if ( $this->isRuntimeDomTarget($element) ) {
+            $this->recordRuntimeIsland($element, 'control', 'runtime_dom_target', 'client_script_execution', array(
+                'control'          => $this->formControlMetadata($element),
+                'events'           => $this->eventMetadata($element),
+                'required_scripts' => $this->requiredScriptsForElement($element),
+            ));
+        }
+
+        if ( 'select' === $tagName ) {
+            $selectBlock = $this->readableSelectBlockFromElement($element);
+            if ( null !== $selectBlock ) {
+                return $selectBlock;
+            }
+        }
+
         $summary = $this->readableFormControlText($element);
-        return '' !== $summary ? $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $element) : null;
+        if ( '' === $summary ) {
+            return null;
+        }
+
+        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $summary )), array(), $element);
     }
 
-    private function shouldMaterializeReadableRuntimeForm(DOMElement $form): bool
+    /**
+     * Preserve a standalone form control that has no faithful native block or
+     * readable static approximation as a bounded runtime island instead of an
+     * unsupported-element loss.
+     *
+     * Reached only after the readable-control and search paths decline, so the
+     * control is one whose behavior depends on a client runtime: file/hidden/
+     * color/date-style inputs core blocks cannot represent, or any control
+     * carrying inline event handlers. The source markup is carried in the
+     * island snippet so the behavior can be re-attached, and no misleading
+     * static text is emitted for controls (often hidden) that have no visual
+     * representation. This yields a `preserved_runtime_island` outcome rather
+     * than an `unsupported_element_loss`.
+     */
+    private function preserveStandaloneFormControlAsRuntimeIsland(DOMElement $element): bool
     {
-        $metadata = $this->formMetadata($form);
-        return '' === ($metadata['action'] ?? '') && '' === ($metadata['method'] ?? '') && '' === ($metadata['enctype'] ?? '');
+        $tagName = strtolower($element->tagName);
+        if ( ! in_array($tagName, array( 'input', 'select', 'textarea' ), true) ) {
+            return false;
+        }
+
+        $this->recordRuntimeIsland($element, 'control', 'form_control_requires_runtime', 'client_form_control_runtime', array(
+            'control'          => $this->formControlMetadata($element),
+            'events'           => $this->eventMetadata($element),
+            'required_scripts' => $this->requiredScriptsForElement($element),
+        ));
+
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function readableSelectBlockFromElement(DOMElement $select): ?array
+    {
+        $label = $this->readableFormControlLabel($select);
+        $this->registerFormControlEcho($label);
+        $optionBlocks = array();
+
+        foreach ( $this->selectOptions($select) as $option ) {
+            $optionLabel = trim((string) ($option['label'] ?? ''));
+            if ( '' === $optionLabel ) {
+                continue;
+            }
+
+            if ( true === ($option['selected'] ?? false) ) {
+                $optionLabel .= ' (selected)';
+            }
+
+            $this->registerFormControlEcho($optionLabel);
+            $optionBlocks[] = $this->createBlock('core/list-item', array( 'content' => $this->runtime->escapeHtml($optionLabel) ));
+        }
+
+        if ( array() === $optionBlocks ) {
+            return null;
+        }
+
+        return $this->createBlock('core/group', $this->presentationAttributes($select), array(
+            $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $select),
+            $this->createBlock('core/list', array(), $optionBlocks, $select),
+        ), $select);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function searchInputRuntimeAttributes(DOMElement $input): array
+    {
+        if ( ! $this->isRuntimeDomTarget($input) ) {
+            return array();
+        }
+
+        return array_filter(array(
+            'inputAnchor'    => $this->safeAnchor($this->attr($input, 'id')),
+            'inputClassName' => $this->promotedClassName($this->attr($input, 'class')),
+        ), static fn (string $value): bool => '' !== trim($value));
+    }
+
+    private function formRequiresRuntimePreservation(DOMElement $form): bool
+    {
+        return 0 < $form->getElementsByTagName('script')->length
+            || array() !== $this->eventMetadata($form)
+            || array() !== $this->formMetadata($form)
+            || $this->formHasDataEntryControls($form);
+    }
+
+    /**
+     * Build the shared html_form_fallback finding (issue #315) for an element that
+     * behaves as a form. Both the real <form> path and the div-based pseudo-form
+     * path emit through here so the downstream materializer receives an identical
+     * shape (controls, form metadata, classification, bounded HTML) regardless of
+     * whether the source markup used a <form> element.
+     *
+     * @param array<string, mixed>|null $readableFormBlock
+     * @return array<string, mixed>
+     */
+    private function formFallbackFinding(DOMElement $element, ?array $readableFormBlock): array
+    {
+        $controls = $this->formControls($element);
+        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+
+        return FallbackDiagnostic::build(array(
+            'type'            => 'html',
+            'reason'          => 'form_requires_runtime',
+            'diagnostic_code' => 'html_form_fallback',
+            'message'         => 'Form HTML requires runtime behavior and was preserved as safe fallback metadata.',
+            'source_format'   => 'html',
+            'tag'             => strtolower($element->tagName),
+            'selector'        => $this->elementSelector($element),
+            'attributes'      => $this->htmlAttributes($element),
+            'form'            => $this->formMetadata($element),
+            'context'         => $this->sourceContext($element),
+            'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
+            'events'          => $this->eventMetadata($element),
+            'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
+            'controls'        => $controls,
+            'control_count'   => count($controls),
+            'text_length'     => strlen(trim($element->textContent ?? '')),
+            'child_count'     => $this->childElementCount($element),
+            'html'            => $boundedHtml['html'],
+            'html_bytes'      => $boundedHtml['bytes'],
+            'html_truncated'  => $boundedHtml['truncated'],
+        ), $this->fallbackProvenance);
+    }
+
+    /**
+     * Whether a non-<form> container behaves as a form: it is the tightest
+     * container that pairs at least one data-entry control with a submit-like
+     * control, and no real <form> owns the subtree.
+     *
+     * Structural only — the signal is "data-entry control + submit-like control in
+     * one bounded container", never a fixture id/class/name. Conservative: a lone
+     * search box or a stray input with no submit control never qualifies, and a
+     * subtree owned by a real <form> (as ancestor or descendant) is left to the
+     * <form> path so the finding is emitted exactly once.
+     */
+    private function isDivBasedPseudoForm(DOMElement $element): bool
+    {
+        if ( 'form' === strtolower($element->tagName) ) {
+            return false;
+        }
+
+        // A real <form> ancestor or descendant owns the controls; let the <form>
+        // path emit the finding so it is never double-counted.
+        if ( $this->hasFormAncestor($element) ) {
+            return false;
+        }
+        if ( 0 < $element->getElementsByTagName('form')->length ) {
+            return false;
+        }
+
+        if ( ! $this->containerPairsDataEntryWithSubmit($element) ) {
+            return false;
+        }
+
+        // Bound the container to the tightest one: if a descendant container also
+        // pairs the controls, defer to it so a wrapper does not swallow a nested
+        // pseudo-form (and sibling pseudo-forms each emit their own finding).
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement
+                && ! $this->isFormControlElement($descendant)
+                && $this->containerPairsDataEntryWithSubmit($descendant) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether a container holds at least one data-entry control AND at least one
+     * submit-like control. Reuses the issue #315 control-detection helpers
+     * (formControlElements / isDataEntryControl) so detection stays in one place.
+     */
+    private function containerPairsDataEntryWithSubmit(DOMElement $element): bool
+    {
+        $hasDataEntry = false;
+        $hasSubmit = false;
+
+        foreach ( $this->formControlElements($element) as $control ) {
+            if ( $this->isPseudoFormDataEntryControl($control) ) {
+                $hasDataEntry = true;
+            } elseif ( $this->isSubmitLikeControl($control) ) {
+                $hasSubmit = true;
+            }
+
+            if ( $hasDataEntry && $hasSubmit ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A data-entry control that anchors a pseudo-form. Reuses #315's
+     * isDataEntryControl and additionally excludes search inputs, which already
+     * have dedicated standalone-search handling and should not be promoted into a
+     * form fallback.
+     */
+    private function isPseudoFormDataEntryControl(DOMElement $control): bool
+    {
+        return $this->isDataEntryControl($control) && 'search' !== $this->formControlType($control);
+    }
+
+    /**
+     * Whether a control submits a form: an explicit submit/image control, or a
+     * button/input whose text/value/type/class/id/name/aria carries submit,
+     * subscribe, sign-up, or send semantics. A plain <button> defaults to type
+     * "submit" and qualifies directly; a type="reset" control never does.
+     */
+    private function isSubmitLikeControl(DOMElement $control): bool
+    {
+        $tagName = strtolower($control->tagName);
+        if ( 'button' !== $tagName && 'input' !== $tagName ) {
+            return false;
+        }
+
+        $type = $this->formControlType($control);
+        if ( in_array($type, array( 'submit', 'image' ), true) ) {
+            return true;
+        }
+        if ( 'reset' === $type ) {
+            return false;
+        }
+
+        // Only generic clickable controls (button-typed) fall through to the
+        // semantic check; data-entry input types are never submit controls.
+        if ( 'input' === $tagName && 'button' !== $type ) {
+            return false;
+        }
+
+        return $this->hasSubmitSemantics($control);
+    }
+
+    /**
+     * Whether a control's text/attributes carry submit-like intent. Structural
+     * vocabulary only — no fixture-specific identifiers.
+     */
+    private function hasSubmitSemantics(DOMElement $control): bool
+    {
+        $haystack = strtolower(implode(' ', array(
+            $control->textContent ?? '',
+            $this->attr($control, 'value'),
+            $this->attr($control, 'class'),
+            $this->attr($control, 'id'),
+            $this->attr($control, 'name'),
+            $this->attr($control, 'aria-label'),
+        )));
+
+        foreach ( array( 'submit', 'subscribe', 'sign up', 'sign-up', 'signup', 'send' ) as $needle ) {
+            if ( str_contains($haystack, $needle) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasFormAncestor(DOMElement $element): bool
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( 'form' === strtolower($parent->tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a form collects user input through at least one data-entry control.
+     *
+     * A <form> that gathers data (text/email/select/textarea and similar) needs a
+     * real form runtime to submit, validate, and notify — even when it declares no
+     * action/method/script/event handler (common in static exports and design
+     * mockups where submission is wired downstream). Such a form must be preserved
+     * as a runtime island carrying its control structure rather than flattened to
+     * readable prose, so a consumer can materialize it into a working form. Keying
+     * off the control structure keeps this generic: no provider, plugin, or site
+     * knowledge leaks into the transformer.
+     */
+    private function formHasDataEntryControls(DOMElement $form): bool
+    {
+        foreach ( $this->formControlElements($form) as $control ) {
+            if ( $this->isDataEntryControl($control) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a control collects user input (as opposed to a submit/reset/button,
+     * hidden state, file upload, or image button).
+     *
+     * The excluded set mirrors the controls a form provider cannot map to a data
+     * field, so a form whose only controls are non-data-entry stays a readable
+     * fallback instead of becoming an empty preserved island.
+     */
+    private function isDataEntryControl(DOMElement $control): bool
+    {
+        $tagName = strtolower($control->tagName);
+        if ( in_array($tagName, array( 'select', 'textarea' ), true) ) {
+            return true;
+        }
+
+        if ( 'input' !== $tagName ) {
+            return false;
+        }
+
+        return ! in_array(
+            $this->formControlType($control),
+            array( 'submit', 'reset', 'button', 'image', 'hidden', 'file' ),
+            true
+        );
     }
 
     private function isReadableFormControl(DOMElement $control): bool
@@ -3475,21 +4902,12 @@ final class HtmlTransformer
             return true;
         }
 
-        return 'button' === $tagName || ( 'input' === $tagName && in_array($this->formControlType($control), array( 'checkbox', 'email', 'number', 'radio', 'search', 'submit', 'tel', 'text', 'url' ), true) );
+        return 'button' === $tagName || ( 'input' === $tagName && in_array($this->formControlType($control), array( 'checkbox', 'email', 'number', 'radio', 'range', 'search', 'submit', 'tel', 'text', 'url' ), true) );
     }
 
     private function readableFormControlText(DOMElement $control): string
     {
-        $label = $this->formControlLabel($control);
-        if ( '' === $label ) {
-            $label = $this->attr($control, 'aria-label');
-        }
-        if ( '' === $label ) {
-            $label = $this->attr($control, 'placeholder');
-        }
-        if ( '' === $label ) {
-            $label = $this->attr($control, 'name');
-        }
+        $label = $this->readableFormControlLabel($control);
 
         $type = $this->formControlType($control);
         if ( '' === $label ) {
@@ -3516,6 +4934,22 @@ final class HtmlTransformer
             if ( array() !== $selected ) {
                 $details[] = 'selected: ' . implode(', ', $selected);
             }
+        } elseif ( 'range' === $type ) {
+            $value = trim($this->attr($control, 'value'));
+            if ( '' !== $value ) {
+                $details[] = $value;
+            }
+
+            $bounds = array();
+            foreach ( array( 'min', 'max', 'step' ) as $attribute ) {
+                $value = trim($this->attr($control, $attribute));
+                if ( '' !== $value ) {
+                    $bounds[] = $attribute . ' ' . $value;
+                }
+            }
+            if ( array() !== $bounds ) {
+                $details[] = implode(', ', $bounds);
+            }
         } else {
             foreach ( array( 'value', 'placeholder' ) as $attribute ) {
                 $value = trim($this->attr($control, $attribute));
@@ -3534,7 +4968,46 @@ final class HtmlTransformer
             $text .= ' (required)';
         }
 
+        $this->registerFormControlEcho($text);
+
         return $this->runtime->escapeHtml($text);
+    }
+
+    /**
+     * Record text the transformer synthesizes from a form control (label plus
+     * value/placeholder/options/required state) so the content round-trip
+     * reporter does not flag it as invented copy — it is intentionally absent
+     * from the source's visible content. Harmless if a recorded string never
+     * reaches the output: the reporter only ever uses it to suppress an exact
+     * match.
+     */
+    private function registerFormControlEcho(string $text): void
+    {
+        $text = trim($text);
+        if ( '' !== $text ) {
+            $this->formControlEchoTexts[] = $text;
+        }
+    }
+
+    private function readableFormControlLabel(DOMElement $control): string
+    {
+        $label = $this->formControlLabel($control);
+        if ( '' === $label ) {
+            $label = $this->attr($control, 'aria-label');
+        }
+        if ( '' === $label ) {
+            $label = $this->attr($control, 'placeholder');
+        }
+        if ( '' === $label ) {
+            $label = $this->attr($control, 'name');
+        }
+
+        $type = $this->formControlType($control);
+        if ( '' === $label ) {
+            return 'select' === $type ? 'Select option' : ucfirst($type);
+        }
+
+        return $label;
     }
 
     private function readableSubmitText(DOMElement $control): string
@@ -3757,65 +5230,57 @@ final class HtmlTransformer
     }
 
     /**
-     * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
-    private function galleryBlockFromElement(DOMElement $element, array &$fallbacks): ?array
+    private function backgroundImageBlockFromElement(DOMElement $element): ?array
     {
-        $images = array();
+        $url = $this->backgroundImageUrlFromStyle($this->mergedPresentationStyle($element));
+        if ( '' === $url ) {
+            return null;
+        }
+
+        return $this->createBlock('core/image', array_filter(array(
+            'url'       => $this->resolvedAssetImageUrl($url),
+            'alt'       => $this->backgroundImageAlt($element),
+            'className' => 'blocks-engine-background-image',
+        ), static fn (string $value): bool => '' !== $value), array(), $element);
+    }
+
+    private function backgroundImageUrlFromStyle(string $style): string
+    {
+        if ( ! preg_match('/(?:^|;)\s*background(?:-image)?\s*:\s*[^;]*url\(\s*(["\']?)([^"\')]+)\1\s*\)/i', $style, $matches) ) {
+            return '';
+        }
+
+        $url = trim(html_entity_decode((string) $matches[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
+            return '';
+        }
+
+        return $url;
+    }
+
+    private function backgroundImageAlt(DOMElement $element): string
+    {
+        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
+            $value = trim($this->attr($element, $attribute));
+            if ( '' !== $value ) {
+                return $value;
+            }
+        }
+
+        return '';
+    }
+
+    private function hasDirectMediaChild(DOMElement $element): bool
+    {
         foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
+            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'img', 'picture', 'svg', 'video', 'audio' ), true) ) {
+                return true;
             }
-
-            if ( ! $child instanceof DOMElement ) {
-                return null;
-            }
-
-            $tagName = strtolower($child->tagName);
-            if ( 'figcaption' === $tagName ) {
-                continue;
-            }
-
-            if ( 'figure' === $tagName ) {
-                $image = $this->firstChildElement($child, 'img');
-                if ( $image instanceof DOMElement ) {
-                    $images[] = $this->convertImageElement($image, $child);
-                    continue;
-                }
-
-                $picture = $this->firstChildElement($child, 'picture');
-                if ( $picture instanceof DOMElement ) {
-                    $images[] = $this->convertPictureElement($picture, $child);
-                    continue;
-                }
-            }
-
-            if ( 'img' === $tagName ) {
-                $images[] = $this->convertImageElement($child);
-                continue;
-            }
-
-            if ( 'picture' === $tagName ) {
-                $images[] = $this->convertPictureElement($child);
-                continue;
-            }
-
-            return null;
         }
 
-        $images = array_values(array_filter($images));
-        if ( count($images) < 2 ) {
-            return null;
-        }
-
-        $attrs = $this->presentationAttributes($element);
-        $caption = $this->firstChildElement($element, 'figcaption');
-        if ( $caption instanceof DOMElement ) {
-            $attrs['caption'] = $this->innerHtml($caption);
-        }
-
-        return $this->createBlock('core/gallery', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $images, $element);
+        return false;
     }
 
     /**
@@ -3908,100 +5373,10 @@ final class HtmlTransformer
     }
 
     /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function columnsBlockFromElement(DOMElement $element, array &$fallbacks): ?array
-    {
-        if ( ! $this->looksLikeColumnsContainer($element) ) {
-            return null;
-        }
-
-		$elementChildren = array();
-		foreach ( $element->childNodes as $child ) {
-			if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-				continue;
-            }
-
-            if ( ! $child instanceof DOMElement ) {
-                return null;
-            }
-			$elementChildren[] = $child;
-		}
-
-		if ( count($elementChildren) < 2 ) {
-			return null;
-		}
-
-		$columns = array();
-		$columnFallbacks = array();
-		foreach ( $elementChildren as $child ) {
-			$children = $this->isColumnWrapperElement($child)
-				? $this->convertChildren($child, $columnFallbacks, true)
-				: array_filter(array( $this->convertElement($child, $columnFallbacks, true) ));
-			$columns[] = $this->createBlock('core/column', $this->presentationAttributes($child), $children, $child);
-		}
-		array_push($fallbacks, ...$columnFallbacks);
-
-		return $this->createBlock('core/columns', $this->presentationAttributes($element), $columns, $element);
-	}
-
-    private function isColumnWrapperElement(DOMElement $element): bool
-    {
-        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true);
-    }
-
-    private function looksLikeColumnsContainer(DOMElement $element): bool
-    {
-        if ( $this->hasClass($element, 'wp-block-columns') ) {
-            return true;
-        }
-
-        $className = strtolower($this->attr($element, 'class'));
-        $style = strtolower($this->attr($element, 'style'));
-
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/', $style) && $this->hasDirectChildElement($element, 'svg') ) {
-            return false;
-        }
-
-        return (bool) preg_match('/(?:^|[\s_-])columns?(?:$|[\s_-])/', $className)
-            || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element) )
-            || preg_match('/(?:^|;)\s*(?:display\s*:\s*(?:inline-)?flex|grid-template-columns\s*:)/', $style);
-    }
-
-    private function looksLikeDocumentationLayout(DOMElement $element): bool
-    {
-        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id')));
-        return (bool) preg_match('/(?:^|[\s_-])(?:docs?|documentation|article|content)(?:[\s_-]+(?:layout|shell|page|with[\s_-]+sidebar)|$)|(?:^|[\s_-])sidebar[\s_-]+layout(?:$|[\s_-])/', $name);
-    }
-
-    private function hasSidebarAndContentChildren(DOMElement $element): bool
-    {
-        $hasSidebar = false;
-        $hasContent = false;
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            $name = strtolower(trim($child->tagName . ' ' . $this->attr($child, 'class') . ' ' . $this->attr($child, 'id') . ' ' . $this->attr($child, 'role')));
-            $hasSidebar = $hasSidebar || (bool) preg_match('/(?:^|[\s_-])(?:aside|sidebar|toc|table[\s_-]+of[\s_-]+contents)(?:$|[\s_-])/', $name);
-            $hasContent = $hasContent || in_array(strtolower($child->tagName), array( 'article', 'main', 'section' ), true)
-                || (bool) preg_match('/(?:^|[\s_-])(?:main|content|article|docs?[\s_-]+content|documentation[\s_-]+content)(?:$|[\s_-])/', $name);
-        }
-
-        return $hasSidebar && $hasContent;
-    }
-
-    /**
      * @return array<string, mixed>|null
      */
     private function navigationSectionBlockFromElement(DOMElement $element): ?array
     {
-        if ( ! $this->hasNavigationContainerSignal($element) ) {
-            return null;
-        }
-
         $heading = null;
         $anchors = array();
         foreach ( $element->childNodes as $child ) {
@@ -4009,7 +5384,7 @@ final class HtmlTransformer
                 continue;
             }
 
-            if ( $child instanceof DOMElement && preg_match('/^h[1-6]$/i', $child->tagName) ) {
+            if ( $child instanceof DOMElement && $this->isNavigationSectionHeading($child) ) {
                 if ( $heading instanceof DOMElement ) {
                     return null;
                 }
@@ -4029,6 +5404,10 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( ! $this->hasNavigationContainerSignal($element) && ! $this->hasSoftNavigationSectionHeadingSignal($heading) ) {
+            return null;
+        }
+
         $sectionFallbacks = array();
         $blocks = array( $this->convertElement($heading, $sectionFallbacks, true) );
         $links = array();
@@ -4039,9 +5418,32 @@ final class HtmlTransformer
                 'kind'  => 'custom',
             ), static fn ($value): bool => '' !== $value), array(), $anchor);
         }
-        $blocks[] = $this->createBlock('core/navigation', array(), $links, $element);
+        // Declare responsive-overlay intent explicitly (see NavigationPattern):
+        // `overlayMenu` => `mobile` matches the core default so WP renders the
+        // responsive overlay and enqueues the navigation view module instead of
+        // depending on the render-time default being applied.
+        $blocks[] = $this->createBlock('core/navigation', array( 'overlayMenu' => 'mobile' ), $links, $element);
 
         return $this->createBlock('core/group', $this->presentationAttributes($element), array_values(array_filter($blocks)), $element);
+    }
+
+    private function isNavigationSectionHeading(DOMElement $element): bool
+    {
+        if ( preg_match('/^h[1-6]$/i', $element->tagName) ) {
+            return true;
+        }
+
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'p', 'span' ), true) || '' === trim($element->textContent ?? '') ) {
+            return false;
+        }
+
+        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id') . ' ' . $this->attr($element, 'role') . ' ' . $this->attr($element, 'aria-label')));
+        return (bool) preg_match('/(?:^|[\s_-])(?:heading|label|title)(?:$|[\s_-])/', $name);
+    }
+
+    private function hasSoftNavigationSectionHeadingSignal(DOMElement $element): bool
+    {
+        return ! preg_match('/^h[1-6]$/i', $element->tagName) && $this->isNavigationSectionHeading($element);
     }
 
     private function hasNavigationContainerSignal(DOMElement $element): bool
@@ -4054,27 +5456,6 @@ final class HtmlTransformer
         return (bool) preg_match('/(?:^|[\s_-])(?:nav|navbar|navigation|menu|links)(?:$|[\s_-])/', $name);
     }
 
-    private function safeNavigationUrl(string $url): string
-    {
-        $url = trim($url);
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
-            return '';
-        }
-
-        return $url;
-    }
-
-    private function firstDirectChildWithClass(DOMElement $element, string $className): ?DOMElement
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->hasClass($child, $className) ) {
-                return $child;
-            }
-        }
-
-        return null;
-    }
-
     private function hasDirectChildElement(DOMElement $element, string $tagName): bool
     {
         foreach ( $element->childNodes as $child ) {
@@ -4084,115 +5465,6 @@ final class HtmlTransformer
         }
 
         return false;
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function spacerBlockFromElement(DOMElement $element): ?array
-    {
-        if ( '' !== trim($element->textContent ?? '') || 0 !== $this->childElementCount($element) ) {
-            return null;
-        }
-
-        $height = $this->spacerHeightFromStyle($this->attr($element, 'style'));
-        if ( '' === $height ) {
-            return null;
-        }
-
-        if ( ! $this->hasClass($element, 'wp-block-spacer') && ! $this->hasClass($element, 'spacer') ) {
-            return null;
-        }
-
-        $attrs = $this->presentationAttributes($element);
-        $attrs['height'] = $height;
-        unset($attrs['style']);
-
-        return $this->createBlock('core/spacer', $attrs, array(), $element);
-    }
-
-    private function spacerHeightFromStyle(string $style): string
-    {
-        if ( ! preg_match('/(?:^|;)\s*height\s*:\s*([^;]+)/i', $style, $matches) ) {
-            return '';
-        }
-
-        $height = trim($matches[1]);
-        if ( '' === $height || preg_match('/[{}]/', $height) || strlen($height) > 80 ) {
-            return '';
-        }
-
-        return $height;
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function placeholderMediaBlockFromElement(DOMElement $element): ?array
-    {
-        if ( ! $this->isPlaceholderMediaElement($element) ) {
-            return null;
-        }
-
-        $attrs = $this->presentationAttributes($element);
-        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-placeholder-media');
-
-        $style = trim((string) ($attrs['style'] ?? ''));
-        $ratio = $this->placeholderAspectRatio($element);
-        if ( '' !== $ratio && ! preg_match('/(?:^|;)\s*aspect-ratio\s*:/i', $style) ) {
-            $style = rtrim($style, ';') . ( '' !== $style ? ';' : '' ) . 'aspect-ratio:' . $ratio;
-        }
-        if ( '' !== $style ) {
-            $attrs['style'] = $style;
-        }
-
-        $label = $this->placeholderLabel($element);
-        $children = '' !== $label ? array( $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) )) ) : array();
-
-        return $this->createBlock('core/group', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $element);
-    }
-
-    private function isPlaceholderMediaElement(DOMElement $element): bool
-    {
-        $className = strtolower($this->attr($element, 'class'));
-        if ( ! preg_match('/(?:^|\s)(?:ph|placeholder|media-placeholder|image-placeholder|video-placeholder)(?:\s|$)/', $className) && ! preg_match('/(?:^|\s)ratio-[0-9]+(?:x|:|-)[0-9]+(?:\s|$)/', $className) ) {
-            return false;
-        }
-
-        return '' !== $this->placeholderAspectRatio($element)
-            || preg_match('/(?:^|;)\s*aspect-ratio\s*:/i', $this->attr($element, 'style'))
-            || preg_match('/(?:^|\s)(?:media|image|video|thumb|thumbnail|poster|avatar)(?:\s|$)/', $className);
-    }
-
-    private function placeholderAspectRatio(DOMElement $element): string
-    {
-        if ( preg_match('/(?:^|;)\s*aspect-ratio\s*:\s*([0-9.]+\s*\/\s*[0-9.]+|[0-9.]+)\s*(?:;|$)/i', $this->attr($element, 'style'), $styleMatch) ) {
-            return preg_replace('/\s+/', '', $styleMatch[1]) ?? '';
-        }
-
-        $className = strtolower($this->attr($element, 'class'));
-        if ( preg_match('/(?:^|\s)ratio-([0-9]+)(?:x|:|-)([0-9]+)(?:\s|$)/', $className, $classMatch) ) {
-            return $classMatch[1] . '/' . $classMatch[2];
-        }
-
-        return '';
-    }
-
-    private function placeholderLabel(DOMElement $element): string
-    {
-        foreach ( $element->getElementsByTagName('span') as $span ) {
-            if ( ! $span instanceof DOMElement ) {
-                continue;
-            }
-
-            $className = strtolower($this->attr($span, 'class'));
-            if ( preg_match('/(?:^|\s)(?:label|caption|placeholder-label)(?:\s|$)/', $className) ) {
-                return trim(preg_replace('/\s+/', ' ', $span->textContent ?? '') ?? '');
-            }
-        }
-
-        $directText = trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
-        return strlen($directText) <= 80 ? $directText : '';
     }
 
     private function convertMediaElement(DOMElement $element): ?array
@@ -4258,14 +5530,14 @@ final class HtmlTransformer
         return in_array($extension, array( 'doc', 'docx', 'odp', 'ods', 'odt', 'pdf', 'ppt', 'pptx', 'rtf', 'txt', 'xls', 'xlsx', 'zip' ), true) ? $url : '';
     }
 
-    private function convertPictureElement(DOMElement $picture, ?DOMElement $figure = null): ?array
+    private function convertPictureElement(DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array
     {
         $image = $this->firstChildElement($picture, 'img');
         if ( ! $image instanceof DOMElement ) {
             return null;
         }
 
-        return $this->convertImageElement($image, $figure ?? $picture, $picture);
+        return $this->convertImageElement($image, $figure ?? $picture, $picture, $link);
     }
 
     private function imageBlockFromAnchor(DOMElement $anchor): ?array
@@ -4359,6 +5631,7 @@ final class HtmlTransformer
         $attrs = array(
             'href'            => $this->safeLinkUrl($this->attr($link, 'href')),
             'linkDestination' => 'custom',
+            'linkAnchor'      => $this->safeAnchor($this->attr($link, 'id')),
             'linkTarget'      => $this->attr($link, 'target'),
             'rel'             => $this->attr($link, 'rel'),
             'linkClass'       => $this->attr($link, 'class'),
@@ -4396,6 +5669,28 @@ final class HtmlTransformer
             'rel'       => $this->attr($anchor, 'rel'),
             'ariaLabel' => $this->attr($anchor, 'aria-label'),
         ), static fn (string $value): bool => '' !== trim($value));
+    }
+
+    /**
+     * Record a content-wrapping anchor whose link was dropped because the
+     * resulting core/group exposes no native link attribute (#260). The link
+     * details are captured for diagnostics so the navigation loss is detectable
+     * rather than silently emitted as an unsupported attribute on the group.
+     */
+    private function recordDroppedLinkWrapper(DOMElement $anchor): void
+    {
+        $link = $this->cardLinkAttributes($anchor);
+        if ( array() === $link ) {
+            return;
+        }
+
+        $this->droppedLinkWrapperFindings[] = array_merge(
+            array(
+                'tag'      => strtolower($anchor->tagName),
+                'selector' => $this->elementSelector($anchor),
+            ),
+            $link
+        );
     }
 
     /**
@@ -4437,7 +5732,7 @@ final class HtmlTransformer
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
         $path = (string) parse_url($url, PHP_URL_PATH);
 
-        if ( str_ends_with($host, 'youtube.com') && preg_match('~^/embed/([^/?#]+)~', $path, $matches) ) {
+        if ( ( str_ends_with($host, 'youtube.com') || str_ends_with($host, 'youtube-nocookie.com') ) && preg_match('~^/embed/([^/?#]+)~', $path, $matches) ) {
             return 'https://www.youtube.com/watch?v=' . $matches[1];
         }
 
@@ -4449,20 +5744,40 @@ final class HtmlTransformer
             return 'https://vimeo.com/' . $matches[1];
         }
 
+        if ( str_ends_with($host, 'dailymotion.com') && preg_match('~^/embed/video/([^/?#]+)~', $path, $matches) ) {
+            return 'https://www.dailymotion.com/video/' . $matches[1];
+        }
+
+        if ( 'open.spotify.com' === $host && preg_match('~^/embed/((?:track|album|playlist|episode|show|artist)/[^/?#]+)~', $path, $matches) ) {
+            return 'https://open.spotify.com/' . $matches[1];
+        }
+
         return $url;
     }
 
     private function embedProviderSlug(string $url): string
     {
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-        if ( str_ends_with($host, 'youtube.com') || 'youtu.be' === $host ) {
+        $path = (string) parse_url($url, PHP_URL_PATH);
+        if ( str_ends_with($host, 'youtube.com') || str_ends_with($host, 'youtube-nocookie.com') || 'youtu.be' === $host ) {
             return 'youtube';
         }
         if ( str_ends_with($host, 'vimeo.com') ) {
             return 'vimeo';
         }
+        if ( str_ends_with($host, 'dailymotion.com') && preg_match('~^/embed/video/[^/?#]+~', $path) ) {
+            return 'dailymotion';
+        }
+        if ( 'open.spotify.com' === $host && preg_match('~^/embed/(?:track|album|playlist|episode|show|artist)/[^/?#]+~', $path) ) {
+            return 'spotify';
+        }
 
         return '';
+    }
+
+    private function embedTypeForSlug(string $slug): string
+    {
+        return 'spotify' === $slug ? 'rich' : 'video';
     }
 
     /**
@@ -4488,15 +5803,20 @@ final class HtmlTransformer
     private function convertIframeElement(DOMElement $iframe, array &$fallbacks): ?array
     {
         $url = $this->safeEmbedUrl($this->attr($iframe, 'src'));
-        if ( '' !== $url ) {
+        $providerNameSlug = '' === $url ? '' : $this->embedProviderSlug($url);
+        if ( '' !== $providerNameSlug ) {
             return $this->createBlock('core/embed', array_filter(array_merge($this->presentationAttributes($iframe), array(
                 'url'              => $this->canonicalEmbedUrl($url),
-                'type'             => 'video',
-                'providerNameSlug' => $this->embedProviderSlug($url),
+                'type'             => $this->embedTypeForSlug($providerNameSlug),
+                'providerNameSlug' => $providerNameSlug,
             )), static fn ($value): bool => '' !== $value), array(), $iframe);
         }
 
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($iframe));
+        $this->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
+            'preservation_strategy' => 'sanitized_embed_markup',
+            'attributes'            => $this->safeEmbedAttributes($iframe),
+        ));
         $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'html',
             'reason'          => 'iframe_embed_fallback',
@@ -4507,6 +5827,7 @@ final class HtmlTransformer
             'selector'        => $this->elementSelector($iframe),
             'attributes'      => $this->safeEmbedAttributes($iframe),
             'context'         => $this->sourceContext($iframe),
+            'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($iframe),
             'events'          => $this->eventMetadata($iframe),
             'html'            => $boundedHtml['html'],
             'html_bytes'      => $boundedHtml['bytes'],
@@ -4678,11 +5999,6 @@ final class HtmlTransformer
         return $this->safeImageUrl($url);
     }
 
-    private function isSafeSvgContent(string $content): bool
-    {
-        return '' !== trim($content) && preg_match('/<svg(?:\s|>)/i', $content) && ! preg_match('/<\s*script\b|\son[a-z]+\s*=|javascript\s*:/i', $content);
-    }
-
     /**
      * @return array<string, string>
      */
@@ -4731,20 +6047,6 @@ final class HtmlTransformer
         return implode(' ', $classes);
     }
 
-    private function mergeClassNames(string ...$classNames): string
-    {
-        $classes = array();
-        foreach ( $classNames as $className ) {
-            foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
-                if ( '' !== $class && ! in_array($class, $classes, true) ) {
-                    $classes[] = $class;
-                }
-            }
-        }
-
-        return implode(' ', $classes);
-    }
-
     /**
      * @return array<string, mixed>
      */
@@ -4768,59 +6070,6 @@ final class HtmlTransformer
         }
 
         return $code->textContent ?? '';
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function codeWindowBlockFromElement(DOMElement $element, array &$fallbacks): ?array
-    {
-        $pre = $this->firstChildElement($element, 'pre');
-        if ( ! $pre instanceof DOMElement ) {
-            return null;
-        }
-
-        $code = $this->firstChildElement($pre, 'code');
-        if ( ! $code instanceof DOMElement ) {
-            return null;
-        }
-
-        $label = $this->codeWindowLabel($element, $pre);
-        if ( '' === $label && ! $this->hasClass($element, 'code-window') && ! $this->hasClass($element, 'code-frame') ) {
-            return null;
-        }
-
-        $children = array();
-        if ( '' !== $label ) {
-            $children[] = $this->createBlock('core/paragraph', array( 'content' => $label ));
-        }
-        $children[] = $this->createBlock('core/code', array_merge($this->codePresentationAttributes($pre, $code), array( 'content' => $this->codeContent($code) )), array(), $pre);
-
-        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
-    }
-
-    private function codeWindowLabel(DOMElement $element, DOMElement $pre): string
-    {
-        foreach ( array( 'data-label', 'data-title', 'data-filename', 'aria-label' ) as $attribute ) {
-            $value = trim($this->attr($element, $attribute));
-            if ( '' !== $value ) {
-                return htmlspecialchars($value, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            }
-        }
-
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || $child->isSameNode($pre) ) {
-                continue;
-            }
-
-            $tagName = strtolower($child->tagName);
-            if ( 'figcaption' === $tagName || 'header' === $tagName || $this->hasClass($child, 'code-label') || $this->hasClass($child, 'filename') || $this->hasClass($child, 'window-title') ) {
-                return $this->innerHtml($child);
-            }
-        }
-
-        return '';
     }
 
     private function sanitizedSyntaxHtml(DOMElement $element): string
@@ -4848,42 +6097,6 @@ final class HtmlTransformer
         }
 
         return $html;
-    }
-
-    /**
-     * @param array<string, string> $attrs
-     */
-    private function htmlAttributeString(array $attrs): string
-    {
-        $html = '';
-        foreach ( $attrs as $name => $value ) {
-            $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-        }
-        return $html;
-    }
-
-    /**
-     * @return array<int, array<string, string>>
-     */
-    private function eventMetadata(DOMElement $element): array
-    {
-        $events = array();
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            if ( preg_match('/^on([a-z]+)$/i', $name, $matches) ) {
-                $events[] = array(
-                    'type'      => strtolower($matches[1]),
-                    'attribute' => strtolower($name),
-                );
-            }
-            if ( preg_match('/^data-(?:action|on|event)$/i', $name) && '' !== trim($value) ) {
-                $events[] = array(
-                    'type'      => 'declared',
-                    'attribute' => $name,
-                );
-            }
-        }
-
-        return $events;
     }
 
 }
