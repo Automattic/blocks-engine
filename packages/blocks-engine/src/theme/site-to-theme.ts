@@ -99,15 +99,17 @@ export async function siteToTheme(
         options?.renderOptions?.[page.slug],
         sourceMediaUrlMapsByPage[page.slug]
       );
-      const renderOptions = routingStrategy
-        ? {
-            ...(baseRenderOptions ?? {}),
-            strategy: routingStrategy,
-            onDedup: (rules: string[]) => {
-              for (const rule of rules) dedupCssRules.add(rule);
-            },
-          }
-        : baseRenderOptions;
+      const renderOptions = {
+        ...(baseRenderOptions ?? {}),
+        ...(routingStrategy ? { strategy: routingStrategy } : {}),
+        // Collect drained lib-i instance CSS from whichever strategy runs — the default
+        // preserve-dom strategy hashes inline styles into lib-i classes too, so onDedup must
+        // be wired unconditionally or those rules never reach style.css (the lib-i classes
+        // would appear in markup with no backing CSS).
+        onDedup: (rules: string[]) => {
+          for (const rule of rules) dedupCssRules.add(rule);
+        },
+      };
       pages[page.slug] = await reconstruct(specs, ctx, pool, hooks, coverageFloor, renderOptions);
     }
     const dedupCss = dedupCssRules.size ? [...dedupCssRules].join('\n') : undefined;
