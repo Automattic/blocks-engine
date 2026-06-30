@@ -5692,6 +5692,64 @@ $guidOverrideInstanceHtml = $fileContent($guidOverrideInstanceResult, 'index.htm
 $assert(str_contains($guidOverrideInstanceHtml, 'Learn'), 'guid-override-instance-applies-text');
 $assert(str_contains($guidOverrideInstanceHtml, 'data-figma-node-id="instance:menu-item/180:6416"') && str_contains($guidOverrideInstanceHtml, '>Learn<'), 'guid-override-instance-replaces-default-text');
 
+$nestedImageOverrideResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Nested Image Override Fixture',
+    'nodes' => array(
+        array(
+            'guid'     => array('sessionID' => 700, 'localID' => 1),
+            'type'     => 'COMPONENT',
+            'name'     => 'Image component',
+            'children' => array(
+                array(
+                    'guid'       => array('sessionID' => 700, 'localID' => 2),
+                    'type'       => 'RECTANGLE',
+                    'name'       => 'Image',
+                    'width'      => 100,
+                    'height'     => 50,
+                    'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'default-image')),
+                ),
+            ),
+        ),
+        array(
+            'guid'     => array('sessionID' => 700, 'localID' => 3),
+            'type'     => 'COMPONENT',
+            'name'     => 'Preview component',
+            'children' => array(
+                array(
+                    'guid'       => array('sessionID' => 700, 'localID' => 4),
+                    'type'       => 'INSTANCE',
+                    'name'       => 'Image slot',
+                    'symbolData' => array('symbolID' => array('sessionID' => 700, 'localID' => 1)),
+                ),
+            ),
+        ),
+        array(
+            'id'         => 'instance:preview',
+            'type'       => 'INSTANCE',
+            'name'       => 'Preview instance',
+            'symbolData' => array(
+                'symbolID' => array('sessionID' => 700, 'localID' => 3),
+                'symbolOverrides' => array(
+                    array(
+                        'guidPath'   => array('guids' => array(array('sessionID' => 700, 'localID' => 4), array('sessionID' => 700, 'localID' => 2))),
+                        'fillPaints' => array(
+                            array('type' => 'IMAGE', 'imageRef' => 'default-image'),
+                            array('type' => 'IMAGE', 'imageRef' => 'override-image'),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+    'assets' => array(
+        array('id' => 'default-image', 'content' => 'default'),
+        array('id' => 'override-image', 'content' => 'override'),
+    ),
+));
+$nestedImageOverrideCss = $fileContent($nestedImageOverrideResult, 'style.css');
+$assert(str_contains($nestedImageOverrideCss, '.figma-node-instance-preview-700-4-700-2-image'), 'nested-image-override-emits-nested-image-node');
+$assert(str_contains($nestedImageOverrideCss, 'background-image:url("assets/override-image.bin"),url("assets/default-image.bin")'), 'nested-image-override-preserves-instance-fill-paints');
+
 // Component-property (componentPropAssignments) text overrides (#329 / FSE Pilot).
 //
 // Figma binds per-instance text content through component properties rather than

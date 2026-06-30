@@ -706,7 +706,7 @@ final class ScenegraphNormalizer
         $sourceId = (string) ($node['figma_component_source_id'] ?? '');
         $refreshId = '' !== $id && isset($nodeMap[$id]) ? $id : $sourceId;
         $refreshesComponentSourceClone = '' !== $sourceId && $refreshId === $sourceId && $this->isRefreshableComponentSourceClone($node, $nodeMap[$refreshId] ?? array());
-        if ( '' !== $refreshId && isset($nodeMap[$refreshId]) && ! in_array($refreshId, $trail, true) && ($refreshId === $id || $refreshesComponentSourceClone) ) {
+        if ( '' !== $refreshId && isset($nodeMap[$refreshId]) && ! in_array($refreshId, $trail, true) && ($refreshId === $id || ($refreshesComponentSourceClone && ! $this->subtreeHasInstanceOverrideApplied($node))) ) {
             $node = $refreshId === $id
                 ? $nodeMap[$refreshId]
                 : $this->mergeRefreshedComponentSource($node, $nodeMap[$refreshId], $refreshId);
@@ -738,6 +738,24 @@ final class ScenegraphNormalizer
         $refreshedType = strtoupper((string) ($refreshed['type'] ?? ''));
 
         return 'INSTANCE' === $cloneType || 'INSTANCE' === $refreshedType || true === ($clone['figma_component']['resolved'] ?? false) || true === ($refreshed['figma_component']['resolved'] ?? false);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function subtreeHasInstanceOverrideApplied(array $node): bool
+    {
+        if ( true === ($node['_figma_instance_override_applied'] ?? false) ) {
+            return true;
+        }
+
+        foreach ( is_array($node['children'] ?? null) ? $node['children'] : array() as $child ) {
+            if ( is_array($child) && $this->subtreeHasInstanceOverrideApplied($child) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1541,7 +1559,8 @@ final class ScenegraphNormalizer
             }
 
             if ( is_array($child['children'] ?? null) ) {
-                $child['children'] = $this->applyInstanceOverridesToChildren($child['children'], $overrides, $diagnostics, $blobs, $paintStyles);
+                $childOverrides = $this->descendantInstanceOverrideFieldsForChild($child, $overrides);
+                $child['children'] = $this->applyInstanceOverridesToChildren($child['children'], array_merge($overrides, $childOverrides), $diagnostics, $blobs, $paintStyles);
             }
 
             $children[$index] = $child;
@@ -1579,6 +1598,37 @@ final class ScenegraphNormalizer
     }
 
     /**
+     * Carry parent-scoped guidPath overrides into resolved nested instances.
+     *
+     * Figma can encode an override for a nested component child as
+     * `nested-instance-guid/child-guid`. Once recursion enters the nested
+     * instance, its descendants match the suffix (`child-guid`), not the full
+     * parent path.
+     *
+     * @param array<string, mixed> $child
+     * @param array<string, array<string, mixed>> $overrides
+     * @return array<string, array<string, mixed>>
+     */
+    private function descendantInstanceOverrideFieldsForChild(array $child, array $overrides): array
+    {
+        $scoped = array();
+        foreach ( $this->instanceChildOverrideAliases($child) as $alias ) {
+            foreach ( $overrides as $target => $overrideFields ) {
+                if ( ! is_string($target) || ! is_array($overrideFields) || ! str_starts_with($target, $alias . '/') ) {
+                    continue;
+                }
+
+                $descendantTarget = substr($target, strlen($alias) + 1);
+                if ( '' !== $descendantTarget ) {
+                    $scoped[$descendantTarget] = array_merge($scoped[$descendantTarget] ?? array(), $overrideFields);
+                }
+            }
+        }
+
+        return $scoped;
+    }
+
+    /**
      * @param array<string, mixed> $child
      * @return array<int, string>
      */
@@ -1587,7 +1637,12 @@ final class ScenegraphNormalizer
         $aliases = array();
         foreach ( array('id', 'figma_component_source_id') as $key ) {
             if ( isset($child[$key]) && is_scalar($child[$key]) && '' !== (string) $child[$key] ) {
-                $aliases[] = (string) $child[$key];
+                $id = (string) $child[$key];
+                $aliases[] = $id;
+                if ( str_contains($id, '/') ) {
+                    $parts = explode('/', $id);
+                    $aliases[] = (string) end($parts);
+                }
             }
         }
 
@@ -1667,6 +1722,7 @@ final class ScenegraphNormalizer
         unset($child['figma_vector_scale']);
 
         $child = $this->normalizeNode($child, $diagnostics, $blobs, $paintStyles);
+        $child['_figma_instance_override_applied'] = true;
         unset($child[GeometryBox::PROVENANCE_KEY]);
         if ( $hasVectorGeometryOverride && ! $hasExplicitSizeOverride ) {
             $bounds = $this->normalizedVectorPathBounds(is_array($child['figma_vector_paths'] ?? null) ? $child['figma_vector_paths'] : array());
