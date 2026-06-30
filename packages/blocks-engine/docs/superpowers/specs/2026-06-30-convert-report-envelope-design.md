@@ -97,20 +97,35 @@ interface ConversionFinding {
   severity: 'info' | 'warning' | 'error';   // closed set
   message?: string;
   selector?: string;                        // synthetic, e.g. "core/html[2]"
-  snippet?: string;                         // bounded (<= 2000 bytes), sanitized
+  snippet?: string;                         // bounded, sanitized, UNTRUSTED text
   [extra: string]: unknown;                 // additive, producer-specific
 }
 ```
+
+`snippet` is bounded to <= 2000 **characters** (not bytes — byte truncation can
+split a UTF-8 sequence and produce mojibake) and is passed through the existing
+`sanitize` helper. It is diagnostic metadata and must be treated as **untrusted**
+by consumers (escape before rendering); the contract does not guarantee it is
+safe to inject into an HTML context.
 
 First-slice producers:
 
 - `unconverted_html` — one finding per `core/html` block in the final markup,
   `severity: 'warning'`, placed in `fallbacks`. `selector` is the synthetic
   positional locator `core/html[<index>]`; `snippet` is the bounded, sanitized
-  inner HTML of the block.
+  inner HTML of the block. **Capped at 100 findings** (see Section 4); the count
+  is bounded but `metrics.fallbackCount` always reports the true total.
 - `normalized_markup` — one finding per `canonicalize` fixed issue,
   `severity: 'info'`, placed in `diagnostics`. `message` carries the fixed-issue
   string.
+- `conversion_degraded` — emitted in `diagnostics`, `severity: 'warning'`, when
+  the markup came from the worker pool's degraded/timeout **sentinel** path
+  (the conversion did not run to completion and the output is largely
+  un-converted original HTML). `message` carries the sentinel reason. This makes
+  a degraded conversion distinguishable from a legitimately HTML-heavy page.
+- `fallback_inventory_truncated` — emitted in `diagnostics`, `severity: 'info'`,
+  only when the `unconverted_html` inventory exceeded the cap. Carries `total`
+  (true count) and `kept` (100).
 
 ### 4. Metrics
 
@@ -118,27 +133,57 @@ First-slice producers:
 interface ConversionMetrics {
   inputBytes: number;        // UTF-8 byte length of input html
   outputBytes: number;       // UTF-8 byte length of blockMarkup
-  blockCount: number;        // top-level blocks parsed from final markup
-  fallbackCount: number;     // fallbacks.length
+  blockCount: number;        // named blocks counted in the worker (fixResult.blockCount)
+  fallbackCount: number;     // TRUE total of unconverted core/html (may exceed fallbacks.length when capped)
   diagnosticCount: number;   // diagnostics.length
   transformDurationMs: number; // wall time of the convertReport call
 }
 ```
 
-`blockCount` and the `core/html` inventory both come from a single parse of the
-final markup with `@wordpress/block-serialization-default-parser` (already a
-dependency; used by `scripts/tuner/score.ts`).
+`fallbackCount` is the real number of unconverted `core/html` islands even when
+the `fallbacks` array is capped at 100 (see Section 3), so the metric never lies
+about totals.
+
+**Where the parse happens (revised per deep review — Approach A).** The package
+declares **no `@wordpress/*` in runtime `dependencies`**; this is enforced by
+`src/__tests__/no-wordpress-runtime-deps.test.ts`. The block parser
+(`@wordpress/block-serialization-default-parser`) is only resolvable inside the
+worker / bundled WP runtime (`block-tree.ts` imports it as a **type only**;
+value imports live behind `requireWp`). Therefore `buildReport` must **not**
+value-import the parser. Instead, the **worker** computes the block analysis
+(where the parser is already loaded for `canonicalize`) and returns it on the
+`FixResult`; `buildReport` in the main process stays pure and WP-free, consuming
+that pre-extracted summary. The worker reuses the existing `walkBlocks`
+(`src/block-tree.ts`) traversal rather than introducing a new parse.
+
+`FixResult` gains two additive output fields:
+
+```ts
+interface FixResult {
+  html: string;
+  changed: boolean;
+  fixedIssues: string[];
+  blockCount: number;                              // NEW: named blocks in tree
+  htmlIslands: { index: number; snippet: string }[]; // NEW: core/html inventory
+}
+```
+
+The pool's **degraded/timeout sentinel** path constructs a `FixResult` by hand;
+it must populate safe defaults (`blockCount: 0`, `htmlIslands: []`) and signal
+the degradation so `convert-report.ts` can emit `conversion_degraded`.
 
 ### 5. Module layout
 
-- `src/report/findings.ts` — **pure** core:
-  `buildReport({ inputHtml, blockMarkup, fixResult, transformDurationMs }): ConvertReport`.
-  Parses the markup, extracts `core/html` blocks into `unconverted_html`
-  fallbacks, maps `fixResult.fixedIssues` into `normalized_markup` diagnostics,
-  derives `status` and `metrics`. `transformDurationMs` is an explicit input
-  (default `0`) so the function stays pure and deterministic — the async wrapper
-  passes the measured wall time, and tests pass a fixed value. No async, no
-  pool — fully unit-testable.
+- `src/report/findings.ts` — **pure, WP-free** core:
+  `buildReport({ inputHtml, blockMarkup, fixResult, transformDurationMs, degraded? }): ConvertReport`.
+  Maps `fixResult.htmlIslands` into `unconverted_html` fallbacks (capped at 100,
+  emitting `fallback_inventory_truncated` past the cap), maps
+  `fixResult.fixedIssues` into `normalized_markup` diagnostics, emits
+  `conversion_degraded` when `degraded` is set, derives `status` and `metrics`
+  (`blockCount` from `fixResult.blockCount`). `transformDurationMs` is an
+  explicit input (default `0`) so the function stays pure and deterministic — the
+  async wrapper passes the measured wall time, tests pass a fixed value. No
+  async, no pool, no parser import — fully unit-testable.
 - `src/report/contract.ts` — `assertConvertReport(report)`: a JS port of
   php-transformer's `assertCanonicalEnvelope` (required keys present, `schema`
   matches, `status` and every finding `severity` in their closed sets, arrays are
@@ -146,12 +191,16 @@ dependency; used by `scripts/tuner/score.ts`).
   and used in tests.
 - `src/convert-report.ts` — async `convertReport`: drives the pool exactly as
   `convert` does today (raw path with `compose` fallback, then `canonicalize`),
-  measures wall time, and calls `buildReport`, injecting the measured duration
-  into the returned metrics.
+  detects the sentinel/degraded signal, measures wall time, and calls
+  `buildReport`.
 - `src/convert.ts` — imports `convertReport`, returns `.blockMarkup`.
+- Worker changes: `src/wp/canonicalize.ts` / `src/wp/worker-child.ts` (and the
+  pool protocol / `FixResult` type) extended to compute and carry
+  `blockCount` + `htmlIslands` via `walkBlocks`.
 
-Keeping `buildReport` pure and duration-injected means the envelope logic is
-deterministic and testable without booting Gutenberg or a worker pool.
+Keeping `buildReport` pure, WP-free, and duration-injected means the envelope
+logic is deterministic and testable without booting Gutenberg or a worker pool,
+and the no-`@wordpress`-runtime-deps contract test still passes.
 
 ### 6. Data flow
 
@@ -160,8 +209,10 @@ convertReport(html, ctx, opts)
   -> pool.rawConvert([html])           (existing)
   -> raw clean? use raw : compose(...) (existing path choice)
   -> pool.canonicalize([blockMarkup])  (existing) -> FixResult
+        (worker: walkBlocks -> blockCount + htmlIslands on the result;
+         degraded/timeout -> sentinel FixResult w/ safe defaults + degraded flag)
   -> buildReport({ inputHtml: html, blockMarkup: fixed.html, fixResult: fixed,
-                   transformDurationMs: <measured wall time> })
+                   transformDurationMs: <measured wall time>, degraded: <sentinel?> })
   -> ConvertReport
 
 convert(html, ctx, opts) = (await convertReport(...)).blockMarkup
@@ -172,20 +223,32 @@ convert(html, ctx, opts) = (await convertReport(...)).blockMarkup
 - Hard, unsafe-input failures keep throwing `BlocksEngineError` (no behavior
   change). `convertReport` does not swallow them into a `failed` status in this
   slice.
-- Degraded-pool sentinels behave exactly as today (the existing fallbacks in the
-  pool path are unchanged); whatever markup results is reported, and any residual
-  `core/html` shows up honestly in the fallback inventory.
+- Degraded-pool sentinels: the conversion returns un-converted original HTML.
+  `convert-report.ts` detects the sentinel and `buildReport` emits a
+  `conversion_degraded` diagnostic (`success_with_warnings`), so the degradation
+  is named rather than silently indistinguishable from an HTML-heavy page. The
+  residual `core/html` still shows up honestly in the (capped) fallback
+  inventory, and `metrics.fallbackCount` keeps the true total.
+- `buildReport` is defensive: empty/odd markup and an empty `htmlIslands`
+  yield zeros and `status: 'success'` rather than throwing.
 
 ### 8. Testing
 
-- Pure `buildReport` unit tests: markup with N `core/html` blocks yields N
-  `unconverted_html` fallbacks with correct synthetic selectors; clean markup
+- Pure `buildReport` unit tests: `fixResult.htmlIslands` of length N yields N
+  `unconverted_html` fallbacks with correct synthetic selectors; clean input
   yields zero fallbacks and `status: 'success'`; `fixedIssues` map to
   `normalized_markup` diagnostics; metrics (byte counts, `blockCount`,
-  `fallbackCount`) are correct; snippets are bounded to <= 2000 bytes.
+  `fallbackCount`) are correct; snippets bounded to <= 2000 **characters**
+  (multibyte-safe); over-cap input keeps 100 fallbacks, emits
+  `fallback_inventory_truncated`, and `fallbackCount` reports the true total;
+  `degraded: true` emits `conversion_degraded`.
 - `assertConvertReport` contract tests: a well-formed report passes; missing key,
   wrong schema, out-of-set severity/status each throw (parallels
   php-transformer's envelope assertion tests).
+- Worker tests: `canonicalize` returns accurate `blockCount` + `htmlIslands`;
+  the sentinel path carries safe defaults.
+- Dependency-boundary test: `no-wordpress-runtime-deps.test.ts` still passes
+  (proves `buildReport` / the main path stayed WP-free).
 - Integration tests (`convertReport`): clean input -> `success`, empty
   `fallbacks`; input containing an element that survives as `core/html` ->
   `success_with_warnings` with exactly one `unconverted_html` fallback.
