@@ -11,6 +11,8 @@ function byteToHexByte(value: string): number {
 
 function parseAlpha(value: string): number | null {
   const raw = value.trim();
+  const percent = parsePercent(raw);
+  if (percent !== null) return percent;
   if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(raw)) return null;
   const alpha = Number(raw);
   if (!Number.isFinite(alpha) || alpha < 0 || alpha > 1) return null;
@@ -88,10 +90,9 @@ function parseFunctionArgs(body: string): { channels: string[]; alpha: string | 
   return { channels, alpha };
 }
 
-function parseRgbFunction(name: string, body: string): RGBA | null {
+function parseRgbFunction(body: string): RGBA | null {
   const args = parseFunctionArgs(body);
   if (!args) return null;
-  if (args.alpha !== null && name === 'rgb' && body.includes(',')) return null;
   const channels = args.channels.map(parseRgbChannel);
   if (channels.some((channel) => channel === null)) return null;
   const alpha = args.alpha === null ? 1 : parseAlpha(args.alpha);
@@ -148,7 +149,7 @@ export function parseColor(input: string): RGBA | null {
   const fn = /^(rgba?|hsla?)\(\s*(.*?)\s*\)$/i.exec(s);
   if (!fn) return null;
   const name = fn[1].toLowerCase();
-  if (name === 'rgb' || name === 'rgba') return parseRgbFunction(name, fn[2]);
+  if (name === 'rgb' || name === 'rgba') return parseRgbFunction(fn[2]);
   return parseHslFunction(fn[2]);
 }
 

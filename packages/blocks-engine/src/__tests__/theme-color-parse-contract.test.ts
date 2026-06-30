@@ -15,9 +15,11 @@ describe('native color parsing contract', () => {
 
   it.each([
     ['rgb comma integer', 'rgb(16, 32, 48)', { r: 16, g: 32, b: 48, a: 1 }],
+    ['rgb comma alpha synonym', 'rgb(20,20,20,0.9)', { r: 20, g: 20, b: 20, a: 0.9 }],
     ['rgba comma alpha', 'rgba(16, 32, 48, 0.25)', { r: 16, g: 32, b: 48, a: 0.25 }],
     ['rgb space integer', 'rgb(16 32 48)', { r: 16, g: 32, b: 48, a: 1 }],
     ['rgb space slash alpha', 'rgb(16 32 48 / 0.25)', { r: 16, g: 32, b: 48, a: 0.25 }],
+    ['rgb space slash percent alpha', 'rgb(1 2 3 / 50%)', { r: 1, g: 2, b: 3, a: 0.5 }],
     ['rgb percentage channels', 'rgb(100% 50% 0%)', { r: 255, g: 128, b: 0, a: 1 }],
     ['short hex', '#0f8', { r: 0, g: 255, b: 136, a: 1 }],
     ['short hex alpha', '#0f8c', { r: 0, g: 255, b: 136, a: 0.8 }],
@@ -27,11 +29,12 @@ describe('native color parsing contract', () => {
     ['hsl comma', 'hsl(210, 50%, 40%)', { r: 51, g: 102, b: 153, a: 1 }],
     ['hsla comma alpha', 'hsla(210, 50%, 40%, 0.25)', { r: 51, g: 102, b: 153, a: 0.25 }],
     ['hsl space slash alpha', 'hsl(210 50% 40% / 0.25)', { r: 51, g: 102, b: 153, a: 0.25 }],
+    ['hsl space slash percent alpha', 'hsl(120 50% 50% / 50%)', { r: 64, g: 191, b: 64, a: 0.5 }],
   ])('parses %s', (_label, input, expected) => {
     expect(parseColor(input)).toEqual(expected);
   });
 
-  it.each(['transparent', 'currentColor', 'inherit', 'rebeccapurple', 'not-a-color'])(
+  it.each(['transparent', 'currentColor', 'inherit', 'rebeccapurple', 'not-a-color', 'rgb(256, 2, 3)', 'rgb(1 2 3 / 150%)'])(
     'returns null for unsupported color %s',
     (input) => {
       expect(parseColor(input)).toBeNull();
@@ -51,6 +54,7 @@ describe('native color parsing contract', () => {
 
   it('drops parsed alpha when parseHex receives alpha-capable colors', () => {
     expect(parseHex('#10203040')).toEqual([16, 32, 48]);
+    expect(parseHex('rgb(20,20,20,0.9)')).toEqual([20, 20, 20]);
     expect(parseHex('rgb(16 32 48 / 0.25)')).toEqual([16, 32, 48]);
   });
 
