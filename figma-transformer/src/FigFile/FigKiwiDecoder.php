@@ -594,7 +594,7 @@ final class FigKiwiDecoder
         $type = (string) ($field['type'] ?? '');
         $parentType = (string) ($context['parent_type'] ?? '');
         $path = (string) ($context['path'] ?? $parentType) . '.' . $fieldName;
-        $role = $this->decodePolicy->classifySkippedFieldRole($fieldName, $type);
+        $role = $this->decodePolicy->classifySkippedFieldRole($fieldName, $type, $parentType);
         $key = $parentType . '|' . $path . '|' . $fieldName . '|' . $type;
 
         if ( ! isset($inventory['fields'][$key]) ) {
