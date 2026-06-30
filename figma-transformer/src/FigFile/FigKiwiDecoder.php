@@ -405,6 +405,7 @@ final class FigKiwiDecoder
                 'strokeTopWeight', 'strokeBottomWeight', 'strokeLeftWeight', 'strokeRightWeight',
                 'fillGeometry', 'strokeGeometry', 'vectorData', 'booleanOperation', 'key', 'componentKey',
                 'componentOrStateGroupKey', 'originComponentKey', 'componentId', 'mainComponentId',
+                'componentPropAssignments', 'componentPropRefs',
                 'mainComponent', 'component', 'symbolData', 'derivedSymbolData', 'guidPath',
                 'fontSize', 'fontName', 'textData', 'lineHeight', 'letterSpacing',
                 'paragraphIndent', 'paragraphSpacing', 'styleID',
@@ -464,6 +465,9 @@ final class FigKiwiDecoder
             'DerivedSymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
             'GUIDPath' => array('guids'),
             'StyleId' => array('guid'),
+            'ComponentPropAssignment' => array('defID', 'value'),
+            'ComponentPropValue' => array('textValue'),
+            'ComponentPropRef' => array('defID', 'componentPropNodeField'),
             // Dev-status structs (#280). The status enum itself decodes to its
             // token string automatically, so only the struct/entry field names
             // that reach it need whitelisting. Over-listing plausible inner
