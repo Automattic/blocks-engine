@@ -41,7 +41,7 @@ export {
   sanitizeSvgAsset,
   stripChrome,
 } from './page-reconstruct-helpers.js';
-export { classifySemanticStrategy, reconstruct, reconstructNativeAggregate } from './reconstruct.js';
+export { classifySemanticStrategy, reconstruct, reconstructNativeAggregate, structuredStrategy } from './reconstruct.js';
 export {
   buildCoverageIsland,
   buildHtmlFallbackBlock,
