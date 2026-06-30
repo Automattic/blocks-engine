@@ -3727,6 +3727,93 @@ $assert(! str_contains($derivedSymbolInstanceHtml, '<g transform="scale'), 'deri
 $assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-2-derived-label{width:90px;height:24px;position:absolute;left:12px;top:6px'), 'derived-symbol-instance-label-size-position');
 $assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-3-derived-icon{width:10px;height:10px;position:absolute;left:110px;top:10px'), 'derived-symbol-instance-icon-size-position');
 
+$kiwiStackOverrideInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Kiwi Stack Override Fixture',
+    'nodes' => array(
+        array(
+            'guid'      => array('sessionID' => 41, 'localID' => 1),
+            'type'      => 'SYMBOL',
+            'name'      => 'Kiwi Layout Symbol',
+            'stackMode' => 'HORIZONTAL',
+            'width'     => 400,
+            'height'    => 120,
+            'children'  => array(
+                array(
+                    'guid'   => array('sessionID' => 41, 'localID' => 2),
+                    'type'   => 'FRAME',
+                    'name'   => 'Override Card',
+                    'stackMode' => 'HORIZONTAL',
+                    'width'  => 80,
+                    'height' => 40,
+                ),
+                array(
+                    'guid'   => array('sessionID' => 41, 'localID' => 3),
+                    'type'   => 'FRAME',
+                    'name'   => 'Override Badge',
+                    'width'  => 50,
+                    'height' => 20,
+                ),
+            ),
+        ),
+        array(
+            'id'         => 'kiwi-stack-override:instance',
+            'type'       => 'INSTANCE',
+            'name'       => 'Kiwi Stack Override Instance',
+            'symbolData' => array(
+                'symbolID' => array('sessionID' => 41, 'localID' => 1),
+                'symbolOverrides' => array(
+                    array(
+                        'guidPath'              => array('guids' => array(array('sessionID' => 41, 'localID' => 2))),
+                        'stackChildPrimaryGrow' => 1,
+                        'stackChildAlignSelf'   => 'STRETCH',
+                    ),
+                    array(
+                        'guidPath'         => array('guids' => array(array('sessionID' => 41, 'localID' => 3))),
+                        'stackPositioning' => 'ABSOLUTE',
+                        'transform'        => array('m00' => 1, 'm01' => 0, 'm02' => 24, 'm10' => 0, 'm11' => 1, 'm12' => 16),
+                    ),
+                ),
+            ),
+            'derivedSymbolData' => array(
+                array(
+                    'guidPath'            => array('guids' => array(array('sessionID' => 41, 'localID' => 2))),
+                    'stackPrimarySizing'  => 'RESIZE_TO_FIT',
+                    'stackCounterSizing'  => 'FIXED',
+                    'stackChildAlignSelf' => 'STRETCH',
+                ),
+            ),
+        ),
+    ),
+));
+$kiwiStackOverrideInstanceCss = $fileContent($kiwiStackOverrideInstanceResult, 'style.css');
+$kiwiStackOverrideResolverDiagnostics = array();
+$kiwiStackOverrideResolverFields = ( new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\InstanceResolver() )->normalizeInstanceOverrides(array(
+    'symbolData' => array(
+        'symbolOverrides' => array(
+            array(
+                'guidPath'              => array('guids' => array(array('sessionID' => 41, 'localID' => 2))),
+                'stackPrimarySizing'    => 'RESIZE_TO_FIT',
+                'stackCounterSizing'    => 'FIXED',
+                'stackChildPrimaryGrow' => 1,
+            ),
+        ),
+    ),
+    'derivedSymbolData' => array(
+        array(
+            'guidPath'            => array('guids' => array(array('sessionID' => 41, 'localID' => 2))),
+            'stackPositioning'    => 'ABSOLUTE',
+            'stackChildAlignSelf' => 'STRETCH',
+        ),
+    ),
+), 'kiwi-stack-override:instance', $kiwiStackOverrideResolverDiagnostics);
+$assert('RESIZE_TO_FIT' === ($kiwiStackOverrideResolverFields['41:2']['stackPrimarySizing'] ?? null), 'kiwi-stack-symbol-override-normalizes-primary-sizing');
+$assert('FIXED' === ($kiwiStackOverrideResolverFields['41:2']['stackCounterSizing'] ?? null), 'kiwi-stack-symbol-override-normalizes-counter-sizing');
+$assert(1 === ($kiwiStackOverrideResolverFields['41:2']['stackChildPrimaryGrow'] ?? null), 'kiwi-stack-symbol-override-normalizes-child-grow');
+$assert('ABSOLUTE' === ($kiwiStackOverrideResolverFields['41:2']['stackPositioning'] ?? null), 'kiwi-stack-symbol-override-normalizes-positioning');
+$assert('STRETCH' === ($kiwiStackOverrideResolverFields['41:2']['stackChildAlignSelf'] ?? null), 'kiwi-stack-symbol-override-normalizes-align-self');
+$assert(str_contains($kiwiStackOverrideInstanceCss, '.figma-node-kiwi-stack-override-instance-41-2-override-card{width:80px;height:40px;position:absolute;display:flex;flex-direction:row;flex-grow:1;align-self:stretch}'), 'kiwi-stack-symbol-override-preserves-grow-align');
+$assert(str_contains($kiwiStackOverrideInstanceCss, '.figma-node-kiwi-stack-override-instance-41-3-override-badge{width:50px;height:20px;position:absolute;left:24px;top:16px}'), 'kiwi-stack-symbol-override-preserves-positioning');
+
 // OVERRIDDEN INSTANCE CHILD CANVAS-GLOBAL COORDINATE BUG (#xxx).
 //
 // When an instance resolves a component and an override carries a positional
