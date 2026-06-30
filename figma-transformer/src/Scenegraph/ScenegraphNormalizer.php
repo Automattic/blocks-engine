@@ -682,7 +682,7 @@ final class ScenegraphNormalizer
                 continue;
             }
 
-            $resolved = $this->cloneComponentForInstance($components[$reference['id']], $node, $reference['id'], $overrides, $nodeMap, $diagnostics, $blobs, $paintStyles);
+            $resolved = $this->cloneComponentForInstance($components[$reference['id']], $node, $reference['id'], $overrides, $nodeMap, $components, $diagnostics, $blobs, $paintStyles);
             $nodeMap[$id] = $resolved;
             $resolvedCount++;
         }
@@ -1233,7 +1233,7 @@ final class ScenegraphNormalizer
      * @param array<string, array<string, mixed>> $nodeMap
      * @return array<string, mixed>
      */
-    private function cloneComponentForInstance(array $component, array $instance, string $componentId, array $overrides, array $nodeMap, array &$diagnostics, array $blobs = array(), array $paintStyles = array()): array
+    private function cloneComponentForInstance(array $component, array $instance, string $componentId, array $overrides, array $nodeMap, array $components, array &$diagnostics, array $blobs = array(), array $paintStyles = array()): array
     {
         $context = $this->buildInstanceCloneContext($component, $instance, $componentId, $overrides);
         $resolved = $component;
@@ -1286,7 +1286,7 @@ final class ScenegraphNormalizer
             $resolved['layout'] = array('freeform' => true);
         }
         $resolved['children'] = $this->namespaceResolvedInstanceChildren(
-            $this->applyInstanceOverridesToChildren($resolvedChildren, $overrides, $diagnostics, $blobs, $paintStyles),
+            $this->applyInstanceOverridesToChildren($resolvedChildren, $overrides, $nodeMap, $components, $diagnostics, $blobs, $paintStyles),
             $context['instance_id']
         );
 
@@ -1325,7 +1325,8 @@ final class ScenegraphNormalizer
     private function mergeComponentPropertyOverrides(array $overrides, array $instance, array $component): array
     {
         $overrides = $this->mergeComponentPropertyTextOverrides($overrides, $instance, $component);
-        return $this->mergeComponentPropertyVisibilityOverrides($overrides, $instance, $component);
+        $overrides = $this->mergeComponentPropertyVisibilityOverrides($overrides, $instance, $component);
+        return $this->mergeComponentPropertyInstanceSwapOverrides($overrides, $instance, $component);
     }
 
     /**
@@ -1642,6 +1643,152 @@ final class ScenegraphNormalizer
     }
 
     /**
+     * @param array<string, array<string, mixed>> $overrides Existing override map keyed by node id.
+     * @param array<string, mixed>                 $instance  Instance node carrying componentPropAssignments.
+     * @param array<string, mixed>                 $component Component definition whose nested instances carry componentPropRefs.
+     * @return array<string, array<string, mixed>>
+     */
+    private function mergeComponentPropertyInstanceSwapOverrides(array $overrides, array $instance, array $component): array
+    {
+        $assignments = $this->componentPropertyInstanceSwapAssignments($instance);
+        if ( empty($assignments) ) {
+            return $overrides;
+        }
+
+        $targets = array();
+        $this->collectComponentPropertyInstanceSwapTargets($component, $assignments, $targets);
+
+        foreach ( $targets as $nodeId => $componentId ) {
+            if ( ! isset($overrides[$nodeId]['_figma_instance_swap_component_id']) ) {
+                $overrides[$nodeId]['_figma_instance_swap_component_id'] = $componentId;
+            }
+        }
+
+        return $overrides;
+    }
+
+    /**
+     * @param array<string, mixed> $instance
+     * @return array<string, string> Map of property definition id => replacement component id.
+     */
+    private function componentPropertyInstanceSwapAssignments(array $instance): array
+    {
+        $assignmentsRaw = $instance['componentPropAssignments'] ?? null;
+        if ( ! is_array($assignmentsRaw) ) {
+            return array();
+        }
+
+        $assignments = array();
+        foreach ( $assignmentsRaw as $assignment ) {
+            if ( ! is_array($assignment) ) {
+                continue;
+            }
+
+            $defId = $this->readGuidId($assignment['defID'] ?? $assignment['defId'] ?? null);
+            if ( null === $defId || '' === $defId ) {
+                continue;
+            }
+
+            $componentId = $this->readComponentPropertyAssignmentGuid($assignment);
+            if ( null !== $componentId && '' !== $componentId ) {
+                $assignments[$defId] = $componentId;
+            }
+        }
+
+        return $assignments;
+    }
+
+    /**
+     * @param array<string, mixed> $assignment
+     */
+    private function readComponentPropertyAssignmentGuid(array $assignment): ?string
+    {
+        $paths = array(
+            array('value', 'guidValue'),
+            array('value', 'symbolIdValue', 'guid'),
+            array('varValue', 'value', 'guidValue'),
+            array('varValue', 'value', 'symbolIdValue', 'guid'),
+        );
+
+        foreach ( $paths as $path ) {
+            $cursor = $assignment;
+            foreach ( $path as $key ) {
+                if ( ! is_array($cursor) || ! array_key_exists($key, $cursor) ) {
+                    $cursor = null;
+                    break;
+                }
+                $cursor = $cursor[$key];
+            }
+
+            $componentId = $this->readGuidId($cursor);
+            if ( null !== $componentId ) {
+                return $componentId;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed>                 $node
+     * @param array<string, string>                $assignments Map of property definition id => replacement component id.
+     * @param array<string, string>                $targets Accumulator keyed by node id.
+     */
+    private function collectComponentPropertyInstanceSwapTargets(array $node, array $assignments, array &$targets): void
+    {
+        foreach ( $this->componentPropertyInstanceSwapRefDefIds($node) as $defId ) {
+            if ( ! isset($assignments[$defId]) ) {
+                continue;
+            }
+
+            $nodeId = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
+            if ( '' !== $nodeId ) {
+                $targets[$nodeId] = $assignments[$defId];
+            }
+            break;
+        }
+
+        if ( is_array($node['children'] ?? null) ) {
+            foreach ( $node['children'] as $child ) {
+                if ( is_array($child) ) {
+                    $this->collectComponentPropertyInstanceSwapTargets($child, $assignments, $targets);
+                }
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function componentPropertyInstanceSwapRefDefIds(array $node): array
+    {
+        $refs = $node['componentPropRefs'] ?? $node['componentPropRef'] ?? null;
+        if ( ! is_array($refs) ) {
+            return array();
+        }
+
+        $defIds = array();
+        foreach ( $refs as $ref ) {
+            if ( ! is_array($ref) ) {
+                continue;
+            }
+
+            $field = strtoupper((string) ($ref['componentPropNodeField'] ?? ''));
+            if ( 'OVERRIDDEN_SYMBOL_ID' !== $field && 'INSTANCE_SWAP' !== $field ) {
+                continue;
+            }
+
+            $defId = $this->readGuidId($ref['defID'] ?? $ref['defId'] ?? null);
+            if ( null !== $defId && '' !== $defId ) {
+                $defIds[] = $defId;
+            }
+        }
+
+        return $defIds;
+    }
+
+    /**
      * @param array<string, array<string, mixed>> $overrides
      */
     private function instanceOverridesUseTransforms(array $overrides): bool
@@ -1843,7 +1990,7 @@ final class ScenegraphNormalizer
      * @param array<string, array<string, mixed>> $overrides
      * @return array<int, mixed>
      */
-    private function applyInstanceOverridesToChildren(array $children, array $overrides, array &$diagnostics, array $blobs = array(), array $paintStyles = array()): array
+    private function applyInstanceOverridesToChildren(array $children, array $overrides, array $nodeMap, array $components, array &$diagnostics, array $blobs = array(), array $paintStyles = array()): array
     {
         foreach ( $children as $index => $child ) {
             if ( ! is_array($child) ) {
@@ -1851,22 +1998,31 @@ final class ScenegraphNormalizer
             }
 
             $id = (string) ($child['id'] ?? '');
-            $hasOverride = false;
+            $hasFieldOverride = false;
             $overrideFields = $this->instanceOverrideFieldsForChild($child, $overrides);
+            $swapComponentId = isset($overrideFields['_figma_instance_swap_component_id']) && is_scalar($overrideFields['_figma_instance_swap_component_id']) ? (string) $overrideFields['_figma_instance_swap_component_id'] : null;
+            unset($overrideFields['_figma_instance_swap_component_id']);
+            if ( null !== $swapComponentId && isset($components[$swapComponentId]) ) {
+                $child = $this->mergeRefreshedComponentSource($child, $components[$swapComponentId], $swapComponentId);
+                if ( is_array($child['children'] ?? null) ) {
+                    $child['children'] = $this->resolveClonedInstanceChildren($child['children'], $nodeMap);
+                }
+                $child['_figma_instance_override_applied'] = true;
+            }
             foreach ( $overrideFields as $field => $value ) {
-                $hasOverride = true;
+                $hasFieldOverride = true;
                 $child[$field] = $value;
                 if ( in_array($field, array('characters', 'text'), true) && is_array($child['figma_text'] ?? null) ) {
                     $child['figma_text']['characters'] = (string) $value;
                 }
             }
-            if ( $hasOverride ) {
+            if ( $hasFieldOverride ) {
                 $child = $this->normalizeOverriddenInstanceChild($child, $id, $overrideFields, $diagnostics, $blobs, $paintStyles);
             }
 
             if ( is_array($child['children'] ?? null) ) {
                 $childOverrides = $this->descendantInstanceOverrideFieldsForChild($child, $overrides);
-                $child['children'] = $this->applyInstanceOverridesToChildren($child['children'], array_merge($overrides, $childOverrides), $diagnostics, $blobs, $paintStyles);
+                $child['children'] = $this->applyInstanceOverridesToChildren($child['children'], array_merge($overrides, $childOverrides), $nodeMap, $components, $diagnostics, $blobs, $paintStyles);
             }
 
             $children[$index] = $child;

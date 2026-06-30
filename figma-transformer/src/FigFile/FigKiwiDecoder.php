@@ -415,7 +415,7 @@ final class FigKiwiDecoder
             'GUIDPath' => array('guids'),
             'StyleId' => array('guid'),
             'ComponentPropAssignment' => array('defID', 'value'),
-            'ComponentPropValue' => array('textValue'),
+            'ComponentPropValue' => array('boolValue', 'textValue', 'guidValue'),
             'ComponentPropRef' => array('defID', 'componentPropNodeField'),
             // Dev-status structs (#280). The status enum itself decodes to its
             // token string automatically, so only the struct/entry field names
