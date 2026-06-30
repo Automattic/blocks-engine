@@ -38,6 +38,12 @@ function themeResult(outDir: string, written: string[] = ['theme.json']): ThemeB
     tallies: {},
     warnings: [],
     diagnostics: {
+      conversion: {
+        pages: [],
+        totalFallbacks: 0,
+        pagesWithFallbacks: 0,
+        degradedPages: 0,
+      },
       regionAudit: [],
     },
   };
