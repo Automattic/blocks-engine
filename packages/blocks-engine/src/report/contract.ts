@@ -33,8 +33,12 @@ function assertMetricNumber(
   metrics: Record<string, unknown>,
   key: keyof ConversionMetrics,
 ): void {
-  if (typeof metrics[key] !== 'number' || !Number.isFinite(metrics[key])) {
-    throw new Error(`Convert report metrics.${key} must be a finite number`);
+  if (
+    typeof metrics[key] !== 'number' ||
+    !Number.isFinite(metrics[key]) ||
+    metrics[key] < 0
+  ) {
+    throw new Error(`Convert report metrics.${key} must be a finite non-negative number`);
   }
 }
 

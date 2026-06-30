@@ -1,4 +1,5 @@
 import { walkBlocks } from '../block-tree.js';
+import { HTML_FINDING_CHAR_CAP } from '../report/limits.js';
 import { FALLBACK_INVENTORY_CAP } from '../report/schema.js';
 import { bootstrap } from './bootstrap.js';
 import { requireWp } from './require-wp.js';
@@ -368,6 +369,10 @@ function collectIssues(blockList: ParsedBlock[], fixedIssues: string[]): void {
   }
 }
 
+function truncateHtmlIsland(html: string): string {
+  return Array.from(html).slice(0, HTML_FINDING_CHAR_CAP).join('');
+}
+
 function collectInventory(rawBlocks: RawBlock[]): {
   blockCount: number;
   htmlIslands: HtmlIsland[];
@@ -386,7 +391,7 @@ function collectInventory(rawBlocks: RawBlock[]): {
 
     const island = {
       index: htmlIslandCount,
-      html: block.innerHTML || '',
+      html: truncateHtmlIsland(block.innerHTML || ''),
     };
     if (htmlIslands.length < FALLBACK_INVENTORY_CAP) {
       htmlIslands.push(island);
@@ -399,6 +404,16 @@ function collectInventory(rawBlocks: RawBlock[]): {
     htmlIslands,
     htmlIslandCount,
   };
+}
+
+function formatCaughtError(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return String(error);
 }
 
 export function canonicalize(markup: string): CanonicalizeResult {
@@ -472,14 +487,15 @@ export function canonicalize(markup: string): CanonicalizeResult {
     };
   } catch (error) {
     console.error('[BlockFixer] Error fixing blocks:', error);
+    const errorMessage = formatCaughtError(error);
     return {
       html: markup,
       changed: false,
-      fixedIssues: [],
+      fixedIssues: [`canonicalize degraded: ${errorMessage}`],
       blockCount: 0,
       htmlIslands: [],
       htmlIslandCount: 0,
-      degraded: false,
+      degraded: true,
     };
   }
 }

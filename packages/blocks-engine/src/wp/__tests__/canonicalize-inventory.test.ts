@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createWorker } from '../../pool/pool';
+import { HTML_FINDING_CHAR_CAP } from '../../report/limits';
 import { FALLBACK_INVENTORY_CAP } from '../../report/schema';
 import { canonicalize } from '../canonicalize';
 
@@ -20,6 +21,43 @@ async function withWorkerTestMode<T>(fn: () => Promise<T>): Promise<T> {
     } else {
       process.env.BLOCKS_ENGINE_WORKER_TEST_MODE = previousMode;
     }
+  }
+}
+
+async function withThrowingWordPressParse<T>(
+  errorMessage: string,
+  fn: (mockedCanonicalize: typeof canonicalize) => T | Promise<T>,
+): Promise<T> {
+  vi.resetModules();
+  vi.doMock('../bootstrap.js', () => ({
+    bootstrap: () => undefined,
+  }));
+  vi.doMock('../require-wp.js', () => ({
+    requireWp: (name: string) => {
+      if (name === '@wordpress/blocks') {
+        return {
+          parse: () => {
+            throw new Error(errorMessage);
+          },
+          serialize: () => '',
+          createBlock: () => ({ name: 'core/paragraph', attributes: {} }),
+          getBlockAttributes: () => ({}),
+        };
+      }
+      if (name === '@wordpress/block-serialization-default-parser') {
+        return { parse: () => [] };
+      }
+      throw new Error(`Unexpected mocked WordPress module: ${name}`);
+    },
+  }));
+
+  try {
+    const module = await import('../canonicalize');
+    return await fn(module.canonicalize);
+  } finally {
+    vi.doUnmock('../bootstrap.js');
+    vi.doUnmock('../require-wp.js');
+    vi.resetModules();
   }
 }
 
@@ -73,6 +111,21 @@ describe('canonicalize inventory metadata', () => {
     expect(result.degraded).toBe(false);
   });
 
+  it('truncates each html island before returning inventory over IPC', () => {
+    const tailMarker = 'SHOULD_NOT_CROSS_IPC_BOUND';
+    const longIsland = `<div>${'x'.repeat(HTML_FINDING_CHAR_CAP + 100)}${tailMarker}</div>`;
+    const markup = htmlBlock(longIsland);
+
+    const result = canonicalize(markup);
+
+    expect(result.htmlIslandCount).toBe(1);
+    expect(result.htmlIslands).toHaveLength(1);
+    expect(result.htmlIslands[0].index).toBe(0);
+    expect(result.htmlIslands[0].html).toHaveLength(HTML_FINDING_CHAR_CAP);
+    expect(result.htmlIslands[0].html).not.toContain(tailMarker);
+    expect(result.degraded).toBe(false);
+  });
+
   it('returns degraded safe defaults when the pool emits a canonicalize sentinel', async () =>
     withWorkerTestMode(async () => {
       const input = `<!-- BLOCKS_ENGINE_TEST_HANG -->${htmlBlock('<div>never parsed</div>')}`;
@@ -98,4 +151,24 @@ describe('canonicalize inventory metadata', () => {
         await pool.stop();
       }
     }), 20_000);
+
+  it('returns degraded safe defaults and records the caught parser error', async () => {
+    const errorMessage = 'forced canonical parser failure';
+    const input = htmlBlock('<div>preserve this markup</div>');
+
+    await withThrowingWordPressParse(errorMessage, (mockedCanonicalize) => {
+      const result = mockedCanonicalize(input);
+
+      expect(result).toMatchObject({
+        html: input,
+        changed: false,
+        blockCount: 0,
+        htmlIslands: [],
+        htmlIslandCount: 0,
+        degraded: true,
+      });
+      expect(result.fixedIssues).toHaveLength(1);
+      expect(result.fixedIssues[0]).toContain(errorMessage);
+    });
+  });
 });

@@ -18,13 +18,15 @@ export async function convertReport(
   ctx?: Partial<ConversionContext>,
   opts?: ConvertOptions,
 ): Promise<ConvertReport> {
-  const startedAt = performance.now();
   const fullCtx = normalizeContext(ctx);
-  const ownsPool = opts?.pool === undefined;
-  const pool = opts?.pool ?? createWorker();
+  const injectedPool = opts?.pool;
+  const ownsPool = injectedPool === undefined;
+  const pool = injectedPool ?? createWorker();
+  const startedAt = performance.now();
 
   try {
     const [raw] = await pool.rawConvert([html]);
+    const rawConversionDegraded = raw.html === null && !Number.isFinite(raw.wpHtmlResidue);
     const blockMarkup =
       raw.html !== null && raw.wpHtmlResidue === 0
         ? raw.html
@@ -33,12 +35,13 @@ export async function convertReport(
             htmlFallback: opts?.htmlFallback,
           });
     const [fixed] = await pool.canonicalize([blockMarkup]);
+    const fixResult = rawConversionDegraded ? { ...fixed, degraded: true } : fixed;
     const transformDurationMs = performance.now() - startedAt;
 
     return buildReport({
       inputHtml: html,
-      blockMarkup: fixed.html,
-      fixResult: fixed,
+      blockMarkup: fixResult.html,
+      fixResult,
       transformDurationMs,
     });
   } finally {

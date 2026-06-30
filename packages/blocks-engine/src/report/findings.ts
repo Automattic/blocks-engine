@@ -6,8 +6,7 @@ import {
   type ConversionFinding,
   type ConvertReport,
 } from './schema.js';
-
-const MAX_SNIPPET_CHARS = 2_000;
+import { HTML_FINDING_CHAR_CAP } from './limits.js';
 
 export interface BuildReportInput {
   inputHtml: string;
@@ -17,13 +16,17 @@ export interface BuildReportInput {
 }
 
 function truncateSnippet(html: string): string {
-  return Array.from(sanitize(html)).slice(0, MAX_SNIPPET_CHARS).join('');
+  return Array.from(sanitize(html)).slice(0, HTML_FINDING_CHAR_CAP).join('');
 }
 
 function hasWarningOrError(findings: ConversionFinding[]): boolean {
   return findings.some(
     (finding) => finding.severity === 'warning' || finding.severity === 'error',
   );
+}
+
+function hasRealContent(html: string): boolean {
+  return /\S/u.test(html);
 }
 
 export function buildReport({
@@ -33,6 +36,7 @@ export function buildReport({
   transformDurationMs,
 }: BuildReportInput): ConvertReport {
   const keptIslands = fixResult.htmlIslands.slice(0, FALLBACK_INVENTORY_CAP);
+  const outputBytes = Buffer.byteLength(blockMarkup, 'utf8');
   const fallbacks: ConversionFinding[] = keptIslands.map((island) => ({
     code: 'unconverted_html',
     severity: 'warning',
@@ -67,6 +71,14 @@ export function buildReport({
     });
   }
 
+  if (hasRealContent(inputHtml) && (fixResult.blockCount === 0 || outputBytes === 0)) {
+    diagnostics.push({
+      code: 'content_dropped',
+      severity: 'warning',
+      message: 'Input HTML contained content, but conversion produced an empty block result.',
+    });
+  }
+
   return {
     schema: CONVERT_REPORT_SCHEMA,
     status:
@@ -76,7 +88,7 @@ export function buildReport({
     diagnostics,
     metrics: {
       inputBytes: Buffer.byteLength(inputHtml, 'utf8'),
-      outputBytes: Buffer.byteLength(blockMarkup, 'utf8'),
+      outputBytes,
       blockCount: fixResult.blockCount,
       fallbackCount: total,
       diagnosticCount: diagnostics.length,

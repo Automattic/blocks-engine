@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { assertConvertReport } from '../contract';
-import { CONVERT_REPORT_SCHEMA, type ConvertReport } from '../schema';
+import { CONVERT_REPORT_SCHEMA, type ConversionMetrics, type ConvertReport } from '../schema';
 
 function validReport(overrides: Partial<ConvertReport> = {}): ConvertReport {
   return {
@@ -71,4 +71,20 @@ describe('assertConvertReport', () => {
       }),
     ).toThrow(/fallbackCount/);
   });
+
+  it.each([
+    ['inputBytes', -1],
+    ['outputBytes', Number.POSITIVE_INFINITY],
+    ['blockCount', Number.NaN],
+  ] as const)(
+    'throws when metrics.%s is negative or non-finite',
+    (key: keyof ConversionMetrics, value) => {
+      expect(() =>
+        assertConvertReport({
+          ...validReport(),
+          metrics: { ...validReport().metrics, [key]: value },
+        }),
+      ).toThrow(new RegExp(key));
+    },
+  );
 });

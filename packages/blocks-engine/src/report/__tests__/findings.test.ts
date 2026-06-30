@@ -120,6 +120,52 @@ describe('buildReport', () => {
     expect(report.metrics.diagnosticCount).toBe(3);
   });
 
+  it.each([
+    {
+      name: 'empty output bytes',
+      blockMarkup: '',
+      blockCount: 1,
+    },
+    {
+      name: 'zero parsed blocks',
+      blockMarkup: '<!-- wp:paragraph --><p>Lost</p><!-- /wp:paragraph -->',
+      blockCount: 0,
+    },
+  ])('emits a content_dropped warning for real input with $name', ({ blockMarkup, blockCount }) => {
+    const report = buildReport({
+      inputHtml: '<main><p>Lost content</p></main>',
+      blockMarkup,
+      fixResult: fixResult({ html: blockMarkup, blockCount }),
+      transformDurationMs: 3,
+    });
+
+    expect(report.status).toBe('success_with_warnings');
+    expect(report.diagnostics).toEqual([
+      {
+        code: 'content_dropped',
+        severity: 'warning',
+        message: 'Input HTML contained content, but conversion produced an empty block result.',
+      },
+    ]);
+    expect(report.metrics.diagnosticCount).toBe(1);
+  });
+
+  it.each(['', ' \n\t '])(
+    'does not emit content_dropped for empty or whitespace-only input %#',
+    (inputHtml) => {
+      const report = buildReport({
+        inputHtml,
+        blockMarkup: '',
+        fixResult: fixResult({ html: '', blockCount: 0 }),
+        transformDurationMs: 3,
+      });
+
+      expect(report.status).toBe('success');
+      expect(report.diagnostics).toEqual([]);
+      expect(report.metrics.diagnosticCount).toBe(0);
+    },
+  );
+
   it('does not value-import WordPress packages', () => {
     const reportDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
