@@ -8,15 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@wordpress/block-library':
-        specifier: 10.0.0
-        version: 10.0.0(@date-fns/tz@1.5.0)(@emotion/is-prop-valid@1.4.0)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(date-fns@4.4.0)(esbuild@0.24.2)(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@wordpress/block-serialization-default-parser':
-        specifier: 5.49.0
-        version: 5.49.0
-      '@wordpress/blocks':
-        specifier: 15.22.0
-        version: 15.22.0(@types/react@18.3.31)(react@18.3.1)
       cheerio:
         specifier: 1.2.0
         version: 1.2.0
@@ -30,6 +21,15 @@ importers:
       '@types/node':
         specifier: ^26.0.0
         version: 26.0.0
+      '@wordpress/block-library':
+        specifier: 10.0.0
+        version: 10.0.0(@date-fns/tz@1.5.0)(@emotion/is-prop-valid@1.4.0)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(date-fns@4.4.0)(esbuild@0.24.2)(postcss@8.5.15)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@wordpress/block-serialization-default-parser':
+        specifier: 5.49.0
+        version: 5.49.0
+      '@wordpress/blocks':
+        specifier: 15.22.0
+        version: 15.22.0(@types/react@18.3.31)(react@18.3.1)
       esbuild:
         specifier: ^0.24.0
         version: 0.24.2

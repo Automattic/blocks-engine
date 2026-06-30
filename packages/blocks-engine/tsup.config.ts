@@ -13,4 +13,5 @@ export default defineConfig({
   dts: true,
   clean: true,
   sourcemap: true,
+  noExternal: ['@wordpress/block-serialization-default-parser'],
 });
