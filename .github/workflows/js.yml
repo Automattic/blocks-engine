@@ -46,3 +46,12 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+      - name: Run tests (bundle mode — fidelity against dist/wp-runtime.cjs)
+        run: pnpm test:bundle
+
+      - name: Assert WP runtime bundle size ceiling (<=30MB)
+        run: |
+          size=$(du -m dist/wp-runtime.cjs | cut -f1)
+          echo "wp-runtime.cjs = ${size}MB"
+          test "$size" -le 30
