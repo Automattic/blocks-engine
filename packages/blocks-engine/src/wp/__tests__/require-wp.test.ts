@@ -1,17 +1,12 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { JSDOM } from 'jsdom';
-import { installDomGlobals } from '../dom-globals.js';
+import { setupDomGlobals } from '../dom-globals.js';
 import { requireWp } from '../require-wp.js';
 
 // @wordpress/block-library (and its transitive dep @wordpress/block-editor)
 // access `window` at module-load time, so DOM globals must be installed before
 // requireWp('@wordpress/block-library') is called for the first time.
 beforeAll(() => {
-  const { window } = new JSDOM('<!DOCTYPE html><html><body></body></html>', {
-    url: 'http://localhost',
-    pretendToBeVisual: true,
-  });
-  installDomGlobals(window as unknown as typeof globalThis);
+  setupDomGlobals();
 });
 
 describe('requireWp (dev mode resolves real packages)', () => {

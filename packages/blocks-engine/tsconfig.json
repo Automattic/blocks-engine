@@ -14,5 +14,6 @@
     "skipLibCheck": true
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist"]
+  "comment:exclude": "wp-runtime-entry.ts is an esbuild-only bundle entry (re-exports untyped @wordpress modules); it is never part of the typed library surface.",
+  "exclude": ["node_modules", "dist", "src/wp/wp-runtime-entry.ts"]
 }

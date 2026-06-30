@@ -1,3 +1,5 @@
+import { createRequire } from 'node:module';
+
 type DomWindow = typeof globalThis & {
   document: Document;
   DOMParser: typeof DOMParser;
@@ -71,4 +73,29 @@ export function installDomGlobals(window: DomWindow): void {
     writable: true,
     configurable: true,
   });
+}
+
+type JSDOMModule = {
+  JSDOM: new (
+    html?: string,
+    options?: { url?: string; pretendToBeVisual?: boolean },
+  ) => { window: DomWindow };
+};
+
+const requireFromHere = createRequire(
+  typeof __filename === 'string' ? __filename : import.meta.url,
+);
+
+/**
+ * Create a fresh jsdom window and install its globals. Convenience wrapper used
+ * by tests so they don't import `jsdom` directly (which is loaded via
+ * createRequire here, matching bootstrap.ts, and needs no @types/jsdom).
+ */
+export function setupDomGlobals(): void {
+  const { JSDOM } = requireFromHere('jsdom') as JSDOMModule;
+  const { window } = new JSDOM('<!DOCTYPE html><html><body></body></html>', {
+    url: 'http://localhost',
+    pretendToBeVisual: true,
+  });
+  installDomGlobals(window);
 }

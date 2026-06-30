@@ -2,29 +2,19 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { JSDOM } from 'jsdom';
-import { installDomGlobals } from '../dom-globals.js';
+import { setupDomGlobals } from '../dom-globals.js';
 
 const require = createRequire(import.meta.url);
 const bundlePath = fileURLToPath(new URL('../../../dist/wp-runtime.cjs', import.meta.url));
-
-// Install real jsdom globals before requiring the bundle. The bundled WP
-// runtime touches window/document at module-init. Uses the shared util from
-// dom-globals.ts so this setup stays in sync with bootstrap.ts automatically.
-function setupDomGlobals(): void {
-  const { window } = new JSDOM('<!DOCTYPE html><html><body></body></html>', {
-    url: 'http://localhost',
-    pretendToBeVisual: true,
-  });
-  installDomGlobals(window as unknown as typeof globalThis);
-}
 
 describe('wp-runtime bundle', () => {
   let m: Record<string, (...args: unknown[]) => unknown>;
   beforeAll(() => {
     if (!existsSync(bundlePath)) throw new Error('run `pnpm build` first');
+    // The bundled WP runtime touches window/document at module-init, so DOM
+    // globals must be installed before requiring it.
     setupDomGlobals();
-    m = require(bundlePath);
+    m = require(bundlePath) as Record<string, (...args: unknown[]) => unknown>;
   });
 
   it('exports the WordPress symbols the engine calls', () => {
