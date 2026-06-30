@@ -8,16 +8,27 @@ const nodeRequire = createRequire(
 
 type WpModule = Record<string, unknown>;
 
-// Resolve the built bundle relative to this module (dist/wp/require-wp.js -> dist/wp-runtime.cjs).
+// Resolve the built bundle (dist/wp-runtime.cjs) relative to this module.
 // An env override wins so the test:bundle script can point vitest (which runs from src/) at the
 // pre-built dist/wp-runtime.cjs without MODULE_NOT_FOUND.
+//
+// Tsup may place this code in a shared chunk at dist/ (e.g. dist/chunk-XD5TZCO3.js) rather than
+// in dist/wp/index.js.  In that case the file URL or __dirname points to dist/, not dist/wp/, so
+// we must try both the parent-relative path (../wp-runtime.cjs from dist/wp/) and the same-dir
+// path (./wp-runtime.cjs from dist/) and return whichever exists.
 function bundlePath(): string {
   const override = process.env.BLOCKS_ENGINE_WP_RUNTIME_PATH;
   if (override) return override;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const path = nodeRequire('node:path') as typeof import('node:path');
   if (typeof __dirname === 'string') {
-    return nodeRequire('node:path').join(__dirname, '..', 'wp-runtime.cjs');
+    const fromParent = path.join(__dirname, '..', 'wp-runtime.cjs');
+    const fromSelf = path.join(__dirname, 'wp-runtime.cjs');
+    return existsSync(fromParent) ? fromParent : fromSelf;
   }
-  return fileURLToPath(new URL('../wp-runtime.cjs', import.meta.url));
+  const fromParent = fileURLToPath(new URL('../wp-runtime.cjs', import.meta.url));
+  const fromSelf = fileURLToPath(new URL('./wp-runtime.cjs', import.meta.url));
+  return existsSync(fromParent) ? fromParent : fromSelf;
 }
 
 let mode: 'bundle' | 'deps' | undefined;
