@@ -97,7 +97,7 @@ final class FigKiwiDecodePolicy
             'fills_images' => array_values(array_unique(array_merge($this->nodePaintAndStrokeFields(), $this->nodeVectorAndImageFields(), array('Paint', 'Image', 'Blob', 'image', 'hash', 'bytes')))),
             'component_overrides' => $this->nodeComponentFields(),
             'text_style' => $this->nodeTextFields(),
-            'masks_effects' => array_values(array_unique(array_merge($this->nodeEffectFields(), array('isClip', 'frameMaskDisabled')))),
+            'masks_effects' => array_values(array_unique(array_merge($this->nodeEffectFields(), array('mask', 'isMask', 'maskType', 'isClip', 'frameMaskDisabled')))),
             'vectors' => array_values(array_unique(array_merge($this->nodeVectorAndImageFields(), array('Path', 'VectorPath', 'VectorData', 'commandsBlob', 'vectorNetworkBlob', 'vectorNetwork')))),
             'prototype_links' => $this->nodePrototypeLinkFields(),
         );
@@ -316,8 +316,9 @@ final class FigKiwiDecodePolicy
      */
     private function nodeEffectFields(): array
     {
-        // Visual effects (#328): shadows + blur.
-        return array('effects');
+        // Visual effects and mask-source metadata. `mask` is the Kiwi field name;
+        // `isMask` is the REST spelling seen in exported scenegraphs.
+        return array('effects', 'mask', 'isMask', 'maskType');
     }
 
     /**
