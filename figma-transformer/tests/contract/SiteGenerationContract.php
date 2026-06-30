@@ -54,6 +54,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $qualityCss = $fileContent($qualityDiagnosticsResult, 'style.css');
     $assert(str_contains($qualityCss, '.figma-node-quality-root-desktop-fixed-root{width:100%;max-width:1440px;margin-left:auto;margin-right:auto;'), 'quality-diagnostics-root-renders-fluid');
     $assert(in_array('large_absolute_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-absolute-offsets');
+    $assert(in_array('large_css_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-css-offsets');
     $assert(in_array('image_heavy_landmark_candidate', $qualitySignalCodes, true), 'quality-diagnostics-image-heavy-landmark');
     $assert(in_array('excessive_image_blocks', $qualitySignalCodes, true), 'quality-diagnostics-excessive-image-blocks');
     $assert(in_array('excessive_vector_image_fallbacks', $qualitySignalCodes, true), 'quality-diagnostics-excessive-vector-fallbacks');
@@ -62,6 +63,10 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert('quality:root' === ($largeOffsetSignal['sample_nodes'][0]['parent_id'] ?? null), 'quality-diagnostics-large-absolute-offset-sample-parent');
     $assert('figma-node-quality-offcanvas-off-canvas-promo' === ($largeOffsetSignal['sample_nodes'][0]['class'] ?? null), 'quality-diagnostics-large-absolute-offset-sample-class');
     $assert(2000.0 === (float) ($largeOffsetSignal['sample_nodes'][0]['left'] ?? 0), 'quality-diagnostics-large-absolute-offset-sample-left');
+    $largeCssOffsetSignal = $artifactQualitySignal($qualityDiagnosticsResult, 'large_css_offsets');
+    $assert('quality:offcanvas' === ($largeCssOffsetSignal['sample_nodes'][0]['node_id'] ?? null), 'quality-diagnostics-large-css-offset-sample-node');
+    $assert('figma-node-quality-offcanvas-off-canvas-promo' === ($largeCssOffsetSignal['sample_nodes'][0]['class'] ?? null), 'quality-diagnostics-large-css-offset-sample-class');
+    $assert(2000.0 === (float) ($largeCssOffsetSignal['sample_nodes'][0]['left'] ?? 0), 'quality-diagnostics-large-css-offset-sample-left');
     $visualOffsetSignal = $artifactQualitySignal($qualityDiagnosticsResult, 'off_canvas_visual_nodes');
     $assert('quality:offcanvas' === ($visualOffsetSignal['sample_nodes'][0]['node_id'] ?? null), 'quality-diagnostics-off-canvas-visual-sample-node');
     $assert('figma-node-quality-offcanvas-off-canvas-promo' === ($visualOffsetSignal['sample_nodes'][0]['class'] ?? null), 'quality-diagnostics-off-canvas-visual-sample-class');
