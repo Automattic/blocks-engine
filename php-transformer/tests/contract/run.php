@@ -1338,9 +1338,10 @@ $runtimeDependencySite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
         'files'      => array(
-            'index.html' => '<main><canvas id="canvas" class="stage"></canvas><canvas id="unused-canvas"></canvas><div id="status-container"><h2>Status</h2><p>Ready</p></div><script src="js/script.js"></script><script src="js/rum.js"></script></main>',
+            'index.html' => '<main><canvas id="canvas" class="stage"></canvas><canvas id="unused-canvas"></canvas><div id="status-container"><h2>Status</h2><p>Ready</p></div><script src="js/script.js"></script><script src="js/rum.js"></script><script id="netlify-rum-container" src="js/self-rum.js" data-netlify-cwv-token="token"></script></main>',
             'js/script.js' => 'const canvas = document.getElementById("canvas"); canvas.getContext("2d"); const stage = document.querySelector(".stage"); stage.getContext("2d"); const status = document.querySelector("#status-container"); status.addEventListener("click", function () {});',
             'js/rum.js' => 'document.querySelector("#netlify-rum-target");',
+            'js/self-rum.js' => 'document.querySelector("#netlify-rum-container")?.getAttribute("data-netlify-cwv-token");',
         ),
     )
 )->toArray();
@@ -1349,6 +1350,7 @@ $runtimeDependencyConversionReport = $runtimeDependencySite['source_reports']['c
 $runtimeFindings = $runtimeDependencyReport['findings'] ?? array();
 $canvasFinding = null;
 $rumFinding = null;
+$selfRumFinding = null;
 foreach ( $runtimeFindings as $finding ) {
     if ( '#canvas' === ($finding['selector'] ?? '') ) {
         $canvasFinding = $finding;
@@ -1356,10 +1358,14 @@ foreach ( $runtimeFindings as $finding ) {
     if ( '#netlify-rum-target' === ($finding['selector'] ?? '') ) {
         $rumFinding = $finding;
     }
+    if ( '#netlify-rum-container' === ($finding['selector'] ?? '') ) {
+        $selfRumFinding = $finding;
+    }
 }
 $canvasDependency = null;
 $stageDependency = null;
 $statusDependency = null;
+$selfRumDependency = null;
 foreach ( $runtimeDependencyReport['dependencies'] ?? array() as $dependency ) {
     if ( '#canvas' === ($dependency['selector'] ?? '') ) {
         $canvasDependency = $dependency;
@@ -1369,6 +1375,9 @@ foreach ( $runtimeDependencyReport['dependencies'] ?? array() as $dependency ) {
     }
     if ( '#status-container' === ($dependency['selector'] ?? '') ) {
         $statusDependency = $dependency;
+    }
+    if ( '#netlify-rum-container' === ($dependency['selector'] ?? '') ) {
+        $selfRumDependency = $dependency;
     }
 }
 $runtimeDependencyMarkup = (string) ($runtimeDependencySite['serialized_blocks'] ?? '');
@@ -1408,6 +1417,9 @@ $assert(true === ($statusDependency['generated_present'] ?? null), 'runtime depe
 $assert(false === ($statusDependency['canvas_api'] ?? null), 'runtime dependency parity does not mark non-canvas DOM targets as canvas API dependencies');
 $assert(! empty($statusDependency['events'] ?? array()), 'runtime dependency parity records simple addEventListener usage');
 $assert('info' === ($rumFinding['severity'] ?? ''), 'telemetry-like runtime dependency misses are info severity');
+$assert(null === $selfRumFinding, 'telemetry script self-target is not reported as a missing block DOM target');
+$assert(null !== $selfRumDependency, 'runtime dependency parity records telemetry script self-target dependency');
+$assert('script' === ($selfRumDependency['target_kind'] ?? ''), 'runtime dependency parity identifies telemetry script self-target kind');
 
 $decorativeCanvasSite = $compiler->compile(
     array(
