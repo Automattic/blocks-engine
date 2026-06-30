@@ -67,6 +67,10 @@ final class TextNormalizer
         $derivedLayout = $this->normalizeDerivedTextLayout($node, $blobs, $nodeId, $diagnostics);
         if ( ! empty($derivedLayout) ) {
             $text['derived_layout'] = $derivedLayout;
+            $style = $this->fillMissingStyleFromDerivedFonts($style, $derivedLayout);
+            if ( ! empty($style) ) {
+                $text['style'] = $style;
+            }
         }
 
         $segments = $this->normalizeStyledTextSegments($node, $paintStyles);
@@ -75,6 +79,29 @@ final class TextNormalizer
         }
 
         return $text;
+    }
+
+    /**
+     * @param array<string, mixed> $style
+     * @param array<string, mixed> $derivedLayout
+     * @return array<string, mixed>
+     */
+    private function fillMissingStyleFromDerivedFonts(array $style, array $derivedLayout): array
+    {
+        $fonts = is_array($derivedLayout['fonts'] ?? null) ? $derivedLayout['fonts'] : array();
+        if ( 1 !== count($fonts) || ! is_array($fonts[0]) ) {
+            return $style;
+        }
+
+        $font = $fonts[0];
+        if ( isset($font['family']) && is_scalar($font['family']) && '' !== (string) $font['family'] ) {
+            $style['font_family'] = (string) $font['family'];
+        }
+        if ( isset($font['font_weight']) && is_numeric($font['font_weight']) ) {
+            $style['font_weight'] = (int) $font['font_weight'];
+        }
+
+        return $style;
     }
 
     /**
