@@ -299,6 +299,27 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $transitionAbsolute, array('x' => 250.0, 'y' => 20.0, 'width' => 40.0, 'height' => 24.0), 'visual-map-layout-transition-absolute-position');
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $transitionLocalCard, array('x' => 44.0, 'y' => 66.0, 'width' => 90.0, 'height' => 30.0), 'visual-map-layout-transition-freeform-local-position');
 
+    $explicitLayerOrderResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Explicit Kiwi Layer Order Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'layer-order:frame',
+                'type'     => 'FRAME',
+                'name'     => 'Layer order frame',
+                'width'    => 320,
+                'height'   => 120,
+                'children' => array(
+                    array('id' => 'layer-order:front', 'type' => 'RECTANGLE', 'name' => 'Front layer', 'x' => 0, 'y' => 80, 'width' => 100, 'height' => 20, 'sortPosition' => 'b'),
+                    array('id' => 'layer-order:back', 'type' => 'RECTANGLE', 'name' => 'Back layer', 'x' => 0, 'y' => 0, 'width' => 100, 'height' => 20, 'sortPosition' => 'a'),
+                ),
+            ),
+        ),
+    ));
+    $explicitLayerOrderHtml = blocks_engine_figma_transformer_contract_file_content($explicitLayerOrderResult, 'index.html');
+    $explicitLayerOrderBackPosition = strpos($explicitLayerOrderHtml, 'data-figma-node-id="layer-order:back"');
+    $explicitLayerOrderFrontPosition = strpos($explicitLayerOrderHtml, 'data-figma-node-id="layer-order:front"');
+    $assert(false !== $explicitLayerOrderBackPosition && false !== $explicitLayerOrderFrontPosition && $explicitLayerOrderBackPosition < $explicitLayerOrderFrontPosition, 'visual-map-explicit-sort-position-overrides-geometry-order');
+
     $nestedInstanceResult = blocks_engine_figma_transformer_contract_transform(
         array(
             'name'  => 'Nested Instance Transform Override Fixture',

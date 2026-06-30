@@ -215,6 +215,11 @@ final class ScenegraphIndex
      */
     private function readParentSortPosition(array $node): ?string
     {
+        if ( isset($node['sortPosition']) && is_scalar($node['sortPosition']) ) {
+            $position = (string) $node['sortPosition'];
+            return '' === $position ? null : $position;
+        }
+
         if ( isset($node['parentIndex']['position']) && is_scalar($node['parentIndex']['position']) ) {
             $position = (string) $node['parentIndex']['position'];
             return '' === $position ? null : $position;
@@ -277,11 +282,23 @@ final class ScenegraphIndex
     private function sortNodeIds(array $ids, array $nodeMap, array $parentNode = array()): array
     {
         $parentMode = strtoupper((string) ($parentNode['layoutMode'] ?? $parentNode['stackMode'] ?? ''));
+        $hasExplicitLayerOrder = false;
+        foreach ( $ids as $id ) {
+            if ( isset($nodeMap[$id]['_parent_sort_position']) ) {
+                $hasExplicitLayerOrder = true;
+                break;
+            }
+        }
+
         usort(
             $ids,
-            static function (string $left, string $right) use ($nodeMap, $parentMode, $parentNode): int {
+            static function (string $left, string $right) use ($nodeMap, $parentMode, $parentNode, $hasExplicitLayerOrder): int {
                 $leftNode  = $nodeMap[$left] ?? array();
                 $rightNode = $nodeMap[$right] ?? array();
+
+                if ( $hasExplicitLayerOrder ) {
+                    return self::layerOrderKey($leftNode, $left) <=> self::layerOrderKey($rightNode, $right);
+                }
 
                 $leftBox  = self::readBounds($leftNode);
                 $rightBox = self::readBounds($rightNode);
