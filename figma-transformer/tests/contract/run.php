@@ -5944,6 +5944,71 @@ $nestedInstanceVectorHtml = $fileContent($nestedInstanceVectorResult, 'index.htm
 $assert(str_contains($nestedInstanceVectorHtml, 'data-figma-node-id="nested-wrapper:instance/nested-wrapper:icon/nested-icon:vector"'), 'nested-instance-vector-child-id-namespaced');
 $assert(str_contains($nestedInstanceVectorHtml, 'data-figma-vector="true"'), 'nested-instance-vector-renders-svg');
 
+$nestedInstanceSelectedOriginResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Nested Instance Selected Origin Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'selected-origin:logo-component',
+            'type'     => 'COMPONENT',
+            'name'     => 'Logo component',
+            'key'      => 'selected-origin-logo-key',
+            'width'    => 40,
+            'height'   => 20,
+            'children' => array(
+                array(
+                    'id'     => 'selected-origin:logo-mark',
+                    'type'   => 'RECTANGLE',
+                    'name'   => 'Logo mark',
+                    'width'  => 40,
+                    'height' => 20,
+                ),
+            ),
+        ),
+        array(
+            'id'       => 'selected-origin:header-component',
+            'type'     => 'COMPONENT',
+            'name'     => 'Header component',
+            'key'      => 'selected-origin-header-key',
+            'width'    => 1200,
+            'height'   => 120,
+            'children' => array(
+                array(
+                    'id'                  => 'selected-origin:nested-logo',
+                    'type'                => 'INSTANCE',
+                    'name'                => 'Nested logo',
+                    'componentId'         => 'selected-origin-logo-key',
+                    'x'                   => 120,
+                    'y'                   => 32,
+                    'width'               => 40,
+                    'height'              => 20,
+                    // The stale source node may still carry canvas geometry. The
+                    // clone placement above is parent-local and must win.
+                    'absoluteBoundingBox' => array('x' => -2948, 'y' => -362.5, 'width' => 40, 'height' => 20),
+                ),
+            ),
+        ),
+        array(
+            'id'                  => 'selected-origin:frame',
+            'type'                => 'FRAME',
+            'name'                => 'Selected nonzero frame',
+            'absoluteBoundingBox' => array('x' => -3068, 'y' => -394.5, 'width' => 1200, 'height' => 800),
+            'children'            => array(
+                array(
+                    'id'                  => 'selected-origin:header-instance',
+                    'type'                => 'INSTANCE',
+                    'name'                => 'Header instance',
+                    'componentId'         => 'selected-origin-header-key',
+                    'absoluteBoundingBox' => array('x' => -3068, 'y' => -394.5, 'width' => 1200, 'height' => 120),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                ),
+            ),
+        ),
+    ),
+), array('frame_id' => 'selected-origin:frame'));
+$nestedInstanceSelectedOriginCss = $fileContent($nestedInstanceSelectedOriginResult, 'style.css');
+$assert(str_contains($nestedInstanceSelectedOriginCss, '.figma-node-selected-origin-header-instance-selected-origin-nested-logo-nested-logo{width:40px;height:20px;position:absolute;left:120px;top:32px'), 'selected-origin-nested-instance-keeps-local-placement');
+$assert(! str_contains($nestedInstanceSelectedOriginCss, 'left:-2948px;top:-362.5px'), 'selected-origin-nested-instance-no-page-origin-subtracted-placement');
+
 $scaledVectorInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Scaled Vector Instance Fixture',
     'blobs' => array(array('bytes' => $vectorCommandBlob)),
