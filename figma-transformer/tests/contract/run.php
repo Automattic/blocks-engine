@@ -3730,6 +3730,72 @@ $assert(! str_contains($derivedSymbolInstanceHtml, '<g transform="scale'), 'deri
 $assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-2-derived-label{width:90px;height:24px;position:absolute;left:12px;top:6px'), 'derived-symbol-instance-label-size-position');
 $assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-3-derived-icon{width:10px;height:10px;position:absolute;left:110px;top:10px'), 'derived-symbol-instance-icon-size-position');
 
+$derivedSymbolPathOverrideResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Derived Symbol Path Override Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'guid'     => array('sessionID' => 42, 'localID' => 1),
+            'type'     => 'SYMBOL',
+            'name'     => 'Path Matched Symbol',
+            'children' => array(
+                array(
+                    'id'       => 'left',
+                    'type'     => 'FRAME',
+                    'name'     => 'Left Branch',
+                    'children' => array(
+                        array(
+                            'id'     => 'left/shared',
+                            'type'   => 'VECTOR',
+                            'name'   => 'Shared Leaf',
+                            'width'  => 5,
+                            'height' => 5,
+                        ),
+                    ),
+                ),
+                array(
+                    'id'       => 'right',
+                    'type'     => 'FRAME',
+                    'name'     => 'Right Branch',
+                    'children' => array(
+                        array(
+                            'id'     => 'right/shared',
+                            'type'   => 'VECTOR',
+                            'name'   => 'Shared Leaf',
+                            'width'  => 5,
+                            'height' => 5,
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array(
+            'id'         => 'path-match:instance',
+            'type'       => 'INSTANCE',
+            'name'       => 'Path Matched Instance',
+            'symbolData' => array(
+                'symbolID' => array('sessionID' => 42, 'localID' => 1),
+            ),
+            'derivedSymbolData' => array(
+                array(
+                    'guidPath'       => array('guids' => array('left', 'shared')),
+                    'size'           => array('x' => 10, 'y' => 10),
+                    'transform'      => array('m00' => 1, 'm01' => 0, 'm02' => 7, 'm10' => 0, 'm11' => 1, 'm12' => 8),
+                    'fillGeometry'   => array(array('commandsBlob' => 0)),
+                    'strokeGeometry' => array(array('commandsBlob' => 0)),
+                ),
+            ),
+        ),
+    ),
+));
+$derivedSymbolPathOverrideHtml = $fileContent($derivedSymbolPathOverrideResult, 'index.html');
+$derivedSymbolPathOverrideCss = $fileContent($derivedSymbolPathOverrideResult, 'style.css');
+$assert(str_contains($derivedSymbolPathOverrideHtml, 'data-figma-node-id="path-match:instance/left/shared"'), 'derived-symbol-path-override-left-leaf-namespaced');
+$assert(str_contains($derivedSymbolPathOverrideHtml, 'data-figma-node-id="path-match:instance/right/shared"'), 'derived-symbol-path-override-right-leaf-namespaced');
+$assert(str_contains($derivedSymbolPathOverrideHtml, 'd="M0 0L10 0 10 10Z"'), 'derived-symbol-path-override-left-geometry');
+$assert(str_contains($derivedSymbolPathOverrideCss, '.figma-node-path-match-instance-left-shared-shared-leaf{width:10px;height:10px;position:absolute;left:7px;top:8px'), 'derived-symbol-path-override-left-size-position');
+$assert(str_contains($derivedSymbolPathOverrideCss, '.shared-leaf{width:5px;height:5px}') && ! str_contains($derivedSymbolPathOverrideCss, '.figma-node-path-match-instance-right-shared-shared-leaf{width:10px;height:10px'), 'derived-symbol-path-override-does-not-bleed-to-sibling-leaf');
+
 $kiwiStackOverrideInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Kiwi Stack Override Fixture',
     'nodes' => array(
