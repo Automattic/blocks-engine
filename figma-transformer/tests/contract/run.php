@@ -44,6 +44,9 @@ $quadraticCommandBlob = chr(0)
     . chr(1) . pack('g', 0.0) . pack('g', 0.0)
     . chr(3) . pack('g', 4.0) . pack('g', 8.0) . pack('g', 8.0) . pack('g', 0.0)
     . chr(0);
+$longStrokeCommandBlob = chr(1) . pack('g', 0.0) . pack('g', 0.0)
+    . str_repeat(chr(2) . pack('g', 1234.123456) . pack('g', 5678.654321), 3200)
+    . chr(0);
 $oversizedCommandBlob = chr(1) . pack('g', 0.0) . pack('g', 0.0) . str_repeat(chr(2) . pack('g', 1.0) . pack('g', 1.0), 10001);
 
 $scenegraph = array(
@@ -211,6 +214,40 @@ $oversizedCommandDiagnosticCodes = array_map(
 $assert(in_array('unsupported_vector_command_blob', $oversizedCommandDiagnosticCodes, true), 'oversized-command-blob-diagnostic');
 $oversizedCommandTransformDiagnostics = $oversizedCommandResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
 $assert(1 === ($oversizedCommandTransformDiagnostics['vectors']['placeholders'] ?? null), 'oversized-command-blob-placeholder');
+
+$longStrokeCommandResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Long Stroke Command Blob Fixture',
+    'blobs' => array(array('bytes' => $longStrokeCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'       => 'long-stroke:root',
+            'type'     => 'FRAME',
+            'name'     => 'Long stroke root',
+            'width'    => 100,
+            'height'   => 100,
+            'children' => array(
+                array(
+                    'id'             => 'long-stroke:vector',
+                    'type'           => 'VECTOR',
+                    'name'           => 'Long stroke vector command blob',
+                    'width'          => 10,
+                    'height'         => 10,
+                    'strokeGeometry' => array(array('commandsBlob' => 0)),
+                    'strokePaints'   => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0))),
+                ),
+            ),
+        ),
+    ),
+));
+$longStrokeCommandDiagnosticCodes = array_map(
+    static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+    $longStrokeCommandResult['diagnostics'] ?? array()
+);
+$longStrokeCommandHtml = $fileContent($longStrokeCommandResult, 'index.html');
+$longStrokeCommandTransformDiagnostics = $longStrokeCommandResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+$assert(! in_array('unsupported_vector_command_blob', $longStrokeCommandDiagnosticCodes, true), 'long-stroke-command-blob-decodes-without-diagnostic');
+$assert(str_contains($longStrokeCommandHtml, 'data-figma-node-id="long-stroke:vector"') && str_contains($longStrokeCommandHtml, 'data-figma-vector="true"'), 'long-stroke-command-blob-renders');
+$assert(0 === ($longStrokeCommandTransformDiagnostics['vectors']['placeholders'] ?? null), 'long-stroke-command-blob-no-placeholder');
 
 $missingEmissionResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Missing Emission Diagnostics Fixture',
