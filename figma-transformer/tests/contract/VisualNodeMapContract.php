@@ -408,26 +408,32 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
                     'name'                => 'Source icon',
                     'absoluteBoundingBox' => array('x' => 1000, 'y' => 500, 'width' => 40, 'height' => 40),
                     'children'            => array(
-                        array(
-                            'id'                  => 'source:icon/vector',
-                            'type'                => 'VECTOR',
-                            'name'                => 'Source vector',
-                            'absoluteBoundingBox' => array('x' => 1012, 'y' => 508, 'width' => 16, 'height' => 16),
-                            'pathData'            => 'M0 0H16V16H0Z',
-                        ),
-                        array(
-                            'id'                  => 'source:icon/union',
-                            'type'                => 'BOOLEAN_OPERATION',
-                            'name'                => 'Source union',
-                            'absoluteBoundingBox' => array('x' => 1004, 'y' => 530, 'width' => 20, 'height' => 6),
-                            'children'            => array(
-                                array(
-                                    'id'                  => 'source:icon/union/part',
-                                    'type'                => 'VECTOR',
-                                    'name'                => 'Union part',
-                                    'absoluteBoundingBox' => array('x' => 1004, 'y' => 530, 'width' => 20, 'height' => 6),
-                                    'pathData'            => 'M0 0H20V6H0Z',
-                                ),
+						array(
+							'id'                  => 'source:icon/vector',
+							'type'                => 'VECTOR',
+							'name'                => 'Source vector',
+							'x'                   => 1012,
+							'y'                   => 508,
+							'absoluteBoundingBox' => array('x' => 1012, 'y' => 508, 'width' => 16, 'height' => 16),
+							'pathData'            => 'M0 0H16V16H0Z',
+						),
+						array(
+							'id'                  => 'source:icon/union',
+							'type'                => 'BOOLEAN_OPERATION',
+							'name'                => 'Source union',
+							'x'                   => 1004,
+							'y'                   => 530,
+							'absoluteBoundingBox' => array('x' => 1004, 'y' => 530, 'width' => 20, 'height' => 6),
+							'children'            => array(
+								array(
+									'id'                  => 'source:icon/union/part',
+									'type'                => 'VECTOR',
+									'name'                => 'Union part',
+									'x'                   => 1004,
+									'y'                   => 530,
+									'absoluteBoundingBox' => array('x' => 1004, 'y' => 530, 'width' => 20, 'height' => 6),
+									'pathData'            => 'M0 0H20V6H0Z',
+								),
                             ),
                         ),
                     ),
