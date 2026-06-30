@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCommandDecoder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiDecoder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiParser;
+use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 
 function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $assert, callable $fileContent): void
 {
@@ -170,6 +171,28 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     );
     $kiwiFrameMaskNode = $kiwiFrameMaskMessage['message']['nodeChanges'][0] ?? array();
     $assert(false === ($kiwiFrameMaskNode['frameMaskDisabled'] ?? null), 'kiwi-selective-decodes-frame-mask-disabled');
+    $assert(true === ($kiwiFrameMaskNode['mask'] ?? null), 'kiwi-selective-decodes-mask');
+    $assert('ALPHA' === ($kiwiFrameMaskNode['maskType'] ?? null), 'kiwi-selective-decodes-mask-type');
+
+    $kiwiMaskNormalizer = new ScenegraphNormalizer();
+    $kiwiMaskNormalized = $kiwiMaskNormalizer->normalize(array(
+        'name'  => 'Kiwi Mask Metadata Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'kiwi:mask-source',
+                'type'     => 'VECTOR',
+                'name'     => 'Mask Source',
+                'width'    => 24,
+                'height'   => 24,
+                'mask'     => true,
+                'maskType' => 'ALPHA',
+            ),
+        ),
+    ));
+    $kiwiMaskNormalizedNode = $kiwiMaskNormalized['nodes'][0] ?? array();
+    $assert(true === ($kiwiMaskNormalizedNode['figma_mask']['is_mask'] ?? null), 'kiwi-mask-normalizes-mask-role');
+    $assert('ALPHA' === ($kiwiMaskNormalizedNode['figma_mask']['type'] ?? null), 'kiwi-mask-normalizes-mask-type');
+    $assert(! isset($kiwiMaskNormalizedNode['layout']['clips_content']), 'kiwi-mask-source-does-not-force-clips-content');
     
     $kiwiDerivedTextSchema = $kiwiDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture());
     $kiwiDerivedTextMessage = $kiwiDecoder->decodeMessageSelective(
@@ -486,20 +509,29 @@ function blocks_engine_figma_transformer_kiwi_message_fixture(): string
 
 function blocks_engine_figma_transformer_kiwi_frame_mask_schema_fixture(): string
 {
-    return blocks_engine_figma_transformer_wire_varint(3)
+    return blocks_engine_figma_transformer_wire_varint(4)
         // def0: ENUM MessageType { NODE_CHANGES = 1 }
         . blocks_engine_figma_transformer_kiwi_string('MessageType')
         . chr(0)
         . blocks_engine_figma_transformer_wire_varint(1)
         . blocks_engine_figma_transformer_kiwi_schema_field('NODE_CHANGES', 0, false, 1)
-        // def1: MESSAGE NodeChange { type, name, frameMaskDisabled }
+        // def1: MESSAGE NodeChange { type, name, frameMaskDisabled, mask, maskType }
         . blocks_engine_figma_transformer_kiwi_string('NodeChange')
         . chr(2)
-        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_wire_varint(5)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('frameMaskDisabled', -1, false, 3)
-        // def2: MESSAGE Message { type, nodeChanges[] }
+        . blocks_engine_figma_transformer_kiwi_schema_field('mask', -1, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('maskType', 2, false, 5)
+        // def2: ENUM MaskType { ALPHA = 1, VECTOR = 2, LUMINANCE = 3 }
+        . blocks_engine_figma_transformer_kiwi_string('MaskType')
+        . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('ALPHA', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('VECTOR', 0, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('LUMINANCE', 0, false, 3)
+        // def3: MESSAGE Message { type, nodeChanges[] }
         . blocks_engine_figma_transformer_kiwi_string('Message')
         . chr(2)
         . blocks_engine_figma_transformer_wire_varint(2)
@@ -519,6 +551,10 @@ function blocks_engine_figma_transformer_kiwi_frame_mask_message_fixture(): stri
         . blocks_engine_figma_transformer_kiwi_string('Masked Frame')
         . blocks_engine_figma_transformer_wire_varint(3)
         . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(5)
+        . blocks_engine_figma_transformer_wire_varint(1)
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);
 }

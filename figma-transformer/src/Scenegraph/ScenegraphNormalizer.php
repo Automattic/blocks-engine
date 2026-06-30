@@ -443,6 +443,11 @@ final class ScenegraphNormalizer
             $node['figma_effects'] = $effects;
         }
 
+        $mask = $this->normalizeMask($node);
+        if ( ! empty($mask) ) {
+            $node['figma_mask'] = $mask;
+        }
+
         $link = $this->normalizeLink($node, $type);
         if ( ! empty($link) ) {
             $node['figma_link'] = $link;
@@ -2650,6 +2655,49 @@ final class ScenegraphNormalizer
         }
 
         return $effects;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function normalizeMask(array $node): array
+    {
+        $isMask = $this->normalizeBoolean($node['isMask'] ?? $node['mask'] ?? null);
+        $maskType = isset($node['maskType']) && is_scalar($node['maskType']) ? strtoupper((string) $node['maskType']) : null;
+
+        if ( null === $isMask && null === $maskType ) {
+            return array();
+        }
+
+        return array_filter(
+            array(
+                'is_mask' => $isMask,
+                'type'    => $maskType,
+            ),
+            static fn (mixed $value): bool => null !== $value
+        );
+    }
+
+    private function normalizeBoolean(mixed $value): ?bool
+    {
+        if ( is_bool($value) ) {
+            return $value;
+        }
+
+        if ( is_int($value) || is_float($value) ) {
+            return 0 !== (int) $value;
+        }
+
+        if ( is_string($value) ) {
+            return match ( strtolower($value) ) {
+                '1', 'true', 'yes', 'on' => true,
+                '0', 'false', 'no', 'off' => false,
+                default => null,
+            };
+        }
+
+        return null;
     }
 
     /**

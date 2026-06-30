@@ -7,7 +7,7 @@ use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCapability;
 use Automattic\BlocksEngine\FigmaTransformer\Compression\ZstdCommandDecoder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiParser;
-use Automattic\BlocksEngine\FigmaTransformer\FigmaTransformer;
+use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphIndex;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 
@@ -35,23 +35,21 @@ $nodeIds = $options['node_ids'];
 $zstdCommand = $options['zstd_command'] ?? (getenv('FIGMA_TRANSFORMER_ZSTD_COMMAND') ?: null);
 $diagnosticLimit = (int) ($options['diagnostic_limit'] ?? 20);
 $maxNodes = isset($options['max_nodes']) ? (int) $options['max_nodes'] : null;
+$archiveOptions = blocks_engine_figma_trace_archive_options($options);
 
 $archive = null;
-$source = blocks_engine_figma_trace_read_source($input, is_string($zstdCommand) && '' !== $zstdCommand ? $zstdCommand : null, $archive);
-$transformer = blocks_engine_figma_trace_transformer(is_string($zstdCommand) && '' !== $zstdCommand ? $zstdCommand : null);
+$source = blocks_engine_figma_trace_read_source($input, is_string($zstdCommand) && '' !== $zstdCommand ? $zstdCommand : null, $archiveOptions, $archive);
 
-$transformOptions = array('frame_id' => $frameId);
+$transformOptions = array_merge($archiveOptions, array('frame_id' => $frameId));
 if ( null !== $maxNodes ) {
     $transformOptions['max_nodes'] = max(0, $maxNodes);
 }
 
 $normalizer = new ScenegraphNormalizer();
 $normalized = $normalizer->normalize(is_array($source['scenegraph'] ?? null) ? $source['scenegraph'] : array(), $transformOptions);
-$result = str_ends_with(strtolower($input), '.json')
-    ? $transformer->transformScenegraph(is_array($source['scenegraph'] ?? null) ? $source['scenegraph'] : array(), $transformOptions)->toArray()
-    : $transformer->transformFile($input, $transformOptions)->toArray();
+$result = blocks_engine_figma_trace_emit_result($normalized, $transformOptions);
 
-$rawIndex = (new ScenegraphIndex())->build(is_array($source['scenegraph'] ?? null) ? $source['scenegraph'] : array());
+$rawNodes = blocks_engine_figma_trace_find_raw_nodes(is_array($source['scenegraph'] ?? null) ? $source['scenegraph'] : array(), $nodeIds);
 $htmlReport = is_array($result['source_reports']['figma']['html'] ?? null) ? $result['source_reports']['figma']['html'] : array();
 $trace = array(
     'schema' => 'blocks-engine/figma-transformer/node-trace/v1',
@@ -74,7 +72,7 @@ foreach ( $nodeIds as $nodeId ) {
     $className = is_array($style) ? (string) ($style['node']['class'] ?? '') : '';
     $trace['nodes'][] = array(
         'id' => $nodeId,
-        'raw' => blocks_engine_figma_trace_node_summary($rawIndex['nodes'][$nodeId] ?? null, $rawIndex, $nodeId),
+        'raw' => blocks_engine_figma_trace_node_summary($rawNodes[$nodeId] ?? null, array(), $nodeId),
         'normalized' => blocks_engine_figma_trace_node_summary($normalized['node_map'][$nodeId] ?? null, $normalized, $nodeId),
         'emitted' => array_filter(array(
             'class' => '' !== $className ? $className : null,
@@ -134,13 +132,24 @@ function blocks_engine_figma_trace_options(array $argv): array
 
 function blocks_engine_figma_trace_usage(mixed $stream): void
 {
-    fwrite($stream, "Usage: figma-node-trace.php <path-to-fig-or-scenegraph-json> --frame-id=<id> --node-ids=<id,id> [--zstd-command=/opt/homebrew/bin/zstd] [--max-nodes=5000] [--diagnostic-limit=20]\n");
+    fwrite($stream, "Usage: figma-node-trace.php <path-to-fig-or-scenegraph-json> --frame-id=<id> --node-ids=<id,id> [--zstd-command=/opt/homebrew/bin/zstd] [--max-kiwi-message-decode-bytes=1] [--max-nodes=5000] [--diagnostic-limit=20]\n");
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_trace_archive_options(array $options): array
+{
+    return array(
+        'include_asset_content' => false,
+        'max_kiwi_message_decode_bytes' => max(1, (int) ($options['max_kiwi_message_decode_bytes'] ?? 1)),
+    );
 }
 
 /**
  * @return array{scenegraph: array<string, mixed>, shape: string, decoded_scenegraph?: array<string, mixed>}
  */
-function blocks_engine_figma_trace_read_source(string $input, ?string $zstdCommand, ?array &$archive): array
+function blocks_engine_figma_trace_read_source(string $input, ?string $zstdCommand, array $archiveOptions, ?array &$archive): array
 {
     if ( str_ends_with(strtolower($input), '.json') ) {
         $decoded = is_readable($input) ? json_decode((string) file_get_contents($input), true) : null;
@@ -148,18 +157,13 @@ function blocks_engine_figma_trace_read_source(string $input, ?string $zstdComma
     }
 
     $archiveReader = blocks_engine_figma_trace_archive_reader($zstdCommand);
-    $archive = $archiveReader->read($input);
+    $archive = $archiveReader->read($input, $archiveOptions);
     $candidate = blocks_engine_figma_trace_decoded_scenegraph_candidate($archive);
     return array(
         'scenegraph' => is_array($candidate['payload'] ?? null) ? $candidate['payload'] : array(),
         'shape' => 'fig',
         'decoded_scenegraph' => is_array($candidate['report'] ?? null) ? $candidate['report'] : array(),
     );
-}
-
-function blocks_engine_figma_trace_transformer(?string $zstdCommand): FigmaTransformer
-{
-    return new FigmaTransformer(blocks_engine_figma_trace_archive_reader($zstdCommand));
 }
 
 function blocks_engine_figma_trace_archive_reader(?string $zstdCommand): FigArchiveReader
@@ -169,6 +173,34 @@ function blocks_engine_figma_trace_archive_reader(?string $zstdCommand): FigArch
     }
 
     return new FigArchiveReader(new FigKiwiParser(new ZstdCapability(new ZstdCommandDecoder(array($zstdCommand, '-dc')))));
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_trace_emit_result(array $normalized, array $transformOptions): array
+{
+    $artifact = (new StaticHtmlEmitter())->emit($normalized, $transformOptions);
+    $diagnostics = array_merge(
+        is_array($normalized['diagnostics'] ?? null) ? $normalized['diagnostics'] : array(),
+        is_array($artifact['diagnostics'] ?? null) ? $artifact['diagnostics'] : array()
+    );
+
+    return array(
+        'status' => $artifact['status'] ?? 'success_with_warnings',
+        'diagnostics' => $diagnostics,
+        'files' => is_array($artifact['files'] ?? null) ? $artifact['files'] : array(),
+        'assets' => is_array($artifact['assets'] ?? null) ? $artifact['assets'] : array(),
+        'metrics' => array(
+            'node_count' => is_array($normalized['node_map'] ?? null) ? count($normalized['node_map']) : 0,
+        ),
+        'source_reports' => array(
+            'figma' => array(
+                'scenegraph' => $normalized['source_report'] ?? array(),
+                'html' => is_array($artifact['source_report'] ?? null) ? $artifact['source_report'] : array(),
+            ),
+        ),
+    );
 }
 
 /**
@@ -238,6 +270,64 @@ function blocks_engine_figma_trace_scenegraph_score(array $payload, string $shap
     return $score + count(is_array($index['nodes'] ?? null) ? $index['nodes'] : array());
 }
 
+/**
+ * @param array<string, mixed> $scenegraph
+ * @param array<int, string>   $nodeIds
+ * @return array<string, array<string, mixed>>
+ */
+function blocks_engine_figma_trace_find_raw_nodes(array $scenegraph, array $nodeIds): array
+{
+    $wanted = array_fill_keys(array_map('strval', $nodeIds), true);
+    $found = array();
+    blocks_engine_figma_trace_collect_raw_nodes($scenegraph, $wanted, $found);
+    return $found;
+}
+
+/**
+ * @param array<string, mixed>                $node
+ * @param array<string, true>                 $wanted
+ * @param array<string, array<string, mixed>> $found
+ */
+function blocks_engine_figma_trace_collect_raw_nodes(array $node, array $wanted, array &$found): void
+{
+    $nodeId = is_scalar($node['id'] ?? null) ? (string) $node['id'] : '';
+    if ( '' !== $nodeId && isset($wanted[$nodeId]) ) {
+        $found[$nodeId] = $node;
+    }
+
+    foreach ( array('NODE_CHANGES', 'node_changes', 'nodeChanges') as $changesKey ) {
+        if ( ! is_array($node[$changesKey] ?? null) ) {
+            continue;
+        }
+        foreach ( $node[$changesKey] as $key => $change ) {
+            $candidate = is_array($change) && is_array($change['node'] ?? null) ? $change['node'] : $change;
+            if ( ! is_array($candidate) ) {
+                continue;
+            }
+            $id = is_scalar($candidate['id'] ?? null) ? (string) $candidate['id'] : (is_scalar($key) ? (string) $key : '');
+            if ( '' !== $id && isset($wanted[$id]) ) {
+                $found[$id] = $candidate;
+            }
+            blocks_engine_figma_trace_collect_raw_nodes($candidate, $wanted, $found);
+        }
+    }
+
+    foreach ( array('document', 'nodes', 'children') as $childrenKey ) {
+        $children = $node[$childrenKey] ?? null;
+        if ( is_array($children) && array_is_list($children) ) {
+            foreach ( $children as $child ) {
+                if ( is_array($child) ) {
+                    blocks_engine_figma_trace_collect_raw_nodes($child, $wanted, $found);
+                }
+            }
+            continue;
+        }
+        if ( is_array($children) ) {
+            blocks_engine_figma_trace_collect_raw_nodes($children, $wanted, $found);
+        }
+    }
+}
+
 function blocks_engine_figma_trace_node_summary(mixed $node, array $index, string $nodeId): ?array
 {
     if ( ! is_array($node) ) {
@@ -253,9 +343,23 @@ function blocks_engine_figma_trace_node_summary(mixed $node, array $index, strin
         'child_ids' => is_array($index['children_index'][$nodeId] ?? null) ? array_values($index['children_index'][$nodeId]) : array(),
         'box' => ! empty($box) ? $box : blocks_engine_figma_trace_raw_box($node),
         'layout' => ! empty($layout) ? $layout : blocks_engine_figma_trace_raw_layout($node),
+        'mask' => blocks_engine_figma_trace_mask_summary($node),
         'text' => blocks_engine_figma_trace_text_summary($node),
         'paints' => blocks_engine_figma_trace_paint_summary($node),
     ), static fn (mixed $value): bool => null !== $value && array() !== $value);
+}
+
+function blocks_engine_figma_trace_mask_summary(array $node): array
+{
+    if ( is_array($node['figma_mask'] ?? null) ) {
+        return $node['figma_mask'];
+    }
+
+    return array_filter(array(
+        'mask' => $node['mask'] ?? null,
+        'isMask' => $node['isMask'] ?? null,
+        'maskType' => $node['maskType'] ?? null,
+    ), static fn (mixed $value): bool => null !== $value);
 }
 
 function blocks_engine_figma_trace_raw_box(array $node): array
