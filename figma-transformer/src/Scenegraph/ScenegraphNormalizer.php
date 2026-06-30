@@ -768,6 +768,7 @@ final class ScenegraphNormalizer
     private function mergeRefreshedComponentSource(array $clone, array $refreshed, string $sourceId): array
     {
         $cloneId = (string) ($clone['id'] ?? '');
+        $sourceBox = is_array($refreshed['box'] ?? null) ? $refreshed['box'] : array();
         $merged = '' !== $cloneId ? $this->retargetComponentSourceIds($refreshed, $sourceId, $cloneId) : $refreshed;
 
         foreach ( array('id', 'figma_component_source_id', 'box', 'figma_box', 'layout') as $key ) {
@@ -776,7 +777,99 @@ final class ScenegraphNormalizer
             }
         }
 
+        $sourceX = isset($sourceBox['x']) && is_numeric($sourceBox['x']) ? (float) $sourceBox['x'] : null;
+        $sourceY = isset($sourceBox['y']) && is_numeric($sourceBox['y']) ? (float) $sourceBox['y'] : null;
+        $sourceWidth = isset($sourceBox['width']) && is_numeric($sourceBox['width']) ? (float) $sourceBox['width'] : null;
+        $sourceHeight = isset($sourceBox['height']) && is_numeric($sourceBox['height']) ? (float) $sourceBox['height'] : null;
+        if ( null !== $sourceX || null !== $sourceY ) {
+            $merged = $this->rebaseComponentSourceCloneDescendants($merged, $sourceX, $sourceY, $sourceWidth, $sourceHeight);
+        }
+
         return $this->markComponentSourceCloneGeometry($merged);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function rebaseComponentSourceCloneDescendants(array $node, ?float $parentSourceX, ?float $parentSourceY, ?float $parentSourceWidth = null, ?float $parentSourceHeight = null): array
+    {
+        if ( ! is_array($node['children'] ?? null) ) {
+            return $node;
+        }
+
+        foreach ( $node['children'] as $index => $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $childSourceX = $this->componentSourceCloneBoxCoordinate($child, 'x');
+            $childSourceY = $this->componentSourceCloneBoxCoordinate($child, 'y');
+            $childSourceWidth = $this->componentSourceCloneBoxCoordinate($child, 'width');
+            $childSourceHeight = $this->componentSourceCloneBoxCoordinate($child, 'height');
+            $child = $this->rebaseComponentSourceCloneBox($child, 'box', $parentSourceX, $parentSourceY, $parentSourceWidth, $parentSourceHeight);
+            $child = $this->rebaseComponentSourceCloneBox($child, 'figma_box', $parentSourceX, $parentSourceY, $parentSourceWidth, $parentSourceHeight);
+            $node['children'][$index] = $this->rebaseComponentSourceCloneDescendants(
+                $child,
+                null !== $childSourceX ? $childSourceX : $parentSourceX,
+                null !== $childSourceY ? $childSourceY : $parentSourceY,
+                null !== $childSourceWidth ? $childSourceWidth : $parentSourceWidth,
+                null !== $childSourceHeight ? $childSourceHeight : $parentSourceHeight
+            );
+        }
+
+        return $node;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function componentSourceCloneBoxCoordinate(array $node, string $dimension): ?float
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        return isset($box[$dimension]) && is_numeric($box[$dimension]) ? (float) $box[$dimension] : null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function rebaseComponentSourceCloneBox(array $node, string $boxKey, ?float $parentSourceX, ?float $parentSourceY, ?float $parentSourceWidth = null, ?float $parentSourceHeight = null): array
+    {
+        if ( ! is_array($node[$boxKey] ?? null) ) {
+            return $node;
+        }
+
+        $box = $node[$boxKey];
+        if ( 'page' !== ($box['local_origin'] ?? null) && GeometryBox::COORDINATE_SPACE_CANVAS_ABSOLUTE !== GeometryBox::coordinateSpace($box) ) {
+            return $node;
+        }
+
+        foreach ( array('x' => array($parentSourceX, $parentSourceWidth), 'y' => array($parentSourceY, $parentSourceHeight)) as $dimension => $parentSource ) {
+            [$parentSourceCoordinate, $parentSourceSize] = $parentSource;
+            if ( null === $parentSourceCoordinate || ! isset($node[$boxKey][$dimension]) || ! is_numeric($node[$boxKey][$dimension]) ) {
+                continue;
+            }
+            if ( GeometryBox::COORDINATE_SPACE_CANVAS_ABSOLUTE === GeometryBox::coordinateSpace($box) && ! $this->componentSourceCoordinateOverlapsParent((float) $node[$boxKey][$dimension], $parentSourceCoordinate, $parentSourceSize) ) {
+                continue;
+            }
+
+            $node[$boxKey][$dimension] = (float) $node[$boxKey][$dimension] - $parentSourceCoordinate;
+        }
+
+        unset($node[$boxKey]['local_origin']);
+        $node[$boxKey]['coordinate_space'] = GeometryBox::COORDINATE_SPACE_PARENT_LOCAL;
+
+        return $node;
+    }
+
+    private function componentSourceCoordinateOverlapsParent(float $coordinate, float $parentSourceCoordinate, ?float $parentSourceSize): bool
+    {
+        if ( null === $parentSourceSize ) {
+            return $coordinate >= $parentSourceCoordinate - 0.5;
+        }
+
+        return $coordinate >= $parentSourceCoordinate - 0.5 && $coordinate <= $parentSourceCoordinate + $parentSourceSize + 0.5;
     }
 
     /**
@@ -1172,6 +1265,15 @@ final class ScenegraphNormalizer
         $resolvedChildren = is_array($resolved['children'] ?? null) ? $resolved['children'] : array();
         $resolvedChildren = $this->resolveClonedInstanceChildren($resolvedChildren, $nodeMap);
         $resolvedChildren = $this->scaleVectorOnlyInstanceChildren($resolvedChildren, $component, $instance);
+        $componentBox = is_array($component['box'] ?? null) ? $component['box'] : array();
+        $componentSourceX = isset($componentBox['x']) && is_numeric($componentBox['x']) ? (float) $componentBox['x'] : null;
+        $componentSourceY = isset($componentBox['y']) && is_numeric($componentBox['y']) ? (float) $componentBox['y'] : null;
+        $componentSourceWidth = isset($componentBox['width']) && is_numeric($componentBox['width']) ? (float) $componentBox['width'] : null;
+        $componentSourceHeight = isset($componentBox['height']) && is_numeric($componentBox['height']) ? (float) $componentBox['height'] : null;
+        if ( null !== $componentSourceX || null !== $componentSourceY ) {
+            $rebasedSource = $this->rebaseComponentSourceCloneDescendants(array('children' => $resolvedChildren), $componentSourceX, $componentSourceY, $componentSourceWidth, $componentSourceHeight);
+            $resolvedChildren = is_array($rebasedSource['children'] ?? null) ? $rebasedSource['children'] : $resolvedChildren;
+        }
         // Figma binds per-instance text content through component properties: each
         // master text node references a property definition (componentPropRefs ->
         // componentPropNodeField: TEXT_DATA) and the instance assigns the real value

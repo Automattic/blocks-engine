@@ -295,4 +295,70 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $nestedInstanceRoot, array('x' => 30.0, 'y' => 40.0, 'width' => 160.0, 'height' => 60.0), 'visual-map-nested-instance-root-position');
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $nestedInstanceLabel, array('x' => 78.0, 'y' => 58.0, 'width' => 90.0, 'height' => 22.0), 'visual-map-nested-instance-transform-override-position');
     $assert(null !== $nestedInstanceIconVector, 'visual-map-nested-instance-resolves-nested-instance-vector');
+
+    $nestedVectorSourceResult = blocks_engine_figma_transformer_contract_transform(
+        array(
+            'name'  => 'Nested Vector Component Source Geometry Fixture',
+            'nodes' => array(
+                array(
+                    'id'                  => 'source:icon',
+                    'type'                => 'COMPONENT',
+                    'name'                => 'Source icon',
+                    'absoluteBoundingBox' => array('x' => 1000, 'y' => 500, 'width' => 40, 'height' => 40),
+                    'children'            => array(
+                        array(
+                            'id'                  => 'source:icon/vector',
+                            'type'                => 'VECTOR',
+                            'name'                => 'Source vector',
+                            'absoluteBoundingBox' => array('x' => 1012, 'y' => 508, 'width' => 16, 'height' => 16),
+                            'pathData'            => 'M0 0H16V16H0Z',
+                        ),
+                        array(
+                            'id'                  => 'source:icon/union',
+                            'type'                => 'BOOLEAN_OPERATION',
+                            'name'                => 'Source union',
+                            'absoluteBoundingBox' => array('x' => 1004, 'y' => 530, 'width' => 20, 'height' => 6),
+                            'children'            => array(
+                                array(
+                                    'id'                  => 'source:icon/union/part',
+                                    'type'                => 'VECTOR',
+                                    'name'                => 'Union part',
+                                    'absoluteBoundingBox' => array('x' => 1004, 'y' => 530, 'width' => 20, 'height' => 6),
+                                    'pathData'            => 'M0 0H20V6H0Z',
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                array(
+                    'id'                  => 'source:page',
+                    'type'                => 'FRAME',
+                    'name'                => 'Page',
+                    'absoluteBoundingBox' => array('x' => 300, 'y' => 200, 'width' => 200, 'height' => 120),
+                    'children'            => array(
+                        array(
+                            'id'          => 'instance:icon',
+                            'type'        => 'INSTANCE',
+                            'name'        => 'Placed icon',
+                            'componentId' => 'source:icon',
+                            'x'           => 30,
+                            'y'           => 40,
+                            'width'       => 40,
+                            'height'      => 40,
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array('frame_id' => 'source:page')
+    );
+    $nestedVectorSourceHtml = blocks_engine_figma_transformer_contract_file_content($nestedVectorSourceResult, 'index.html');
+    $nestedVectorSourceCss = blocks_engine_figma_transformer_contract_file_content($nestedVectorSourceResult, 'style.css');
+    $nestedVectorSourceVector = blocks_engine_figma_transformer_contract_find_visual_node($nestedVectorSourceResult, 'instance:icon/source:icon/vector');
+    $nestedVectorSourceUnion = blocks_engine_figma_transformer_contract_find_visual_node($nestedVectorSourceResult, 'instance:icon/source:icon/union');
+    $assert(str_contains($nestedVectorSourceHtml, 'viewBox="0 0 16 16"'), 'visual-map-component-source-vector-viewbox-stays-zero-origin');
+    $assert(str_contains($nestedVectorSourceCss, '.source-vector{width:16px;height:16px;position:absolute;left:12px;top:8px}'), 'visual-map-component-source-vector-css-parent-local');
+    $assert(str_contains($nestedVectorSourceCss, '.source-union{width:20px;height:6px;position:absolute;left:4px;top:30px}'), 'visual-map-component-source-boolean-css-parent-local');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $nestedVectorSourceVector, array('x' => 42.0, 'y' => 48.0, 'width' => 16.0, 'height' => 16.0), 'visual-map-component-source-vector-rect-parent-local');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $nestedVectorSourceUnion, array('x' => 34.0, 'y' => 70.0, 'width' => 20.0, 'height' => 6.0), 'visual-map-component-source-boolean-rect-parent-local');
 }
