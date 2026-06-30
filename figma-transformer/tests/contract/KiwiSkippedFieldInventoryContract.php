@@ -46,6 +46,30 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
     $assert(is_array($cli), 'kiwi-skipped-inventory-cli-json');
     $assert('blocks-engine/figma-transformer/kiwi-skipped-field-inventory-file/v1' === ($cli['schema'] ?? null), 'kiwi-skipped-inventory-cli-schema');
     $assert(6 === ($cli['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-cli-field-count');
+
+    $fixture = SyntheticFigKiwiFixtureBuilder::figArchive(
+        SyntheticFigKiwiFixtureBuilder::canvas(array(
+            SyntheticFigKiwiFixtureBuilder::zlibChunk(blocks_engine_figma_transformer_kiwi_inventory_schema_fixture()),
+            SyntheticFigKiwiFixtureBuilder::zlibChunk(blocks_engine_figma_transformer_kiwi_inventory_message_fixture()),
+        ))
+    );
+    $outputPath = tempnam(sys_get_temp_dir(), 'blocks-engine-kiwi-inventory-output-');
+    $command = escapeshellarg(PHP_BINARY)
+        . ' ' . escapeshellarg(__DIR__ . '/../../scripts/figma-kiwi-skipped-field-inventory.php')
+        . ' ' . escapeshellarg($fixture)
+        . ' --output=' . escapeshellarg((string) $outputPath);
+    $output = shell_exec($command);
+    @unlink($fixture);
+    $cli = is_string($output) ? json_decode($output, true) : null;
+    $written = is_string($outputPath) && is_readable($outputPath) ? json_decode((string) file_get_contents($outputPath), true) : null;
+    if ( is_string($outputPath) ) {
+        @unlink($outputPath);
+    }
+
+    $assert('blocks-engine/figma-transformer/kiwi-skipped-field-inventory-output/v1' === ($cli['schema'] ?? null), 'kiwi-skipped-inventory-output-cli-schema');
+    $assert(is_array($written), 'kiwi-skipped-inventory-output-file-json');
+    $assert('blocks-engine/figma-transformer/kiwi-skipped-field-inventory-file/v1' === ($written['schema'] ?? null), 'kiwi-skipped-inventory-output-file-schema');
+    $assert(6 === ($written['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-output-file-field-count');
 }
 
 /**

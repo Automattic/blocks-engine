@@ -22,7 +22,21 @@ if ( true === ($options['help'] ?? false) || '' === ($options['input'] ?? '') ) 
 
 $zstdCommand = $options['zstd_command'] ?? (getenv('FIGMA_TRANSFORMER_ZSTD_COMMAND') ?: null);
 $result = blocks_engine_figma_kiwi_inventory((string) $options['input'], is_string($zstdCommand) && '' !== $zstdCommand ? $zstdCommand : null);
-fwrite(STDOUT, json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+$json = json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+$outputPath = $options['output'] ?? null;
+if ( is_string($outputPath) && '' !== $outputPath ) {
+    if ( false === file_put_contents($outputPath, $json) ) {
+        fwrite(STDERR, "Failed to write skipped-field inventory output to {$outputPath}\n");
+        exit(1);
+    }
+    fwrite(STDOUT, json_encode(array(
+        'schema' => 'blocks-engine/figma-transformer/kiwi-skipped-field-inventory-output/v1',
+        'output' => $outputPath,
+        'summary' => $result['summary'] ?? array(),
+    ), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+} else {
+    fwrite(STDOUT, $json);
+}
 exit(empty($result['diagnostics']) ? 0 : 0);
 
 /**
@@ -48,7 +62,7 @@ function blocks_engine_figma_kiwi_inventory_options(array $argv): array
 
 function blocks_engine_figma_kiwi_inventory_usage(mixed $stream): void
 {
-    fwrite($stream, "Usage: figma-kiwi-skipped-field-inventory.php <path-to-fig> [--zstd-command=/opt/homebrew/bin/zstd]\n");
+    fwrite($stream, "Usage: figma-kiwi-skipped-field-inventory.php <path-to-fig> [--zstd-command=/opt/homebrew/bin/zstd] [--output=/tmp/inventory.json]\n");
 }
 
 /**
