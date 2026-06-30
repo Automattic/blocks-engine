@@ -824,15 +824,17 @@ final class ScenegraphNormalizer
         }
 
         $box = $node[$boxKey];
-        $coordinateSpace = (string) ($box['coordinate_space'] ?? 'absolute');
-        if ( $isRoot || 'absolute' === $coordinateSpace ) {
+        $coordinateSpace = GeometryBox::coordinateSpace($box);
+        if ( $isRoot || GeometryBox::COORDINATE_SPACE_CANVAS_ABSOLUTE === $coordinateSpace ) {
             if ( isset($box['x']) && is_numeric($box['x']) ) {
                 $box['x'] = $isRoot ? 0.0 : (float) $box['x'] - $originX;
             }
             if ( isset($box['y']) && is_numeric($box['y']) ) {
                 $box['y'] = $isRoot ? 0.0 : (float) $box['y'] - $originY;
             }
-            $box['coordinate_space'] = 'local';
+            $box['coordinate_space'] = GeometryBox::coordinateSpaceForClassification(
+                $isRoot ? GeometryBox::CLASSIFICATION_PAGE_LOCAL : GeometryBox::CLASSIFICATION_PARENT_LOCAL
+            );
         }
 
         $node[$boxKey] = $box;
@@ -3765,7 +3767,7 @@ final class ScenegraphNormalizer
     private function normalizeLayoutBox(array $node): array
     {
         $box = array();
-        $coordinateSpace = null;
+        $coordinateSpaceClassification = null;
 
         foreach ( array('absoluteBoundingBox', 'absoluteRenderBounds') as $boundsKey ) {
             if ( ! is_array($node[$boundsKey] ?? null) ) {
@@ -3779,7 +3781,7 @@ final class ScenegraphNormalizer
             }
 
             if ( isset($node[$boundsKey]['x']) || isset($node[$boundsKey]['y']) ) {
-                $coordinateSpace = 'absolute';
+                $coordinateSpaceClassification = GeometryBox::CLASSIFICATION_CANVAS_ABSOLUTE;
             }
         }
 
@@ -3787,7 +3789,7 @@ final class ScenegraphNormalizer
             if ( ! array_key_exists($dimension, $box) && isset($node[$dimension]) && is_numeric($node[$dimension]) ) {
                 $box[$dimension] = (float) $node[$dimension];
                 if ( 'x' === $dimension || 'y' === $dimension ) {
-                    $coordinateSpace = 'local';
+                    $coordinateSpaceClassification = GeometryBox::CLASSIFICATION_PARENT_LOCAL;
                 }
             }
         }
@@ -3804,13 +3806,13 @@ final class ScenegraphNormalizer
             foreach ( array('m02' => 'x', 'm12' => 'y') as $source => $target ) {
                 if ( ! array_key_exists($target, $box) && isset($node['transform'][$source]) && is_numeric($node['transform'][$source]) ) {
                     $box[$target] = (float) $node['transform'][$source];
-                    $coordinateSpace = 'local';
+                    $coordinateSpaceClassification = GeometryBox::CLASSIFICATION_PARENT_LOCAL;
                 }
             }
         }
 
-        if ( null !== $coordinateSpace ) {
-            $box['coordinate_space'] = $coordinateSpace;
+        if ( null !== $coordinateSpaceClassification ) {
+            $box['coordinate_space'] = GeometryBox::coordinateSpaceForClassification($coordinateSpaceClassification);
         }
 
         return $box;
