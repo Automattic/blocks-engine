@@ -1288,7 +1288,7 @@ final class ScenegraphNormalizer
             if ( isset($override['textData']['characters']) && is_scalar($override['textData']['characters']) ) {
                 $overrides[$nodeId]['characters'] = (string) $override['textData']['characters'];
             }
-            foreach ( array('derivedTextData', 'fontName', 'fontFamily', 'fontPostScriptName', 'fontWeight', 'fontSize', 'lineHeight', 'lineHeightPx', 'lineHeightPercent', 'letterSpacing', 'styleIdForText', 'size', 'relativeTransform', 'absoluteTransform', 'transform', 'fillPaints', 'fills', 'strokes', 'strokePaints', 'strokeWeight', 'strokeAlign', 'dashPattern', 'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight', 'borderLeftWeight', 'borderRightWeight', 'effects', 'styleIdForFill', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd', 'cornerRadius', 'rectangleTopLeftCornerRadius', 'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius', 'rectangleBottomRightCornerRadius', 'componentPropAssignments') as $field ) {
+            foreach ( array('derivedTextData', 'fontName', 'fontFamily', 'fontPostScriptName', 'fontWeight', 'fontSize', 'lineHeight', 'lineHeightPx', 'lineHeightPercent', 'letterSpacing', 'styleIdForText', 'size', 'relativeTransform', 'absoluteTransform', 'transform', 'fillPaints', 'fills', 'strokes', 'strokePaints', 'strokeWeight', 'strokeAlign', 'dashPattern', 'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight', 'borderLeftWeight', 'borderRightWeight', 'effects', 'styleIdForFill', 'styleIdForEffect', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd', 'cornerRadius', 'rectangleTopLeftCornerRadius', 'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius', 'rectangleBottomRightCornerRadius', 'componentPropAssignments') as $field ) {
                 if ( array_key_exists($field, $override) ) {
                     $overrides[$nodeId][$field] = $override[$field];
                 }
@@ -1340,7 +1340,7 @@ final class ScenegraphNormalizer
         // the definition's visibility and incorrectly emit to HTML.
         $resolved['visible'] = $instance['visible'] ?? true;
 
-        foreach ( array('box', 'figma_box', 'layout', 'figma_paints', 'figma_effects', 'figma_link', 'figma_vector_paths', 'componentProperties', 'fillPaints', 'effects', 'styleIdForFill', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd', 'strokeWeight', 'strokeAlign', 'dashPattern', 'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight', 'borderLeftWeight', 'borderRightWeight') as $key ) {
+        foreach ( array('box', 'figma_box', 'layout', 'figma_paints', 'figma_effects', 'figma_link', 'figma_vector_paths', 'componentProperties', 'fillPaints', 'effects', 'styleIdForFill', 'styleIdForEffect', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd', 'strokeWeight', 'strokeAlign', 'dashPattern', 'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight', 'borderLeftWeight', 'borderRightWeight') as $key ) {
             if ( array_key_exists($key, $instance) ) {
                 $resolved[$key] = $instance[$key];
             }
@@ -2685,6 +2685,9 @@ final class ScenegraphNormalizer
                 }
                 if ( isset($effect['blendMode']) && is_scalar($effect['blendMode']) ) {
                     $normalized['blend_mode'] = (string) $effect['blendMode'];
+                }
+                if ( array_key_exists('showShadowBehindNode', $effect) ) {
+                    $normalized['show_shadow_behind_node'] = true === $effect['showShadowBehindNode'];
                 }
                 $effects[] = $normalized;
                 continue;

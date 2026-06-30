@@ -26,6 +26,7 @@ use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiParser;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\VisualAttributionReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameClassifier;
+use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphPagePlanner;
 
 $failures = array();
@@ -7071,7 +7072,25 @@ $assert(2 === count($kiwiDecodedEffects), 'kiwi-effects-field-policy-decodes-eff
 $assert('DROP_SHADOW' === ($kiwiDecodedEffects[0]['type'] ?? null), 'kiwi-effects-decodes-drop-shadow-token');
 $assert('FOREGROUND_BLUR' === ($kiwiDecodedEffects[1]['type'] ?? null), 'kiwi-effects-decodes-foreground-blur-token');
 $assert(6 === (int) round((float) ($kiwiDecodedEffects[0]['offset']['y'] ?? 0)), 'kiwi-effects-decodes-shadow-offset');
+$assert(true === ($kiwiDecodedEffects[0]['showShadowBehindNode'] ?? null), 'kiwi-effects-decodes-show-shadow-behind-node');
 $assert(8 === (int) round((float) ($kiwiDecodedEffects[1]['radius'] ?? 0)), 'kiwi-effects-decodes-blur-radius');
+
+$kiwiEffectsNormalizer = new ScenegraphNormalizer();
+$kiwiEffectsNormalized = $kiwiEffectsNormalizer->normalize(array(
+    'name'  => 'Kiwi Effects Normalizer Fixture',
+    'nodes' => array(
+        array(
+            'id'      => 'kiwi:effects-normalized-frame',
+            'type'    => 'FRAME',
+            'name'    => 'Effects Frame',
+            'width'   => 200,
+            'height'  => 120,
+            'effects' => array($kiwiDecodedEffects[0]),
+        ),
+    ),
+));
+$kiwiEffectsNormalizedNode = $kiwiEffectsNormalized['nodes'][0] ?? array();
+$assert(true === ($kiwiEffectsNormalizedNode['figma_effects'][0]['show_shadow_behind_node'] ?? null), 'kiwi-effects-normalizes-show-shadow-behind-node');
 
 // EMIT: feed the decoded Kiwi effects verbatim through normalize -> emit and
 // assert the exact box-shadow + filter CSS reaches style.css.
@@ -9563,16 +9582,17 @@ function blocks_engine_figma_transformer_kiwi_effects_schema_fixture(): string
         . blocks_engine_figma_transformer_kiwi_schema_field('DROP_SHADOW', 0, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('FOREGROUND_BLUR', 0, false, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('BACKGROUND_BLUR', 0, false, 3)
-        // def3: STRUCT Effect { EffectType type; Color color; Vector offset; float radius; float spread; bool visible }
+        // def3: STRUCT Effect { EffectType type; Color color; Vector offset; float radius; float spread; bool visible; bool showShadowBehindNode }
         . blocks_engine_figma_transformer_kiwi_string('Effect')
         . chr(1)
-        . blocks_engine_figma_transformer_wire_varint(6)
+        . blocks_engine_figma_transformer_wire_varint(7)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', 2, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('color', 0, false, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('offset', 1, false, 3)
         . blocks_engine_figma_transformer_kiwi_schema_field('radius', -5, false, 4)
         . blocks_engine_figma_transformer_kiwi_schema_field('spread', -5, false, 5)
         . blocks_engine_figma_transformer_kiwi_schema_field('visible', -1, false, 6)
+        . blocks_engine_figma_transformer_kiwi_schema_field('showShadowBehindNode', -1, false, 7)
         // def4: MESSAGE NodeChange { type, name, effects[] }
         . blocks_engine_figma_transformer_kiwi_string('NodeChange')
         . chr(2)
@@ -9604,7 +9624,8 @@ function blocks_engine_figma_transformer_kiwi_effects_message_fixture(): string
         . blocks_engine_figma_transformer_kiwi_varfloat(6.0)   // offset.y
         . blocks_engine_figma_transformer_kiwi_varfloat(6.0)   // radius
         . blocks_engine_figma_transformer_kiwi_varfloat(0.0)   // spread
-        . chr(1);                                              // visible
+        . chr(1)                                                // visible
+        . chr(1);                                               // showShadowBehindNode
 
     $foregroundBlur = blocks_engine_figma_transformer_wire_varint(2) // EffectType FOREGROUND_BLUR
         . blocks_engine_figma_transformer_kiwi_varfloat(0.0)   // color.r
@@ -9615,7 +9636,8 @@ function blocks_engine_figma_transformer_kiwi_effects_message_fixture(): string
         . blocks_engine_figma_transformer_kiwi_varfloat(0.0)   // offset.y
         . blocks_engine_figma_transformer_kiwi_varfloat(8.0)   // radius
         . blocks_engine_figma_transformer_kiwi_varfloat(0.0)   // spread
-        . chr(1);                                              // visible
+        . chr(1)                                                // visible
+        . chr(0);                                               // showShadowBehindNode
 
     $nodeChange = blocks_engine_figma_transformer_wire_varint(1)
         . blocks_engine_figma_transformer_kiwi_string('FRAME')          // type
