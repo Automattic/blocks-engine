@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { classifySemanticStrategy } from '../theme/index.js';
 import type { WorkerPool } from '../pool/types.js';
 import type {
   AssetFile,
@@ -780,10 +781,11 @@ describe('site-to-theme P0-3 orchestration', () => {
       expect(body).not.toMatch(/<(?:header|nav|footer)(?:\s|>)/);
       expect(template).toContain('Build calmer block themes');
       expect(template).toContain('/wp-content/themes/fixture-theme/assets/img/logo.png');
+      // Under the preserve-dom default the resolvable logo renders as a native
+      // core/image block pointing at the copied theme asset (not an island).
       expect(template).toMatch(
-        /<!-- wp:html \{"metadata":\{"name":"lib-coverage-island"\}\} -->[\s\S]*<img src="\/wp-content\/themes\/fixture-theme\/assets\/img\/logo\.png" alt="Blocks Engine mark">[\s\S]*<!-- \/wp:html -->/
+        /<!-- wp:image -->\s*<figure class="wp-block-image"><img src="\/wp-content\/themes\/fixture-theme\/assets\/img\/logo\.png" alt="Blocks Engine mark"\/><\/figure>\s*<!-- \/wp:image -->/
       );
-      expect(template).not.toContain('<!-- wp:image -->');
       expect(template).not.toContain('src="assets/logo.png"');
       expectGenericQueriedContentTemplate(indexTemplate);
       expectGenericQueriedContentTemplate(pageTemplate);
@@ -971,6 +973,9 @@ describe('site-to-theme P0-3 orchestration', () => {
         sections: sectionsByPage,
         renderOptions: {
           home: {
+            // convertedSections are only consumed by the semantic classifier path;
+            // the preserve-dom default ignores them, so pin the strategy here.
+            strategy: classifySemanticStrategy,
             convertedSections: new Map([
               [0, { markup: convertedMarkup, wpHtmlResidue: 0 }],
             ]),
@@ -1018,11 +1023,15 @@ describe('site-to-theme P0-3 orchestration', () => {
       copyFixtureSite(siteDir);
       const hoistedOut = join(rootDir, 'theme-hoisted');
       const optOutOut = join(rootDir, 'theme-opt-out');
+      // convertedSections are only consumed by the semantic classifier path; the
+      // preserve-dom default ignores them, so pin the strategy per page.
       const renderOptions = {
         about: {
+          strategy: classifySemanticStrategy,
           convertedSections: new Map([[0, { markup: styledConvertedMarkup, wpHtmlResidue: 0 }]]),
         },
         home: {
+          strategy: classifySemanticStrategy,
           convertedSections: new Map([
             [0, { markup: styledConvertedMarkup, wpHtmlResidue: 0 }],
             [1, { markup: styledConvertedMarkup, wpHtmlResidue: 0 }],

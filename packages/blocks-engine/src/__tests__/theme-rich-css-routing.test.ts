@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { reconstructNativeAggregate } from '../theme/reconstruct.js';
+import { classifySemanticStrategy, reconstructNativeAggregate } from '../theme/reconstruct.js';
 import { createRichCssRoutingStrategy } from '../theme/routing-strategy.js';
 import type { SectionSpec } from '../theme/section-spec.js';
 
@@ -57,7 +57,11 @@ describe('rich-css routing strategy', () => {
     const routed = reconstructNativeAggregate([richSection()], {
       strategy: createRichCssRoutingStrategy({ carriedCss }),
     });
-    const native = reconstructNativeAggregate([richSection()]);
+    // The routing strategy's non-rich fallback is the semantic classifier, so the
+    // baseline must use that same strategy (not the preserve-dom default).
+    const native = reconstructNativeAggregate([richSection()], {
+      strategy: classifySemanticStrategy,
+    });
 
     // Not rich → identical to the native classifier output; source section classes are NOT carried.
     expect(routed.sectionMarkup).toEqual(native.sectionMarkup);

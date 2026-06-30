@@ -157,7 +157,8 @@ describe('reconstruct strategy seam default path', () => {
   it('keeps the pre-seam direct aggregate byte-identical without dedup output', () => {
     const aggregate = reconstructNativeAggregate(sections, options);
     console.info(`Strategy seam default byte-identity cases=${sections.length}`);
-    expect(aggregate.dedup).toBeUndefined();
+    // The preserve-dom default exposes an (empty) dedup channel rather than omitting it.
+    expect(aggregate.dedup).toEqual({ cssRules: [] });
     expect(frozenAggregate()).toMatchInlineSnapshot(`
       {
         "bodyText": [
@@ -168,6 +169,7 @@ describe('reconstruct strategy seam default path', () => {
         ],
         "expectedAssets": [
           "/wp-content/uploads/2026/hero.jpg",
+          "https://cdn.example.com/lossy.jpg",
         ],
         "expectedText": [
           "Cover hero",
@@ -175,52 +177,46 @@ describe('reconstruct strategy seam default path', () => {
           "Converted service",
           "Lossy fallback",
         ],
-        "heroIsCover": true,
-        "provenanceFlags": [
-          "html-to-blocks#2: converted native blocks (0 wp:html, text 100%)",
-          "static#3: image not in WP library (https://cdn.example.com/lossy.jpg) — placeholder emitted",
-        ],
+        "heroIsCover": false,
+        "provenanceFlags": [],
         "sectionMarkup": [
-          "<!-- wp:cover {"url":"/wp-content/uploads/2026/hero.jpg","dimRatio":40,"overlayColor":"surface-inverse","isUserOverlayColor":true,"minHeight":50,"minHeightUnit":"vw","align":"full","style":{"spacing":{"margin":{"top":"0px"}}},"layout":{"type":"constrained"}} -->
-      <div class="wp-block-cover alignfull" style="margin-top:0px;min-height:50vw"><img class="wp-block-cover__image-background" src="/wp-content/uploads/2026/hero.jpg" alt="Fixture image" data-object-fit="cover"/><span aria-hidden="true" class="wp-block-cover__background has-surface-inverse-background-color has-background-dim-40 has-background-dim"></span>
-      <div class="wp-block-cover__inner-container">
-      <!-- wp:heading {"textAlign":"center","level":1,"fontFamily":"display","textColor":"text-inverse"} -->
-      <h1 class="wp-block-heading has-text-align-center has-text-inverse-color has-text-color has-display-font-family">Cover hero</h1>
+          "<!-- wp:group {"anchor":"hero","tagName":"section","align":"full","className":"hero cover"} -->
+      <section id="hero" class="wp-block-group alignfull hero cover"><!-- wp:heading {"level":1} -->
+      <h1 class="wp-block-heading">Cover hero</h1>
       <!-- /wp:heading -->
-      <!-- wp:paragraph {"align":"center","textColor":"text-inverse"} -->
-      <p class="has-text-align-center has-text-inverse-color has-text-color">Hero body copy.</p>
+      <!-- wp:paragraph -->
+      <p>Hero body copy.</p>
       <!-- /wp:paragraph -->
-      </div>
-      </div>
-      <!-- /wp:cover -->",
-          "<!-- wp:group {"tagName":"section","align":"full","backgroundColor":"surface-inverse","textColor":"text-inverse","style":{"spacing":{"margin":{"top":"0","bottom":"0"},"padding":{"top":"var:preset|spacing|60","bottom":"var:preset|spacing|60","left":"var:preset|spacing|40","right":"var:preset|spacing|40"},"blockGap":"var:preset|spacing|40"}},"layout":{"type":"constrained","contentSize":"760px"}} -->
-      <section class="wp-block-group alignfull has-surface-inverse-background-color has-text-inverse-color has-text-color has-background" style="margin-top:0;margin-bottom:0;padding-top:var(--wp--preset--spacing--60);padding-right:var(--wp--preset--spacing--40);padding-bottom:var(--wp--preset--spacing--60);padding-left:var(--wp--preset--spacing--40)">
-      <!-- wp:heading {"textAlign":"center","level":1,"fontFamily":"display","textColor":"text-inverse"} -->
-      <h1 class="wp-block-heading has-text-align-center has-text-inverse-color has-text-color has-display-font-family">Native text</h1>
-      <!-- /wp:heading -->
-      <!-- wp:paragraph {"align":"center","textColor":"text-inverse"} -->
-      <p class="has-text-align-center has-text-inverse-color has-text-color">Native body copy.</p>
-      <!-- /wp:paragraph -->
-      </section>
+      <!-- wp:image -->
+      <figure class="wp-block-image"><img src="/wp-content/uploads/2026/hero.jpg" alt="Fixture image"/></figure>
+      <!-- /wp:image --></section>
       <!-- /wp:group -->",
-          "<!-- wp:heading -->
-      <h2>Converted service</h2>
+          "<!-- wp:group {"anchor":"native","tagName":"section","align":"full","className":"band text"} -->
+      <section id="native" class="wp-block-group alignfull band text"><!-- wp:heading -->
+      <h2 class="wp-block-heading">Native text</h2>
+      <!-- /wp:heading -->
+      <!-- wp:paragraph -->
+      <p>Native body copy.</p>
+      <!-- /wp:paragraph --></section>
+      <!-- /wp:group -->",
+          "<!-- wp:group {"anchor":"converted","tagName":"section","align":"full","className":"service"} -->
+      <section id="converted" class="wp-block-group alignfull service"><!-- wp:heading -->
+      <h2 class="wp-block-heading">Converted service</h2>
       <!-- /wp:heading -->
       <!-- wp:paragraph -->
       <p>Converted copy survives intact.</p>
-      <!-- /wp:paragraph -->",
-          "<!-- wp:group {"tagName":"section","align":"full","anchor":"lossy","className":"fallback","backgroundColor":"surface-inverse","textColor":"text-inverse","style":{"spacing":{"margin":{"top":"0","bottom":"0"},"padding":{"top":"var:preset|spacing|60","bottom":"var:preset|spacing|60","left":"var:preset|spacing|40","right":"var:preset|spacing|40"},"blockGap":"var:preset|spacing|40"}},"layout":{"type":"constrained","contentSize":"760px"}} -->
-      <section id="lossy" class="wp-block-group alignfull has-surface-inverse-background-color has-text-inverse-color has-text-color has-background fallback" style="margin-top:0;margin-bottom:0;padding-top:var(--wp--preset--spacing--60);padding-right:var(--wp--preset--spacing--40);padding-bottom:var(--wp--preset--spacing--60);padding-left:var(--wp--preset--spacing--40)">
-      <!-- wp:heading {"textAlign":"center","level":1,"fontFamily":"display","textColor":"text-inverse"} -->
-      <h1 class="wp-block-heading has-text-align-center has-text-inverse-color has-text-color has-display-font-family">Lossy fallback</h1>
+      <!-- /wp:paragraph --></section>
+      <!-- /wp:group -->",
+          "<!-- wp:group {"anchor":"lossy","tagName":"section","align":"full","className":"fallback"} -->
+      <section id="lossy" class="wp-block-group alignfull fallback"><!-- wp:heading -->
+      <h2 class="wp-block-heading">Lossy fallback</h2>
       <!-- /wp:heading -->
-      <!-- wp:paragraph {"align":"center","textColor":"text-inverse"} -->
-      <p class="has-text-align-center has-text-inverse-color has-text-color">Fallback body copy.</p>
+      <!-- wp:paragraph -->
+      <p>Fallback body copy.</p>
       <!-- /wp:paragraph -->
-      <!-- wp:paragraph {"align":"center","textColor":"text-subtle","fontSize":"small"} -->
-      <p class="has-text-align-center has-text-subtle-color has-text-color has-small-font-size">[image unavailable — not captured]</p>
-      <!-- /wp:paragraph -->
-      </section>
+      <!-- wp:image -->
+      <figure class="wp-block-image"><img src="https://cdn.example.com/lossy.jpg" alt="Fixture image"/></figure>
+      <!-- /wp:image --></section>
       <!-- /wp:group -->",
         ],
       }

@@ -5,10 +5,36 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { siteToTheme } from '../theme/site-to-theme.js';
+import type { SectionSpec } from '../theme/section-spec.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
+
+// A spec with no sectionHtml: preserve-dom (the default) has nothing to preserve and
+// declines, so the section falls through to the native renderer — the class-discarding
+// path this contrast pins.
+function nativeMenuSpec(): SectionSpec {
+  return {
+    sectionIndex: 0,
+    interactionModel: 'static',
+    top: 0,
+    height: 0,
+    headings: ['Our menu', 'Flat white'],
+    bodyText: ['Oat milk'],
+    buttonLabels: [],
+    images: [],
+    icons: [],
+    backgroundBrightness: 1,
+    backgroundColor: 'transparent',
+    gradient: null,
+    gradientSource: null,
+    motionProfile: { motionClass: 'none', signals: [], animatedElements: 0 },
+    dividerAbove: null,
+    dividerBelow: null,
+    layout: { containerWidth: 0, padding: '0', childLayout: 'stack', columnCount: 1, gap: '0' },
+  };
+}
 
 async function withTempDir<T>(prefix: string, fn: (dir: string) => Promise<T> | T): Promise<T> {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -62,13 +88,18 @@ describe('rich-section routing activation in siteToTheme', () => {
     });
   });
 
-  it('does NOT carry source classes when routeRichSections is explicitly off (native path)', async () => {
+  it('does NOT carry source classes on the native path (no preservable source HTML)', async () => {
     await withTempDir('blocks-engine-rich-routing-off-', async (dir) => {
       writeRichSite(dir);
       const result = await siteToTheme(dir, {
         outDir: join(dir, 'theme'),
         themeMeta: { slug: 'cafe-theme' },
         routeRichSections: false,
+        // Feed a spec with no sectionHtml so preserve-dom declines and the native
+        // renderer runs — that path discards source layout classes by design.
+        sections: {
+          home: [nativeMenuSpec()],
+        },
       });
 
       const frontPage = result.model.templates['front-page.html'] ?? '';

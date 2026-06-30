@@ -94,6 +94,13 @@ function remoteImageSpec(url: string): SectionSpec {
   };
 }
 
+// Drop sectionHtml so preserve-dom declines and the native fallback runs, emitting
+// the image-lost placeholder this no-fetch case pins.
+function withoutSectionHtml(spec: SectionSpec): SectionSpec {
+  const { sectionHtml: _omit, ...rest } = spec;
+  return rest;
+}
+
 function sectionImage(url: string): SectionSpecImage {
   return {
     url,
@@ -163,7 +170,7 @@ describe('remote image carry contract', () => {
         outDir: join(siteDir, 'theme'),
         themeMeta: { slug: 'fixture-theme' },
         sections: {
-          home: [remoteImageSpec(remoteHeroUrl)],
+          home: [withoutSectionHtml(remoteImageSpec(remoteHeroUrl))],
         },
       });
 

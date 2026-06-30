@@ -17,11 +17,14 @@ describe('splitPageChrome', () => {
   });
 
   it('falls back to the shallow role-based splitter when no semantic tags exist', () => {
+    // Note: a banner that holds a leading <nav> would now be intercepted by the
+    // nav-routing rule in the deep splitter; this case targets the role-based
+    // shallow fallback specifically, so the banner uses a non-nav child.
     const input =
-      '<div role="banner"><nav>Primary</nav></div><main><p>Body copy.</p></main><div role="contentinfo"><p>Footer copy.</p></div>';
+      '<div role="banner"><a href="/">Primary</a></div><main><p>Body copy.</p></main><div role="contentinfo"><p>Footer copy.</p></div>';
 
     expect(splitPageChrome(input)).toEqual({
-      headerHtml: '<div role="banner"><nav>Primary</nav></div>',
+      headerHtml: '<div role="banner"><a href="/">Primary</a></div>',
       mainHtml: '<main><p>Body copy.</p></main>',
       footerHtml: '<div role="contentinfo"><p>Footer copy.</p></div>',
     });

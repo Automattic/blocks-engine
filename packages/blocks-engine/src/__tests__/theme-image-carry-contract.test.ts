@@ -101,19 +101,22 @@ function imageSpec(image: SectionSpecImage): SectionSpec {
   };
 }
 
+// Drop sectionHtml so preserve-dom declines and the native fallback (the path this
+// file pins) runs. Source identity is supplied directly rather than recovered from
+// HTML, while still exercising wp-block-group stripping + dedup of carried classes.
+function withoutSectionHtml(spec: SectionSpec): SectionSpec {
+  const { sectionHtml: _omit, ...rest } = spec;
+  return rest;
+}
+
 function lossyIdentitySpec(image: SectionSpecImage): SectionSpec {
   return {
-    ...imageSpec(image),
+    ...withoutSectionHtml(imageSpec(image)),
     headings: ['Lossy source identity'],
     bodyText: ['Source CSS targeting survives.'],
-    sectionHtml: [
-      '<section id="lossy" class="fallback fallback">',
-      '<h2>Lossy source identity</h2>',
-      '<p>Source CSS targeting survives.</p>',
-      `<img src="${image.sourceUrl}" alt="${image.alt}" width="${image.width}" height="${image.height}">`,
-      '</section>',
-    ].join(''),
-  };
+    sourceId: 'lossy',
+    sourceClasses: ['fallback', 'fallback'],
+  } as SectionSpec;
 }
 
 function sectionImage(url: string): SectionSpecImage {
@@ -180,7 +183,9 @@ describe('theme local image carry contract', () => {
         outDir: join(siteDir, 'missing-theme'),
         themeMeta: { slug: 'fixture-theme' },
         sections: {
-          home: [imageSpec(sectionImage('assets/missing.png'))],
+          // No sectionHtml: preserve-dom declines, the native renderer emits the
+          // image-lost placeholder this contract pins.
+          home: [withoutSectionHtml(imageSpec(sectionImage('assets/missing.png')))],
         },
       });
       vi.stubGlobal('fetch', undefined);
@@ -188,7 +193,7 @@ describe('theme local image carry contract', () => {
         outDir: join(siteDir, 'remote-theme'),
         themeMeta: { slug: 'fixture-theme' },
         sections: {
-          home: [imageSpec(sectionImage('https://cdn.example.test/hero.png'))],
+          home: [withoutSectionHtml(imageSpec(sectionImage('https://cdn.example.test/hero.png')))],
         },
       });
 

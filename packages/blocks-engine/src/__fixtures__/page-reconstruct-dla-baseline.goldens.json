@@ -13,7 +13,7 @@
         ]
       },
       "output": {
-        "body": "<!-- wp:heading --><h2>Converted Heading</h2><!-- /wp:heading -->\n<!-- wp:paragraph --><p>Converted body copy</p><!-- /wp:paragraph -->\n",
+        "body": "<!-- wp:group {\"tagName\":\"section\",\"align\":\"full\",\"style\":{\"spacing\":{\"margin\":{\"top\":\"0\",\"bottom\":\"0\"},\"padding\":{\"top\":\"var:preset|spacing|60\",\"bottom\":\"var:preset|spacing|60\",\"left\":\"var:preset|spacing|40\",\"right\":\"var:preset|spacing|40\"},\"blockGap\":\"var:preset|spacing|40\"}},\"layout\":{\"type\":\"constrained\",\"contentSize\":\"760px\"}} -->\n<section class=\"wp-block-group alignfull\" style=\"margin-top:0;margin-bottom:0;padding-top:var(--wp--preset--spacing--60);padding-right:var(--wp--preset--spacing--40);padding-bottom:var(--wp--preset--spacing--60);padding-left:var(--wp--preset--spacing--40)\">\n<!-- wp:heading {\"textAlign\":\"center\",\"level\":1,\"fontFamily\":\"display\",\"textColor\":\"text-default\"} -->\n<h1 class=\"wp-block-heading has-text-align-center has-text-default-color has-text-color has-display-font-family\">Converted Heading</h1>\n<!-- /wp:heading -->\n<!-- wp:paragraph {\"align\":\"center\",\"textColor\":\"text-muted\"} -->\n<p class=\"has-text-align-center has-text-muted-color has-text-color\">Converted body copy</p>\n<!-- /wp:paragraph -->\n</section>\n<!-- /wp:group -->\n",
         "expectedText": [
           "Converted Heading"
         ],
@@ -21,9 +21,7 @@
           "Converted body copy"
         ],
         "expectedAssets": [],
-        "provenanceFlags": [
-          "html-to-blocks#0: converted native blocks (0 wp:html, text 100%)"
-        ],
+        "provenanceFlags": [],
         "fallbackDiagnostics": [],
         "iconAssets": [],
         "heroIsCover": false
@@ -145,15 +143,15 @@
         ]
       },
       "output": {
-        "body": "<!-- wp:heading --><h2>Coverage Heading</h2><!-- /wp:heading -->\n",
+        "body": "<!-- wp:group {\"tagName\":\"section\",\"align\":\"full\",\"style\":{\"spacing\":{\"margin\":{\"top\":\"0\",\"bottom\":\"0\"},\"padding\":{\"top\":\"var:preset|spacing|60\",\"bottom\":\"var:preset|spacing|60\",\"left\":\"var:preset|spacing|40\",\"right\":\"var:preset|spacing|40\"},\"blockGap\":\"var:preset|spacing|40\"}},\"layout\":{\"type\":\"constrained\",\"contentSize\":\"760px\"}} -->\n<section class=\"wp-block-group alignfull\" style=\"margin-top:0;margin-bottom:0;padding-top:var(--wp--preset--spacing--60);padding-right:var(--wp--preset--spacing--40);padding-bottom:var(--wp--preset--spacing--60);padding-left:var(--wp--preset--spacing--40)\">\n<!-- wp:heading {\"textAlign\":\"center\",\"level\":1,\"fontFamily\":\"display\",\"textColor\":\"text-default\"} -->\n<h1 class=\"wp-block-heading has-text-align-center has-text-default-color has-text-color has-display-font-family\">Coverage Heading</h1>\n<!-- /wp:heading -->\n<!-- wp:paragraph {\"align\":\"center\",\"textColor\":\"text-muted\"} -->\n<p class=\"has-text-align-center has-text-muted-color has-text-color\">Required body copy</p>\n<!-- /wp:paragraph -->\n</section>\n<!-- /wp:group -->\n",
         "expectedText": [
           "Coverage Heading"
         ],
-        "bodyText": [],
-        "expectedAssets": [],
-        "provenanceFlags": [
-          "html-to-blocks#0: converted native blocks (0 wp:html, text 50%)"
+        "bodyText": [
+          "Required body copy"
         ],
+        "expectedAssets": [],
+        "provenanceFlags": [],
         "fallbackDiagnostics": [],
         "iconAssets": [],
         "heroIsCover": false
@@ -634,7 +632,7 @@
         "convertedSections": []
       },
       "output": {
-        "body": "<!-- wp:group {\"tagName\":\"section\",\"align\":\"full\",\"style\":{\"spacing\":{\"margin\":{\"top\":\"0\",\"bottom\":\"0\"},\"padding\":{\"top\":\"var:preset|spacing|60\",\"bottom\":\"var:preset|spacing|60\",\"left\":\"var:preset|spacing|40\",\"right\":\"var:preset|spacing|40\"},\"blockGap\":\"var:preset|spacing|40\"}},\"layout\":{\"type\":\"constrained\",\"contentSize\":\"760px\"}} -->\n<section class=\"wp-block-group alignfull\" style=\"margin-top:0;margin-bottom:0;padding-top:var(--wp--preset--spacing--60);padding-right:var(--wp--preset--spacing--40);padding-bottom:var(--wp--preset--spacing--60);padding-left:var(--wp--preset--spacing--40)\">\n<!-- wp:heading {\"textAlign\":\"center\",\"level\":1,\"fontFamily\":\"display\",\"textColor\":\"text-default\"} -->\n<h1 class=\"wp-block-heading has-text-align-center has-text-default-color has-text-color has-display-font-family\">Food &amp; Drink</h1>\n<!-- /wp:heading -->\n<!-- wp:paragraph {\"align\":\"center\",\"textColor\":\"text-muted\"} -->\n<p class=\"has-text-align-center has-text-muted-color has-text-color\">Reservations open tonight.</p>\n<!-- /wp:paragraph -->\n</section>\n<!-- /wp:group -->\n",
+        "body": "<!-- wp:group {\"tagName\":\"section\",\"align\":\"full\"} -->\n<section class=\"wp-block-group alignfull\"><!-- wp:paragraph {\"className\":\"headline\"} -->\n<p class=\"headline\">Food &amp; Drink</p>\n<!-- /wp:paragraph -->\n<!-- wp:paragraph -->\n<p>Reservations open tonight.</p>\n<!-- /wp:paragraph --></section>\n<!-- /wp:group -->\n",
         "expectedText": [
           "Food & Drink"
         ],
@@ -699,15 +697,15 @@
         "convertedSections": []
       },
       "output": {
-        "body": "<!-- wp:group {\"tagName\":\"section\",\"align\":\"full\",\"className\":\"source-only\",\"style\":{\"spacing\":{\"margin\":{\"top\":\"0\",\"bottom\":\"0\"},\"padding\":{\"top\":\"var:preset|spacing|60\",\"bottom\":\"var:preset|spacing|60\",\"left\":\"var:preset|spacing|40\",\"right\":\"var:preset|spacing|40\"},\"blockGap\":\"var:preset|spacing|40\"}},\"layout\":{\"type\":\"constrained\",\"contentSize\":\"760px\"}} -->\n<section class=\"wp-block-group alignfull source-only\" style=\"margin-top:0;margin-bottom:0;padding-top:var(--wp--preset--spacing--60);padding-right:var(--wp--preset--spacing--40);padding-bottom:var(--wp--preset--spacing--60);padding-left:var(--wp--preset--spacing--40)\">\n<!-- wp:heading {\"textAlign\":\"center\",\"level\":1,\"fontFamily\":\"display\",\"textColor\":\"text-default\"} -->\n<h1 class=\"wp-block-heading has-text-align-center has-text-default-color has-text-color has-display-font-family\">Styled Island</h1>\n<!-- /wp:heading -->\n<!-- wp:paragraph {\"align\":\"center\",\"textColor\":\"text-subtle\",\"fontSize\":\"small\"} -->\n<p class=\"has-text-align-center has-text-subtle-color has-text-color has-small-font-size\">[image unavailable — not captured]</p>\n<!-- /wp:paragraph -->\n</section>\n<!-- /wp:group -->\n",
+        "body": "<!-- wp:group {\"tagName\":\"section\",\"align\":\"full\",\"className\":\"source-only\"} -->\n<section class=\"wp-block-group alignfull source-only\"><!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Styled Island</h2>\n<!-- /wp:heading -->\n<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"https://cdn.example.test/assets/styled-loss.jpg\" alt=\"\"/></figure>\n<!-- /wp:image --></section>\n<!-- /wp:group -->\n",
         "expectedText": [
           "Styled Island"
         ],
         "bodyText": [],
-        "expectedAssets": [],
-        "provenanceFlags": [
-          "static#0: image not in WP library (https://cdn.example.test/assets/styled-loss.jpg) — placeholder emitted"
+        "expectedAssets": [
+          "https://cdn.example.test/assets/styled-loss.jpg"
         ],
+        "provenanceFlags": [],
         "fallbackDiagnostics": [],
         "iconAssets": [],
         "heroIsCover": false
@@ -719,15 +717,15 @@
         "convertedSections": []
       },
       "output": {
-        "body": "<!-- wp:group {\"tagName\":\"section\",\"align\":\"full\",\"style\":{\"spacing\":{\"margin\":{\"top\":\"0\",\"bottom\":\"0\"},\"padding\":{\"top\":\"var:preset|spacing|60\",\"bottom\":\"var:preset|spacing|60\",\"left\":\"var:preset|spacing|40\",\"right\":\"var:preset|spacing|40\"},\"blockGap\":\"var:preset|spacing|40\"}},\"layout\":{\"type\":\"constrained\",\"contentSize\":\"760px\"}} -->\n<section class=\"wp-block-group alignfull\" style=\"margin-top:0;margin-bottom:0;padding-top:var(--wp--preset--spacing--60);padding-right:var(--wp--preset--spacing--40);padding-bottom:var(--wp--preset--spacing--60);padding-left:var(--wp--preset--spacing--40)\">\n<!-- wp:heading {\"textAlign\":\"center\",\"level\":1,\"fontFamily\":\"display\",\"textColor\":\"text-default\"} -->\n<h1 class=\"wp-block-heading has-text-align-center has-text-default-color has-text-color has-display-font-family\">Responsive Island</h1>\n<!-- /wp:heading -->\n<!-- wp:paragraph {\"align\":\"center\",\"textColor\":\"text-subtle\",\"fontSize\":\"small\"} -->\n<p class=\"has-text-align-center has-text-subtle-color has-text-color has-small-font-size\">[image unavailable — not captured]</p>\n<!-- /wp:paragraph -->\n</section>\n<!-- /wp:group -->\n",
+        "body": "<!-- wp:group {\"tagName\":\"section\",\"align\":\"full\",\"className\":\"wp-block-group is-layout-constrained\"} -->\n<section class=\"wp-block-group alignfull is-layout-constrained\"><!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Responsive Island</h2>\n<!-- /wp:heading -->\n<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"https://cdn.example.test/assets/responsive-loss.jpg\" alt=\"\"/></figure>\n<!-- /wp:image --></section>\n<!-- /wp:group -->\n",
         "expectedText": [
           "Responsive Island"
         ],
         "bodyText": [],
-        "expectedAssets": [],
-        "provenanceFlags": [
-          "static#0: image not in WP library (https://cdn.example.test/assets/responsive-loss.jpg) — placeholder emitted"
+        "expectedAssets": [
+          "https://cdn.example.test/assets/responsive-loss.jpg"
         ],
+        "provenanceFlags": [],
         "fallbackDiagnostics": [],
         "iconAssets": [],
         "heroIsCover": false
@@ -768,23 +766,15 @@
         "convertedSections": []
       },
       "output": {
-        "body": "<!-- wp:group {\"tagName\":\"section\",\"align\":\"full\",\"style\":{\"spacing\":{\"margin\":{\"top\":\"0\",\"bottom\":\"0\"},\"padding\":{\"top\":\"var:preset|spacing|60\",\"bottom\":\"var:preset|spacing|60\",\"left\":\"var:preset|spacing|40\",\"right\":\"var:preset|spacing|40\"},\"blockGap\":\"var:preset|spacing|40\"}},\"layout\":{\"type\":\"constrained\",\"contentSize\":\"760px\"}} -->\n<section class=\"wp-block-group alignfull\" style=\"margin-top:0;margin-bottom:0;padding-top:var(--wp--preset--spacing--60);padding-right:var(--wp--preset--spacing--40);padding-bottom:var(--wp--preset--spacing--60);padding-left:var(--wp--preset--spacing--40)\">\n<!-- wp:heading {\"textAlign\":\"center\",\"level\":1,\"fontFamily\":\"display\",\"textColor\":\"text-default\"} -->\n<h1 class=\"wp-block-heading has-text-align-center has-text-default-color has-text-color has-display-font-family\">Contact Island</h1>\n<!-- /wp:heading -->\n<!-- wp:paragraph {\"align\":\"center\",\"textColor\":\"text-subtle\",\"fontSize\":\"small\"} -->\n<p class=\"has-text-align-center has-text-subtle-color has-text-color has-small-font-size\">[image unavailable — not captured]</p>\n<!-- /wp:paragraph -->\n<!-- wp:jetpack/contact-form {\"style\":{\"spacing\":{\"padding\":{\"top\":\"16px\",\"right\":\"16px\",\"bottom\":\"16px\",\"left\":\"16px\"}}}} -->\n<div class=\"wp-block-jetpack-contact-form\">\n<!-- wp:jetpack/field-name {\"label\":\"Full name\",\"required\":true,\"width\":50} /-->\n<!-- wp:jetpack/field-email {\"label\":\"Email address\",\"required\":true,\"width\":50} /-->\n<!-- wp:jetpack/field-select {\"label\":\"Topic\",\"options\":[\"Billing\",\"Support\"]} /-->\n<!-- wp:jetpack/field-textarea {\"label\":\"Message\"} /-->\n<!-- wp:button {\"tagName\":\"button\",\"type\":\"submit\",\"lock\":{\"remove\":true},\"className\":\"form-button-submit is-submit\",\"metadata\":{\"name\":\"Submit button\"}} -->\n<div class=\"wp-block-button form-button-submit is-submit\"><button type=\"submit\" class=\"wp-block-button__link wp-element-button\">Send Message</button></div>\n<!-- /wp:button -->\n</div>\n<!-- /wp:jetpack/contact-form -->\n</section>\n<!-- /wp:group -->\n",
+        "body": "<!-- wp:group {\"tagName\":\"section\",\"align\":\"full\"} -->\n<section class=\"wp-block-group alignfull\"><!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Contact Island</h2>\n<!-- /wp:heading -->\n<!-- wp:html {\"metadata\":{\"name\":\"lib-coverage-island\"}} -->\n<form><input type=\"email\"></form>\n<!-- /wp:html -->\n<!-- wp:image -->\n<figure class=\"wp-block-image\"><img src=\"https://cdn.example.test/assets/form-fallback.jpg\" alt=\"\"/></figure>\n<!-- /wp:image --></section>\n<!-- /wp:group -->\n",
         "expectedText": [
-          "Contact Island",
-          "Full name",
-          "Email address",
-          "Topic",
-          "Billing",
-          "Support",
-          "Message",
-          "Send Message"
+          "Contact Island"
         ],
         "bodyText": [],
-        "expectedAssets": [],
-        "provenanceFlags": [
-          "static#0: image not in WP library (https://cdn.example.test/assets/form-fallback.jpg) — placeholder emitted",
-          "form-field-skipped#0: hidden field \"Campaign id\" has no Jetpack form equivalent"
+        "expectedAssets": [
+          "https://cdn.example.test/assets/form-fallback.jpg"
         ],
+        "provenanceFlags": [],
         "fallbackDiagnostics": [],
         "iconAssets": [],
         "heroIsCover": false
