@@ -49,7 +49,16 @@ $normalizer = new ScenegraphNormalizer();
 $normalized = $normalizer->normalize(is_array($source['scenegraph'] ?? null) ? $source['scenegraph'] : array(), $transformOptions);
 $result = blocks_engine_figma_trace_emit_result($normalized, $transformOptions);
 
-$rawNodes = blocks_engine_figma_trace_find_raw_nodes(is_array($source['scenegraph'] ?? null) ? $source['scenegraph'] : array(), $nodeIds);
+$normalizedNodes = blocks_engine_figma_trace_normalized_node_lookup($normalized);
+$traceSourceIds = array();
+foreach ( $nodeIds as $nodeId ) {
+    $normalizedNode = blocks_engine_figma_trace_normalized_node($normalized, $normalizedNodes, (string) $nodeId);
+    $sourceId = blocks_engine_figma_trace_component_source_id($normalizedNode);
+    if ( null !== $sourceId ) {
+        $traceSourceIds[] = $sourceId;
+    }
+}
+$rawNodes = blocks_engine_figma_trace_find_raw_nodes(is_array($source['scenegraph'] ?? null) ? $source['scenegraph'] : array(), array_values(array_unique(array_merge($nodeIds, $traceSourceIds))));
 $htmlReport = is_array($result['source_reports']['figma']['html'] ?? null) ? $result['source_reports']['figma']['html'] : array();
 $trace = array(
     'schema' => 'blocks-engine/figma-transformer/node-trace/v1',
@@ -68,12 +77,15 @@ $trace = array(
 
 foreach ( $nodeIds as $nodeId ) {
     $nodeId = (string) $nodeId;
+    $normalizedNode = blocks_engine_figma_trace_normalized_node($normalized, $normalizedNodes, $nodeId);
+    $sourceId = blocks_engine_figma_trace_component_source_id($normalizedNode);
     $style = blocks_engine_figma_trace_style_diagnostic($htmlReport, $nodeId);
     $className = is_array($style) ? (string) ($style['node']['class'] ?? '') : '';
     $trace['nodes'][] = array(
         'id' => $nodeId,
-        'raw' => blocks_engine_figma_trace_node_summary($rawNodes[$nodeId] ?? null, array(), $nodeId),
-        'normalized' => blocks_engine_figma_trace_node_summary($normalized['node_map'][$nodeId] ?? null, $normalized, $nodeId),
+        'raw' => blocks_engine_figma_trace_node_summary($rawNodes[$nodeId] ?? (null !== $sourceId ? ($rawNodes[$sourceId] ?? null) : null), array(), isset($rawNodes[$nodeId]['id']) && is_scalar($rawNodes[$nodeId]['id']) ? (string) $rawNodes[$nodeId]['id'] : ($sourceId ?? $nodeId)),
+        'source' => null !== $sourceId ? blocks_engine_figma_trace_node_summary($rawNodes[$sourceId] ?? ($normalizedNodes[$sourceId] ?? null), $normalized, $sourceId) : null,
+        'normalized' => blocks_engine_figma_trace_node_summary($normalizedNode, $normalized, $nodeId),
         'emitted' => array_filter(array(
             'class' => '' !== $className ? $className : null,
             'tag' => is_array($style) ? ($style['node']['tag'] ?? null) : null,
@@ -328,6 +340,66 @@ function blocks_engine_figma_trace_collect_raw_nodes(array $node, array $wanted,
     }
 }
 
+/**
+ * @return array<string, array<string, mixed>>
+ */
+function blocks_engine_figma_trace_normalized_node_lookup(array $normalized): array
+{
+    $lookup = array();
+    foreach ( is_array($normalized['node_map'] ?? null) ? $normalized['node_map'] : array() as $id => $node ) {
+        if ( is_array($node) && is_scalar($id) ) {
+            $lookup[(string) $id] = $node;
+        }
+    }
+
+    foreach ( is_array($normalized['nodes'] ?? null) ? $normalized['nodes'] : array() as $node ) {
+        if ( is_array($node) ) {
+            blocks_engine_figma_trace_collect_normalized_nodes($node, $lookup);
+        }
+    }
+
+    return $lookup;
+}
+
+/**
+ * @param array<string, array<string, mixed>> $lookup
+ */
+function blocks_engine_figma_trace_collect_normalized_nodes(array $node, array &$lookup): void
+{
+    if ( isset($node['id']) && is_scalar($node['id']) && '' !== (string) $node['id'] ) {
+        $lookup[(string) $node['id']] = $node;
+    }
+
+    foreach ( is_array($node['children'] ?? null) ? $node['children'] : array() as $child ) {
+        if ( is_array($child) ) {
+            blocks_engine_figma_trace_collect_normalized_nodes($child, $lookup);
+        }
+    }
+}
+
+/**
+ * @param array<string, array<string, mixed>> $normalizedNodes
+ * @return array<string, mixed>|null
+ */
+function blocks_engine_figma_trace_normalized_node(array $normalized, array $normalizedNodes, string $nodeId): ?array
+{
+    if ( is_array($normalizedNodes[$nodeId] ?? null) ) {
+        return $normalizedNodes[$nodeId];
+    }
+
+    return is_array($normalized['node_map'][$nodeId] ?? null) ? $normalized['node_map'][$nodeId] : null;
+}
+
+function blocks_engine_figma_trace_component_source_id(?array $node): ?string
+{
+    if ( ! is_array($node) || ! isset($node['figma_component_source_id']) || ! is_scalar($node['figma_component_source_id']) ) {
+        return null;
+    }
+
+    $sourceId = (string) $node['figma_component_source_id'];
+    return '' !== $sourceId ? $sourceId : null;
+}
+
 function blocks_engine_figma_trace_node_summary(mixed $node, array $index, string $nodeId): ?array
 {
     if ( ! is_array($node) ) {
@@ -339,6 +411,7 @@ function blocks_engine_figma_trace_node_summary(mixed $node, array $index, strin
         'id' => $nodeId,
         'name' => isset($node['name']) && is_scalar($node['name']) ? (string) $node['name'] : null,
         'type' => isset($node['type']) && is_scalar($node['type']) ? strtoupper((string) $node['type']) : null,
+        'source_id' => isset($node['figma_component_source_id']) && is_scalar($node['figma_component_source_id']) && '' !== (string) $node['figma_component_source_id'] ? (string) $node['figma_component_source_id'] : null,
         'parent_id' => is_scalar($index['parent_index'][$nodeId] ?? null) ? (string) $index['parent_index'][$nodeId] : null,
         'child_ids' => is_array($index['children_index'][$nodeId] ?? null) ? array_values($index['children_index'][$nodeId]) : array(),
         'box' => ! empty($box) ? $box : blocks_engine_figma_trace_raw_box($node),
