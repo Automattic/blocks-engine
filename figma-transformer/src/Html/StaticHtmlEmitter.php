@@ -3407,8 +3407,10 @@ final class StaticHtmlEmitter
             $styles[] = $style;
         }
 
-        foreach ( $this->strokeStyles($node) as $style ) {
-            $styles[] = $style;
+        if ( ! $this->rendersStrokeInsideInlineSvg($node, $type, $parentNode) ) {
+            foreach ( $this->strokeStyles($node) as $style ) {
+                $styles[] = $style;
+            }
         }
 
         $assetPaths = $this->nodeAssetPaths($node);
@@ -4695,6 +4697,22 @@ final class StaticHtmlEmitter
         }
 
         return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function rendersStrokeInsideInlineSvg(array $node, string $type, ?array $parentNode): bool
+    {
+        if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
+            return false;
+        }
+
+        if ( empty($this->strokeStyles($node)) ) {
+            return false;
+        }
+
+        return null !== $this->supportedVectorSvg($node, $type, $parentNode);
     }
 
     /**
