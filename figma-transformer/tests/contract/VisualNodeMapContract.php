@@ -141,6 +141,33 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $visualFlexWrapSecond, array('x' => 110.0, 'y' => 0.0, 'width' => 100.0, 'height' => 60.0), 'visual-map-flex-wrap-first-line-second-card');
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $visualFlexWrapThird, array('x' => 0.0, 'y' => 70.0, 'width' => 100.0, 'height' => 30.0), 'visual-map-flex-wrap-second-line-card');
 
+    $strokeShadowResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Stroke Shadow Fixture',
+        'nodes' => array(
+            array(
+                'id'           => 'stroke-shadow:rect',
+                'type'         => 'RECTANGLE',
+                'name'         => 'Stroke and shadow',
+                'width'        => 100,
+                'height'       => 100,
+                'strokeWeight' => 5,
+                'strokeAlign'  => 'OUTSIDE',
+                'strokePaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0.8117647059, 'b' => 0, 'a' => 1))),
+                'effects'      => array(array(
+                    'type'    => 'DROP_SHADOW',
+                    'offset'  => array('x' => 0, 'y' => 0),
+                    'radius'  => 16,
+                    'spread'  => 0,
+                    'visible' => true,
+                    'color'   => array('r' => 1, 'g' => 0.8117647059, 'b' => 0, 'a' => 0.5),
+                )),
+            ),
+        ),
+    ));
+    $strokeShadowCss = blocks_engine_figma_transformer_contract_file_content($strokeShadowResult, 'style.css');
+    $assert(str_contains($strokeShadowCss, 'box-shadow:0 0 0 5px #ffcf00,0px 0px 16px 0px rgba(255,207,0,0.5)'), 'visual-map-stroke-and-effect-box-shadows-merged');
+    $assert(1 === substr_count($strokeShadowCss, 'box-shadow:'), 'visual-map-stroke-and-effect-single-box-shadow-declaration');
+
     $visualCrossAxisFillResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Visual Cross Axis Fill Fixture',
         'nodes' => array(

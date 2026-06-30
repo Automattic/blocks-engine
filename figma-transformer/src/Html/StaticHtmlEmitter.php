@@ -3369,7 +3369,37 @@ final class StaticHtmlEmitter
             }
         }
 
-        return array_values(array_unique($styles));
+        return $this->mergeBoxShadowDeclarations(array_values(array_unique($styles)));
+    }
+
+    /**
+     * @param array<int, string> $styles
+     * @return array<int, string>
+     */
+    private function mergeBoxShadowDeclarations(array $styles): array
+    {
+        $merged = array();
+        $boxShadows = array();
+        $boxShadowIndex = null;
+
+        foreach ( $styles as $style ) {
+            if ( str_starts_with($style, 'box-shadow:') ) {
+                $boxShadows[] = substr($style, strlen('box-shadow:'));
+                if ( null === $boxShadowIndex ) {
+                    $boxShadowIndex = count($merged);
+                    $merged[] = $style;
+                }
+                continue;
+            }
+
+            $merged[] = $style;
+        }
+
+        if ( null !== $boxShadowIndex && count($boxShadows) > 1 ) {
+            $merged[$boxShadowIndex] = 'box-shadow:' . implode(',', $boxShadows);
+        }
+
+        return $merged;
     }
 
     /**
