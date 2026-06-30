@@ -149,6 +149,42 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $assert(array('x' => 110.0, 'y' => 0.0, 'width' => 100.0, 'height' => 60.0) === ($visualFlexWrapSecond['rect'] ?? null), 'visual-map-flex-wrap-first-line-second-card');
     $assert(array('x' => 0.0, 'y' => 70.0, 'width' => 100.0, 'height' => 30.0) === ($visualFlexWrapThird['rect'] ?? null), 'visual-map-flex-wrap-second-line-card');
 
+    $visualCrossAxisFillResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Visual Cross Axis Fill Fixture',
+        'nodes' => array(
+            array(
+                'id'                    => 'visual-cross-fill:row',
+                'type'                  => 'FRAME',
+                'name'                  => 'Cross axis fill row',
+                'width'                 => 300,
+                'height'                => 100,
+                'layoutMode'            => 'HORIZONTAL',
+                'primaryAxisAlignItems' => 'MIN',
+                'counterAxisAlignItems' => 'MIN',
+                'itemSpacing'           => 20,
+                'children'              => array(
+                    array(
+                        'id'                     => 'visual-cross-fill:tall',
+                        'type'                   => 'RECTANGLE',
+                        'name'                   => 'Tall fill child',
+                        'width'                  => 50,
+                        'height'                 => 100,
+                        'layoutSizingHorizontal' => 'FIXED',
+                        'layoutSizingVertical'   => 'FILL',
+                    ),
+                    array('id' => 'visual-cross-fill:next', 'type' => 'RECTANGLE', 'name' => 'Next child', 'width' => 80, 'height' => 40),
+                ),
+            ),
+        ),
+    ));
+    $visualCrossAxisFillCss = $fileContent($visualCrossAxisFillResult, 'style.css');
+    $visualCrossAxisFillTall = $findVisualNode($visualCrossAxisFillResult, 'visual-cross-fill:tall');
+    $visualCrossAxisFillNext = $findVisualNode($visualCrossAxisFillResult, 'visual-cross-fill:next');
+    $assert(str_contains($visualCrossAxisFillCss, '.figma-node-visual-cross-fill-tall-tall-fill-child{width:50px;height:100%;flex-shrink:0}'), 'visual-map-cross-axis-fill-does-not-grow-main-axis-css');
+    $assert(! str_contains($visualCrossAxisFillCss, '.figma-node-visual-cross-fill-tall-tall-fill-child{width:50px;height:100%;flex-grow:1'), 'visual-map-cross-axis-fill-no-flex-grow-css');
+    $assert(array('x' => 100.0, 'y' => 0.0, 'width' => 50.0, 'height' => 100.0) === ($visualCrossAxisFillTall['rect'] ?? null), 'visual-map-cross-axis-fill-source-width-preserved');
+    $assert(array('x' => 0.0, 'y' => 0.0, 'width' => 80.0, 'height' => 40.0) === ($visualCrossAxisFillNext['rect'] ?? null), 'visual-map-cross-axis-fill-next-child-not-pushed');
+
     $freeformTransitionResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Auto Layout Freeform Transition Fixture',
         'nodes' => array(

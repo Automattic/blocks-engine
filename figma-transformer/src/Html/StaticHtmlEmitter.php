@@ -3827,8 +3827,9 @@ final class StaticHtmlEmitter
         $styles = array();
         $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
         $isFlexChild = in_array((string) ($parentLayout['display'] ?? ''), array('flex', 'inline-flex'), true);
+        $parentMainAxisSizingKey = 'column' === ($parentLayout['flex_direction'] ?? null) ? 'sizing_vertical' : 'sizing_horizontal';
 
-        if ( 'FILL' === ($layout['sizing_horizontal'] ?? null) || 'FILL' === ($layout['sizing_vertical'] ?? null) ) {
+        if ( 'FILL' === ($layout[$parentMainAxisSizingKey] ?? null) ) {
             $styles[] = 'flex-grow:1';
             $styles[] = 'flex-shrink:1';
         } elseif ( isset($layout['grow']) && is_numeric($layout['grow']) ) {
