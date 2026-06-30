@@ -133,6 +133,11 @@ final class StyleDeclarationBuilder
 
             $effectType = (string) ($effect['type'] ?? '');
             if ( in_array($effectType, array('drop_shadow', 'inner_shadow'), true) ) {
+                if ( 'drop_shadow' === $effectType && $this->shouldEmitVectorDropShadowFilter($effect, $type) ) {
+                    $filters[] = $this->dropShadowFilterValue($effect);
+                    continue;
+                }
+
                 $shadow = $this->shadowValue($effect, 'inner_shadow' === $effectType);
                 if ( null === $shadow ) {
                     continue;
@@ -240,6 +245,36 @@ final class StyleDeclarationBuilder
             . $this->number((float) ($effect['radius'] ?? 0)) . 'px '
             . $this->number((float) ($effect['spread'] ?? 0)) . 'px '
             . $color;
+    }
+
+    /**
+     * @param array<string, mixed> $effect
+     */
+    private function shouldEmitVectorDropShadowFilter(array $effect, string $type): bool
+    {
+        if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
+            return false;
+        }
+
+        return abs((float) ($effect['spread'] ?? 0)) < 0.0001;
+    }
+
+    /**
+     * @param array<string, mixed> $effect
+     */
+    private function dropShadowFilterValue(array $effect): string
+    {
+        $color = $this->color($effect['color'] ?? null);
+        if ( null === $color ) {
+            $color = 'rgba(0,0,0,0.25)';
+        }
+
+        return 'drop-shadow('
+            . $this->number((float) ($effect['offset_x'] ?? 0)) . 'px '
+            . $this->number((float) ($effect['offset_y'] ?? 0)) . 'px '
+            . $this->number((float) ($effect['radius'] ?? 0)) . 'px '
+            . $color
+            . ')';
     }
 
     /**
