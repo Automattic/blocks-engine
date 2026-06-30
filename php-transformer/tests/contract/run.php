@@ -340,15 +340,9 @@ $assert('1,0,0' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0
 $assert('preserve_runtime_island' === ($runtimeCanvasResult['source_reports']['runtime_islands'][0]['suggested_generic_repair_class'] ?? ''), 'runtime island exposes generic repair class metadata');
 $assert($runtimeCanvasResult['source_reports']['runtime_islands'] === ($runtimeCanvasResult['source_reports']['conversion_report']['runtime_islands'] ?? array()), 'conversion report projects runtime islands');
 
-// Measurement wiring (#497): the core/html canvas fallback carries the subtree
-// classifier verdict so the corpus surfaces which raw-HTML dumps the classifier
-// believes should have been native blocks. Measurement only — block output is
-// unchanged (the canvas still falls back to a runtime island, not a block).
-$canvasFallbackClassification = $runtimeCanvasResult['fallbacks'][0]['classification'] ?? array();
-$assert('custom_application' === ($canvasFallbackClassification['bucket'] ?? ''), 'core/html canvas fallback carries subtree classifier bucket verdict');
-$assert(is_float($canvasFallbackClassification['confidence'] ?? null) && ($canvasFallbackClassification['confidence'] ?? 0.0) > 0.0, 'core/html canvas fallback carries classifier confidence');
-$assert(in_array('canvas', $canvasFallbackClassification['signals']['flags'] ?? array(), true), 'core/html canvas fallback exposes top classifier signals');
-$assert(array() === ($runtimeCanvasResult['blocks'] ?? array()), 'classifier measurement wiring leaves canvas block output unchanged');
+$assert(array() === ($runtimeCanvasResult['fallbacks'] ?? array()), 'runtime-targeted canvas preservation does not emit a fallback warning');
+$assert('core/html' === ($runtimeCanvasResult['blocks'][0]['blockName'] ?? null), 'runtime-targeted canvas is materialized as bounded raw HTML');
+$assert(str_contains((string) ($runtimeCanvasResult['serialized_blocks'] ?? ''), 'id="fixture-canvas"'), 'runtime-targeted canvas remains addressable in serialized blocks');
 
 $invalidStatus = $result;
 $invalidStatus['status'] = 'ok';
@@ -374,7 +368,7 @@ $contextual = ( new HtmlTransformer() )->transform(
         'runtime_canvas_selectors' => array('#runtime-context'),
     )
 )->toArray();
-$assert('failed' === $contextual['status'], 'strict HTML transform fails when fallbacks are disallowed', (string) $contextual['status']);
+$assert('success' === $contextual['status'], 'strict HTML transform succeeds when runtime-targeted canvas is preserved without fallbacks', (string) $contextual['status']);
 $assert(true === ($contextual['context']['strict'] ?? null), 'HTML transform context exposes strict mode');
 $assert(false === ($contextual['context']['allow_fallbacks'] ?? null), 'HTML transform context exposes fallback policy');
 $assert('fixture:contextual-html' === ($contextual['provenance'][0]['source'] ?? ''), 'HTML provenance exposes generic source metadata');
@@ -1023,30 +1017,20 @@ $canvasFallback = ( new HtmlTransformer() )->transform(
     '<main><canvas id="bonsai" class="stage" width="640" height="360">Fallback</canvas><script src="/js/script.js"></script></main>',
     array('runtime_canvas_selectors' => array('#bonsai'))
 )->toArray();
-$canvasDiagnostic = $canvasFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
-$assertNormalizedFallbackDiagnostic($canvasDiagnostic, 'html_canvas_runtime_fallback', 'warning', 'canvas_element_and_client_script_execution', 'runtime_canvas', 'runtime_island_preserved');
-$assert('runtime_island_preserved' === ($canvasDiagnostic['diagnostic_class'] ?? ''), 'canvas runtime fallback exposes preserved runtime island diagnostic class');
-$assert('preserve_runtime_island' === ($canvasDiagnostic['suggested_repair_class'] ?? ''), 'canvas runtime fallback routes to runtime island preservation');
-$assert('runtime_canvas' === ($canvasDiagnostic['pattern_family'] ?? ''), 'canvas runtime fallback exposes generic pattern family');
-$assert('preserve_runtime_island' === ($canvasDiagnostic['suggested_generic_repair_class'] ?? ''), 'canvas runtime fallback exposes generic repair class');
-$assert('canvas_requires_runtime' === ($canvasDiagnostic['reason'] ?? ''), 'canvas fallback exposes runtime-specific reason');
-$canvasTopLevelDiagnostics = array_values(array_filter($canvasFallback['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'html_canvas_runtime_fallback' === ($diagnostic['code'] ?? '')));
-$assert(1 === count($canvasTopLevelDiagnostics), 'runtime canvas fallback emits one top-level diagnostic');
-$assert('runtime_island_preserved' === ($canvasTopLevelDiagnostics[0]['loss_class'] ?? ''), 'runtime canvas top-level diagnostic preserves runtime island loss class');
-$assert('runtime_island_preserved' === ($canvasTopLevelDiagnostics[0]['diagnostic_class'] ?? ''), 'runtime canvas top-level diagnostic preserves runtime island diagnostic class');
-$assert('preserve_runtime_island' === ($canvasTopLevelDiagnostics[0]['suggested_repair_class'] ?? ''), 'runtime canvas top-level diagnostic routes to runtime island preservation');
-$assert('preserve_runtime_island' === ($canvasTopLevelDiagnostics[0]['suggested_generic_repair_class'] ?? ''), 'runtime canvas top-level diagnostic preserves generic repair class');
-$assert(($canvasDiagnostic['source_selector'] ?? '') === ($canvasTopLevelDiagnostics[0]['source_selector'] ?? ''), 'runtime canvas top-level diagnostic preserves selector metadata');
-$assert('bonsai' === ($canvasFallback['fallbacks'][0]['attributes']['id'] ?? ''), 'canvas fallback preserves id for runtime mapping');
-$assert(str_contains((string) ($canvasFallback['fallbacks'][0]['html'] ?? ''), '<canvas id="bonsai"'), 'canvas fallback preserves bounded safe canvas markup');
-$assert(str_contains((string) ($canvasDiagnostic['script_dependency_hint'] ?? ''), '#bonsai'), 'canvas diagnostic flags id-based script dependency risk');
+$canvasIsland = $canvasFallback['source_reports']['runtime_islands'][0] ?? array();
+$canvasFallbackRows = array_values(array_filter($canvasFallback['fallbacks'] ?? array(), static fn (array $fallback): bool => 'canvas_requires_runtime' === ($fallback['reason'] ?? '')));
+$assert(array() === $canvasFallbackRows, 'runtime canvas preservation does not emit canvas fallback diagnostics');
+$assert('canvas' === ($canvasIsland['kind'] ?? ''), 'runtime canvas projects as a runtime island');
+$assert('canvas_requires_runtime' === ($canvasIsland['preservation_reason'] ?? ''), 'runtime canvas island exposes preservation reason');
+$assert('runtime_canvas' === ($canvasIsland['pattern_family'] ?? ''), 'runtime canvas island exposes generic pattern family');
+$assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), 'id="bonsai"'), 'runtime canvas serialized output preserves id for runtime mapping');
 $canvasRuntimeIslands = array_values(array_filter($canvasFallback['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'canvas' === ($island['kind'] ?? '')));
 $assert(1 === count($canvasRuntimeIslands), 'runtime canvas projects as a bounded runtime island');
 $assert('#bonsai' === ($canvasRuntimeIslands[0]['selector'] ?? ''), 'runtime canvas island preserves script-addressable selector');
 $assert(str_contains((string) ($canvasRuntimeIslands[0]['source_snippet'] ?? ''), '<canvas id="bonsai"'), 'runtime canvas island preserves bounded source snippet for runtime mapping');
 $assert(1 === count($canvasRuntimeIslands[0]['required_scripts'] ?? array()), 'runtime canvas island preserves required script context');
-$assert(! str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'runtime canvas does not emit serialized core/html fallback blocks');
-$assert(! str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<canvas id="bonsai"'), 'runtime canvas does not serialize raw canvas markup into block output');
+$assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'runtime canvas emits bounded core/html preservation blocks');
+$assert(str_contains((string) ($canvasFallback['serialized_blocks'] ?? ''), '<canvas id="bonsai"'), 'runtime canvas serializes raw canvas markup into block output');
 
 $runtimePreserved = ( new HtmlTransformer() )->transform(
     '<main><canvas id="stage" aria-hidden="true"></canvas><input id="amount" value="10"><div id="app-shell">Runtime shell</div></main>',
@@ -1399,7 +1383,7 @@ $assert(true === ($canvasDependency['canvas_api'] ?? null), 'runtime dependency 
 $assert(true === ($canvasDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved canvas id target');
 $assert(null !== $stageDependency, 'runtime dependency parity records canvas class querySelector dependency');
 $assert(true === ($stageDependency['generated_present'] ?? null), 'runtime dependency parity passes preserved canvas class target');
-$assert(! str_contains($runtimeDependencyMarkup, '<canvas id="canvas" class="stage"></canvas>'), 'artifact compiler does not emit referenced canvas runtime target markup');
+$assert(str_contains($runtimeDependencyMarkup, '<canvas id="canvas" class="stage"></canvas>'), 'artifact compiler emits referenced canvas runtime target markup');
 $assert(! str_contains($runtimeDependencyMarkup, 'unused-canvas'), 'artifact compiler does not preserve unreferenced canvas markup');
 $runtimeDependencyIslands = $runtimeDependencySite['source_reports']['runtime_islands'] ?? array();
 $runtimeDependencyIslandsByKind = array();
@@ -1436,10 +1420,9 @@ $decorativeCanvasSite = $compiler->compile(
 )->toArray();
 $decorativeCanvasMarkup = (string) ($decorativeCanvasSite['serialized_blocks'] ?? '');
 $decorativeCanvasFallbacks = $decorativeCanvasSite['fallbacks'] ?? array();
-$assert(! str_contains($decorativeCanvasMarkup, '<canvas id="lab-canvas" class="stage" aria-label="Live pattern"></canvas>'), 'artifact compiler omits runtime canvas markup from serialized blocks');
+$assert(str_contains($decorativeCanvasMarkup, '<canvas id="lab-canvas" class="stage" aria-label="Live pattern"></canvas>'), 'artifact compiler emits runtime canvas markup in serialized blocks');
 $assert(! str_contains($decorativeCanvasMarkup, 'hero-canvas'), 'artifact compiler omits decorative canvas touched by script without canvas API usage');
-$assert(1 === count($decorativeCanvasFallbacks), 'artifact compiler records one runtime canvas fallback for the interactive canvas only');
-$assert('lab-canvas' === ($decorativeCanvasFallbacks[0]['attributes']['id'] ?? ''), 'runtime canvas fallback provenance points to the interactive canvas');
+$assert(array() === $decorativeCanvasFallbacks, 'artifact compiler preserves runtime canvas without fallback diagnostics');
 $assert(1 === count($decorativeCanvasSite['source_reports']['runtime_islands'] ?? array()), 'decorative canvas is not over-reported as a runtime island');
 $assert('#lab-canvas' === ($decorativeCanvasSite['source_reports']['runtime_islands'][0]['selector'] ?? ''), 'runtime island provenance points to the interactive canvas');
 $assert(str_contains((string) ($decorativeCanvasSite['source_reports']['runtime_islands'][0]['source_snippet'] ?? ''), '<canvas id="lab-canvas" class="stage" aria-label="Live pattern"></canvas>'), 'artifact compiler preserves direct canvas API target as runtime island metadata');
@@ -2164,11 +2147,9 @@ assertSame(1, $result['blocks'][0]['innerBlocks'][0]['attrs']['level'], 'h1 leve
 assertSame('core/paragraph', $result['blocks'][0]['innerBlocks'][1]['blockName'], 'p should convert to a paragraph block.');
 assertSame('core/list', $result['blocks'][1]['blockName'], 'ul should convert to a list block.');
 assertSame('core/list-item', $result['blocks'][1]['innerBlocks'][0]['blockName'], 'li should convert to list-item blocks.');
-assertSame('html', $runtimeCanvasResult['fallbacks'][0]['type'], 'runtime-targeted canvas elements should be reported as HTML runtime fallbacks.');
-assertSame('canvas_requires_runtime', $runtimeCanvasResult['fallbacks'][0]['reason'], 'runtime-targeted canvas fallbacks should expose a runtime-specific reason.');
-assertSame('html_canvas_runtime_fallback', $runtimeCanvasResult['fallbacks'][0]['diagnostic_code'], 'runtime-targeted canvas fallbacks should expose a runtime-specific diagnostic code for cross-process consumers.');
-assertSame('html', $runtimeCanvasResult['fallbacks'][0]['source_format'], 'fallbacks should expose the source format.');
-assertSame('canvas', $runtimeCanvasResult['fallbacks'][0]['tag'], 'fallback should identify the unsupported tag.');
+assertSame(array(), $runtimeCanvasResult['fallbacks'], 'runtime-targeted canvas elements should be preserved without fallback diagnostics.');
+assertSame('core/html', $runtimeCanvasResult['blocks'][0]['blockName'], 'runtime-targeted canvas elements should be materialized as bounded raw HTML.');
+$assert(str_contains((string) ($runtimeCanvasResult['serialized_blocks'] ?? ''), 'id="fixture-canvas"'), 'runtime-targeted canvas serialized output should preserve the native target.');
 assertContains('html_to_blocks_core_slice', array_column($result['diagnostics'], 'code'), 'expanded core-slice conversion diagnostic should be present.');
 assertSame('html', $result['provenance'][0]['source_format'], 'source provenance should identify HTML input.');
 assertSame(strlen($fixture . "\n<ul><li>One</li><li><strong>Two</strong></li></ul><canvas>Fallback</canvas>"), $result['metrics']['input_bytes'], 'HTML metrics should expose input bytes.');

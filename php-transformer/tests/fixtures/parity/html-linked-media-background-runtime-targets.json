@@ -26,7 +26,7 @@
     { "path": "blocks.2", "name": "core/gallery", "attrs": { "anchor": "pattern-gallery", "className": "gallery-cards" } },
     { "path": "blocks.2.innerBlocks.0", "name": "core/image", "attrs": { "url": "/assets/one.jpg", "alt": "One", "caption": "One caption", "href": "/one", "linkDestination": "custom", "srcset": "/assets/one-large.jpg 900w" } },
     { "path": "blocks.2.innerBlocks.1", "name": "core/image", "attrs": { "url": "/assets/two.jpg", "alt": "Two", "caption": "Two caption", "href": "/two", "linkDestination": "custom" } },
-    { "path": "blocks.3", "name": "core/group", "attrs": { "className": "dicon" } }
+    { "path": "blocks.3", "name": "core/html", "attrs": { "content": "<span class=\"dicon\" aria-hidden=\"true\"></span>" } }
   ],
   "expected_fallbacks": [],
   "expect": [
