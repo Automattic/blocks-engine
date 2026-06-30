@@ -7,7 +7,7 @@ declare(strict_types=1);
  */
 function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(callable $assert): void
 {
-    $normalResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    $normalResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Normal Fixture',
         'nodes' => array(
             array(
@@ -23,8 +23,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
         ),
     ));
     $normalDiagnostics = $normalResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
-    $normalSignals = $normalDiagnostics['artifact_quality']['signals'] ?? array();
-    $normalSignalCodes = array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), is_array($normalSignals) ? $normalSignals : array());
+    $normalSignalCodes = blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($normalResult);
     $assert(1 === ($normalDiagnostics['text']['decoded_text_node_count'] ?? null), 'diagnostics-evidence-normal-decoded-text-count');
     $assert(1 === ($normalDiagnostics['text']['emitted_text_node_count'] ?? null), 'diagnostics-evidence-normal-emitted-text-count');
     $assert(0 === ($normalDiagnostics['text']['missing_emitted_text_node_count'] ?? null), 'diagnostics-evidence-normal-missing-text-zero');
@@ -32,7 +31,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(! in_array('decoded_text_not_emitted', $normalSignalCodes, true), 'diagnostics-evidence-normal-no-missing-text-signal');
     $assert(! in_array('clipped_visual_area', $normalSignalCodes, true), 'diagnostics-evidence-normal-no-clipped-area-signal');
 
-    $clippedResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    $clippedResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Clipped Fixture',
         'nodes' => array(
             array(
@@ -50,14 +49,13 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
         ),
     ));
     $clippedDiagnostics = $clippedResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
-    $clippedSignals = $clippedDiagnostics['artifact_quality']['signals'] ?? array();
-    $clippedSignalCodes = array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), is_array($clippedSignals) ? $clippedSignals : array());
+    $clippedSignalCodes = blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($clippedResult);
     $assert(1 === ($clippedDiagnostics['layout']['clipped_visual_node_count'] ?? null), 'diagnostics-evidence-clipped-count');
     $assert(0.5 === ($clippedDiagnostics['layout']['clipped_visual_area_ratio'] ?? null), 'diagnostics-evidence-clipped-area-ratio');
     $assert('diag:clip-vector' === ($clippedDiagnostics['layout']['clipped_visual_nodes'][0]['node_id'] ?? null), 'diagnostics-evidence-clipped-sample-node');
     $assert(in_array('clipped_visual_area', $clippedSignalCodes, true), 'diagnostics-evidence-clipped-area-signal');
 
-    $emptyTextResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    $emptyTextResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Empty Text Fixture',
         'nodes' => array(
             array(
@@ -73,8 +71,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
         ),
     ));
     $emptyTextDiagnostics = $emptyTextResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
-    $emptyTextSignals = $emptyTextDiagnostics['artifact_quality']['signals'] ?? array();
-    $emptyTextSignalCodes = array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), is_array($emptyTextSignals) ? $emptyTextSignals : array());
+    $emptyTextSignalCodes = blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($emptyTextResult);
     $assert(1 === ($emptyTextDiagnostics['text']['empty_decoded_text_node_count'] ?? null), 'diagnostics-evidence-empty-text-count');
     $assert('diag:empty-text' === ($emptyTextDiagnostics['text']['empty_decoded_text_nodes'][0]['node_id'] ?? null), 'diagnostics-evidence-empty-text-sample-node');
     $assert('Empty Text Page' === ($emptyTextDiagnostics['text']['empty_decoded_text_nodes'][0]['page_name'] ?? null), 'diagnostics-evidence-empty-text-page-context');

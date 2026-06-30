@@ -4,12 +4,10 @@ declare(strict_types=1);
 
 /**
  * @param callable(bool, string): void $assert
- * @param callable(array<string, mixed>, string): ?array<string, mixed> $findVisualNode
- * @param callable(array<string, mixed>, string): string $fileContent
  */
-function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $assert, callable $findVisualNode, callable $fileContent): void
+function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $assert): void
 {
-    $visualFlexAlignmentResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    $visualFlexAlignmentResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Visual Flex Alignment Fixture',
         'nodes' => array(
             array(
@@ -44,9 +42,9 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
             ),
         ),
     ));
-    $visualFlexFirst = $findVisualNode($visualFlexAlignmentResult, 'visual-flex:first');
-    $visualFlexSecond = $findVisualNode($visualFlexAlignmentResult, 'visual-flex:second');
-    $visualFlexCentered = $findVisualNode($visualFlexAlignmentResult, 'visual-flex:centered');
+    $visualFlexFirst = blocks_engine_figma_transformer_contract_find_visual_node($visualFlexAlignmentResult, 'visual-flex:first');
+    $visualFlexSecond = blocks_engine_figma_transformer_contract_find_visual_node($visualFlexAlignmentResult, 'visual-flex:second');
+    $visualFlexCentered = blocks_engine_figma_transformer_contract_find_visual_node($visualFlexAlignmentResult, 'visual-flex:centered');
     $assert(330.0 === ($visualFlexFirst['rect']['x'] ?? null), 'visual-map-flex-end-first-x');
     $assert(40.0 === ($visualFlexFirst['rect']['y'] ?? null), 'visual-map-flex-center-first-y');
     $assert(450.0 === ($visualFlexSecond['rect']['x'] ?? null), 'visual-map-flex-end-second-x');
@@ -66,16 +64,10 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
             ),
         ),
     ));
-    $visualFlexCrossOverflowWide = null;
-    foreach ( $visualFlexCrossOverflowMap as $visualNode ) {
-        if ( is_array($visualNode) && 'visual-cross:wide' === ($visualNode['id'] ?? null) ) {
-            $visualFlexCrossOverflowWide = $visualNode;
-            break;
-        }
-    }
+    $visualFlexCrossOverflowWide = blocks_engine_figma_transformer_contract_find_visual_node_in_map($visualFlexCrossOverflowMap, 'visual-cross:wide');
     $assert(-40.0 === ($visualFlexCrossOverflowWide['rect']['x'] ?? null), 'visual-map-column-overflow-center-child-x');
 
-    $visualFlexOverflowResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    $visualFlexOverflowResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Visual Flex Overflow Alignment Fixture',
         'nodes' => array(
             array(
@@ -110,16 +102,16 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
             ),
         ),
     ));
-    $visualOverflowEndFirst = $findVisualNode($visualFlexOverflowResult, 'visual-overflow:end-first');
-    $visualOverflowEndSecond = $findVisualNode($visualFlexOverflowResult, 'visual-overflow:end-second');
-    $visualOverflowCenterFirst = $findVisualNode($visualFlexOverflowResult, 'visual-overflow:center-first');
-    $visualOverflowCenterSecond = $findVisualNode($visualFlexOverflowResult, 'visual-overflow:center-second');
+    $visualOverflowEndFirst = blocks_engine_figma_transformer_contract_find_visual_node($visualFlexOverflowResult, 'visual-overflow:end-first');
+    $visualOverflowEndSecond = blocks_engine_figma_transformer_contract_find_visual_node($visualFlexOverflowResult, 'visual-overflow:end-second');
+    $visualOverflowCenterFirst = blocks_engine_figma_transformer_contract_find_visual_node($visualFlexOverflowResult, 'visual-overflow:center-first');
+    $visualOverflowCenterSecond = blocks_engine_figma_transformer_contract_find_visual_node($visualFlexOverflowResult, 'visual-overflow:center-second');
     $assert(-28.0 === ($visualOverflowEndFirst['rect']['x'] ?? null), 'visual-map-overflow-flex-end-first-x');
     $assert(30.0 === ($visualOverflowEndSecond['rect']['x'] ?? null), 'visual-map-overflow-flex-end-second-x');
     $assert(-14.0 === ($visualOverflowCenterFirst['rect']['x'] ?? null), 'visual-map-overflow-center-first-x');
     $assert(44.0 === ($visualOverflowCenterSecond['rect']['x'] ?? null), 'visual-map-overflow-center-second-x');
 
-    $visualFlexWrapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    $visualFlexWrapResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Visual Flex Wrap Fixture',
         'nodes' => array(
             array(
@@ -140,16 +132,16 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
             ),
         ),
     ));
-    $visualFlexWrapCss = $fileContent($visualFlexWrapResult, 'style.css');
-    $visualFlexWrapFirst = $findVisualNode($visualFlexWrapResult, 'visual-wrap:first');
-    $visualFlexWrapSecond = $findVisualNode($visualFlexWrapResult, 'visual-wrap:second');
-    $visualFlexWrapThird = $findVisualNode($visualFlexWrapResult, 'visual-wrap:third');
+    $visualFlexWrapCss = blocks_engine_figma_transformer_contract_file_content($visualFlexWrapResult, 'style.css');
+    $visualFlexWrapFirst = blocks_engine_figma_transformer_contract_find_visual_node($visualFlexWrapResult, 'visual-wrap:first');
+    $visualFlexWrapSecond = blocks_engine_figma_transformer_contract_find_visual_node($visualFlexWrapResult, 'visual-wrap:second');
+    $visualFlexWrapThird = blocks_engine_figma_transformer_contract_find_visual_node($visualFlexWrapResult, 'visual-wrap:third');
     $assert(str_contains($visualFlexWrapCss, 'flex-wrap:wrap;align-content:flex-start'), 'visual-map-flex-wrap-align-content-packed');
-    $assert(array('x' => 0.0, 'y' => 0.0, 'width' => 100.0, 'height' => 40.0) === ($visualFlexWrapFirst['rect'] ?? null), 'visual-map-flex-wrap-first-line-first-card');
-    $assert(array('x' => 110.0, 'y' => 0.0, 'width' => 100.0, 'height' => 60.0) === ($visualFlexWrapSecond['rect'] ?? null), 'visual-map-flex-wrap-first-line-second-card');
-    $assert(array('x' => 0.0, 'y' => 70.0, 'width' => 100.0, 'height' => 30.0) === ($visualFlexWrapThird['rect'] ?? null), 'visual-map-flex-wrap-second-line-card');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $visualFlexWrapFirst, array('x' => 0.0, 'y' => 0.0, 'width' => 100.0, 'height' => 40.0), 'visual-map-flex-wrap-first-line-first-card');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $visualFlexWrapSecond, array('x' => 110.0, 'y' => 0.0, 'width' => 100.0, 'height' => 60.0), 'visual-map-flex-wrap-first-line-second-card');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $visualFlexWrapThird, array('x' => 0.0, 'y' => 70.0, 'width' => 100.0, 'height' => 30.0), 'visual-map-flex-wrap-second-line-card');
 
-    $visualCrossAxisFillResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    $visualCrossAxisFillResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Visual Cross Axis Fill Fixture',
         'nodes' => array(
             array(
@@ -177,15 +169,15 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
             ),
         ),
     ));
-    $visualCrossAxisFillCss = $fileContent($visualCrossAxisFillResult, 'style.css');
-    $visualCrossAxisFillTall = $findVisualNode($visualCrossAxisFillResult, 'visual-cross-fill:tall');
-    $visualCrossAxisFillNext = $findVisualNode($visualCrossAxisFillResult, 'visual-cross-fill:next');
+    $visualCrossAxisFillCss = blocks_engine_figma_transformer_contract_file_content($visualCrossAxisFillResult, 'style.css');
+    $visualCrossAxisFillTall = blocks_engine_figma_transformer_contract_find_visual_node($visualCrossAxisFillResult, 'visual-cross-fill:tall');
+    $visualCrossAxisFillNext = blocks_engine_figma_transformer_contract_find_visual_node($visualCrossAxisFillResult, 'visual-cross-fill:next');
     $assert(str_contains($visualCrossAxisFillCss, '.figma-node-visual-cross-fill-tall-tall-fill-child{width:50px;height:100%;flex-shrink:0}'), 'visual-map-cross-axis-fill-does-not-grow-main-axis-css');
     $assert(! str_contains($visualCrossAxisFillCss, '.figma-node-visual-cross-fill-tall-tall-fill-child{width:50px;height:100%;flex-grow:1'), 'visual-map-cross-axis-fill-no-flex-grow-css');
-    $assert(array('x' => 100.0, 'y' => 0.0, 'width' => 50.0, 'height' => 100.0) === ($visualCrossAxisFillTall['rect'] ?? null), 'visual-map-cross-axis-fill-source-width-preserved');
-    $assert(array('x' => 0.0, 'y' => 0.0, 'width' => 80.0, 'height' => 40.0) === ($visualCrossAxisFillNext['rect'] ?? null), 'visual-map-cross-axis-fill-next-child-not-pushed');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $visualCrossAxisFillTall, array('x' => 100.0, 'y' => 0.0, 'width' => 50.0, 'height' => 100.0), 'visual-map-cross-axis-fill-source-width-preserved');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $visualCrossAxisFillNext, array('x' => 0.0, 'y' => 0.0, 'width' => 80.0, 'height' => 40.0), 'visual-map-cross-axis-fill-next-child-not-pushed');
 
-    $freeformTransitionResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    $freeformTransitionResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Auto Layout Freeform Transition Fixture',
         'nodes' => array(
             array(
@@ -214,19 +206,19 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
             ),
         ),
     ));
-    $transitionCss = $fileContent($freeformTransitionResult, 'style.css');
-    $transitionFlowA = $findVisualNode($freeformTransitionResult, 'layout-transition:flow-a');
-    $transitionAbsolute = $findVisualNode($freeformTransitionResult, 'layout-transition:absolute');
-    $transitionFlowB = $findVisualNode($freeformTransitionResult, 'layout-transition:flow-b');
-    $transitionLocalCard = $findVisualNode($freeformTransitionResult, 'layout-transition:local-card');
+    $transitionCss = blocks_engine_figma_transformer_contract_file_content($freeformTransitionResult, 'style.css');
+    $transitionFlowA = blocks_engine_figma_transformer_contract_find_visual_node($freeformTransitionResult, 'layout-transition:flow-a');
+    $transitionAbsolute = blocks_engine_figma_transformer_contract_find_visual_node($freeformTransitionResult, 'layout-transition:absolute');
+    $transitionFlowB = blocks_engine_figma_transformer_contract_find_visual_node($freeformTransitionResult, 'layout-transition:flow-b');
+    $transitionLocalCard = blocks_engine_figma_transformer_contract_find_visual_node($freeformTransitionResult, 'layout-transition:local-card');
     $assert(str_contains($transitionCss, '.figma-node-layout-transition-flex-auto-layout-shell{width:360px;height:180px;position:relative;display:flex;flex-direction:row;gap:12px}'), 'visual-map-layout-transition-flex-css');
     $assert(str_contains($transitionCss, '.figma-node-layout-transition-freeform-freeform-board{width:360px;height:180px;position:relative}'), 'visual-map-layout-transition-freeform-css');
-    $assert(array('x' => 0.0, 'y' => 0.0, 'width' => 80.0, 'height' => 40.0) === ($transitionFlowA['rect'] ?? null), 'visual-map-layout-transition-flow-first-position');
-    $assert(array('x' => 92.0, 'y' => 0.0, 'width' => 60.0, 'height' => 40.0) === ($transitionFlowB['rect'] ?? null), 'visual-map-layout-transition-flow-skips-absolute-position');
-    $assert(array('x' => 250.0, 'y' => 20.0, 'width' => 40.0, 'height' => 24.0) === ($transitionAbsolute['rect'] ?? null), 'visual-map-layout-transition-absolute-position');
-    $assert(array('x' => 44.0, 'y' => 66.0, 'width' => 90.0, 'height' => 30.0) === ($transitionLocalCard['rect'] ?? null), 'visual-map-layout-transition-freeform-local-position');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $transitionFlowA, array('x' => 0.0, 'y' => 0.0, 'width' => 80.0, 'height' => 40.0), 'visual-map-layout-transition-flow-first-position');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $transitionFlowB, array('x' => 92.0, 'y' => 0.0, 'width' => 60.0, 'height' => 40.0), 'visual-map-layout-transition-flow-skips-absolute-position');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $transitionAbsolute, array('x' => 250.0, 'y' => 20.0, 'width' => 40.0, 'height' => 24.0), 'visual-map-layout-transition-absolute-position');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $transitionLocalCard, array('x' => 44.0, 'y' => 66.0, 'width' => 90.0, 'height' => 30.0), 'visual-map-layout-transition-freeform-local-position');
 
-    $nestedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(
+    $nestedInstanceResult = blocks_engine_figma_transformer_contract_transform(
         array(
             'name'  => 'Nested Instance Transform Override Fixture',
             'nodes' => array(
@@ -291,16 +283,16 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
         ),
         array('frame_id' => 'instance:page')
     );
-    $nestedInstanceHtml = $fileContent($nestedInstanceResult, 'index.html');
-    $nestedInstanceCss = $fileContent($nestedInstanceResult, 'style.css');
-    $nestedInstanceRoot = $findVisualNode($nestedInstanceResult, 'instance:button');
-    $nestedInstanceLabel = $findVisualNode($nestedInstanceResult, 'instance:button/component:button/label');
-    $nestedInstanceIconVector = $findVisualNode($nestedInstanceResult, 'instance:button/component:button/icon/component:icon/vector');
+    $nestedInstanceHtml = blocks_engine_figma_transformer_contract_file_content($nestedInstanceResult, 'index.html');
+    $nestedInstanceCss = blocks_engine_figma_transformer_contract_file_content($nestedInstanceResult, 'style.css');
+    $nestedInstanceRoot = blocks_engine_figma_transformer_contract_find_visual_node($nestedInstanceResult, 'instance:button');
+    $nestedInstanceLabel = blocks_engine_figma_transformer_contract_find_visual_node($nestedInstanceResult, 'instance:button/component:button/label');
+    $nestedInstanceIconVector = blocks_engine_figma_transformer_contract_find_visual_node($nestedInstanceResult, 'instance:button/component:button/icon/component:icon/vector');
     $assert(str_contains($nestedInstanceHtml, 'Buy now'), 'visual-map-nested-instance-text-override-emits');
     $assert(! str_contains($nestedInstanceHtml, 'Default label'), 'visual-map-nested-instance-text-override-replaces-default');
     $assert(str_contains($nestedInstanceHtml, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"'), 'visual-map-nested-instance-vector-emits');
     $assert(str_contains($nestedInstanceCss, '.figma-node-instance-button-buy-button{width:160px;height:60px;position:absolute;left:30px;top:40px}'), 'visual-map-nested-instance-transform-override-freeform-css');
-    $assert(array('x' => 30.0, 'y' => 40.0, 'width' => 160.0, 'height' => 60.0) === ($nestedInstanceRoot['rect'] ?? null), 'visual-map-nested-instance-root-position');
-    $assert(array('x' => 78.0, 'y' => 58.0, 'width' => 90.0, 'height' => 22.0) === ($nestedInstanceLabel['rect'] ?? null), 'visual-map-nested-instance-transform-override-position');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $nestedInstanceRoot, array('x' => 30.0, 'y' => 40.0, 'width' => 160.0, 'height' => 60.0), 'visual-map-nested-instance-root-position');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $nestedInstanceLabel, array('x' => 78.0, 'y' => 58.0, 'width' => 90.0, 'height' => 22.0), 'visual-map-nested-instance-transform-override-position');
     $assert(null !== $nestedInstanceIconVector, 'visual-map-nested-instance-resolves-nested-instance-vector');
 }

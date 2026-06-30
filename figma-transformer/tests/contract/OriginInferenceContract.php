@@ -4,12 +4,10 @@ declare(strict_types=1);
 
 /**
  * @param callable(bool, string): void $assert
- * @param callable(array<string, mixed>, string): string $fileContent
- * @param callable(array<string, mixed>, string): ?array<string, mixed> $findVisualNode
  */
-function blocks_engine_figma_transformer_run_origin_inference_contract(callable $assert, callable $fileContent, callable $findVisualNode): void
+function blocks_engine_figma_transformer_run_origin_inference_contract(callable $assert): void
 {
-    $decorativeOriginResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    $decorativeOriginResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Decorative Origin Candidate Fixture',
         'nodes' => array(
             array(
@@ -43,12 +41,12 @@ function blocks_engine_figma_transformer_run_origin_inference_contract(callable 
             ),
         ),
     ));
-    $decorativeOriginCss = $fileContent($decorativeOriginResult, 'style.css');
-    $decorativeOriginCopy = $findVisualNode($decorativeOriginResult, 'origin-pref:copy');
+    $decorativeOriginCss = blocks_engine_figma_transformer_contract_file_content($decorativeOriginResult, 'style.css');
+    $decorativeOriginCopy = blocks_engine_figma_transformer_contract_find_visual_node($decorativeOriginResult, 'origin-pref:copy');
     $assert(str_contains($decorativeOriginCss, '.figma-node-origin-pref-copy-headline{width:320px;height:48px;position:absolute;left:100px;top:80px'), 'origin-inference-ignores-decorative-outlier-css');
-    $assert(array('x' => 100.0, 'y' => 80.0, 'width' => 320.0, 'height' => 48.0) === ($decorativeOriginCopy['rect'] ?? null), 'origin-inference-ignores-decorative-outlier-visual-map');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $decorativeOriginCopy, array('x' => 100.0, 'y' => 80.0, 'width' => 320.0, 'height' => 48.0), 'origin-inference-ignores-decorative-outlier-visual-map');
 
-    $shapeOnlyOriginResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    $shapeOnlyOriginResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Shape Only Origin Candidate Fixture',
         'nodes' => array(
             array(
@@ -73,8 +71,8 @@ function blocks_engine_figma_transformer_run_origin_inference_contract(callable 
             ),
         ),
     ));
-    $shapeOnlyOriginCss = $fileContent($shapeOnlyOriginResult, 'style.css');
-    $shapeOnlyFirst = $findVisualNode($shapeOnlyOriginResult, 'shape-origin:first');
+    $shapeOnlyOriginCss = blocks_engine_figma_transformer_contract_file_content($shapeOnlyOriginResult, 'style.css');
+    $shapeOnlyFirst = blocks_engine_figma_transformer_contract_find_visual_node($shapeOnlyOriginResult, 'shape-origin:first');
     $assert(str_contains($shapeOnlyOriginCss, '.figma-node-shape-origin-first-first-shape{width:200px;height:160px;position:absolute;left:0px;top:0px'), 'origin-inference-shape-only-fallback-css');
-    $assert(array('x' => 0.0, 'y' => 0.0, 'width' => 200.0, 'height' => 160.0) === ($shapeOnlyFirst['rect'] ?? null), 'origin-inference-shape-only-fallback-visual-map');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $shapeOnlyFirst, array('x' => 0.0, 'y' => 0.0, 'width' => 200.0, 'height' => 160.0), 'origin-inference-shape-only-fallback-visual-map');
 }
