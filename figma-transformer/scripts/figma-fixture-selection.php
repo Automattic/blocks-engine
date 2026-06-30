@@ -18,13 +18,20 @@ function matrix_select_frame_ids(array $inspection, int $maxPages): array
         static fn (mixed $candidate): bool => is_array($candidate) && 'design_system' !== matrix_candidate_role($candidate)
     ));
 
-    // Figma Dev Mode status (#280) is the PRIMARY signal when present: restrict
-    // to ready_for_dev/completed candidates and let heuristics order them.
-    if ( 'dev_status' === matrix_selection_source($candidates) ) {
-        $candidates = array_values(array_filter(
-            $candidates,
-            static fn (mixed $candidate): bool => is_array($candidate) && null !== matrix_candidate_dev_status($candidate)
-        ));
+    $pageLikeCandidates = array_values(array_filter(
+        $candidates,
+        static fn (mixed $candidate): bool => is_array($candidate) && matrix_is_page_like_candidate($candidate)
+    ));
+
+    // Figma Dev Mode status (#280) is the PRIMARY signal only when it marks a
+    // real page-like candidate. Otherwise fall back to heuristic page selection,
+    // matching ScenegraphPagePlanner and avoiding dev-marked title/divider cards.
+    $devMarkedPageLikeCandidates = array_values(array_filter(
+        $pageLikeCandidates,
+        static fn (mixed $candidate): bool => is_array($candidate) && null !== matrix_candidate_dev_status($candidate)
+    ));
+    if ( ! empty($devMarkedPageLikeCandidates) ) {
+        $candidates = $devMarkedPageLikeCandidates;
     }
 
     usort($candidates, static fn (mixed $a, mixed $b): int => matrix_candidate_rank(is_array($b) ? $b : array()) <=> matrix_candidate_rank(is_array($a) ? $a : array()));
@@ -64,7 +71,8 @@ function matrix_select_frame_ids(array $inspection, int $maxPages): array
     }
 
     if ( empty($selected) ) {
-        foreach ( $candidates as $candidate ) {
+        $fallbackCandidates = ! empty($pageLikeCandidates) ? $pageLikeCandidates : $candidates;
+        foreach ( $fallbackCandidates as $candidate ) {
             if ( count($selected) >= $maxPages || ! is_array($candidate) ) {
                 break;
             }
@@ -328,7 +336,7 @@ function matrix_is_page_like_candidate(array $candidate): bool
         }
     }
 
-    return $width >= 900.0 && $height >= 500.0 && $textCount > 0 && in_array($parentType, array('CANVAS', 'SECTION'), true);
+    return $width >= 900.0 && $width <= 2048.0 && $height >= 700.0 && $textCount > 0 && in_array($parentType, array('CANVAS', 'SECTION'), true);
 }
 
 function matrix_is_reference_page_name(string $pageName): bool
