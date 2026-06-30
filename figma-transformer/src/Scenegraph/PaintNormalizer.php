@@ -200,14 +200,23 @@ final class PaintNormalizer
                     $normalized[$key] = (float) $paint[$key];
                 }
             }
+            if ( isset($paint['animationFrame']) && is_numeric($paint['animationFrame']) ) {
+                $normalized['animationFrame'] = (int) $paint['animationFrame'];
+            }
             if ( isset($paint['imageShouldColorManage']) && is_bool($paint['imageShouldColorManage']) ) {
                 $normalized['imageShouldColorManage'] = $paint['imageShouldColorManage'];
             }
-            foreach ( array('transform', 'imageTransform') as $transformKey ) {
+            if ( isset($paint['thumbHash']) && is_scalar($paint['thumbHash']) && '' !== (string) $paint['thumbHash'] ) {
+                $normalized['thumbHash'] = $this->normalizeByteString((string) $paint['thumbHash']);
+            }
+            foreach ( array('transform', 'imageTransform', 'cropTransform') as $transformKey ) {
                 if ( is_array($paint[$transformKey] ?? null) ) {
                     $normalized['transform'] = $paint[$transformKey];
                     break;
                 }
+            }
+            if ( is_array($paint['cropRect'] ?? null) ) {
+                $normalized['cropRect'] = $paint['cropRect'];
             }
 
             return $normalized;
@@ -320,6 +329,11 @@ final class PaintNormalizer
         }
 
         return $hash;
+    }
+
+    private function normalizeByteString(string $value): string
+    {
+        return 1 === preg_match('//u', $value) ? $value : bin2hex($value);
     }
 
     private function readGuidId(mixed $guid): ?string

@@ -613,7 +613,7 @@ function blocks_engine_figma_parser_parity_raw_asset_reference_node_ids(array $n
             continue;
         }
         $encoded = json_encode($node, JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
-        if ( is_string($encoded) && preg_match('/("asset_id"|"imageHash"|"hash"|"ref")/', $encoded) ) {
+        if ( is_string($encoded) && preg_match('/("asset_id"|"imageRef"|"imageHash"|"hash"|"ref")/', $encoded) ) {
             $ids[] = (string) $id;
         }
     }

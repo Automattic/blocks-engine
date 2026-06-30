@@ -222,7 +222,20 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
                             'guidPath'   => array('guids' => array(array('sessionID' => 700, 'localID' => 4), array('sessionID' => 700, 'localID' => 2))),
                             'fillPaints' => array(
                                 array('type' => 'IMAGE', 'imageRef' => 'default-image'),
-                                array('type' => 'IMAGE', 'imageRef' => 'override-image'),
+                                array(
+                                    'type'                   => 'IMAGE',
+                                    'imageRef'               => 'override-image',
+                                    'imageScaleMode'         => 'STRETCH',
+                                    'imageShouldColorManage' => false,
+                                    'rotation'               => 15,
+                                    'scale'                  => 2,
+                                    'animationFrame'         => 3,
+                                    'thumbHash'              => 'thumbhash-bytes',
+                                    'imageTransform'         => array(
+                                        array(0.5, 0, 0.25),
+                                        array(0, 0.5, 0.25),
+                                    ),
+                                ),
                             ),
                         ),
                     ),
@@ -235,8 +248,14 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
         ),
     ));
     $nestedImageOverrideCss = $fileContent($nestedImageOverrideResult, 'style.css');
+    $nestedImageOverrideVisualNode = blocks_engine_figma_transformer_contract_find_visual_node($nestedImageOverrideResult, 'instance:preview/700:4/700:2');
     $assert(str_contains($nestedImageOverrideCss, '.figma-node-instance-preview-700-4-700-2-image'), 'nested-image-override-emits-nested-image-node');
     $assert(str_contains($nestedImageOverrideCss, 'background-image:url("assets/override-image.bin")'), 'nested-image-override-replaces-source-image-paint');
+    $assert(true === ($nestedImageOverrideVisualNode['image']['has_transform'] ?? null), 'nested-image-override-carries-image-transform-metadata');
+    $assert(15.0 === ($nestedImageOverrideVisualNode['image']['rotation'] ?? null), 'nested-image-override-carries-image-rotation');
+    $assert(2.0 === ($nestedImageOverrideVisualNode['image']['scale'] ?? null), 'nested-image-override-carries-image-scale');
+    $assert(3 === ($nestedImageOverrideVisualNode['image']['animationFrame'] ?? null), 'nested-image-override-carries-animation-frame');
+    $assert('thumbhash-bytes' === ($nestedImageOverrideVisualNode['image']['thumbHash'] ?? null), 'nested-image-override-carries-thumb-hash');
     $assert(! str_contains($nestedImageOverrideCss, 'background-image:url("assets/override-image.bin"),url("assets/default-image.bin")'), 'nested-image-override-drops-stale-source-image-paint');
 
     $styleBackedImageOverrideResult = blocks_engine_figma_transformer_transform_scenegraph(array(
