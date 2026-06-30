@@ -1951,7 +1951,15 @@ final class ScenegraphNormalizer
             }
             foreach ( $overrideFields as $field => $value ) {
                 $hasFieldOverride = true;
+                if ( is_array($value) ) {
+                    $value = $this->normalizeInstanceOverridePaintField($child, $field, $value);
+                }
                 $child[$field] = $value;
+                if ( in_array($field, array('fills', 'fillPaints'), true) ) {
+                    unset($child['styleIdForFill']);
+                } elseif ( in_array($field, array('strokes', 'strokePaints'), true) ) {
+                    unset($child['styleIdForStrokeFill'], $child['styleIdForStroke']);
+                }
                 if ( in_array($field, array('characters', 'text'), true) && is_array($child['figma_text'] ?? null) ) {
                     $child['figma_text']['characters'] = (string) $value;
                 }
@@ -1969,6 +1977,31 @@ final class ScenegraphNormalizer
         }
 
         return $children;
+    }
+
+    /**
+     * @param array<string, mixed> $child
+     * @param array<int, mixed>    $value
+     * @return array<int, mixed>
+     */
+    private function normalizeInstanceOverridePaintField(array $child, string $field, array $value): array
+    {
+        if ( ! in_array($field, array('fills', 'fillPaints', 'strokes', 'strokePaints'), true) ) {
+            return $value;
+        }
+
+        $sourceFields = in_array($field, array('fills', 'fillPaints'), true)
+            ? array('fillPaints', 'fills')
+            : array('strokePaints', 'strokes');
+        $sourcePaints = array();
+        foreach ( $sourceFields as $sourceField ) {
+            if ( is_array($child[$sourceField] ?? null) ) {
+                $sourcePaints = $child[$sourceField];
+                break;
+            }
+        }
+
+        return $this->paintNormalizer->removeSourceImagePaintsFromOverrideList($value, $sourcePaints);
     }
 
     /**

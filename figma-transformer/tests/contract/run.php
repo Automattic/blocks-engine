@@ -5999,7 +5999,56 @@ $nestedImageOverrideResult = blocks_engine_figma_transformer_transform_scenegrap
 ));
 $nestedImageOverrideCss = $fileContent($nestedImageOverrideResult, 'style.css');
 $assert(str_contains($nestedImageOverrideCss, '.figma-node-instance-preview-700-4-700-2-image'), 'nested-image-override-emits-nested-image-node');
-$assert(str_contains($nestedImageOverrideCss, 'background-image:url("assets/override-image.bin"),url("assets/default-image.bin")'), 'nested-image-override-preserves-instance-fill-paints');
+$assert(str_contains($nestedImageOverrideCss, 'background-image:url("assets/override-image.bin")'), 'nested-image-override-replaces-source-image-paint');
+$assert(! str_contains($nestedImageOverrideCss, 'background-image:url("assets/override-image.bin"),url("assets/default-image.bin")'), 'nested-image-override-drops-stale-source-image-paint');
+
+$styleBackedImageOverrideResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Style Backed Image Override Fixture',
+    'nodes' => array(
+        array(
+            'guid'       => array('sessionID' => 701, 'localID' => 1),
+            'type'       => 'RECTANGLE',
+            'name'       => 'Image style source',
+            'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'styled-default-image')),
+        ),
+        array(
+            'guid'     => array('sessionID' => 701, 'localID' => 2),
+            'type'     => 'COMPONENT',
+            'name'     => 'Styled image component',
+            'children' => array(
+                array(
+                    'guid'           => array('sessionID' => 701, 'localID' => 3),
+                    'type'           => 'RECTANGLE',
+                    'name'           => 'Styled image',
+                    'width'          => 100,
+                    'height'         => 50,
+                    'styleIdForFill' => array('guid' => array('sessionID' => 701, 'localID' => 1)),
+                ),
+            ),
+        ),
+        array(
+            'id'         => 'instance:styled-preview',
+            'type'       => 'INSTANCE',
+            'name'       => 'Styled preview instance',
+            'symbolData' => array(
+                'symbolID' => array('sessionID' => 701, 'localID' => 2),
+                'symbolOverrides' => array(
+                    array(
+                        'guidPath'   => array('guids' => array(array('sessionID' => 701, 'localID' => 3))),
+                        'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'styled-override-image')),
+                    ),
+                ),
+            ),
+        ),
+    ),
+    'assets' => array(
+        array('id' => 'styled-default-image', 'content' => 'styled default'),
+        array('id' => 'styled-override-image', 'content' => 'styled override'),
+    ),
+));
+$styleBackedImageOverrideCss = $fileContent($styleBackedImageOverrideResult, 'style.css');
+$assert(str_contains($styleBackedImageOverrideCss, 'background-image:url("assets/styled-override-image.bin")'), 'style-backed-image-override-replaces-style-image-paint');
+$assert(! str_contains($styleBackedImageOverrideCss, 'styled-default-image.bin'), 'style-backed-image-override-drops-stale-style-image-paint');
 
 $lateNestedInstanceSourceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'        => 'Late Nested Instance Source Fixture',

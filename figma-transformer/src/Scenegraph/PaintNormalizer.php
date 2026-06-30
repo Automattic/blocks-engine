@@ -75,6 +75,51 @@ final class PaintNormalizer
         return $normalizedPaints;
     }
 
+    /**
+     * @param array<int, mixed> $overridePaints
+     * @param array<int, mixed> $sourcePaints
+     * @return array<int, mixed>
+     */
+    public function removeSourceImagePaintsFromOverrideList(array $overridePaints, array $sourcePaints): array
+    {
+        $sourceRefs = array();
+        foreach ( $sourcePaints as $paint ) {
+            $ref = is_array($paint) ? $this->readImagePaintRef($paint) : null;
+            if ( null !== $ref ) {
+                $sourceRefs[$ref] = true;
+            }
+        }
+
+        if ( empty($sourceRefs) ) {
+            return $overridePaints;
+        }
+
+        $hasReplacementImage = false;
+        foreach ( $overridePaints as $paint ) {
+            $ref = is_array($paint) ? $this->readImagePaintRef($paint) : null;
+            if ( null !== $ref && ! isset($sourceRefs[$ref]) ) {
+                $hasReplacementImage = true;
+                break;
+            }
+        }
+
+        if ( ! $hasReplacementImage ) {
+            return $overridePaints;
+        }
+
+        $filtered = array();
+        foreach ( $overridePaints as $paint ) {
+            $ref = is_array($paint) ? $this->readImagePaintRef($paint) : null;
+            if ( null !== $ref && isset($sourceRefs[$ref]) ) {
+                continue;
+            }
+
+            $filtered[] = $paint;
+        }
+
+        return $filtered;
+    }
+
     private function readStyleGuidId(mixed $style): ?string
     {
         if ( is_array($style) && isset($style['guid']) ) {
@@ -240,6 +285,28 @@ final class PaintNormalizer
         }
 
         return $this->normalizeImageHash((string) $image['hash']);
+    }
+
+    /**
+     * @param array<string, mixed> $paint
+     */
+    private function readImagePaintRef(array $paint): ?string
+    {
+        $type = strtoupper((string) ($paint['type'] ?? ''));
+        if ( '' !== $type && 'IMAGE' !== $type ) {
+            return null;
+        }
+
+        $ref = $paint['imageRef'] ?? $paint['imageHash'] ?? $paint['ref'] ?? null;
+        if ( is_scalar($ref) && '' !== (string) $ref ) {
+            return $this->normalizeImageHash((string) $ref);
+        }
+
+        if ( is_array($paint['image'] ?? null) ) {
+            return $this->readNestedImageHash($paint['image']);
+        }
+
+        return null;
     }
 
     private function normalizeImageHash(string $hash): string
