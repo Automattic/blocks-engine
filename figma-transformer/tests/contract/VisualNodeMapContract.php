@@ -52,6 +52,29 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $assert(100.0 === ($visualFlexCentered['rect']['x'] ?? null), 'visual-map-column-center-child-x');
     $assert(10.0 === ($visualFlexCentered['rect']['y'] ?? null), 'visual-map-column-padding-child-y');
 
+    $visualFlexOffCanvasResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Visual Flex Off Canvas Classification Fixture',
+        'nodes' => array(
+            array(
+                'id'                    => 'visual-flex-off-canvas:row',
+                'type'                  => 'FRAME',
+                'name'                  => 'Overflowing fixed gap row',
+                'width'                 => 200,
+                'height'                => 80,
+                'layoutMode'            => 'HORIZONTAL',
+                'primaryAxisAlignItems' => 'MIN',
+                'counterAxisAlignItems' => 'MIN',
+                'itemSpacing'           => 500,
+                'children'              => array(
+                    array('id' => 'visual-flex-off-canvas:first', 'type' => 'RECTANGLE', 'name' => 'First child', 'width' => 80, 'height' => 40),
+                    array('id' => 'visual-flex-off-canvas:second', 'type' => 'RECTANGLE', 'name' => 'Second child', 'width' => 80, 'height' => 40),
+                ),
+            ),
+        ),
+    ));
+    $visualFlexOffCanvasNodes = $visualFlexOffCanvasResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['off_canvas_visual_nodes'] ?? array();
+    $assert('flex_flow_overflow' === ($visualFlexOffCanvasNodes[0]['classification'] ?? null), 'visual-map-flex-off-canvas-classification');
+
     $visualFlexCrossOverflowMap = (new Automattic\BlocksEngine\FigmaTransformer\Html\VisualNodeMapBuilder())->build(array(
         array(
             'id'       => 'visual-cross:column',
