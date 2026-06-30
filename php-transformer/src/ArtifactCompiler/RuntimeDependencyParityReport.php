@@ -85,6 +85,10 @@ final class RuntimeDependencyParityReport
                     continue;
                 }
 
+                if ( $this->isTelemetryScriptSelfTarget($scriptKind, $scriptPath, $target) ) {
+                    continue;
+                }
+
                 $flaggedSelectors[$selector] = true;
 
                 $severity = 'telemetry' === $scriptKind ? 'info' : 'warning';
@@ -471,7 +475,7 @@ final class RuntimeDependencyParityReport
     }
 
     /**
-     * @return array<string, array{tag: string, source_path: string, id?: string, class?: string}>
+     * @return array<string, array{tag: string, source_path: string, id?: string, class?: string, src?: string}>
      */
     private function sourceTargets(string $html, string $sourcePath): array
     {
@@ -490,13 +494,14 @@ final class RuntimeDependencyParityReport
                 continue;
             }
             $tag = strtolower($element->tagName);
+            $src = 'script' === $tag && $element->hasAttribute('src') ? trim($element->getAttribute('src')) : '';
             $id = trim($element->hasAttribute('id') ? $element->getAttribute('id') : '');
             if ( '' !== $id ) {
-                $targets['#' . $id] = array('tag' => $tag, 'source_path' => $sourcePath, 'id' => $id);
+                $targets['#' . $id] = array_filter(array('tag' => $tag, 'source_path' => $sourcePath, 'id' => $id, 'src' => $src), static fn (string $value): bool => '' !== $value);
             }
             foreach ( preg_split('/\s+/', trim($element->hasAttribute('class') ? $element->getAttribute('class') : '')) ?: array() as $class ) {
                 if ( '' !== $class ) {
-                    $targets['.' . $class] = array('tag' => $tag, 'source_path' => $sourcePath, 'class' => $class);
+                    $targets['.' . $class] = array_filter(array('tag' => $tag, 'source_path' => $sourcePath, 'class' => $class, 'src' => $src), static fn (string $value): bool => '' !== $value);
                 }
             }
         }
@@ -671,6 +676,23 @@ final class RuntimeDependencyParityReport
         }
 
         return $this->dedupeDependencies($dependencies);
+    }
+
+    /**
+     * Telemetry bundles often read configuration from their own source <script>
+     * tag. SSI materializes/enqueues scripts outside block markup, so that tag id
+     * is not a visible page DOM target that block serialization must preserve.
+     *
+     * @param array<string, mixed> $target
+     */
+    private function isTelemetryScriptSelfTarget(string $scriptKind, string $scriptPath, array $target): bool
+    {
+        if ( 'telemetry' !== $scriptKind || 'script' !== ($target['tag'] ?? '') ) {
+            return false;
+        }
+
+        $src = $this->normalizeScriptPath((string) ($target['src'] ?? ''));
+        return '' !== $src && $src === $this->normalizeScriptPath($scriptPath);
     }
 
     /**
