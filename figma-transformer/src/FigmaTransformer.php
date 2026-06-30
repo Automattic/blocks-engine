@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\FigmaTransformer;
 
 use Automattic\BlocksEngine\FigmaTransformer\Contract\FigmaTransformResult;
+use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\DiagnosticAggregation;
 use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\LayoutMismatchReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\RenderStyleMismatchReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader;
@@ -1011,32 +1012,14 @@ final class FigmaTransformer
             $pages[] = array_merge($pageContext, array('transform_diagnostics' => $diagnostics));
 
             $pageImages = is_array($diagnostics['images'] ?? null) ? $diagnostics['images'] : array();
-            foreach ( array('paint_refs', 'node_refs', 'resolved_assets', 'image_block_count', 'total_node_count') as $key ) {
-                $images[$key] += (int) ($pageImages[$key] ?? 0);
-            }
-            foreach ( is_array($pageImages['image_block_nodes'] ?? null) ? $pageImages['image_block_nodes'] : array() as $item ) {
-                if ( is_array($item) ) {
-                    $images['image_block_nodes'][] = array_merge($pageContext, $item);
-                }
-            }
-            foreach ( is_array($pageImages['missing_assets'] ?? null) ? $pageImages['missing_assets'] : array() as $item ) {
-                if ( is_array($item) ) {
-                    $images['missing_assets'][] = array_merge($pageContext, $item);
-                }
-            }
+            DiagnosticAggregation::addIntegerCounts($images, $pageImages, array('paint_refs', 'node_refs', 'resolved_assets', 'image_block_count', 'total_node_count'));
+            DiagnosticAggregation::appendContextSamples($images, 'image_block_nodes', $pageImages, 'image_block_nodes', $pageContext);
+            DiagnosticAggregation::appendContextSamples($images, 'missing_assets', $pageImages, 'missing_assets', $pageContext);
 
             $pageVectors = is_array($diagnostics['vectors'] ?? null) ? $diagnostics['vectors'] : array();
-            foreach ( array('nodes', 'rendered_paths', 'rendered_asset_fallbacks', 'vector_network_decoded', 'boolean_operations_composed', 'placeholders') as $key ) {
-                $vectors[$key] += (int) ($pageVectors[$key] ?? 0);
-            }
-            foreach ( is_array($pageVectors['placeholder_nodes'] ?? null) ? $pageVectors['placeholder_nodes'] : array() as $item ) {
-                if ( is_array($item) ) {
-                    $vectors['placeholder_nodes'][] = array_merge($pageContext, $item);
-                }
-            }
-            foreach ( is_array($pageVectors['placeholder_reasons'] ?? null) ? $pageVectors['placeholder_reasons'] : array() as $reason => $count ) {
-                $vectors['placeholder_reasons'][(string) $reason] = (int) ($vectors['placeholder_reasons'][(string) $reason] ?? 0) + (int) $count;
-            }
+            DiagnosticAggregation::addIntegerCounts($vectors, $pageVectors, array('nodes', 'rendered_paths', 'rendered_asset_fallbacks', 'vector_network_decoded', 'boolean_operations_composed', 'placeholders'));
+            DiagnosticAggregation::appendContextSamples($vectors, 'placeholder_nodes', $pageVectors, 'placeholder_nodes', $pageContext);
+            DiagnosticAggregation::addCounterMap($vectors['placeholder_reasons'], is_array($pageVectors['placeholder_reasons'] ?? null) ? $pageVectors['placeholder_reasons'] : array());
 
             $pageFonts = is_array($diagnostics['fonts'] ?? null) ? $diagnostics['fonts'] : array();
             $fontFamilies = $this->mergeFontFamilies($fontFamilies, is_array($pageFonts['families'] ?? null) ? $pageFonts['families'] : array());
@@ -1045,31 +1028,11 @@ final class FigmaTransformer
             $fontMaterialized = $fontMaterialized || true === ($pageFonts['materialized'] ?? false);
 
             $pageLayout = is_array($diagnostics['layout'] ?? null) ? $diagnostics['layout'] : array();
-            $layout['large_negative_left_count'] += (int) ($pageLayout['large_negative_left_count'] ?? 0);
-            $layout['large_css_offset_count'] += (int) ($pageLayout['large_css_offset_count'] ?? 0);
-            foreach ( is_array($pageLayout['large_css_offset_nodes'] ?? null) ? $pageLayout['large_css_offset_nodes'] : array() as $item ) {
-                if ( is_array($item) ) {
-                    $layout['large_css_offset_nodes'][] = array_merge($pageContext, $item);
-                }
-            }
-            $layout['off_canvas_visual_node_count'] += (int) ($pageLayout['off_canvas_visual_node_count'] ?? 0);
-            foreach ( is_array($pageLayout['off_canvas_visual_nodes'] ?? null) ? $pageLayout['off_canvas_visual_nodes'] : array() as $item ) {
-                if ( is_array($item) ) {
-                    $layout['off_canvas_visual_nodes'][] = array_merge($pageContext, $item);
-                }
-            }
-            $layout['large_absolute_offset_count'] += (int) ($pageLayout['large_absolute_offset_count'] ?? 0);
-            foreach ( is_array($pageLayout['large_absolute_offset_nodes'] ?? null) ? $pageLayout['large_absolute_offset_nodes'] : array() as $item ) {
-                if ( is_array($item) ) {
-                    $layout['large_absolute_offset_nodes'][] = array_merge($pageContext, $item);
-                }
-            }
-            $layout['empty_visible_container_count'] += (int) ($pageLayout['empty_visible_container_count'] ?? 0);
-            foreach ( is_array($pageLayout['empty_visible_containers'] ?? null) ? $pageLayout['empty_visible_containers'] : array() as $item ) {
-                if ( is_array($item) ) {
-                    $layout['empty_visible_containers'][] = array_merge($pageContext, $item);
-                }
-            }
+            DiagnosticAggregation::addIntegerCounts($layout, $pageLayout, array('large_negative_left_count', 'large_css_offset_count', 'off_canvas_visual_node_count', 'large_absolute_offset_count', 'empty_visible_container_count'));
+            DiagnosticAggregation::appendContextSamples($layout, 'large_css_offset_nodes', $pageLayout, 'large_css_offset_nodes', $pageContext);
+            DiagnosticAggregation::appendContextSamples($layout, 'off_canvas_visual_nodes', $pageLayout, 'off_canvas_visual_nodes', $pageContext);
+            DiagnosticAggregation::appendContextSamples($layout, 'large_absolute_offset_nodes', $pageLayout, 'large_absolute_offset_nodes', $pageContext);
+            DiagnosticAggregation::appendContextSamples($layout, 'empty_visible_containers', $pageLayout, 'empty_visible_containers', $pageContext);
             $underlays = is_array($pageLayout['decorative_underlays']['nodes'] ?? null) ? $pageLayout['decorative_underlays']['nodes'] : array();
             foreach ( $underlays as $item ) {
                 if ( is_array($item) ) {
@@ -1140,9 +1103,7 @@ final class FigmaTransformer
             }
 
             $pageDiagnosticCodes = is_array($page['diagnostic_codes'] ?? null) ? $page['diagnostic_codes'] : (is_array($diagnostics['diagnostic_codes'] ?? null) ? $diagnostics['diagnostic_codes'] : array());
-            foreach ( $pageDiagnosticCodes as $code => $count ) {
-                $diagnosticCodes[(string) $code] = ($diagnosticCodes[(string) $code] ?? 0) + (int) $count;
-            }
+            DiagnosticAggregation::addCounterMap($diagnosticCodes, $pageDiagnosticCodes);
         }
 
         $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
