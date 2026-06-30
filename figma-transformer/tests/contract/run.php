@@ -1061,6 +1061,26 @@ $edgeAlignedFilledVectorHtml = $fileContent($edgeAlignedFilledVectorResult, 'ind
 $assert(str_contains($edgeAlignedFilledVectorHtml, 'viewBox="0 0 10 10"'), 'edge-aligned-filled-vector-viewbox-keeps-intrinsic-bounds');
 $assert(! str_contains($edgeAlignedFilledVectorHtml, 'viewBox="-0.5 -0.5 11 11"'), 'edge-aligned-filled-vector-no-stroke-padding');
 
+$strokedInlineVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Stroked Inline Vector Fixture',
+    'nodes' => array(
+        array(
+            'id'                 => 'vector:stroked-inline',
+            'type'               => 'VECTOR',
+            'name'               => 'Stroked Inline Icon',
+            'width'              => 16,
+            'height'             => 16,
+            'strokeWeight'       => 2,
+            'strokePaints'       => array(array('type' => 'SOLID', 'color' => array('r' => 0.1215686275, 'g' => 0.1215686275, 'b' => 0.1215686275, 'a' => 1))),
+            'figma_vector_paths' => array(array('data' => 'M4 4L12 12')),
+        ),
+    ),
+));
+$strokedInlineVectorHtml = $fileContent($strokedInlineVectorResult, 'index.html');
+$strokedInlineVectorCss = $fileContent($strokedInlineVectorResult, 'style.css');
+$assert(str_contains($strokedInlineVectorHtml, 'stroke="#1f1f1f"') && str_contains($strokedInlineVectorHtml, 'stroke-width="2"'), 'stroked-inline-vector-svg-carries-stroke');
+$assert(! str_contains($strokedInlineVectorCss, 'border:2px solid #1f1f1f'), 'stroked-inline-vector-wrapper-no-css-border');
+
 $largeDecodedPath = 'M 0 0' . str_repeat(' L 10 10', 3000) . ' Z';
 $largeDecodedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Large Decoded Vector Fixture',
