@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiDecoder;
+use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 
 function blocks_engine_figma_transformer_run_effects_contract(callable $assert, callable $fileContent): void
@@ -166,6 +167,54 @@ function blocks_engine_figma_transformer_run_effects_contract(callable $assert, 
     $assert(str_contains($clippedVectorGlowCss, '.figma-node-effects-clipped-frame-clipped-frame{width:96px;height:96px;overflow:hidden'), 'effects-vector-glow-parent-clips-content');
     $assert(str_contains($clippedVectorGlowCss, '.figma-node-effects-vector-glow-vector-glow{') && str_contains($clippedVectorGlowCss, 'filter:drop-shadow(0px 0px 16px rgba(255,207,0,0.5))'), 'effects-vector-glow-emits-alpha-drop-shadow-filter');
     $assert(! str_contains($clippedVectorGlowCss, '.figma-node-effects-vector-glow-vector-glow{width:96px;height:96px;box-shadow:'), 'effects-vector-glow-no-rectangular-box-shadow');
+
+    $componentCloneGlowResult = ( new StaticHtmlEmitter() )->emit(array(
+        'name'  => 'Component Clone Glow Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'clone:frame',
+                'type'     => 'FRAME',
+                'name'     => 'Clone frame',
+                'box'      => array('x' => 0, 'y' => 0, 'width' => 160, 'height' => 120, 'coordinate_space' => 'local'),
+                'layout'   => array('display' => 'flex', 'flex_direction' => 'column'),
+                'children' => array(
+                    array(
+                        'id'                              => 'clone:clip',
+                        'type'                            => 'FRAME',
+                        'name'                            => 'Clone clipped glow parent',
+                        'box'                             => array('x' => 32, 'y' => -16, 'width' => 96, 'height' => 96, 'coordinate_space' => 'local'),
+                        'layout'                          => array('positioning' => 'absolute', 'clips_content' => true),
+                        '_component_source_clone_geometry' => true,
+                        '_component_source_clone_source_box' => array('x' => 560, 'y' => -57, 'width' => 96, 'height' => 96),
+                        'children'                        => array(
+                            array(
+                                'id'                              => 'clone:glow',
+                                'type'                            => 'VECTOR',
+                                'name'                            => 'Clone glow vector',
+                                'box'                             => array('x' => 0, 'y' => 0, 'width' => 106, 'height' => 106, 'coordinate_space' => 'local'),
+                                'figma_paints'                    => array(array('type' => 'SOLID', 'color' => '#ffcf00', 'opacity' => 1)),
+                                'figma_vector_paths'              => array(array('data' => 'M53 0A53 53 0 1 1 52.99 0Z', 'windingRule' => 'NONZERO')),
+                                'figma_effects'                   => array(array(
+                                    'type'     => 'drop_shadow',
+                                    'offset_x' => 0,
+                                    'offset_y' => 0,
+                                    'radius'   => 16,
+                                    'spread'   => 0,
+                                    'visible'  => true,
+                                    'color'    => array('r' => 1, 'g' => 0.8117647059, 'b' => 0, 'a' => 0.5),
+                                )),
+                                '_component_source_clone_geometry' => true,
+                                '_component_source_clone_source_box' => array('x' => 560, 'y' => 0, 'width' => 106, 'height' => 106),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $componentCloneGlowCss = $fileContent($componentCloneGlowResult, 'style.css');
+    $assert(str_contains($componentCloneGlowCss, '.figma-node-clone-glow-clone-glow-vector{width:106px;height:106px;position:absolute;left:0px;top:0px;') && str_contains($componentCloneGlowCss, 'filter:drop-shadow(0px 0px 16px '), 'effects-component-clone-local-glow-keeps-local-offset');
+    $assert(! str_contains($componentCloneGlowCss, '.figma-node-clone-glow-clone-glow-vector{width:106px;height:106px;position:absolute;left:560px;top:0px'), 'effects-component-clone-local-glow-no-source-x-fallback');
 }
 
 /**
