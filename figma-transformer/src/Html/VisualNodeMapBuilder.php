@@ -9,6 +9,8 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class VisualNodeMapBuilder
 {
+    private readonly LayoutIntentClassifier $layoutIntentClassifier;
+
     /**
      * @param array<string, array<string, mixed>> $assetsById
      */
@@ -16,6 +18,7 @@ final class VisualNodeMapBuilder
         private readonly array $assetsById = array(),
         private readonly bool $renderTextGlyphPaths = false
     ) {
+        $this->layoutIntentClassifier = new LayoutIntentClassifier($assetsById);
     }
 
     /**
@@ -290,7 +293,7 @@ final class VisualNodeMapBuilder
 
     private function isClippableDecorativeVisualNode(array $node): bool
     {
-        return ! $this->treeHasText($node) && ! $this->treeHasImageReference($node) && $this->treeIsVectorShapeOnly($node);
+        return $this->layoutIntentClassifier->isClippableDecorativeVisualNode($node);
     }
 
     private function isFullyClippedDecorativeChild(array $node, array $parentNode): bool
@@ -403,253 +406,22 @@ final class VisualNodeMapBuilder
 
     private function isFreeformContainer(array $node): bool
     {
-        if ( true === ($node['layout']['freeform'] ?? false) ) {
-            return true;
-        }
-        $children = $this->nodeList($node);
-        if ( true === ($node['figma_component']['resolved'] ?? false) && ! empty($children) && empty($node['layout']['display'] ?? null) ) {
-            return true;
-        }
-        if ( empty($node['layout']['display'] ?? null) && $this->hasPositionedSourceChild($node, $children) ) {
-            return true;
-        }
-        if ( 1 !== count($children) || ! is_array($children[0]) ) {
-            return false;
-        }
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $childBox = is_array($children[0]['box'] ?? null) ? $children[0]['box'] : array();
-        if ( ! isset($box['width'], $box['height'], $childBox['width'], $childBox['height']) || ! is_numeric($box['width']) || ! is_numeric($box['height']) || ! is_numeric($childBox['width']) || ! is_numeric($childBox['height']) ) {
-            return false;
-        }
-        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        if ( ! empty($layout['display'] ?? null) ) {
-            if ( 'flex' !== ($layout['display'] ?? null) ) {
-                return false;
-            }
-            $mainAxis = 'row' === ($layout['flex_direction'] ?? null) ? 'width' : 'height';
-            return (float) $childBox[$mainAxis] > (float) $box[$mainAxis];
-        }
-
-        return (float) $childBox['width'] > (float) $box['width'] || (float) $childBox['height'] > (float) $box['height'];
-    }
-
-    private function hasPositionedSourceChild(array $node, array $children): bool
-    {
-        $type = strtoupper((string) ($node['type'] ?? ''));
-        if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'SECTION'), true) ) {
-            return false;
-        }
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        foreach ( $children as $child ) {
-            if ( ! is_array($child) ) {
-                continue;
-            }
-            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
-            $left = $this->positionOffset($childBox, $box, 'x', $node);
-            $top = $this->positionOffset($childBox, $box, 'y', $node);
-            if ( (null !== $left && abs($left) > 0.5) || (null !== $top && abs($top) > 0.5) ) {
-                return true;
-            }
-        }
-        return false;
+        return $this->layoutIntentClassifier->isFreeformContainer($node);
     }
 
     private function positionOffset(array $box, array $parentBox, string $dimension, ?array $parentNode = null): ?float
     {
-        if ( ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) ) {
-            return null;
-        }
-        if ( 'local' === ($box['coordinate_space'] ?? null) ) {
-            return (float) $box[$dimension];
-        }
-        if ( null !== $parentNode && (! isset($parentBox[$dimension]) ? $this->shouldInferMissingParentOrigin($parentBox, $parentNode, $dimension) : $this->shouldInferRootCanvasOrigin($parentBox, $parentNode, $dimension)) ) {
-            $origin = $this->inferredContainingBlockOrigin($parentNode, $dimension);
-            if ( null !== $origin ) {
-                return (float) $box[$dimension] - $origin;
-            }
-        }
-        return $this->relativeOffset($box, $parentBox, $dimension);
+        return $this->layoutIntentClassifier->positionOffset($box, $parentBox, $dimension, $parentNode);
     }
 
     private function relativeOffset(array $box, array $parentBox, string $dimension): ?float
     {
-        if ( ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) ) {
-            return null;
-        }
-        $offset = (float) $box[$dimension];
-        if ( isset($parentBox[$dimension]) && is_numeric($parentBox[$dimension]) ) {
-            $offset -= (float) $parentBox[$dimension];
-        }
-        return $offset;
-    }
-
-    private function shouldInferRootCanvasOrigin(array $parentBox, array $parentNode, string $dimension): bool
-    {
-        if ( ! isset($parentBox[$dimension]) || ! is_numeric($parentBox[$dimension]) || ! empty($parentNode['_parent_id']) ) {
-            return false;
-        }
-        $origin = $this->inferredContainingBlockOrigin($parentNode, $dimension);
-        if ( null === $origin ) {
-            return false;
-        }
-        $parentOrigin = (float) $parentBox[$dimension];
-        if ( 0.0 === $parentOrigin ) {
-            return $origin < 0.0 || $this->hasRootCanvasOriginMismatch($parentBox, $parentNode);
-        }
-        return ($origin < 0.0 && ($parentOrigin - $origin) >= 100.0) || $this->hasRootCanvasOriginMismatch($parentBox, $parentNode);
-    }
-
-    private function shouldInferMissingParentOrigin(array $parentBox, array $parentNode, string $dimension): bool
-    {
-        $origin = $this->inferredContainingBlockOrigin($parentNode, $dimension);
-        if ( null === $origin ) {
-            return false;
-        }
-        foreach ( array('x' => 'width', 'y' => 'height') as $originDimension => $sizeKey ) {
-            $origin = $this->inferredContainingBlockOrigin($parentNode, $originDimension);
-            if ( null === $origin ) {
-                continue;
-            }
-            $parentSize = isset($parentBox[$sizeKey]) && is_numeric($parentBox[$sizeKey]) ? (float) $parentBox[$sizeKey] : null;
-            if ( abs($origin) >= 1000.0 || (null !== $parentSize && $origin > $parentSize + 100.0) ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private function hasRootCanvasOriginMismatch(array $parentBox, array $parentNode): bool
-    {
-        foreach ( array('x', 'y') as $dimension ) {
-            $origin = $this->inferredContainingBlockOrigin($parentNode, $dimension);
-            if ( null === $origin || ! isset($parentBox[$dimension]) || ! is_numeric($parentBox[$dimension]) ) {
-                continue;
-            }
-            $parentOrigin = (float) $parentBox[$dimension];
-            $sizeKey = 'x' === $dimension ? 'width' : 'height';
-            $parentSize = isset($parentBox[$sizeKey]) && is_numeric($parentBox[$sizeKey]) ? (float) $parentBox[$sizeKey] : null;
-            if ( abs($origin - $parentOrigin) >= 1000.0 || (null !== $parentSize && $origin > $parentOrigin + $parentSize + 100.0) ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private function inferredContainingBlockOrigin(array $parentNode, string $dimension): ?float
-    {
-        $preferredOrigin = null;
-        $fallbackOrigin = null;
-        foreach ( $this->nodeList($parentNode) as $child ) {
-            if ( ! is_array($child) ) {
-                continue;
-            }
-            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
-            if ( 'local' === ($childBox['coordinate_space'] ?? null) || ! isset($childBox[$dimension]) || ! is_numeric($childBox[$dimension]) ) {
-                continue;
-            }
-            $value = (float) $childBox[$dimension];
-            $fallbackOrigin = null === $fallbackOrigin ? $value : min($fallbackOrigin, $value);
-            if ( $this->isContainingBlockOriginCandidate($child) ) {
-                $preferredOrigin = null === $preferredOrigin ? $value : min($preferredOrigin, $value);
-            }
-        }
-        return $preferredOrigin ?? $fallbackOrigin;
-    }
-
-    private function isContainingBlockOriginCandidate(array $node): bool
-    {
-        return $this->treeHasText($node) || $this->treeHasImageReference($node) || ! $this->treeIsVectorShapeOnly($node);
+        return $this->layoutIntentClassifier->relativeOffset($box, $parentBox, $dimension);
     }
 
     private function isDecorativeFlexUnderlay(array $node, array $parentNode): bool
     {
-        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
-        if ( ! in_array((string) ($parentLayout['display'] ?? ''), array('flex', 'inline-flex'), true) ) {
-            return false;
-        }
-        if ( 'absolute' === ($node['layout']['positioning'] ?? null) || $this->treeHasText($node) || $this->treeHasImageReference($node) ) {
-            return false;
-        }
-        if ( ! $this->treeIsVectorShapeOnly($node) || ! $this->parentHasTextOutsideNode($parentNode, $node) ) {
-            return false;
-        }
-        return $this->isOversizedAgainstParent($node, $parentNode);
-    }
-
-    private function parentHasTextOutsideNode(array $parentNode, array $node): bool
-    {
-        $nodeId = (string) ($node['id'] ?? '');
-        foreach ( $this->nodeList($parentNode) as $sibling ) {
-            if ( ! is_array($sibling) || (string) ($sibling['id'] ?? '') === $nodeId ) {
-                continue;
-            }
-            if ( $this->treeHasText($sibling) ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private function isOversizedAgainstParent(array $node, array $parentNode): bool
-    {
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-        foreach ( array('width', 'height') as $dimension ) {
-            if ( ! isset($box[$dimension], $parentBox[$dimension]) || ! is_numeric($box[$dimension]) || ! is_numeric($parentBox[$dimension]) || 0.0 >= (float) $parentBox[$dimension] ) {
-                return false;
-            }
-        }
-        if ( (float) $box['width'] < 300.0 && (float) $box['height'] < 300.0 ) {
-            return false;
-        }
-        $widthRatio = (float) $box['width'] / (float) $parentBox['width'];
-        $heightRatio = (float) $box['height'] / (float) $parentBox['height'];
-        $areaRatio = ((float) $box['width'] * (float) $box['height']) / ((float) $parentBox['width'] * (float) $parentBox['height']);
-        return 0.75 <= $widthRatio || 0.75 <= $heightRatio || 0.45 <= $areaRatio;
-    }
-
-    private function treeHasText(array $node): bool
-    {
-        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
-            return '' !== trim(strip_tags($this->textContent($node)));
-        }
-        foreach ( $this->nodeList($node) as $child ) {
-            if ( is_array($child) && $this->treeHasText($child) ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private function treeHasImageReference(array $node): bool
-    {
-        if ( null !== $this->nodeAssetPath($node) || ! empty($this->explicitNodeAssetReferences($node)) || ! empty($this->nodeImagePaints($node)) ) {
-            return true;
-        }
-        foreach ( $this->nodeList($node) as $child ) {
-            if ( is_array($child) && $this->treeHasImageReference($child) ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private function treeIsVectorShapeOnly(array $node): bool
-    {
-        $type = strtoupper((string) ($node['type'] ?? ''));
-        $children = $this->nodeList($node);
-        if ( empty($children) ) {
-            return in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON', 'RECTANGLE'), true);
-        }
-        if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'BOOLEAN_OPERATION'), true) ) {
-            return false;
-        }
-        foreach ( $children as $child ) {
-            if ( ! is_array($child) || ! $this->treeIsVectorShapeOnly($child) ) {
-                return false;
-            }
-        }
-        return true;
+        return $this->layoutIntentClassifier->isDecorativeFlexUnderlay($node, $parentNode);
     }
 
     private function firstImagePaint(array $node): ?array
