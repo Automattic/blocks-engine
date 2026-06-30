@@ -77,4 +77,35 @@ function blocks_engine_figma_transformer_run_parser_parity_contract(callable $as
     $assert(4 === ($report['coverage']['raw_to_normalized_node']['covered_count'] ?? null), 'parser-parity-raw-normalized-node-coverage');
     $assert(($report['coverage']['raw_asset_refs_to_normalized_asset_refs']['covered_count'] ?? 0) >= 1, 'parser-parity-asset-reference-coverage');
     $assert(is_array($report['top_missing_field_paths'] ?? null), 'parser-parity-missing-field-paths-present');
+
+    $figPath = SyntheticFigKiwiFixtureBuilder::figArchive(
+        SyntheticFigKiwiFixtureBuilder::canvas(array(
+            SyntheticFigKiwiFixtureBuilder::jsonZlibChunk(array(
+                'nodes' => array(
+                    array(
+                        'id'       => 'parity:fig-frame',
+                        'type'     => 'FRAME',
+                        'name'     => 'Parser Parity Fig Frame',
+                        'width'    => 320,
+                        'height'   => 180,
+                        'children' => array(),
+                    ),
+                ),
+            )),
+        )),
+        array('images/fixture.png' => str_repeat('asset-bytes', 128))
+    );
+
+    $figCommand = escapeshellarg(PHP_BINARY)
+        . ' ' . escapeshellarg(__DIR__ . '/../../scripts/figma-parser-parity.php')
+        . ' ' . escapeshellarg($figPath)
+        . ' --limit=1 --sample-limit=1';
+    $figOutput = shell_exec($figCommand);
+    @unlink($figPath);
+
+    $figReport = is_string($figOutput) ? json_decode($figOutput, true) : null;
+    $assert(is_array($figReport), 'parser-parity-fig-json-output');
+    $assert(false === ($figReport['input']['archive_options']['include_asset_content'] ?? null), 'parser-parity-fig-omits-asset-content-by-default');
+    $assert(1 === ($figReport['input']['archive_options']['max_kiwi_message_decode_bytes'] ?? null), 'parser-parity-fig-forces-selective-kiwi-decode-by-default');
+    $assert(1 === ($figReport['raw']['node_count'] ?? null), 'parser-parity-fig-raw-node-count');
 }
