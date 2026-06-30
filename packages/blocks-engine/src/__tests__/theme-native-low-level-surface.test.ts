@@ -1,12 +1,14 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
-import { brightness, nearestToken, type PaletteToken } from '../theme/native-color.js';
+import { COLOR_SNAP_GATE, brightness, nearestToken, type PaletteToken } from '../theme/native-color.js';
 import { familyMatches, nearestFamily } from '../theme/native-fonts.js';
 import {
   buttonJustify,
   centerOf,
   isDarkSection,
   isTintedSection,
+  opaqueHex,
+  opaqueLiteralBgHex,
   opaqueTintHex,
   responsiveFontSize,
   responsiveSpace,
@@ -54,6 +56,7 @@ describe('native low-level helper frozen surface', () => {
   it('freezes the helper export names and runtime availability', () => {
     expect({
       nearestToken,
+      COLOR_SNAP_GATE,
       brightness,
       familyMatches,
       nearestFamily,
@@ -63,6 +66,8 @@ describe('native low-level helper frozen surface', () => {
       centerOf,
       buttonJustify,
       isTintedSection,
+      opaqueHex,
+      opaqueLiteralBgHex,
       opaqueTintHex,
       isDarkSection,
       pickLeadImage,
@@ -89,6 +94,7 @@ describe('native low-level helper frozen surface', () => {
         Object.fromEntries(
           [
             'nearestToken',
+            'COLOR_SNAP_GATE',
             'brightness',
             'familyMatches',
             'nearestFamily',
@@ -98,6 +104,8 @@ describe('native low-level helper frozen surface', () => {
             'centerOf',
             'buttonJustify',
             'isTintedSection',
+            'opaqueHex',
+            'opaqueLiteralBgHex',
             'opaqueTintHex',
             'isDarkSection',
             'pickLeadImage',
@@ -119,7 +127,7 @@ describe('native low-level helper frozen surface', () => {
             'column',
             'columns',
             'wrapSection',
-          ].map((name) => [name, expect.any(Function)])
+          ].map((name) => [name, name === 'COLOR_SNAP_GATE' ? 24 : expect.any(Function)])
         )
       )
     );
@@ -175,7 +183,10 @@ describe('native low-level helper frozen surface', () => {
       fullBleed?: boolean;
     }>();
 
-    expectTypeOf(nearestToken).toEqualTypeOf<(hex: string, tokens: PaletteToken[]) => string | null>();
+    expectTypeOf<typeof COLOR_SNAP_GATE>().toEqualTypeOf<24>();
+    expectTypeOf(nearestToken).toEqualTypeOf<
+      (hex: string, tokens: PaletteToken[], maxDistance?: number) => string | null
+    >();
     expectTypeOf(brightness).toEqualTypeOf<(hex: string) => number>();
     expectTypeOf(familyMatches).toEqualTypeOf<(computed: string, token: FontFamilyToken) => boolean>();
     expectTypeOf(nearestFamily).toEqualTypeOf<
@@ -187,6 +198,10 @@ describe('native low-level helper frozen surface', () => {
     expectTypeOf(centerOf).toEqualTypeOf<(section: SectionSpec) => boolean>();
     expectTypeOf(buttonJustify).toEqualTypeOf<(section: SectionSpec) => 'left' | 'center'>();
     expectTypeOf(isTintedSection).toEqualTypeOf<(section: SectionSpec) => boolean>();
+    expectTypeOf(opaqueHex).toEqualTypeOf<
+      (color: string | null | undefined, opts: { rejectNearWhite: boolean }) => string | null
+    >();
+    expectTypeOf(opaqueLiteralBgHex).toEqualTypeOf<(color: string | null | undefined) => string | null>();
     expectTypeOf(opaqueTintHex).toEqualTypeOf<(color: string | null | undefined) => string | null>();
     expectTypeOf(isDarkSection).toEqualTypeOf<(section: SectionSpec) => boolean>();
     expectTypeOf(pickLeadImage).toEqualTypeOf<(images: SectionSpecImage[]) => SectionSpecImage | undefined>();
