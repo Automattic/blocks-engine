@@ -6125,6 +6125,71 @@ $componentPropInstanceSwapLabel = is_array($componentPropInstanceSwapSlot['child
 $assert('Swapped icon' === ($componentPropInstanceSwapLabel['characters'] ?? null), 'component-prop-instance-swap-replaces-default-component');
 $assert('instance:button-with-swap/component:button-with-swap/icon-slot' === ($componentPropInstanceSwapSlot['id'] ?? null), 'component-prop-instance-swap-preserves-slot-id');
 
+$nestedSymbolComponentPropNormalizer = new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer();
+$nestedSymbolComponentPropNormalized = $nestedSymbolComponentPropNormalizer->normalize(array(
+    'name'  => 'Nested Symbol Component Property Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'component:nested-label',
+            'type'     => 'COMPONENT',
+            'name'     => 'Nested label source',
+            'key'      => 'nested-label-key',
+            'children' => array(
+                array(
+                    'id'         => 'component:nested-label/text',
+                    'type'       => 'TEXT',
+                    'name'       => 'Nested label text',
+                    'characters' => 'Default nested label',
+                    'componentPropRefs' => array(
+                        array(
+                            'defID'                  => array('sessionID' => 9002, 'localID' => 10),
+                            'componentPropNodeField' => 'TEXT_DATA',
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array(
+            'id'       => 'component:nested-shell',
+            'type'     => 'COMPONENT',
+            'name'     => 'Nested shell source',
+            'key'      => 'nested-shell-key',
+            'children' => array(
+                array(
+                    'guid'        => array('sessionID' => 9002, 'localID' => 20),
+                    'type'        => 'INSTANCE',
+                    'name'        => 'Nested label slot',
+                    'componentId' => 'nested-label-key',
+                ),
+            ),
+        ),
+        array(
+            'id'         => 'instance:nested-shell',
+            'type'       => 'INSTANCE',
+            'name'       => 'Nested shell instance',
+            'componentId' => 'nested-shell-key',
+            'symbolData' => array(
+                'symbolOverrides' => array(
+                    array(
+                        'guidPath' => array('guids' => array(array('sessionID' => 9002, 'localID' => 20))),
+                        'componentPropAssignments' => array(
+                            array(
+                                'defID' => array('sessionID' => 9002, 'localID' => 10),
+                                'value' => array('textValue' => array('characters' => 'Assigned nested label')),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$nestedSymbolComponentPropInstance = $nestedSymbolComponentPropNormalized['node_map']['instance:nested-shell'] ?? array();
+$nestedSymbolComponentPropSlot = is_array($nestedSymbolComponentPropInstance['children'][0] ?? null) ? $nestedSymbolComponentPropInstance['children'][0] : array();
+$nestedSymbolComponentPropText = is_array($nestedSymbolComponentPropSlot['children'][0] ?? null) ? $nestedSymbolComponentPropSlot['children'][0] : array();
+$assert('Assigned nested label' === ($nestedSymbolComponentPropText['figma_text']['characters'] ?? null), 'nested-symbol-component-prop-assignment-applies-text');
+$assert('instance:nested-shell/9002:20/component:nested-label/text' === ($nestedSymbolComponentPropText['id'] ?? null), 'nested-symbol-component-prop-assignment-preserves-namespaced-target');
+
 $instanceCloneNormalizer = new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer();
 $instanceCloneNormalized = $instanceCloneNormalizer->normalize(array(
     'name'  => 'Instance Clone Pattern Fixture',
@@ -7300,6 +7365,7 @@ $componentPropAssignment = $componentPropNodeChange['componentPropAssignments'][
 $componentPropRef = $componentPropNodeChange['componentPropRefs'][0] ?? array();
 $assert(array('sessionID' => 9, 'localID' => 10) === ($componentPropAssignment['defID'] ?? null), 'component-prop-field-policy-carries-assignment-def-id');
 $assert('Selected label' === ($componentPropAssignment['value']['textValue']['characters'] ?? null), 'component-prop-field-policy-carries-text-value');
+$assert('Selected label via variable' === ($componentPropAssignment['varValue']['value']['textDataValue']['characters'] ?? null), 'component-prop-field-policy-carries-var-value-text-data');
 $assert(array('sessionID' => 9, 'localID' => 10) === ($componentPropRef['defID'] ?? null), 'component-prop-field-policy-carries-ref-def-id');
 $assert('TEXT_DATA' === ($componentPropRef['componentPropNodeField'] ?? null), 'component-prop-field-policy-carries-text-ref-field');
 $assert(! array_key_exists('pluginData', $componentPropNodeChange), 'component-prop-field-policy-skips-adjacent-plugin-data');
@@ -9169,7 +9235,7 @@ function blocks_engine_figma_transformer_kiwi_component_prop_schema_fixture(): s
     $str = 'blocks_engine_figma_transformer_kiwi_string';
     $varint = 'blocks_engine_figma_transformer_wire_varint';
 
-    return $varint(8)
+    return $varint(10)
         // def0: ENUM ComponentPropNodeField { TEXT_DATA = 1 }
         . $str('ComponentPropNodeField') . chr(0) . $varint(1)
         . $field('TEXT_DATA', 0, false, 1)
@@ -9183,25 +9249,34 @@ function blocks_engine_figma_transformer_kiwi_component_prop_schema_fixture(): s
         // def3: MESSAGE ComponentPropValue { textValue }
         . $str('ComponentPropValue') . chr(2) . $varint(1)
         . $field('textValue', 2, false, 2)
-        // def4: MESSAGE ComponentPropAssignment { defID, value }
-        . $str('ComponentPropAssignment') . chr(2) . $varint(2)
+        // def4: MESSAGE VariableAnyValue { textDataValue }
+        . $str('VariableAnyValue') . chr(2) . $varint(1)
+        . $field('textDataValue', 2, false, 10)
+        // def5: MESSAGE VariableData { value, dataType, resolvedDataType }
+        . $str('VariableData') . chr(2) . $varint(3)
+        . $field('value', 4, false, 1)
+        . $field('dataType', -6, false, 2)
+        . $field('resolvedDataType', -6, false, 3)
+        // def6: MESSAGE ComponentPropAssignment { defID, value, varValue }
+        . $str('ComponentPropAssignment') . chr(2) . $varint(3)
         . $field('defID', 1, false, 1)
         . $field('value', 3, false, 2)
-        // def5: MESSAGE ComponentPropRef { defID, componentPropNodeField }
+        . $field('varValue', 5, false, 3)
+        // def7: MESSAGE ComponentPropRef { defID, componentPropNodeField }
         . $str('ComponentPropRef') . chr(2) . $varint(2)
         . $field('defID', 1, false, 2)
         . $field('componentPropNodeField', 0, false, 4)
-        // def6: MESSAGE NodeChange { type, name, componentPropAssignments[], componentPropRefs[], pluginData }
+        // def8: MESSAGE NodeChange { type, name, componentPropAssignments[], componentPropRefs[], pluginData }
         . $str('NodeChange') . chr(2) . $varint(5)
         . $field('type', -6, false, 1)
         . $field('name', -6, false, 2)
-        . $field('componentPropAssignments', 4, true, 3)
-        . $field('componentPropRefs', 5, true, 4)
+        . $field('componentPropAssignments', 6, true, 3)
+        . $field('componentPropRefs', 7, true, 4)
         . $field('pluginData', -2, true, 5)
-        // def7: MESSAGE Message { type, nodeChanges[] }
+        // def9: MESSAGE Message { type, nodeChanges[] }
         . $str('Message') . chr(2) . $varint(2)
         . $field('type', -6, false, 1)
-        . $field('nodeChanges', 6, true, 2);
+        . $field('nodeChanges', 8, true, 2);
 }
 
 /**
@@ -9215,8 +9290,15 @@ function blocks_engine_figma_transformer_kiwi_component_prop_message_fixture(): 
     $defId = $v(9) . $v(10); // GUID struct body; structs carry no terminator.
     $textData = $v(1) . $str('Selected label') . $v(0);
     $value = $v(2) . $textData . $v(0);
+    $varTextData = $v(1) . $str('Selected label via variable') . $v(0);
+    $varAnyValue = $v(10) . $varTextData . $v(0);
+    $varValue = $v(1) . $varAnyValue
+        . $v(2) . $str('TEXT')
+        . $v(3) . $str('TEXT')
+        . $v(0);
     $assignment = $v(1) . $defId
         . $v(2) . $value
+        . $v(3) . $varValue
         . $v(0);
     $ref = $v(2) . $defId
         . $v(4) . $v(1)

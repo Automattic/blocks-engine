@@ -414,8 +414,12 @@ final class FigKiwiDecoder
             'DerivedSymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
             'GUIDPath' => array('guids'),
             'StyleId' => array('guid'),
-            'ComponentPropAssignment' => array('defID', 'value'),
-            'ComponentPropValue' => array('boolValue', 'textValue', 'guidValue'),
+            'ComponentPropAssignment' => array('defID', 'value', 'varValue'),
+            'ComponentPropValue' => array('boolValue', 'textValue', 'guidValue', 'textDataValue', 'symbolIdValue'),
+            'VariableData' => array('value', 'dataType', 'resolvedDataType'),
+            'VariableAnyValue' => array('boolValue', 'textValue', 'floatValue', 'colorValue', 'symbolIdValue', 'textDataValue'),
+            'SymbolId' => array('guid'),
+            'ComponentPropDef' => array('id', 'parentPropDefId', 'name', 'initialValue', 'sortPosition', 'type', 'preferredValues', 'varValue'),
             'ComponentPropRef' => array('defID', 'componentPropNodeField'),
             // Dev-status structs (#280). The status enum itself decodes to its
             // token string automatically, so only the struct/entry field names
@@ -528,7 +532,7 @@ final class FigKiwiDecoder
     {
         return array(
             'key', 'componentKey', 'componentOrStateGroupKey', 'originComponentKey',
-            'componentId', 'mainComponentId', 'componentPropAssignments', 'componentPropRefs',
+            'componentId', 'mainComponentId', 'componentPropAssignments', 'componentPropDefs', 'componentPropRefs',
             'mainComponent', 'component', 'symbolData', 'derivedSymbolData', 'guidPath',
         );
     }

@@ -1194,7 +1194,7 @@ final class ScenegraphNormalizer
             if ( isset($override['textData']['characters']) && is_scalar($override['textData']['characters']) ) {
                 $overrides[$nodeId]['characters'] = (string) $override['textData']['characters'];
             }
-            foreach ( array('derivedTextData', 'size', 'relativeTransform', 'absoluteTransform', 'transform', 'fillPaints', 'fills', 'strokes', 'strokePaints', 'strokeWeight', 'strokeAlign', 'dashPattern', 'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight', 'borderLeftWeight', 'borderRightWeight', 'effects', 'styleIdForFill', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd', 'cornerRadius', 'rectangleTopLeftCornerRadius', 'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius', 'rectangleBottomRightCornerRadius') as $field ) {
+            foreach ( array('derivedTextData', 'size', 'relativeTransform', 'absoluteTransform', 'transform', 'fillPaints', 'fills', 'strokes', 'strokePaints', 'strokeWeight', 'strokeAlign', 'dashPattern', 'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight', 'borderLeftWeight', 'borderRightWeight', 'effects', 'styleIdForFill', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd', 'cornerRadius', 'rectangleTopLeftCornerRadius', 'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius', 'rectangleBottomRightCornerRadius', 'componentPropAssignments') as $field ) {
                 if ( array_key_exists($field, $override) ) {
                     $overrides[$nodeId][$field] = $override[$field];
                 }
@@ -2002,6 +2002,8 @@ final class ScenegraphNormalizer
             $overrideFields = $this->instanceOverrideFieldsForChild($child, $overrides);
             $swapComponentId = isset($overrideFields['_figma_instance_swap_component_id']) && is_scalar($overrideFields['_figma_instance_swap_component_id']) ? (string) $overrideFields['_figma_instance_swap_component_id'] : null;
             unset($overrideFields['_figma_instance_swap_component_id']);
+            $nestedComponentPropertyOverrides = $this->nestedComponentPropertyOverridesForChild($child, $overrideFields, $components);
+            unset($overrideFields['componentPropAssignments']);
             if ( null !== $swapComponentId && isset($components[$swapComponentId]) ) {
                 $child = $this->mergeRefreshedComponentSource($child, $components[$swapComponentId], $swapComponentId);
                 if ( is_array($child['children'] ?? null) ) {
@@ -2022,13 +2024,40 @@ final class ScenegraphNormalizer
 
             if ( is_array($child['children'] ?? null) ) {
                 $childOverrides = $this->descendantInstanceOverrideFieldsForChild($child, $overrides);
-                $child['children'] = $this->applyInstanceOverridesToChildren($child['children'], array_merge($overrides, $childOverrides), $nodeMap, $components, $diagnostics, $blobs, $paintStyles);
+                $child['children'] = $this->applyInstanceOverridesToChildren($child['children'], array_merge($overrides, $childOverrides, $nestedComponentPropertyOverrides), $nodeMap, $components, $diagnostics, $blobs, $paintStyles);
             }
 
             $children[$index] = $child;
         }
 
         return $children;
+    }
+
+    /**
+     * @param array<string, mixed>                $child
+     * @param array<string, mixed>                $overrideFields
+     * @param array<string, array<string, mixed>> $components
+     * @return array<string, array<string, mixed>>
+     */
+    private function nestedComponentPropertyOverridesForChild(array $child, array $overrideFields, array $components): array
+    {
+        if ( ! is_array($overrideFields['componentPropAssignments'] ?? null) || 'INSTANCE' !== strtoupper((string) ($child['type'] ?? '')) ) {
+            return array();
+        }
+
+        $reference = $this->readComponentReference($child);
+        $componentId = null !== $reference ? $reference['id'] : null;
+        if ( null === $componentId && isset($child['figma_component']['component_id']) && is_scalar($child['figma_component']['component_id']) ) {
+            $componentId = (string) $child['figma_component']['component_id'];
+        }
+        if ( null === $componentId || ! isset($components[$componentId]) ) {
+            return array();
+        }
+
+        $instance = $child;
+        $instance['componentPropAssignments'] = $overrideFields['componentPropAssignments'];
+
+        return $this->mergeComponentPropertyOverrides(array(), $instance, $components[$componentId]);
     }
 
     /**
