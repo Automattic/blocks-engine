@@ -684,7 +684,7 @@ final class ScenegraphNormalizer
                 continue;
             }
 
-            $resolved = $this->cloneComponentForInstance($components[$reference['id']], $node, $reference['id'], $overrides, $nodeMap, $components, $diagnostics, $blobs, $paintStyles);
+            $resolved = $this->cloneComponentForInstance($components[$reference['id']], $node, $reference['id'], $overrides, $nodeMap, $components, $diagnostics, $blobs, $paintStyles, array($id));
             $nodeMap[$id] = $resolved;
             $resolvedCount++;
         }
@@ -773,7 +773,7 @@ final class ScenegraphNormalizer
         $sourceBox = is_array($refreshed['box'] ?? null) ? $refreshed['box'] : array();
         $merged = '' !== $cloneId ? $this->retargetComponentSourceIds($refreshed, $sourceId, $cloneId) : $refreshed;
 
-        foreach ( array('id', 'figma_component_source_id', 'box', 'figma_box', 'layout') as $key ) {
+        foreach ( array('id', 'figma_component_source_id', 'box', 'figma_box', 'layout', 'x', 'y', 'width', 'height') as $key ) {
             if ( array_key_exists($key, $clone) ) {
                 $merged[$key] = $clone[$key];
             }
@@ -1235,7 +1235,7 @@ final class ScenegraphNormalizer
      * @param array<string, array<string, mixed>> $nodeMap
      * @return array<string, mixed>
      */
-    private function cloneComponentForInstance(array $component, array $instance, string $componentId, array $overrides, array $nodeMap, array $components, array &$diagnostics, array $blobs = array(), array $paintStyles = array()): array
+    private function cloneComponentForInstance(array $component, array $instance, string $componentId, array $overrides, array $nodeMap, array $components, array &$diagnostics, array $blobs = array(), array $paintStyles = array(), array $resolutionTrail = array()): array
     {
         $context = $this->buildInstanceCloneContext($component, $instance, $componentId, $overrides);
         $resolved = $component;
@@ -1265,7 +1265,7 @@ final class ScenegraphNormalizer
             )
         );
         $resolvedChildren = is_array($resolved['children'] ?? null) ? $resolved['children'] : array();
-        $resolvedChildren = $this->resolveClonedInstanceChildren($resolvedChildren, $nodeMap);
+        $resolvedChildren = $this->resolveClonedInstanceChildren($resolvedChildren, $nodeMap, $components, $diagnostics, $blobs, $paintStyles, $resolutionTrail);
         $resolvedChildren = $this->scaleVectorOnlyInstanceChildren($resolvedChildren, $component, $instance);
         $componentBox = is_array($component['box'] ?? null) ? $component['box'] : array();
         $componentSourceX = isset($componentBox['x']) && is_numeric($componentBox['x']) ? (float) $componentBox['x'] : null;
@@ -1817,7 +1817,7 @@ final class ScenegraphNormalizer
      * @param array<string, array<string, mixed>> $nodeMap
      * @return array<int, mixed>
      */
-    private function resolveClonedInstanceChildren(array $children, array $nodeMap): array
+    private function resolveClonedInstanceChildren(array $children, array $nodeMap, array $components, array &$diagnostics, array $blobs = array(), array $paintStyles = array(), array $resolutionTrail = array()): array
     {
         foreach ( $children as $index => $child ) {
             if ( ! is_array($child) ) {
@@ -1826,11 +1826,19 @@ final class ScenegraphNormalizer
 
             $id = (string) ($child['id'] ?? '');
             if ( 'INSTANCE' === strtoupper((string) ($child['type'] ?? '')) && '' !== $id && isset($nodeMap[$id]) ) {
-                $child = $this->mergeRefreshedComponentSource($child, $nodeMap[$id], $id);
+                $refreshed = $nodeMap[$id];
+                $reference = $this->readComponentReference($refreshed);
+                if ( empty($refreshed['children']) && null !== $reference && isset($components[$reference['id']]) && ! in_array($id, $resolutionTrail, true) ) {
+                    $overrides = $this->normalizeInstanceOverrides($refreshed, $id, $diagnostics);
+                    if ( null !== $overrides ) {
+                        $refreshed = $this->cloneComponentForInstance($components[$reference['id']], $refreshed, $reference['id'], $overrides, $nodeMap, $components, $diagnostics, $blobs, $paintStyles, array_merge($resolutionTrail, array($id)));
+                    }
+                }
+                $child = $this->mergeRefreshedComponentSource($child, $refreshed, $id);
             }
 
             if ( is_array($child['children'] ?? null) ) {
-                $child['children'] = $this->resolveClonedInstanceChildren($child['children'], $nodeMap);
+                $child['children'] = $this->resolveClonedInstanceChildren($child['children'], $nodeMap, $components, $diagnostics, $blobs, $paintStyles, $resolutionTrail);
             }
 
             $children[$index] = $child;
@@ -2009,7 +2017,7 @@ final class ScenegraphNormalizer
             if ( null !== $swapComponentId && isset($components[$swapComponentId]) ) {
                 $child = $this->mergeRefreshedComponentSource($child, $components[$swapComponentId], $swapComponentId);
                 if ( is_array($child['children'] ?? null) ) {
-                    $child['children'] = $this->resolveClonedInstanceChildren($child['children'], $nodeMap);
+                    $child['children'] = $this->resolveClonedInstanceChildren($child['children'], $nodeMap, $components, $diagnostics, $blobs, $paintStyles);
                 }
                 $child['_figma_instance_override_applied'] = true;
             }
