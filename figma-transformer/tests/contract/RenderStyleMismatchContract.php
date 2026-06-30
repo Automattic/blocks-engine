@@ -9,14 +9,6 @@ use Automattic\BlocksEngine\FigmaTransformer\Diagnostics\RenderStyleMismatchRepo
  */
 function blocks_engine_figma_transformer_run_render_style_mismatch_contract(callable $assert): void
 {
-    $artifactQualitySignalCodes = static function (array $result): array {
-        $signals = $result['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['signals'] ?? array();
-        return array_values(array_map(
-            static fn (array $signal): string => (string) ($signal['code'] ?? ''),
-            is_array($signals) ? $signals : array()
-        ));
-    };
-
     $report = ( new RenderStyleMismatchReportBuilder() )->build(
         array(
             'node_style_diagnostics' => array(
@@ -122,7 +114,7 @@ function blocks_engine_figma_transformer_run_render_style_mismatch_contract(call
     $assert(1 === ($pageScopedSummary['render_node_count'] ?? null), 'render-style-page-scope-render-count');
     $assert(1 === ($pageScopedSummary['color_mismatch_count'] ?? null), 'render-style-page-scope-selected-page-color');
 
-    $transformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    $transformResult = blocks_engine_figma_transformer_contract_transform(array(
         'name' => 'Render Style Fixture',
         'nodes' => array(
             array(
@@ -164,5 +156,5 @@ function blocks_engine_figma_transformer_run_render_style_mismatch_contract(call
     $assert('fail' === ($transformDiagnostics['status'] ?? null), 'render-style-transform-status');
     $assert(1 === ($transformDiagnostics['summary']['font_mismatch_count'] ?? null), 'render-style-transform-font-count');
     $assert(1 === ($transformDiagnostics['summary']['color_mismatch_count'] ?? null), 'render-style-transform-color-count');
-    $assert(in_array('render_style_mismatch', $artifactQualitySignalCodes($transformResult), true), 'render-style-artifact-quality-signal');
+    $assert(in_array('render_style_mismatch', blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($transformResult), true), 'render-style-artifact-quality-signal');
 }

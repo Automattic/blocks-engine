@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../figma-transformer.php';
 require_once __DIR__ . '/../../scripts/figma-fixture-selection.php';
+require_once __DIR__ . '/ContractHelpers.php';
 require_once __DIR__ . '/DiagnosticsEvidenceContract.php';
 require_once __DIR__ . '/FixtureMatrixContract.php';
 require_once __DIR__ . '/GeometryBoxContract.php';
@@ -141,22 +142,10 @@ $result = blocks_engine_figma_transformer_transform_scenegraph($scenegraph);
 $sameResult = blocks_engine_figma_transformer_transform_scenegraph($scenegraph);
 
 $fileContent = static function (array $result, string $path): string {
-    foreach ( $result['files'] ?? array() as $file ) {
-        if ( $path === ($file['path'] ?? null) ) {
-            return (string) ($file['content'] ?? '');
-        }
-    }
-
-    return '';
+    return blocks_engine_figma_transformer_contract_file_content($result, $path);
 };
 $findVisualNode = static function (array $result, string $id): ?array {
-    foreach ( $result['source_reports']['figma']['html']['visual_node_map'] ?? array() as $node ) {
-        if ( is_array($node) && $id === ($node['id'] ?? null) ) {
-            return $node;
-        }
-    }
-
-    return null;
+    return blocks_engine_figma_transformer_contract_find_visual_node($result, $id);
 };
 
 $html = $fileContent($result, 'index.html');
@@ -166,21 +155,10 @@ $diagnosticCodes = array_map(
     $result['diagnostics'] ?? array()
 );
 $artifactQualitySignalCodes = static function (array $result): array {
-    $signals = $result['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['signals'] ?? array();
-    return array_values(array_map(
-        static fn (array $signal): string => (string) ($signal['code'] ?? ''),
-        is_array($signals) ? $signals : array()
-    ));
+    return blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($result);
 };
 $artifactQualitySignal = static function (array $result, string $code): ?array {
-    $signals = $result['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['signals'] ?? array();
-    foreach ( is_array($signals) ? $signals : array() as $signal ) {
-        if ( is_array($signal) && $code === ($signal['code'] ?? null) ) {
-            return $signal;
-        }
-    }
-
-    return null;
+    return blocks_engine_figma_transformer_contract_artifact_quality_signal($result, $code);
 };
 
 $assert('blocks-engine/figma-transformer/result/v1' === ($result['schema'] ?? null), 'result-schema');
@@ -5217,7 +5195,7 @@ $hugOverflowResult = blocks_engine_figma_transformer_transform_scenegraph(array(
 $hugOverflowCss = $fileContent($hugOverflowResult, 'style.css');
 $assert(str_contains($hugOverflowCss, '.figma-node-hug-overflow-button-hug-overflow-button{width:max-content;height:40px;display:flex;flex-direction:row;justify-content:flex-end;align-items:center;padding-right:6px;padding-left:6px;gap:8px}'), 'layout-hug-flex-main-axis-expands-to-intrinsic-span');
 
-blocks_engine_figma_transformer_run_visual_node_map_contract($assert, $findVisualNode, $fileContent);
+blocks_engine_figma_transformer_run_visual_node_map_contract($assert);
 blocks_engine_figma_transformer_run_diagnostics_evidence_contract($assert);
 
 $kiwiStackLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -5628,7 +5606,7 @@ $assert(0.0 === ($selectedFrameRebaseRoot['box']['x'] ?? null) && 0.0 === ($sele
 $assert('local' === ($selectedFrameRebaseRoot['box']['coordinate_space'] ?? null) && 'page' === ($selectedFrameRebaseRoot['box']['local_origin'] ?? null), 'selected-frame-rebase-root-marked-page-local');
 $assert(120.0 === ($selectedFrameRebaseChild['box']['x'] ?? null) && 180.0 === ($selectedFrameRebaseChild['box']['y'] ?? null), 'selected-frame-rebase-child-subtracts-page-origin');
 $assert('local' === ($selectedFrameRebaseChild['box']['coordinate_space'] ?? null) && 'page' === ($selectedFrameRebaseChild['box']['local_origin'] ?? null), 'selected-frame-rebase-child-marked-page-local');
-blocks_engine_figma_transformer_run_origin_inference_contract($assert, $fileContent, $findVisualNode);
+blocks_engine_figma_transformer_run_origin_inference_contract($assert);
 
 $resolvedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Component Instance Fixture',
