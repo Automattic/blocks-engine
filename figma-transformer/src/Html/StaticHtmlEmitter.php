@@ -3569,6 +3569,10 @@ final class StaticHtmlEmitter
             return null;
         }
 
+        if ( 'local' === ($box['coordinate_space'] ?? null) ) {
+            return $offset;
+        }
+
         $sizeKey = 'x' === $dimension ? 'width' : 'height';
         if ( ! isset($parentBox[$sizeKey], $box[$sizeKey]) || ! is_numeric($parentBox[$sizeKey]) || ! is_numeric($box[$sizeKey]) ) {
             return $offset;
