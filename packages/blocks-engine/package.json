@@ -1,6 +1,6 @@
 {
   "name": "@automattic/blocks-engine",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Convert HTML and static sites into WordPress block markup and block themes.",
   "keywords": ["wordpress", "blocks", "gutenberg", "block-theme", "html", "static-site"],
   "license": "GPL-3.0-or-later",
