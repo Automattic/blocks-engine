@@ -1,6 +1,6 @@
 {
   "name": "@automattic/blocks-engine",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Convert HTML and static sites into WordPress block markup and block themes.",
   "keywords": ["wordpress", "blocks", "gutenberg", "block-theme", "html", "static-site"],
   "license": "GPL-3.0-or-later",
@@ -52,9 +52,10 @@
     }
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/build-wp-runtime.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:bundle": "pnpm build && BLOCKS_ENGINE_WP_RUNTIME=bundle BLOCKS_ENGINE_WP_RUNTIME_PATH=\"$PWD/dist/wp-runtime.cjs\" vitest run",
     "bench": "node --import tsx scripts/tuner/bench.ts",
     "bench:record": "node --import tsx scripts/tuner/bench.ts --record",
     "bench:derive": "node --import tsx scripts/tuner/derive.ts",
@@ -63,13 +64,14 @@
   "dependencies": {
     "cheerio": "1.2.0",
     "domhandler": "5.0.3",
-    "@wordpress/block-serialization-default-parser": "5.49.0",
-    "@wordpress/blocks": "15.22.0",
-    "@wordpress/block-library": "10.0.0",
     "jsdom": "29.0.1"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",
+    "@wordpress/block-library": "10.0.0",
+    "@wordpress/block-serialization-default-parser": "5.49.0",
+    "@wordpress/blocks": "15.22.0",
+    "esbuild": "^0.24.0",
     "tsup": "8.0.0",
     "vitest": "2.0.0",
     "typescript": "5.7.3",

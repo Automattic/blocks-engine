@@ -1,6 +1,5 @@
-import { createRequire } from 'node:module';
-
 import { bootstrap } from './bootstrap.js';
+import { requireWp } from './require-wp.js';
 
 export type CanonicalizeResult = {
   html: string;
@@ -59,9 +58,6 @@ type WordpressRuntime = WordpressBlocks & {
   parseBlockGrammar: (html: string) => RawBlock[];
 };
 
-const requireWordPress = createRequire(
-  typeof __filename === 'string' ? __filename : import.meta.url,
-);
 let wordpressRuntime: WordpressRuntime | undefined;
 
 function loadWordPress(): WordpressRuntime {
@@ -76,10 +72,10 @@ function loadWordPress(): WordpressRuntime {
     serialize,
     createBlock,
     getBlockAttributes,
-  } = requireWordPress('@wordpress/blocks') as WordpressBlocks;
-  const { parse: parseBlockGrammar } = requireWordPress(
+  } = requireWp('@wordpress/blocks') as unknown as WordpressBlocks;
+  const { parse: parseBlockGrammar } = requireWp(
     '@wordpress/block-serialization-default-parser',
-  ) as BlockSerializationParser;
+  ) as unknown as BlockSerializationParser;
 
   wordpressRuntime = {
     parse,

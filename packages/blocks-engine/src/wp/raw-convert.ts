@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { bootstrap } from './bootstrap.js';
 import { UNWRAP_SELECTOR } from '../raw-convertible.js';
+import { requireWp } from './require-wp.js';
 
 type JSDOMConstructor = new (html: string) => { window: { document: Document } };
 type RawHandler = (options: { HTML: string }) => unknown[];
@@ -20,7 +21,7 @@ let runtime: Runtime | undefined;
 function loadRuntime(): Runtime {
   if (!runtime) {
     const { JSDOM } = require('jsdom') as { JSDOM: JSDOMConstructor };
-    const { rawHandler, serialize } = require('@wordpress/blocks') as {
+    const { rawHandler, serialize } = requireWp('@wordpress/blocks') as unknown as {
       rawHandler: RawHandler;
       serialize: Serialize;
     };
