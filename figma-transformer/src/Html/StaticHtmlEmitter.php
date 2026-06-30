@@ -3372,6 +3372,10 @@ final class StaticHtmlEmitter
             $styles[] = 'z-index:1';
         }
 
+        if ( isset($layout['z_index']) && is_numeric($layout['z_index']) && ! $this->stylesDeclareProperty($styles, 'z-index') ) {
+            $styles[] = 'z-index:' . (string) (int) $layout['z_index'];
+        }
+
         if ( 'TEXT' !== $type && ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) ) {
             $background = $this->backgroundColor($node);
             if ( null !== $background ) {

@@ -39,9 +39,11 @@ final class ScenegraphNormalizer
         $paintStyles = $this->buildPaintStyleDefinitions($index['nodes'], $diagnostics);
         $textStyles  = $this->buildTextStyleDefinitions($index['nodes']);
         $nodeMap     = $this->normalizeNodeMap($index['nodes'], $diagnostics, $blobs, $paintStyles, $textStyles);
+        $this->applyReverseChildZIndex($nodeMap);
         $components  = $this->buildComponentDefinitions($nodeMap);
         $componentDefinitionCount = $this->countComponentDefinitions($nodeMap);
         $instanceReport = $this->resolveInstances($nodeMap, $components, $diagnostics, $blobs, $paintStyles, $textStyles);
+        $this->applyReverseChildZIndex($nodeMap);
         $topLevelIds = $index['top_level_node_ids'];
         $frameIds    = $this->selectTopLevelFrameIds($topLevelIds, $nodeMap);
 
@@ -470,6 +472,31 @@ final class ScenegraphNormalizer
         }
 
         return $node;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $nodeMap
+     */
+    private function applyReverseChildZIndex(array &$nodeMap): void
+    {
+        foreach ( $nodeMap as $node ) {
+            if ( true !== ($node['layout']['reverse_z_index'] ?? false) || ! is_array($node['children'] ?? null) ) {
+                continue;
+            }
+
+            $children = array_values(array_filter($node['children'], 'is_array'));
+            $childCount = count($children);
+            foreach ( $children as $index => $child ) {
+                $childId = isset($child['id']) && is_scalar($child['id']) ? (string) $child['id'] : '';
+                if ( '' === $childId || ! isset($nodeMap[$childId]) ) {
+                    continue;
+                }
+
+                $layout = is_array($nodeMap[$childId]['layout'] ?? null) ? $nodeMap[$childId]['layout'] : array();
+                $layout['z_index'] = $childCount - (int) $index;
+                $nodeMap[$childId]['layout'] = $layout;
+            }
+        }
     }
 
     /**
@@ -3023,6 +3050,10 @@ final class ScenegraphNormalizer
             if ( 'WRAP' === $layout['wrap'] ) {
                 $layout['flex_wrap'] = 'wrap';
             }
+        }
+
+        if ( true === ($node['stackReverseZIndex'] ?? false) || 'true' === strtolower((string) ($node['stackReverseZIndex'] ?? '')) || 1 === ($node['stackReverseZIndex'] ?? null) || '1' === (string) ($node['stackReverseZIndex'] ?? '') ) {
+            $layout['reverse_z_index'] = true;
         }
 
         // REST `layoutPositioning`; Kiwi `stackPositioning`. Both encode the
