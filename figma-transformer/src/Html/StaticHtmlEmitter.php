@@ -3350,19 +3350,19 @@ final class StaticHtmlEmitter
 
 		if ( null !== $parentNode && $this->isFreeformContainer($parentNode) ) {
 			$styles[] = 'position:absolute';
-			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode) as $style ) {
+			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode, $node) as $style ) {
 				$styles[] = $style;
 			}
         } elseif ( $isDecorativeFlexUnderlay ) {
             $styles[] = 'position:absolute';
-            foreach ( $this->absolutePositionStyles($box, $layout, $parentNode) as $style ) {
+			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode, $node) as $style ) {
                 $styles[] = $style;
             }
             $styles[] = 'z-index:0';
             $styles[] = 'pointer-events:none';
 		} elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
             $styles[] = 'position:absolute';
-            foreach ( $this->absolutePositionStyles($box, $layout, $parentNode) as $style ) {
+			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode, $node) as $style ) {
                 $styles[] = $style;
             }
         }
@@ -3644,12 +3644,16 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $layout
      * @return array<int, string>
      */
-    private function absolutePositionStyles(array $box, array $layout, ?array $parentNode): array
+    private function absolutePositionStyles(array $box, array $layout, ?array $parentNode, ?array $node = null): array
     {
         $styles = array();
         $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
         $left = $this->positionOffset($box, $parentBox, 'x', $parentNode);
         $top = $this->positionOffset($box, $parentBox, 'y', $parentNode);
+        if ( null !== $node && $this->hasComponentCloneGeometry($node) ) {
+            $left = $this->componentCloneSourceOffset($node, $box, $parentBox, 'x', $left);
+            $top = $this->componentCloneSourceOffset($node, $box, $parentBox, 'y', $top);
+        }
         $constraints = is_array($layout['constraints'] ?? null) ? $layout['constraints'] : array();
 
         foreach ( $this->axisConstraintStyles('horizontal', is_scalar($constraints['horizontal'] ?? null) ? (string) $constraints['horizontal'] : null, $left, $parentBox, $box) as $style ) {
@@ -3660,6 +3664,36 @@ final class StaticHtmlEmitter
         }
 
         return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $parentBox
+     */
+    private function componentCloneSourceOffset(array $node, array $box, array $parentBox, string $dimension, ?float $offset): ?float
+    {
+        if ( null === $offset ) {
+            return null;
+        }
+
+        $sizeKey = 'x' === $dimension ? 'width' : 'height';
+        if ( ! isset($parentBox[$sizeKey], $box[$sizeKey]) || ! is_numeric($parentBox[$sizeKey]) || ! is_numeric($box[$sizeKey]) ) {
+            return $offset;
+        }
+
+        $parentSize = (float) $parentBox[$sizeKey];
+        $boxSize = (float) $box[$sizeKey];
+        if ( $parentSize <= 0.0 || $boxSize <= 0.0 || ($offset >= -0.5 && $offset + $boxSize <= $parentSize + 0.5) ) {
+            return $offset;
+        }
+
+        $sourceBox = is_array($node['_component_source_clone_source_box'] ?? null) ? $node['_component_source_clone_source_box'] : array();
+        if ( isset($sourceBox[$dimension]) && is_numeric($sourceBox[$dimension]) ) {
+            return (float) $sourceBox[$dimension];
+        }
+
+        return 0.0;
     }
 
     /**
