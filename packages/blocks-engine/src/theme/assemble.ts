@@ -60,11 +60,15 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
   const styleCssHasFrontEndCss = carriedSourceCss || Boolean(parts.fontCss) || Boolean(dedupCss);
   const templatePlan = planTemplates(parts.site);
 
+  const styleCssWithCarried = appendDedupCss(
+    appendCarriedSourceCss(appendFontCss(styleCss, parts.fontCss), parts.sourceCss),
+    dedupCss
+  );
+
   return {
-    styleCss: appendDedupCss(
-      appendCarriedSourceCss(appendFontCss(styleCss, parts.fontCss), parts.sourceCss),
-      dedupCss
-    ),
+    styleCss: styleCssHasFrontEndCss
+      ? appendCarriedSectionGapReset(styleCssWithCarried)
+      : styleCssWithCarried,
     ...(styleCssHasFrontEndCss ? { functionsPhp: buildFunctionsPhp(themeSlug) } : {}),
     themeJson: buildThemeJson(parts.tokens, palette, fontFamilies, {
       omitStyles: carriedSourceCss,
@@ -88,6 +92,25 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
     ...(parts.styleBlocks ? { styleBlocks: parts.styleBlocks } : {}),
     assets: collectAssets(parts),
   };
+}
+
+/**
+ * Carried full-bleed sections (the align:full wp:group wrappers reconstruction
+ * emits) own all inter-section spacing through their carried source CSS. WordPress's
+ * global block gap would otherwise inject a ~24px margin above every section after
+ * the first, reading as a stray stripe above full-bleed bands. This neutralizes the
+ * block gap on those wrappers only — via CSS, so the section block markup stays
+ * byte-identical to the DLA reference. Blocks the user adds in the editor are not
+ * align:full, so they keep WordPress's default block gap. The selector outweighs
+ * core's zero-specificity `:where(...) > * + *` gap rule.
+ */
+function appendCarriedSectionGapReset(styleCss: string): string {
+  const prefix = styleCss.endsWith('\n') ? styleCss : `${styleCss}\n`;
+  return (
+    `${prefix}/* blocks-engine: carried full-bleed sections own their spacing; ` +
+    `keep WP block gap for editor-added blocks. */\n` +
+    `:where(.is-layout-flow, .is-layout-constrained) > .wp-block-group.alignfull{margin-block-start:0}\n`
+  );
 }
 
 function appendDedupCss(styleCss: string, dedupCss: string | undefined): string {
@@ -134,7 +157,8 @@ function buildFunctionsPhp(themeSlug: string): string {
  *
  * Enqueues the carried source stylesheet (style.css) on the front end. Block
  * themes do not load style.css automatically, so this is required for the
- * assembled design to render.
+ * assembled design to render. The same stylesheet is registered as an editor
+ * style so the design also renders inside the block editor's iframe canvas.
  *
  * @package ${themeSlug}
  */
@@ -152,6 +176,13 @@ add_action(
 \t\t\tarray(),
 \t\t\twp_get_theme()->get( 'Version' )
 \t\t);
+\t}
+);
+
+add_action(
+\t'after_setup_theme',
+\tstatic function () {
+\t\tadd_editor_style( 'style.css' );
 \t}
 );
 `;

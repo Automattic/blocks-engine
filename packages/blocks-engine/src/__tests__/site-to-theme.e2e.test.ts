@@ -503,6 +503,45 @@ describe('site-to-theme P0-3 orchestration', () => {
     expect(carried.themeJson).not.toHaveProperty('styles');
   });
 
+  it('assemble loads carried style.css into the block editor too', async () => {
+    const { assemble } = await import('../theme/index.js');
+    const carried = assemble({
+      site: siteModel(),
+      tokens: foundationTokens(),
+      pages: { home: [{ spec: imageSpec(0), blocks: imageBlockMarkup(), coverage: 1 }] },
+      meta: themeMeta(),
+      sourceCss: '.hero{ text-align:center; color:#222 }',
+    } as Parameters<typeof assemble>[0]);
+
+    // The block editor renders block markup in an isolated iframe that does NOT
+    // pick up the front-end wp_enqueue_scripts stylesheet, so the carried design
+    // only shows in the editor if functions.php also registers it as an editor
+    // style.
+    expect(carried.functionsPhp).toContain('after_setup_theme');
+    expect(carried.functionsPhp).toContain("add_editor_style( 'style.css' )");
+  });
+
+  it('neutralizes block gap on carried sections only, keeping it for editor-added blocks', async () => {
+    const { assemble } = await import('../theme/index.js');
+    const carried = assemble({
+      site: siteModel(),
+      tokens: foundationTokens(),
+      pages: { home: [{ spec: imageSpec(0), blocks: imageBlockMarkup(), coverage: 1 }] },
+      meta: themeMeta(),
+      sourceCss: '.hero{ text-align:center; color:#222 }',
+    } as Parameters<typeof assemble>[0]);
+
+    // Block gap stays enabled globally (no theme.json opt-out), so blocks the user
+    // adds in the editor still get default spacing...
+    expect(carried.themeJson).not.toMatchObject({ settings: { spacing: { blockGap: false } } });
+    // ...while a CSS rule zeroes the gap on the carried align:full section wrappers
+    // so reconstructed sections sit flush. CSS-only keeps the block markup
+    // byte-identical to the DLA reference.
+    expect(carried.styleCss).toContain(
+      ':where(.is-layout-flow, .is-layout-constrained) > .wp-block-group.alignfull{margin-block-start:0}'
+    );
+  });
+
   it('assemble emits functions.php when only font CSS is appended to style.css', async () => {
     const { assemble } = await import('../theme/index.js');
     const model = assemble({
@@ -529,6 +568,10 @@ describe('site-to-theme P0-3 orchestration', () => {
     expect(model.functionsPhp).toBeUndefined();
     // No carried CSS → theme.json keeps its global styles.
     expect(model.themeJson).toHaveProperty('styles');
+    // ...and block gap stays enabled, since theme.json spacing drives the design.
+    expect(model.themeJson).not.toMatchObject({ settings: { spacing: { blockGap: false } } });
+    // No carried sections to neutralize → no gap-reset rule (style.css isn't even enqueued).
+    expect(model.styleCss).not.toContain('margin-block-start:0}');
   });
 
   it('writeTheme writes functions.php to disk when present and skips it when absent', async () => {
