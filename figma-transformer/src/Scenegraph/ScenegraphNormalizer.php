@@ -10,6 +10,8 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Scenegraph;
 final class ScenegraphNormalizer
 {
     private const GEOMETRY_SEMANTICS_COMPONENT_SOURCE_CLONE = 'component_source_clone';
+    private const MAX_VECTOR_COMMAND_BLOB_COMMANDS = 2000;
+    private const MAX_VECTOR_COMMAND_BLOB_PATH_BYTES = 65536;
 
     public function __construct(
         private readonly ScenegraphIndex $index = new ScenegraphIndex()
@@ -4077,16 +4079,24 @@ final class ScenegraphNormalizer
         $offset = 0;
         $length = strlen($bytes);
         $parts = array();
+        $commandCount = 0;
+        $pathBytes = 0;
 
         while ( $offset < $length ) {
             $opcode = ord($bytes[$offset]);
             $offset++;
+            $commandCount++;
+            if ( $commandCount > self::MAX_VECTOR_COMMAND_BLOB_COMMANDS ) {
+                return array('status' => 'unsupported', 'path' => null);
+            }
 
             if ( 0 === $opcode ) {
                 if ( empty($parts) ) {
                     continue;
                 }
-                $parts[] = 'Z';
+                if ( ! $this->appendVectorPathPart($parts, $pathBytes, 'Z') ) {
+                    return array('status' => 'unsupported', 'path' => null);
+                }
                 continue;
             }
 
@@ -4095,7 +4105,9 @@ final class ScenegraphNormalizer
                 if ( null === $point ) {
                     return array('status' => 'unsupported', 'path' => null);
                 }
-                $parts[] = ( 1 === $opcode ? 'M ' : 'L ' ) . $this->svgNumber($point[0]) . ' ' . $this->svgNumber($point[1]);
+                if ( ! $this->appendVectorPathPart($parts, $pathBytes, ( 1 === $opcode ? 'M ' : 'L ' ) . $this->svgNumber($point[0]) . ' ' . $this->svgNumber($point[1])) ) {
+                    return array('status' => 'unsupported', 'path' => null);
+                }
                 $offset += 8;
                 continue;
             }
@@ -4109,7 +4121,9 @@ final class ScenegraphNormalizer
                     }
                     $points[] = $point;
                 }
-                $parts[] = 'Q ' . $this->svgNumber($points[0][0]) . ' ' . $this->svgNumber($points[0][1]) . ' ' . $this->svgNumber($points[1][0]) . ' ' . $this->svgNumber($points[1][1]);
+                if ( ! $this->appendVectorPathPart($parts, $pathBytes, 'Q ' . $this->svgNumber($points[0][0]) . ' ' . $this->svgNumber($points[0][1]) . ' ' . $this->svgNumber($points[1][0]) . ' ' . $this->svgNumber($points[1][1])) ) {
+                    return array('status' => 'unsupported', 'path' => null);
+                }
                 $offset += 16;
                 continue;
             }
@@ -4123,7 +4137,9 @@ final class ScenegraphNormalizer
                     }
                     $points[] = $point;
                 }
-                $parts[] = 'C ' . $this->svgNumber($points[0][0]) . ' ' . $this->svgNumber($points[0][1]) . ' ' . $this->svgNumber($points[1][0]) . ' ' . $this->svgNumber($points[1][1]) . ' ' . $this->svgNumber($points[2][0]) . ' ' . $this->svgNumber($points[2][1]);
+                if ( ! $this->appendVectorPathPart($parts, $pathBytes, 'C ' . $this->svgNumber($points[0][0]) . ' ' . $this->svgNumber($points[0][1]) . ' ' . $this->svgNumber($points[1][0]) . ' ' . $this->svgNumber($points[1][1]) . ' ' . $this->svgNumber($points[2][0]) . ' ' . $this->svgNumber($points[2][1])) ) {
+                    return array('status' => 'unsupported', 'path' => null);
+                }
                 $offset += 24;
                 continue;
             }
@@ -4134,6 +4150,20 @@ final class ScenegraphNormalizer
         return empty($parts)
             ? array('status' => 'empty', 'path' => null)
             : array('status' => 'path', 'path' => implode(' ', $parts));
+    }
+
+    /**
+     * @param array<int, string> $parts
+     */
+    private function appendVectorPathPart(array &$parts, int &$pathBytes, string $part): bool
+    {
+        $pathBytes += strlen($part) + ( empty($parts) ? 0 : 1 );
+        if ( $pathBytes > self::MAX_VECTOR_COMMAND_BLOB_PATH_BYTES ) {
+            return false;
+        }
+
+        $parts[] = $part;
+        return true;
     }
 
     /**
