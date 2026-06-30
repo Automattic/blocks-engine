@@ -28,6 +28,7 @@ final class DiagnosticsCollector
      * @param array<int, array<string, mixed>>  $runtimeIslands       Preserved runtime islands.
      * @param array<string, mixed>              $blockValidityReport  Block serialization validity report.
      * @param array<string, mixed>              $semanticParityReport Semantic parity report.
+     * @param array<string, mixed>              $contentRoundTripReport Content round-trip (hallucination) report.
      * @return array<int, array<string, mixed>>
      */
     public function collect(
@@ -36,7 +37,8 @@ final class DiagnosticsCollector
         array $fallbacks,
         array $runtimeIslands,
         array $blockValidityReport,
-        array $semanticParityReport
+        array $semanticParityReport,
+        array $contentRoundTripReport = array()
     ): array {
         $diagnostics = array(
             array(
@@ -141,6 +143,20 @@ final class DiagnosticsCollector
                 'source'   => $transformerSource,
                 'severity' => $finding['severity'] ?? 'warning',
                 'selector' => $finding['selector'] ?? null,
+            );
+        }
+
+        foreach ( $contentRoundTripReport['findings'] ?? array() as $finding ) {
+            if ( ! is_array($finding) ) {
+                continue;
+            }
+
+            $diagnostics[] = array(
+                'code'     => 'html_content_round_trip_' . (string) ($finding['code'] ?? 'warning'),
+                'message'  => (string) ($finding['summary'] ?? 'Generated block text does not appear in the source content.'),
+                'source'   => $transformerSource,
+                'severity' => $finding['severity'] ?? 'warning',
+                'text'     => $finding['text'] ?? null,
             );
         }
 

@@ -39,6 +39,7 @@
     "static-parity": "php tools/static-parity/run.php",
     "live-wp-parity": "php tools/live-wp-parity/run.php",
     "corpus-diagnostics": "php tools/corpus-diagnostics/run.php",
+    "content-round-trip": "php tools/content-round-trip/run.php",
     "test": [
       "@test:canonical",
       "@test:parity",
@@ -56,6 +57,8 @@
       "php tests/unit/subtree-classifier.php",
       "php tests/unit/custom-block-generator.php",
       "php tests/unit/css-value-splitter.php",
+      "php tests/unit/content-round-trip-reporter.php",
+      "php tests/unit/content-round-trip-form-echo.php",
       "php tests/unit/corpus-detectors.php",
       "php tests/unit/live-wp-parity-runner.php"
     ],
