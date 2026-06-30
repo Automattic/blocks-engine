@@ -5804,6 +5804,113 @@ $assert(substr_count($componentPropTextHtml, 'Welcome to LEGO City') === 1 && su
 $assert(substr_count($componentPropTextHtml, '>Post Title<') === 2, 'component-prop-text-default-only-without-assignment');
 $assert(str_contains($componentPropTextHtml, 'data-figma-node-id="instance:card-c/component:post-heading"'), 'component-prop-text-no-override-preserves-default-node');
 
+$instanceCloneNormalizer = new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer();
+$instanceCloneNormalized = $instanceCloneNormalizer->normalize(array(
+    'name'  => 'Instance Clone Pattern Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'component:icon',
+            'type'     => 'COMPONENT',
+            'name'     => 'Icon source',
+            'key'      => 'icon-key',
+            'children' => array(
+                array(
+                    'id'     => 'component:icon/vector',
+                    'type'   => 'VECTOR',
+                    'name'   => 'Icon vector',
+                    'width'  => 10,
+                    'height' => 10,
+                    'pathData' => 'M0 0H10V10Z',
+                ),
+            ),
+        ),
+        array(
+            'id'       => 'component:button-with-icon',
+            'type'     => 'COMPONENT',
+            'name'     => 'Button source',
+            'key'      => 'button-with-icon-key',
+            'children' => array(
+                array(
+                    'id'          => 'component:button-with-icon/icon-slot',
+                    'type'        => 'INSTANCE',
+                    'name'        => 'Icon slot',
+                    'componentId' => 'icon-key',
+                    'width'       => 10,
+                    'height'      => 10,
+                ),
+                array(
+                    'id'         => 'component:button-with-icon/label',
+                    'type'       => 'TEXT',
+                    'name'       => 'Button label',
+                    'characters' => 'Default CTA',
+                    'componentPropRefs' => array(
+                        array(
+                            'defID'                  => array('sessionID' => 500, 'localID' => 1),
+                            'componentPropNodeField' => 'TEXT_DATA',
+                        ),
+                    ),
+                ),
+                array(
+                    'id'       => 'component:button-with-icon/badge',
+                    'type'     => 'RECTANGLE',
+                    'name'     => 'Badge',
+                    'width'    => 20,
+                    'height'   => 20,
+                ),
+            ),
+        ),
+        array(
+            'id'          => 'instance:button-with-icon',
+            'type'        => 'INSTANCE',
+            'name'        => 'Button instance',
+            'componentId' => 'button-with-icon-key',
+            'x'           => 40,
+            'y'           => 50,
+            'width'       => 160,
+            'height'      => 48,
+            'componentPropAssignments' => array(
+                array(
+                    'defID' => array('sessionID' => 500, 'localID' => 1),
+                    'value' => array('textValue' => array('characters' => 'Assigned CTA')),
+                ),
+            ),
+            'overrides'   => array(
+                array(
+                    'nodeId'    => 'component:button-with-icon/label',
+                    'characters' => 'Explicit CTA',
+                ),
+                array(
+                    'nodeId'    => 'component:button-with-icon/badge',
+                    'transform' => array('m00' => 1, 'm01' => 0, 'm02' => 72, 'm10' => 0, 'm11' => 1, 'm12' => 14),
+                ),
+            ),
+        ),
+    ),
+));
+$instanceClone = $instanceCloneNormalized['node_map']['instance:button-with-icon'] ?? array();
+$instanceCloneIcon = array();
+$instanceCloneLabel = array();
+$instanceCloneBadge = array();
+foreach ( is_array($instanceClone['children'] ?? null) ? $instanceClone['children'] : array() as $child ) {
+    if ( ! is_array($child) ) {
+        continue;
+    }
+    if ( 'component:button-with-icon/icon-slot' === ($child['figma_component_source_id'] ?? null) ) {
+        $instanceCloneIcon = $child;
+    } elseif ( 'component:button-with-icon/label' === ($child['figma_component_source_id'] ?? null) ) {
+        $instanceCloneLabel = $child;
+    } elseif ( 'component:button-with-icon/badge' === ($child['figma_component_source_id'] ?? null) ) {
+        $instanceCloneBadge = $child;
+    }
+}
+$instanceCloneIconVector = $instanceCloneIcon['children'][0] ?? array();
+$assert('instance:button-with-icon/component:button-with-icon/icon-slot' === ($instanceCloneIcon['id'] ?? null), 'instance-clone-retargets-refreshed-nested-instance-root');
+$assert('component:button-with-icon/icon-slot' === ($instanceCloneIcon['figma_component_source_id'] ?? null), 'instance-clone-preserves-nested-instance-source-id');
+$assert('instance:button-with-icon/component:button-with-icon/icon-slot/component:icon/vector' === ($instanceCloneIconVector['id'] ?? null), 'instance-clone-refreshes-nested-source-child');
+$assert('Explicit CTA' === ($instanceCloneLabel['figma_text']['characters'] ?? null), 'instance-clone-explicit-text-override-beats-component-property');
+$assert(true === ($instanceClone['layout']['freeform'] ?? null), 'instance-clone-transform-override-marks-root-freeform');
+$assert(72.0 === ($instanceCloneBadge['box']['x'] ?? null) && 14.0 === ($instanceCloneBadge['box']['y'] ?? null), 'instance-clone-transform-override-preserves-geometry');
+
 $fontAwesomeIconNameResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Font Awesome Icon Name Fixture',
     'nodes' => array(

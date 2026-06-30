@@ -1079,8 +1079,9 @@ final class ScenegraphNormalizer
      */
     private function cloneComponentForInstance(array $component, array $instance, string $componentId, array $overrides, array $nodeMap, array &$diagnostics, array $blobs = array(), array $paintStyles = array()): array
     {
+        $context = $this->buildInstanceCloneContext($component, $instance, $componentId, $overrides);
         $resolved = $component;
-        $resolved['id'] = (string) ($instance['id'] ?? $resolved['id'] ?? '');
+        $resolved['id'] = $context['instance_id'];
         $resolved['type'] = 'INSTANCE';
         $resolved['name'] = (string) ($instance['name'] ?? $resolved['name'] ?? '');
         // The resolved node stands in for the instance placement, so its
@@ -1099,9 +1100,9 @@ final class ScenegraphNormalizer
             is_array($instance['figma_component'] ?? null) ? $instance['figma_component'] : array(),
             array(
                 'role'               => 'instance',
-                'instance_id'        => (string) ($instance['id'] ?? ''),
-                'component_id'       => $componentId,
-                'definition_node_id' => (string) ($component['id'] ?? ''),
+                'instance_id'        => $context['instance_id'],
+                'component_id'       => $context['component_id'],
+                'definition_node_id' => $context['definition_node_id'],
                 'resolved'           => true,
             )
         );
@@ -1115,16 +1116,37 @@ final class ScenegraphNormalizer
         // assignments into the override map keyed by the consuming node id so the
         // existing override machinery renders each instance's own content instead of
         // the component master's default placeholder.
-        $overrides = $this->mergeComponentPropertyTextOverrides($overrides, $instance, $component);
+        $overrides = $context['overrides'];
         if ( $this->instanceOverridesUseTransforms($overrides) ) {
             $resolved['layout'] = array('freeform' => true);
         }
         $resolved['children'] = $this->namespaceResolvedInstanceChildren(
             $this->applyInstanceOverridesToChildren($resolvedChildren, $overrides, $diagnostics, $blobs, $paintStyles),
-            (string) ($instance['id'] ?? '')
+            $context['instance_id']
         );
 
         return $resolved;
+    }
+
+    /**
+     * Gather the stable identifiers and normalized overrides that drive a resolved
+     * instance clone. Keeping these together makes the clone steps below explicit:
+     * preserve instance placement, refresh source children, apply overrides, then
+     * namespace cloned source ids under the instance id.
+     *
+     * @param array<string, mixed>                 $component
+     * @param array<string, mixed>                 $instance
+     * @param array<string, array<string, mixed>> $overrides
+     * @return array{instance_id: string, component_id: string, definition_node_id: string, overrides: array<string, array<string, mixed>>}
+     */
+    private function buildInstanceCloneContext(array $component, array $instance, string $componentId, array $overrides): array
+    {
+        return array(
+            'instance_id'        => (string) ($instance['id'] ?? $component['id'] ?? ''),
+            'component_id'       => $componentId,
+            'definition_node_id' => (string) ($component['id'] ?? ''),
+            'overrides'          => $this->mergeComponentPropertyTextOverrides($overrides, $instance, $component),
+        );
     }
 
     /**
@@ -1302,12 +1324,20 @@ final class ScenegraphNormalizer
     private function instanceOverridesUseTransforms(array $overrides): bool
     {
         foreach ( $overrides as $override ) {
-            if ( is_array($override) && is_array($override['transform'] ?? null) ) {
+            if ( is_array($override) && $this->isTransformOverrideGeometry($override) ) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * @param array<string, mixed> $override
+     */
+    private function isTransformOverrideGeometry(array $override): bool
+    {
+        return is_array($override['transform'] ?? null);
     }
 
     /**
