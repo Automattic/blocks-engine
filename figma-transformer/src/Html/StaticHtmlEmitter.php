@@ -199,7 +199,7 @@ final class StaticHtmlEmitter
             $files[] = $assetFile;
         }
 
-        $files = $this->withInlineCssFiles($files, $css);
+        $files = (new InlineCssFileInjector())->inject($files, $css);
 
         $visualNodeMap = $this->visualNodeMap($nodes);
         $transformDiagnostics = $this->transformDiagnostics($nodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics, $body);
@@ -396,7 +396,7 @@ final class StaticHtmlEmitter
             $files[] = $assetFile;
         }
 
-        $files = $this->withInlineCssFiles($files, $css);
+        $files = (new InlineCssFileInjector())->inject($files, $css);
 
         $visualNodeMap = $this->visualNodeMap($renderedNodes);
         $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics, $this->htmlFilesContent($files));
@@ -614,42 +614,6 @@ final class StaticHtmlEmitter
     private function htmlDocument(string $title, string $stylesheetHref, string $body): string
     {
         return "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>" . $title . "</title>\n<link rel=\"stylesheet\" href=\"" . $this->sanitizeAttribute($stylesheetHref) . "\">\n</head>\n<body>\n<main class=\"figma-root\" data-figma-root=\"true\">\n" . $body . "</main>\n</body>\n</html>\n";
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     * @return array<int, array<string, mixed>>
-     */
-    private function withInlineCssFiles(array $files, string $css): array
-    {
-        if ( '' === $css ) {
-            return $files;
-        }
-
-        foreach ( $files as $index => $file ) {
-            if ( ! is_array($file) || 'text/html' !== ($file['mime_type'] ?? null) || ! isset($file['content']) || ! is_scalar($file['content']) ) {
-                continue;
-            }
-
-            $file['content'] = $this->withInlineCss((string) $file['content'], $css);
-            $files[$index] = $file;
-        }
-
-        return $files;
-    }
-
-    private function withInlineCss(string $html, string $css): string
-    {
-        if ( '' === $css || str_contains($html, '<style data-figma-transformer-css="true">') ) {
-            return $html;
-        }
-
-        $style = '<style data-figma-transformer-css="true">' . str_replace('</style', '<\/style', $css) . '</style>';
-        if ( str_contains($html, '</head>') ) {
-            return str_replace('</head>', $style . "\n</head>", $html);
-        }
-
-        return $style . "\n" . $html;
     }
 
     /**
