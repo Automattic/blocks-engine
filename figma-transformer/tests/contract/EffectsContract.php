@@ -126,6 +126,46 @@ function blocks_engine_figma_transformer_run_effects_contract(callable $assert, 
     $assert(str_contains($kiwiEffectsCss, 'box-shadow:0px 6px 6px 0px rgba(0,0,0,0.5)'), 'kiwi-effects-emits-drop-shadow-css');
     $assert(str_contains($kiwiEffectsCss, 'filter:blur(8px)'), 'kiwi-effects-emits-foreground-blur-css');
     $assert(! in_array('unsupported_figma_effect_type', $kiwiEffectsDiagnosticCodes, true), 'kiwi-effects-foreground-blur-no-diagnostic');
+
+    $clippedVectorGlowResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Clipped Vector Glow Fixture',
+        'nodes' => array(
+            array(
+                'id'                => 'effects:clipped-frame',
+                'type'              => 'FRAME',
+                'name'              => 'Clipped frame',
+                'width'             => 96,
+                'height'            => 96,
+                'frameMaskDisabled' => false,
+                'children'          => array(
+                    array(
+                        'id'                 => 'effects:vector-glow',
+                        'type'               => 'VECTOR',
+                        'name'               => 'Vector glow',
+                        'width'              => 96,
+                        'height'             => 96,
+                        'fillPaints'         => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0.8117647059, 'b' => 0, 'a' => 1))),
+                        'figma_vector_paths' => array(array('data' => 'M48 0A48 48 0 1 1 47.99 0M48 24A24 24 0 1 0 48.01 24Z', 'windingRule' => 'EVENODD')),
+                        'effects'            => array(array(
+                            'type'                 => 'DROP_SHADOW',
+                            'offset'               => array('x' => 0, 'y' => 0),
+                            'radius'               => 16,
+                            'spread'               => 0,
+                            'visible'              => true,
+                            'showShadowBehindNode' => false,
+                            'color'                => array('r' => 1, 'g' => 0.8117647059, 'b' => 0, 'a' => 0.5),
+                        )),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $clippedVectorGlowHtml = $fileContent($clippedVectorGlowResult, 'index.html');
+    $clippedVectorGlowCss = $fileContent($clippedVectorGlowResult, 'style.css');
+    $assert(str_contains($clippedVectorGlowHtml, 'data-figma-node-id="effects:vector-glow"') && str_contains($clippedVectorGlowHtml, 'data-figma-vector="true"'), 'effects-vector-glow-renders-inline-svg');
+    $assert(str_contains($clippedVectorGlowCss, '.figma-node-effects-clipped-frame-clipped-frame{width:96px;height:96px;overflow:hidden'), 'effects-vector-glow-parent-clips-content');
+    $assert(str_contains($clippedVectorGlowCss, '.figma-node-effects-vector-glow-vector-glow{') && str_contains($clippedVectorGlowCss, 'filter:drop-shadow(0px 0px 16px rgba(255,207,0,0.5))'), 'effects-vector-glow-emits-alpha-drop-shadow-filter');
+    $assert(! str_contains($clippedVectorGlowCss, '.figma-node-effects-vector-glow-vector-glow{width:96px;height:96px;box-shadow:'), 'effects-vector-glow-no-rectangular-box-shadow');
 }
 
 /**
