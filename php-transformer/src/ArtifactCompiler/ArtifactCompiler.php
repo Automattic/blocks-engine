@@ -207,14 +207,21 @@ final class ArtifactCompiler
      */
     private function withoutMaterializedScriptTags(string $html, string $entryPath, array $files): string
     {
-        return preg_replace_callback('/<script\b([^>]*)>\s*<\/script>/i', function (array $matches) use ($entryPath, $files): string {
+        $scriptIndex = 0;
+        return preg_replace_callback('/<script\b([^>]*)>(.*?)<\/script>/is', function (array $matches) use ($entryPath, $files, &$scriptIndex): string {
+            ++$scriptIndex;
             $src = $this->htmlAttribute((string) $matches[1], 'src');
-            if ( '' === $src ) {
-                return (string) $matches[0];
+            if ( '' !== $src ) {
+                $asset = $this->findAssetByHtmlReference($src, $entryPath, $files);
+                if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) ) {
+                    return (string) $matches[0];
+                }
+
+                return '';
             }
 
-            $asset = $this->findAssetByHtmlReference($src, $entryPath, $files);
-            if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) ) {
+            $asset = $this->findInlineScriptAsset($entryPath, $scriptIndex, $files);
+            if ( ! is_array($asset) ) {
                 return (string) $matches[0];
             }
 
@@ -230,6 +237,24 @@ final class ArtifactCompiler
         return in_array($asset['kind'] ?? '', array('js', 'mjs'), true)
             || 'script' === ($asset['role'] ?? '')
             || in_array($asset['mime_type'] ?? '', array('application/javascript', 'text/javascript', 'application/ecmascript', 'text/ecmascript'), true);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, mixed>|null
+     */
+    private function findInlineScriptAsset(string $entryPath, int $scriptIndex, array $files): ?array
+    {
+        $selector = 'script:nth-of-type(' . $scriptIndex . ')';
+        foreach ( $files as $file ) {
+            if ( 'inline-script' !== ($file['source'] ?? '') || $entryPath !== ($file['source_path'] ?? '') || $selector !== ($file['selector'] ?? '') || ! $this->isMaterializedScriptAsset($file) ) {
+                continue;
+            }
+
+            return $file;
+        }
+
+        return null;
     }
 
     /**
@@ -750,6 +775,12 @@ final class ArtifactCompiler
                     'content'          => $asset['content'] ?? null,
                     'content_base64'   => $asset['content_base64'] ?? null,
                     'hash'             => $asset['hash'] ?? $asset['provenance']['hash'] ?? '',
+                    'placement'        => $asset['placement'] ?? '',
+                    'type'             => $asset['type'] ?? '',
+                    'defer'            => $asset['defer'] ?? false,
+                    'async'            => $asset['async'] ?? false,
+                    'source_path'      => $asset['source_path'] ?? '',
+                    'selector'         => $asset['selector'] ?? '',
                     'references'       => $asset['references'] ?? array(),
                 ),
                 static fn (mixed $value): bool => null !== $value && '' !== $value
@@ -997,6 +1028,16 @@ final class ArtifactCompiler
             }
             if ( ! empty($file['intent']) ) {
                 $asset['intent'] = $file['intent'];
+            }
+            foreach ( array('placement', 'type', 'source_path', 'selector') as $field ) {
+                if ( isset($file[$field]) && is_scalar($file[$field]) && '' !== trim((string) $file[$field]) ) {
+                    $asset[$field] = (string) $file[$field];
+                }
+            }
+            foreach ( array('defer', 'async') as $field ) {
+                if ( isset($file[$field]) ) {
+                    $asset[$field] = (bool) $file[$field];
+                }
             }
             $references = $this->referencesForAsset((string) $file['path'], $assetReferences);
             if ( array() !== $references ) {
