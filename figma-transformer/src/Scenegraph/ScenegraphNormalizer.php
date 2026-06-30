@@ -9,6 +9,8 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Scenegraph;
  */
 final class ScenegraphNormalizer
 {
+    private const GEOMETRY_SEMANTICS_COMPONENT_SOURCE_CLONE = 'component_source_clone';
+
     public function __construct(
         private readonly ScenegraphIndex $index = new ScenegraphIndex()
     ) {
@@ -701,13 +703,14 @@ final class ScenegraphNormalizer
     private function refreshResolvedTree(array $node, array $nodeMap, array $trail = array()): array
     {
         $id = (string) ($node['id'] ?? '');
-        if ( '' !== $id && isset($nodeMap[$id]) && ! in_array($id, $trail, true) ) {
-            $node = $nodeMap[$id];
-            $trail[] = $id;
-        }
-
-        if ( true === ($node['figma_component']['resolved'] ?? false) ) {
-            return $node;
+        $sourceId = (string) ($node['figma_component_source_id'] ?? '');
+        $refreshId = '' !== $id && isset($nodeMap[$id]) ? $id : $sourceId;
+        $refreshesComponentSourceClone = '' !== $sourceId && $refreshId === $sourceId && $this->isRefreshableComponentSourceClone($node, $nodeMap[$refreshId] ?? array());
+        if ( '' !== $refreshId && isset($nodeMap[$refreshId]) && ! in_array($refreshId, $trail, true) && ($refreshId === $id || $refreshesComponentSourceClone) ) {
+            $node = $refreshId === $id
+                ? $nodeMap[$refreshId]
+                : $this->mergeRefreshedComponentSource($node, $nodeMap[$refreshId], $refreshId);
+            $trail[] = $refreshId;
         }
 
         if ( ! is_array($node['children'] ?? null) ) {
@@ -720,6 +723,93 @@ final class ScenegraphNormalizer
             }
 
             $node['children'][$index] = $this->refreshResolvedTree($child, $nodeMap, $trail);
+        }
+
+        return $node;
+    }
+
+    /**
+     * @param array<string, mixed> $clone
+     * @param array<string, mixed> $refreshed
+     */
+    private function isRefreshableComponentSourceClone(array $clone, array $refreshed): bool
+    {
+        $cloneType = strtoupper((string) ($clone['type'] ?? ''));
+        $refreshedType = strtoupper((string) ($refreshed['type'] ?? ''));
+
+        return 'INSTANCE' === $cloneType || 'INSTANCE' === $refreshedType || true === ($clone['figma_component']['resolved'] ?? false) || true === ($refreshed['figma_component']['resolved'] ?? false);
+    }
+
+    /**
+     * Refresh a namespaced component-source clone without replacing its instance placement.
+     *
+     * @param array<string, mixed> $clone
+     * @param array<string, mixed> $refreshed
+     * @return array<string, mixed>
+     */
+    private function mergeRefreshedComponentSource(array $clone, array $refreshed, string $sourceId): array
+    {
+        $cloneId = (string) ($clone['id'] ?? '');
+        $merged = '' !== $cloneId ? $this->retargetComponentSourceIds($refreshed, $sourceId, $cloneId) : $refreshed;
+
+        foreach ( array('id', 'figma_component_source_id', 'box', 'figma_box', 'layout') as $key ) {
+            if ( array_key_exists($key, $clone) ) {
+                $merged[$key] = $clone[$key];
+            }
+        }
+
+        return $this->markComponentSourceCloneGeometry($merged);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function retargetComponentSourceIds(array $node, string $sourceId, string $cloneId): array
+    {
+        foreach ( array('id', 'figma_component_source_id') as $key ) {
+            if ( ! isset($node[$key]) || ! is_scalar($node[$key]) ) {
+                continue;
+            }
+
+            $id = (string) $node[$key];
+            if ( $sourceId === $id ) {
+                $node[$key] = 'id' === $key ? $cloneId : $sourceId;
+            } elseif ( str_starts_with($id, $sourceId . '/') ) {
+                $node[$key] = ('id' === $key ? $cloneId : $sourceId) . substr($id, strlen($sourceId));
+            }
+        }
+
+        if ( is_array($node['children'] ?? null) ) {
+            foreach ( $node['children'] as $index => $child ) {
+                if ( is_array($child) ) {
+                    $node['children'][$index] = $this->retargetComponentSourceIds($child, $sourceId, $cloneId);
+                }
+            }
+        }
+
+        return $node;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function markComponentSourceCloneGeometry(array $node): array
+    {
+        foreach ( array('box', 'figma_box') as $boxKey ) {
+            if ( ! is_array($node[$boxKey] ?? null) ) {
+                continue;
+            }
+
+            foreach ( array('x', 'y', 'width', 'height') as $dimension ) {
+                if ( isset($node[$dimension]) && is_numeric($node[$dimension]) ) {
+                    $node[$boxKey][$dimension] = (float) $node[$dimension];
+                }
+            }
+
+            $node[$boxKey]['coordinate_space'] = 'local';
+            $node[$boxKey]['geometry_semantics'] = self::GEOMETRY_SEMANTICS_COMPONENT_SOURCE_CLONE;
         }
 
         return $node;
@@ -1231,7 +1321,7 @@ final class ScenegraphNormalizer
 
             $id = (string) ($child['id'] ?? '');
             if ( 'INSTANCE' === strtoupper((string) ($child['type'] ?? '')) && '' !== $id && isset($nodeMap[$id]) ) {
-                $child = $nodeMap[$id];
+                $child = $this->mergeRefreshedComponentSource($child, $nodeMap[$id], $id);
             }
 
             if ( is_array($child['children'] ?? null) ) {
