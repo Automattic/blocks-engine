@@ -962,6 +962,8 @@ final class FigmaTransformer
             'large_absolute_offset_count' => 0,
             'large_absolute_offset_nodes' => array(),
             'empty_visible_container_count' => 0,
+            'empty_visible_container_blocker_count' => 0,
+            'empty_visible_container_categories' => array(),
             'empty_visible_containers' => array(),
             'decorative_underlays' => array('count' => 0, 'nodes' => array()),
             'image_heavy_landmark_candidates' => array(),
@@ -1028,11 +1030,12 @@ final class FigmaTransformer
             $fontMaterialized = $fontMaterialized || true === ($pageFonts['materialized'] ?? false);
 
             $pageLayout = is_array($diagnostics['layout'] ?? null) ? $diagnostics['layout'] : array();
-            DiagnosticAggregation::addIntegerCounts($layout, $pageLayout, array('large_negative_left_count', 'large_css_offset_count', 'off_canvas_visual_node_count', 'large_absolute_offset_count', 'empty_visible_container_count'));
+            DiagnosticAggregation::addIntegerCounts($layout, $pageLayout, array('large_negative_left_count', 'large_css_offset_count', 'off_canvas_visual_node_count', 'large_absolute_offset_count', 'empty_visible_container_count', 'empty_visible_container_blocker_count'));
             DiagnosticAggregation::appendContextSamples($layout, 'large_css_offset_nodes', $pageLayout, 'large_css_offset_nodes', $pageContext);
             DiagnosticAggregation::appendContextSamples($layout, 'off_canvas_visual_nodes', $pageLayout, 'off_canvas_visual_nodes', $pageContext);
             DiagnosticAggregation::appendContextSamples($layout, 'large_absolute_offset_nodes', $pageLayout, 'large_absolute_offset_nodes', $pageContext);
             DiagnosticAggregation::appendContextSamples($layout, 'empty_visible_containers', $pageLayout, 'empty_visible_containers', $pageContext);
+            DiagnosticAggregation::addCounterMap($layout['empty_visible_container_categories'], is_array($pageLayout['empty_visible_container_categories'] ?? null) ? $pageLayout['empty_visible_container_categories'] : array());
             $underlays = is_array($pageLayout['decorative_underlays']['nodes'] ?? null) ? $pageLayout['decorative_underlays']['nodes'] : array();
             foreach ( $underlays as $item ) {
                 if ( is_array($item) ) {
@@ -1110,6 +1113,7 @@ final class FigmaTransformer
         $layout['large_css_offset_nodes'] = array_values($layout['large_css_offset_nodes']);
         $layout['off_canvas_visual_nodes'] = array_values($layout['off_canvas_visual_nodes']);
         $layout['empty_visible_containers'] = array_values($layout['empty_visible_containers']);
+        ksort($layout['empty_visible_container_categories']);
         $layout['layout_mismatches'] = array_values($layout['layout_mismatches']);
         $layout['render_style']['diagnostics'] = array_values($layout['render_style']['diagnostics']);
         if ( 'not_evaluated' === $layout['render_style_mismatch_status'] ) {
@@ -1270,6 +1274,7 @@ final class FigmaTransformer
                 'render_style_mismatch_status' => (string) ($layout['render_style_mismatch_status'] ?? 'not_run'),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'empty_visible_container_count' => (int) ($layout['empty_visible_container_count'] ?? 0),
+                'empty_visible_container_blocker_count' => (int) ($layout['empty_visible_container_blocker_count'] ?? 0),
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
                 'layout_mismatch_count' => (int) ($layout['layout_mismatch_count'] ?? 0),
                 'layout_mismatch_status' => (string) ($layout['layout_mismatch_status'] ?? 'not_evaluated'),

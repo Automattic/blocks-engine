@@ -2004,6 +2004,8 @@ final class StaticHtmlEmitter
             'large_absolute_offset_count' => 0,
             'large_absolute_offset_nodes' => array(),
             'empty_visible_container_count' => 0,
+            'empty_visible_container_blocker_count' => 0,
+            'empty_visible_container_categories' => array(),
             'empty_visible_containers' => array(),
             'decorative_underlays'      => array(
                 'count' => 0,
@@ -2029,6 +2031,11 @@ final class StaticHtmlEmitter
         $layout['large_absolute_offset_nodes'] = array_values($layout['large_absolute_offset_nodes']);
         $layout['empty_visible_containers'] = array_values($layout['empty_visible_containers']);
         $layout['empty_visible_container_count'] = count($layout['empty_visible_containers']);
+        $layout['empty_visible_container_blocker_count'] = count(array_filter(
+            $layout['empty_visible_containers'],
+            static fn (array $container): bool => true === ($container['blocks_parity'] ?? true)
+        ));
+        ksort($layout['empty_visible_container_categories']);
         $layout['image_heavy_landmark_candidates'] = array_values($layout['image_heavy_landmark_candidates']);
         $generatedSvgAssets = $this->generatedSvgAssetDiagnostics($assetFiles);
         $assets = array(
@@ -2232,6 +2239,7 @@ final class StaticHtmlEmitter
                 'clipped_visual_area_ratio' => (float) ($layout['clipped_visual_area_ratio'] ?? 0.0),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'empty_visible_container_count' => (int) ($layout['empty_visible_container_count'] ?? 0),
+                'empty_visible_container_blocker_count' => (int) ($layout['empty_visible_container_blocker_count'] ?? 0),
                 'decoded_text_nodes' => (int) ($text['decoded_text_node_count'] ?? 0),
                 'emitted_text_nodes' => (int) ($text['emitted_text_node_count'] ?? 0),
                 'empty_decoded_text_nodes' => (int) ($text['empty_decoded_text_node_count'] ?? 0),
@@ -2480,6 +2488,8 @@ final class StaticHtmlEmitter
         $emptyContainer = $this->emptyVisibleContainerDiagnostic($node);
         if ( null !== $emptyContainer ) {
             $layout['empty_visible_containers'][] = $emptyContainer;
+            $category = (string) ($emptyContainer['category'] ?? 'empty_visible_container');
+            $layout['empty_visible_container_categories'][$category] = (int) ($layout['empty_visible_container_categories'][$category] ?? 0) + 1;
         }
 
         $landmarkCandidate = $this->imageHeavyLandmarkCandidate($node);
@@ -2967,6 +2977,8 @@ final class StaticHtmlEmitter
             return null;
         }
 
+        $category = $this->emptyVisibleContainerCategory($node, $type, $width, $height);
+
         return array(
             'node_id' => (string) ($node['id'] ?? ''),
             'name' => (string) ($node['name'] ?? ''),
@@ -2974,7 +2986,26 @@ final class StaticHtmlEmitter
             'class' => $this->nodeDiagnosticClass($node),
             'width' => $this->reportNumericValue($width),
             'height' => $this->reportNumericValue($height),
+            'category' => $category,
+            'blocks_parity' => 'decorative_zero_height_separator' !== $category,
         );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function emptyVisibleContainerCategory(array $node, string $type, float $width, float $height): string
+    {
+        $name = trim((string) ($node['name'] ?? ''));
+        if ( $height <= 1.0 && preg_match('/^[\x{2013}\x{2014}-]+$/u', $name) ) {
+            return 'decorative_zero_height_separator';
+        }
+
+        if ( 'INSTANCE' === $type ) {
+            return 'missing_instance_descendants';
+        }
+
+        return 'empty_visible_container';
     }
 
     /**
