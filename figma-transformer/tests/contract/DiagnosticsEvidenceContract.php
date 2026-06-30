@@ -79,4 +79,52 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('diag:empty-text' === ($emptyTextDiagnostics['text']['empty_decoded_text_nodes'][0]['node_id'] ?? null), 'diagnostics-evidence-empty-text-sample-node');
     $assert('Empty Text Page' === ($emptyTextDiagnostics['text']['empty_decoded_text_nodes'][0]['page_name'] ?? null), 'diagnostics-evidence-empty-text-page-context');
     $assert(in_array('decoded_text_empty', $emptyTextSignalCodes, true), 'diagnostics-evidence-empty-text-signal');
+
+    $multiPageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Diagnostics Aggregation Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'diag:aggregation-canvas',
+                'type'     => 'CANVAS',
+                'name'     => 'Aggregation Pages',
+                'children' => array(
+                    array(
+                        'id'       => 'diag:aggregation-home',
+                        'type'     => 'FRAME',
+                        'name'     => 'Aggregation Home',
+                        'width'    => 320,
+                        'height'   => 180,
+                        'children' => array(
+                            array('id' => 'diag:aggregation-home-image', 'type' => 'RECTANGLE', 'name' => 'Missing Home Asset', 'width' => 80, 'height' => 60, 'asset_id' => 'missing-home'),
+                            array('id' => 'diag:aggregation-home-vector', 'type' => 'VECTOR', 'name' => 'Unsupported Home Vector'),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'diag:aggregation-about',
+                        'type'     => 'FRAME',
+                        'name'     => 'Aggregation About',
+                        'width'    => 320,
+                        'height'   => 180,
+                        'children' => array(
+                            array('id' => 'diag:aggregation-about-image', 'type' => 'RECTANGLE', 'name' => 'Missing About Asset', 'width' => 80, 'height' => 60, 'asset_id' => 'missing-about'),
+                            array('id' => 'diag:aggregation-about-vector', 'type' => 'VECTOR', 'name' => 'Unsupported About Vector'),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ), array('multi_page' => true, 'frame_ids' => array('diag:aggregation-home', 'diag:aggregation-about'), 'entry_frame_id' => 'diag:aggregation-home'));
+    $multiPageDiagnostics = $multiPageResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $missingAssets = $multiPageDiagnostics['images']['missing_assets'] ?? array();
+    $placeholderNodes = $multiPageDiagnostics['vectors']['placeholder_nodes'] ?? array();
+    $assert('multi_page' === ($multiPageDiagnostics['scope'] ?? null), 'diagnostics-evidence-multi-page-scope');
+    $assert(2 === ($multiPageDiagnostics['images']['node_refs'] ?? null), 'diagnostics-evidence-multi-page-image-node-count');
+    $assert(2 === count(is_array($missingAssets) ? $missingAssets : array()), 'diagnostics-evidence-multi-page-missing-asset-sample-count');
+    $assert('index.html' === ($missingAssets[0]['page_path'] ?? null), 'diagnostics-evidence-multi-page-missing-asset-home-context');
+    $assert('aggregation-about.html' === ($missingAssets[1]['page_path'] ?? null), 'diagnostics-evidence-multi-page-missing-asset-about-context');
+    $assert(2 === ($multiPageDiagnostics['vectors']['placeholders'] ?? null), 'diagnostics-evidence-multi-page-vector-placeholder-count');
+    $assert(2 === count(is_array($placeholderNodes) ? $placeholderNodes : array()), 'diagnostics-evidence-multi-page-placeholder-sample-count');
+    $assert('diag:aggregation-home-vector' === ($placeholderNodes[0]['node_id'] ?? null), 'diagnostics-evidence-multi-page-placeholder-home-node');
+    $assert('aggregation-about.html' === ($placeholderNodes[1]['page_path'] ?? null), 'diagnostics-evidence-multi-page-placeholder-about-context');
+    $assert(2 === ($multiPageDiagnostics['diagnostic_codes']['unsupported_vector_node_placeholder'] ?? null), 'diagnostics-evidence-multi-page-diagnostic-code-count');
 }
