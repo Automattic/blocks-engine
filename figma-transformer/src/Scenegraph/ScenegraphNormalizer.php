@@ -10,8 +10,8 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Scenegraph;
 final class ScenegraphNormalizer
 {
     private const GEOMETRY_SEMANTICS_COMPONENT_SOURCE_CLONE = 'component_source_clone';
-    private const MAX_VECTOR_COMMAND_BLOB_COMMANDS = 2000;
-    private const MAX_VECTOR_COMMAND_BLOB_PATH_BYTES = 65536;
+    private const MAX_VECTOR_COMMAND_BLOB_COMMANDS = 5000;
+    private const MAX_VECTOR_COMMAND_BLOB_PATH_BYTES = 131072;
 
     public function __construct(
         private readonly ScenegraphIndex $index = new ScenegraphIndex()
