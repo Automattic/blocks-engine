@@ -401,7 +401,7 @@ final class ScenegraphNormalizer
         }
 
         if ( 'TEXT' === $type ) {
-            $text = $this->textNormalizer->normalizeText($node, $blobs, $id, $diagnostics);
+            $text = $this->textNormalizer->normalizeText($node, $blobs, $id, $diagnostics, $paintStyles);
             if ( ! empty($text) ) {
                 $node['figma_text'] = $text;
             }

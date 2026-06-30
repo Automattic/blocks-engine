@@ -4870,6 +4870,13 @@ $kiwiInlineTextStyleResult = blocks_engine_figma_transformer_transform_scenegrap
                 // "Hello blue " (11 chars) in base black, "world" (5 chars) in blue
                 // via a NodeChange-shaped override entry carrying `fillPaints`.
                 array(
+                    'guid'       => array('sessionID' => 3267, 'localID' => 11418),
+                    'type'       => 'ROUNDED_RECTANGLE',
+                    'name'       => 'Lego Blue',
+                    'styleType'  => 'FILL',
+                    'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 109, 'b' => 183, 'a' => 1))),
+                ),
+                array(
                     'id'         => 'kts:2',
                     'type'       => 'TEXT',
                     'name'       => 'Kiwi two color text',
@@ -4889,6 +4896,24 @@ $kiwiInlineTextStyleResult = blocks_engine_figma_transformer_transform_scenegrap
                 ),
                 // "Bold" (4 chars) at weight 700 via a NodeChange-shaped override
                 // entry carrying a bold `fontName`, " plain text" (11 chars) at base.
+                array(
+                    'id'         => 'kts:4',
+                    'type'       => 'TEXT',
+                    'name'       => 'Kiwi style-referenced text color',
+                    'fontName'   => array('family' => 'Inter', 'style' => 'Regular'),
+                    'fontSize'   => 16,
+                    'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                    'textData'   => array(
+                        'characters'        => 'We\'re all about Lego',
+                        'characterStyleIDs' => array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 38, 38, 38, 38),
+                        'styleOverrideTable' => array(
+                            array(
+                                'styleID'        => 38,
+                                'styleIdForFill' => array('guid' => array('sessionID' => 3267, 'localID' => 11418)),
+                            ),
+                        ),
+                    ),
+                ),
                 array(
                     'id'         => 'kts:3',
                     'type'       => 'TEXT',
@@ -4915,6 +4940,9 @@ $kiwiInlineTextStyleHtml = $fileContent($kiwiInlineTextStyleResult, 'index.html'
 // Kiwi two-color: only the "world" run differs in fill color — it gets a color span,
 // and the non-overridden "Hello blue " text is emitted unwrapped.
 $assert(str_contains($kiwiInlineTextStyleHtml, 'Hello blue <span style="color:#0000ff">world</span>'), 'kiwi-inline-style-two-color-spans');
+// Kiwi style-referenced text fill: the Lego run resolves through styleIdForFill
+// to the FILL style node instead of requiring duplicate inline fillPaints.
+$assert(str_contains($kiwiInlineTextStyleHtml, 'We&#039;re all about <span style="color:#006db7">Lego</span>'), 'kiwi-inline-style-fill-reference-spans');
 // Kiwi mixed-weight: only "Bold" differs in font-weight — derived from the override
 // entry's bold `fontName` — and " plain text" stays unwrapped.
 $assert(str_contains($kiwiInlineTextStyleHtml, '<span style="font-weight:700">Bold</span> plain text'), 'kiwi-inline-style-mixed-weight-spans');
