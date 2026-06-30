@@ -20,7 +20,7 @@ final class TextNormalizer
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<string, mixed>
      */
-    public function normalizeText(array $node, array $blobs = array(), string $nodeId = '', array &$diagnostics = array(), array $paintStyles = array()): array
+    public function normalizeText(array $node, array $blobs = array(), string $nodeId = '', array &$diagnostics = array(), array $paintStyles = array(), array $textStyles = array()): array
     {
         $text = array();
 
@@ -36,6 +36,11 @@ final class TextNormalizer
         }
 
         $style = array();
+        $styleId = $this->readStyleGuidId($node['styleIdForText'] ?? null);
+        if ( null !== $styleId && is_array($textStyles[$styleId] ?? null) ) {
+            $style = $this->normalizeTextStyle($textStyles[$styleId]);
+        }
+
         if ( is_array($node['style'] ?? null) ) {
             $style = $this->normalizeTextStyle($node['style']);
         }

@@ -4947,6 +4947,52 @@ $assert(str_contains($kiwiInlineTextStyleHtml, 'We&#039;re all about <span style
 // entry's bold `fontName` — and " plain text" stays unwrapped.
 $assert(str_contains($kiwiInlineTextStyleHtml, '<span style="font-weight:700">Bold</span> plain text'), 'kiwi-inline-style-mixed-weight-spans');
 
+// Kiwi text style references: production .fig payloads can carry stale inline
+// `fontName` data on a text node while `styleIdForText` points at the canonical
+// text style and `derivedTextData.fontMetaData` matches that style. Prefer the
+// referenced text style so cloned component text preserves direct Figma parity.
+$kiwiTextStyleReferenceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Kiwi Text Style Reference Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'kref:1',
+            'type'     => 'FRAME',
+            'name'     => 'Kiwi text style reference frame',
+            'width'    => 1200,
+            'height'   => 400,
+            'children' => array(
+                array(
+                    'id'        => '4166:11869',
+                    'type'      => 'TEXT',
+                    'styleType' => 'TEXT',
+                    'name'      => 'Desktop/Headings/H2',
+                    'fontName'  => array('family' => 'Barlow Condensed', 'style' => 'Bold'),
+                    'fontSize'  => 48,
+                    'lineHeight' => array('units' => 'PERCENT', 'value' => 120),
+                    'textData'  => array('characters' => 'Rag 123'),
+                ),
+                array(
+                    'id'             => 'kref:2',
+                    'type'           => 'TEXT',
+                    'name'           => 'Newsletter heading with stale inline font',
+                    'width'          => 544,
+                    'height'         => 48,
+                    'fontName'       => array('family' => 'Helvetica Neue', 'style' => 'Bold', 'postscript' => 'HelveticaNeue-Bold'),
+                    'fontSize'       => 24,
+                    'styleIdForText' => array('guid' => array('sessionID' => 4166, 'localID' => 11869)),
+                    'textData'       => array('characters' => 'Get the newsletter!'),
+                ),
+            ),
+        ),
+    ),
+));
+$kiwiTextStyleReferenceCss = $fileContent($kiwiTextStyleReferenceResult, 'style.css');
+$assert(str_contains($kiwiTextStyleReferenceCss, '.figma-node-kref-2-newsletter-heading-with-stale-inline-font{'), 'kiwi-text-style-reference-rule-emitted');
+$assert(str_contains($kiwiTextStyleReferenceCss, 'font-family:"Barlow Condensed", sans-serif'), 'kiwi-text-style-reference-font-family');
+$assert(str_contains($kiwiTextStyleReferenceCss, 'font-size:48px'), 'kiwi-text-style-reference-font-size');
+$assert(str_contains($kiwiTextStyleReferenceCss, 'font-weight:700'), 'kiwi-text-style-reference-font-weight');
+$assert(! str_contains($kiwiTextStyleReferenceCss, 'font-family:"Helvetica Neue", Helvetica, Arial, sans-serif'), 'kiwi-text-style-reference-stale-inline-font-not-emitted');
+
 // Font embedding: a known web font (Inter) resolves to a weight-aware Google Fonts
 // @font-face import, while an unknown family (Skolar Latin) stays actionable. This
 // mirrors the David Perell .fig matrix where Inter + Skolar Latin rendered in a
