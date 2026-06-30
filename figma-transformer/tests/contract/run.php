@@ -8,6 +8,7 @@ require_once __DIR__ . '/ContractHelpers.php';
 require_once __DIR__ . '/DiagnosticsEvidenceContract.php';
 require_once __DIR__ . '/EffectsContract.php';
 require_once __DIR__ . '/FixtureMatrixContract.php';
+require_once __DIR__ . '/FormControlContract.php';
 require_once __DIR__ . '/GeometryBoxContract.php';
 require_once __DIR__ . '/ImagePaintContract.php';
 require_once __DIR__ . '/KiwiSkippedFieldInventoryContract.php';
@@ -185,6 +186,8 @@ $assert(str_contains($css, '.figma-node-1-1-hero-section{width:100%;max-width:12
 $assert(str_contains($css, '.figma-node-1-2-hero-title{font-size:48px;font-weight:700;color:#1a334d;flex-shrink:0}'), 'css-text-style');
 
 blocks_engine_figma_transformer_run_image_paint_contract($assert, $result, $css, $fileContent);
+
+blocks_engine_figma_transformer_run_form_control_contract($assert, $fileContent);
 
 blocks_engine_figma_transformer_run_vector_command_blob_contract($assert, $oversizedCommandBlob, $longStrokeCommandBlob);
 
