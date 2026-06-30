@@ -8,6 +8,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 This package uses [Semantic Versioning](https://semver.org/). Deprecations are warned one minor version ahead of removal.
 
+## [0.2.2] - 2026-06-30
+
+### Added
+
+- `structuredStrategy` — a selectable reconstruction strategy that interprets the `SectionSpec` into clean, theme-styled canonical blocks first (`nativeDecision` → `renderCover`/`renderCardGrid`/`renderMediaText`/…), falling back to a verbatim `core/html` island only on coverage loss. Unlike the preserve-DOM default it does not preserve source classes or whole-section islands, so its output is self-contained and renders from the theme alone with no dependency on carried source CSS. This restores the pre-preserve-DOM fidelity for no-CSS-carry blocks pipelines (e.g. data-liberation's blocks reconstruct path) while leaving the carried-CSS paths (local-convert, theme-carry) on the existing default. Exposed from `@automattic/blocks-engine/theme`.
+
+### Changed
+
+- No change to default behavior. `reconstructNativeAggregate`'s default remains `defaultReconstructStrategy` (preserve-DOM); `structuredStrategy` is strictly additive and opt-in via `SectionRenderOptions.strategy`. The reconstruct/golden suite is byte-identical for callers that do not select it.
+
 ## [0.2.1] - 2026-06-29
 
 ### Changed

@@ -6,6 +6,7 @@ import {
   reconstruct,
   reconstructNativeAggregate,
   type SectionStrategy,
+  structuredStrategy,
 } from '../index.js';
 import type { SectionSpec } from '../section-spec.js';
 import type { StageCtx } from '../types.js';
@@ -276,5 +277,45 @@ describe('reconstruct strategy seam default path', () => {
     expect(drainedState).toEqual({ observed: 2 });
     expect(aggregate.sectionMarkup).toEqual([]);
     expect(aggregate.dedup).toEqual({ cssRules: ['.probe-source-identity{}'] });
+  });
+});
+
+describe('structuredStrategy — interpretive theme-styled reconstruction (no-CSS-carry path)', () => {
+  it('is exported from the theme barrel', () => {
+    expect(structuredStrategy.name).toBe('structured');
+    expect(typeof structuredStrategy.render).toBe('function');
+  });
+
+  it('emits native structured blocks (theme-styled) instead of a class-preserving island', () => {
+    // A cover-hero section. The default (preserve-dom) strategy keeps the source
+    // DOM/classes (needs carried CSS). structuredStrategy must interpret the spec
+    // into a native, self-contained block (core/cover) that renders from the theme
+    // alone — no verbatim island, no preserved source `class="hero cover"`.
+    const hero = sectionSpec({
+      sectionIndex: 0,
+      interactionModel: 'cover-with-headline',
+      height: 720,
+      headings: ['Cover hero'],
+      bodyText: ['Hero body copy.'],
+      fullBleed: true,
+      images: [sectionImage('/wp-content/uploads/2026/hero.jpg', { width: 1440, height: 900 })],
+      sectionHtml:
+        '<section id="hero" class="hero cover"><h1>Cover hero</h1><p>Hero body copy.</p><img src="/wp-content/uploads/2026/hero.jpg" alt="Fixture image"></section>',
+    });
+
+    const structured = reconstructNativeAggregate([hero], { ...options, strategy: structuredStrategy });
+    const defaulted = reconstructNativeAggregate([hero], options);
+
+    const structuredBody = structured.sectionMarkup.join('\n');
+    const defaultedBody = defaulted.sectionMarkup.join('\n');
+
+    // structured → a native canonical block, not a verbatim source island.
+    expect(structuredBody).toContain('wp:cover');
+    expect(structuredBody).not.toContain('lib-coverage-island');
+    expect(structuredBody).not.toContain('class="hero cover"');
+    // content still preserved (provenance-faithful copy).
+    expect(structured.expectedText).toContain('Cover hero');
+    // and it genuinely differs from the default preserve-dom output (regression guard).
+    expect(structuredBody).not.toEqual(defaultedBody);
   });
 });

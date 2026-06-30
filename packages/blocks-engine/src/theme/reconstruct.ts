@@ -630,6 +630,27 @@ export const defaultReconstructStrategy: SectionStrategy = {
   },
 };
 
+// Structured reconstruction (the pre-preserve-dom DLA blocks-path fidelity): interpret the
+// SectionSpec into clean, theme-styled canonical blocks FIRST (nativeDecision → renderSection →
+// renderCover/renderCardGrid/renderMediaText/…), with a verbatim core/html island only as the
+// coverage fallback. Unlike defaultReconstructStrategy/classifySemanticStrategy, it does NOT
+// preserve source classes or island whole sections by default — so the output is self-contained
+// and renders from the THEME alone, with no dependency on carried source CSS. This is the right
+// strategy for a no-CSS-carry blocks pipeline (e.g. data-liberation's blocks reconstruct path);
+// the carried-CSS paths (local-convert, theme-carry) keep defaultReconstructStrategy. Additive:
+// selecting it does not change the default, so those paths are unaffected.
+export const structuredStrategy: SectionStrategy = {
+  name: 'structured',
+  render(section, options, ctx) {
+    const converted = options.convertedSections?.get(section.sectionIndex);
+    return (
+      convertedDecision(section, converted, options) ??
+      nativeDecision(section, options, ctx) ??
+      islandDecision(section, options)
+    );
+  },
+};
+
 function optionsFromCtx(ctx: StageCtx): SectionRenderOptions {
   const rewriteCtx = ctx as RewriteCtx;
   return {
