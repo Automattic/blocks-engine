@@ -8,6 +8,17 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 This package uses [Semantic Versioning](https://semver.org/). Deprecations are warned one minor version ahead of removal.
 
+## [0.2.1] - 2026-06-29
+
+### Changed
+
+- The WordPress runtime (`@wordpress/block-library`, `@wordpress/blocks`, `@wordpress/block-serialization-default-parser`) is now compiled into a single self-contained CJS chunk shipped in `dist`, and `@wordpress/*` moved to `devDependencies`. A clean consumer install drops from ~491 MB to ~53 MB with no public API change. The runtime is loaded lazily through an internal resolver that prefers the bundle and falls back to real packages in development.
+- Nine edit-only `@wordpress` leaf packages (icons, ui, dataviews, image-cropper, server-side-render, commands, preferences, notices, keyboard-shortcuts) are aliased to an empty stub at build time, since the engine never executes block `edit` components — only `save`, `transforms`, and attribute sourcing. Fidelity is unchanged: the full reconstruct/golden suite passes identically against the bundle.
+
+### Fixed
+
+- Aligned all `@wordpress/*` dependencies to a single coherent release, eliminating nested duplicate `node_modules` (previously a mismatched version set installed ~12 copies of some packages). This alone cut a clean install from ~2.0 GB to ~491 MB.
+
 ## [0.2.0] - 2026-06-29
 
 ### Added
