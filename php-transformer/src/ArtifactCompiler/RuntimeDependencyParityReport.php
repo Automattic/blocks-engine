@@ -495,6 +495,9 @@ final class RuntimeDependencyParityReport
             }
             $tag = strtolower($element->tagName);
             $src = 'script' === $tag && $element->hasAttribute('src') ? trim($element->getAttribute('src')) : '';
+            if ( '' !== $src ) {
+                $src = ArtifactPath::resolveRelativePath($src, $sourcePath);
+            }
             $id = trim($element->hasAttribute('id') ? $element->getAttribute('id') : '');
             if ( '' !== $id ) {
                 $targets['#' . $id] = array_filter(array('tag' => $tag, 'source_path' => $sourcePath, 'id' => $id, 'src' => $src), static fn (string $value): bool => '' !== $value);

@@ -1442,6 +1442,21 @@ $assert(null === $selfRumFinding, 'telemetry script self-target is not reported 
 $assert(null !== $selfRumDependency, 'runtime dependency parity records telemetry script self-target dependency');
 $assert('script' === ($selfRumDependency['target_kind'] ?? ''), 'runtime dependency parity identifies telemetry script self-target kind');
 
+$nestedSelfRumSite = $compiler->compile(
+    array(
+        'entrypoint' => 'website/index.html',
+        'files'      => array(
+            'website/index.html' => '<main><h1>Telemetry</h1><script id="netlify-rum-container" src="js/rum.js" data-netlify-cwv-token="token"></script></main>',
+            'website/js/rum.js' => 'document.querySelector("#netlify-rum-container")?.getAttribute("data-netlify-cwv-token");',
+        ),
+    )
+)->toArray();
+$nestedSelfRumFindings = $nestedSelfRumSite['source_reports']['runtime_dependency_parity']['findings'] ?? array();
+$assert(
+    array() === array_values(array_filter($nestedSelfRumFindings, static fn (array $finding): bool => '#netlify-rum-container' === ($finding['selector'] ?? ''))),
+    'nested telemetry script self-target is not reported as a missing block DOM target'
+);
+
 $decorativeCanvasSite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
