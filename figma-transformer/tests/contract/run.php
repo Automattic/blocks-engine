@@ -5496,6 +5496,34 @@ $assert(str_contains($positiveRootCanvasOriginCss, '.figma-node-positive-origin-
 $assert(str_contains($positiveRootCanvasOriginCss, '.figma-node-positive-origin-cta-cta{width:240px;height:40px;position:absolute;left:200px;top:400px'), 'positive-root-canvas-origin-normalizes-text-child');
 $positiveRootCanvasOriginDiagnostics = $positiveRootCanvasOriginResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
 $assert(0 === ($positiveRootCanvasOriginDiagnostics['layout']['large_absolute_offset_count'] ?? null), 'positive-root-canvas-origin-diagnostics-no-large-offset');
+
+$selectedFrameRebaseNormalizer = new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer();
+$selectedFrameRebaseNormalized = $selectedFrameRebaseNormalizer->normalize(array(
+    'name'  => 'Selected Frame Explicit Rebase Fixture',
+    'nodes' => array(
+        array(
+            'id'                  => 'selected-rebase:frame',
+            'type'                => 'FRAME',
+            'name'                => 'Selected Rebase Frame',
+            'absoluteBoundingBox' => array('x' => 12000, 'y' => 500, 'width' => 1440, 'height' => 900),
+            'children'            => array(
+                array(
+                    'id'                  => 'selected-rebase:child',
+                    'type'                => 'RECTANGLE',
+                    'name'                => 'Child',
+                    'absoluteBoundingBox' => array('x' => 12120, 'y' => 680, 'width' => 160, 'height' => 60),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                ),
+            ),
+        ),
+    ),
+), array('frame_id' => 'selected-rebase:frame'));
+$selectedFrameRebaseRoot = $selectedFrameRebaseNormalized['nodes'][0] ?? array();
+$selectedFrameRebaseChild = $selectedFrameRebaseRoot['children'][0] ?? array();
+$assert(0.0 === ($selectedFrameRebaseRoot['box']['x'] ?? null) && 0.0 === ($selectedFrameRebaseRoot['box']['y'] ?? null), 'selected-frame-rebase-root-origin-zero');
+$assert('local' === ($selectedFrameRebaseRoot['box']['coordinate_space'] ?? null) && 'page' === ($selectedFrameRebaseRoot['box']['local_origin'] ?? null), 'selected-frame-rebase-root-marked-page-local');
+$assert(120.0 === ($selectedFrameRebaseChild['box']['x'] ?? null) && 180.0 === ($selectedFrameRebaseChild['box']['y'] ?? null), 'selected-frame-rebase-child-subtracts-page-origin');
+$assert('local' === ($selectedFrameRebaseChild['box']['coordinate_space'] ?? null) && 'page' === ($selectedFrameRebaseChild['box']['local_origin'] ?? null), 'selected-frame-rebase-child-marked-page-local');
 blocks_engine_figma_transformer_run_origin_inference_contract($assert, $fileContent, $findVisualNode);
 
 $resolvedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -6393,6 +6421,21 @@ $documentModeNormalized = $documentModeNormalizer->normalize($documentModeSceneg
     'render_document' => true,
     'document_frame_ids' => array('mpoc:home', 'mpoc:about'),
 ));
+$documentModeNodeMap = is_array($documentModeNormalized['node_map'] ?? null) ? $documentModeNormalized['node_map'] : array();
+$documentModeHomeFrame = is_array($documentModeNodeMap['mpoc:home'] ?? null) ? $documentModeNodeMap['mpoc:home'] : array();
+$documentModeAboutFrame = is_array($documentModeNodeMap['mpoc:about'] ?? null) ? $documentModeNodeMap['mpoc:about'] : array();
+$documentModeHomeInstance = is_array($documentModeHomeFrame['children'][0] ?? null) ? $documentModeHomeFrame['children'][0] : array();
+$documentModeAboutInstance = is_array($documentModeAboutFrame['children'][0] ?? null) ? $documentModeAboutFrame['children'][0] : array();
+$documentModeHomeLogo = is_array($documentModeHomeInstance['children'][0] ?? null) ? $documentModeHomeInstance['children'][0] : array();
+$documentModeAboutLogo = is_array($documentModeAboutInstance['children'][0] ?? null) ? $documentModeAboutInstance['children'][0] : array();
+$assert(0.0 === ($documentModeHomeFrame['box']['x'] ?? null) && 0.0 === ($documentModeHomeFrame['box']['y'] ?? null), 'document-mode-home-page-root-origin-zero');
+$assert(0.0 === ($documentModeAboutFrame['box']['x'] ?? null) && 0.0 === ($documentModeAboutFrame['box']['y'] ?? null), 'document-mode-about-page-root-origin-zero');
+$assert('local' === ($documentModeHomeFrame['box']['coordinate_space'] ?? null) && 'page' === ($documentModeHomeFrame['box']['local_origin'] ?? null), 'document-mode-home-page-root-marked-page-local');
+$assert('local' === ($documentModeAboutFrame['box']['coordinate_space'] ?? null) && 'page' === ($documentModeAboutFrame['box']['local_origin'] ?? null), 'document-mode-about-page-root-marked-page-local');
+$assert(0.0 === ($documentModeHomeInstance['box']['x'] ?? null) && 700.0 === ($documentModeHomeInstance['box']['y'] ?? null), 'document-mode-home-instance-subtracts-page-origin');
+$assert(0.0 === ($documentModeAboutInstance['box']['x'] ?? null) && 700.0 === ($documentModeAboutInstance['box']['y'] ?? null), 'document-mode-about-instance-subtracts-page-origin');
+$assert(120.0 === ($documentModeHomeLogo['box']['x'] ?? null) && 860.0 === ($documentModeHomeLogo['box']['y'] ?? null), 'document-mode-home-override-child-subtracts-page-origin');
+$assert(150.0 === ($documentModeAboutLogo['box']['x'] ?? null) && 860.0 === ($documentModeAboutLogo['box']['y'] ?? null), 'document-mode-about-override-child-subtracts-page-origin');
 $documentModeSite = $documentModeEmitter->emitSite($documentModeNormalized, array(
     'pages' => array(
         array('frame_id' => 'mpoc:home', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true),

@@ -51,7 +51,7 @@ final class ScenegraphNormalizer
         if ( $renderDocument ) {
             $documentFrameIds = $this->documentFrameIds($options, $frameIds, $nodeMap);
             foreach ( $documentFrameIds as $documentFrameId ) {
-                $rebasedFrame = $this->rebaseSelectedFrameToOrigin($this->refreshResolvedTree($nodeMap[$documentFrameId], $nodeMap));
+                $rebasedFrame = $this->rebasePageFrameToLocalOrigin($this->refreshResolvedTree($nodeMap[$documentFrameId], $nodeMap));
                 $this->appendNodeMap($rebasedFrame, $nodeMap);
             }
         }
@@ -63,7 +63,7 @@ final class ScenegraphNormalizer
             if ( isset($nodeMap[$id]) ) {
                 $node = $this->refreshResolvedTree($nodeMap[$id], $nodeMap);
                 if ( $explicitSelectedFrameId && $id === $selectedFrameId ) {
-                    $node = $this->rebaseSelectedFrameToOrigin($node);
+                    $node = $this->rebasePageFrameToLocalOrigin($node);
                 }
                 $renderNodes[] = $node;
             }
@@ -731,14 +731,14 @@ final class ScenegraphNormalizer
      * @param array<string, mixed> $node
      * @return array<string, mixed>
      */
-    private function rebaseSelectedFrameToOrigin(array $node): array
+    private function rebasePageFrameToLocalOrigin(array $node): array
     {
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $originX = isset($box['x']) && is_numeric($box['x']) ? (float) $box['x'] : 0.0;
         $originY = isset($box['y']) && is_numeric($box['y']) ? (float) $box['y'] : 0.0;
         $node['_selected_frame_root'] = true;
 
-        return $this->rebaseNodeCoordinates($node, $originX, $originY, true);
+        return $this->rebaseCanvasCoordinateBoxesToPageLocal($node, $originX, $originY, true);
     }
 
     /**
@@ -793,10 +793,10 @@ final class ScenegraphNormalizer
      * @param array<string, mixed> $node
      * @return array<string, mixed>
      */
-    private function rebaseNodeCoordinates(array $node, float $originX, float $originY, bool $isRoot = false): array
+    private function rebaseCanvasCoordinateBoxesToPageLocal(array $node, float $originX, float $originY, bool $isRoot = false): array
     {
-        $node = $this->rebaseNodeBox($node, 'box', $originX, $originY, $isRoot);
-        $node = $this->rebaseNodeBox($node, 'figma_box', $originX, $originY, $isRoot);
+        $node = $this->rebaseCanvasCoordinateBoxToPageLocal($node, 'box', $originX, $originY, $isRoot);
+        $node = $this->rebaseCanvasCoordinateBoxToPageLocal($node, 'figma_box', $originX, $originY, $isRoot);
 
         foreach ( array('children', 'nodes') as $childrenKey ) {
             if ( ! is_array($node[$childrenKey] ?? null) ) {
@@ -805,7 +805,7 @@ final class ScenegraphNormalizer
 
             foreach ( $node[$childrenKey] as $index => $child ) {
                 if ( is_array($child) ) {
-                    $node[$childrenKey][$index] = $this->rebaseNodeCoordinates($child, $originX, $originY);
+                    $node[$childrenKey][$index] = $this->rebaseCanvasCoordinateBoxesToPageLocal($child, $originX, $originY);
                 }
             }
         }
@@ -817,7 +817,7 @@ final class ScenegraphNormalizer
      * @param array<string, mixed> $node
      * @return array<string, mixed>
      */
-    private function rebaseNodeBox(array $node, string $boxKey, float $originX, float $originY, bool $isRoot): array
+    private function rebaseCanvasCoordinateBoxToPageLocal(array $node, string $boxKey, float $originX, float $originY, bool $isRoot): array
     {
         if ( ! is_array($node[$boxKey] ?? null) ) {
             return $node;
@@ -835,6 +835,7 @@ final class ScenegraphNormalizer
             $box['coordinate_space'] = GeometryBox::coordinateSpaceForClassification(
                 $isRoot ? GeometryBox::CLASSIFICATION_PAGE_LOCAL : GeometryBox::CLASSIFICATION_PARENT_LOCAL
             );
+            $box['local_origin'] = 'page';
         }
 
         $node[$boxKey] = $box;
