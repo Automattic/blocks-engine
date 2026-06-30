@@ -33,10 +33,12 @@ trait StyleResolutionTrait
      * Resolve an element's presentation into canonical block attributes.
      *
      * The merged CSS is translated into the canonical block `style` OBJECT
-     * (typography/color/spacing/border) plus the `layout` attribute. A raw inline
+     * (typography/color/spacing/border) plus the `layout` attribute. Class-owned
+     * vertical flex CSS stays owned by the preserved `className` to avoid
+     * WordPress `is-vertical` layout classes overriding source CSS. A raw inline
      * `style` STRING is never emitted on a block: declarations that do not map to
-     * a block support are dropped and ride on the preserved `className` instead
-     * (#261). Frozen responsive/JS hidden base states are normalized away (#259).
+     * a block support are dropped and ride on `className` instead (#261). Frozen
+     * responsive/JS hidden base states are normalized away (#259).
      *
      * @return array<string, mixed>
      */
@@ -417,20 +419,26 @@ trait StyleResolutionTrait
             }
         }
 
-        $style = strtolower('' !== trim($mergedStyle) ? $mergedStyle : $this->attr($element, 'style'));
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style) ) {
+        $inlineStyle = strtolower($this->attr($element, 'style'));
+        if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $inlineStyle) ) {
             // flex-direction: column / column-reverse is a vertical main axis. A
             // core/group flex layout defaults to a horizontal Row, so the
             // orientation must be made explicit or the children render
             // side-by-side instead of stacked. Row / row-reverse / default flex
             // keeps the implicit horizontal orientation.
-            if ( preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style) ) {
+            if ( preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $inlineStyle) ) {
                 return array(
                     'type'        => 'flex',
                     'orientation' => 'vertical',
                 );
             }
 
+            return array( 'type' => 'flex' );
+        }
+        $style = strtolower('' !== trim($mergedStyle) ? $mergedStyle : $this->attr($element, 'style'));
+        if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style)
+            && ! preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style)
+        ) {
             return array( 'type' => 'flex' );
         }
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $style) ) {

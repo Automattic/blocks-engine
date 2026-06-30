@@ -2170,11 +2170,13 @@ if ( ! str_contains($result['serialized_blocks'], '<!-- wp:heading {"content":"H
 // a block support rides on `className`, and responsive/JS-revealed base hidden
 // states (display:none) are never frozen onto content-bearing elements.
 $canonicalStyleResult = ( new HtmlTransformer() )->transform(
-    '<main>'
+    '<style>.class-owned-flex{display:flex;flex-direction:column;gap:1rem}</style>'
+    . '<main>'
     . '<h2 class="eyebrow" style="font-size:2rem;color:#c0392b;font-weight:700">Styled heading</h2>'
     . '<p class="lede" style="color:#222;line-height:1.6">Styled paragraph</p>'
     . '<div class="hero" style="display:flex;gap:1rem;padding:2rem;background:#101010;color:#fff;position:fixed;inset:0;overflow:hidden">'
     . '<h3>Hero heading</h3><p>Hero content</p></div>'
+    . '<div class="class-owned-flex"><p>Class-owned layout</p></div>'
     . '<nav class="main-nav" style="display:none;gap:1.6rem"><a href="/a">Home</a></nav>'
     . '</main>'
 )->toArray();
@@ -2255,6 +2257,10 @@ assertSame('flex', $hero['attrs']['layout']['type'] ?? null, 'display:flex maps 
 $assert(! is_string($hero['attrs']['style'] ?? null), 'container style is never a raw string');
 assertSame('#fff', $hero['attrs']['style']['color']['text'] ?? null, 'container color maps to style.color.text');
 $assert(str_contains((string) ($hero['attrs']['className'] ?? ''), 'hero'), 'container className is preserved for unmappable CSS');
+
+$classOwnedFlex = $findBlockByClass($canonicalStyleResult['blocks'], 'class-owned-flex');
+$assert(is_array($classOwnedFlex), 'class-owned flex container block is emitted');
+$assert(! isset($classOwnedFlex['attrs']['layout']), 'class-owned flex CSS does not synthesize a WordPress layout attribute');
 
 // Hidden-state safety (#259): a base display:none on content-bearing nav is not
 // frozen; it is normalized away and surfaced as a frozen_hidden_state finding.
