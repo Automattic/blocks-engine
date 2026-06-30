@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DiagnosticsCollector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SemanticParityReporter;
@@ -103,6 +104,18 @@ final class HtmlTransformer
     private readonly DiagnosticsCollector $diagnosticsCollector;
 
     private readonly SemanticParityReporter $semanticParityReporter;
+
+    private readonly ContentRoundTripReporter $contentRoundTripReporter;
+
+    /**
+     * Text the transformer SYNTHESIZES from form controls (label + value/
+     * placeholder/required state) rather than extracting from visible source.
+     * Declared to the content round-trip reporter so it is not mistaken for
+     * invented copy. Reset per transform().
+     *
+     * @var array<int, string>
+     */
+    private array $formControlEchoTexts = array();
 
     private readonly FallbackEmitter $fallbackEmitter;
 
@@ -259,6 +272,7 @@ final class HtmlTransformer
         ));
         $this->diagnosticsCollector = new DiagnosticsCollector();
         $this->semanticParityReporter = new SemanticParityReporter($this->runtime);
+        $this->contentRoundTripReporter = new ContentRoundTripReporter();
         $this->fallbackEmitter = new FallbackEmitter(
             $this->runtime,
             fn (DOMElement $element): array => $this->sourceContext($element)
@@ -282,6 +296,7 @@ final class HtmlTransformer
         $this->runtimeIslands = array();
         $this->nativeDisclosureRootIds = array();
         $this->generatedBlocks = array();
+        $this->formControlEchoTexts = array();
         $this->generatedBlockNamespace = $this->generatedBlockNamespaceFromOptions($options);
         $this->fallbackEmitter->resetGeneratedBlocks();
         $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
@@ -367,13 +382,15 @@ final class HtmlTransformer
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
         $semanticParityReport = $this->semanticParityReporter->report($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
+        $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->formControlEchoTexts);
         $diagnostics = $this->diagnosticsCollector->collect(
             self::class,
             $this->scriptMetadata,
             $fallbacks,
             $this->runtimeIslands,
             $blockValidityReport,
-            $semanticParityReport
+            $semanticParityReport,
+            $contentRoundTripReport
         );
 
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
@@ -387,6 +404,7 @@ final class HtmlTransformer
             'superseded_selectors' => array_keys($this->supersededRuntimeSelectors),
             'wp_block_validity' => $blockValidityReport,
             'semantic_parity' => $semanticParityReport,
+            'content_round_trip' => $contentRoundTripReport,
             'html' => array(
                 'presentation_signals' => $this->presentationProvenance,
                 'frozen_hidden_state'  => $this->frozenHiddenStateFindings,
@@ -4594,6 +4612,7 @@ final class HtmlTransformer
     private function readableSelectBlockFromElement(DOMElement $select): ?array
     {
         $label = $this->readableFormControlLabel($select);
+        $this->registerFormControlEcho($label);
         $optionBlocks = array();
 
         foreach ( $this->selectOptions($select) as $option ) {
@@ -4606,6 +4625,7 @@ final class HtmlTransformer
                 $optionLabel .= ' (selected)';
             }
 
+            $this->registerFormControlEcho($optionLabel);
             $optionBlocks[] = $this->createBlock('core/list-item', array( 'content' => $this->runtime->escapeHtml($optionLabel) ));
         }
 
@@ -4948,7 +4968,25 @@ final class HtmlTransformer
             $text .= ' (required)';
         }
 
+        $this->registerFormControlEcho($text);
+
         return $this->runtime->escapeHtml($text);
+    }
+
+    /**
+     * Record text the transformer synthesizes from a form control (label plus
+     * value/placeholder/options/required state) so the content round-trip
+     * reporter does not flag it as invented copy — it is intentionally absent
+     * from the source's visible content. Harmless if a recorded string never
+     * reaches the output: the reporter only ever uses it to suppress an exact
+     * match.
+     */
+    private function registerFormControlEcho(string $text): void
+    {
+        $text = trim($text);
+        if ( '' !== $text ) {
+            $this->formControlEchoTexts[] = $text;
+        }
     }
 
     private function readableFormControlLabel(DOMElement $control): string
