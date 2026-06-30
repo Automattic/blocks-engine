@@ -61,6 +61,76 @@ function blocks_engine_figma_transformer_run_geometry_box_contract(callable $ass
     $assert(GeometryBox::CLASSIFICATION_PARENT_LOCAL === GeometryBox::classifyNormalizedBox($transformBox), 'geometry-box-transform-coordinate-space');
     $assert(array('width' => 90.0, 'height' => 60.0, 'x' => 7.0, 'y' => 11.0, 'coordinate_space' => GeometryBox::COORDINATE_SPACE_PARENT_LOCAL) === $transformBox, 'geometry-box-transform-values');
 
+    $relativeTransformResult = $normalizer->normalize(array(
+        'name'  => 'Relative Transform Geometry Fixture',
+        'nodes' => array(
+            array(
+                'id'                => 'geometry:relative-transform',
+                'type'              => 'FRAME',
+                'name'              => 'Relative transform position',
+                'size'              => array('x' => 90, 'y' => 60),
+                'relativeTransform' => array('m02' => 13, 'm12' => 17),
+            ),
+        ),
+    ));
+    $relativeTransformBox = $relativeTransformResult['nodes'][0]['box'] ?? array();
+    $assert(GeometryBox::CLASSIFICATION_PARENT_LOCAL === GeometryBox::classifyNormalizedBox($relativeTransformBox), 'geometry-box-relative-transform-coordinate-space');
+    $assert(array('width' => 90.0, 'height' => 60.0, 'x' => 13.0, 'y' => 17.0, 'coordinate_space' => GeometryBox::COORDINATE_SPACE_PARENT_LOCAL) === $relativeTransformBox, 'geometry-box-relative-transform-values');
+
+    $absoluteTransformResult = $normalizer->normalize(array(
+        'name'  => 'Absolute Transform Geometry Fixture',
+        'nodes' => array(
+            array(
+                'id'                => 'geometry:absolute-transform',
+                'type'              => 'FRAME',
+                'name'              => 'Absolute transform position',
+                'size'              => array('x' => 90, 'y' => 60),
+                'absoluteTransform' => array('m02' => 1300, 'm12' => 1700),
+            ),
+        ),
+    ));
+    $absoluteTransformBox = $absoluteTransformResult['nodes'][0]['box'] ?? array();
+    $assert(GeometryBox::CLASSIFICATION_CANVAS_ABSOLUTE === GeometryBox::classifyNormalizedBox($absoluteTransformBox), 'geometry-box-absolute-transform-coordinate-space');
+    $assert(array('width' => 90.0, 'height' => 60.0, 'x' => 1300.0, 'y' => 1700.0, 'coordinate_space' => GeometryBox::COORDINATE_SPACE_CANVAS_ABSOLUTE) === $absoluteTransformBox, 'geometry-box-absolute-transform-values');
+
+    $overrideTransformResult = $normalizer->normalize(array(
+        'name'  => 'Instance Relative Transform Override Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'geometry:component',
+                'type'     => 'COMPONENT',
+                'name'     => 'Component',
+                'key'      => 'geometry-component-key',
+                'children' => array(
+                    array(
+                        'id'     => 'geometry:component-child',
+                        'type'   => 'RECTANGLE',
+                        'name'   => 'Component child',
+                        'x'      => 0,
+                        'y'      => 0,
+                        'width'  => 20,
+                        'height' => 10,
+                    ),
+                ),
+            ),
+            array(
+                'id'          => 'geometry:instance',
+                'type'        => 'INSTANCE',
+                'name'        => 'Instance',
+                'componentId' => 'geometry-component-key',
+                'overrides'   => array(
+                    array(
+                        'nodeId'            => 'geometry:component-child',
+                        'relativeTransform' => array('m02' => 21, 'm12' => 34),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $overrideChildBox = $overrideTransformResult['nodes'][1]['children'][0]['box'] ?? array();
+    $assert(GeometryBox::CLASSIFICATION_PARENT_LOCAL === GeometryBox::classifyNormalizedBox($overrideChildBox), 'geometry-box-instance-relative-transform-override-coordinate-space');
+    $assert(21.0 === ($overrideChildBox['x'] ?? null) && 34.0 === ($overrideChildBox['y'] ?? null), 'geometry-box-instance-relative-transform-override-values');
+
     $selectedFrameResult = $normalizer->normalize(
         array(
             'name'  => 'Selected Frame Rebase Geometry Fixture',
