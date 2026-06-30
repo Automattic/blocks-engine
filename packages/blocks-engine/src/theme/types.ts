@@ -1,4 +1,5 @@
 import type { WorkerPool } from '../pool/types.js';
+import type { ConvertReportStatus } from '../report/schema.js';
 import type { RegionSelectionReport } from './region-audit.js';
 import type { SectionSpec } from './section-spec.js';
 import type { FormRemainder, SectionRenderOptions } from './native-reconstruct-types.js';
@@ -82,6 +83,20 @@ export interface ThemeMeta {
   author?: string;
 }
 
+export interface ThemeConversionPageDiagnostic {
+  slug: string;
+  status: ConvertReportStatus;
+  fallbackCount: number;
+  degraded: boolean;
+}
+
+export interface ThemeConversionDiagnostics {
+  pages: ThemeConversionPageDiagnostic[];
+  totalFallbacks: number;
+  pagesWithFallbacks: number;
+  degradedPages: number;
+}
+
 export interface SiteToThemeHooks {
   onFoundation?(tokens: FoundationTokens, ctx: StageCtx): Promise<FoundationTokens>;
   onSection?(section: SectionBlocks, ctx: StageCtx): Promise<SectionBlocks>;
@@ -118,6 +133,7 @@ export interface SiteToThemeOptions extends SourceCssCarryOptions {
 }
 
 export interface ThemeDiagnostics {
+  conversion: ThemeConversionDiagnostics;
   regionAudit: RegionSelectionReport[];
 }
 

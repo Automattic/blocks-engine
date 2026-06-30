@@ -54,6 +54,8 @@ import {
   type StageCtx,
   type TemplatePlan,
   type ThemeBuildResult,
+  type ThemeConversionDiagnostics,
+  type ThemeConversionPageDiagnostic,
   type ThemeDiagnostics,
   type ThemeMeta,
   type ThemeModel,
@@ -313,6 +315,31 @@ type CompileOnlyThemeContractAssignments = {
       name: string;
       slug: string;
       author: string;
+    }
+  >;
+  themeConversionPageDiagnostic: Satisfies<
+    ThemeConversionPageDiagnostic,
+    {
+      slug: string;
+      status: 'success';
+      fallbackCount: number;
+      degraded: boolean;
+    }
+  >;
+  themeConversionDiagnostics: Satisfies<
+    ThemeConversionDiagnostics,
+    {
+      pages: ThemeConversionPageDiagnostic[];
+      totalFallbacks: number;
+      pagesWithFallbacks: number;
+      degradedPages: number;
+    }
+  >;
+  themeDiagnostics: Satisfies<
+    ThemeDiagnostics,
+    {
+      conversion: ThemeConversionDiagnostics;
+      regionAudit: RegionSelectionReport[];
     }
   >;
   siteToThemeHooks: Satisfies<
