@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { installDomGlobals } from './dom-globals.js';
+import { requireWp } from './require-wp.js';
 
 type JSDOMConstructor = new (
   html?: string,
@@ -44,9 +45,9 @@ export function bootstrap(): void {
   installDomGlobals(dom.window);
 
   try {
-    const { registerCoreBlocks } = requireFromHere(
+    const { registerCoreBlocks } = requireWp(
       '@wordpress/block-library',
-    ) as BlockLibraryModule;
+    ) as unknown as BlockLibraryModule;
     registerCoreBlocks();
     ready = true;
   } catch (error) {
