@@ -262,3 +262,29 @@ convert(html, ctx, opts) = (await convertReport(...)).blockMarkup
   and the envelope; the existing `convert` one-liner stays as the headline.
 - `schema` version string lets the eventual ratchet integration (item #2) and any
   downstream consumer detect envelope changes.
+
+## Deferred follow-ups (from deep review + adversarial review)
+
+Tracked, intentionally out of scope for this branch. None block merge.
+
+1. **Invalid-block severity** — `canonicalize` folds genuine block-validation
+   failures into `fixedIssues`, which `buildReport` maps to `info`
+   `normalized_markup`. Real validation failures should get their own code at
+   `warning` severity so they escalate `status`.
+2. **`fallbackCount` vs `fallbacks.length`** — when the inventory is capped at
+   100, `metrics.fallbackCount` is the true total and exceeds `fallbacks.length`.
+   Document this in the README / type docs (a `fallback_inventory_truncated`
+   diagnostic already discloses it).
+3. **Inventory perf gate (council decision C)** — benchmark `siteToTheme`
+   per-page conversion cost; only if material, gate inventory collection *inside
+   the worker* (conditional work on the single path) — never fork `convert()`
+   into a markup-only path.
+4. **Snippet render-safety** — `snippet` is passed through `sanitize()` (strips
+   script/style/on*) but is NOT XSS-safe (leaves `javascript:` URLs, `iframe`,
+   etc.). It is documented as untrusted text; consider escaping to text outright
+   if a report viewer ever renders it.
+5. **`failed` status** — currently reserved and unreachable. Decide whether the
+   degraded/sentinel path should map to `failed`, or drop `failed` from the enum.
+6. **Purity guard strength** — `no-wordpress-runtime-deps.test.ts` checks
+   `package.json` only, not the import graph. Consider an import-graph assertion
+   so a future value-level `@wordpress/*` import in the pure core is caught.
