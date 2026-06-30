@@ -631,7 +631,76 @@ function blocks_engine_figma_parser_parity_normalized_asset_reference_node_ids(a
             $ids[] = (string) $reference['node_id'];
         }
     }
+
+    foreach ( is_array($normalized['node_map'] ?? null) ? $normalized['node_map'] : array() as $nodeId => $node ) {
+        if ( ! is_array($node) || 'INSTANCE' !== strtoupper((string) ($node['type'] ?? '')) ) {
+            continue;
+        }
+        if ( blocks_engine_figma_parser_parity_normalized_node_has_child_asset_reference($node) ) {
+            $ids[] = (string) $nodeId;
+        }
+    }
+
     return array_values(array_unique($ids));
+}
+
+function blocks_engine_figma_parser_parity_normalized_node_has_child_asset_reference(array $node): bool
+{
+    foreach ( is_array($node['children'] ?? null) ? $node['children'] : array() as $child ) {
+        if ( ! is_array($child) ) {
+            continue;
+        }
+        if ( blocks_engine_figma_parser_parity_normalized_node_has_direct_asset_reference($child) || blocks_engine_figma_parser_parity_normalized_node_has_child_asset_reference($child) ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function blocks_engine_figma_parser_parity_normalized_node_has_direct_asset_reference(array $node): bool
+{
+    foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref') as $key ) {
+        if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== (string) $node[$key] ) {
+            return true;
+        }
+    }
+
+    foreach ( array('fills', 'strokes', 'background', 'fillPaints', 'strokePaints') as $paintKey ) {
+        if ( blocks_engine_figma_parser_parity_normalized_paints_have_asset_reference(is_array($node[$paintKey] ?? null) ? $node[$paintKey] : array()) ) {
+            return true;
+        }
+    }
+
+    foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
+        if ( blocks_engine_figma_parser_parity_normalized_paints_have_asset_reference(is_array($node['figma_paints'][$paintKey] ?? null) ? $node['figma_paints'][$paintKey] : array()) ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function blocks_engine_figma_parser_parity_normalized_paints_have_asset_reference(array $paints): bool
+{
+    foreach ( $paints as $paint ) {
+        if ( ! is_array($paint) ) {
+            continue;
+        }
+        if ( 'IMAGE' !== strtoupper((string) ($paint['type'] ?? '')) ) {
+            continue;
+        }
+        foreach ( array('ref', 'imageRef', 'imageHash', 'asset_id', 'image_ref') as $key ) {
+            if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
+                return true;
+            }
+        }
+        if ( isset($paint['image']['hash']) && is_scalar($paint['image']['hash']) && '' !== (string) $paint['image']['hash'] ) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /**
