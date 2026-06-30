@@ -70,7 +70,15 @@ function fakePool(): WorkerPool {
       return items.map((html) => ({ html, wpHtmlResidue: 0 }));
     },
     async canonicalize(items: string[]) {
-      return items.map((html) => ({ html, changed: false, fixedIssues: [] }));
+      return items.map((html) => ({
+        html,
+        changed: false,
+        fixedIssues: [],
+        blockCount: 0,
+        htmlIslands: [],
+        htmlIslandCount: 0,
+        degraded: false,
+      }));
     },
     async stop() {},
   };

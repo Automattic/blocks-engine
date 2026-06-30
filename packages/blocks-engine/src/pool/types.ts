@@ -5,10 +5,19 @@ export interface RawConvertResult {
   wpHtmlResidue: number;
 }
 
+export interface HtmlIsland {
+  index: number;
+  html: string;
+}
+
 export interface FixResult {
   html: string;
   changed: boolean;
   fixedIssues: string[];
+  blockCount: number;
+  htmlIslands: HtmlIsland[];
+  htmlIslandCount: number;
+  degraded: boolean;
 }
 
 export interface WorkerPoolOptions {

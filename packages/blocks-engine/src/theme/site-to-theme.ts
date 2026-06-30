@@ -5,6 +5,7 @@ import { assemble } from './assemble.js';
 import type { StaticImgRef } from './assets-static.js';
 import { assets as runAssetsStage } from './assets.js';
 import { chrome } from './chrome.js';
+import { buildThemeConversionDiagnostics } from './conversion-diagnostics.js';
 import { foundation } from './foundation.js';
 import { ingest } from './ingest.js';
 import { detectLayoutOffsetWrapper } from './layout-offset-wrapper.js';
@@ -31,6 +32,7 @@ import type {
   SiteToThemeOptions,
   StageCtx,
   ThemeBuildResult,
+  ThemeConversionDiagnostics,
   ThemeMeta,
 } from './types.js';
 
@@ -117,6 +119,15 @@ export async function siteToTheme(
     const regionAudit = buildRegionAuditDiagnostics(site, pages, chromeRes.parts, chromeRes.slugsByPage, warnings);
     const styleBlocks =
       options?.variationHoist === false ? undefined : hoistPageStyleBlocks(site, pages, warnings);
+    const conversionDiagnostics = await buildThemeConversionDiagnostics(
+      site.pages.map((page) => ({
+        slug: page.slug,
+        inputHtml: chromeRes.mainHtmlByPage[page.slug] ?? page.html,
+        sections: pages[page.slug] ?? [],
+      })),
+      pool
+    );
+    pushConversionWarnings(conversionDiagnostics, ctx.warn);
     const assetStage = await runAssetsStage(ctx, { fetchImpl: options?.fetchImpl });
     const layoutOffsetWrapperClass = detectLayoutOffsetWrapper(
       homePage(site)?.html ?? '',
@@ -168,16 +179,32 @@ export async function siteToTheme(
         parts: Object.keys(model.parts).length,
         patterns: Object.keys(model.patterns).length,
         assets: model.assets.length,
+        fallbacks: conversionDiagnostics.totalFallbacks,
         warnings: warnings.length,
       },
       warnings,
       diagnostics: {
+        conversion: conversionDiagnostics,
         regionAudit,
       },
     };
   } finally {
     if (ownsPool) {
       await pool.stop();
+    }
+  }
+}
+
+function pushConversionWarnings(
+  diagnostics: ThemeConversionDiagnostics,
+  warn: (message: string) => void
+): void {
+  for (const page of diagnostics.pages) {
+    if (page.fallbackCount > 0) {
+      warn(`page ${page.slug}: ${page.fallbackCount} section(s) fell back to raw HTML`);
+    }
+    if (page.degraded) {
+      warn(`page ${page.slug}: conversion degraded`);
     }
   }
 }

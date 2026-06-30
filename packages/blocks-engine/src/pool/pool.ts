@@ -124,7 +124,15 @@ function rawSentinel(): RawConvertResult {
 }
 
 function canonicalizeSentinel(html: string): FixResult {
-  return { html, changed: false, fixedIssues: [] };
+  return {
+    html,
+    changed: false,
+    fixedIssues: [],
+    blockCount: 0,
+    htmlIslands: [],
+    htmlIslandCount: 0,
+    degraded: true,
+  };
 }
 
 function sentinelFor<Op extends WorkerOp>(

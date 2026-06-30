@@ -67,6 +67,22 @@ Emits:
 
 `convert` is the normal end-to-end path: it tries worker-backed conversion, falls back through composition when needed, canonicalizes the result, and returns WordPress block markup. If you don't pass a pool, it spins one up for the call and stops it before returning.
 
+#### Structured reports
+
+Use `convertReport` when you need the same block markup plus structured conversion findings and metrics:
+
+```ts
+import { convertReport } from '@automattic/blocks-engine';
+
+const report = await convertReport(html, { url: 'https://example.com/page.html' });
+
+console.log(report.status);
+console.log(report.blockMarkup);
+console.log(report.fallbacks);
+```
+
+`report.blockMarkup` is the same projection returned by `convert`. `fallbacks` lists surviving `core/html` islands as `unconverted_html` findings, and `metrics` includes input/output byte counts, block count, fallback count, diagnostic count, and transform duration.
+
 ## CLI
 
 ```
@@ -103,6 +119,7 @@ The root export (`@automattic/blocks-engine`) mirrors `src/index.ts`:
 | Export | Use it to… |
 |--------|-----------|
 | `convert` | Run the normal end-to-end HTML → blocks conversion (async). |
+| `convertReport` | Run the same conversion and get block markup, findings, and metrics. |
 | `compose` | Run the pure, synchronous in-process composition layer directly. |
 | `createWorker` | Create a reusable `WorkerPool` for batches or long-lived processes. |
 | `siteToTheme` | Build and write a block theme from a source directory (the CLI's `theme` engine). |
@@ -112,7 +129,7 @@ The root export (`@automattic/blocks-engine`) mirrors `src/index.ts`:
 
 **Types**
 
-`ConvertOptions`, `BlocksEngineErrorOptions`, `SiteToThemeOptions`, `ThemeBuildResult`, `ThemeJsonLintResult`, `ConversionContext`, `Converter`, `HtmlFallback`, `CreateWorker`, `FixResult`, `RawConvertResult`, `WorkerPool`, `WorkerPoolOptions`, `PoolEvent`.
+`ConvertOptions`, `ConvertReport`, `ConvertReportStatus`, `ConversionFinding`, `ConversionFindingCode`, `ConversionFindingSeverity`, `ConversionMetrics`, `BlocksEngineErrorOptions`, `SiteToThemeOptions`, `ThemeBuildResult`, `ThemeJsonLintResult`, `ConversionContext`, `Converter`, `HtmlFallback`, `CreateWorker`, `FixResult`, `RawConvertResult`, `WorkerPool`, `WorkerPoolOptions`, `PoolEvent`.
 
 Import runtime functions and classes normally, and import TypeScript shapes with `type`:
 
@@ -150,10 +167,15 @@ result.warnings.forEach((warning) => console.warn(warning));
 ## Which entry point do I use?
 
 - **`convert`** — the default. Async, worker-backed with composition fallback, and self-contained: it owns and stops its pool unless you supply one.
+- **`convertReport`** — the structured-report version of `convert`. Use it when callers need block markup plus fallback and diagnostic details.
 - **`compose`** — the pure, synchronous composition layer. Reach for it when you want custom `Converter` chains, custom `HtmlFallback` behavior, or tests and tools that only need best-effort local HTML-to-block composition. It never creates, owns, or stops a worker pool.
 - **`createWorker`** — for batches or long-lived processes. Reuse one `WorkerPool` across calls to avoid per-item worker startup costs, and pass it into `convert` via `ConvertOptions.pool`.
 - **`siteToTheme`** — for turning a directory of static HTML into a full block theme (this is what the CLI's `theme` command runs).
 - **`BlocksEngineError`** — catch this for package-level failures with a stable `code` and user-facing `hint`.
+
+### Structured report
+
+Use `convertReport(html, ctx?, opts?)` when a caller needs the converted block markup plus a versioned envelope of fallback inventory, diagnostics, and metrics. The existing `convert(...)` helper remains the default string API and returns the report's `blockMarkup`.
 
 ## Worker Pool Lifecycle
 

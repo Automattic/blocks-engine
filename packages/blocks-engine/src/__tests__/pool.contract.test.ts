@@ -45,6 +45,13 @@ describe('worker pool contract', () => {
       html: string;
       changed: boolean;
       fixedIssues: string[];
+      blockCount: number;
+      htmlIslands: {
+        index: number;
+        html: string;
+      }[];
+      htmlIslandCount: number;
+      degraded: boolean;
     }>();
 
     expectTypeOf<PoolEvent>().toEqualTypeOf<{
