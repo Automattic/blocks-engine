@@ -3402,6 +3402,10 @@ final class StaticHtmlEmitter
         if ( ! empty($assetPaths) ) {
             $urlList = implode(',', array_map(static fn (string $p): string => 'url("' . $p . '")', $assetPaths));
             $styles[] = 'background-image:' . $urlList;
+            $blendModes = $this->imageBackgroundBlendModes($node);
+            if ( ! empty($blendModes) ) {
+                $styles[] = 'background-blend-mode:' . implode(',', $blendModes);
+            }
             foreach ( $this->imageBackgroundStyles($node) as $style ) {
                 $styles[] = $style;
             }
@@ -5048,6 +5052,41 @@ final class StaticHtmlEmitter
         }
 
         return array('background-size:cover', 'background-position:center');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function imageBackgroundBlendModes(array $node): array
+    {
+        $blendModes = array();
+        foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
+            $paintCollections = array();
+            if ( is_array($node[$paintKey] ?? null) ) {
+                $paintCollections[] = $node[$paintKey];
+            }
+            if ( is_array($node['figma_paints'][$paintKey] ?? null) ) {
+                $paintCollections[] = $node['figma_paints'][$paintKey];
+            }
+
+            foreach ( $paintCollections as $paints ) {
+                foreach ( array_reverse(array_values($paints)) as $paint ) {
+                    if ( ! is_array($paint) || 'IMAGE' !== strtoupper((string) ($paint['type'] ?? '')) || false === ($paint['visible'] ?? true) ) {
+                        continue;
+                    }
+
+                    $blendMode = null;
+                    if ( isset($paint['blendMode']) && is_scalar($paint['blendMode']) ) {
+                        $blendMode = $this->blendModeCss((string) $paint['blendMode']);
+                    }
+
+                    $blendModes[] = $blendMode ?? 'normal';
+                }
+            }
+        }
+
+        return in_array(true, array_map(static fn (string $mode): bool => 'normal' !== $mode, $blendModes), true) ? $blendModes : array();
     }
 
     /**

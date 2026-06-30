@@ -400,7 +400,7 @@ final class FigKiwiDecoder
             // `skipField()` and every .fig text node emits flat, single-style text.
             'TextData' => array('characters', 'layoutSize', 'characterStyleIDs', 'styleOverrideTable'),
             'Number' => array('value', 'units'),
-            'Paint' => array('type', 'color', 'opacity', 'visible', 'stops', 'transform', 'image', 'imageScaleMode', 'originalImageWidth', 'originalImageHeight', 'altText'),
+            'Paint' => array('type', 'color', 'opacity', 'visible', 'blendMode', 'stops', 'transform', 'image', 'imageThumbnail', 'imageScaleMode', 'originalImageWidth', 'originalImageHeight', 'altText'),
             // Effect struct (#328). The Kiwi blur token is `FOREGROUND_BLUR`
             // (REST calls it `LAYER_BLUR`); the normalizer bridges both. `offset`
             // resolves to the whitelisted `Vector` struct and `color` to `Color`.

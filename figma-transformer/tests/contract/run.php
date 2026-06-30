@@ -4628,6 +4628,44 @@ $blendModeCss = $fileContent($blendModeResult, 'style.css');
 $assert(str_contains($blendModeCss, '.figma-node-blend-1-multiply-layer{') && str_contains($blendModeCss, 'mix-blend-mode:multiply'), 'node-blend-mode-multiply-emits');
 $assert(1 === substr_count($blendModeCss, 'mix-blend-mode'), 'node-blend-mode-normal-and-pass-through-omit');
 
+// Paint-level blendMode maps to CSS background-blend-mode for image layers.
+// NORMAL remains omitted, while mixed image layers keep one blend token per
+// background-image layer so CSS applies the non-default mode to the right layer.
+$paintBlendModeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'   => 'Paint Blend Mode Fixture',
+    'assets' => array(
+        'blend-top'    => array('mime_type' => 'image/png', 'content' => 'top image'),
+        'blend-bottom' => array('mime_type' => 'image/png', 'content' => 'bottom image'),
+        'blend-normal' => array('mime_type' => 'image/png', 'content' => 'normal image'),
+    ),
+    'nodes'  => array(
+        array(
+            'id'         => 'paint-blend:mixed',
+            'type'       => 'RECTANGLE',
+            'name'       => 'Mixed paint blends',
+            'width'      => 100,
+            'height'     => 80,
+            'fillPaints' => array(
+                array('type' => 'IMAGE', 'imageRef' => 'blend-bottom', 'blendMode' => 'NORMAL'),
+                array('type' => 'IMAGE', 'imageRef' => 'blend-top', 'blendMode' => 'MULTIPLY'),
+            ),
+        ),
+        array(
+            'id'         => 'paint-blend:normal',
+            'type'       => 'RECTANGLE',
+            'name'       => 'Normal paint blend',
+            'width'      => 100,
+            'height'     => 80,
+            'fillPaints' => array(
+                array('type' => 'IMAGE', 'imageRef' => 'blend-normal', 'blendMode' => 'NORMAL'),
+            ),
+        ),
+    ),
+));
+$paintBlendModeCss = $fileContent($paintBlendModeResult, 'style.css');
+$assert(str_contains($paintBlendModeCss, '.figma-node-paint-blend-mixed-mixed-paint-blends{width:100px;height:80px;background-image:url("assets/blend-top.png"),url("assets/blend-bottom.png");background-blend-mode:multiply,normal;background-size:cover;background-position:center}'), 'paint-blend-mode-image-layers-emit-background-blend');
+$assert(1 === substr_count($paintBlendModeCss, 'background-blend-mode'), 'paint-blend-mode-normal-omits-background-blend');
+
 // Inline character-level style overrides (characterStyleOverrides + styleOverrideTable).
 //
 // The Figma API encodes per-character style overrides as a parallel array of integer

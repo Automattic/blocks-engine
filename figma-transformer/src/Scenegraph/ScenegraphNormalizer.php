@@ -3163,6 +3163,9 @@ final class ScenegraphNormalizer
             if ( isset($paint['opacity']) && is_numeric($paint['opacity']) ) {
                 $normalized['opacity'] = (float) $paint['opacity'];
             }
+            if ( isset($paint['blendMode']) && is_scalar($paint['blendMode']) ) {
+                $normalized['blendMode'] = strtoupper((string) $paint['blendMode']);
+            }
 
             return $normalized;
         }
@@ -3201,6 +3204,9 @@ final class ScenegraphNormalizer
                     $normalized[$key] = (string) $paint[$key];
                 }
             }
+            if ( isset($paint['blendMode']) && is_scalar($paint['blendMode']) ) {
+                $normalized['blendMode'] = strtoupper((string) $paint['blendMode']);
+            }
             foreach ( array('originalImageWidth', 'originalImageHeight', 'scale', 'rotation', 'opacity') as $key ) {
                 if ( isset($paint[$key]) && is_numeric($paint[$key]) ) {
                     $normalized[$key] = (float) $paint[$key];
@@ -3228,6 +3234,9 @@ final class ScenegraphNormalizer
                 );
                 if ( isset($paint['opacity']) && is_numeric($paint['opacity']) ) {
                     $normalized['opacity'] = (float) $paint['opacity'];
+                }
+                if ( isset($paint['blendMode']) && is_scalar($paint['blendMode']) ) {
+                    $normalized['blendMode'] = strtoupper((string) $paint['blendMode']);
                 }
                 if ( is_array($paint['gradientTransform'] ?? null) ) {
                     $normalized['gradientTransform'] = $paint['gradientTransform'];
