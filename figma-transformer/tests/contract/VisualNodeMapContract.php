@@ -184,4 +184,123 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $assert(! str_contains($visualCrossAxisFillCss, '.figma-node-visual-cross-fill-tall-tall-fill-child{width:50px;height:100%;flex-grow:1'), 'visual-map-cross-axis-fill-no-flex-grow-css');
     $assert(array('x' => 100.0, 'y' => 0.0, 'width' => 50.0, 'height' => 100.0) === ($visualCrossAxisFillTall['rect'] ?? null), 'visual-map-cross-axis-fill-source-width-preserved');
     $assert(array('x' => 0.0, 'y' => 0.0, 'width' => 80.0, 'height' => 40.0) === ($visualCrossAxisFillNext['rect'] ?? null), 'visual-map-cross-axis-fill-next-child-not-pushed');
+
+    $freeformTransitionResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Auto Layout Freeform Transition Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'layout-transition:flex',
+                'type'       => 'FRAME',
+                'name'       => 'Auto layout shell',
+                'width'      => 360,
+                'height'     => 180,
+                'layoutMode' => 'HORIZONTAL',
+                'itemSpacing' => 12,
+                'children'   => array(
+                    array('id' => 'layout-transition:flow-a', 'type' => 'RECTANGLE', 'name' => 'Flow A', 'width' => 80, 'height' => 40),
+                    array('id' => 'layout-transition:absolute', 'type' => 'RECTANGLE', 'name' => 'Pinned badge', 'x' => 250, 'y' => 20, 'width' => 40, 'height' => 24, 'layoutPositioning' => 'ABSOLUTE'),
+                    array('id' => 'layout-transition:flow-b', 'type' => 'RECTANGLE', 'name' => 'Flow B', 'width' => 60, 'height' => 40),
+                ),
+            ),
+            array(
+                'id'       => 'layout-transition:freeform',
+                'type'     => 'FRAME',
+                'name'     => 'Freeform board',
+                'width'    => 360,
+                'height'   => 180,
+                'children' => array(
+                    array('id' => 'layout-transition:local-card', 'type' => 'RECTANGLE', 'name' => 'Local card', 'x' => 44, 'y' => 66, 'width' => 90, 'height' => 30),
+                ),
+            ),
+        ),
+    ));
+    $transitionCss = $fileContent($freeformTransitionResult, 'style.css');
+    $transitionFlowA = $findVisualNode($freeformTransitionResult, 'layout-transition:flow-a');
+    $transitionAbsolute = $findVisualNode($freeformTransitionResult, 'layout-transition:absolute');
+    $transitionFlowB = $findVisualNode($freeformTransitionResult, 'layout-transition:flow-b');
+    $transitionLocalCard = $findVisualNode($freeformTransitionResult, 'layout-transition:local-card');
+    $assert(str_contains($transitionCss, '.figma-node-layout-transition-flex-auto-layout-shell{width:360px;height:180px;position:relative;display:flex;flex-direction:row;gap:12px}'), 'visual-map-layout-transition-flex-css');
+    $assert(str_contains($transitionCss, '.figma-node-layout-transition-freeform-freeform-board{width:360px;height:180px;position:relative}'), 'visual-map-layout-transition-freeform-css');
+    $assert(array('x' => 0.0, 'y' => 0.0, 'width' => 80.0, 'height' => 40.0) === ($transitionFlowA['rect'] ?? null), 'visual-map-layout-transition-flow-first-position');
+    $assert(array('x' => 92.0, 'y' => 0.0, 'width' => 60.0, 'height' => 40.0) === ($transitionFlowB['rect'] ?? null), 'visual-map-layout-transition-flow-skips-absolute-position');
+    $assert(array('x' => 250.0, 'y' => 20.0, 'width' => 40.0, 'height' => 24.0) === ($transitionAbsolute['rect'] ?? null), 'visual-map-layout-transition-absolute-position');
+    $assert(array('x' => 44.0, 'y' => 66.0, 'width' => 90.0, 'height' => 30.0) === ($transitionLocalCard['rect'] ?? null), 'visual-map-layout-transition-freeform-local-position');
+
+    $nestedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(
+        array(
+            'name'  => 'Nested Instance Transform Override Fixture',
+            'nodes' => array(
+                array(
+                    'id'       => 'instance:canvas',
+                    'type'     => 'CANVAS',
+                    'name'     => 'Canvas',
+                    'children' => array(
+                        array(
+                            'id'       => 'component:icon',
+                            'type'     => 'COMPONENT',
+                            'name'     => 'Icon component',
+                            'width'    => 16,
+                            'height'   => 16,
+                            'children' => array(
+                                array('id' => 'component:icon/vector', 'type' => 'VECTOR', 'name' => 'Icon vector', 'width' => 16, 'height' => 16, 'pathData' => 'M0 0H16V16Z'),
+                            ),
+                        ),
+                        array(
+                            'id'         => 'component:button',
+                            'type'       => 'COMPONENT',
+                            'name'       => 'Button component',
+                            'width'      => 120,
+                            'height'     => 44,
+                            'layoutMode' => 'HORIZONTAL',
+                            'itemSpacing' => 8,
+                            'children'   => array(
+                                array('id' => 'component:button/icon', 'type' => 'INSTANCE', 'name' => 'Nested icon', 'componentId' => 'component:icon', 'width' => 16, 'height' => 16),
+                                array('id' => 'component:button/label', 'type' => 'TEXT', 'name' => 'Button label', 'characters' => 'Default label', 'width' => 80, 'height' => 20),
+                            ),
+                        ),
+                        array(
+                            'id'       => 'instance:page',
+                            'type'     => 'FRAME',
+                            'name'     => 'Page',
+                            'width'    => 320,
+                            'height'   => 180,
+                            'children' => array(
+                                array(
+                                    'id'          => 'instance:button',
+                                    'type'        => 'INSTANCE',
+                                    'name'        => 'Buy button',
+                                    'componentId' => 'component:button',
+                                    'x'           => 30,
+                                    'y'           => 40,
+                                    'width'       => 160,
+                                    'height'      => 60,
+                                    'overrides'   => array(
+                                        array(
+                                            'nodeId'     => 'component:button/label',
+                                            'characters' => 'Buy now',
+                                            'size'       => array('x' => 90, 'y' => 22),
+                                            'transform'  => array('m02' => 48, 'm12' => 18),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array('frame_id' => 'instance:page')
+    );
+    $nestedInstanceHtml = $fileContent($nestedInstanceResult, 'index.html');
+    $nestedInstanceCss = $fileContent($nestedInstanceResult, 'style.css');
+    $nestedInstanceRoot = $findVisualNode($nestedInstanceResult, 'instance:button');
+    $nestedInstanceLabel = $findVisualNode($nestedInstanceResult, 'instance:button/component:button/label');
+    $nestedInstanceIconVector = $findVisualNode($nestedInstanceResult, 'instance:button/component:button/icon/component:icon/vector');
+    $assert(str_contains($nestedInstanceHtml, 'Buy now'), 'visual-map-nested-instance-text-override-emits');
+    $assert(! str_contains($nestedInstanceHtml, 'Default label'), 'visual-map-nested-instance-text-override-replaces-default');
+    $assert(str_contains($nestedInstanceHtml, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"'), 'visual-map-nested-instance-vector-emits');
+    $assert(str_contains($nestedInstanceCss, '.figma-node-instance-button-buy-button{width:160px;height:60px;position:absolute;left:30px;top:40px}'), 'visual-map-nested-instance-transform-override-freeform-css');
+    $assert(array('x' => 30.0, 'y' => 40.0, 'width' => 160.0, 'height' => 60.0) === ($nestedInstanceRoot['rect'] ?? null), 'visual-map-nested-instance-root-position');
+    $assert(array('x' => 78.0, 'y' => 58.0, 'width' => 90.0, 'height' => 22.0) === ($nestedInstanceLabel['rect'] ?? null), 'visual-map-nested-instance-transform-override-position');
+    $assert(null !== $nestedInstanceIconVector, 'visual-map-nested-instance-resolves-nested-instance-vector');
 }

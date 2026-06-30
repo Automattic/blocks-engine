@@ -61,6 +61,76 @@ function blocks_engine_figma_transformer_run_geometry_box_contract(callable $ass
     $assert(GeometryBox::CLASSIFICATION_PARENT_LOCAL === GeometryBox::classifyNormalizedBox($transformBox), 'geometry-box-transform-coordinate-space');
     $assert(array('width' => 90.0, 'height' => 60.0, 'x' => 7.0, 'y' => 11.0, 'coordinate_space' => GeometryBox::COORDINATE_SPACE_PARENT_LOCAL) === $transformBox, 'geometry-box-transform-values');
 
+    $relativeTransformResult = $normalizer->normalize(array(
+        'name'  => 'Relative Transform Geometry Fixture',
+        'nodes' => array(
+            array(
+                'id'                => 'geometry:relative-transform',
+                'type'              => 'FRAME',
+                'name'              => 'Relative transform position',
+                'size'              => array('x' => 90, 'y' => 60),
+                'relativeTransform' => array('m02' => 13, 'm12' => 17),
+            ),
+        ),
+    ));
+    $relativeTransformBox = $relativeTransformResult['nodes'][0]['box'] ?? array();
+    $assert(GeometryBox::CLASSIFICATION_PARENT_LOCAL === GeometryBox::classifyNormalizedBox($relativeTransformBox), 'geometry-box-relative-transform-coordinate-space');
+    $assert(array('width' => 90.0, 'height' => 60.0, 'x' => 13.0, 'y' => 17.0, 'coordinate_space' => GeometryBox::COORDINATE_SPACE_PARENT_LOCAL) === $relativeTransformBox, 'geometry-box-relative-transform-values');
+
+    $absoluteTransformResult = $normalizer->normalize(array(
+        'name'  => 'Absolute Transform Geometry Fixture',
+        'nodes' => array(
+            array(
+                'id'                => 'geometry:absolute-transform',
+                'type'              => 'FRAME',
+                'name'              => 'Absolute transform position',
+                'size'              => array('x' => 90, 'y' => 60),
+                'absoluteTransform' => array('m02' => 1300, 'm12' => 1700),
+            ),
+        ),
+    ));
+    $absoluteTransformBox = $absoluteTransformResult['nodes'][0]['box'] ?? array();
+    $assert(GeometryBox::CLASSIFICATION_CANVAS_ABSOLUTE === GeometryBox::classifyNormalizedBox($absoluteTransformBox), 'geometry-box-absolute-transform-coordinate-space');
+    $assert(array('width' => 90.0, 'height' => 60.0, 'x' => 1300.0, 'y' => 1700.0, 'coordinate_space' => GeometryBox::COORDINATE_SPACE_CANVAS_ABSOLUTE) === $absoluteTransformBox, 'geometry-box-absolute-transform-values');
+
+    $overrideTransformResult = $normalizer->normalize(array(
+        'name'  => 'Instance Relative Transform Override Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'geometry:component',
+                'type'     => 'COMPONENT',
+                'name'     => 'Component',
+                'key'      => 'geometry-component-key',
+                'children' => array(
+                    array(
+                        'id'     => 'geometry:component-child',
+                        'type'   => 'RECTANGLE',
+                        'name'   => 'Component child',
+                        'x'      => 0,
+                        'y'      => 0,
+                        'width'  => 20,
+                        'height' => 10,
+                    ),
+                ),
+            ),
+            array(
+                'id'          => 'geometry:instance',
+                'type'        => 'INSTANCE',
+                'name'        => 'Instance',
+                'componentId' => 'geometry-component-key',
+                'overrides'   => array(
+                    array(
+                        'nodeId'            => 'geometry:component-child',
+                        'relativeTransform' => array('m02' => 21, 'm12' => 34),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $overrideChildBox = $overrideTransformResult['nodes'][1]['children'][0]['box'] ?? array();
+    $assert(GeometryBox::CLASSIFICATION_PARENT_LOCAL === GeometryBox::classifyNormalizedBox($overrideChildBox), 'geometry-box-instance-relative-transform-override-coordinate-space');
+    $assert(21.0 === ($overrideChildBox['x'] ?? null) && 34.0 === ($overrideChildBox['y'] ?? null), 'geometry-box-instance-relative-transform-override-values');
+
     $selectedFrameResult = $normalizer->normalize(
         array(
             'name'  => 'Selected Frame Rebase Geometry Fixture',
@@ -98,4 +168,52 @@ function blocks_engine_figma_transformer_run_geometry_box_contract(callable $ass
     $assert(0.0 === ($selectedFrameBox['x'] ?? null) && 0.0 === ($selectedFrameBox['y'] ?? null), 'geometry-box-selected-frame-rebased-root-origin');
     $assert(GeometryBox::CLASSIFICATION_PARENT_LOCAL === GeometryBox::classifyNormalizedBox($selectedChildBox), 'geometry-box-selected-frame-child-local-coordinate-space');
     $assert(50.0 === ($selectedChildBox['x'] ?? null) && 40.0 === ($selectedChildBox['y'] ?? null), 'geometry-box-selected-frame-child-rebased-position');
+
+    $documentModeResult = $normalizer->normalize(
+        array(
+            'name'  => 'Document Mode Rebase Geometry Fixture',
+            'nodes' => array(
+                array(
+                    'id'                  => 'geometry:doc-home',
+                    'type'                => 'FRAME',
+                    'name'                => 'Home page',
+                    'absoluteBoundingBox' => array('x' => 800, 'y' => 200, 'width' => 320, 'height' => 240),
+                    'children'            => array(
+                        array(
+                            'id'                  => 'geometry:doc-home-child',
+                            'type'                => 'RECTANGLE',
+                            'name'                => 'Home card',
+                            'absoluteBoundingBox' => array('x' => 830, 'y' => 250, 'width' => 100, 'height' => 60),
+                        ),
+                    ),
+                ),
+                array(
+                    'id'                  => 'geometry:doc-about',
+                    'type'                => 'FRAME',
+                    'name'                => 'About page',
+                    'absoluteBoundingBox' => array('x' => 1400, 'y' => 900, 'width' => 320, 'height' => 240),
+                    'children'            => array(
+                        array(
+                            'id'                  => 'geometry:doc-about-child',
+                            'type'                => 'TEXT',
+                            'name'                => 'About copy',
+                            'characters'          => 'About',
+                            'absoluteBoundingBox' => array('x' => 1415, 'y' => 920, 'width' => 80, 'height' => 20),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array('render_document' => true, 'document_frame_ids' => array('geometry:doc-home', 'geometry:doc-about'))
+    );
+    $documentHomeBox = $documentModeResult['nodes'][0]['box'] ?? array();
+    $documentHomeChildBox = $documentModeResult['nodes'][0]['children'][0]['box'] ?? array();
+    $documentAboutBox = $documentModeResult['nodes'][1]['box'] ?? array();
+    $documentAboutChildBox = $documentModeResult['nodes'][1]['children'][0]['box'] ?? array();
+    $assert(GeometryBox::CLASSIFICATION_PAGE_LOCAL === GeometryBox::classifyNormalizedBox($documentHomeBox, true), 'geometry-box-document-mode-home-page-local-coordinate-space');
+    $assert(0.0 === ($documentHomeBox['x'] ?? null) && 0.0 === ($documentHomeBox['y'] ?? null), 'geometry-box-document-mode-home-rebased-root-origin');
+    $assert(30.0 === ($documentHomeChildBox['x'] ?? null) && 50.0 === ($documentHomeChildBox['y'] ?? null), 'geometry-box-document-mode-home-child-rebased-position');
+    $assert(GeometryBox::CLASSIFICATION_PAGE_LOCAL === GeometryBox::classifyNormalizedBox($documentAboutBox, true), 'geometry-box-document-mode-about-page-local-coordinate-space');
+    $assert(0.0 === ($documentAboutBox['x'] ?? null) && 0.0 === ($documentAboutBox['y'] ?? null), 'geometry-box-document-mode-about-rebased-root-origin');
+    $assert(15.0 === ($documentAboutChildBox['x'] ?? null) && 20.0 === ($documentAboutChildBox['y'] ?? null), 'geometry-box-document-mode-about-child-rebased-position');
 }

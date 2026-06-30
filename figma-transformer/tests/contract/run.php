@@ -198,6 +198,33 @@ $assert(str_contains($css, '.figma-node-1-4-hero-image-rectangle{width:320px;hei
 $assert(str_contains($css, '.figma-node-1-5-nested-image-paint{') && str_contains($css, 'background-image:url("assets/fixture-photo.jpg")'), 'css-nested-image-hash-asset-style');
 $assert('fixture image bytes' === $fileContent($result, 'assets/fixture-photo.jpg'), 'asset-content-preserved');
 
+$missingEmissionResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Missing Emission Diagnostics Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'missing:root',
+            'type'     => 'FRAME',
+            'name'     => 'Missing emission root',
+            'width'    => 320,
+            'height'   => 180,
+            'children' => array(
+                array('id' => 'missing:text', 'type' => 'TEXT', 'name' => 'Visible text', 'characters' => 'Synthetic visible copy', 'width' => 180, 'height' => 24),
+                array('id' => 'missing:asset', 'type' => 'RECTANGLE', 'name' => 'Missing asset', 'width' => 80, 'height' => 60, 'asset_id' => 'missing-image'),
+                array('id' => 'missing:vector', 'type' => 'VECTOR', 'name' => 'Missing vector geometry', 'width' => 20, 'height' => 20),
+            ),
+        ),
+    ),
+));
+$missingEmissionHtml = $fileContent($missingEmissionResult, 'index.html');
+$missingEmissionQualitySignalCodes = $artifactQualitySignalCodes($missingEmissionResult);
+$missingAssetsSignal = $artifactQualitySignal($missingEmissionResult, 'missing_render_assets');
+$vectorPlaceholderSignal = $artifactQualitySignal($missingEmissionResult, 'vector_placeholders');
+$assert(str_contains($missingEmissionHtml, 'Synthetic visible copy'), 'missing-emission-text-still-emits');
+$assert(in_array('missing_render_assets', $missingEmissionQualitySignalCodes, true), 'missing-emission-missing-asset-signal');
+$assert(1 === ($missingAssetsSignal['count'] ?? null), 'missing-emission-missing-asset-count');
+$assert(in_array('vector_placeholders', $missingEmissionQualitySignalCodes, true), 'missing-emission-vector-placeholder-signal');
+$assert(1 === ($vectorPlaceholderSignal['count'] ?? null), 'missing-emission-vector-placeholder-count');
+
 $cliOutputRoot = sys_get_temp_dir() . '/figma-transformer-cli-output-' . getmypid() . '-' . bin2hex(random_bytes(4));
 $cliScenegraphPath = $cliOutputRoot . '/scenegraph.json';
 $cliScenegraph = array(
@@ -6828,6 +6855,24 @@ $assert(
     'stroke-field-policy-carries-dash-pattern'
 );
 
+// Component-property text overrides: the normalizer already resolves instance
+// text assignments from these Kiwi fields, so selective decode must carry the
+// exact nested structures instead of dropping them for oversized messages.
+$componentPropDecoder = new FigKiwiDecoder();
+$componentPropSchema = $componentPropDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_component_prop_schema_fixture());
+$assert(null !== ($componentPropSchema['schema'] ?? null), 'component-prop-kiwi-schema-decodes');
+$componentPropMessage = $componentPropDecoder->decodeMessageSelective(
+    blocks_engine_figma_transformer_kiwi_component_prop_message_fixture(),
+    $componentPropSchema['schema'] ?? array()
+);
+$componentPropNodeChange = $componentPropMessage['message']['nodeChanges'][0] ?? array();
+$componentPropAssignment = $componentPropNodeChange['componentPropAssignments'][0] ?? array();
+$componentPropRef = $componentPropNodeChange['componentPropRefs'][0] ?? array();
+$assert(array('sessionID' => 9, 'localID' => 10) === ($componentPropAssignment['defID'] ?? null), 'component-prop-field-policy-carries-assignment-def-id');
+$assert('Selected label' === ($componentPropAssignment['value']['textValue']['characters'] ?? null), 'component-prop-field-policy-carries-text-value');
+$assert(array('sessionID' => 9, 'localID' => 10) === ($componentPropRef['defID'] ?? null), 'component-prop-field-policy-carries-ref-def-id');
+$assert('TEXT_DATA' === ($componentPropRef['componentPropNodeField'] ?? null), 'component-prop-field-policy-carries-text-ref-field');
+
 // NORMALIZE: raw sectionStatus tokens map onto a clean dev_status with the raw
 // value carried for auditability.
 $devStatusNormalizer = new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer();
@@ -8639,6 +8684,80 @@ function blocks_engine_figma_transformer_kiwi_stroke_message_fixture(): string
         . blocks_engine_figma_transformer_kiwi_float(2.0)
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);
+}
+
+/**
+ * Kiwi schema for component-property text overrides. The field names and nested
+ * shape match the FSE Pilot production schema: instance assignments carry
+ * ComponentPropAssignment.defID/value.textValue.characters while master text
+ * nodes carry ComponentPropRef.defID/componentPropNodeField = TEXT_DATA.
+ */
+function blocks_engine_figma_transformer_kiwi_component_prop_schema_fixture(): string
+{
+    $field = 'blocks_engine_figma_transformer_kiwi_schema_field';
+    $str = 'blocks_engine_figma_transformer_kiwi_string';
+    $varint = 'blocks_engine_figma_transformer_wire_varint';
+
+    return $varint(8)
+        // def0: ENUM ComponentPropNodeField { TEXT_DATA = 1 }
+        . $str('ComponentPropNodeField') . chr(0) . $varint(1)
+        . $field('TEXT_DATA', 0, false, 1)
+        // def1: STRUCT GUID { sessionID, localID }
+        . $str('GUID') . chr(1) . $varint(2)
+        . $field('sessionID', -4, false, 1)
+        . $field('localID', -4, false, 2)
+        // def2: MESSAGE TextData { characters }
+        . $str('TextData') . chr(2) . $varint(1)
+        . $field('characters', -6, false, 1)
+        // def3: MESSAGE ComponentPropValue { textValue }
+        . $str('ComponentPropValue') . chr(2) . $varint(1)
+        . $field('textValue', 2, false, 2)
+        // def4: MESSAGE ComponentPropAssignment { defID, value }
+        . $str('ComponentPropAssignment') . chr(2) . $varint(2)
+        . $field('defID', 1, false, 1)
+        . $field('value', 3, false, 2)
+        // def5: MESSAGE ComponentPropRef { defID, componentPropNodeField }
+        . $str('ComponentPropRef') . chr(2) . $varint(2)
+        . $field('defID', 1, false, 2)
+        . $field('componentPropNodeField', 0, false, 4)
+        // def6: MESSAGE NodeChange { type, name, componentPropAssignments[], componentPropRefs[] }
+        . $str('NodeChange') . chr(2) . $varint(4)
+        . $field('type', -6, false, 1)
+        . $field('name', -6, false, 2)
+        . $field('componentPropAssignments', 4, true, 3)
+        . $field('componentPropRefs', 5, true, 4)
+        // def7: MESSAGE Message { type, nodeChanges[] }
+        . $str('Message') . chr(2) . $varint(2)
+        . $field('type', -6, false, 1)
+        . $field('nodeChanges', 6, true, 2);
+}
+
+/**
+ * Kiwi message for {@see blocks_engine_figma_transformer_kiwi_component_prop_schema_fixture()}.
+ */
+function blocks_engine_figma_transformer_kiwi_component_prop_message_fixture(): string
+{
+    $str = 'blocks_engine_figma_transformer_kiwi_string';
+    $v = 'blocks_engine_figma_transformer_wire_varint';
+
+    $defId = $v(9) . $v(10); // GUID struct body; structs carry no terminator.
+    $textData = $v(1) . $str('Selected label') . $v(0);
+    $value = $v(2) . $textData . $v(0);
+    $assignment = $v(1) . $defId
+        . $v(2) . $value
+        . $v(0);
+    $ref = $v(2) . $defId
+        . $v(4) . $v(1)
+        . $v(0);
+    $node = $v(1) . $str('INSTANCE')
+        . $v(2) . $str('Component Property Instance')
+        . $v(3) . $v(1) . $assignment
+        . $v(4) . $v(1) . $ref
+        . $v(0);
+
+    return $v(1) . $str('DOCUMENT')
+        . $v(2) . $v(1) . $node
+        . $v(0);
 }
 
 /**
