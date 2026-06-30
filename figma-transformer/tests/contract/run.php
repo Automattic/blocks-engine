@@ -5158,6 +5158,9 @@ $layoutFidelityResult = blocks_engine_figma_transformer_transform_scenegraph(arr
 ));
 
 $layoutFidelityCss = $fileContent($layoutFidelityResult, 'style.css');
+$layoutFidelityFrameVisual = $findVisualNode($layoutFidelityResult, '5:1');
+$layoutFidelityFillVisual = $findVisualNode($layoutFidelityResult, '5:4');
+$layoutFidelityAbsoluteVisual = $findVisualNode($layoutFidelityResult, '5:5');
 
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-1-layout-frame{width:500px;height:300px;overflow:hidden;position:relative;display:flex;flex-direction:row;justify-content:flex-start;align-items:stretch}'), 'layout-frame-clips-and-positions-absolute-children');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-2-fixed-card{width:100px;height:80px;opacity:0.6;transform:rotate(15deg);flex-shrink:0}'), 'layout-fixed-sizing-and-rotation');
@@ -5167,6 +5170,9 @@ $assert(str_contains($layoutFidelityCss, '.figma-node-5-7-hug-flex-button{width:
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-5-absolute-badge{width:50px;height:20px;position:absolute;left:20px;right:430px;top:20px;bottom:260px;background:#000000;flex-shrink:0}'), 'layout-absolute-constraints-without-source-z-index');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-6-matrix-transform{width:30px;height:30px;transform:matrix(0,1,-1,0,40,60);transform-origin:0 0;flex-shrink:0}'), 'layout-relative-transform-matrix');
 $assert(! str_contains($layoutFidelityCss, 'font-family:Inter') && ! str_contains($layoutFidelityCss, 'body{margin:0;background') && ! str_contains($layoutFidelityCss, 'body{margin:0;color'), 'layout-css-avoids-theme-defaults');
+$assert('flex' === ($layoutFidelityFrameVisual['layout']['display'] ?? null) && 'row' === ($layoutFidelityFrameVisual['layout']['flex_direction'] ?? null), 'layout-classifier-visual-map-preserves-flow-container-intent');
+$assert('absolute' === ($layoutFidelityAbsoluteVisual['layout']['positioning'] ?? null) && array('x' => 20.0, 'y' => 20.0, 'width' => 50.0, 'height' => 20.0) === ($layoutFidelityAbsoluteVisual['rect'] ?? null), 'layout-classifier-visual-map-aligns-absolute-child-with-css');
+$assert(null === ($layoutFidelityFillVisual['layout']['positioning'] ?? null) && 200.0 === ($layoutFidelityFillVisual['rect']['width'] ?? null) && 100.0 === ($layoutFidelityFillVisual['rect']['height'] ?? null), 'layout-classifier-visual-map-keeps-fill-child-in-flex-flow');
 
 $hugOverflowResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Hug Flex Overflow Fixture',
