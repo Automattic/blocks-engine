@@ -797,11 +797,13 @@ final class ScenegraphNormalizer
      */
     private function markComponentSourceCloneGeometry(array $node): array
     {
+        $node['_component_source_clone_geometry'] = true;
         foreach ( array('box', 'figma_box') as $boxKey ) {
             if ( ! is_array($node[$boxKey] ?? null) ) {
                 continue;
             }
 
+            $sourceKind = GeometryBox::sourceKind($node[$boxKey]);
             foreach ( array('x', 'y', 'width', 'height') as $dimension ) {
                 if ( isset($node[$dimension]) && is_numeric($node[$dimension]) ) {
                     $node[$boxKey][$dimension] = (float) $node[$dimension];
@@ -810,6 +812,17 @@ final class ScenegraphNormalizer
 
             $node[$boxKey] = GeometryBox::withoutProvenance(GeometryBox::withProvenance($node[$boxKey], GeometryBox::SOURCE_COMPONENT_CLONE));
             $node[$boxKey]['geometry_semantics'] = self::GEOMETRY_SEMANTICS_COMPONENT_SOURCE_CLONE;
+            if ( null !== $sourceKind ) {
+                $node[$boxKey]['component_clone_source_kind'] = $sourceKind;
+            }
+        }
+
+        if ( is_array($node['children'] ?? null) ) {
+            foreach ( $node['children'] as $index => $child ) {
+                if ( is_array($child) ) {
+                    $node['children'][$index] = $this->markComponentSourceCloneGeometry($child);
+                }
+            }
         }
 
         return $node;
@@ -914,6 +927,13 @@ final class ScenegraphNormalizer
         }
 
         $box = $node[$boxKey];
+        if ( ! $isRoot && $this->isComponentSourceCloneDescendant($node, $box) ) {
+            $box = GeometryBox::withoutProvenance($box);
+            $box['coordinate_space'] = GeometryBox::COORDINATE_SPACE_PARENT_LOCAL;
+            $node[$boxKey] = $box;
+            return $node;
+        }
+
         $coordinateSpace = GeometryBox::coordinateSpace($box);
         if ( $isRoot || GeometryBox::COORDINATE_SPACE_CANVAS_ABSOLUTE === $coordinateSpace ) {
             if ( isset($box['x']) && is_numeric($box['x']) ) {
@@ -929,6 +949,32 @@ final class ScenegraphNormalizer
 
         $node[$boxKey] = $box;
         return $node;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $box
+     */
+    private function isComponentSourceCloneDescendant(array $node, array $box): bool
+    {
+        $sourceKind = isset($box['component_clone_source_kind']) && is_scalar($box['component_clone_source_kind']) ? (string) $box['component_clone_source_kind'] : null;
+        if ( in_array($sourceKind, array(GeometryBox::SOURCE_TRANSFORM, GeometryBox::SOURCE_ABSOLUTE_TRANSFORM, GeometryBox::SOURCE_OVERRIDE_TRANSFORM), true) ) {
+            return false;
+        }
+
+        if ( ! empty($node['_component_source_clone_geometry']) || self::GEOMETRY_SEMANTICS_COMPONENT_SOURCE_CLONE === ($box['geometry_semantics'] ?? null) ) {
+            return true;
+        }
+
+        $id = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
+        $sourceId = isset($node['figma_component_source_id']) && is_scalar($node['figma_component_source_id']) ? (string) $node['figma_component_source_id'] : '';
+        if ( '' === $id || '' === $sourceId || $id === $sourceId || ! str_contains($id, '/') ) {
+            return false;
+        }
+
+        $x = isset($box['x']) && is_numeric($box['x']) ? abs((float) $box['x']) : 0.0;
+        $y = isset($box['y']) && is_numeric($box['y']) ? abs((float) $box['y']) : 0.0;
+        return $x < 1000.0 && $y < 1000.0;
     }
 
     /**

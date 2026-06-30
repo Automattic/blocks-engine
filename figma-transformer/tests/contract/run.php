@@ -5612,6 +5612,56 @@ $assert(0.0 === ($selectedFrameRebaseRoot['box']['x'] ?? null) && 0.0 === ($sele
 $assert('local' === ($selectedFrameRebaseRoot['box']['coordinate_space'] ?? null) && 'page' === ($selectedFrameRebaseRoot['box']['local_origin'] ?? null), 'selected-frame-rebase-root-marked-page-local');
 $assert(120.0 === ($selectedFrameRebaseChild['box']['x'] ?? null) && 180.0 === ($selectedFrameRebaseChild['box']['y'] ?? null), 'selected-frame-rebase-child-subtracts-page-origin');
 $assert('local' === ($selectedFrameRebaseChild['box']['coordinate_space'] ?? null) && 'page' === ($selectedFrameRebaseChild['box']['local_origin'] ?? null), 'selected-frame-rebase-child-marked-page-local');
+$selectedFrameComponentCloneResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Selected Frame Component Clone Fixture',
+    'nodes' => array(
+        array(
+            'id'                  => 'clone-rebase:component',
+            'type'                => 'COMPONENT',
+            'name'                => 'Featured card component',
+            'key'                 => 'featured-card-key',
+            'absoluteBoundingBox' => array('x' => 0, 'y' => 0, 'width' => 400, 'height' => 200),
+            'children'            => array(
+                array(
+                    'id'                  => 'clone-rebase:component/content',
+                    'type'                => 'FRAME',
+                    'name'                => 'Content frame',
+                    'absoluteBoundingBox' => array('x' => 0, 'y' => 0, 'width' => 400, 'height' => 200),
+                    'layoutMode'          => 'VERTICAL',
+                    'children'            => array(
+                        array(
+                            'id'                  => 'clone-rebase:component/title',
+                            'type'                => 'TEXT',
+                            'name'                => 'Title',
+                            'characters'          => 'Component title',
+                            'absoluteBoundingBox' => array('x' => 24, 'y' => 24, 'width' => 180, 'height' => 32),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array(
+            'id'                  => 'clone-rebase:page',
+            'type'                => 'FRAME',
+            'name'                => 'Selected page',
+            'absoluteBoundingBox' => array('x' => 3000, 'y' => 400, 'width' => 800, 'height' => 600),
+            'children'            => array(
+                array(
+                    'id'                  => 'clone-rebase:instance',
+                    'type'                => 'INSTANCE',
+                    'name'                => 'Featured card instance',
+                    'componentId'         => 'featured-card-key',
+                    'absoluteBoundingBox' => array('x' => 3120, 'y' => 480, 'width' => 400, 'height' => 200),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                ),
+            ),
+        ),
+    ),
+), array('frame_id' => 'clone-rebase:page'));
+$selectedFrameComponentCloneCss = $fileContent($selectedFrameComponentCloneResult, 'style.css');
+$selectedFrameComponentCloneContent = $findVisualNode($selectedFrameComponentCloneResult, 'clone-rebase:instance/clone-rebase:component/content');
+$assert(str_contains($selectedFrameComponentCloneCss, '.figma-node-clone-rebase-instance-clone-rebase-component-content-content-frame{width:400px;height:200px;position:absolute;left:0px;top:0px'), 'selected-frame-rebase-keeps-component-clone-child-local-css');
+blocks_engine_figma_transformer_contract_assert_node_rect($assert, $selectedFrameComponentCloneContent, array('x' => 120.0, 'y' => 80.0, 'width' => 400.0, 'height' => 200.0), 'selected-frame-rebase-keeps-component-clone-child-local-visual-map');
 blocks_engine_figma_transformer_run_origin_inference_contract($assert);
 
 $resolvedInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
