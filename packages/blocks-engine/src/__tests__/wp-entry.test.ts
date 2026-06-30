@@ -32,6 +32,8 @@ describe('/wp entry', () => {
     const canonicalizeFixture = fixtureFor('canonicalize');
 
     expect(rawConvert(rawFixture.input)).toEqual(rawFixture.expected);
-    expect(canonicalize(canonicalizeFixture.input)).toEqual(canonicalizeFixture.expected);
+    expect(canonicalize(canonicalizeFixture.input)).toMatchObject(
+      canonicalizeFixture.expected as Record<string, unknown>,
+    );
   });
 });

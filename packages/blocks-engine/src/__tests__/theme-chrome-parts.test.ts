@@ -89,6 +89,10 @@ function fakePool(rawForHtml: (html: string) => RawConvertResult): CapturingPool
         html,
         changed: false,
         fixedIssues: [],
+        blockCount: 0,
+        htmlIslands: [],
+        htmlIslandCount: 0,
+        degraded: false,
       }));
     },
     async stop() {

@@ -66,7 +66,15 @@ function fakePool(markupForInput: (html: string) => string): WorkerPool {
       return items.map((html) => ({ html: markupForInput(html), wpHtmlResidue: 0 }));
     },
     async canonicalize(items: string[]) {
-      return items.map((html) => ({ html, changed: false, fixedIssues: [] }));
+      return items.map((html) => ({
+        html,
+        changed: false,
+        fixedIssues: [],
+        blockCount: 0,
+        htmlIslands: [],
+        htmlIslandCount: 0,
+        degraded: false,
+      }));
     },
     async stop() {},
   };

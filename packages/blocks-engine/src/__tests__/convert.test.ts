@@ -53,7 +53,15 @@ function mockPoolFor(html = nativeBlocks): WorkerPool {
   return {
     rawConvert: vi.fn(async () => [{ html, wpHtmlResidue: 0 }]),
     canonicalize: vi.fn(async (items: string[]) =>
-      items.map((item) => ({ html: item, changed: false, fixedIssues: [] })),
+      items.map((item) => ({
+        html: item,
+        changed: false,
+        fixedIssues: [],
+        blockCount: 2,
+        htmlIslands: [],
+        htmlIslandCount: 0,
+        degraded: false,
+      })),
     ),
     stop: vi.fn(async () => undefined),
   };
@@ -156,6 +164,7 @@ describe('default entry', () => {
       'BlocksEngineError',
       'compose',
       'convert',
+      'convertReport',
       'createWorker',
       'lintThemeJson',
       'siteToTheme',

@@ -3,7 +3,13 @@ import type { ChildProcess } from 'node:child_process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createWorker } from '../pool/pool';
-import { crashAlwaysInput, fixtureFor, hangInput, withTimeout } from './pool-test-helpers';
+import {
+  canonicalizeSentinelFor,
+  crashAlwaysInput,
+  fixtureFor,
+  hangInput,
+  withTimeout,
+} from './pool-test-helpers';
 
 const childActivity = vi.hoisted(() => {
   type Waiter = { target: number; resolve: () => void };
@@ -161,9 +167,9 @@ describe('worker pool stop during in-flight batches', () => {
         await waitForSecondItemInFlight();
 
         const stopped = pool.stop();
-        await expect(withLabel('stopped canonicalize batch', batch)).resolves.toEqual([
+        await expect(withLabel('stopped canonicalize batch', batch)).resolves.toMatchObject([
           first.expected,
-          { html: hungInput, changed: false, fixedIssues: [] },
+          canonicalizeSentinelFor(hungInput),
         ]);
         await withLabel('stop after canonicalize batch', stopped);
 
@@ -191,14 +197,14 @@ describe('worker pool stop during in-flight batches', () => {
         await waitForSecondItemInFlight();
 
         const stopped = pool.stop();
-        await expect(withLabel('stopped canonicalize batch', inFlightBatch)).resolves.toEqual([
+        await expect(withLabel('stopped canonicalize batch', inFlightBatch)).resolves.toMatchObject([
           first.expected,
-          { html: stoppedInput, changed: false, fixedIssues: [] },
+          canonicalizeSentinelFor(stoppedInput),
         ]);
         await withLabel('stop after canonicalize batch', stopped);
 
-        await expect(withLabel('queued canonicalize batch', queuedBatch)).resolves.toEqual([
-          { html: queuedInput, changed: false, fixedIssues: [] },
+        await expect(withLabel('queued canonicalize batch', queuedBatch)).resolves.toMatchObject([
+          canonicalizeSentinelFor(queuedInput),
         ]);
       } finally {
         await pool.stop();
@@ -229,9 +235,9 @@ describe('worker pool stop during in-flight batches', () => {
         const batch = pool.canonicalize([first.input, second.input]);
         await withLabel('recycle event', recycleSeen, 15_000);
 
-        await expect(withLabel('batch stopped during recycle', batch)).resolves.toEqual([
+        await expect(withLabel('batch stopped during recycle', batch)).resolves.toMatchObject([
           first.expected,
-          { html: second.input, changed: false, fixedIssues: [] },
+          canonicalizeSentinelFor(second.input),
         ]);
         await withLabel(
           'stop during recycle',
@@ -266,8 +272,8 @@ describe('worker pool stop during in-flight batches', () => {
         const batch = pool.canonicalize([input]);
         await withLabel('child-crash event', crashSeen, 15_000);
 
-        await expect(withLabel('batch stopped during child crash', batch)).resolves.toEqual([
-          { html: input, changed: false, fixedIssues: [] },
+        await expect(withLabel('batch stopped during child crash', batch)).resolves.toMatchObject([
+          canonicalizeSentinelFor(input),
         ]);
         await withLabel(
           'stop during child crash',

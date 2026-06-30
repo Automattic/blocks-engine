@@ -12,6 +12,8 @@ export { heuristicBlocks } from '../heuristics.js';
 export { genericHtmlToBlocks } from '../catalog.js';
 export { composeFromRecipes } from '../recipe-table.js';
 export { PIPELINE_ISLAND_OPENER, PIPELINE_ISLAND_NAME } from '../block-policy.js';
+export { FALLBACK_INVENTORY_CAP } from '../report/schema.js';
+export { assertConvertReport } from '../report/contract.js';
 
 export type { VerifyResult } from '../output-verify.js';
 export type { HeuristicResult } from '../heuristics.js';

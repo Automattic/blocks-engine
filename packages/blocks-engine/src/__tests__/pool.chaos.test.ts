@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createWorker, type PoolEvent } from '../pool/pool';
 import {
+  canonicalizeSentinelFor,
   crashAlwaysInput,
   crashOnceInput,
   fixtureFor,
@@ -83,7 +84,7 @@ describe('worker pool chaos recovery', () => {
 
       try {
         await expect(pool.canonicalize([input])).resolves.toEqual([
-          { html: input, changed: false, fixedIssues: [] },
+          canonicalizeSentinelFor(input),
         ]);
       } finally {
         await pool.stop();

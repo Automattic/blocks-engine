@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import cases from '../__fixtures__/cases.json' with { type: 'json' };
 import type { ChildToParentMessage, ParentToChildMessage } from '../pool/protocol';
+import type { FixResult } from '../pool/types';
 
 type RawConvertFixture = {
   id: string;
@@ -59,6 +60,18 @@ export function crashAlwaysInput(input: string): string {
 
 export function hangInput(input: string): string {
   return `<!-- BLOCKS_ENGINE_TEST_HANG -->${input}`;
+}
+
+export function canonicalizeSentinelFor(html: string): FixResult {
+  return {
+    html,
+    changed: false,
+    fixedIssues: [],
+    blockCount: 0,
+    htmlIslands: [],
+    htmlIslandCount: 0,
+    degraded: true,
+  };
 }
 
 export function testWorkerEnv(env: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {

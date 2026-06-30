@@ -41,7 +41,7 @@ describe('worker pool ordered batches', () => {
     const previousMode = process.env.BLOCKS_ENGINE_WORKER_TEST_MODE;
     process.env.BLOCKS_ENGINE_WORKER_TEST_MODE = '1';
     try {
-      await expect(pool.canonicalize([delayedInput(first.input), second.input])).resolves.toEqual([
+      await expect(pool.canonicalize([delayedInput(first.input), second.input])).resolves.toMatchObject([
         first.expected,
         second.expected,
       ]);

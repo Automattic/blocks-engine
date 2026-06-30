@@ -1,10 +1,21 @@
+import { walkBlocks } from '../block-tree.js';
+import { FALLBACK_INVENTORY_CAP } from '../report/schema.js';
 import { bootstrap } from './bootstrap.js';
 import { requireWp } from './require-wp.js';
+
+export type HtmlIsland = {
+  index: number;
+  html: string;
+};
 
 export type CanonicalizeResult = {
   html: string;
   changed: boolean;
   fixedIssues: string[];
+  blockCount: number;
+  htmlIslands: HtmlIsland[];
+  htmlIslandCount: number;
+  degraded: boolean;
 };
 
 type BlockAttributes = Record<string, unknown>;
@@ -29,10 +40,11 @@ type ParsedBlock = {
 };
 
 type RawBlock = {
-  blockName?: string | null;
-  attrs?: BlockAttributes | null;
-  innerBlocks?: RawBlock[];
-  innerHTML?: string;
+  blockName: string | null;
+  attrs: BlockAttributes;
+  innerBlocks: RawBlock[];
+  innerHTML: string;
+  innerContent: Array<string | null>;
 };
 
 type WordpressBlocks = {
@@ -356,6 +368,39 @@ function collectIssues(blockList: ParsedBlock[], fixedIssues: string[]): void {
   }
 }
 
+function collectInventory(rawBlocks: RawBlock[]): {
+  blockCount: number;
+  htmlIslands: HtmlIsland[];
+  htmlIslandCount: number;
+} {
+  let blockCount = 0;
+  let htmlIslandCount = 0;
+  const htmlIslands: HtmlIsland[] = [];
+
+  walkBlocks(rawBlocks, (block) => {
+    blockCount++;
+
+    if (block.blockName !== 'core/html') {
+      return;
+    }
+
+    const island = {
+      index: htmlIslandCount,
+      html: block.innerHTML || '',
+    };
+    if (htmlIslands.length < FALLBACK_INVENTORY_CAP) {
+      htmlIslands.push(island);
+    }
+    htmlIslandCount++;
+  });
+
+  return {
+    blockCount,
+    htmlIslands,
+    htmlIslandCount,
+  };
+}
+
 export function canonicalize(markup: string): CanonicalizeResult {
   const {
     parse,
@@ -416,10 +461,14 @@ export function canonicalize(markup: string): CanonicalizeResult {
       );
     }
 
+    const inventory = collectInventory(parseBlockGrammar(fixedHtml));
+
     return {
       html: fixedHtml,
       changed: wasChanged,
       fixedIssues,
+      ...inventory,
+      degraded: false,
     };
   } catch (error) {
     console.error('[BlockFixer] Error fixing blocks:', error);
@@ -427,6 +476,10 @@ export function canonicalize(markup: string): CanonicalizeResult {
       html: markup,
       changed: false,
       fixedIssues: [],
+      blockCount: 0,
+      htmlIslands: [],
+      htmlIslandCount: 0,
+      degraded: false,
     };
   }
 }

@@ -28,7 +28,7 @@ describe('worker child IPC', () => {
           op: 'canonicalize',
           payload: canonicalizeFixture.input,
         }),
-      ).resolves.toEqual({ id: 2, result: canonicalizeFixture.expected });
+      ).resolves.toMatchObject({ id: 2, result: canonicalizeFixture.expected });
     } finally {
       await cleanupChild(child);
     }
