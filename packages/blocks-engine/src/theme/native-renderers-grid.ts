@@ -8,9 +8,9 @@ import {
   paragraphBlock,
   wrapSection,
 } from './native-block-builders.js';
-import { brightness, nearestToken } from './native-color.js';
+import { COLOR_SNAP_GATE, brightness, nearestToken } from './native-color.js';
 import { nearestFamily } from './native-fonts.js';
-import { buttonJustify, centerOf, isTintedSection, responsiveSpace, sectionPad } from './native-layout.js';
+import { buttonJustify, centerOf, isTintedSection, opaqueLiteralBgHex, responsiveSpace, sectionPad } from './native-layout.js';
 import { iconImageBlock, isUsableNativeImage } from './native-media.js';
 import type { NativeRenderCtx, NativeRenderOut } from './native-reconstruct-types.js';
 import { escapeHtml } from '../escape.js';
@@ -25,6 +25,8 @@ export interface CardGroupPadding {
   bottom: number;
   left: number;
 }
+
+type CardBackground = { kind: 'token'; value: string } | { kind: 'literal'; value: string };
 
 export function renderCardGrid(section: SectionSpec, withButtons: boolean, ctx?: NativeRenderCtx): NativeRenderOut {
   const out = emptyNativeRenderOut();
@@ -153,8 +155,15 @@ export function renderCellGrid(section: SectionSpec, ctx: NativeRenderCtx): Nati
   });
   const cols: string[] = [];
   for (const cell of cells) {
-    const cardToken = cell.background ? nearestToken(cell.background, ctx.paletteTokens) : null;
-    const cardDark = cell.background ? brightness(cell.background) < 140 : false;
+    const cardHex = opaqueLiteralBgHex(cell.background);
+    const cardToken = cardHex ? nearestToken(cardHex, ctx.paletteTokens, COLOR_SNAP_GATE) : null;
+    const cardBackground: CardBackground | null = cardToken
+      ? { kind: 'token', value: cardToken }
+      : cardHex
+        ? { kind: 'literal', value: cardHex }
+        : null;
+    const cardBgHex = cardToken ? ctx.paletteTokens.find((token) => token.slug === cardToken)?.hex : cardHex;
+    const cardDark = cardBgHex ? brightness(cardBgHex) < 140 : false;
     const cellCenter = cell.align ? cell.align === 'center' : centerOf(section);
     const iconAlign = cell.iconAlign ?? (cellCenter ? 'center' : 'left');
     const parts: string[] = [];
@@ -196,7 +205,11 @@ export function renderCellGrid(section: SectionSpec, ctx: NativeRenderCtx): Nati
     if (cell.button) parts.push(buttonBlock(cell.button, out, { align: cellCenter ? 'center' : 'left' }));
     const kept = parts.filter(Boolean);
     if (!kept.length) continue;
-    cols.push(column(cardToken ? [cardGroup(kept, cardToken, cardDark, cell.radius ?? 0, cell.padding ?? null)] : kept));
+    cols.push(
+      column(
+        cardBackground ? [cardGroupWithBackground(kept, cardBackground, cardDark, cell.radius ?? 0, cell.padding ?? null)] : kept,
+      ),
+    );
   }
   const claimedImageUrls = new Set(cells.map((cell) => cell.image?.url).filter(Boolean));
   for (const image of section.images ?? []) {
@@ -221,6 +234,16 @@ export function cardGroup(
   radius: number,
   padding: CardGroupPadding | null,
 ): string {
+  return cardGroupWithBackground(parts, { kind: 'token', value: bgToken }, dark, radius, padding);
+}
+
+function cardGroupWithBackground(
+  parts: string[],
+  background: CardBackground,
+  dark: boolean,
+  radius: number,
+  padding: CardGroupPadding | null,
+): string {
   const textToken = dark ? 'text-inverse' : 'text-default';
   const r = radius > 0 ? Math.min(radius, 32) : 0;
   const cssLen = (value: string): string =>
@@ -231,9 +254,13 @@ export function cardGroup(
   const pr = side(padding?.right);
   const pb = side(padding?.bottom);
   const pl = side(padding?.left);
+  const styleColor = background.kind === 'literal' ? `,"color":{"background":"${background.value}"}` : '';
+  const bgAttr = background.kind === 'token' ? `"backgroundColor":"${background.value}",` : '';
+  const bgClass = background.kind === 'token' ? ` has-${background.value}-background-color` : '';
+  const bgInlineStyle = background.kind === 'literal' ? `background-color:${background.value};` : '';
   return (
-    `<!-- wp:group {"className":"is-replica-card","style":{"spacing":{"padding":{"top":"${pt}","bottom":"${pb}","left":"${pl}","right":"${pr}"}},"border":{"radius":"${r}px"}},"backgroundColor":"${bgToken}","textColor":"${textToken}","layout":{"type":"constrained"}} -->\n` +
-    `<div class="wp-block-group is-replica-card has-${textToken}-color has-${bgToken}-background-color has-text-color has-background" style="border-radius:${r}px;padding-top:${cssLen(pt)};padding-right:${cssLen(pr)};padding-bottom:${cssLen(pb)};padding-left:${cssLen(pl)}">\n${parts.join('\n')}\n</div>\n` +
+    `<!-- wp:group {"className":"is-replica-card","style":{"spacing":{"padding":{"top":"${pt}","bottom":"${pb}","left":"${pl}","right":"${pr}"}},"border":{"radius":"${r}px"}${styleColor}},${bgAttr}"textColor":"${textToken}","layout":{"type":"constrained"}} -->\n` +
+    `<div class="wp-block-group is-replica-card has-${textToken}-color${bgClass} has-text-color has-background" style="border-radius:${r}px;${bgInlineStyle}padding-top:${cssLen(pt)};padding-right:${cssLen(pr)};padding-bottom:${cssLen(pb)};padding-left:${cssLen(pl)}">\n${parts.join('\n')}\n</div>\n` +
     `<!-- /wp:group -->`
   );
 }

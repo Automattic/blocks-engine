@@ -3,6 +3,8 @@ export interface PaletteToken {
   hex: string;
 }
 
+export const COLOR_SNAP_GATE = 24;
+
 export type RGBA = { r: number; g: number; b: number; a: number };
 
 function byteToHexByte(value: string): number {
@@ -158,7 +160,7 @@ export function parseHex(color: string): [number, number, number] | null {
   return parsed ? [parsed.r, parsed.g, parsed.b] : null;
 }
 
-export function nearestToken(hex: string, tokens: PaletteToken[]): string | null {
+export function nearestToken(hex: string, tokens: PaletteToken[], maxDistance?: number): string | null {
   const c = parseHex(hex);
   if (!c) return null;
   let best: string | null = null;
@@ -172,6 +174,7 @@ export function nearestToken(hex: string, tokens: PaletteToken[]): string | null
       best = t.slug;
     }
   }
+  if (maxDistance !== undefined && bestD > maxDistance * maxDistance) return null;
   return best;
 }
 

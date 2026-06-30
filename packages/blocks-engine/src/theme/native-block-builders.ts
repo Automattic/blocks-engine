@@ -2,8 +2,8 @@ import type { NativeRenderCtx, NativeRenderOut } from './native-reconstruct-type
 import type { SectionSpec, SectionSpecIcon, SectionSpecImage } from './section-spec.js';
 import { escapeHtml } from '../escape.js';
 import { normalizeCopy, sanitizeSvgAsset } from './page-reconstruct-helpers.js';
-import { brightness, nearestToken } from './native-color.js';
-import { buttonJustify, opaqueTintHex, responsiveFontSize, responsiveSpace } from './native-layout.js';
+import { COLOR_SNAP_GATE, brightness, nearestToken } from './native-color.js';
+import { buttonJustify, opaqueLiteralBgHex, opaqueTintHex, responsiveFontSize, responsiveSpace } from './native-layout.js';
 import {
   MISSING_IMAGE_PLACEHOLDER,
   recolorSvg,
@@ -203,14 +203,16 @@ export function ctaButton(
   if (normalized) out.expectedText.push(normalized);
   const justify = opts?.align ?? 'center';
   const justifyClass = ` is-content-justification-${justify}`;
-  const bgToken = button.background ? nearestToken(button.background, ctx.paletteTokens) : null;
-  const textToken = button.color ? nearestToken(button.color, ctx.paletteTokens) : null;
+  const requestedBgHex = opaqueLiteralBgHex(button.background);
+  const bgToken = requestedBgHex ? nearestToken(requestedBgHex, ctx.paletteTokens, COLOR_SNAP_GATE) : null;
+  const literalBg = requestedBgHex && !bgToken ? requestedBgHex : null;
   const bg = bgToken ?? 'accent-primary';
+  const textToken = button.color ? nearestToken(button.color, ctx.paletteTokens, COLOR_SNAP_GATE) : null;
+  const bgHex = literalBg ?? ctx.paletteTokens.find((token) => token.slug === bg)?.hex;
   let textColor: string;
   if (textToken) {
     textColor = textToken;
   } else {
-    const bgHex = ctx.paletteTokens.find((token) => token.slug === bg)?.hex;
     textColor = bgHex && brightness(bgHex) >= 140 ? 'text-default' : 'text-inverse';
   }
 
@@ -229,11 +231,16 @@ export function ctaButton(
   }
   const href = button.href ? ` href="${escapeHtml(button.href)}"` : '';
   const inner = button.iconAfter ? `${escapeHtml(normalized)}${iconImg}` : `${iconImg}${escapeHtml(normalized)}`;
+  const buttonAttrs = literalBg
+    ? `"textColor":"${textColor}","style":{"color":{"background":"${literalBg}"}}`
+    : `"backgroundColor":"${bg}","textColor":"${textColor}"`;
+  const bgClass = literalBg ? '' : ` has-${bg}-background-color`;
+  const bgStyle = literalBg ? ` style="background-color:${literalBg}"` : '';
   return (
     `<!-- wp:buttons {"layout":{"type":"flex","justifyContent":"${justify}"}} -->\n` +
     `<div class="wp-block-buttons${justifyClass}">\n` +
-    `<!-- wp:button {"backgroundColor":"${bg}","textColor":"${textColor}"} -->\n` +
-    `<div class="wp-block-button"><a class="wp-block-button__link has-${textColor}-color has-${bg}-background-color has-text-color has-background wp-element-button"${href}>${inner}</a></div>\n` +
+    `<!-- wp:button {${buttonAttrs}} -->\n` +
+    `<div class="wp-block-button"><a class="wp-block-button__link has-${textColor}-color${bgClass} has-text-color has-background wp-element-button"${href}${bgStyle}>${inner}</a></div>\n` +
     `<!-- /wp:button -->\n</div>\n<!-- /wp:buttons -->`
   );
 }

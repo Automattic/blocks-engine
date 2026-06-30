@@ -51,17 +51,27 @@ export function isTintedSection(section: SectionSpec): boolean {
   return sat >= 25;
 }
 
-export function opaqueTintHex(color: string | null | undefined): string | null {
+export function opaqueHex(color: string | null | undefined, opts: { rejectNearWhite: boolean }): string | null {
   if (!color) return null;
   const parsed = parseColor(color);
   if (!parsed) return null;
   if (parsed.a < 0.6) return null;
   const { r, g, b } = parsed;
   const bright = (r + g + b) / 3;
-  if (bright >= 248) return null;
   const spread = Math.max(r, g, b) - Math.min(r, g, b);
-  if (spread <= 6 && bright >= 230) return null;
+  if (opts.rejectNearWhite) {
+    if (bright >= 248) return null;
+    if (spread <= 6 && bright >= 230) return null;
+  }
   return '#' + [r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('');
+}
+
+export function opaqueLiteralBgHex(color: string | null | undefined): string | null {
+  return opaqueHex(color, { rejectNearWhite: false });
+}
+
+export function opaqueTintHex(color: string | null | undefined): string | null {
+  return opaqueHex(color, { rejectNearWhite: true });
 }
 
 export function isDarkSection(section: SectionSpec): boolean {
