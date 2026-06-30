@@ -3444,7 +3444,9 @@ final class StaticHtmlEmitter
             }
         }
 
-        if ( isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ) {
+        $justifyContent = (string) ($layout['justify_content'] ?? '');
+        $usesDistributedMainAxis = in_array($justifyContent, array('space-between', 'space-around', 'space-evenly'), true);
+        if ( ! $usesDistributedMainAxis && isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ) {
             $mainGap = $this->number((float) $layout['item_spacing']);
             if ( 'wrap' === ($layout['flex_wrap'] ?? null)
                 && isset($layout['counter_axis_spacing'])

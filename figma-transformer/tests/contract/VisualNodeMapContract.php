@@ -75,6 +75,37 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $visualFlexOffCanvasNodes = $visualFlexOffCanvasResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['off_canvas_visual_nodes'] ?? array();
     $assert('flex_flow_overflow' === ($visualFlexOffCanvasNodes[0]['classification'] ?? null), 'visual-map-flex-off-canvas-classification');
 
+    $visualDistributedSpacingResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Visual Distributed Spacing Fixture',
+        'nodes' => array(
+            array(
+                'id'                    => 'visual-distributed:row',
+                'type'                  => 'FRAME',
+                'name'                  => 'Distributed row',
+                'width'                 => 1440,
+                'height'                => 131,
+                'layoutMode'            => 'HORIZONTAL',
+                'stackPrimaryAlignItems' => 'SPACE_EVENLY',
+                'counterAxisAlignItems' => 'CENTER',
+                'paddingLeft'           => 112,
+                'paddingRight'          => 112,
+                'itemSpacing'           => 920,
+                'children'              => array(
+                    array('id' => 'visual-distributed:first', 'type' => 'RECTANGLE', 'name' => 'First child', 'width' => 228, 'height' => 35),
+                    array('id' => 'visual-distributed:second', 'type' => 'RECTANGLE', 'name' => 'Second child', 'width' => 265, 'height' => 26),
+                    array('id' => 'visual-distributed:third', 'type' => 'TEXT', 'name' => 'Third child', 'characters' => 'Proudly powered by WordPress.com', 'width' => 281, 'height' => 26),
+                ),
+            ),
+        ),
+    ));
+    $visualDistributedThird = blocks_engine_figma_transformer_contract_find_visual_node($visualDistributedSpacingResult, 'visual-distributed:third');
+    $visualDistributedOffCanvasNodes = $visualDistributedSpacingResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['off_canvas_visual_nodes'] ?? array();
+    $visualDistributedCss = blocks_engine_figma_transformer_contract_file_content($visualDistributedSpacingResult, 'index.html');
+    $assert(1047.0 === ($visualDistributedThird['rect']['x'] ?? null), 'visual-map-distributed-spacing-third-x');
+    $assert(array() === $visualDistributedOffCanvasNodes, 'visual-map-distributed-spacing-no-off-canvas');
+    $assert(str_contains($visualDistributedCss, 'justify-content:space-between'), 'visual-map-distributed-spacing-emits-justify-content');
+    $assert(! str_contains($visualDistributedCss, 'gap:920px'), 'visual-map-distributed-spacing-suppresses-packed-gap');
+
     $visualFlexCrossOverflowMap = (new Automattic\BlocksEngine\FigmaTransformer\Html\VisualNodeMapBuilder())->build(array(
         array(
             'id'       => 'visual-cross:column',
