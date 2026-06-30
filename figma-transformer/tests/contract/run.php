@@ -3638,6 +3638,20 @@ $kiwiFrameMaskMessage = $kiwiFrameMaskDecoder->decodeMessageSelective(
 $kiwiFrameMaskNode = $kiwiFrameMaskMessage['message']['nodeChanges'][0] ?? array();
 $assert(false === ($kiwiFrameMaskNode['frameMaskDisabled'] ?? null), 'kiwi-selective-decodes-frame-mask-disabled');
 
+$kiwiDerivedTextSchema = $kiwiDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture());
+$kiwiDerivedTextMessage = $kiwiDecoder->decodeMessageSelective(
+    blocks_engine_figma_transformer_kiwi_derived_text_message_fixture(),
+    $kiwiDerivedTextSchema['schema'] ?? array()
+);
+$kiwiDerivedText = $kiwiDerivedTextMessage['message']['nodeChanges'][0]['derivedTextData'] ?? array();
+$assert(120.0 === ($kiwiDerivedText['layoutSize']['x'] ?? null), 'kiwi-selective-decodes-derived-text-layout-width');
+$assert(1 === count($kiwiDerivedText['baselines'] ?? array()), 'kiwi-selective-decodes-derived-text-baselines');
+$assert(24.0 === ($kiwiDerivedText['baselines'][0]['lineHeight'] ?? null), 'kiwi-selective-decodes-derived-text-baseline-line-height');
+$assert(7 === ($kiwiDerivedText['glyphs'][0]['commandsBlob'] ?? null), 'kiwi-selective-decodes-derived-text-glyph-commands-blob');
+$assert(0.5 === ($kiwiDerivedText['glyphs'][0]['advance'] ?? null), 'kiwi-selective-decodes-derived-text-glyph-advance');
+$assert('Inter' === ($kiwiDerivedText['fontMetaData']['key']['family'] ?? null), 'kiwi-selective-decodes-derived-text-font-family');
+$assert(700 === ($kiwiDerivedText['fontMetaData']['fontWeight'] ?? null), 'kiwi-selective-decodes-derived-text-font-weight');
+
 $kiwiFrameMaskResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'document' => array(
         'id'       => 'kiwi-mask:document',
@@ -8905,6 +8919,125 @@ function blocks_engine_figma_transformer_kiwi_frame_mask_message_fixture(): stri
         . blocks_engine_figma_transformer_kiwi_string('Masked Frame')
         . blocks_engine_figma_transformer_wire_varint(3)
         . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(0)
+        . blocks_engine_figma_transformer_wire_varint(0);
+}
+
+function blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(9)
+        // def0: ENUM MessageType { NODE_CHANGES = 1 }
+        . blocks_engine_figma_transformer_kiwi_string('MessageType')
+        . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('NODE_CHANGES', 0, false, 1)
+        // def1: STRUCT Vector { x, y }
+        . blocks_engine_figma_transformer_kiwi_string('Vector')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('x', -5, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('y', -5, false, 2)
+        // def2: STRUCT FontName { family, style, postscript }
+        . blocks_engine_figma_transformer_kiwi_string('FontName')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('family', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('style', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('postscript', -6, false, 3)
+        // def3: STRUCT Baseline { position, width, lineY, lineHeight, lineAscent, firstCharacter, endCharacter }
+        . blocks_engine_figma_transformer_kiwi_string('Baseline')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(7)
+        . blocks_engine_figma_transformer_kiwi_schema_field('position', 1, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('width', -5, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('lineY', -5, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('lineHeight', -5, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('lineAscent', -5, false, 5)
+        . blocks_engine_figma_transformer_kiwi_schema_field('firstCharacter', -4, false, 6)
+        . blocks_engine_figma_transformer_kiwi_schema_field('endCharacter', -4, false, 7)
+        // def4: STRUCT Glyph { commandsBlob, position, fontSize, firstCharacter, endCharacter, advance, rotation, styleID }
+        . blocks_engine_figma_transformer_kiwi_string('Glyph')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(8)
+        . blocks_engine_figma_transformer_kiwi_schema_field('commandsBlob', -4, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('position', 1, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('fontSize', -5, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('firstCharacter', -4, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('endCharacter', -4, false, 5)
+        . blocks_engine_figma_transformer_kiwi_schema_field('advance', -5, false, 6)
+        . blocks_engine_figma_transformer_kiwi_schema_field('rotation', -5, false, 7)
+        . blocks_engine_figma_transformer_kiwi_schema_field('styleID', -4, false, 8)
+        // def5: STRUCT FontMetaData { key, fontLineHeight, fontWeight }
+        . blocks_engine_figma_transformer_kiwi_string('FontMetaData')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('key', 2, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('fontLineHeight', -5, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('fontWeight', -3, false, 3)
+        // def6: STRUCT DerivedTextData { layoutSize, baselines[], glyphs[], fontMetaData }
+        . blocks_engine_figma_transformer_kiwi_string('DerivedTextData')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('layoutSize', 1, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('baselines', 3, true, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('glyphs', 4, true, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('fontMetaData', 5, false, 4)
+        // def7: MESSAGE NodeChange { type, name, derivedTextData }
+        . blocks_engine_figma_transformer_kiwi_string('NodeChange')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('derivedTextData', 6, false, 3)
+        // def8: MESSAGE Message { type, nodeChanges[] }
+        . blocks_engine_figma_transformer_kiwi_string('Message')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 7, true, 2);
+}
+
+function blocks_engine_figma_transformer_kiwi_derived_text_message_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_string('TEXT')
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('Glyph Text')
+        . blocks_engine_figma_transformer_wire_varint(3)
+        // DerivedTextData.layoutSize.
+        . blocks_engine_figma_transformer_kiwi_varfloat(120.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(32.0)
+        // DerivedTextData.baselines[].
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_varfloat(0.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(22.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(120.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(22.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(24.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(18.0)
+        . blocks_engine_figma_transformer_wire_varint(0)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        // DerivedTextData.glyphs[].
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(7)
+        . blocks_engine_figma_transformer_kiwi_varfloat(1.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(22.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(20.0)
+        . blocks_engine_figma_transformer_wire_varint(0)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_varfloat(0.5)
+        . blocks_engine_figma_transformer_kiwi_varfloat(0.0)
+        . blocks_engine_figma_transformer_wire_varint(9)
+        // DerivedTextData.fontMetaData.
+        . blocks_engine_figma_transformer_kiwi_string('Inter')
+        . blocks_engine_figma_transformer_kiwi_string('Bold')
+        . blocks_engine_figma_transformer_kiwi_string('Inter-Bold')
+        . blocks_engine_figma_transformer_kiwi_varfloat(24.0)
+        . blocks_engine_figma_transformer_wire_varint_signed(700)
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);
 }

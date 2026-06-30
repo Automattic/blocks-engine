@@ -399,6 +399,10 @@ final class FigKiwiDecoder
             // Without these two names the per-character override data is dropped by
             // `skipField()` and every .fig text node emits flat, single-style text.
             'TextData' => array('characters', 'layoutSize', 'characterStyleIDs', 'styleOverrideTable'),
+            'DerivedTextData' => array('layoutSize', 'baselines', 'glyphs', 'fontMetaData'),
+            'Baseline' => array('position', 'width', 'lineY', 'lineHeight', 'lineAscent', 'firstCharacter', 'endCharacter'),
+            'Glyph' => array('commandsBlob', 'position', 'fontSize', 'firstCharacter', 'endCharacter', 'advance', 'rotation', 'styleID'),
+            'FontMetaData' => array('key', 'fontLineHeight', 'fontWeight'),
             'Number' => array('value', 'units'),
             'Paint' => array('type', 'color', 'opacity', 'visible', 'stops', 'transform', 'image', 'imageScaleMode', 'originalImageWidth', 'originalImageHeight', 'altText'),
             // Effect struct (#328). The Kiwi blur token is `FOREGROUND_BLUR`
@@ -542,6 +546,7 @@ final class FigKiwiDecoder
             'fontSize', 'fontName', 'textData', 'lineHeight', 'letterSpacing',
             'paragraphIndent', 'paragraphSpacing', 'styleID', 'textAlignHorizontal',
             'textAlignVertical', 'textCase', 'textDecoration', 'textAutoResize',
+            'derivedTextData',
         );
     }
 
