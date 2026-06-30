@@ -54,6 +54,14 @@ final class TransformDiagnosticsBuilder
                 'sample_nodes' => array_slice(is_array($layout['large_css_offset_nodes'] ?? null) ? $layout['large_css_offset_nodes'] : array(), 0, 10),
             );
         }
+        if ( ! empty($layout['large_css_offset_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'large_css_offsets',
+                'count' => (int) $layout['large_css_offset_count'],
+                'sample_nodes' => array_slice(is_array($layout['large_css_offset_nodes'] ?? null) ? $layout['large_css_offset_nodes'] : array(), 0, 10),
+            );
+        }
         if ( ! empty($layout['off_canvas_visual_node_count']) ) {
             $signals[] = array(
                 'severity' => 'warning',
