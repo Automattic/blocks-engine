@@ -324,6 +324,11 @@ $assert(in_array('excessive_vector_image_fallbacks', $qualitySignalCodes, true),
 $largeOffsetSignal = $artifactQualitySignal($qualityDiagnosticsResult, 'large_absolute_offsets');
 $assert('quality:offcanvas' === ($largeOffsetSignal['sample_nodes'][0]['node_id'] ?? null), 'quality-diagnostics-large-absolute-offset-sample-node');
 $assert('quality:root' === ($largeOffsetSignal['sample_nodes'][0]['parent_id'] ?? null), 'quality-diagnostics-large-absolute-offset-sample-parent');
+$assert('figma-node-quality-offcanvas-off-canvas-promo' === ($largeOffsetSignal['sample_nodes'][0]['class'] ?? null), 'quality-diagnostics-large-absolute-offset-sample-class');
+$assert(2000.0 === (float) ($largeOffsetSignal['sample_nodes'][0]['left'] ?? 0), 'quality-diagnostics-large-absolute-offset-sample-left');
+$visualOffsetSignal = $artifactQualitySignal($qualityDiagnosticsResult, 'off_canvas_visual_nodes');
+$assert('quality:offcanvas' === ($visualOffsetSignal['sample_nodes'][0]['node_id'] ?? null), 'quality-diagnostics-off-canvas-visual-sample-node');
+$assert('figma-node-quality-offcanvas-off-canvas-promo' === ($visualOffsetSignal['sample_nodes'][0]['class'] ?? null), 'quality-diagnostics-off-canvas-visual-sample-class');
 $assert('needs_review' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['status'] ?? null), 'quality-diagnostics-status-needs-review');
 $assert('warn' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['quality_status'] ?? null), 'quality-diagnostics-quality-status-warn');
 $qualitySignals = $qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['signals'] ?? array();
@@ -370,6 +375,76 @@ $normalImageQuality = $normalImageResult['source_reports']['figma']['html']['tra
 $assert(! in_array('excessive_image_blocks', $artifactQualitySignalCodes($normalImageResult), true), 'quality-diagnostics-normal-image-count-no-excessive-signal');
 $assert(12 === ($normalImageQuality['summary']['image_block_count'] ?? null), 'quality-diagnostics-normal-image-count-summary');
 $assert(($normalImageQuality['summary']['image_node_density'] ?? 1) < 0.35, 'quality-diagnostics-normal-image-density-summary');
+
+$normalLocalPlacementResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Normal Local Placement Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'normal-local:root',
+            'type'     => 'FRAME',
+            'name'     => 'Normal local root',
+            'width'    => 480,
+            'height'   => 320,
+            'children' => array(
+                array('id' => 'normal-local:card', 'type' => 'FRAME', 'name' => 'Local card', 'x' => 40, 'y' => 60, 'width' => 180, 'height' => 90, 'layoutPositioning' => 'ABSOLUTE', 'children' => array(
+                    array('id' => 'normal-local:copy', 'type' => 'TEXT', 'name' => 'Card copy', 'characters' => 'Normal placement', 'fontSize' => 16),
+                )),
+            ),
+        ),
+    ),
+));
+$normalLocalSignalCodes = $artifactQualitySignalCodes($normalLocalPlacementResult);
+$assert(! in_array('large_absolute_offsets', $normalLocalSignalCodes, true), 'quality-diagnostics-normal-local-no-large-offset-signal');
+$assert(! in_array('off_canvas_visual_nodes', $normalLocalSignalCodes, true), 'quality-diagnostics-normal-local-no-visual-off-canvas-signal');
+$assert(0 === ($normalLocalPlacementResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['large_absolute_offset_count'] ?? null), 'quality-diagnostics-normal-local-large-offset-count-zero');
+$assert(0 === ($normalLocalPlacementResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['off_canvas_visual_node_count'] ?? null), 'quality-diagnostics-normal-local-visual-offset-count-zero');
+
+$multiPageOffCanvasResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Multi Page Off Canvas Diagnostics Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'multi-offset:canvas',
+            'type'     => 'CANVAS',
+            'name'     => 'Site pages',
+            'children' => array(
+                array(
+                    'id'       => 'multi-offset:home',
+                    'type'     => 'FRAME',
+                    'name'     => 'Home',
+                    'width'    => 400,
+                    'height'   => 300,
+                    'children' => array(
+                        array('id' => 'multi-offset:home-title', 'type' => 'TEXT', 'name' => 'Home title', 'characters' => 'Home', 'fontSize' => 20),
+                    ),
+                ),
+                array(
+                    'id'       => 'multi-offset:about',
+                    'type'     => 'FRAME',
+                    'name'     => 'About',
+                    'width'    => 400,
+                    'height'   => 300,
+                    'children' => array(
+                        array('id' => 'multi-offset:hero', 'type' => 'FRAME', 'name' => 'Drifted hero', 'x' => 1200, 'y' => 0, 'width' => 120, 'height' => 80, 'layoutPositioning' => 'ABSOLUTE', 'children' => array(
+                            array('id' => 'multi-offset:hero-copy', 'type' => 'TEXT', 'name' => 'Hero copy', 'characters' => 'About', 'fontSize' => 18),
+                        )),
+                    ),
+                ),
+            ),
+        ),
+    ),
+), array('multi_page' => true, 'frame_ids' => array('multi-offset:home', 'multi-offset:about'), 'entry_frame_id' => 'multi-offset:home'));
+$multiPageOffCanvasDiagnostics = $multiPageOffCanvasResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+$multiPageOffCanvasSignal = null;
+foreach ( is_array($multiPageOffCanvasDiagnostics['artifact_quality']['signals'] ?? null) ? $multiPageOffCanvasDiagnostics['artifact_quality']['signals'] : array() as $signal ) {
+    if ( is_array($signal) && 'off_canvas_visual_nodes' === ($signal['code'] ?? null) ) {
+        $multiPageOffCanvasSignal = $signal;
+        break;
+    }
+}
+$assert('multi_page' === ($multiPageOffCanvasDiagnostics['scope'] ?? null), 'quality-diagnostics-multi-page-off-canvas-scope');
+$assert(1 === ($multiPageOffCanvasDiagnostics['layout']['off_canvas_visual_node_count'] ?? null), 'quality-diagnostics-multi-page-off-canvas-count');
+$assert('multi-offset:hero' === ($multiPageOffCanvasSignal['sample_nodes'][0]['node_id'] ?? null), 'quality-diagnostics-multi-page-off-canvas-sample-node');
+$assert('about.html' === ($multiPageOffCanvasSignal['sample_nodes'][0]['page_path'] ?? null), 'quality-diagnostics-multi-page-off-canvas-sample-page');
 
 $cleanQualityResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Clean Quality Fixture',

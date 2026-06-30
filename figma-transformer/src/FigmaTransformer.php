@@ -954,8 +954,14 @@ final class FigmaTransformer
         $vectors = array('nodes' => 0, 'rendered_paths' => 0, 'rendered_asset_fallbacks' => 0, 'vector_network_decoded' => 0, 'boolean_operations_composed' => 0, 'placeholders' => 0, 'placeholder_nodes' => array(), 'placeholder_reasons' => array());
         $layout = array(
             'large_negative_left_count' => 0,
+            'large_css_offset_count' => 0,
+            'large_css_offset_nodes' => array(),
+            'off_canvas_visual_node_count' => 0,
+            'off_canvas_visual_nodes' => array(),
             'large_absolute_offset_count' => 0,
             'large_absolute_offset_nodes' => array(),
+            'empty_visible_container_count' => 0,
+            'empty_visible_containers' => array(),
             'decorative_underlays' => array('count' => 0, 'nodes' => array()),
             'image_heavy_landmark_candidates' => array(),
             'layout_mismatch_count' => 0,
@@ -1040,10 +1046,28 @@ final class FigmaTransformer
 
             $pageLayout = is_array($diagnostics['layout'] ?? null) ? $diagnostics['layout'] : array();
             $layout['large_negative_left_count'] += (int) ($pageLayout['large_negative_left_count'] ?? 0);
+            $layout['large_css_offset_count'] += (int) ($pageLayout['large_css_offset_count'] ?? 0);
+            foreach ( is_array($pageLayout['large_css_offset_nodes'] ?? null) ? $pageLayout['large_css_offset_nodes'] : array() as $item ) {
+                if ( is_array($item) ) {
+                    $layout['large_css_offset_nodes'][] = array_merge($pageContext, $item);
+                }
+            }
+            $layout['off_canvas_visual_node_count'] += (int) ($pageLayout['off_canvas_visual_node_count'] ?? 0);
+            foreach ( is_array($pageLayout['off_canvas_visual_nodes'] ?? null) ? $pageLayout['off_canvas_visual_nodes'] : array() as $item ) {
+                if ( is_array($item) ) {
+                    $layout['off_canvas_visual_nodes'][] = array_merge($pageContext, $item);
+                }
+            }
             $layout['large_absolute_offset_count'] += (int) ($pageLayout['large_absolute_offset_count'] ?? 0);
             foreach ( is_array($pageLayout['large_absolute_offset_nodes'] ?? null) ? $pageLayout['large_absolute_offset_nodes'] : array() as $item ) {
                 if ( is_array($item) ) {
                     $layout['large_absolute_offset_nodes'][] = array_merge($pageContext, $item);
+                }
+            }
+            $layout['empty_visible_container_count'] += (int) ($pageLayout['empty_visible_container_count'] ?? 0);
+            foreach ( is_array($pageLayout['empty_visible_containers'] ?? null) ? $pageLayout['empty_visible_containers'] : array() as $item ) {
+                if ( is_array($item) ) {
+                    $layout['empty_visible_containers'][] = array_merge($pageContext, $item);
                 }
             }
             $underlays = is_array($pageLayout['decorative_underlays']['nodes'] ?? null) ? $pageLayout['decorative_underlays']['nodes'] : array();
@@ -1122,6 +1146,9 @@ final class FigmaTransformer
         }
 
         $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
+        $layout['large_css_offset_nodes'] = array_values($layout['large_css_offset_nodes']);
+        $layout['off_canvas_visual_nodes'] = array_values($layout['off_canvas_visual_nodes']);
+        $layout['empty_visible_containers'] = array_values($layout['empty_visible_containers']);
         $layout['layout_mismatches'] = array_values($layout['layout_mismatches']);
         $layout['render_style']['diagnostics'] = array_values($layout['render_style']['diagnostics']);
         if ( 'not_evaluated' === $layout['render_style_mismatch_status'] ) {
@@ -1191,7 +1218,20 @@ final class FigmaTransformer
             );
         }
         if ( ! empty($layout['large_negative_left_count']) ) {
-            $signals[] = array('severity' => 'warning', 'code' => 'off_canvas_left_css', 'count' => (int) $layout['large_negative_left_count']);
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'off_canvas_left_css',
+                'count' => (int) $layout['large_negative_left_count'],
+                'sample_nodes' => array_slice(is_array($layout['large_css_offset_nodes'] ?? null) ? $layout['large_css_offset_nodes'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($layout['off_canvas_visual_node_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'off_canvas_visual_nodes',
+                'count' => (int) $layout['off_canvas_visual_node_count'],
+                'sample_nodes' => array_slice(is_array($layout['off_canvas_visual_nodes'] ?? null) ? $layout['off_canvas_visual_nodes'] : array(), 0, 10),
+            );
         }
         if ( ! empty($layout['large_absolute_offset_count']) ) {
             $signals[] = array(
@@ -1263,9 +1303,12 @@ final class FigmaTransformer
                 'externalized_svg_asset_count' => (int) ($generatedSvgAssets['count'] ?? 0),
                 'generated_svg_bytes' => (int) ($generatedSvgAssets['bytes'] ?? 0),
                 'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
+                'large_css_offset_count' => (int) ($layout['large_css_offset_count'] ?? 0),
+                'off_canvas_visual_node_count' => (int) ($layout['off_canvas_visual_node_count'] ?? 0),
                 'render_style_mismatch_count' => (int) ($layout['render_style_mismatch_count'] ?? 0),
                 'render_style_mismatch_status' => (string) ($layout['render_style_mismatch_status'] ?? 'not_run'),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
+                'empty_visible_container_count' => (int) ($layout['empty_visible_container_count'] ?? 0),
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
                 'layout_mismatch_count' => (int) ($layout['layout_mismatch_count'] ?? 0),
                 'layout_mismatch_status' => (string) ($layout['layout_mismatch_status'] ?? 'not_evaluated'),
