@@ -444,7 +444,7 @@ final class VisualNodeMapBuilder
             'has_transform' => null !== $transform && ! $this->isIdentityImageTransform($transform),
             'color_managed' => true === ($paint['imageShouldColorManage'] ?? false),
         );
-        foreach ( array('ref', 'imageHash', 'imageName', 'originalImageWidth', 'originalImageHeight', 'scale', 'rotation') as $key ) {
+        foreach ( array('ref', 'imageHash', 'imageName', 'originalImageWidth', 'originalImageHeight', 'scale', 'rotation', 'thumbHash', 'animationFrame') as $key ) {
             if ( isset($paint[$key]) && is_scalar($paint[$key]) ) {
                 $metadata[$key] = $paint[$key];
             }
