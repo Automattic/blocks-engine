@@ -20,7 +20,7 @@ final class TextNormalizer
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<string, mixed>
      */
-    public function normalizeText(array $node, array $blobs = array(), string $nodeId = '', array &$diagnostics = array()): array
+    public function normalizeText(array $node, array $blobs = array(), string $nodeId = '', array &$diagnostics = array(), array $paintStyles = array()): array
     {
         $text = array();
 
@@ -64,7 +64,7 @@ final class TextNormalizer
             $text['derived_layout'] = $derivedLayout;
         }
 
-        $segments = $this->normalizeStyledTextSegments($node);
+        $segments = $this->normalizeStyledTextSegments($node, $paintStyles);
         if ( ! empty($segments) ) {
             $text['segments'] = $segments;
         }
@@ -413,7 +413,7 @@ final class TextNormalizer
      * @param array<string, mixed> $node
      * @return array<int, array<string, mixed>>
      */
-    private function normalizeStyledTextSegments(array $node): array
+    private function normalizeStyledTextSegments(array $node, array $paintStyles = array()): array
     {
         $segments = array();
         $rawSegments = null;
@@ -426,7 +426,7 @@ final class TextNormalizer
 
         if ( ! is_array($rawSegments) ) {
             // Fall back to character-level override encoding when no segment list is present.
-            return $this->normalizeCharacterStyleOverrideSegments($node);
+            return $this->normalizeCharacterStyleOverrideSegments($node, $paintStyles);
         }
 
         foreach ( $rawSegments as $segment ) {
@@ -466,7 +466,7 @@ final class TextNormalizer
      * @param array<string, mixed> $node
      * @return array<int, array<string, mixed>>
      */
-    private function normalizeCharacterStyleOverrideSegments(array $node): array
+    private function normalizeCharacterStyleOverrideSegments(array $node, array $paintStyles = array()): array
     {
         $textData = is_array($node['textData'] ?? null) ? $node['textData'] : array();
 
@@ -524,6 +524,12 @@ final class TextNormalizer
                 $baseStyle['color'] = $fillColor;
             }
         }
+        if ( ! isset($baseStyle['color']) ) {
+            $styleFillColor = $this->styleFillColor($node['styleIdForFill'] ?? null, $paintStyles);
+            if ( null !== $styleFillColor ) {
+                $baseStyle['color'] = $styleFillColor;
+            }
+        }
 
         $chars = preg_split('//u', $characters, -1, PREG_SPLIT_NO_EMPTY);
         if ( ! is_array($chars) ) {
@@ -570,6 +576,12 @@ final class TextNormalizer
                         $fillColor = $this->solidFillColor($overrideFills);
                         if ( null !== $fillColor ) {
                             $overrideStyle['color'] = $fillColor;
+                        }
+                    }
+                    if ( ! isset($overrideStyle['color']) ) {
+                        $styleFillColor = $this->styleFillColor($rawOverride['styleIdForFill'] ?? null, $paintStyles);
+                        if ( null !== $styleFillColor ) {
+                            $overrideStyle['color'] = $styleFillColor;
                         }
                     }
 
@@ -654,6 +666,29 @@ final class TextNormalizer
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, array<string, array<int, array<string, mixed>>>> $paintStyles
+     * @return array{r: float, g: float, b: float, a?: float}|null
+     */
+    private function styleFillColor(mixed $styleIdForFill, array $paintStyles): ?array
+    {
+        $styleId = $this->readStyleGuidId($styleIdForFill);
+        if ( null === $styleId || empty($paintStyles[$styleId]['fills']) ) {
+            return null;
+        }
+
+        return $this->solidFillColor($paintStyles[$styleId]['fills']);
+    }
+
+    private function readStyleGuidId(mixed $style): ?string
+    {
+        if ( is_array($style) && isset($style['guid']) ) {
+            return $this->readGuidId($style['guid']);
+        }
+
+        return $this->readGuidId($style);
     }
 
     /**
