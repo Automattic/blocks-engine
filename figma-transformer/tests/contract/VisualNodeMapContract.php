@@ -52,6 +52,30 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $assert(100.0 === ($visualFlexCentered['rect']['x'] ?? null), 'visual-map-column-center-child-x');
     $assert(10.0 === ($visualFlexCentered['rect']['y'] ?? null), 'visual-map-column-padding-child-y');
 
+    $reverseZIndexResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Reverse Z Index Auto Layout Fixture',
+        'nodes' => array(
+            array(
+                'id'                 => 'reverse-z:row',
+                'type'               => 'FRAME',
+                'name'               => 'Overlapping reverse z row',
+                'width'              => 180,
+                'height'             => 80,
+                'layoutMode'         => 'HORIZONTAL',
+                'itemSpacing'        => -20,
+                'stackReverseZIndex' => true,
+                'children'           => array(
+                    array('id' => 'reverse-z:first', 'type' => 'RECTANGLE', 'name' => 'First top child', 'width' => 80, 'height' => 80),
+                    array('id' => 'reverse-z:second', 'type' => 'RECTANGLE', 'name' => 'Second lower child', 'width' => 80, 'height' => 80),
+                ),
+            ),
+        ),
+    ));
+    $reverseZIndexCss = blocks_engine_figma_transformer_contract_file_content($reverseZIndexResult, 'style.css');
+    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-row-overlapping-reverse-z-row{width:180px;height:80px;display:flex;flex-direction:row;gap:-20px}'), 'visual-map-reverse-z-parent-layout-order-preserved');
+    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-first-first-top-child{width:80px;height:80px;z-index:2;flex-shrink:0}'), 'visual-map-reverse-z-first-child-on-top');
+    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-second-second-lower-child{width:80px;height:80px;z-index:1;flex-shrink:0}'), 'visual-map-reverse-z-second-child-lower');
+
     $visualFlexOffCanvasResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Visual Flex Off Canvas Classification Fixture',
         'nodes' => array(
