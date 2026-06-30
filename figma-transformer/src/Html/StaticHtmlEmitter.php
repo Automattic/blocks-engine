@@ -2079,6 +2079,14 @@ final class StaticHtmlEmitter
             'placeholders'                => 0,
             'placeholder_reasons'         => array(),
             'placeholder_nodes'           => array(),
+            'child_composition'           => array(
+                'vector_parent_node_count' => 0,
+                'vector_child_node_count' => 0,
+                'composed_parent_node_count' => 0,
+                'uncomposed_parent_node_count' => 0,
+                'uncomposed_vector_child_node_count' => 0,
+                'sample_nodes' => array(),
+            ),
         );
         $nodeDiagnosticIndex = $this->nodeDiagnosticIndex($nodes);
         $cssOffsetDiagnostics = $this->cssAbsoluteOffsetDiagnostics($css, $nodeDiagnosticIndex);
@@ -2107,11 +2115,44 @@ final class StaticHtmlEmitter
             'image_heavy_landmark_candidates' => array(),
             'layout_mismatch_count' => 0,
             'layout_mismatch_status' => 'not_evaluated',
+            'stacking_order' => array(
+                'mixed_positioning_parent_count' => 0,
+                'absolute_child_count' => 0,
+                'flow_child_count' => 0,
+                'sample_nodes' => array(),
+            ),
+        );
+        $components = array(
+            'schema' => 'blocks-engine/figma-transformer/component-coverage/v1',
+            'clone_source_node_count' => 0,
+            'emitted_clone_node_count' => 0,
+            'override_applied_node_count' => 0,
+            'override_candidate_node_count' => 0,
+            'missing_emitted_clone_node_count' => 0,
+            'clone_nodes' => array(),
+            'override_nodes' => array(),
+            'missing_emitted_clone_nodes' => array(),
+        );
+        $effects = array(
+            'schema' => 'blocks-engine/figma-transformer/effect-coverage/v1',
+            'source_effect_node_count' => 0,
+            'emitted_effect_node_count' => 0,
+            'missing_emitted_effect_node_count' => 0,
+            'by_type' => array(),
+            'missing_emitted_effect_nodes' => array(),
+        );
+        $maskEffectClipping = array(
+            'schema' => 'blocks-engine/figma-transformer/mask-effect-clipping/v1',
+            'mask_node_count' => 0,
+            'clips_content_node_count' => 0,
+            'effect_node_count' => 0,
+            'clipped_effect_node_count' => 0,
+            'sample_nodes' => array(),
         );
 
         foreach ( $nodes as $node ) {
             if ( is_array($node) ) {
-                $this->collectTransformDiagnostics($node, $image, $vectors, $layout);
+                $this->collectTransformDiagnostics($node, $image, $vectors, $layout, $components, $effects, $maskEffectClipping, $html, $css);
             }
         }
 
@@ -2130,6 +2171,13 @@ final class StaticHtmlEmitter
         ));
         ksort($layout['empty_visible_container_categories']);
         $layout['image_heavy_landmark_candidates'] = array_values($layout['image_heavy_landmark_candidates']);
+        $layout['stacking_order']['sample_nodes'] = array_slice($layout['stacking_order']['sample_nodes'], 0, 25);
+        $components['clone_nodes'] = array_slice($components['clone_nodes'], 0, 25);
+        $components['override_nodes'] = array_slice($components['override_nodes'], 0, 25);
+        $components['missing_emitted_clone_nodes'] = array_slice($components['missing_emitted_clone_nodes'], 0, 25);
+        $effects['missing_emitted_effect_nodes'] = array_slice($effects['missing_emitted_effect_nodes'], 0, 25);
+        ksort($effects['by_type']);
+        $maskEffectClipping['sample_nodes'] = array_slice($maskEffectClipping['sample_nodes'], 0, 25);
         $generatedSvgAssets = $this->generatedSvgAssetDiagnostics($assetFiles);
         $assets = array(
             'emitted_files' => count($assetFiles),
@@ -2159,11 +2207,14 @@ final class StaticHtmlEmitter
             'vectors' => $vectors,
             'fonts' => $fonts,
             'text' => $text,
+            'components' => $components,
+            'effects' => $effects,
+            'mask_effect_clipping' => $maskEffectClipping,
             'assets' => $assets,
             'generated_svg_assets' => $generatedSvgAssets,
             'layout' => $layout,
             'links' => $links,
-            'artifact_quality' => $this->transformDiagnosticsBuilder()->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text),
+            'artifact_quality' => $this->transformDiagnosticsBuilder()->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text, $components, $effects, $maskEffectClipping),
             'diagnostic_codes' => $this->diagnosticCodeCounts($diagnostics),
         );
     }
@@ -2316,8 +2367,11 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $image
      * @param array<string, mixed> $vectors
      * @param array<string, mixed> $layout
+     * @param array<string, mixed> $components
+     * @param array<string, mixed> $effects
+     * @param array<string, mixed> $maskEffectClipping
      */
-    private function collectTransformDiagnostics(array $node, array &$image, array &$vectors, array &$layout, ?array $parentNode = null): void
+    private function collectTransformDiagnostics(array $node, array &$image, array &$vectors, array &$layout, array &$components, array &$effects, array &$maskEffectClipping, string $html, string $css, ?array $parentNode = null): void
     {
         ++$image['total_node_count'];
 
@@ -2334,6 +2388,18 @@ final class StaticHtmlEmitter
         if ( null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode) ) {
             $layout['decorative_underlays']['nodes'][] = $this->decorativeUnderlayDiagnostic($node, $parentNode);
         }
+
+        $stackingOrder = $this->stackingOrderDiagnostic($node);
+        if ( null !== $stackingOrder ) {
+            ++$layout['stacking_order']['mixed_positioning_parent_count'];
+            $layout['stacking_order']['absolute_child_count'] += (int) ($stackingOrder['absolute_child_count'] ?? 0);
+            $layout['stacking_order']['flow_child_count'] += (int) ($stackingOrder['flow_child_count'] ?? 0);
+            $layout['stacking_order']['sample_nodes'][] = $stackingOrder;
+        }
+
+        $this->collectComponentCoverageDiagnostics($node, $components, $html);
+        $this->collectEffectCoverageDiagnostics($node, $effects, $maskEffectClipping, $html, $css);
+        $this->collectMaskEffectClippingDiagnostics($node, $maskEffectClipping);
 
         $emptyContainer = $this->emptyVisibleContainerDiagnostic($node, $parentNode);
         if ( null !== $emptyContainer ) {
@@ -2378,6 +2444,7 @@ final class StaticHtmlEmitter
         $booleanComposedChildren = false;
         if ( $this->isUnsupportedVectorType($type) ) {
             ++$vectors['nodes'];
+            $this->collectVectorChildCompositionDiagnostics($node, $vectors, $parentNode);
             $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
             if ( null !== $vectorSvg ) {
                 ++$vectors['rendered_paths'];
@@ -2411,9 +2478,162 @@ final class StaticHtmlEmitter
                 if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
                     continue;
                 }
-                $this->collectTransformDiagnostics($child, $image, $vectors, $layout, $node);
+                $this->collectTransformDiagnostics($child, $image, $vectors, $layout, $components, $effects, $maskEffectClipping, $html, $css, $node);
             }
         }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $components
+     */
+    private function collectComponentCoverageDiagnostics(array $node, array &$components, string $html): void
+    {
+        $sourceId = isset($node['figma_component_source_id']) && is_scalar($node['figma_component_source_id']) ? (string) $node['figma_component_source_id'] : '';
+        $hasOverride = true === ($node['_figma_instance_override_applied'] ?? false);
+        if ( '' !== $sourceId ) {
+            ++$components['clone_source_node_count'];
+            $sample = $this->nodeCoverageSample($node);
+            $sample['source_node_id'] = $sourceId;
+            $components['clone_nodes'][] = $sample;
+            if ( $this->htmlContainsNodeId($html, (string) ($node['id'] ?? '')) ) {
+                ++$components['emitted_clone_node_count'];
+            } else {
+                ++$components['missing_emitted_clone_node_count'];
+                $components['missing_emitted_clone_nodes'][] = $sample;
+            }
+        }
+
+        if ( $hasOverride || is_array($node['overrides'] ?? null) ) {
+            ++$components['override_candidate_node_count'];
+        }
+        if ( $hasOverride ) {
+            ++$components['override_applied_node_count'];
+            $components['override_nodes'][] = $this->nodeCoverageSample($node);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $effects
+     * @param array<string, mixed> $maskEffectClipping
+     */
+    private function collectEffectCoverageDiagnostics(array $node, array &$effects, array &$maskEffectClipping, string $html, string $css): void
+    {
+        $nodeEffects = is_array($node['figma_effects'] ?? null) ? $node['figma_effects'] : array();
+        if ( empty($nodeEffects) ) {
+            return;
+        }
+
+        ++$effects['source_effect_node_count'];
+        ++$maskEffectClipping['effect_node_count'];
+        foreach ( $nodeEffects as $effect ) {
+            if ( ! is_array($effect) ) {
+                continue;
+            }
+            $type = (string) ($effect['type'] ?? 'unknown');
+            $effects['by_type'][$type] = (int) ($effects['by_type'][$type] ?? 0) + 1;
+        }
+
+        $class = $this->nodeDiagnosticClass($node);
+        $hasEffectCss = str_contains($css, '.' . $class . '{') && preg_match('/\.' . preg_quote($class, '/') . '\{[^}]*(?:box-shadow|text-shadow|filter|backdrop-filter):/s', $css);
+        if ( $hasEffectCss ) {
+            ++$effects['emitted_effect_node_count'];
+            return;
+        }
+
+        ++$effects['missing_emitted_effect_node_count'];
+        $effects['missing_emitted_effect_nodes'][] = $this->nodeCoverageSample($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $maskEffectClipping
+     */
+    private function collectMaskEffectClippingDiagnostics(array $node, array &$maskEffectClipping): void
+    {
+        if ( is_array($node['figma_mask'] ?? null) || true === ($node['isMask'] ?? null) || true === ($node['mask'] ?? null) ) {
+            ++$maskEffectClipping['mask_node_count'];
+            $maskEffectClipping['sample_nodes'][] = $this->nodeCoverageSample($node);
+        }
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( true === ($layout['clips_content'] ?? false) ) {
+            ++$maskEffectClipping['clips_content_node_count'];
+        }
+        if ( ! empty($node['figma_effects']) && true === ($layout['clips_content'] ?? false) ) {
+            ++$maskEffectClipping['clipped_effect_node_count'];
+            $maskEffectClipping['sample_nodes'][] = $this->nodeCoverageSample($node);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $vectors
+     */
+    private function collectVectorChildCompositionDiagnostics(array $node, array &$vectors, ?array $parentNode): void
+    {
+        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
+        $vectorChildren = array_filter($children, fn (array $child): bool => $this->isUnsupportedVectorType(strtoupper((string) ($child['type'] ?? ''))));
+        if ( empty($vectorChildren) ) {
+            return;
+        }
+
+        ++$vectors['child_composition']['vector_parent_node_count'];
+        $vectors['child_composition']['vector_child_node_count'] += count($vectorChildren);
+        if ( null !== $this->supportedVectorSvg($node, strtoupper((string) ($node['type'] ?? '')), $parentNode) ) {
+            ++$vectors['child_composition']['composed_parent_node_count'];
+            return;
+        }
+
+        ++$vectors['child_composition']['uncomposed_parent_node_count'];
+        $vectors['child_composition']['uncomposed_vector_child_node_count'] += count($vectorChildren);
+        $sample = $this->nodeCoverageSample($node);
+        $sample['vector_child_count'] = count($vectorChildren);
+        $vectors['child_composition']['sample_nodes'][] = $sample;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>|null
+     */
+    private function stackingOrderDiagnostic(array $node): ?array
+    {
+        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
+        if ( count($children) < 2 ) {
+            return null;
+        }
+        $absolute = 0;
+        $flow = 0;
+        foreach ( $children as $child ) {
+            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( 'absolute' === ($layout['positioning'] ?? null) ) {
+                ++$absolute;
+            } else {
+                ++$flow;
+            }
+        }
+        if ( 0 === $absolute || 0 === $flow ) {
+            return null;
+        }
+
+        return array_merge($this->nodeCoverageSample($node), array(
+            'absolute_child_count' => $absolute,
+            'flow_child_count' => $flow,
+        ));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function nodeCoverageSample(array $node): array
+    {
+        return array_filter(array(
+            'node_id' => (string) ($node['id'] ?? ''),
+            'name' => (string) ($node['name'] ?? ''),
+            'type' => strtoupper((string) ($node['type'] ?? '')),
+            'class' => $this->nodeDiagnosticClass($node),
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value);
     }
 
     /**

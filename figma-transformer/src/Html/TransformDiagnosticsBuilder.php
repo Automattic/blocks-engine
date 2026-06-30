@@ -18,9 +18,12 @@ final class TransformDiagnosticsBuilder
      * @param array<string, mixed> $layout
      * @param array<string, mixed> $links
      * @param array<string, mixed> $text
+     * @param array<string, mixed> $components
+     * @param array<string, mixed> $effects
+     * @param array<string, mixed> $maskEffectClipping
      * @return array<string, mixed>
      */
-    public function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $text = array()): array
+    public function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $text = array(), array $components = array(), array $effects = array(), array $maskEffectClipping = array()): array
     {
         $signals = array();
 
@@ -146,6 +149,30 @@ final class TransformDiagnosticsBuilder
                 'sample_nodes' => array_slice(is_array($text['empty_decoded_text_nodes'] ?? null) ? $text['empty_decoded_text_nodes'] : array(), 0, 10),
             );
         }
+        if ( ! empty($components['missing_emitted_clone_node_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'component_clone_not_emitted',
+                'count' => (int) $components['missing_emitted_clone_node_count'],
+                'sample_nodes' => array_slice(is_array($components['missing_emitted_clone_nodes'] ?? null) ? $components['missing_emitted_clone_nodes'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($effects['missing_emitted_effect_node_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'effect_node_not_emitted',
+                'count' => (int) $effects['missing_emitted_effect_node_count'],
+                'sample_nodes' => array_slice(is_array($effects['missing_emitted_effect_nodes'] ?? null) ? $effects['missing_emitted_effect_nodes'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($vectors['child_composition']['uncomposed_vector_child_node_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'vector_child_composition_incomplete',
+                'count' => (int) $vectors['child_composition']['uncomposed_vector_child_node_count'],
+                'sample_nodes' => array_slice(is_array($vectors['child_composition']['sample_nodes'] ?? null) ? $vectors['child_composition']['sample_nodes'] : array(), 0, 10),
+            );
+        }
 
         $failCodes = array('missing_render_assets', 'vector_placeholders');
         $failCount = count(array_filter($signals, static fn (array $signal): bool => in_array((string) ($signal['code'] ?? ''), $failCodes, true)));
@@ -193,6 +220,17 @@ final class TransformDiagnosticsBuilder
                 'link_sources_found' => (int) ($links['sources_found'] ?? 0),
                 'anchors_emitted' => (int) ($links['anchors_emitted'] ?? 0),
                 'link_targets_unresolved' => (int) ($links['unresolved'] ?? 0),
+                'component_clone_source_nodes' => (int) ($components['clone_source_node_count'] ?? 0),
+                'component_clone_nodes_emitted' => (int) ($components['emitted_clone_node_count'] ?? 0),
+                'component_override_candidates' => (int) ($components['override_candidate_node_count'] ?? 0),
+                'component_overrides_applied' => (int) ($components['override_applied_node_count'] ?? 0),
+                'effect_source_nodes' => (int) ($effects['source_effect_node_count'] ?? 0),
+                'effect_nodes_emitted' => (int) ($effects['emitted_effect_node_count'] ?? 0),
+                'mask_nodes' => (int) ($maskEffectClipping['mask_node_count'] ?? 0),
+                'clips_content_nodes' => (int) ($maskEffectClipping['clips_content_node_count'] ?? 0),
+                'clipped_effect_nodes' => (int) ($maskEffectClipping['clipped_effect_node_count'] ?? 0),
+                'mixed_positioning_parent_count' => (int) ($layout['stacking_order']['mixed_positioning_parent_count'] ?? 0),
+                'uncomposed_vector_child_nodes' => (int) ($vectors['child_composition']['uncomposed_vector_child_node_count'] ?? 0),
             ),
         );
     }

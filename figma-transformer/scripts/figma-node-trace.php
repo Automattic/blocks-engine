@@ -71,6 +71,7 @@ $trace = array(
     'frame_id' => $frameId,
     'node_ids' => $nodeIds,
     'nodes' => array(),
+    'transform_diagnostics' => blocks_engine_figma_trace_transform_diagnostics_summary($htmlReport),
     'diagnostics_sample' => blocks_engine_figma_trace_diagnostics_sample($result, $htmlReport, $diagnosticLimit),
     'metrics' => $result['metrics'] ?? array(),
 );
@@ -93,6 +94,7 @@ foreach ( $nodeIds as $nodeId ) {
             'css' => '' !== $className ? blocks_engine_figma_trace_css_rule($result, $className) : null,
             'style_diagnostic' => $style,
         ), static fn (mixed $value): bool => null !== $value && array() !== $value),
+        'transform_diagnostics' => blocks_engine_figma_trace_node_transform_diagnostics($htmlReport, $nodeId),
         'visual' => blocks_engine_figma_trace_visual_node($htmlReport, $nodeId),
     );
 }
@@ -213,6 +215,51 @@ function blocks_engine_figma_trace_emit_result(array $normalized, array $transfo
             ),
         ),
     );
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_trace_transform_diagnostics_summary(array $htmlReport): array
+{
+    $diagnostics = is_array($htmlReport['transform_diagnostics'] ?? null) ? $htmlReport['transform_diagnostics'] : array();
+    $artifactQuality = is_array($diagnostics['artifact_quality'] ?? null) ? $diagnostics['artifact_quality'] : array();
+
+    return array(
+        'schema' => 'blocks-engine/figma-transformer/node-trace-transform-diagnostics/v1',
+        'artifact_quality_summary' => is_array($artifactQuality['summary'] ?? null) ? $artifactQuality['summary'] : array(),
+        'components' => is_array($diagnostics['components'] ?? null) ? $diagnostics['components'] : array(),
+        'effects' => is_array($diagnostics['effects'] ?? null) ? $diagnostics['effects'] : array(),
+        'mask_effect_clipping' => is_array($diagnostics['mask_effect_clipping'] ?? null) ? $diagnostics['mask_effect_clipping'] : array(),
+        'vector_child_composition' => is_array($diagnostics['vectors']['child_composition'] ?? null) ? $diagnostics['vectors']['child_composition'] : array(),
+        'stacking_order' => is_array($diagnostics['layout']['stacking_order'] ?? null) ? $diagnostics['layout']['stacking_order'] : array(),
+    );
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_trace_node_transform_diagnostics(array $htmlReport, string $nodeId): array
+{
+    $diagnostics = is_array($htmlReport['transform_diagnostics'] ?? null) ? $htmlReport['transform_diagnostics'] : array();
+    $matches = array();
+    foreach ( array(
+        'component_clone' => $diagnostics['components']['clone_nodes'] ?? array(),
+        'component_override' => $diagnostics['components']['override_nodes'] ?? array(),
+        'missing_component_clone' => $diagnostics['components']['missing_emitted_clone_nodes'] ?? array(),
+        'missing_effect' => $diagnostics['effects']['missing_emitted_effect_nodes'] ?? array(),
+        'mask_effect_clipping' => $diagnostics['mask_effect_clipping']['sample_nodes'] ?? array(),
+        'vector_child_composition' => $diagnostics['vectors']['child_composition']['sample_nodes'] ?? array(),
+        'stacking_order' => $diagnostics['layout']['stacking_order']['sample_nodes'] ?? array(),
+    ) as $name => $samples ) {
+        foreach ( is_array($samples) ? $samples : array() as $sample ) {
+            if ( is_array($sample) && $nodeId === (string) ($sample['node_id'] ?? '') ) {
+                $matches[$name][] = $sample;
+            }
+        }
+    }
+
+    return array_filter($matches, static fn (mixed $value): bool => array() !== $value);
 }
 
 /**

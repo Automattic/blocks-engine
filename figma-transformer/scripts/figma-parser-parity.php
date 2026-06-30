@@ -289,6 +289,7 @@ function blocks_engine_figma_parser_parity_report(string $input, array $source, 
     $emittedNodeIdList = array_keys($emittedNodeIds);
     $rawEmittedNodeIds = blocks_engine_figma_parser_parity_ids_in_covered_scope(array_keys($rawNodes), $emittedNodeIdList);
     $rawEmittedVectorNodeIds = blocks_engine_figma_parser_parity_ids_in_covered_scope($rawVectorNodeIds, $emittedNodeIdList);
+    $normalizedCloneNodeIds = blocks_engine_figma_parser_parity_normalized_component_clone_node_ids($normalizedNodes);
 
     return array(
         'schema' => 'blocks-engine/figma-transformer/parser-parity/v1',
@@ -338,12 +339,50 @@ function blocks_engine_figma_parser_parity_report(string $input, array $source, 
             'raw_asset_refs_to_normalized_asset_refs' => blocks_engine_figma_parser_parity_id_coverage($rawAssetRefs, blocks_engine_figma_parser_parity_normalized_asset_reference_node_ids($normalized), $sampleLimit),
             'raw_vector_to_emitted' => blocks_engine_figma_parser_parity_id_coverage($rawEmittedVectorNodeIds, $emittedNodeIdList, $sampleLimit, true),
             'raw_component_props_to_normalized' => blocks_engine_figma_parser_parity_id_coverage($rawComponentPropNodeIds, array_keys($normalizedNodes), $sampleLimit),
+            'normalized_component_clone_to_emitted' => blocks_engine_figma_parser_parity_id_coverage($normalizedCloneNodeIds, $emittedNodeIdList, $sampleLimit, true),
         ),
+        'transform_diagnostics' => blocks_engine_figma_parser_parity_transform_diagnostics_summary($htmlReport),
         'top_missing_field_paths' => $rawFieldReport['top_missing_field_paths'],
         'diagnostics' => array(
             'normalized_sample' => array_slice(is_array($normalized['diagnostics'] ?? null) ? $normalized['diagnostics'] : array(), 0, $limit),
             'emitted_sample' => array_slice(is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array(), 0, $limit),
         ),
+    );
+}
+
+/**
+ * @param array<string, array<string, mixed>> $normalizedNodes
+ * @return array<int, string>
+ */
+function blocks_engine_figma_parser_parity_normalized_component_clone_node_ids(array $normalizedNodes): array
+{
+    $ids = array();
+    foreach ( $normalizedNodes as $id => $node ) {
+        if ( is_array($node) && isset($node['figma_component_source_id']) && is_scalar($node['figma_component_source_id']) ) {
+            $ids[] = (string) $id;
+        }
+    }
+
+    return array_values(array_unique($ids));
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_parser_parity_transform_diagnostics_summary(array $htmlReport): array
+{
+    $diagnostics = is_array($htmlReport['transform_diagnostics'] ?? null) ? $htmlReport['transform_diagnostics'] : array();
+    $artifactQuality = is_array($diagnostics['artifact_quality'] ?? null) ? $diagnostics['artifact_quality'] : array();
+
+    return array(
+        'schema' => 'blocks-engine/figma-transformer/parser-parity-transform-diagnostics/v1',
+        'artifact_quality_summary' => is_array($artifactQuality['summary'] ?? null) ? $artifactQuality['summary'] : array(),
+        'text' => is_array($diagnostics['text'] ?? null) ? $diagnostics['text'] : array(),
+        'components' => is_array($diagnostics['components'] ?? null) ? $diagnostics['components'] : array(),
+        'effects' => is_array($diagnostics['effects'] ?? null) ? $diagnostics['effects'] : array(),
+        'mask_effect_clipping' => is_array($diagnostics['mask_effect_clipping'] ?? null) ? $diagnostics['mask_effect_clipping'] : array(),
+        'vector_child_composition' => is_array($diagnostics['vectors']['child_composition'] ?? null) ? $diagnostics['vectors']['child_composition'] : array(),
+        'stacking_order' => is_array($diagnostics['layout']['stacking_order'] ?? null) ? $diagnostics['layout']['stacking_order'] : array(),
     );
 }
 
