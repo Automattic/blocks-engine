@@ -108,7 +108,26 @@ function processElement($: CheerioAPI, el: ElementNode, drafts: SectionDraft[]):
     return;
   }
 
+  if (isDesignedBand($, el)) {
+    addElementSection($, el, drafts);
+    return;
+  }
+
   walkContainer($, el, drafts);
+}
+
+// A bare (non-explicit, non-heading) element whose entire subtree carries no
+// heading and no explicit/landmark descendant, yet still has recognizable
+// content, is a designed band (marquees, ticker strips, decorative copy rows).
+// Capture it as a section instead of walking past it and dropping its content.
+function isDesignedBand($: CheerioAPI, el: ElementNode): boolean {
+  if (hasHeadingDescendant($, el)) return false;
+  if (hasExplicitDescendant($, el)) return false;
+  return hasRecognizableContent(extractContent($.html(el)));
+}
+
+function hasHeadingDescendant($: CheerioAPI, el: ElementNode): boolean {
+  return $(el).find(HEADING_SELECTOR).length > 0;
 }
 
 function addElementSection($: CheerioAPI, el: ElementNode, drafts: SectionDraft[]): void {
