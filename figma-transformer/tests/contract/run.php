@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../figma-transformer.php';
 require_once __DIR__ . '/../../scripts/figma-fixture-selection.php';
 require_once __DIR__ . '/FixtureMatrixContract.php';
+require_once __DIR__ . '/GeometryBoxContract.php';
 require_once __DIR__ . '/LayoutMismatchContract.php';
 require_once __DIR__ . '/OriginInferenceContract.php';
 require_once __DIR__ . '/RenderStyleMismatchContract.php';
@@ -1772,6 +1773,7 @@ $assert(in_array('generated-vs-source-clipping', $genericCauses, true), 'layout-
 $assert(in_array('vector-shell-wrapper-offset', $genericCauses, true), 'layout-mismatch-vector-shell-wrapper-offset-suspected-cause');
 blocks_engine_figma_transformer_run_layout_mismatch_contract($assert);
 blocks_engine_figma_transformer_run_render_style_mismatch_contract($assert);
+blocks_engine_figma_transformer_run_geometry_box_contract($assert);
 
 $layoutMismatchTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name' => 'Layout Mismatch Fixture',
