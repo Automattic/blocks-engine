@@ -2485,7 +2485,7 @@ final class StaticHtmlEmitter
             $layout['decorative_underlays']['nodes'][] = $this->decorativeUnderlayDiagnostic($node, $parentNode);
         }
 
-        $emptyContainer = $this->emptyVisibleContainerDiagnostic($node);
+        $emptyContainer = $this->emptyVisibleContainerDiagnostic($node, $parentNode);
         if ( null !== $emptyContainer ) {
             $layout['empty_visible_containers'][] = $emptyContainer;
             $category = (string) ($emptyContainer['category'] ?? 'empty_visible_container');
@@ -3027,7 +3027,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @return array<string, mixed>|null
      */
-    private function emptyVisibleContainerDiagnostic(array $node): ?array
+    private function emptyVisibleContainerDiagnostic(array $node, ?array $parentNode = null): ?array
     {
         $type = strtoupper((string) ($node['type'] ?? ''));
         if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'SECTION'), true) || false === ($node['visible'] ?? true) ) {
@@ -3043,7 +3043,7 @@ final class StaticHtmlEmitter
             return null;
         }
 
-        $category = $this->emptyVisibleContainerCategory($node, $type, $width, $height);
+        $category = $this->emptyVisibleContainerCategory($node, $type, $width, $height, $parentNode);
 
         return array(
             'node_id' => (string) ($node['id'] ?? ''),
@@ -3053,18 +3053,22 @@ final class StaticHtmlEmitter
             'width' => $this->reportNumericValue($width),
             'height' => $this->reportNumericValue($height),
             'category' => $category,
-            'blocks_parity' => 'decorative_zero_height_separator' !== $category,
+            'blocks_parity' => ! $this->isNonBlockingEmptyVisibleContainerCategory($category),
         );
     }
 
     /**
      * @param array<string, mixed> $node
      */
-    private function emptyVisibleContainerCategory(array $node, string $type, float $width, float $height): string
+    private function emptyVisibleContainerCategory(array $node, string $type, float $width, float $height, ?array $parentNode = null): string
     {
         $name = trim((string) ($node['name'] ?? ''));
         if ( $height <= 1.0 && preg_match('/^[\x{2013}\x{2014}-]+$/u', $name) ) {
             return 'decorative_zero_height_separator';
+        }
+
+        if ( $this->isFormControlChrome($node, $parentNode, $width, $height) ) {
+            return 'form_control_chrome';
         }
 
         if ( 'INSTANCE' === $type ) {
@@ -3072,6 +3076,44 @@ final class StaticHtmlEmitter
         }
 
         return 'empty_visible_container';
+    }
+
+    private function isNonBlockingEmptyVisibleContainerCategory(string $category): bool
+    {
+        return in_array($category, array('decorative_zero_height_separator', 'form_control_chrome'), true);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function isFormControlChrome(array $node, ?array $parentNode, float $width, float $height): bool
+    {
+        if ( null === $parentNode || $width < 10.0 || $height < 10.0 || $width > 40.0 || $height > 40.0 || abs($width - $height) > 2.0 ) {
+            return false;
+        }
+
+        if ( empty($this->strokeStyles($node)) ) {
+            return false;
+        }
+
+        $layout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        if ( ! in_array((string) ($layout['flex_direction'] ?? ''), array('row', 'row-reverse'), true) && 'HORIZONTAL' !== ($layout['mode'] ?? null) ) {
+            return false;
+        }
+
+        $nodeId = (string) ($node['id'] ?? '');
+        foreach ( $this->nodeList($parentNode) as $sibling ) {
+            if ( ! is_array($sibling) || $nodeId === (string) ($sibling['id'] ?? '') ) {
+                continue;
+            }
+
+            if ( '' !== trim($this->subtreePlainText($sibling)) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

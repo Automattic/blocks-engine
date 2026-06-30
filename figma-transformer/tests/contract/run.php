@@ -491,16 +491,21 @@ $emptyVisibleContainerResult = blocks_engine_figma_transformer_transform_scenegr
                 array('id' => 'empty-container:separator', 'type' => 'FRAME', 'name' => '–', 'width' => 320, 'height' => 0.0002),
                 array('id' => 'empty-container:instance', 'type' => 'INSTANCE', 'name' => 'Missing component body', 'width' => 180, 'height' => 48),
                 array('id' => 'empty-container:frame', 'type' => 'FRAME', 'name' => 'Empty visual frame', 'width' => 24, 'height' => 24),
+                array('id' => 'empty-container:checkbox-row', 'type' => 'FRAME', 'name' => 'Checkbox row', 'width' => 240, 'height' => 24, 'layoutMode' => 'HORIZONTAL', 'itemSpacing' => 8, 'children' => array(
+                    array('id' => 'empty-container:checkbox', 'type' => 'FRAME', 'name' => 'Checkbox', 'width' => 24, 'height' => 24, 'strokeAlign' => 'INSIDE', 'strokeWeight' => 1, 'strokes' => array(array('type' => 'SOLID', 'color' => array('r' => 0.5, 'g' => 0.5, 'b' => 0.5, 'a' => 1)))),
+                    array('id' => 'empty-container:checkbox-label', 'type' => 'TEXT', 'name' => 'Checkbox label', 'characters' => 'Save my details', 'width' => 120, 'height' => 21, 'fontSize' => 14),
+                )),
             ),
         ),
     ),
 ));
 $emptyVisibleLayout = $emptyVisibleContainerResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
-$assert(3 === ($emptyVisibleLayout['empty_visible_container_count'] ?? null), 'empty-visible-container-classification-count');
+$assert(4 === ($emptyVisibleLayout['empty_visible_container_count'] ?? null), 'empty-visible-container-classification-count');
 $assert(2 === ($emptyVisibleLayout['empty_visible_container_blocker_count'] ?? null), 'empty-visible-container-classification-blocker-count');
 $assert(1 === ($emptyVisibleLayout['empty_visible_container_categories']['decorative_zero_height_separator'] ?? null), 'empty-visible-container-classification-decorative-count');
 $assert(1 === ($emptyVisibleLayout['empty_visible_container_categories']['missing_instance_descendants'] ?? null), 'empty-visible-container-classification-instance-count');
 $assert(1 === ($emptyVisibleLayout['empty_visible_container_categories']['empty_visible_container'] ?? null), 'empty-visible-container-classification-frame-count');
+$assert(1 === ($emptyVisibleLayout['empty_visible_container_categories']['form_control_chrome'] ?? null), 'empty-visible-container-classification-form-control-count');
 $emptyVisibleById = array();
 foreach ( is_array($emptyVisibleLayout['empty_visible_containers'] ?? null) ? $emptyVisibleLayout['empty_visible_containers'] : array() as $sample ) {
     if ( is_array($sample) ) {
@@ -508,6 +513,8 @@ foreach ( is_array($emptyVisibleLayout['empty_visible_containers'] ?? null) ? $e
     }
 }
 $assert(false === ($emptyVisibleById['empty-container:separator']['blocks_parity'] ?? null), 'empty-visible-container-decorative-non-blocking');
+$assert(false === ($emptyVisibleById['empty-container:checkbox']['blocks_parity'] ?? null), 'empty-visible-container-form-control-non-blocking');
+$assert('form_control_chrome' === ($emptyVisibleById['empty-container:checkbox']['category'] ?? null), 'empty-visible-container-form-control-category');
 $assert(true === ($emptyVisibleById['empty-container:instance']['blocks_parity'] ?? null), 'empty-visible-container-instance-blocking');
 $assert('missing_instance_descendants' === ($emptyVisibleById['empty-container:instance']['category'] ?? null), 'empty-visible-container-instance-category');
 
