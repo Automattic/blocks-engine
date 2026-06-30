@@ -22,6 +22,7 @@ export const CONVERSION_FINDING_CODES = [
   'normalized_markup',
   'conversion_degraded',
   'fallback_inventory_truncated',
+  'content_dropped',
 ] as const;
 
 export type ConversionFindingCode = (typeof CONVERSION_FINDING_CODES)[number];
