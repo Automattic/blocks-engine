@@ -76,8 +76,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert(1 === ($derivedTextVisualNode['text']['baseline_count'] ?? null), 'visual-node-derived-text-baseline-count');
     $assert(3 === ($derivedTextVisualNode['text']['glyph_count'] ?? null), 'visual-node-derived-text-glyph-count');
     $assert(146.5 === ($derivedTextVisualNode['text']['derived_layout']['size']['width'] ?? null), 'visual-node-derived-text-layout-width');
-    $assert('M 0 0 Q 4 8 8 0 Z' === ($derivedTextVisualNode['text']['derived_layout']['glyph_paths'][0]['data'] ?? null), 'visual-node-derived-text-glyph-quadratic-path');
-    $assert(2.0 === ($derivedTextVisualNode['text']['derived_layout']['glyph_paths'][0]['x'] ?? null), 'visual-node-derived-text-glyph-position');
+    $assert(! isset($derivedTextVisualNode['text']['derived_layout']['glyph_paths']), 'visual-node-derived-text-default-omits-glyph-paths');
     $assert('dom_text' === ($derivedTextVisualNode['text']['glyph_rendering'] ?? null), 'visual-node-derived-text-default-dom-rendering');
     $assert(false === ($derivedTextLayoutResult['source_reports']['figma']['html']['render_text_glyph_paths'] ?? null), 'derived-text-glyph-rendering-default-disabled');
     $assert(! str_contains($fileContent($derivedTextLayoutResult, 'index.html'), 'data-figma-text-glyphs="true"'), 'derived-text-default-avoids-glyph-svg');
@@ -111,7 +110,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
             ),
         ),
     );
-    $unsupportedGlyphResult = blocks_engine_figma_transformer_transform_scenegraph($unsupportedGlyphScenegraph);
+    $unsupportedGlyphResult = blocks_engine_figma_transformer_transform_scenegraph($unsupportedGlyphScenegraph, array('render_text_glyph_paths' => true));
     $unsupportedGlyphDiagnostics = array_values(array_filter(
         $unsupportedGlyphResult['diagnostics'] ?? array(),
         static fn (array $diagnostic): bool => 'unsupported_text_glyph_command_blob' === ($diagnostic['code'] ?? null)
@@ -122,7 +121,45 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert(array('text:unsupported-glyph-a', 'text:unsupported-glyph-b') === ($unsupportedGlyphDiagnostics[0]['context']['sample_node_ids'] ?? null), 'unsupported-glyph-diagnostics-sample-node-ids');
     $assert(str_contains($fileContent($unsupportedGlyphResult, 'index.html'), 'Unsupported glyph A'), 'unsupported-glyph-diagnostics-preserve-text-a');
     $assert(str_contains($fileContent($unsupportedGlyphResult, 'index.html'), 'Unsupported glyph B'), 'unsupported-glyph-diagnostics-preserve-text-b');
-    
+
+    $oversizedGlyphCommandBlob = str_repeat(chr(1) . pack('g', 0.0) . pack('g', 0.0), 32769);
+    $oversizedGlyphScenegraph = array(
+        'name'  => 'Oversized Glyph Diagnostic Fixture',
+        'blobs' => array(array('bytes' => $oversizedGlyphCommandBlob)),
+        'nodes' => array(
+            array(
+                'id'              => 'text:oversized-glyph',
+                'type'            => 'TEXT',
+                'name'            => 'Oversized Glyph Text',
+                'characters'      => 'Text remains renderable',
+                'derivedTextData' => array(
+                    'glyphs' => array(
+                        array('firstCharacter' => 0, 'commandsBlob' => 0),
+                    ),
+                ),
+            ),
+        ),
+    );
+    $oversizedGlyphResult = blocks_engine_figma_transformer_transform_scenegraph($oversizedGlyphScenegraph, array('render_text_glyph_paths' => true));
+    $oversizedGlyphDiagnostics = array_values(array_filter(
+        $oversizedGlyphResult['diagnostics'] ?? array(),
+        static fn (array $diagnostic): bool => 'unsupported_text_glyph_command_blob' === ($diagnostic['code'] ?? null)
+    ));
+    $oversizedGlyphVisualNodes = $oversizedGlyphResult['source_reports']['figma']['html']['visual_node_map'] ?? array();
+    $oversizedGlyphVisualNode = null;
+    foreach ( is_array($oversizedGlyphVisualNodes) ? $oversizedGlyphVisualNodes : array() as $visualNode ) {
+        if ( is_array($visualNode) && 'text:oversized-glyph' === ($visualNode['id'] ?? null) ) {
+            $oversizedGlyphVisualNode = $visualNode;
+            break;
+        }
+    }
+    $assert(str_contains($fileContent($oversizedGlyphResult, 'index.html'), 'Text remains renderable'), 'oversized-glyph-preserves-dom-text');
+    $assert(1 === count($oversizedGlyphDiagnostics), 'oversized-glyph-diagnostics-bounded');
+    $assert(1 === ($oversizedGlyphDiagnostics[0]['context']['total_count'] ?? null), 'oversized-glyph-diagnostics-total-count');
+    $assert('byte_limit_exceeded' === ($oversizedGlyphDiagnostics[0]['context']['sample_glyphs'][0]['reason'] ?? null), 'oversized-glyph-diagnostics-reason');
+    $assert(strlen($oversizedGlyphCommandBlob) === ($oversizedGlyphDiagnostics[0]['context']['sample_glyphs'][0]['byte_length'] ?? null), 'oversized-glyph-diagnostics-byte-length');
+    $assert(array() === ($oversizedGlyphVisualNode['text']['derived_layout']['glyph_paths'] ?? array()), 'oversized-glyph-omits-derived-path-data');
+     
     // Whitespace glyphs are emitted by Figma as a single 0x00 (empty-path) command
     // blob: well-formed, but carrying no drawable outline. These are valid, not
     // unsupported, and must NOT raise unsupported_text_glyph_command_blob warnings
@@ -156,7 +193,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
             ),
         ),
     );
-    $whitespaceGlyphResult = blocks_engine_figma_transformer_transform_scenegraph($whitespaceGlyphScenegraph);
+    $whitespaceGlyphResult = blocks_engine_figma_transformer_transform_scenegraph($whitespaceGlyphScenegraph, array('render_text_glyph_paths' => true));
     $whitespaceGlyphDiagnostics = array_values(array_filter(
         $whitespaceGlyphResult['diagnostics'] ?? array(),
         static fn (array $diagnostic): bool => 'unsupported_text_glyph_command_blob' === ($diagnostic['code'] ?? null)
