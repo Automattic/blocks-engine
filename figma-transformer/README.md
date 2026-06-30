@@ -271,6 +271,21 @@ php figma-transformer/bin/figma-transformer "$HOME/Downloads/figma-transformer-f
 
 The CLI also accepts `--max-kiwi-message-decode-bytes=<bytes>` to control the eager Kiwi message decode guard. Large production messages above the limit are reported with `figma_transformer_kiwi_message_decode_skipped_size` instead of being materialized into memory. Full production scenegraph extraction should use selective Kiwi decoding rather than eager whole-message materialization.
 
+To compare a decoded `.fig` node with the normalized scenegraph and emitted HTML/CSS, capture a bounded node trace after selecting frame/node ids from `--inspect-frames`:
+
+```sh
+php figma-transformer/bin/figma-transformer "$HOME/Downloads/figma-transformer-fixtures/source.fig" \
+  --inspect-frames=50 \
+  --zstd-command=/path/to/zstd \
+  > "$HOME/Downloads/figma-transformer-fixtures/evidence/source-frames.json"
+
+php figma-transformer/scripts/figma-node-trace.php "$HOME/Downloads/figma-transformer-fixtures/source.fig" \
+  --frame-id='<frame-id>' \
+  --node-ids='<node-id>,<node-id>' \
+  --zstd-command=/path/to/zstd \
+  > "$HOME/Downloads/figma-transformer-fixtures/evidence/source-node-trace.json"
+```
+
 Evidence to keep with the issue or PR:
 
 - The original Figma URL and file key, not the `.fig` file.
