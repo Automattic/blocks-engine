@@ -701,7 +701,7 @@ final class StaticHtmlEmitter
         $assetPath = $this->nodeAssetPath($node);
         $hasVectorAssetFallback = $this->isUnsupportedVectorType($type) && null !== $assetPath;
 
-        if ( ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) ) {
+        if ( 'input' !== $tag && ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) ) {
             foreach ( $children as $child ) {
                 if ( is_array($child) ) {
                     if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
@@ -742,6 +742,9 @@ final class StaticHtmlEmitter
         }
 
         $attributes = sprintf(' class="%1$s" data-figma-node-id="%2$s" data-figma-node-name="%3$s"', $className, $id, $attributeName);
+        if ( 'input' === $tag ) {
+            $attributes .= $this->inputControlAttributes($node);
+        }
         if ( 'RECTANGLE' === $type && '' === $content ) {
             $attributes .= ' aria-hidden="true"';
         }
@@ -751,7 +754,11 @@ final class StaticHtmlEmitter
             $attributes .= ' role="img" aria-label="' . $this->sanitizeAttribute('' !== $name ? $name : $type) . '"';
         }
 
-        $element = sprintf("<%1\$s%2\$s>%3\$s</%1\$s>\n", $tag, $attributes, $content);
+        if ( 'input' === $tag ) {
+            $element = sprintf("<input%1\$s>\n", $attributes);
+        } else {
+            $element = sprintf("<%1\$s%2\$s>%3\$s</%1\$s>\n", $tag, $attributes, $content);
+        }
 
         return $this->wrapWithLink($node, $element, $diagnostics, $this->isButtonLike($node));
     }
@@ -790,6 +797,10 @@ final class StaticHtmlEmitter
         // List items: a repeated, structurally-similar child of a list container.
         if ( null !== $parentNode && $this->isListItemOf($node, $parentNode) ) {
             return 'li';
+        }
+
+        if ( $this->isInputLike($node) ) {
+            return 'input';
         }
 
         // A standalone button-like control (no link) becomes a real <button>.
@@ -1086,6 +1097,9 @@ final class StaticHtmlEmitter
      */
     private function isButtonLike(array $node): bool
     {
+        if ( $this->isInputLike($node) ) {
+            return false;
+        }
         if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
             return false;
         }
@@ -1106,6 +1120,90 @@ final class StaticHtmlEmitter
         $nameHint = str_contains($name, 'button') || str_contains($name, 'btn') || str_contains($name, 'cta');
 
         return $nameHint || null !== $this->backgroundColor($node) || $this->cornerRadius($node) > 0.0;
+    }
+
+    /**
+     * Identifies input-like control chrome before generic button heuristics see a
+     * rounded, filled single-text frame and emit it as a button.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function isInputLike(array $node): bool
+    {
+        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+            return false;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        if ( str_contains($name, 'button') || str_contains($name, 'btn') || str_contains($name, 'cta') ) {
+            return false;
+        }
+
+        $hasInputName = str_contains($name, 'input')
+            || str_contains($name, 'text field')
+            || str_contains($name, 'textfield')
+            || str_contains($name, 'form field')
+            || preg_match('/(^|[^a-z])field([^a-z]|$)/', $name);
+        if ( ! $hasInputName ) {
+            return false;
+        }
+
+        $textCount = $this->textDescendantCount($node);
+        if ( $textCount < 1 || $textCount > 2 ) {
+            return false;
+        }
+
+        $width = $this->boxValue($node, 'width');
+        $height = $this->boxValue($node, 'height');
+        if ( (null !== $width && $width > 640.0) || (null !== $height && $height > 120.0) ) {
+            return false;
+        }
+
+        return null !== $this->backgroundColor($node) || $this->cornerRadius($node) > 0.0 || $this->hasStrokePaint($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasStrokePaint(array $node): bool
+    {
+        foreach ( array('figma_paints', 'strokes', 'strokePaints') as $key ) {
+            $paints = $node[$key] ?? null;
+            if ( ! is_array($paints) ) {
+                continue;
+            }
+
+            if ( 'figma_paints' === $key ) {
+                $paints = $paints['strokes'] ?? array();
+            }
+
+            if ( ! empty($paints) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function inputControlAttributes(array $node): string
+    {
+        $placeholder = trim($this->subtreePlainText($node));
+        $name = (string) ($node['name'] ?? '');
+        $haystack = strtolower($name . ' ' . $placeholder);
+        $type = str_contains($haystack, 'email') || str_contains($haystack, 'e-mail') ? 'email' : 'text';
+
+        $attributes = ' type="' . $type . '"';
+        if ( '' !== $placeholder ) {
+            $attributes .= ' placeholder="' . $this->sanitizeAttribute($placeholder) . '"';
+            $attributes .= ' aria-label="' . $this->sanitizeAttribute($placeholder) . '"';
+        } elseif ( '' !== $name ) {
+            $attributes .= ' aria-label="' . $this->sanitizeAttribute($name) . '"';
+        }
+
+        return $attributes;
     }
 
     /**
@@ -2700,6 +2798,10 @@ final class StaticHtmlEmitter
     private function appendTextCoverageDiagnostics(array $node, string $html, array &$coverage, array $page, bool $isRoot): void
     {
         if ( ! $isRoot && false === ($node['visible'] ?? null) ) {
+            return;
+        }
+
+        if ( $this->isInputLike($node) && $this->htmlContainsNodeId($html, (string) ($node['id'] ?? '')) ) {
             return;
         }
 
