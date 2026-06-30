@@ -133,7 +133,13 @@ export interface SiteToThemeOptions extends SourceCssCarryOptions {
 }
 
 export interface ThemeDiagnostics {
-  conversion: ThemeConversionDiagnostics;
+  /**
+   * Per-page conversion-fidelity aggregate. `siteToTheme` always populates this;
+   * it is declared optional so adding it stays backward-compatible for external
+   * code that constructs a `ThemeBuildResult`/`ThemeDiagnostics` literal (e.g.
+   * downstream test fixtures) without forcing a change there.
+   */
+  conversion?: ThemeConversionDiagnostics;
   regionAudit: RegionSelectionReport[];
 }
 
