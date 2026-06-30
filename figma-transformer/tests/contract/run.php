@@ -1495,6 +1495,34 @@ $assert(1 === (int) ($booleanOperationVectors['boolean_operations_composed'] ?? 
 $assert(1 === (int) ($booleanOperationVectors['rendered_paths'] ?? 0), 'boolean-operation-rendered-count');
 $assert(0 === (int) ($booleanOperationVectors['placeholders'] ?? 0), 'boolean-operation-no-placeholder');
 
+// Detailed logo-style booleans can carry an explicit parent vector path plus
+// child vectors with better per-glyph/per-shape geometry. UNION should prefer
+// the child composition rather than collapsing everything to the parent path.
+$booleanUnionWithParentPathResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Boolean Union Parent Path Fixture',
+    'nodes' => array(
+        array(
+            'id'               => 'bool:union-parent-path',
+            'type'             => 'BOOLEAN_OPERATION',
+            'name'             => 'Logo Union',
+            'width'            => 30,
+            'height'           => 20,
+            'booleanOperation' => 'UNION',
+            'pathData'         => 'M0 0L30 0L30 20L0 20Z',
+            'fillPaints'       => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0))),
+            'children'         => array(
+                array('id' => 'bool:logo-icon', 'type' => 'VECTOR', 'name' => 'Icon', 'width' => 10, 'height' => 10, 'pathData' => 'M1 1L9 1L9 9L1 9Z'),
+                array('id' => 'bool:logo-wordmark', 'type' => 'VECTOR', 'name' => 'Wordmark', 'width' => 14, 'height' => 6, 'x' => 12, 'y' => 4, 'pathData' => 'M12 4L26 4L26 10L12 10Z'),
+            ),
+        ),
+    ),
+));
+$booleanUnionWithParentPathHtml = $fileContent($booleanUnionWithParentPathResult, 'index.html');
+$assert(str_contains($booleanUnionWithParentPathHtml, 'data-figma-boolean-operation="union"'), 'boolean-union-parent-path-marks-union');
+$assert(str_contains($booleanUnionWithParentPathHtml, 'd="M1 1L9 1 9 9 1 9Z"'), 'boolean-union-parent-path-includes-child-icon');
+$assert(str_contains($booleanUnionWithParentPathHtml, 'd="M12 4L26 4 26 10 12 10Z"'), 'boolean-union-parent-path-includes-child-wordmark');
+$assert(! str_contains($booleanUnionWithParentPathHtml, 'd="M0 0L30 0 30 20 0 20Z"'), 'boolean-union-parent-path-skips-collapsed-parent');
+
 // Boolean SUBTRACT over children sharing the operation origin approximates
 // hole-cutting with a single fill-rule:evenodd path.
 $booleanSubtractResult = blocks_engine_figma_transformer_transform_scenegraph(array(

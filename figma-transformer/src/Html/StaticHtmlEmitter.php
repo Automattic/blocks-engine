@@ -5341,7 +5341,7 @@ final class StaticHtmlEmitter
             return null;
         }
 
-        if ( 'BOOLEAN_OPERATION' === $type && ! $this->hasExplicitVectorSource($node) && ! empty($this->nodeList($node)) ) {
+        if ( 'BOOLEAN_OPERATION' === $type && $this->shouldComposeBooleanOperationChildren($node) ) {
             $composed = $this->booleanOperationSvg($node, $parentNode);
             if ( null !== $composed ) {
                 return $composed;
@@ -5401,6 +5401,23 @@ final class StaticHtmlEmitter
         }
 
         return '<svg ' . implode(' ', $attributes) . '>' . $body . '</svg>';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function shouldComposeBooleanOperationChildren(array $node): bool
+    {
+        if ( empty($this->nodeList($node)) ) {
+            return false;
+        }
+
+        if ( ! $this->hasExplicitVectorSource($node) ) {
+            return true;
+        }
+
+        return 'UNION' === strtoupper(trim((string) ($node['booleanOperation'] ?? 'UNION')))
+            && ! empty($this->booleanOperationChildVectors($node));
     }
 
     /**
