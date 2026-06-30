@@ -694,7 +694,7 @@ final class FigKiwiDecoder
         if ( str_contains($name, 'bound') || str_contains($name, 'layout') || str_contains($name, 'constraint') || str_contains($name, 'padding') || str_contains($name, 'size') || str_contains($name, 'transform') || str_contains($name, 'corner') || str_contains($name, 'stack') ) {
             return 'geometry_layout';
         }
-        if ( str_contains($name, 'paint') || str_contains($name, 'fill') || str_contains($name, 'stroke') || str_contains($name, 'image') || str_contains($name, 'blob') ) {
+        if ( str_contains($name, 'paint') || str_contains($name, 'fill') || str_contains($name, 'stroke') || str_contains($name, 'image') || str_contains($name, 'blob') || str_contains($name, 'blendmode') ) {
             return 'fills_images';
         }
         if ( str_contains($name, 'mask') || str_contains($name, 'effect') || str_contains($name, 'shadow') || str_contains($name, 'blur') ) {
@@ -706,7 +706,7 @@ final class FigKiwiDecoder
         if ( str_contains($name, 'component') || str_contains($name, 'symbol') || str_contains($name, 'override') || str_contains($name, 'prop') || str_contains($name, 'variant') ) {
             return 'component_overrides';
         }
-        if ( str_contains($name, 'vector') || str_contains($name, 'path') || str_contains($name, 'geometry') ) {
+        if ( str_contains($name, 'vector') || str_contains($name, 'commandsblob') || 'path' === strtolower($type) || 'vectorpath' === strtolower($type) ) {
             return 'vectors';
         }
 
