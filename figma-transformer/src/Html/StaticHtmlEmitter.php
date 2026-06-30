@@ -197,7 +197,7 @@ final class StaticHtmlEmitter
         $files = $this->withInlineCssFiles($files, $css);
 
         $visualNodeMap = $this->visualNodeMap($nodes);
-        $transformDiagnostics = $this->transformDiagnostics($nodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics);
+        $transformDiagnostics = $this->transformDiagnostics($nodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics, $body);
         foreach ( $this->unresolvedSourceFontDiagnostics($fontResolution) as $diagnostic ) {
             $diagnostics[] = $diagnostic;
         }
@@ -394,7 +394,7 @@ final class StaticHtmlEmitter
         $files = $this->withInlineCssFiles($files, $css);
 
         $visualNodeMap = $this->visualNodeMap($renderedNodes);
-        $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics);
+        $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics, $this->htmlFilesContent($files));
         foreach ( $this->unresolvedSourceFontDiagnostics($fontResolution) as $diagnostic ) {
             $diagnostics[] = $diagnostic;
         }
@@ -645,6 +645,21 @@ final class StaticHtmlEmitter
         }
 
         return $style . "\n" . $html;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     */
+    private function htmlFilesContent(array $files): string
+    {
+        $html = '';
+        foreach ( $files as $file ) {
+            if ( is_array($file) && 'text/html' === ($file['mime_type'] ?? null) && isset($file['content']) && is_scalar($file['content']) ) {
+                $html .= "\n" . (string) $file['content'];
+            }
+        }
+
+        return $html;
     }
 
     /**
@@ -1946,7 +1961,7 @@ final class StaticHtmlEmitter
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<string, mixed>
      */
-    private function transformDiagnostics(array $nodes, array $visualNodeMap, array $assetFiles, array $fontFamilies, array $fontUsage, array $fontResolution, string $css, array $diagnostics): array
+    private function transformDiagnostics(array $nodes, array $visualNodeMap, array $assetFiles, array $fontFamilies, array $fontUsage, array $fontResolution, string $css, array $diagnostics, string $html = ''): array
     {
         $image = array(
             'paint_refs'      => 0,
@@ -1970,12 +1985,17 @@ final class StaticHtmlEmitter
         $nodeDiagnosticIndex = $this->nodeDiagnosticIndex($nodes);
         $cssOffsetDiagnostics = $this->cssAbsoluteOffsetDiagnostics($css, $nodeDiagnosticIndex);
         $visualOffsetDiagnostics = $this->visualOffCanvasDiagnostics($visualNodeMap, $nodeDiagnosticIndex);
+        $visualClipDiagnostics = $this->visualClipDiagnostics($visualNodeMap, $nodeDiagnosticIndex);
         $layout = array(
             'large_negative_left_count' => preg_match_all('/left:-[0-9]{3,}/', $css),
             'large_css_offset_count' => count($cssOffsetDiagnostics),
             'large_css_offset_nodes' => $cssOffsetDiagnostics,
             'off_canvas_visual_node_count' => count($visualOffsetDiagnostics),
             'off_canvas_visual_nodes' => $visualOffsetDiagnostics,
+            'clipped_visual_node_count' => (int) ($visualClipDiagnostics['clipped_visual_node_count'] ?? 0),
+            'clipped_visual_area_ratio' => (float) ($visualClipDiagnostics['clipped_visual_area_ratio'] ?? 0.0),
+            'clipped_visual_area_px' => (int) ($visualClipDiagnostics['clipped_visual_area_px'] ?? 0),
+            'clipped_visual_nodes' => is_array($visualClipDiagnostics['clipped_visual_nodes'] ?? null) ? $visualClipDiagnostics['clipped_visual_nodes'] : array(),
             'large_absolute_offset_count' => 0,
             'large_absolute_offset_nodes' => array(),
             'empty_visible_container_count' => 0,
@@ -2024,6 +2044,7 @@ final class StaticHtmlEmitter
             'coverage'                => array_values($fontResolution['coverage'] ?? array()),
         );
 
+        $text = $this->textCoverageDiagnostics($nodes, $html);
         $links = $this->linkDiagnostics();
 
         return array(
@@ -2032,11 +2053,12 @@ final class StaticHtmlEmitter
             'images' => $image,
             'vectors' => $vectors,
             'fonts' => $fonts,
+            'text' => $text,
             'assets' => $assets,
             'generated_svg_assets' => $generatedSvgAssets,
             'layout' => $layout,
             'links' => $links,
-            'artifact_quality' => $this->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links),
+            'artifact_quality' => $this->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text),
             'diagnostic_codes' => $this->diagnosticCodeCounts($diagnostics),
         );
     }
@@ -2051,7 +2073,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $links
      * @return array<string, mixed>
      */
-    private function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array()): array
+    private function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $text = array()): array
     {
         $signals = array();
 
@@ -2091,6 +2113,15 @@ final class StaticHtmlEmitter
                 'code' => 'off_canvas_visual_nodes',
                 'count' => (int) $layout['off_canvas_visual_node_count'],
                 'sample_nodes' => array_slice(is_array($layout['off_canvas_visual_nodes'] ?? null) ? $layout['off_canvas_visual_nodes'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($layout['clipped_visual_node_count']) && (float) ($layout['clipped_visual_area_ratio'] ?? 0.0) >= 0.25 ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'clipped_visual_area',
+                'count' => (int) $layout['clipped_visual_node_count'],
+                'clipped_area_ratio' => (float) ($layout['clipped_visual_area_ratio'] ?? 0.0),
+                'sample_nodes' => array_slice(is_array($layout['clipped_visual_nodes'] ?? null) ? $layout['clipped_visual_nodes'] : array(), 0, 10),
             );
         }
         if ( ! empty($layout['large_absolute_offset_count']) ) {
@@ -2144,6 +2175,22 @@ final class StaticHtmlEmitter
                 'sample_nodes' => array_slice(is_array($links['unresolved_targets'] ?? null) ? $links['unresolved_targets'] : array(), 0, 10),
             );
         }
+        if ( ! empty($text['missing_emitted_text_node_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'decoded_text_not_emitted',
+                'count' => (int) $text['missing_emitted_text_node_count'],
+                'sample_nodes' => array_slice(is_array($text['missing_emitted_text_nodes'] ?? null) ? $text['missing_emitted_text_nodes'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($text['empty_decoded_text_node_count']) ) {
+            $signals[] = array(
+                'severity' => 'info',
+                'code' => 'decoded_text_empty',
+                'count' => (int) $text['empty_decoded_text_node_count'],
+                'sample_nodes' => array_slice(is_array($text['empty_decoded_text_nodes'] ?? null) ? $text['empty_decoded_text_nodes'] : array(), 0, 10),
+            );
+        }
 
         $failCodes = array('missing_render_assets', 'vector_placeholders');
         $failCount = count(array_filter($signals, static fn (array $signal): bool => in_array((string) ($signal['code'] ?? ''), $failCodes, true)));
@@ -2176,8 +2223,14 @@ final class StaticHtmlEmitter
                 'large_negative_left_count' => (int) ($layout['large_negative_left_count'] ?? 0),
                 'large_css_offset_count' => (int) ($layout['large_css_offset_count'] ?? 0),
                 'off_canvas_visual_node_count' => (int) ($layout['off_canvas_visual_node_count'] ?? 0),
+                'clipped_visual_node_count' => (int) ($layout['clipped_visual_node_count'] ?? 0),
+                'clipped_visual_area_ratio' => (float) ($layout['clipped_visual_area_ratio'] ?? 0.0),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'empty_visible_container_count' => (int) ($layout['empty_visible_container_count'] ?? 0),
+                'decoded_text_nodes' => (int) ($text['decoded_text_node_count'] ?? 0),
+                'emitted_text_nodes' => (int) ($text['emitted_text_node_count'] ?? 0),
+                'empty_decoded_text_nodes' => (int) ($text['empty_decoded_text_node_count'] ?? 0),
+                'missing_emitted_text_nodes' => (int) ($text['missing_emitted_text_node_count'] ?? 0),
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
                 'layout_mismatch_count' => (int) ($layout['layout_mismatch_count'] ?? 0),
                 'layout_mismatch_status' => (string) ($layout['layout_mismatch_status'] ?? 'not_evaluated'),
@@ -2713,6 +2766,180 @@ final class StaticHtmlEmitter
         }
 
         return array_values($samples);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $visualNodeMap
+     * @param array{by_id: array<string, array<string, mixed>>, by_class: array<string, array<string, mixed>>} $nodeIndex
+     * @return array<string, mixed>
+     */
+    private function visualClipDiagnostics(array $visualNodeMap, array $nodeIndex): array
+    {
+        $samples = array();
+        $sourceArea = 0.0;
+        $visibleArea = 0.0;
+
+        foreach ( $visualNodeMap as $entry ) {
+            if ( ! is_array($entry) || ! is_array($entry['rect'] ?? null) || ! is_array($entry['visible_rect'] ?? null) ) {
+                continue;
+            }
+
+            $rect = $entry['rect'];
+            $visibleRect = $entry['visible_rect'];
+            foreach ( array('width', 'height') as $key ) {
+                if ( ! is_numeric($rect[$key] ?? null) || ! is_numeric($visibleRect[$key] ?? null) ) {
+                    continue 2;
+                }
+            }
+
+            $entryArea = max(0.0, (float) $rect['width']) * max(0.0, (float) $rect['height']);
+            $entryVisibleArea = max(0.0, (float) $visibleRect['width']) * max(0.0, (float) $visibleRect['height']);
+            if ( $entryArea <= 0.0 || $entryVisibleArea >= $entryArea ) {
+                continue;
+            }
+
+            $sourceArea += $entryArea;
+            $visibleArea += $entryVisibleArea;
+            $node = is_array($nodeIndex['by_id'][(string) ($entry['id'] ?? '')] ?? null) ? $nodeIndex['by_id'][(string) $entry['id']] : array();
+            $samples[] = array_filter(array(
+                'node_id' => (string) ($entry['id'] ?? ''),
+                'name' => (string) ($entry['name'] ?? ($node['name'] ?? '')),
+                'type' => (string) ($entry['type'] ?? ($node['type'] ?? '')),
+                'class' => (string) ($node['class'] ?? ''),
+                'parent_id' => (string) ($entry['parent_id'] ?? ''),
+                'source_area_px' => $this->reportNumericValue($entryArea),
+                'visible_area_px' => $this->reportNumericValue($entryVisibleArea),
+                'clipped_area_px' => $this->reportNumericValue($entryArea - $entryVisibleArea),
+                'clipped_area_ratio' => round(($entryArea - $entryVisibleArea) / $entryArea, 3),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+        }
+
+        usort($samples, static fn (array $a, array $b): int => ((float) ($b['clipped_area_px'] ?? 0.0) <=> (float) ($a['clipped_area_px'] ?? 0.0)) ?: strcmp((string) ($a['node_id'] ?? ''), (string) ($b['node_id'] ?? '')));
+        $clippedArea = max(0.0, $sourceArea - $visibleArea);
+
+        return array(
+            'clipped_visual_node_count' => count($samples),
+            'clipped_visual_area_px' => $this->reportNumericValue($clippedArea),
+            'visible_visual_area_px' => $this->reportNumericValue($visibleArea),
+            'source_visual_area_px' => $this->reportNumericValue($sourceArea),
+            'clipped_visual_area_ratio' => $sourceArea > 0.0 ? round($clippedArea / $sourceArea, 3) : 0.0,
+            'clipped_visual_nodes' => array_slice($samples, 0, 25),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodes
+     * @return array<string, mixed>
+     */
+    private function textCoverageDiagnostics(array $nodes, string $html): array
+    {
+        $coverage = array(
+            'schema' => 'blocks-engine/figma-transformer/text-coverage/v1',
+            'decoded_text_node_count' => 0,
+            'emitted_text_node_count' => 0,
+            'empty_decoded_text_node_count' => 0,
+            'missing_emitted_text_node_count' => 0,
+            'empty_decoded_text_nodes' => array(),
+            'missing_emitted_text_nodes' => array(),
+        );
+
+        foreach ( $nodes as $node ) {
+            if ( is_array($node) ) {
+                $page = array(
+                    'page_id' => (string) ($node['id'] ?? ''),
+                    'page_name' => (string) ($node['name'] ?? ''),
+                );
+                $this->appendTextCoverageDiagnostics($node, $html, $coverage, $page, true);
+            }
+        }
+
+        $coverage['empty_decoded_text_nodes'] = array_slice($coverage['empty_decoded_text_nodes'], 0, 25);
+        $coverage['missing_emitted_text_nodes'] = array_slice($coverage['missing_emitted_text_nodes'], 0, 25);
+
+        return $coverage;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $coverage
+     * @param array{page_id: string, page_name: string} $page
+     */
+    private function appendTextCoverageDiagnostics(array $node, string $html, array &$coverage, array $page, bool $isRoot): void
+    {
+        if ( ! $isRoot && false === ($node['visible'] ?? null) ) {
+            return;
+        }
+
+        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+            $rawText = $this->rawDecodedText($node);
+            if ( '' === trim($rawText) ) {
+                ++$coverage['empty_decoded_text_node_count'];
+                $coverage['empty_decoded_text_nodes'][] = $this->textCoverageNodeSample($node, $page, 0);
+            } else {
+                ++$coverage['decoded_text_node_count'];
+                if ( $this->htmlContainsNodeId($html, (string) ($node['id'] ?? '')) ) {
+                    ++$coverage['emitted_text_node_count'];
+                } else {
+                    ++$coverage['missing_emitted_text_node_count'];
+                    $coverage['missing_emitted_text_nodes'][] = $this->textCoverageNodeSample($node, $page, mb_strlen($rawText));
+                }
+            }
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) ) {
+                $this->appendTextCoverageDiagnostics($child, $html, $coverage, $page, false);
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function rawDecodedText(array $node): string
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $segments = is_array($text['segments'] ?? null) ? $text['segments'] : array();
+        if ( ! empty($segments) ) {
+            $content = '';
+            foreach ( $segments as $segment ) {
+                if ( is_array($segment) && isset($segment['characters']) && is_scalar($segment['characters']) ) {
+                    $content .= (string) $segment['characters'];
+                }
+            }
+            if ( '' !== $content ) {
+                return $content;
+            }
+        }
+
+        if ( isset($text['characters']) && is_scalar($text['characters']) ) {
+            return (string) $text['characters'];
+        }
+
+        return (string) ($node['characters'] ?? $node['text'] ?? '');
+    }
+
+    private function htmlContainsNodeId(string $html, string $nodeId): bool
+    {
+        return '' !== $nodeId && str_contains($html, 'data-figma-node-id="' . $this->sanitizeAttribute($nodeId) . '"');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array{page_id: string, page_name: string} $page
+     * @return array<string, mixed>
+     */
+    private function textCoverageNodeSample(array $node, array $page, int $characterCount): array
+    {
+        return array_filter(array(
+            'node_id' => (string) ($node['id'] ?? ''),
+            'name' => (string) ($node['name'] ?? ''),
+            'type' => strtoupper((string) ($node['type'] ?? '')),
+            'class' => $this->nodeDiagnosticClass($node),
+            'page_id' => $page['page_id'],
+            'page_name' => $page['page_name'],
+            'character_count' => $characterCount,
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value);
     }
 
     /**
