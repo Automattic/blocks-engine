@@ -4900,6 +4900,7 @@ final class ScenegraphNormalizer
             'CENTER' => 'center',
             'MAX' => 'flex-end',
             'SPACE_BETWEEN' => 'space-between',
+            'SPACE_EVENLY' => 'space-between',
             'BASELINE' => 'baseline',
             'STRETCH' => 'stretch',
             default => null,

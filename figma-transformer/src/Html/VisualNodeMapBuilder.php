@@ -118,6 +118,10 @@ final class VisualNodeMapBuilder
         $childX = $paddingLeft;
         $childY = $paddingTop;
         $gap = isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ? (float) $layout['item_spacing'] : 0.0;
+        $justifyContent = (string) ($layout['justify_content'] ?? '');
+        if ( in_array($justifyContent, array('space-between', 'space-around', 'space-evenly'), true) ) {
+            $gap = 0.0;
+        }
         $isRow = 'row' === ($layout['flex_direction'] ?? null);
         $isFlex = 'flex' === ($layout['display'] ?? null);
         $contentWidth = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width'] - $paddingLeft - $paddingRight) : null;
