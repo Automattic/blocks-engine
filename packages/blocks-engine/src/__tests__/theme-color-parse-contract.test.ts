@@ -22,7 +22,7 @@ describe('native color parsing contract', () => {
     ['short hex', '#0f8', { r: 0, g: 255, b: 136, a: 1 }],
     ['short hex alpha', '#0f8c', { r: 0, g: 255, b: 136, a: 0.8 }],
     ['long hex', '#102030', { r: 16, g: 32, b: 48, a: 1 }],
-    ['long hex alpha', '#10203040', { r: 16, g: 32, b: 48, a: 0.25 }],
+    ['long hex alpha', '#10203040', { r: 16, g: 32, b: 48, a: 64 / 255 }],
     ['hsl space', 'hsl(210 50% 40%)', { r: 51, g: 102, b: 153, a: 1 }],
     ['hsl comma', 'hsl(210, 50%, 40%)', { r: 51, g: 102, b: 153, a: 1 }],
     ['hsla comma alpha', 'hsla(210, 50%, 40%, 0.25)', { r: 51, g: 102, b: 153, a: 0.25 }],

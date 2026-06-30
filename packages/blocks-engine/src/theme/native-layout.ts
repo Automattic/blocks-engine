@@ -1,4 +1,5 @@
 import type { SectionSpec } from './section-spec.js';
+import { parseColor } from './native-color.js';
 
 export interface SectionPadding {
   padTopPx?: number;
@@ -52,20 +53,10 @@ export function isTintedSection(section: SectionSpec): boolean {
 
 export function opaqueTintHex(color: string | null | undefined): string | null {
   if (!color) return null;
-  const s = color.trim();
-  const rgba = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/.exec(s);
-  let r: number, g: number, b: number;
-  if (rgba) {
-    const alpha = rgba[4] === undefined ? 1 : Number(rgba[4]);
-    if (alpha < 0.6) return null;
-    [r, g, b] = [Number(rgba[1]), Number(rgba[2]), Number(rgba[3])];
-  } else {
-    const hex = /^#?([0-9a-f]{6})$/i.exec(s);
-    if (!hex) return null;
-    r = parseInt(hex[1].slice(0, 2), 16);
-    g = parseInt(hex[1].slice(2, 4), 16);
-    b = parseInt(hex[1].slice(4, 6), 16);
-  }
+  const parsed = parseColor(color);
+  if (!parsed) return null;
+  if (parsed.a < 0.6) return null;
+  const { r, g, b } = parsed;
   const bright = (r + g + b) / 3;
   if (bright >= 248) return null;
   const spread = Math.max(r, g, b) - Math.min(r, g, b);
