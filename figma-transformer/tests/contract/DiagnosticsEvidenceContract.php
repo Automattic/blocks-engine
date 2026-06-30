@@ -55,6 +55,25 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('diag:clip-vector' === ($clippedDiagnostics['layout']['clipped_visual_nodes'][0]['node_id'] ?? null), 'diagnostics-evidence-clipped-sample-node');
     $assert(in_array('clipped_visual_area', $clippedSignalCodes, true), 'diagnostics-evidence-clipped-area-signal');
 
+    $largeOffsetResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Large Offset Classification Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'diag:large-offset-page',
+                'type'     => 'FRAME',
+                'name'     => 'Large Offset Page',
+                'width'    => 320,
+                'height'   => 160,
+                'children' => array(
+                    array('id' => 'diag:large-offset-empty', 'type' => 'INSTANCE', 'name' => 'Empty Clone Shell', 'x' => 2000, 'y' => 0, 'width' => 80, 'height' => 40),
+                ),
+            ),
+        ),
+    ));
+    $largeOffsetDiagnostics = $largeOffsetResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $largeOffsetNodes = $largeOffsetDiagnostics['layout']['large_css_offset_nodes'] ?? array();
+    $assert('empty_visible_container' === ($largeOffsetNodes[0]['classification'] ?? null), 'diagnostics-evidence-large-css-offset-classification');
+
     $emptyTextResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Empty Text Fixture',
         'nodes' => array(

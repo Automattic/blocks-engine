@@ -2647,6 +2647,8 @@ final class StaticHtmlEmitter
             'name' => (string) ($node['name'] ?? ''),
             'type' => strtoupper((string) ($node['type'] ?? '')),
             'class' => $this->nodeDiagnosticClass($node),
+            'empty_visible_container' => null !== $this->emptyVisibleContainerDiagnostic($node),
+            'component_clone_geometry' => $this->hasComponentCloneGeometry($node),
         );
         if ( '' !== $entry['node_id'] ) {
             $index['by_id'][$entry['node_id']] = $entry;
@@ -2691,7 +2693,7 @@ final class StaticHtmlEmitter
             }
 
             $node = is_array($nodeIndex['by_class'][$className] ?? null) ? $nodeIndex['by_class'][$className] : array();
-            $samples[] = array_filter(array(
+            $sample = array_filter(array(
                 'node_id' => (string) ($node['node_id'] ?? ''),
                 'name' => (string) ($node['name'] ?? ''),
                 'type' => (string) ($node['type'] ?? ''),
@@ -2699,6 +2701,11 @@ final class StaticHtmlEmitter
                 'left' => null === $left ? null : $this->reportNumericValue($left),
                 'top' => null === $top ? null : $this->reportNumericValue($top),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+            $classification = $this->largeCssOffsetClassification($node);
+            if ( '' !== $classification ) {
+                $sample['classification'] = $classification;
+            }
+            $samples[] = $sample;
         }
 
         return array_values($samples);
@@ -2753,7 +2760,7 @@ final class StaticHtmlEmitter
             }
 
             $node = is_array($nodeIndex['by_id'][(string) ($entry['id'] ?? '')] ?? null) ? $nodeIndex['by_id'][(string) $entry['id']] : array();
-            $samples[] = array_filter(array(
+            $sample = array_filter(array(
                 'node_id' => (string) ($entry['id'] ?? ''),
                 'name' => (string) ($entry['name'] ?? ($node['name'] ?? '')),
                 'type' => (string) ($entry['type'] ?? ($node['type'] ?? '')),
@@ -2768,9 +2775,68 @@ final class StaticHtmlEmitter
                 'parent_width' => $this->reportNumericValue((float) $parentRect['width']),
                 'parent_height' => $this->reportNumericValue((float) $parentRect['height']),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+            $classification = $this->visualOffCanvasClassification($entry, $parent);
+            if ( '' !== $classification ) {
+                $sample['classification'] = $classification;
+            }
+            $samples[] = $sample;
         }
 
         return array_values($samples);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function largeCssOffsetClassification(array $node): string
+    {
+        if ( true === ($node['component_clone_geometry'] ?? false) ) {
+            return 'component_clone_geometry_leak';
+        }
+
+        if ( true === ($node['empty_visible_container'] ?? false) ) {
+            return 'empty_visible_container';
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     * @param array<string, mixed> $parent
+     */
+    private function visualOffCanvasClassification(array $entry, array $parent): string
+    {
+        $parentLayout = is_array($parent['layout'] ?? null) ? $parent['layout'] : array();
+        $entryLayout = is_array($entry['layout'] ?? null) ? $entry['layout'] : array();
+        if ( in_array((string) ($parentLayout['display'] ?? ''), array('flex', 'inline-flex'), true) && 'absolute' !== ($entryLayout['positioning'] ?? null) ) {
+            return 'flex_flow_overflow';
+        }
+
+        if ( true === ($entry['component_clone_geometry'] ?? false) ) {
+            return 'component_clone_geometry_leak';
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasComponentCloneGeometry(array $node): bool
+    {
+        if ( true === ($node['_component_source_clone_geometry'] ?? false) ) {
+            return true;
+        }
+
+        foreach ( array('box', 'figma_box') as $boxKey ) {
+            $box = is_array($node[$boxKey] ?? null) ? $node[$boxKey] : array();
+            if ( 'component_source_clone' === ($box['geometry_semantics'] ?? null) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
