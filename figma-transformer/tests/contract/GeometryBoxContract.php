@@ -12,6 +12,32 @@ function blocks_engine_figma_transformer_run_geometry_box_contract(callable $ass
 {
     $normalizer = new ScenegraphNormalizer();
 
+    $absoluteProvenanceBox = GeometryBox::withProvenance(array('x' => 100.0), GeometryBox::SOURCE_ABSOLUTE_BOUNDS);
+    $assert(GeometryBox::SOURCE_ABSOLUTE_BOUNDS === GeometryBox::sourceKind($absoluteProvenanceBox), 'geometry-box-provenance-absolute-bounds-source-kind');
+    $assert(GeometryBox::CLASSIFICATION_CANVAS_ABSOLUTE === GeometryBox::classifyNormalizedBox($absoluteProvenanceBox), 'geometry-box-provenance-absolute-bounds-classification');
+    $assert(GeometryBox::COORDINATE_SPACE_CANVAS_ABSOLUTE === ($absoluteProvenanceBox['coordinate_space'] ?? null), 'geometry-box-provenance-absolute-bounds-coordinate-space');
+
+    $transformProvenanceBox = GeometryBox::withProvenance(array('x' => 7.0), GeometryBox::SOURCE_TRANSFORM);
+    $assert(GeometryBox::CLASSIFICATION_PARENT_LOCAL === GeometryBox::classifyNormalizedBox($transformProvenanceBox), 'geometry-box-provenance-transform-classification');
+    $assert(GeometryBox::COORDINATE_SPACE_PARENT_LOCAL === ($transformProvenanceBox['coordinate_space'] ?? null), 'geometry-box-provenance-transform-coordinate-space');
+
+    $absoluteTransformProvenanceBox = GeometryBox::withProvenance(array('x' => 1300.0), GeometryBox::SOURCE_ABSOLUTE_TRANSFORM);
+    $assert(GeometryBox::CLASSIFICATION_CANVAS_ABSOLUTE === GeometryBox::classifyNormalizedBox($absoluteTransformProvenanceBox), 'geometry-box-provenance-absolute-transform-classification');
+
+    $explicitLocalProvenanceBox = GeometryBox::withProvenance(array('x' => 12.0), GeometryBox::SOURCE_EXPLICIT_LOCAL);
+    $assert(GeometryBox::CLASSIFICATION_PARENT_LOCAL === GeometryBox::classifyNormalizedBox($explicitLocalProvenanceBox), 'geometry-box-provenance-explicit-local-classification');
+
+    $sizeOnlyProvenanceBox = GeometryBox::withProvenance(array('width' => 90.0), GeometryBox::SOURCE_SIZE_ONLY);
+    $assert(null === GeometryBox::classificationForSourceKind(GeometryBox::SOURCE_SIZE_ONLY), 'geometry-box-provenance-size-only-unclassified');
+    $assert(! isset($sizeOnlyProvenanceBox['coordinate_space']), 'geometry-box-provenance-size-only-no-coordinate-space');
+
+    $overrideTransformProvenanceBox = GeometryBox::withProvenance(array('x' => 21.0), GeometryBox::SOURCE_OVERRIDE_TRANSFORM);
+    $assert(GeometryBox::CLASSIFICATION_PARENT_LOCAL === GeometryBox::classifyNormalizedBox($overrideTransformProvenanceBox), 'geometry-box-provenance-override-transform-classification');
+
+    $componentCloneProvenanceBox = GeometryBox::withProvenance(array('x' => 0.0), GeometryBox::SOURCE_COMPONENT_CLONE);
+    $assert(GeometryBox::CLASSIFICATION_PARENT_LOCAL === GeometryBox::classifyNormalizedBox($componentCloneProvenanceBox), 'geometry-box-provenance-component-clone-classification');
+    $assert(! isset(GeometryBox::withoutProvenance($componentCloneProvenanceBox)[GeometryBox::PROVENANCE_KEY]), 'geometry-box-provenance-strip-internal-marker');
+
     $absoluteResult = $normalizer->normalize(array(
         'name'  => 'Absolute Bounds Geometry Fixture',
         'nodes' => array(

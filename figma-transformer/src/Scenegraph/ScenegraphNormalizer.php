@@ -808,7 +808,7 @@ final class ScenegraphNormalizer
                 }
             }
 
-            $node[$boxKey]['coordinate_space'] = 'local';
+            $node[$boxKey] = GeometryBox::withoutProvenance(GeometryBox::withProvenance($node[$boxKey], GeometryBox::SOURCE_COMPONENT_CLONE));
             $node[$boxKey]['geometry_semantics'] = self::GEOMETRY_SEMANTICS_COMPONENT_SOURCE_CLONE;
         }
 
@@ -922,9 +922,8 @@ final class ScenegraphNormalizer
             if ( isset($box['y']) && is_numeric($box['y']) ) {
                 $box['y'] = $isRoot ? 0.0 : (float) $box['y'] - $originY;
             }
-            $box['coordinate_space'] = GeometryBox::coordinateSpaceForClassification(
-                $isRoot ? GeometryBox::CLASSIFICATION_PAGE_LOCAL : GeometryBox::CLASSIFICATION_PARENT_LOCAL
-            );
+            $box = GeometryBox::withProvenance($box, GeometryBox::SOURCE_EXPLICIT_LOCAL, $isRoot);
+            $box = GeometryBox::withoutProvenance($box);
             $box['local_origin'] = 'page';
         }
 
@@ -1620,6 +1619,7 @@ final class ScenegraphNormalizer
             foreach ( array('m02' => 'x', 'm12' => 'y') as $source => $target ) {
                 if ( isset($child['relativeTransform'][$source]) && is_numeric($child['relativeTransform'][$source]) ) {
                     $child[$target] = (float) $child['relativeTransform'][$source];
+                    $child[GeometryBox::PROVENANCE_KEY] = GeometryBox::SOURCE_OVERRIDE_TRANSFORM;
                 }
             }
         }
@@ -1628,6 +1628,7 @@ final class ScenegraphNormalizer
             foreach ( array('m02' => 'x', 'm12' => 'y') as $source => $target ) {
                 if ( isset($child['absoluteTransform'][$source]) && is_numeric($child['absoluteTransform'][$source]) ) {
                     $child[$target] = (float) $child['absoluteTransform'][$source];
+                    $child[GeometryBox::PROVENANCE_KEY] = GeometryBox::SOURCE_ABSOLUTE_TRANSFORM;
                     $absoluteBounds[$target] = (float) $child['absoluteTransform'][$source];
                 }
             }
@@ -1647,6 +1648,7 @@ final class ScenegraphNormalizer
             foreach ( array('m02' => 'x', 'm12' => 'y') as $source => $target ) {
                 if ( isset($child['transform'][$source]) && is_numeric($child['transform'][$source]) ) {
                     $child[$target] = (float) $child['transform'][$source];
+                    $child[GeometryBox::PROVENANCE_KEY] = GeometryBox::SOURCE_ABSOLUTE_TRANSFORM;
                     // Only backfill absoluteBoundingBox where the dimension is not already
                     // present — preserve any richer absolute bounds the payload already has.
                     if ( ! isset($absoluteBounds[$target]) ) {
@@ -1665,6 +1667,7 @@ final class ScenegraphNormalizer
         unset($child['figma_vector_scale']);
 
         $child = $this->normalizeNode($child, $diagnostics, $blobs, $paintStyles);
+        unset($child[GeometryBox::PROVENANCE_KEY]);
         if ( $hasVectorGeometryOverride && ! $hasExplicitSizeOverride ) {
             $bounds = $this->normalizedVectorPathBounds(is_array($child['figma_vector_paths'] ?? null) ? $child['figma_vector_paths'] : array());
             if ( null !== $bounds ) {
@@ -3907,7 +3910,7 @@ final class ScenegraphNormalizer
     private function normalizeLayoutBox(array $node): array
     {
         $box = array();
-        $coordinateSpaceClassification = null;
+        $sourceKind = null;
 
         foreach ( array('absoluteBoundingBox', 'absoluteRenderBounds') as $boundsKey ) {
             if ( ! is_array($node[$boundsKey] ?? null) ) {
@@ -3921,7 +3924,7 @@ final class ScenegraphNormalizer
             }
 
             if ( isset($node[$boundsKey]['x']) || isset($node[$boundsKey]['y']) ) {
-                $coordinateSpaceClassification = GeometryBox::CLASSIFICATION_CANVAS_ABSOLUTE;
+                $sourceKind = GeometryBox::SOURCE_ABSOLUTE_BOUNDS;
             }
         }
 
@@ -3929,7 +3932,9 @@ final class ScenegraphNormalizer
             if ( ! array_key_exists($dimension, $box) && isset($node[$dimension]) && is_numeric($node[$dimension]) ) {
                 $box[$dimension] = (float) $node[$dimension];
                 if ( 'x' === $dimension || 'y' === $dimension ) {
-                    $coordinateSpaceClassification = GeometryBox::CLASSIFICATION_PARENT_LOCAL;
+                    $sourceKind = isset($node[GeometryBox::PROVENANCE_KEY]) && is_scalar($node[GeometryBox::PROVENANCE_KEY])
+                        ? (string) $node[GeometryBox::PROVENANCE_KEY]
+                        : GeometryBox::SOURCE_EXPLICIT_LOCAL;
                 }
             }
         }
@@ -3938,6 +3943,7 @@ final class ScenegraphNormalizer
             foreach ( array('x' => 'width', 'y' => 'height') as $source => $target ) {
                 if ( ! array_key_exists($target, $box) && isset($node['size'][$source]) && is_numeric($node['size'][$source]) ) {
                     $box[$target] = (float) $node['size'][$source];
+                    $sourceKind ??= GeometryBox::SOURCE_SIZE_ONLY;
                 }
             }
         }
@@ -3946,33 +3952,33 @@ final class ScenegraphNormalizer
         foreach ( array('x', 'y') as $dimension ) {
             if ( ! array_key_exists($dimension, $box) && isset($transformBox[$dimension]) ) {
                 $box[$dimension] = $transformBox[$dimension];
-                $coordinateSpaceClassification = $transformBox['coordinate_space_classification'];
+                $sourceKind = $transformBox[GeometryBox::PROVENANCE_KEY];
             }
         }
 
-        if ( null !== $coordinateSpaceClassification ) {
-            $box['coordinate_space'] = GeometryBox::coordinateSpaceForClassification($coordinateSpaceClassification);
+        if ( null !== $sourceKind ) {
+            $box = GeometryBox::withProvenance($box, $sourceKind);
         }
 
-        return $box;
+        return GeometryBox::withoutProvenance($box);
     }
 
     /**
      * @param array<string, mixed> $node
-     * @return array{x?: float, y?: float, coordinate_space_classification?: string}
+     * @return array{x?: float, y?: float, _geometry_provenance?: string}
      */
     private function layoutBoxFromTransform(array $node): array
     {
         foreach ( array(
-            'relativeTransform' => GeometryBox::CLASSIFICATION_PARENT_LOCAL,
-            'transform'         => GeometryBox::CLASSIFICATION_PARENT_LOCAL,
-            'absoluteTransform' => GeometryBox::CLASSIFICATION_CANVAS_ABSOLUTE,
-        ) as $sourceKey => $classification ) {
+            'relativeTransform' => GeometryBox::SOURCE_TRANSFORM,
+            'transform'         => GeometryBox::SOURCE_TRANSFORM,
+            'absoluteTransform' => GeometryBox::SOURCE_ABSOLUTE_TRANSFORM,
+        ) as $sourceKey => $sourceKind ) {
             if ( ! is_array($node[$sourceKey] ?? null) ) {
                 continue;
             }
 
-            $box = array('coordinate_space_classification' => $classification);
+            $box = array(GeometryBox::PROVENANCE_KEY => $sourceKind);
             foreach ( array('m02' => 'x', 'm12' => 'y') as $source => $target ) {
                 if ( isset($node[$sourceKey][$source]) && is_numeric($node[$sourceKey][$source]) ) {
                     $box[$target] = (float) $node[$sourceKey][$source];
