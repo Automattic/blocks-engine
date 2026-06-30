@@ -493,4 +493,69 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $assert(str_contains($nestedVectorSourceCss, '.source-union{width:20px;height:6px;position:absolute;left:4px;top:30px}'), 'visual-map-component-source-boolean-css-parent-local');
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $nestedVectorSourceVector, array('x' => 42.0, 'y' => 48.0, 'width' => 16.0, 'height' => 16.0), 'visual-map-component-source-vector-rect-parent-local');
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $nestedVectorSourceUnion, array('x' => 34.0, 'y' => 70.0, 'width' => 20.0, 'height' => 6.0), 'visual-map-component-source-boolean-rect-parent-local');
+
+    $staleCanvasTransformResult = blocks_engine_figma_transformer_contract_transform(
+        array(
+            'name'  => 'Component Clone Stale Canvas Transform Fixture',
+            'nodes' => array(
+                array(
+                    'id'       => 'source:card',
+                    'type'     => 'COMPONENT',
+                    'name'     => 'Post card',
+                    'width'    => 376,
+                    'height'   => 477,
+                    'children' => array(
+                        array(
+                            'id'     => 'source:card/image',
+                            'type'   => 'RECTANGLE',
+                            'name'   => 'Image',
+                            'x'      => 0,
+                            'y'      => 0,
+                            'width'  => 376,
+                            'height' => 282,
+                        ),
+                        array(
+                            'id'     => 'source:card/content',
+                            'type'   => 'FRAME',
+                            'name'   => 'Content',
+                            'x'      => 0,
+                            'y'      => 314,
+                            'width'  => 376,
+                            'height' => 163,
+                        ),
+                    ),
+                ),
+                array(
+                    'id'       => 'source:page',
+                    'type'     => 'FRAME',
+                    'name'     => 'Page',
+                    'width'    => 600,
+                    'height'   => 800,
+                    'children' => array(
+                        array(
+                            'id'                => 'instance:card',
+                            'type'              => 'INSTANCE',
+                            'name'              => 'Placed card',
+                            'componentId'       => 'source:card',
+                            'x'                 => 112,
+                            'y'                 => 198,
+                            'width'             => 376,
+                            'height'            => 477,
+                            'derivedSymbolData' => array(
+                                array(
+                                    'nodeId'    => 'source:card/image',
+                                    'transform' => array('m02' => 128, 'm12' => 678),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array('frame_id' => 'source:page')
+    );
+    $staleCanvasImageCss = blocks_engine_figma_transformer_contract_file_content($staleCanvasTransformResult, 'style.css');
+    $staleCanvasImage = blocks_engine_figma_transformer_contract_find_visual_node($staleCanvasTransformResult, 'instance:card/source:card/image');
+    $assert(str_contains($staleCanvasImageCss, '.image{width:376px;height:282px;position:absolute;left:0px;top:0px}'), 'visual-map-component-source-stale-canvas-transform-css-parent-local');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $staleCanvasImage, array('x' => 112.0, 'y' => 198.0, 'width' => 376.0, 'height' => 282.0), 'visual-map-component-source-stale-canvas-transform-rect-parent-local');
 }
