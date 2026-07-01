@@ -201,6 +201,7 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     );
     $kiwiDirectImagePaint = $kiwiImagePaintMessage['message']['nodeChanges'][0]['fillPaints'][0] ?? array();
     $kiwiOverrideImagePaint = $kiwiImagePaintMessage['message']['nodeChanges'][0]['symbolData']['symbolOverrides'][0]['fillPaints'][0] ?? array();
+    $kiwiImagePaintNode = $kiwiImagePaintMessage['message']['nodeChanges'][0] ?? array();
     $kiwiDirectFillStyle = $kiwiImagePaintMessage['message']['nodeChanges'][0]['styleIdForFill']['guid'] ?? array();
     $kiwiDirectStrokeStyle = $kiwiImagePaintMessage['message']['nodeChanges'][0]['styleIdForStrokeFill']['guid'] ?? array();
     $kiwiOverrideFillStyle = $kiwiImagePaintMessage['message']['nodeChanges'][0]['symbolData']['symbolOverrides'][0]['styleIdForFill']['guid'] ?? array();
@@ -211,12 +212,43 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert(7 === ($kiwiDirectImagePaint['animationFrame'] ?? null), 'kiwi-selective-decodes-image-animation-frame');
     $assert('abc' === ($kiwiDirectImagePaint['thumbHash'] ?? null), 'kiwi-selective-decodes-image-thumb-hash');
     $assert(0.5 === round((float) ($kiwiDirectImagePaint['imageTransform']['m00'] ?? 0.0), 4), 'kiwi-selective-decodes-image-transform');
+    $assert(640.0 === ($kiwiDirectImagePaint['image']['width'] ?? null), 'kiwi-selective-decodes-image-width');
+    $assert(480.0 === ($kiwiDirectImagePaint['image']['height'] ?? null), 'kiwi-selective-decodes-image-height');
+    $assert('direct-hash-asset-id' === ($kiwiDirectImagePaint['image']['assetRef']['id'] ?? null), 'kiwi-selective-decodes-image-asset-ref-id');
+    $assert('9003:301' === blocks_engine_figma_transformer_kiwi_inventory_format_guid($kiwiDirectImagePaint['image']['assetRef']['guid'] ?? null), 'kiwi-selective-decodes-image-asset-ref-guid');
+    $assert('direct-hash-source-hash' === ($kiwiDirectImagePaint['image']['sourceImage']['hash'] ?? null), 'kiwi-selective-decodes-source-image-hash');
+    $assert(320.0 === ($kiwiDirectImagePaint['imageThumbnail']['width'] ?? null), 'kiwi-selective-decodes-thumbnail-width');
+    $assert('Alt text direct-hash' === ($kiwiDirectImagePaint['altText'] ?? null), 'kiwi-selective-decodes-image-alt-text');
+    $assert('PNG' === ($kiwiDirectImagePaint['exportSettings'][0]['format'] ?? null), 'kiwi-selective-decodes-paint-export-settings-format');
+    $assert('SCALE' === ($kiwiDirectImagePaint['exportSettings'][0]['constraint']['type'] ?? null), 'kiwi-selective-decodes-paint-export-constraint-type');
+    $assert(2.0 === ($kiwiDirectImagePaint['exportSettings'][0]['constraint']['value'] ?? null), 'kiwi-selective-decodes-paint-export-constraint-value');
+    $assert('SVG' === ($kiwiImagePaintNode['exportSettings'][0]['format'] ?? null), 'kiwi-selective-decodes-node-export-settings');
+    $assert('publish-asset-node' === ($kiwiImagePaintNode['publishID'] ?? null), 'kiwi-selective-decodes-node-publish-id');
+    $assert('library-asset-node' === ($kiwiImagePaintNode['sourceLibraryKey'] ?? null), 'kiwi-selective-decodes-node-source-library-key');
     $assert(false === ($kiwiOverrideImagePaint['imageShouldColorManage'] ?? null), 'kiwi-selective-decodes-override-image-color-management');
     $assert(9 === ($kiwiOverrideImagePaint['animationFrame'] ?? null), 'kiwi-selective-decodes-override-image-animation-frame');
     $assert(9001 === ($kiwiDirectFillStyle['sessionID'] ?? null) && 101 === ($kiwiDirectFillStyle['localID'] ?? null), 'kiwi-selective-decodes-style-id-for-fill');
     $assert(9001 === ($kiwiDirectStrokeStyle['sessionID'] ?? null) && 102 === ($kiwiDirectStrokeStyle['localID'] ?? null), 'kiwi-selective-decodes-style-id-for-stroke-fill');
     $assert(9002 === ($kiwiOverrideFillStyle['sessionID'] ?? null) && 201 === ($kiwiOverrideFillStyle['localID'] ?? null), 'kiwi-selective-decodes-override-style-id-for-fill');
     $assert(9002 === ($kiwiOverrideStrokeStyle['sessionID'] ?? null) && 202 === ($kiwiOverrideStrokeStyle['localID'] ?? null), 'kiwi-selective-decodes-override-style-id-for-stroke-fill');
+    $kiwiImageNormalizer = new ScenegraphNormalizer();
+    $kiwiImagePaintNode['id'] = 'kiwi:asset-node';
+    $kiwiImageNormalized = $kiwiImageNormalizer->normalize(array('name' => 'Kiwi Asset Metadata Fixture', 'nodes' => array($kiwiImagePaintNode)));
+    $kiwiImageNormalizedNode = $kiwiImageNormalized['nodes'][0] ?? array();
+    $kiwiNormalizedPaint = $kiwiImageNormalizedNode['figma_paints']['fills'][0] ?? array();
+    $assert('direct-hash-asset-id' === ($kiwiNormalizedPaint['image']['assetRef']['id'] ?? null), 'kiwi-normalizes-image-asset-ref-id');
+    $assert('direct-hash-source-hash' === ($kiwiNormalizedPaint['image']['sourceImage']['hash'] ?? null), 'kiwi-normalizes-source-image-ref');
+    $assert(640.0 === ($kiwiNormalizedPaint['image']['width'] ?? null), 'kiwi-normalizes-image-width');
+    $assert('Alt text direct-hash' === ($kiwiNormalizedPaint['altText'] ?? null), 'kiwi-normalizes-image-alt-text');
+    $assert('PNG' === ($kiwiNormalizedPaint['exportSettings'][0]['format'] ?? null), 'kiwi-normalizes-paint-export-settings');
+    $assert('SVG' === ($kiwiImageNormalizedNode['figma_asset_metadata']['exportSettings'][0]['format'] ?? null), 'kiwi-normalizes-node-export-settings');
+    $assert('publish-asset-node' === ($kiwiImageNormalizedNode['figma_asset_metadata']['publishID'] ?? null), 'kiwi-normalizes-node-publish-id');
+    $assetReferenceMap = array();
+    foreach ( $kiwiImageNormalized['asset_references'] ?? array() as $reference ) {
+        $assetReferenceMap[$reference['source_key'] ?? ''] = $reference['ref'] ?? '';
+    }
+    $assert('direct-hash-asset-id' === ($assetReferenceMap['image.assetRef.id'] ?? null), 'kiwi-asset-reference-includes-nested-asset-ref');
+    $assert('direct-hash-source-hash' === ($assetReferenceMap['image.sourceImage.hash'] ?? null), 'kiwi-asset-reference-includes-source-image-hash');
     
     $kiwiDerivedTextSchema = $kiwiDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture());
     $kiwiDerivedTextMessage = $kiwiDecoder->decodeMessageSelective(
@@ -703,7 +735,7 @@ function blocks_engine_figma_transformer_kiwi_frame_mask_message_fixture(): stri
 
 function blocks_engine_figma_transformer_kiwi_image_paint_schema_fixture(): string
 {
-    return blocks_engine_figma_transformer_wire_varint(9)
+    return blocks_engine_figma_transformer_wire_varint(13)
         // def0: ENUM MessageType { NODE_CHANGES = 1 }
         . blocks_engine_figma_transformer_kiwi_string('MessageType')
         . chr(0)
@@ -719,18 +751,61 @@ function blocks_engine_figma_transformer_kiwi_image_paint_schema_fixture(): stri
         . blocks_engine_figma_transformer_kiwi_schema_field('m10', -5, false, 4)
         . blocks_engine_figma_transformer_kiwi_schema_field('m11', -5, false, 5)
         . blocks_engine_figma_transformer_kiwi_schema_field('m12', -5, false, 6)
-        // def2: STRUCT Image { hash, name }
-        . blocks_engine_figma_transformer_kiwi_string('Image')
+        // def2: STRUCT GUID { sessionID, localID }
+        . blocks_engine_figma_transformer_kiwi_string('GUID')
         . chr(1)
         . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('sessionID', -4, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('localID', -4, false, 2)
+        // def3: STRUCT AssetRef { id, key, guid }
+        . blocks_engine_figma_transformer_kiwi_string('AssetRef')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('id', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('key', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('guid', 2, false, 3)
+        // def4: STRUCT SourceImage { hash, name, width, height, thumbHash, assetRef }
+        . blocks_engine_figma_transformer_kiwi_string('SourceImage')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(6)
         . blocks_engine_figma_transformer_kiwi_schema_field('hash', -6, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 2)
-        // def3: STRUCT Paint with image metadata fields observed in raw Kiwi fills and symbol overrides.
+        . blocks_engine_figma_transformer_kiwi_schema_field('width', -5, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('height', -5, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('thumbHash', -2, true, 5)
+        . blocks_engine_figma_transformer_kiwi_schema_field('assetRef', 3, false, 6)
+        // def5: STRUCT Image { hash, name, width, height, thumbHash, assetRef, sourceImage }
+        . blocks_engine_figma_transformer_kiwi_string('Image')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(7)
+        . blocks_engine_figma_transformer_kiwi_schema_field('hash', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('width', -5, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('height', -5, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('thumbHash', -2, true, 5)
+        . blocks_engine_figma_transformer_kiwi_schema_field('assetRef', 3, false, 6)
+        . blocks_engine_figma_transformer_kiwi_schema_field('sourceImage', 4, false, 7)
+        // def6: STRUCT ExportConstraint { type, value }
+        . blocks_engine_figma_transformer_kiwi_string('ExportConstraint')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('value', -5, false, 2)
+        // def7: STRUCT ExportSettings { format, suffix, constraint, contentsOnly, useAbsoluteBounds }
+        . blocks_engine_figma_transformer_kiwi_string('ExportSettings')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(5)
+        . blocks_engine_figma_transformer_kiwi_schema_field('format', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('suffix', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('constraint', 6, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('contentsOnly', -1, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('useAbsoluteBounds', -1, false, 5)
+        // def8: STRUCT Paint with image metadata fields observed in raw Kiwi fills and symbol overrides.
         . blocks_engine_figma_transformer_kiwi_string('Paint')
         . chr(1)
-        . blocks_engine_figma_transformer_wire_varint(9)
+        . blocks_engine_figma_transformer_wire_varint(15)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
-        . blocks_engine_figma_transformer_kiwi_schema_field('image', 2, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('image', 5, false, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('imageScaleMode', -6, false, 3)
         . blocks_engine_figma_transformer_kiwi_schema_field('imageShouldColorManage', -1, false, 4)
         . blocks_engine_figma_transformer_kiwi_schema_field('rotation', -5, false, 5)
@@ -738,37 +813,40 @@ function blocks_engine_figma_transformer_kiwi_image_paint_schema_fixture(): stri
         . blocks_engine_figma_transformer_kiwi_schema_field('animationFrame', -4, false, 7)
         . blocks_engine_figma_transformer_kiwi_schema_field('thumbHash', -2, true, 8)
         . blocks_engine_figma_transformer_kiwi_schema_field('imageTransform', 1, false, 9)
-        // def4: STRUCT GUID { sessionID, localID }
-        . blocks_engine_figma_transformer_kiwi_string('GUID')
-        . chr(1)
-        . blocks_engine_figma_transformer_wire_varint(2)
-        . blocks_engine_figma_transformer_kiwi_schema_field('sessionID', -4, false, 1)
-        . blocks_engine_figma_transformer_kiwi_schema_field('localID', -4, false, 2)
-        // def5: STRUCT StyleId { guid }
+        . blocks_engine_figma_transformer_kiwi_schema_field('originalImageWidth', -5, false, 10)
+        . blocks_engine_figma_transformer_kiwi_schema_field('originalImageHeight', -5, false, 11)
+        . blocks_engine_figma_transformer_kiwi_schema_field('altText', -6, false, 12)
+        . blocks_engine_figma_transformer_kiwi_schema_field('imageThumbnail', 5, false, 13)
+        . blocks_engine_figma_transformer_kiwi_schema_field('exportSettings', 7, true, 14)
+        . blocks_engine_figma_transformer_kiwi_schema_field('sourceImage', 4, false, 15)
+        // def9: STRUCT StyleId { guid }
         . blocks_engine_figma_transformer_kiwi_string('StyleId')
         . chr(1)
         . blocks_engine_figma_transformer_wire_varint(1)
-        . blocks_engine_figma_transformer_kiwi_schema_field('guid', 4, false, 1)
-        // def6: STRUCT SymbolData { symbolOverrides[] }
+        . blocks_engine_figma_transformer_kiwi_schema_field('guid', 2, false, 1)
+        // def10: STRUCT SymbolData { symbolOverrides[] }
         . blocks_engine_figma_transformer_kiwi_string('SymbolData')
         . chr(1)
         . blocks_engine_figma_transformer_wire_varint(1)
-        . blocks_engine_figma_transformer_kiwi_schema_field('symbolOverrides', 7, true, 1)
-        // def7: MESSAGE NodeChange { type, fillPaints[], symbolData, styleIdForFill, styleIdForStrokeFill }
+        . blocks_engine_figma_transformer_kiwi_schema_field('symbolOverrides', 11, true, 1)
+        // def11: MESSAGE NodeChange { type, fillPaints[], symbolData, styleIdForFill, styleIdForStrokeFill, exportSettings, publishID, sourceLibraryKey }
         . blocks_engine_figma_transformer_kiwi_string('NodeChange')
         . chr(2)
-        . blocks_engine_figma_transformer_wire_varint(5)
+        . blocks_engine_figma_transformer_wire_varint(8)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
-        . blocks_engine_figma_transformer_kiwi_schema_field('fillPaints', 3, true, 2)
-        . blocks_engine_figma_transformer_kiwi_schema_field('symbolData', 6, false, 3)
-        . blocks_engine_figma_transformer_kiwi_schema_field('styleIdForFill', 5, false, 4)
-        . blocks_engine_figma_transformer_kiwi_schema_field('styleIdForStrokeFill', 5, false, 5)
-        // def8: MESSAGE Message { type, nodeChanges[] }
+        . blocks_engine_figma_transformer_kiwi_schema_field('fillPaints', 8, true, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('symbolData', 10, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('styleIdForFill', 9, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('styleIdForStrokeFill', 9, false, 5)
+        . blocks_engine_figma_transformer_kiwi_schema_field('exportSettings', 7, true, 6)
+        . blocks_engine_figma_transformer_kiwi_schema_field('publishID', -6, false, 7)
+        . blocks_engine_figma_transformer_kiwi_schema_field('sourceLibraryKey', -6, false, 8)
+        // def12: MESSAGE Message { type, nodeChanges[] }
         . blocks_engine_figma_transformer_kiwi_string('Message')
         . chr(2)
         . blocks_engine_figma_transformer_wire_varint(2)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', 0, false, 1)
-        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 7, true, 2);
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 11, true, 2);
 }
 
 function blocks_engine_figma_transformer_kiwi_image_paint_message_fixture(): string
@@ -786,6 +864,13 @@ function blocks_engine_figma_transformer_kiwi_image_paint_message_fixture(): str
         . blocks_engine_figma_transformer_kiwi_style_id_bytes(9001, 101)
         . blocks_engine_figma_transformer_wire_varint(5)
         . blocks_engine_figma_transformer_kiwi_style_id_bytes(9001, 102)
+        . blocks_engine_figma_transformer_wire_varint(6)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_export_settings_bytes('SVG', '-node', 'WIDTH', 1200.0, true, false)
+        . blocks_engine_figma_transformer_wire_varint(7)
+        . blocks_engine_figma_transformer_kiwi_string('publish-asset-node')
+        . blocks_engine_figma_transformer_wire_varint(8)
+        . blocks_engine_figma_transformer_kiwi_string('library-asset-node')
         . blocks_engine_figma_transformer_wire_varint(3)
         . blocks_engine_figma_transformer_wire_varint(1)
         . blocks_engine_figma_transformer_wire_varint(1)
@@ -811,8 +896,7 @@ function blocks_engine_figma_transformer_kiwi_style_id_bytes(int $sessionID, int
 function blocks_engine_figma_transformer_kiwi_image_paint_bytes(string $hash, bool $colorManaged, float $rotation, float $scale, int $animationFrame, string $thumbHash, float $m00): string
 {
     return blocks_engine_figma_transformer_kiwi_string('IMAGE')
-        . blocks_engine_figma_transformer_kiwi_string($hash)
-        . blocks_engine_figma_transformer_kiwi_string($hash . '.png')
+        . blocks_engine_figma_transformer_kiwi_image_bytes($hash, $hash . '.png', 640.0, 480.0, 'image-thumb', $hash . '-asset-id', $hash . '-asset-key', 9003, 301, $hash . '-source-hash')
         . blocks_engine_figma_transformer_kiwi_string('STRETCH')
         . chr($colorManaged ? 1 : 0)
         . blocks_engine_figma_transformer_kiwi_varfloat($rotation)
@@ -825,7 +909,54 @@ function blocks_engine_figma_transformer_kiwi_image_paint_bytes(string $hash, bo
         . blocks_engine_figma_transformer_kiwi_varfloat(0.1)
         . blocks_engine_figma_transformer_kiwi_varfloat(0.0)
         . blocks_engine_figma_transformer_kiwi_varfloat(0.75)
-        . blocks_engine_figma_transformer_kiwi_varfloat(0.2);
+        . blocks_engine_figma_transformer_kiwi_varfloat(0.2)
+        . blocks_engine_figma_transformer_kiwi_varfloat(640.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(480.0)
+        . blocks_engine_figma_transformer_kiwi_string('Alt text ' . $hash)
+        . blocks_engine_figma_transformer_kiwi_image_bytes($hash . '-thumbnail', $hash . '-thumbnail.png', 320.0, 240.0, 'thumbnail-thumb', $hash . '-thumbnail-asset-id', $hash . '-thumbnail-asset-key', 9003, 302, $hash . '-thumbnail-source-hash')
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_export_settings_bytes('PNG', '@2x', 'SCALE', 2.0, true, true)
+        . blocks_engine_figma_transformer_kiwi_source_image_bytes($hash . '-paint-source-hash', $hash . '-paint-source.png', 800.0, 600.0, 'paint-source-thumb', $hash . '-paint-source-asset-id', $hash . '-paint-source-asset-key', 9003, 303);
+}
+
+function blocks_engine_figma_transformer_kiwi_image_bytes(string $hash, string $name, float $width, float $height, string $thumbHash, string $assetId, string $assetKey, int $sessionID, int $localID, string $sourceHash): string
+{
+    return blocks_engine_figma_transformer_kiwi_string($hash)
+        . blocks_engine_figma_transformer_kiwi_string($name)
+        . blocks_engine_figma_transformer_kiwi_varfloat($width)
+        . blocks_engine_figma_transformer_kiwi_varfloat($height)
+        . blocks_engine_figma_transformer_wire_varint(strlen($thumbHash))
+        . $thumbHash
+        . blocks_engine_figma_transformer_kiwi_asset_ref_bytes($assetId, $assetKey, $sessionID, $localID)
+        . blocks_engine_figma_transformer_kiwi_source_image_bytes($sourceHash, $sourceHash . '.png', $width, $height, 'source-thumb', $assetId . '-source', $assetKey . '-source', $sessionID, $localID + 10);
+}
+
+function blocks_engine_figma_transformer_kiwi_source_image_bytes(string $hash, string $name, float $width, float $height, string $thumbHash, string $assetId, string $assetKey, int $sessionID, int $localID): string
+{
+    return blocks_engine_figma_transformer_kiwi_string($hash)
+        . blocks_engine_figma_transformer_kiwi_string($name)
+        . blocks_engine_figma_transformer_kiwi_varfloat($width)
+        . blocks_engine_figma_transformer_kiwi_varfloat($height)
+        . blocks_engine_figma_transformer_wire_varint(strlen($thumbHash))
+        . $thumbHash
+        . blocks_engine_figma_transformer_kiwi_asset_ref_bytes($assetId, $assetKey, $sessionID, $localID);
+}
+
+function blocks_engine_figma_transformer_kiwi_asset_ref_bytes(string $id, string $key, int $sessionID, int $localID): string
+{
+    return blocks_engine_figma_transformer_kiwi_string($id)
+        . blocks_engine_figma_transformer_kiwi_string($key)
+        . blocks_engine_figma_transformer_kiwi_style_id_bytes($sessionID, $localID);
+}
+
+function blocks_engine_figma_transformer_kiwi_export_settings_bytes(string $format, string $suffix, string $constraintType, float $constraintValue, bool $contentsOnly, bool $useAbsoluteBounds): string
+{
+    return blocks_engine_figma_transformer_kiwi_string($format)
+        . blocks_engine_figma_transformer_kiwi_string($suffix)
+        . blocks_engine_figma_transformer_kiwi_string($constraintType)
+        . blocks_engine_figma_transformer_kiwi_varfloat($constraintValue)
+        . chr($contentsOnly ? 1 : 0)
+        . chr($useAbsoluteBounds ? 1 : 0);
 }
 
 function blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture(): string
