@@ -2986,17 +2986,21 @@ final class ScenegraphNormalizer
             if ( in_array($type, array('DROP_SHADOW', 'INNER_SHADOW'), true) ) {
                 $normalized = array(
                     'type' => 'DROP_SHADOW' === $type ? 'drop_shadow' : 'inner_shadow',
+                    'source_type' => $type,
                     'offset_x' => is_numeric($effect['offset']['x'] ?? null) ? (float) $effect['offset']['x'] : 0.0,
                     'offset_y' => is_numeric($effect['offset']['y'] ?? null) ? (float) $effect['offset']['y'] : 0.0,
                     'radius' => is_numeric($effect['radius'] ?? null) ? (float) $effect['radius'] : 0.0,
                     'spread' => is_numeric($effect['spread'] ?? null) ? (float) $effect['spread'] : 0.0,
                 );
+                if ( array_key_exists('visible', $effect) ) {
+                    $normalized['visible'] = true === $effect['visible'];
+                }
                 $color = $this->normalizeColor($effect['color'] ?? null);
                 if ( null !== $color ) {
                     $normalized['color'] = $color;
                 }
                 if ( isset($effect['blendMode']) && is_scalar($effect['blendMode']) ) {
-                    $normalized['blend_mode'] = (string) $effect['blendMode'];
+                    $normalized['blend_mode'] = strtoupper((string) $effect['blendMode']);
                 }
                 if ( array_key_exists('showShadowBehindNode', $effect) ) {
                     $normalized['show_shadow_behind_node'] = true === $effect['showShadowBehindNode'];
@@ -3011,6 +3015,7 @@ final class ScenegraphNormalizer
             if ( in_array($type, array('LAYER_BLUR', 'FOREGROUND_BLUR', 'BACKGROUND_BLUR'), true) ) {
                 $effects[] = array(
                     'type' => 'BACKGROUND_BLUR' === $type ? 'background_blur' : 'layer_blur',
+                    'source_type' => $type,
                     'radius' => is_numeric($effect['radius'] ?? null) ? (float) $effect['radius'] : 0.0,
                 );
                 continue;
@@ -3038,15 +3043,19 @@ final class ScenegraphNormalizer
     {
         $isMask = $this->normalizeBoolean($node['isMask'] ?? $node['mask'] ?? null);
         $maskType = isset($node['maskType']) && is_scalar($node['maskType']) ? strtoupper((string) $node['maskType']) : null;
+        $frameMaskDisabled = $this->normalizeBoolean($node['frameMaskDisabled'] ?? null);
+        $isClip = $this->normalizeBoolean($node['isClip'] ?? null);
 
-        if ( null === $isMask && null === $maskType ) {
+        if ( null === $isMask && null === $maskType && null === $frameMaskDisabled && null === $isClip ) {
             return array();
         }
 
         return array_filter(
             array(
-                'is_mask' => $isMask,
-                'type'    => $maskType,
+                'is_mask'             => $isMask,
+                'type'                => $maskType,
+                'frame_mask_disabled' => $frameMaskDisabled,
+                'is_clip'             => $isClip,
             ),
             static fn (mixed $value): bool => null !== $value
         );
