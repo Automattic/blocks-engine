@@ -3545,6 +3545,13 @@ final class ScenegraphNormalizer
             }
         }
 
+        foreach ( array('stackWidth' => 'width', 'stackHeight' => 'height') as $source => $target ) {
+            if ( ! array_key_exists($target, $box) && isset($node[$source]) && is_numeric($node[$source]) ) {
+                $box[$target] = (float) $node[$source];
+                $sourceKind ??= GeometryBox::SOURCE_SIZE_ONLY;
+            }
+        }
+
         $transformBox = $this->layoutBoxFromTransform($node);
         foreach ( array('x', 'y') as $dimension ) {
             if ( ! array_key_exists($dimension, $box) && isset($transformBox[$dimension]) ) {
@@ -3850,6 +3857,19 @@ final class ScenegraphNormalizer
                 $value = (float) $node[$source][$axis];
                 if ( is_finite($value) && $value >= 0.0 ) {
                     $layout[$prefix . '_' . $dimension] = $value;
+                }
+            }
+        }
+        foreach ( array(
+            'minWidth'  => 'min_width',
+            'maxWidth'  => 'max_width',
+            'minHeight' => 'min_height',
+            'maxHeight' => 'max_height',
+        ) as $source => $target ) {
+            if ( isset($node[$source]) && is_numeric($node[$source]) ) {
+                $value = (float) $node[$source];
+                if ( is_finite($value) && $value >= 0.0 ) {
+                    $layout[$target] = $value;
                 }
             }
         }
