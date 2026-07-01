@@ -400,10 +400,14 @@ final class TextNormalizer
             $style['letter_spacing'] = (float) $source['textTracking'];
         }
 
-        foreach ( array('fontSize' => 'font_size', 'lineHeightPx' => 'line_height_px', 'lineHeightPercent' => 'line_height_percent', 'letterSpacing' => 'letter_spacing') as $sourceKey => $targetKey ) {
+        foreach ( array('fontSize' => 'font_size', 'lineHeightPx' => 'line_height_px', 'lineHeightPercent' => 'line_height_percent') as $sourceKey => $targetKey ) {
             if ( isset($source[$sourceKey]) && is_numeric($source[$sourceKey]) ) {
                 $style[$targetKey] = (float) $source[$sourceKey];
             }
+        }
+
+        if ( isset($source['letterSpacing']) && is_numeric($source['letterSpacing']) ) {
+            $style['letter_spacing'] = (float) $source['letterSpacing'];
         }
 
         if ( isset($source['lineHeight']) && is_array($source['lineHeight']) && isset($source['lineHeight']['value']) && is_numeric($source['lineHeight']['value']) ) {
@@ -421,10 +425,13 @@ final class TextNormalizer
             $letterSpacingUnits = strtoupper((string) ($source['letterSpacing']['units'] ?? 'PIXELS'));
             if ( 'PIXELS' === $letterSpacingUnits ) {
                 $style['letter_spacing'] = (float) $source['letterSpacing']['value'];
+                unset($style['letter_spacing_em']);
             } elseif ( 'RAW' === $letterSpacingUnits ) {
                 $style['letter_spacing_em'] = (float) $source['letterSpacing']['value'];
+                unset($style['letter_spacing']);
             } elseif ( str_contains($letterSpacingUnits, 'PERCENT') ) {
                 $style['letter_spacing_em'] = (float) $source['letterSpacing']['value'] / 100;
+                unset($style['letter_spacing']);
             }
         }
 
