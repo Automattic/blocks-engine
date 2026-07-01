@@ -138,7 +138,9 @@ final class StyleDeclarationBuilder
                     continue;
                 }
 
-                $shadow = $this->shadowValue($effect, 'inner_shadow' === $effectType);
+                $shadow = 'TEXT' === $type && 'drop_shadow' === $effectType
+                    ? $this->textShadowValue($effect)
+                    : $this->shadowValue($effect, 'inner_shadow' === $effectType);
                 if ( null === $shadow ) {
                     continue;
                 }
@@ -234,7 +236,7 @@ final class StyleDeclarationBuilder
      */
     private function shadowValue(array $effect, bool $inset): ?string
     {
-        $color = $this->color($effect['color'] ?? null);
+        $color = $this->effectColor($effect);
         if ( null === $color ) {
             $color = 'rgba(0,0,0,0.25)';
         }
@@ -244,6 +246,22 @@ final class StyleDeclarationBuilder
             . $this->number((float) ($effect['offset_y'] ?? 0)) . 'px '
             . $this->number((float) ($effect['radius'] ?? 0)) . 'px '
             . $this->number((float) ($effect['spread'] ?? 0)) . 'px '
+            . $color;
+    }
+
+    /**
+     * @param array<string, mixed> $effect
+     */
+    private function textShadowValue(array $effect): ?string
+    {
+        $color = $this->effectColor($effect);
+        if ( null === $color ) {
+            $color = 'rgba(0,0,0,0.25)';
+        }
+
+        return $this->number((float) ($effect['offset_x'] ?? 0)) . 'px '
+            . $this->number((float) ($effect['offset_y'] ?? 0)) . 'px '
+            . $this->number((float) ($effect['radius'] ?? 0)) . 'px '
             . $color;
     }
 
@@ -264,7 +282,7 @@ final class StyleDeclarationBuilder
      */
     private function dropShadowFilterValue(array $effect): string
     {
-        $color = $this->color($effect['color'] ?? null);
+        $color = $this->effectColor($effect);
         if ( null === $color ) {
             $color = 'rgba(0,0,0,0.25)';
         }
@@ -275,6 +293,20 @@ final class StyleDeclarationBuilder
             . $this->number((float) ($effect['radius'] ?? 0)) . 'px '
             . $color
             . ')';
+    }
+
+    /**
+     * @param array<string, mixed> $effect
+     */
+    private function effectColor(array $effect): ?string
+    {
+        $color = $effect['color'] ?? null;
+        $opacity = $effect['opacity'] ?? null;
+        if ( is_numeric($opacity) && is_array($color) && isset($color['a']) && is_numeric($color['a']) ) {
+            $opacity = (float) $opacity * (float) $color['a'];
+        }
+
+        return $this->color($color, $opacity);
     }
 
     /**

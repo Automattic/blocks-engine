@@ -2573,7 +2573,7 @@ final class StaticHtmlEmitter
             }
             $type = (string) ($effect['type'] ?? 'unknown');
             $effects['by_type'][$type] = (int) ($effects['by_type'][$type] ?? 0) + 1;
-            foreach ( array('source_type', 'offset_x', 'offset_y', 'radius', 'spread', 'color', 'blend_mode', 'show_shadow_behind_node') as $field ) {
+            foreach ( array('source_type', 'offset_x', 'offset_y', 'radius', 'spread', 'color', 'opacity', 'visible', 'blend_mode', 'show_shadow_behind_node') as $field ) {
                 if ( array_key_exists($field, $effect) ) {
                     $effects['field_coverage'][$field] = (int) ($effects['field_coverage'][$field] ?? 0) + 1;
                 }

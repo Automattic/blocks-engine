@@ -3466,6 +3466,9 @@ final class ScenegraphNormalizer
                 if ( null !== $color ) {
                     $normalized['color'] = $color;
                 }
+                if ( isset($effect['opacity']) && is_numeric($effect['opacity']) ) {
+                    $normalized['opacity'] = (float) $effect['opacity'];
+                }
                 if ( isset($effect['blendMode']) && is_scalar($effect['blendMode']) ) {
                     $normalized['blend_mode'] = strtoupper((string) $effect['blendMode']);
                 }
@@ -3480,11 +3483,21 @@ final class ScenegraphNormalizer
             // shape calls the same effect `LAYER_BLUR`. Bridge both onto the
             // emitter's `layer_blur` (→ `filter:blur()`) branch (#328).
             if ( in_array($type, array('LAYER_BLUR', 'FOREGROUND_BLUR', 'BACKGROUND_BLUR'), true) ) {
-                $effects[] = array(
+                $normalized = array(
                     'type' => 'BACKGROUND_BLUR' === $type ? 'background_blur' : 'layer_blur',
                     'source_type' => $type,
                     'radius' => is_numeric($effect['radius'] ?? null) ? (float) $effect['radius'] : 0.0,
                 );
+                if ( array_key_exists('visible', $effect) ) {
+                    $normalized['visible'] = true === $effect['visible'];
+                }
+                if ( isset($effect['opacity']) && is_numeric($effect['opacity']) ) {
+                    $normalized['opacity'] = (float) $effect['opacity'];
+                }
+                if ( isset($effect['blendMode']) && is_scalar($effect['blendMode']) ) {
+                    $normalized['blend_mode'] = strtoupper((string) $effect['blendMode']);
+                }
+                $effects[] = $normalized;
                 continue;
             }
 
