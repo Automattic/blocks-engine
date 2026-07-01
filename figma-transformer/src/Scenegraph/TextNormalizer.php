@@ -12,6 +12,7 @@ final class TextNormalizer
     private const MAX_TEXT_GLYPH_COMMAND_BLOB_BYTES = 262144;
     private const MAX_TEXT_GLYPH_COMMAND_BLOB_BYTES_PER_NODE = 262144;
     private const MAX_LOGICAL_CHARACTER_OFFSET_SAMPLES = 256;
+    private const MAX_TEXT_LINE_SAMPLES = 256;
 
     public function __construct(
         private readonly VectorGeometryNormalizer $vectorGeometryNormalizer = new VectorGeometryNormalizer()
@@ -169,7 +170,8 @@ final class TextNormalizer
      */
     private function normalizeDerivedTextLayout(array $node, array $blobs = array(), string $nodeId = '', array &$diagnostics = array(), bool $decodeGlyphCommandBlobs = false): array
     {
-        $source = is_array($node['derivedTextData'] ?? null) ? $node['derivedTextData'] : array();
+        $textDataSource = is_array($node['textData'] ?? null) ? $node['textData'] : array();
+        $source = is_array($node['derivedTextData'] ?? null) ? $node['derivedTextData'] : $textDataSource;
         if ( empty($source) ) {
             return array();
         }
@@ -217,8 +219,9 @@ final class TextNormalizer
         }
 
         foreach ( array('truncationStartIndex' => 'truncation_start_index', 'truncatedHeight' => 'truncated_height', 'minContentHeight' => 'min_content_height', 'layoutVersion' => 'layout_version') as $sourceKey => $targetKey ) {
-            if ( isset($source[$sourceKey]) && is_numeric($source[$sourceKey]) ) {
-                $layout[$targetKey] = (float) $source[$sourceKey];
+            $value = $source[$sourceKey] ?? $textDataSource[$sourceKey] ?? null;
+            if ( is_numeric($value) ) {
+                $layout[$targetKey] = (float) $value;
             }
         }
 
@@ -246,6 +249,30 @@ final class TextNormalizer
         foreach ( array('lines' => 'line_count', 'derivedLines' => 'derived_line_count') as $sourceKey => $targetKey ) {
             if ( is_array($source[$sourceKey] ?? null) ) {
                 $layout[$targetKey] = count($source[$sourceKey]);
+            }
+        }
+
+        $lineSource = is_array($textDataSource['lines'] ?? null) ? $textDataSource['lines'] : ( is_array($source['lines'] ?? null) ? $source['lines'] : array() );
+        if ( ! empty($lineSource) ) {
+            $layout['line_count'] = count($lineSource);
+            $lines = $this->normalizeTextLines($lineSource, false);
+            if ( ! empty($lines) ) {
+                $layout['lines'] = $lines;
+                if ( count($lineSource) > self::MAX_TEXT_LINE_SAMPLES ) {
+                    $layout['lines_truncated'] = true;
+                }
+            }
+        }
+
+        $derivedLineSource = is_array($source['derivedLines'] ?? null) ? $source['derivedLines'] : ( is_array($textDataSource['derivedLines'] ?? null) ? $textDataSource['derivedLines'] : array() );
+        if ( ! empty($derivedLineSource) ) {
+            $layout['derived_line_count'] = count($derivedLineSource);
+            $derivedLines = $this->normalizeTextLines($derivedLineSource, true);
+            if ( ! empty($derivedLines) ) {
+                $layout['derived_lines'] = $derivedLines;
+                if ( count($derivedLineSource) > self::MAX_TEXT_LINE_SAMPLES ) {
+                    $layout['derived_lines_truncated'] = true;
+                }
             }
         }
 
@@ -330,6 +357,47 @@ final class TextNormalizer
             }
         }
         return $this->appendDerivedTextFonts($layout, $source);
+    }
+
+    /**
+     * @param array<int, mixed> $lines
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeTextLines(array $lines, bool $derived): array
+    {
+        $normalizedLines = array();
+        foreach ( $lines as $line ) {
+            if ( count($normalizedLines) >= self::MAX_TEXT_LINE_SAMPLES ) {
+                break;
+            }
+            if ( ! is_array($line) ) {
+                continue;
+            }
+
+            $normalized = array();
+            foreach ( array('lineType' => 'line_type', 'sourceDirectionality' => 'source_directionality', 'directionality' => 'directionality', 'directionalityIntent' => 'directionality_intent') as $sourceKey => $targetKey ) {
+                if ( isset($line[$sourceKey]) && is_scalar($line[$sourceKey]) && '' !== (string) $line[$sourceKey] ) {
+                    $normalized[$targetKey] = (string) $line[$sourceKey];
+                }
+            }
+
+            if ( ! $derived ) {
+                foreach ( array('styleId' => 'style_id', 'indentationLevel' => 'indentation_level', 'downgradeStyleId' => 'downgrade_style_id', 'consistencyStyleId' => 'consistency_style_id', 'listStartOffset' => 'list_start_offset') as $sourceKey => $targetKey ) {
+                    if ( isset($line[$sourceKey]) && is_numeric($line[$sourceKey]) ) {
+                        $normalized[$targetKey] = (int) $line[$sourceKey];
+                    }
+                }
+                if ( isset($line['isFirstLineOfList']) && is_bool($line['isFirstLineOfList']) ) {
+                    $normalized['is_first_line_of_list'] = $line['isFirstLineOfList'];
+                }
+            }
+
+            if ( ! empty($normalized) ) {
+                $normalizedLines[] = $normalized;
+            }
+        }
+
+        return $normalizedLines;
     }
 
     /**
@@ -464,6 +532,22 @@ final class TextNormalizer
 
         if ( isset($source['maxLines']) && is_numeric($source['maxLines']) ) {
             $style['max_lines'] = (int) $source['maxLines'];
+        }
+
+        foreach ( array('textBidiVersion' => 'text_bidi_version') as $sourceKey => $targetKey ) {
+            if ( isset($source[$sourceKey]) && is_numeric($source[$sourceKey]) ) {
+                $style[$targetKey] = (int) $source[$sourceKey];
+            }
+        }
+
+        foreach ( array('hangingPunctuation' => 'hanging_punctuation', 'hangingList' => 'hanging_list', 'hasHadRTLText' => 'has_had_rtl_text') as $sourceKey => $targetKey ) {
+            if ( isset($source[$sourceKey]) && is_bool($source[$sourceKey]) ) {
+                $style[$targetKey] = $source[$sourceKey];
+            }
+        }
+
+        if ( isset($source['listSpacing']) && is_numeric($source['listSpacing']) ) {
+            $style['list_spacing'] = (float) $source['listSpacing'];
         }
 
         foreach ( array('color', 'textColor') as $sourceKey ) {
