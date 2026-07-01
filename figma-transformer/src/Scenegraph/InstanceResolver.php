@@ -16,16 +16,7 @@ final class InstanceResolver
      */
     public function normalizeInstanceOverrides(array $node, string $instanceId, array &$diagnostics): ?array
     {
-        $rawOverrides = array();
-        if ( is_array($node['overrides'] ?? null) ) {
-            $rawOverrides = array_merge($rawOverrides, $node['overrides']);
-        }
-        if ( is_array($node['symbolData']['symbolOverrides'] ?? null) ) {
-            $rawOverrides = array_merge($rawOverrides, $node['symbolData']['symbolOverrides']);
-        }
-        if ( is_array($node['derivedSymbolData'] ?? null) ) {
-            $rawOverrides = array_merge($rawOverrides, $node['derivedSymbolData']);
-        }
+        $rawOverrides = $this->collectRawOverrides($node);
 
         if ( empty($rawOverrides) ) {
             return array();
@@ -64,6 +55,41 @@ final class InstanceResolver
         }
 
         return $overrides;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int|string, mixed>
+     */
+    private function collectRawOverrides(array $node): array
+    {
+        $rawOverrides = array();
+        foreach ( array('overrides', 'symbolOverrides') as $key ) {
+            if ( is_array($node[$key] ?? null) ) {
+                $rawOverrides = array_merge($rawOverrides, $node[$key]);
+            }
+        }
+
+        foreach ( array('symbolData', 'derivedSymbolData') as $key ) {
+            $payload = $node[$key] ?? null;
+            if ( ! is_array($payload) ) {
+                continue;
+            }
+
+            if ( is_array($payload['symbolOverrides'] ?? null) ) {
+                $rawOverrides = array_merge($rawOverrides, $payload['symbolOverrides']);
+                continue;
+            }
+
+            // Older normalized fixtures stored DerivedSymbolData as the override
+            // list itself. Keep accepting that shape while preferring the real
+            // Kiwi struct shape above.
+            if ( 'derivedSymbolData' === $key && array_is_list($payload) ) {
+                $rawOverrides = array_merge($rawOverrides, $payload);
+            }
+        }
+
+        return $rawOverrides;
     }
 
     /**
