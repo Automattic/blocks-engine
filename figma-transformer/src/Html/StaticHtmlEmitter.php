@@ -3584,7 +3584,10 @@ final class StaticHtmlEmitter
         $transform = $this->isNearZeroHeightContainer($node, $type) || $this->hasAbsoluteVisualBounds($node) ? null : $this->transformStyle($box);
         if ( null !== $transform ) {
             $styles[] = 'transform:' . $transform;
-            if ( $this->hasExplicitTransformMatrix($box) ) {
+            $transformOrigin = $this->transformOriginStyle($box);
+            if ( null !== $transformOrigin ) {
+                $styles[] = 'transform-origin:' . $transformOrigin;
+            } elseif ( $this->hasExplicitTransformMatrix($box) ) {
                 $styles[] = 'transform-origin:0 0';
             }
         }
@@ -3994,6 +3997,19 @@ final class StaticHtmlEmitter
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     */
+    private function transformOriginStyle(array $box): ?string
+    {
+        $origin = is_array($box['transform_origin'] ?? null) ? $box['transform_origin'] : array();
+        if ( ! isset($origin['x'], $origin['y']) || ! is_numeric($origin['x']) || ! is_numeric($origin['y']) ) {
+            return null;
+        }
+
+        return $this->number((float) $origin['x']) . 'px ' . $this->number((float) $origin['y']) . 'px';
     }
 
     /**

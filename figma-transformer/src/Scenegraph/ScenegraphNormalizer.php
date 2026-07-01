@@ -477,6 +477,7 @@ final class ScenegraphNormalizer
         $layoutBox = $this->normalizeLayoutBox($node);
         if ( ! empty($layoutBox) ) {
             $node['box'] = $layoutBox;
+            $this->appendNonPositiveDimensionDiagnostics($node, $layoutBox, $id, $diagnostics);
         }
 
         $layout = $this->normalizeLayout($node);
@@ -527,6 +528,34 @@ final class ScenegraphNormalizer
         }
 
         return $node;
+    }
+
+    /**
+     * @param array<string, mixed>             $node
+     * @param array<string, mixed>             $box
+     * @param array<int, array<string, mixed>> $diagnostics
+     */
+    private function appendNonPositiveDimensionDiagnostics(array $node, array $box, string $nodeId, array &$diagnostics): void
+    {
+        foreach ( array('width', 'height') as $dimension ) {
+            if ( ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) || (float) $box[$dimension] > 0.0 ) {
+                continue;
+            }
+
+            $diagnostics[] = array(
+                'severity' => 0.0 === (float) $box[$dimension] ? 'info' : 'warning',
+                'code'     => 0.0 === (float) $box[$dimension] ? 'figma_node_zero_dimension' : 'figma_node_negative_dimension',
+                'message'  => 'Figma node normalized with a non-positive layout dimension.',
+                'context'  => array(
+                    'node_id'   => $nodeId,
+                    'node_name' => (string) ($node['name'] ?? ''),
+                    'node_type' => strtoupper((string) ($node['type'] ?? '')),
+                    'dimension' => $dimension,
+                    'value'     => (float) $box[$dimension],
+                    'source'    => (string) ($box['coordinate_space'] ?? 'unknown'),
+                ),
+            );
+        }
     }
 
     /**
@@ -3339,6 +3368,18 @@ final class ScenegraphNormalizer
         foreach ( array('relativeTransform', 'absoluteTransform', 'transform') as $sourceKey ) {
             if ( is_array($node[$sourceKey] ?? null) ) {
                 $box['transform'] = $node[$sourceKey];
+                break;
+            }
+        }
+
+        foreach ( array('transformOrigin', 'rotationOrigin') as $originKey ) {
+            if ( ! is_array($node[$originKey] ?? null) ) {
+                continue;
+            }
+            $originX = $node[$originKey]['x'] ?? $node[$originKey][0] ?? null;
+            $originY = $node[$originKey]['y'] ?? $node[$originKey][1] ?? null;
+            if ( is_numeric($originX) && is_numeric($originY) ) {
+                $box['transform_origin'] = array('x' => (float) $originX, 'y' => (float) $originY, 'source' => $originKey);
                 break;
             }
         }
