@@ -136,6 +136,7 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
         'assets' => array(
             'crop-image' => array('mime_type' => 'image/png', 'content' => 'crop image'),
             'fill-crop'  => array('mime_type' => 'image/png', 'content' => 'fill image'),
+            'crop-rect'  => array('mime_type' => 'image/png', 'content' => 'crop rect image'),
         ),
         'nodes'  => array(
             array(
@@ -174,11 +175,30 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
                     ),
                 ),
             ),
+            array(
+                'id'         => 'image:crop-rect',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Crop rect image',
+                'width'      => 100,
+                'height'     => 80,
+                'fillPaints' => array(
+                    array(
+                        'type'           => 'IMAGE',
+                        'imageRef'       => 'crop-rect',
+                        'imageScaleMode' => 'STRETCH',
+                        'cropRect'       => array('x' => 0.25, 'y' => 0.1, 'width' => 0.5, 'height' => 0.8),
+                    ),
+                ),
+            ),
         ),
     ));
     $imageTransformCss = $fileContent($imageTransformResult, 'style.css');
+    $cropRectVisualNode = blocks_engine_figma_transformer_contract_find_visual_node($imageTransformResult, 'image:crop-rect');
     $assert(str_contains($imageTransformCss, '.figma-node-image-crop-cropped-image{width:100px;height:80px;background-image:url("assets/crop-image.png");background-size:200px 100px;background-repeat:no-repeat;background-position:-50px -10px}'), 'image-stretch-transform-emits-crop-background');
     $assert(str_contains($imageTransformCss, '.figma-node-image-fill-crop-fill-crop-image{width:100px;height:80px;background-image:url("assets/fill-crop.png");background-size:cover;background-position:center}'), 'image-fill-transform-keeps-cover-background');
+    $assert(str_contains($imageTransformCss, '.figma-node-image-crop-rect-crop-rect-image{width:100px;height:80px;background-image:url("assets/crop-rect.png");background-size:200px 100px;background-repeat:no-repeat;background-position:-50px -10px}'), 'image-stretch-crop-rect-emits-crop-background');
+    $assert(true === ($cropRectVisualNode['image']['has_crop_rect'] ?? null), 'visual-node-image-crop-rect-flag');
+    $assert(0.5 === ($cropRectVisualNode['image']['crop_rect']['width'] ?? null), 'visual-node-image-crop-rect-width');
 
     $nestedImageOverrideResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Nested Image Override Fixture',

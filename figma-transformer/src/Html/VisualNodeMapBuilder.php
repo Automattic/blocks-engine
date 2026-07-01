@@ -443,8 +443,12 @@ final class VisualNodeMapBuilder
         $metadata = array(
             'scale_mode' => strtoupper((string) ($paint['imageScaleMode'] ?? $paint['scaleMode'] ?? 'FILL')),
             'has_transform' => null !== $transform && ! $this->isIdentityImageTransform($transform),
+            'has_crop_rect' => is_array($paint['cropRect'] ?? null),
             'color_managed' => true === ($paint['imageShouldColorManage'] ?? false),
         );
+        if ( is_array($paint['cropRect'] ?? null) ) {
+            $metadata['crop_rect'] = $paint['cropRect'];
+        }
         foreach ( array('ref', 'imageHash', 'imageName', 'originalImageWidth', 'originalImageHeight', 'scale', 'rotation', 'thumbHash', 'animationFrame') as $key ) {
             if ( isset($paint[$key]) && is_scalar($paint[$key]) ) {
                 $metadata[$key] = $paint[$key];

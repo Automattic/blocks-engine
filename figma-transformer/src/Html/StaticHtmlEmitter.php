@@ -5256,7 +5256,21 @@ final class StaticHtmlEmitter
         foreach ( $this->nodeImagePaints($node) as $paint ) {
             $matrix = $this->imagePaintTransformMatrix($paint);
             if ( null === $matrix || $this->isIdentityImageTransform($matrix) ) {
-                continue;
+                $cropRect = $this->imagePaintCropRect($paint);
+                if ( null === $cropRect ) {
+                    continue;
+                }
+
+                $backgroundWidth = (float) $width / $cropRect['width'];
+                $backgroundHeight = (float) $height / $cropRect['height'];
+                $backgroundX = -1 * $cropRect['x'] * $backgroundWidth;
+                $backgroundY = -1 * $cropRect['y'] * $backgroundHeight;
+
+                return array(
+                    'background-size:' . $this->number($backgroundWidth) . 'px ' . $this->number($backgroundHeight) . 'px',
+                    'background-repeat:no-repeat',
+                    'background-position:' . $this->number($backgroundX) . 'px ' . $this->number($backgroundY) . 'px',
+                );
             }
 
             if ( 0.00001 < abs($matrix['m01']) || 0.00001 < abs($matrix['m10']) || 0 >= $matrix['m00'] || 0 >= $matrix['m11'] ) {
@@ -5276,6 +5290,33 @@ final class StaticHtmlEmitter
         }
 
         return array();
+    }
+
+    /**
+     * @param array<string, mixed> $paint
+     * @return array{x: float, y: float, width: float, height: float}|null
+     */
+    private function imagePaintCropRect(array $paint): ?array
+    {
+        $cropRect = $paint['cropRect'] ?? null;
+        if ( ! is_array($cropRect) ) {
+            return null;
+        }
+
+        $width = $cropRect['width'] ?? $cropRect['w'] ?? null;
+        $height = $cropRect['height'] ?? $cropRect['h'] ?? null;
+        $x = $cropRect['x'] ?? 0;
+        $y = $cropRect['y'] ?? 0;
+        if ( ! is_numeric($x) || ! is_numeric($y) || ! is_numeric($width) || ! is_numeric($height) || 0 >= (float) $width || 0 >= (float) $height ) {
+            return null;
+        }
+
+        return array(
+            'x'      => (float) $x,
+            'y'      => (float) $y,
+            'width'  => (float) $width,
+            'height' => (float) $height,
+        );
     }
 
     /**
