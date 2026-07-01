@@ -61,6 +61,8 @@ final class StaticHtmlEmitter
 
     private ?CssPositioningResolver $cssPositioningResolver = null;
 
+    private ?StickyLayoutCoordinator $stickyLayoutCoordinator = null;
+
     private function designSystemExtractor(): DesignSystemExtractor
     {
         return $this->designSystemExtractor ??= new DesignSystemExtractor();
@@ -103,6 +105,14 @@ final class StaticHtmlEmitter
         return $this->cssPositioningResolver ??= new CssPositioningResolver(
             $this->layoutIntentClassifier(),
             fn (float $value): string => $this->number($value),
+        );
+    }
+
+    private function stickyLayoutCoordinator(): StickyLayoutCoordinator
+    {
+        return $this->stickyLayoutCoordinator ??= new StickyLayoutCoordinator(
+            fn (array $node): array => $this->nodeList($node),
+            fn (array $node): string => $this->textContent($node),
         );
     }
 
@@ -161,26 +171,6 @@ final class StaticHtmlEmitter
     private array $nodeReadableNames = array();
 
     /**
-     * @var array<string, bool>
-     */
-    private array $stickyGhostNodeIds = array();
-
-    /**
-     * @var array<string, array<string, mixed>>
-     */
-    private array $stickyPrimaryNodeIds = array();
-
-    /**
-     * @var array<string, bool>
-     */
-    private array $stickyAncestorNodeIds = array();
-
-    /**
-     * @var array<int, array<string, mixed>>
-     */
-    private array $stickyGhostCandidates = array();
-
-    /**
      * @param array<string, mixed> $scenegraph Normalized Figma scenegraph.
      * @param array<string, mixed> $options Transformation options.
      * @return array<string, mixed>
@@ -192,15 +182,12 @@ final class StaticHtmlEmitter
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
         $this->nodeReadableNames = array();
-        $this->stickyGhostNodeIds = array();
-        $this->stickyPrimaryNodeIds = array();
-        $this->stickyAncestorNodeIds = array();
-        $this->stickyGhostCandidates = array();
+        $this->stickyLayoutCoordinator()->reset();
         $this->linkTargetPaths = $this->normalizeLinkTargetPaths($options);
         $this->linkCoverage = $this->newLinkCoverage();
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $nodes = $this->nodeList($scenegraph);
-        $this->detectStickyGhostCandidates($nodes);
+        $this->stickyLayoutCoordinator()->detectStickyGhostCandidates($nodes);
         $this->listItemIdCache = array();
         $this->prepareHeadingRanking($nodes);
         $diagnostics = array();
@@ -325,10 +312,7 @@ final class StaticHtmlEmitter
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
         $this->nodeReadableNames = array();
-        $this->stickyGhostNodeIds = array();
-        $this->stickyPrimaryNodeIds = array();
-        $this->stickyAncestorNodeIds = array();
-        $this->stickyGhostCandidates = array();
+        $this->stickyLayoutCoordinator()->reset();
         $this->linkTargetPaths = $this->linkTargetPathsFromPagePlan($pagePlan, $options);
         $this->linkCoverage = $this->newLinkCoverage();
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
@@ -383,7 +367,7 @@ final class StaticHtmlEmitter
                 }
             }
         }
-        $this->detectStickyGhostCandidates($stickyDetectionRoots);
+        $this->stickyLayoutCoordinator()->detectStickyGhostCandidates($stickyDetectionRoots);
 
         foreach ( $plannedPages as $index => $page ) {
             if ( ! is_array($page) ) {
@@ -641,7 +625,7 @@ final class StaticHtmlEmitter
      */
     private function collectVariantNodeStyles(array $node, int $depth, ?array $parentNode, string $pathKey, array &$map): void
     {
-        if ( $this->isSuppressedStickyGhost($node) ) {
+        if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) ) {
             return;
         }
 
@@ -649,12 +633,12 @@ final class StaticHtmlEmitter
         $name = (string) ($node['name'] ?? '');
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
-        $styles = $this->stickyAwareStyleDeclarations($node, $type, $parentNode);
+        $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $this->styleDeclarations($node, $type, $parentNode));
 
         $map[$pathKey] = array(
             'class'           => $className,
             'styles'          => $styles,
-            'contains_sticky' => $this->containsStickyPrimary($node),
+            'contains_sticky' => $this->stickyLayoutCoordinator()->containsStickyPrimary($node),
         );
 
         $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
@@ -664,7 +648,7 @@ final class StaticHtmlEmitter
 
         $childOrdinal = 0;
         foreach ( $this->nodeList($node) as $child ) {
-            if ( ! is_array($child) || $this->isSuppressedStickyGhost($child) || $this->isFullyClippedDecorativeChild($child, $node) ) {
+            if ( ! is_array($child) || $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($child) || $this->isFullyClippedDecorativeChild($child, $node) ) {
                 continue;
             }
 
@@ -751,7 +735,7 @@ final class StaticHtmlEmitter
      */
     private function emitNode(array $node, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics, int $depth, ?array $parentNode): string
     {
-        if ( $this->isSuppressedStickyGhost($node) ) {
+        if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) ) {
             return '';
         }
 
@@ -814,7 +798,7 @@ final class StaticHtmlEmitter
         }
 
         $styles = $this->styleDeclarations($node, $type, $parentNode);
-        $styles = $this->stickyAwareStyleDeclarations($node, $type, $parentNode, $styles);
+        $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $styles);
         if ( ! empty($styles) ) {
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
             $this->nodeReadableNames[$className] = $this->sharedClassBaseName($name, $type);
@@ -2209,8 +2193,8 @@ final class StaticHtmlEmitter
                 'sample_nodes' => array(),
             ),
             'sticky_ghosts' => array(
-                'count' => count($this->stickyGhostCandidates),
-                'candidates' => $this->stickyGhostCandidates,
+                'count' => count($this->stickyLayoutCoordinator()->stickyGhostCandidates()),
+                'candidates' => $this->stickyLayoutCoordinator()->stickyGhostCandidates(),
             ),
         );
         $components = array(
@@ -2471,7 +2455,7 @@ final class StaticHtmlEmitter
      */
     private function collectTransformDiagnostics(array $node, array &$image, array &$vectors, array &$layout, array &$components, array &$effects, array &$maskEffectClipping, string $html, string $css, ?array $parentNode = null): void
     {
-        if ( $this->isSuppressedStickyGhost($node) ) {
+        if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) ) {
             return;
         }
 
@@ -3520,286 +3504,6 @@ final class StaticHtmlEmitter
     }
 
     /**
-     * @param array<int, array<string, mixed>> $nodes
-     */
-    private function detectStickyGhostCandidates(array $nodes): void
-    {
-        foreach ( $nodes as $node ) {
-            if ( is_array($node) ) {
-                $this->detectStickyGhostCandidatesInNode($node);
-            }
-        }
-    }
-
-    /**
-     * @param array<string, mixed> $parentNode
-     * @param array<int, string> $ancestorIds
-     */
-    private function detectStickyGhostCandidatesInNode(array $parentNode, array $ancestorIds = array()): void
-    {
-        $children = array_values(array_filter($this->nodeList($parentNode), 'is_array'));
-        $count = count($children);
-        $parentId = (string) ($parentNode['id'] ?? '');
-        $stickyAncestorIds = '' === $parentId ? $ancestorIds : array_merge($ancestorIds, array($parentId));
-        for ( $i = 0; $i < $count; $i++ ) {
-            for ( $j = $i + 1; $j < $count; $j++ ) {
-                $this->detectStickyGhostCandidatePair($parentNode, $children[$i], $children[$j], $stickyAncestorIds);
-            }
-        }
-
-        foreach ( $children as $child ) {
-            $this->detectStickyGhostCandidatesInNode($child, $stickyAncestorIds);
-        }
-    }
-
-    /**
-     * @param array<string, mixed> $parentNode
-     * @param array<string, mixed> $a
-     * @param array<string, mixed> $b
-     * @param array<int, string> $stickyAncestorIds
-     */
-    private function detectStickyGhostCandidatePair(array $parentNode, array $a, array $b, array $stickyAncestorIds): void
-    {
-        $aAbsolute = $this->isAbsoluteLayoutNode($a);
-        $bAbsolute = $this->isAbsoluteLayoutNode($b);
-        if ( $aAbsolute === $bAbsolute ) {
-            return;
-        }
-
-        $flow = $aAbsolute ? $b : $a;
-        $ghost = $aAbsolute ? $a : $b;
-        if ( $this->nodeOpacity($ghost) > 0.25 || $this->nodeOpacity($flow) < 0.99 ) {
-            return;
-        }
-
-        $flowBox = is_array($flow['box'] ?? null) ? $flow['box'] : array();
-        $ghostBox = is_array($ghost['box'] ?? null) ? $ghost['box'] : array();
-        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-        if ( ! $this->sameNodeSize($flowBox, $ghostBox) || ! $this->isFarVerticalEdgeDuplicate($ghost, $ghostBox, $parentBox) ) {
-            return;
-        }
-
-        $signature = $this->stickyGhostSemanticSignature($flow);
-        $ghostSignature = $this->stickyGhostSemanticSignature($ghost);
-        if ( '' === $signature || $signature !== $ghostSignature ) {
-            $signature = $this->stickyGhostContentSignature($flow);
-            if ( '' === $signature || $signature !== $this->stickyGhostContentSignature($ghost) ) {
-                return;
-            }
-        }
-
-        $primaryId = (string) ($flow['id'] ?? '');
-        $ghostId = (string) ($ghost['id'] ?? '');
-        if ( '' === $primaryId || '' === $ghostId || isset($this->stickyGhostNodeIds[$ghostId]) ) {
-            return;
-        }
-
-        $this->stickyPrimaryNodeIds[$primaryId] = array('ghost_id' => $ghostId, 'signature' => $signature);
-        foreach ( $stickyAncestorIds as $ancestorId ) {
-            if ( '' !== $ancestorId ) {
-                $this->stickyAncestorNodeIds[$ancestorId] = true;
-            }
-        }
-        $this->stickyGhostNodeIds[$ghostId] = true;
-        $this->stickyGhostCandidates[] = array(
-            'primary_id' => $primaryId,
-            'ghost_id' => $ghostId,
-            'parent_id' => (string) ($parentNode['id'] ?? ''),
-            'signature' => $signature,
-            'ghost_opacity' => $this->nodeOpacity($ghost),
-            'evidence' => array(
-                'primary_positioning' => 'flow',
-                'ghost_positioning' => 'absolute',
-                'ghost_vertical_constraint' => $this->verticalConstraint($ghost),
-                'same_size' => true,
-            ),
-        );
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function isSuppressedStickyGhost(array $node): bool
-    {
-        $id = (string) ($node['id'] ?? '');
-        return '' !== $id && isset($this->stickyGhostNodeIds[$id]);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function isStickyPrimary(array $node): bool
-    {
-        $id = (string) ($node['id'] ?? '');
-        return '' !== $id && isset($this->stickyPrimaryNodeIds[$id]);
-    }
-
-    /**
-     * @param array<string, mixed>|null $parentNode
-     * @param array<int, string>|null   $styles
-     * @return array<int, string>
-     */
-    private function stickyAwareStyleDeclarations(array $node, string $type, ?array $parentNode, ?array $styles = null): array
-    {
-        $styles = $styles ?? $this->styleDeclarations($node, $type, $parentNode);
-        if ( ! $this->isStickyPrimary($node) ) {
-            return $styles;
-        }
-
-        $styles = array_values(array_filter(
-            $styles,
-            static fn (string $style): bool => ! str_starts_with($style, 'position:') && ! str_starts_with($style, 'top:')
-        ));
-        $styles[] = 'position:sticky';
-        $styles[] = 'top:0';
-        $styles[] = 'align-self:flex-start';
-
-        return $styles;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function containsStickyPrimary(array $node): bool
-    {
-        $id = (string) ($node['id'] ?? '');
-        return '' !== $id && isset($this->stickyAncestorNodeIds[$id]);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function isAbsoluteLayoutNode(array $node): bool
-    {
-        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        return 'absolute' === ($layout['positioning'] ?? null);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function nodeOpacity(array $node): float
-    {
-        $box = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array();
-        if ( isset($box['opacity']) && is_numeric($box['opacity']) ) {
-            return (float) $box['opacity'];
-        }
-        if ( isset($node['opacity']) && is_numeric($node['opacity']) ) {
-            return (float) $node['opacity'];
-        }
-
-        return 1.0;
-    }
-
-    /**
-     * @param array<string, mixed> $flowBox
-     * @param array<string, mixed> $ghostBox
-     */
-    private function sameNodeSize(array $flowBox, array $ghostBox): bool
-    {
-        foreach ( array('width', 'height') as $dimension ) {
-            if ( ! isset($flowBox[$dimension], $ghostBox[$dimension]) || ! is_numeric($flowBox[$dimension]) || ! is_numeric($ghostBox[$dimension]) ) {
-                return false;
-            }
-            if ( abs((float) $flowBox[$dimension] - (float) $ghostBox[$dimension]) > 1.0 ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * @param array<string, mixed> $ghost
-     * @param array<string, mixed> $ghostBox
-     * @param array<string, mixed> $parentBox
-     */
-    private function isFarVerticalEdgeDuplicate(array $ghost, array $ghostBox, array $parentBox): bool
-    {
-        if ( ! isset($ghostBox['y'], $ghostBox['height'], $parentBox['height']) || ! is_numeric($ghostBox['y']) || ! is_numeric($ghostBox['height']) || ! is_numeric($parentBox['height']) ) {
-            return false;
-        }
-
-        $bottomGap = (float) $parentBox['height'] - (float) $ghostBox['y'] - (float) $ghostBox['height'];
-        $constraint = $this->verticalConstraint($ghost);
-        $isFarPinned = in_array($constraint, array('BOTTOM', 'MAX'), true);
-
-        return $isFarPinned && (float) $ghostBox['y'] > (float) $ghostBox['height'] && $bottomGap >= -1.0 && $bottomGap <= 32.0;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function verticalConstraint(array $node): string
-    {
-        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        $constraints = is_array($layout['constraints'] ?? null) ? $layout['constraints'] : array();
-        if ( isset($constraints['vertical']) && is_scalar($constraints['vertical']) ) {
-            return strtoupper((string) $constraints['vertical']);
-        }
-        if ( isset($node['constraints']['vertical']) && is_scalar($node['constraints']['vertical']) ) {
-            return strtoupper((string) $node['constraints']['vertical']);
-        }
-
-        return '';
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function stickyGhostSemanticSignature(array $node): string
-    {
-        $sourceId = isset($node['figma_component_source_id']) && is_scalar($node['figma_component_source_id']) ? trim((string) $node['figma_component_source_id']) : '';
-        if ( '' !== $sourceId ) {
-            return 'component:' . $sourceId;
-        }
-
-        return $this->stickyGhostContentSignature($node);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function stickyGhostContentSignature(array $node): string
-    {
-        $textSequence = $this->descendantTextSequence($node);
-        if ( empty($textSequence) ) {
-            return '';
-        }
-
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $type = strtoupper((string) ($node['type'] ?? ''));
-        $name = strtolower(trim(preg_replace('/\s+/', ' ', (string) ($node['name'] ?? '')) ?? ''));
-        $width = isset($box['width']) && is_numeric($box['width']) ? (string) round((float) $box['width']) : '';
-        $height = isset($box['height']) && is_numeric($box['height']) ? (string) round((float) $box['height']) : '';
-
-        return 'content:' . implode('|', array($type, $name, $width, $height, sha1(implode("\n", $textSequence))));
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @return array<int, string>
-     */
-    private function descendantTextSequence(array $node): array
-    {
-        $sequence = array();
-        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
-            $text = trim(preg_replace('/\s+/', ' ', $this->textContent($node)) ?? '');
-            if ( '' !== $text ) {
-                $sequence[] = $text;
-            }
-        }
-
-        foreach ( $this->nodeList($node) as $child ) {
-            if ( is_array($child) ) {
-                array_push($sequence, ...$this->descendantTextSequence($child));
-            }
-        }
-
-        return $sequence;
-    }
-
-    /**
      * @param array<string, mixed> $node
      * @return array<int, string>
      */
@@ -3860,7 +3564,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        if ( $this->effectOverflowPolicy()->shouldHideOverflow($node, $this->containsStickyPrimary($node)) ) {
+        if ( $this->effectOverflowPolicy()->shouldHideOverflow($node, $this->stickyLayoutCoordinator()->containsStickyPrimary($node)) ) {
             $styles[] = 'overflow:hidden';
         }
 
