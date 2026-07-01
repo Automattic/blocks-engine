@@ -154,6 +154,11 @@ final class StaticHtmlEmitter
     private array $stickyPrimaryNodeIds = array();
 
     /**
+     * @var array<string, bool>
+     */
+    private array $stickyAncestorNodeIds = array();
+
+    /**
      * @var array<int, array<string, mixed>>
      */
     private array $stickyGhostCandidates = array();
@@ -172,6 +177,7 @@ final class StaticHtmlEmitter
         $this->nodeReadableNames = array();
         $this->stickyGhostNodeIds = array();
         $this->stickyPrimaryNodeIds = array();
+        $this->stickyAncestorNodeIds = array();
         $this->stickyGhostCandidates = array();
         $this->linkTargetPaths = $this->normalizeLinkTargetPaths($options);
         $this->linkCoverage = $this->newLinkCoverage();
@@ -303,6 +309,7 @@ final class StaticHtmlEmitter
         $this->nodeReadableNames = array();
         $this->stickyGhostNodeIds = array();
         $this->stickyPrimaryNodeIds = array();
+        $this->stickyAncestorNodeIds = array();
         $this->stickyGhostCandidates = array();
         $this->linkTargetPaths = $this->linkTargetPathsFromPagePlan($pagePlan, $options);
         $this->linkCoverage = $this->newLinkCoverage();
@@ -627,8 +634,9 @@ final class StaticHtmlEmitter
         $styles = $this->stickyAwareStyleDeclarations($node, $type, $parentNode);
 
         $map[$pathKey] = array(
-            'class'  => $className,
-            'styles' => $styles,
+            'class'           => $className,
+            'styles'          => $styles,
+            'contains_sticky' => $this->containsStickyPrimary($node),
         );
 
         $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
@@ -671,6 +679,7 @@ final class StaticHtmlEmitter
             $variantDeclarations = is_array($variantStyles[$pathKey]['styles'] ?? null) ? $variantStyles[$pathKey]['styles'] : array();
 
             $changed = array();
+            $baseContainsSticky = true === ($base['contains_sticky'] ?? false);
             foreach ( $variantDeclarations as $declaration ) {
                 $parts = explode(':', (string) $declaration, 2);
                 if ( 2 !== count($parts) ) {
@@ -679,6 +688,9 @@ final class StaticHtmlEmitter
 
                 $property = trim($parts[0]);
                 $value = trim($parts[1]);
+                if ( $baseContainsSticky && 'overflow' === $property ) {
+                    continue;
+                }
                 if ( ! array_key_exists($property, $baseMap) || $baseMap[$property] !== $value ) {
                     $changed[] = $property . ':' . $value;
                 }
@@ -3503,19 +3515,22 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<string, mixed> $parentNode
+     * @param array<int, string> $ancestorIds
      */
-    private function detectStickyGhostCandidatesInNode(array $parentNode): void
+    private function detectStickyGhostCandidatesInNode(array $parentNode, array $ancestorIds = array()): void
     {
         $children = array_values(array_filter($this->nodeList($parentNode), 'is_array'));
         $count = count($children);
+        $parentId = (string) ($parentNode['id'] ?? '');
+        $stickyAncestorIds = '' === $parentId ? $ancestorIds : array_merge($ancestorIds, array($parentId));
         for ( $i = 0; $i < $count; $i++ ) {
             for ( $j = $i + 1; $j < $count; $j++ ) {
-                $this->detectStickyGhostCandidatePair($parentNode, $children[$i], $children[$j]);
+                $this->detectStickyGhostCandidatePair($parentNode, $children[$i], $children[$j], $stickyAncestorIds);
             }
         }
 
         foreach ( $children as $child ) {
-            $this->detectStickyGhostCandidatesInNode($child);
+            $this->detectStickyGhostCandidatesInNode($child, $stickyAncestorIds);
         }
     }
 
@@ -3523,8 +3538,9 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $parentNode
      * @param array<string, mixed> $a
      * @param array<string, mixed> $b
+     * @param array<int, string> $stickyAncestorIds
      */
-    private function detectStickyGhostCandidatePair(array $parentNode, array $a, array $b): void
+    private function detectStickyGhostCandidatePair(array $parentNode, array $a, array $b, array $stickyAncestorIds): void
     {
         $aAbsolute = $this->isAbsoluteLayoutNode($a);
         $bAbsolute = $this->isAbsoluteLayoutNode($b);
@@ -3561,6 +3577,11 @@ final class StaticHtmlEmitter
         }
 
         $this->stickyPrimaryNodeIds[$primaryId] = array('ghost_id' => $ghostId, 'signature' => $signature);
+        foreach ( $stickyAncestorIds as $ancestorId ) {
+            if ( '' !== $ancestorId ) {
+                $this->stickyAncestorNodeIds[$ancestorId] = true;
+            }
+        }
         $this->stickyGhostNodeIds[$ghostId] = true;
         $this->stickyGhostCandidates[] = array(
             'primary_id' => $primaryId,
@@ -3596,9 +3617,8 @@ final class StaticHtmlEmitter
     }
 
     /**
-     * @param array<string, mixed>      $node
-     * @param array<int, string>|null   $styles
      * @param array<string, mixed>|null $parentNode
+     * @param array<int, string>|null   $styles
      * @return array<int, string>
      */
     private function stickyAwareStyleDeclarations(array $node, string $type, ?array $parentNode, ?array $styles = null): array
@@ -3617,6 +3637,15 @@ final class StaticHtmlEmitter
         $styles[] = 'align-self:flex-start';
 
         return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function containsStickyPrimary(array $node): bool
+    {
+        $id = (string) ($node['id'] ?? '');
+        return '' !== $id && isset($this->stickyAncestorNodeIds[$id]);
     }
 
     /**
@@ -3813,7 +3842,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        if ( true === ($layout['clips_content'] ?? false) ) {
+        if ( true === ($layout['clips_content'] ?? false) && ! $this->containsStickyPrimary($node) ) {
             $styles[] = 'overflow:hidden';
         }
 

@@ -195,6 +195,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
                 'name'     => 'Blog Post Desktop',
                 'width'    => 1440,
                 'height'   => 4800,
+                'clipsContent' => true,
                 'children' => array(
                     array(
                         'id'         => '4194:2157',
@@ -202,6 +203,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
                         'name'       => 'Frame 51076550',
                         'width'      => 1216,
                         'height'     => 4163.5,
+                        'clipsContent' => true,
                         'layoutMode' => 'HORIZONTAL',
                         'itemSpacing' => 105,
                         'children'   => array(
@@ -212,7 +214,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
                                 array('id' => '4212:3087/4188:11213', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Step-By-Step Construction', 'width' => 240, 'height' => 24, 'fontSize' => 16),
                                 array('id' => '4212:3087/4188:11220', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Conclusion', 'width' => 240, 'height' => 28, 'fontSize' => 20),
                             )),
-                            array('id' => 'sticky-real:article', 'type' => 'FRAME', 'name' => 'Article body', 'width' => 796, 'height' => 3000, 'children' => array(
+                            array('id' => 'sticky-real:article', 'type' => 'FRAME', 'name' => 'Article body', 'width' => 796, 'height' => 3000, 'clipsContent' => true, 'children' => array(
                                 array('id' => 'sticky-real:title', 'type' => 'TEXT', 'name' => 'Article title', 'characters' => 'Long article', 'width' => 420, 'height' => 56, 'fontSize' => 42),
                             )),
                             array('id' => '4210:12595', 'figma_component_source_id' => '4210:12595', 'type' => 'INSTANCE', 'name' => 'Table of Contents', 'x' => 0, 'y' => 3654, 'width' => 315, 'height' => 510, 'layoutPositioning' => 'ABSOLUTE', 'constraints' => array('horizontal' => 'LEFT', 'vertical' => 'BOTTOM'), 'opacity' => 0.1, 'children' => array(
@@ -234,6 +236,9 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($stickyGhostSourceMismatchHtml, 'data-figma-node-id="4212:3087"'), 'sticky-ghost-source-mismatch-primary-emitted');
     $assert(! str_contains($stickyGhostSourceMismatchHtml, 'data-figma-node-id="4210:12595"'), 'sticky-ghost-source-mismatch-duplicate-suppressed');
     $assert(str_contains($stickyGhostSourceMismatchCss, '.figma-node-4212-3087-table-of-contents{') && str_contains($stickyGhostSourceMismatchCss, 'position:sticky;top:0;align-self:flex-start'), 'sticky-ghost-source-mismatch-primary-css-sticky');
+    $assert(! preg_match('/\.figma-node-sticky-real-root-blog-post-desktop\{[^}]*overflow:hidden/', $stickyGhostSourceMismatchCss), 'sticky-ghost-source-mismatch-root-no-overflow-hidden');
+    $assert(! preg_match('/\.figma-node-4194-2157-frame-51076550\{[^}]*overflow:hidden/', $stickyGhostSourceMismatchCss), 'sticky-ghost-source-mismatch-row-no-overflow-hidden');
+    $assert(1 === preg_match('/\.figma-node-sticky-real-article-article-body\{[^}]*overflow:hidden/', $stickyGhostSourceMismatchCss), 'sticky-ghost-source-mismatch-sibling-clipping-preserved');
     $assert(1 === ($stickyGhostSourceMismatchLayout['sticky_ghosts']['count'] ?? null), 'sticky-ghost-source-mismatch-diagnostic-count');
     $assert('4212:3087' === ($stickyGhostSourceMismatchLayout['sticky_ghosts']['candidates'][0]['primary_id'] ?? null), 'sticky-ghost-source-mismatch-diagnostic-primary');
     $assert('4210:12595' === ($stickyGhostSourceMismatchLayout['sticky_ghosts']['candidates'][0]['ghost_id'] ?? null), 'sticky-ghost-source-mismatch-diagnostic-ghost');
