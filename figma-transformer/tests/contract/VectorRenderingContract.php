@@ -150,14 +150,15 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
                 'strokeWeight'       => 1.5,
                 'strokePaints'       => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
                 'figma_vector_scale' => array('x' => 0.078, 'y' => 0.078),
-                'figma_vector_paths' => array(array('data' => 'M1.25 2.25L16.105 2.25L16.105 12.75L8.6775 12.75L4.5 16.105L4.5 12.75L1.25 12.75Z')),
+                'figma_vector_paths' => array(array('data' => 'M-1.238 -1.116L16.117 -1.116L16.117 16.239L-1.238 16.239Z')),
             ),
         ),
     ));
     $staleScaledIconHtml = $fileContent($staleScaledIconResult, 'index.html');
     $assert(str_contains($staleScaledIconHtml, 'data-figma-node-id="vector:stale-scale-icon"') && str_contains($staleScaledIconHtml, 'data-figma-vector="true"'), 'stale-vector-scale-icon-renders');
+    $assert(str_contains($staleScaledIconHtml, 'viewBox="-1.238 -1.116 17.355 17.355"'), 'stale-vector-scale-icon-uses-real-fse-path-bounds');
     $assert(! str_contains($staleScaledIconHtml, 'scale(0.078 0.078)'), 'stale-vector-scale-icon-skips-stale-scale');
-    $assert(str_contains($staleScaledIconHtml, '<path d="M1.25 2.25L16.105 2.25') && str_contains($staleScaledIconHtml, 'stroke="#000000"'), 'stale-vector-scale-icon-path-remains-visible');
+    $assert(str_contains($staleScaledIconHtml, 'M-1.238-1.116') && str_contains($staleScaledIconHtml, 'stroke="#000000"'), 'stale-vector-scale-icon-path-remains-visible');
       
     $largeDecodedPath = 'M 0 0' . str_repeat(' L 10 10', 3000) . ' Z';
     $largeDecodedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(

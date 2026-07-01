@@ -300,8 +300,10 @@ final class VectorSvgRenderer
             && $pathBounds['y'] + $pathBounds['height'] <= $height + $tolerance;
         $fillsBox = $pathBounds['width'] >= $width * 0.75
             && $pathBounds['height'] >= $height * 0.75;
+        $matchesBoxSpan = abs($pathBounds['width'] - $width) <= $tolerance
+            && abs($pathBounds['height'] - $height) <= $tolerance;
 
-        return ! ( $fitsBox && $fillsBox );
+        return ! ( ( $fitsBox && $fillsBox ) || $matchesBoxSpan );
     }
 
     /**
