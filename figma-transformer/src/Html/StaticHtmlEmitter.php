@@ -3521,8 +3521,12 @@ final class StaticHtmlEmitter
         }
 
         $signature = $this->stickyGhostSemanticSignature($flow);
-        if ( '' === $signature || $signature !== $this->stickyGhostSemanticSignature($ghost) ) {
-            return;
+        $ghostSignature = $this->stickyGhostSemanticSignature($ghost);
+        if ( '' === $signature || $signature !== $ghostSignature ) {
+            $signature = $this->stickyGhostContentSignature($flow);
+            if ( '' === $signature || $signature !== $this->stickyGhostContentSignature($ghost) ) {
+                return;
+            }
         }
 
         $primaryId = (string) ($flow['id'] ?? '');
@@ -3654,13 +3658,26 @@ final class StaticHtmlEmitter
             return 'component:' . $sourceId;
         }
 
+        return $this->stickyGhostContentSignature($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function stickyGhostContentSignature(array $node): string
+    {
+        $textSequence = $this->descendantTextSequence($node);
+        if ( empty($textSequence) ) {
+            return '';
+        }
+
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $type = strtoupper((string) ($node['type'] ?? ''));
         $name = strtolower(trim(preg_replace('/\s+/', ' ', (string) ($node['name'] ?? '')) ?? ''));
         $width = isset($box['width']) && is_numeric($box['width']) ? (string) round((float) $box['width']) : '';
         $height = isset($box['height']) && is_numeric($box['height']) ? (string) round((float) $box['height']) : '';
 
-        return implode('|', array($type, $name, $width, $height, sha1(implode("\n", $this->descendantTextSequence($node)))));
+        return 'content:' . implode('|', array($type, $name, $width, $height, sha1(implode("\n", $textSequence))));
     }
 
     /**
