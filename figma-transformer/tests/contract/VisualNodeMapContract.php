@@ -76,6 +76,51 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-first-first-top-child{width:80px;height:80px;z-index:2;flex-shrink:0}'), 'visual-map-reverse-z-first-child-on-top');
     $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-second-second-lower-child{width:80px;height:80px;z-index:1;flex-shrink:0}'), 'visual-map-reverse-z-second-child-lower');
 
+    $componentCloneZIndexResult = blocks_engine_figma_transformer_contract_transform(
+        array(
+            'name'  => 'Component Clone Z Index Fixture',
+            'nodes' => array(
+                array(
+                    'id'                 => 'clone-z:component',
+                    'type'               => 'COMPONENT',
+                    'name'               => 'Layered component',
+                    'width'              => 240,
+                    'height'             => 120,
+                    'layoutMode'         => 'HORIZONTAL',
+                    'itemSpacing'        => -80,
+                    'stackReverseZIndex' => true,
+                    'children'           => array(
+                        array('id' => 'clone-z:component/front', 'type' => 'RECTANGLE', 'name' => 'Front panel', 'width' => 160, 'height' => 120),
+                        array('id' => 'clone-z:component/back', 'type' => 'RECTANGLE', 'name' => 'Back panel', 'width' => 160, 'height' => 120),
+                    ),
+                ),
+                array(
+                    'id'       => 'clone-z:page',
+                    'type'     => 'FRAME',
+                    'name'     => 'Page',
+                    'width'    => 320,
+                    'height'   => 180,
+                    'children' => array(
+                        array(
+                            'id'          => 'clone-z:instance',
+                            'type'        => 'INSTANCE',
+                            'name'        => 'Layered instance',
+                            'componentId' => 'clone-z:component',
+                            'x'           => 20,
+                            'y'           => 30,
+                            'width'       => 240,
+                            'height'      => 120,
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array('frame_id' => 'clone-z:page')
+    );
+    $componentCloneZIndexCss = blocks_engine_figma_transformer_contract_file_content($componentCloneZIndexResult, 'style.css');
+    $assert(str_contains($componentCloneZIndexCss, '.back-panel{width:160px;height:120px;z-index:2;flex-shrink:0}'), 'visual-map-component-clone-preserves-back-z-index');
+    $assert(str_contains($componentCloneZIndexCss, '.front-panel{width:160px;height:120px;z-index:1;flex-shrink:0}'), 'visual-map-component-clone-preserves-front-z-index');
+
     $visualFlexOffCanvasResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Visual Flex Off Canvas Classification Fixture',
         'nodes' => array(
