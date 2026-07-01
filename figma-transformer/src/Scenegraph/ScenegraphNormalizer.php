@@ -472,6 +472,11 @@ final class ScenegraphNormalizer
             $node['figma_link'] = $link;
         }
 
+        $assetMetadata = $this->normalizeAssetMetadata($node);
+        if ( ! empty($assetMetadata) ) {
+            $node['figma_asset_metadata'] = $assetMetadata;
+        }
+
         $devStatus = ScenegraphDevStatus::resolve($node);
         if ( null !== $devStatus ) {
             // Clean public value (ready_for_dev|completed|null) plus the raw
@@ -499,6 +504,75 @@ final class ScenegraphNormalizer
         }
 
         return $node;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function normalizeAssetMetadata(array $node): array
+    {
+        $metadata = array();
+
+        foreach ( array('publishID', 'sourceLibraryKey', 'libraryKey', 'originFileKey') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== (string) $node[$key] ) {
+                $metadata[$key] = (string) $node[$key];
+            }
+        }
+
+        if ( is_array($node['exportSettings'] ?? null) ) {
+            $exportSettings = $this->normalizeExportSettings($node['exportSettings']);
+            if ( ! empty($exportSettings) ) {
+                $metadata['exportSettings'] = $exportSettings;
+            }
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @param array<int|string, mixed> $settings
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeExportSettings(array $settings): array
+    {
+        $items = array_is_list($settings) ? $settings : array($settings);
+        $normalized = array();
+
+        foreach ( $items as $setting ) {
+            if ( ! is_array($setting) ) {
+                continue;
+            }
+
+            $item = array();
+            foreach ( array('format', 'suffix') as $key ) {
+                if ( isset($setting[$key]) && is_scalar($setting[$key]) ) {
+                    $item[$key] = (string) $setting[$key];
+                }
+            }
+            foreach ( array('contentsOnly', 'useAbsoluteBounds') as $key ) {
+                if ( isset($setting[$key]) && is_bool($setting[$key]) ) {
+                    $item[$key] = $setting[$key];
+                }
+            }
+            if ( is_array($setting['constraint'] ?? null) ) {
+                $constraint = array();
+                if ( isset($setting['constraint']['type']) && is_scalar($setting['constraint']['type']) ) {
+                    $constraint['type'] = (string) $setting['constraint']['type'];
+                }
+                if ( isset($setting['constraint']['value']) && is_numeric($setting['constraint']['value']) ) {
+                    $constraint['value'] = (float) $setting['constraint']['value'];
+                }
+                if ( ! empty($constraint) ) {
+                    $item['constraint'] = $constraint;
+                }
+            }
+            if ( ! empty($item) ) {
+                $normalized[] = $item;
+            }
+        }
+
+        return $normalized;
     }
 
     /**
@@ -3756,8 +3830,7 @@ final class ScenegraphNormalizer
                         continue;
                     }
 
-                    $reference = $this->readImageReference($paint);
-                    if ( null !== $reference ) {
+                    foreach ( $this->readImageReferences($paint) as $reference ) {
                         $references[] = array(
                             'node_id'    => $id,
                             'paint'      => $paintKey,
@@ -3781,20 +3854,50 @@ final class ScenegraphNormalizer
 
     /**
      * @param array<string, mixed> $paint
-     * @return array{source_key: string, ref: string}|null
+     * @return array<int, array{source_key: string, ref: string}>
      */
-    private function readImageReference(array $paint): ?array
+    private function readImageReferences(array $paint): array
     {
+        $references = array();
         foreach ( array('ref', 'imageRef', 'imageHash', 'asset_id', 'image_ref') as $key ) {
             if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
-                return array(
+                $references[] = array(
                     'source_key' => $key,
                     'ref'        => (string) $paint[$key],
                 );
             }
         }
 
-        return null;
+        foreach ( array('image', 'thumbnail', 'imageThumbnail', 'sourceImage') as $imageKey ) {
+            if ( ! is_array($paint[$imageKey] ?? null) ) {
+                continue;
+            }
+            if ( isset($paint[$imageKey]['hash']) && is_scalar($paint[$imageKey]['hash']) && '' !== (string) $paint[$imageKey]['hash'] ) {
+                $references[] = array(
+                    'source_key' => $imageKey . '.hash',
+                    'ref'        => (string) $paint[$imageKey]['hash'],
+                );
+            }
+            if ( is_array($paint[$imageKey]['assetRef'] ?? null) ) {
+                foreach ( array('id', 'key', 'nodeID', 'fileKey') as $assetKey ) {
+                    if ( isset($paint[$imageKey]['assetRef'][$assetKey]) && is_scalar($paint[$imageKey]['assetRef'][$assetKey]) && '' !== (string) $paint[$imageKey]['assetRef'][$assetKey] ) {
+                        $references[] = array(
+                            'source_key' => $imageKey . '.assetRef.' . $assetKey,
+                            'ref'        => (string) $paint[$imageKey]['assetRef'][$assetKey],
+                        );
+                        break;
+                    }
+                }
+            }
+            if ( is_array($paint[$imageKey]['sourceImage'] ?? null) && isset($paint[$imageKey]['sourceImage']['hash']) && is_scalar($paint[$imageKey]['sourceImage']['hash']) && '' !== (string) $paint[$imageKey]['sourceImage']['hash'] ) {
+                $references[] = array(
+                    'source_key' => $imageKey . '.sourceImage.hash',
+                    'ref'        => (string) $paint[$imageKey]['sourceImage']['hash'],
+                );
+            }
+        }
+
+        return $references;
     }
 
     /**

@@ -250,8 +250,12 @@ final class PaintNormalizer
                     $normalized['ref'] = $imageRef;
                     $normalized['imageHash'] = $imageRef;
                 }
-                if ( isset($paint['image']['name']) && is_scalar($paint['image']['name']) ) {
-                    $normalized['imageName'] = (string) $paint['image']['name'];
+                $imageMetadata = $this->normalizeNestedImageMetadata($paint['image']);
+                if ( ! empty($imageMetadata) ) {
+                    $normalized['image'] = $imageMetadata;
+                    if ( isset($imageMetadata['name']) ) {
+                        $normalized['imageName'] = $imageMetadata['name'];
+                    }
                 }
             }
 
@@ -264,9 +268,13 @@ final class PaintNormalizer
                 if ( isset($paint['imageThumbnail']['name']) && is_scalar($paint['imageThumbnail']['name']) ) {
                     $normalized['thumbnailName'] = (string) $paint['imageThumbnail']['name'];
                 }
+                $thumbnailMetadata = $this->normalizeNestedImageMetadata($paint['imageThumbnail']);
+                if ( ! empty($thumbnailMetadata) ) {
+                    $normalized['thumbnail'] = $thumbnailMetadata;
+                }
             }
 
-            foreach ( array('imageScaleMode', 'scaleMode', 'altText') as $key ) {
+            foreach ( array('imageScaleMode', 'scaleMode', 'altText', 'publishID', 'sourceLibraryKey', 'libraryKey') as $key ) {
                 if ( isset($paint[$key]) && is_scalar($paint[$key]) ) {
                     $normalized[$key] = (string) $paint[$key];
                 }
@@ -287,6 +295,24 @@ final class PaintNormalizer
             }
             if ( isset($paint['thumbHash']) && is_scalar($paint['thumbHash']) && '' !== (string) $paint['thumbHash'] ) {
                 $normalized['thumbHash'] = $this->normalizeByteString((string) $paint['thumbHash']);
+            }
+            if ( is_array($paint['assetRef'] ?? null) ) {
+                $assetRef = $this->normalizeAssetRef($paint['assetRef']);
+                if ( ! empty($assetRef) ) {
+                    $normalized['assetRef'] = $assetRef;
+                }
+            }
+            if ( is_array($paint['sourceImage'] ?? null) ) {
+                $sourceImage = $this->normalizeNestedImageMetadata($paint['sourceImage']);
+                if ( ! empty($sourceImage) ) {
+                    $normalized['sourceImage'] = $sourceImage;
+                }
+            }
+            if ( is_array($paint['exportSettings'] ?? null) ) {
+                $exportSettings = $this->normalizeExportSettings($paint['exportSettings']);
+                if ( ! empty($exportSettings) ) {
+                    $normalized['exportSettings'] = $exportSettings;
+                }
             }
             foreach ( array('transform', 'imageTransform', 'cropTransform') as $transformKey ) {
                 if ( is_array($paint[$transformKey] ?? null) ) {
@@ -373,6 +399,113 @@ final class PaintNormalizer
         }
 
         return $this->normalizeImageHash((string) $image['hash']);
+    }
+
+    /**
+     * @param array<string, mixed> $image
+     * @return array<string, mixed>
+     */
+    private function normalizeNestedImageMetadata(array $image): array
+    {
+        $metadata = array();
+
+        foreach ( array('hash' => 'hash', 'name' => 'name', 'thumbHash' => 'thumbHash', 'publishID' => 'publishID', 'sourceLibraryKey' => 'sourceLibraryKey', 'libraryKey' => 'libraryKey') as $source => $target ) {
+            if ( ! isset($image[$source]) || ! is_scalar($image[$source]) || '' === (string) $image[$source] ) {
+                continue;
+            }
+
+            $metadata[$target] = 'hash' === $source
+                ? $this->normalizeImageHash((string) $image[$source])
+                : ('thumbHash' === $source ? $this->normalizeByteString((string) $image[$source]) : (string) $image[$source]);
+        }
+
+        foreach ( array('width', 'height') as $key ) {
+            if ( isset($image[$key]) && is_numeric($image[$key]) ) {
+                $metadata[$key] = (float) $image[$key];
+            }
+        }
+
+        if ( is_array($image['assetRef'] ?? null) ) {
+            $assetRef = $this->normalizeAssetRef($image['assetRef']);
+            if ( ! empty($assetRef) ) {
+                $metadata['assetRef'] = $assetRef;
+            }
+        }
+
+        if ( is_array($image['sourceImage'] ?? null) ) {
+            $sourceImage = $this->normalizeNestedImageMetadata($image['sourceImage']);
+            if ( ! empty($sourceImage) ) {
+                $metadata['sourceImage'] = $sourceImage;
+            }
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @param array<string, mixed> $assetRef
+     * @return array<string, mixed>
+     */
+    private function normalizeAssetRef(array $assetRef): array
+    {
+        $normalized = array();
+        foreach ( array('id', 'key', 'nodeID', 'fileKey', 'libraryKey', 'publishID', 'sourceLibraryKey') as $key ) {
+            if ( isset($assetRef[$key]) && is_scalar($assetRef[$key]) && '' !== (string) $assetRef[$key] ) {
+                $normalized[$key] = (string) $assetRef[$key];
+            }
+        }
+
+        $guid = $this->readGuidId($assetRef['guid'] ?? null);
+        if ( null !== $guid ) {
+            $normalized['guid'] = $guid;
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param array<int|string, mixed> $settings
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeExportSettings(array $settings): array
+    {
+        $items = array_is_list($settings) ? $settings : array($settings);
+        $normalized = array();
+
+        foreach ( $items as $setting ) {
+            if ( ! is_array($setting) ) {
+                continue;
+            }
+
+            $item = array();
+            foreach ( array('format', 'suffix') as $key ) {
+                if ( isset($setting[$key]) && is_scalar($setting[$key]) ) {
+                    $item[$key] = (string) $setting[$key];
+                }
+            }
+            foreach ( array('contentsOnly', 'useAbsoluteBounds') as $key ) {
+                if ( isset($setting[$key]) && is_bool($setting[$key]) ) {
+                    $item[$key] = $setting[$key];
+                }
+            }
+            if ( is_array($setting['constraint'] ?? null) ) {
+                $constraint = array();
+                if ( isset($setting['constraint']['type']) && is_scalar($setting['constraint']['type']) ) {
+                    $constraint['type'] = (string) $setting['constraint']['type'];
+                }
+                if ( isset($setting['constraint']['value']) && is_numeric($setting['constraint']['value']) ) {
+                    $constraint['value'] = (float) $setting['constraint']['value'];
+                }
+                if ( ! empty($constraint) ) {
+                    $item['constraint'] = $constraint;
+                }
+            }
+            if ( ! empty($item) ) {
+                $normalized[] = $item;
+            }
+        }
+
+        return $normalized;
     }
 
     /**

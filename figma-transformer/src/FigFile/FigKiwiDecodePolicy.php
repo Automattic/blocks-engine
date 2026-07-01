@@ -44,12 +44,16 @@ final class FigKiwiDecodePolicy
             'FontMetaData' => array('key', 'fontLineHeight', 'fontStyle', 'fontWeight'),
             'FontVariation' => array('axisTag', 'axisName', 'value'),
             'Number' => array('value', 'units'),
-            'Paint' => array('type', 'color', 'opacity', 'visible', 'blendMode', 'stops', 'transform', 'imageTransform', 'cropTransform', 'cropRect', 'image', 'imageThumbnail', 'imageScaleMode', 'originalImageWidth', 'originalImageHeight', 'scale', 'rotation', 'imageShouldColorManage', 'thumbHash', 'animationFrame', 'altText'),
+            'Paint' => array('type', 'color', 'opacity', 'visible', 'blendMode', 'stops', 'transform', 'imageTransform', 'cropTransform', 'cropRect', 'image', 'imageThumbnail', 'imageScaleMode', 'originalImageWidth', 'originalImageHeight', 'scale', 'rotation', 'imageShouldColorManage', 'thumbHash', 'animationFrame', 'altText', 'assetRef', 'sourceImage', 'publishID', 'sourceLibraryKey', 'libraryKey', 'exportSettings'),
             // Effect struct (#328). The Kiwi blur token is `FOREGROUND_BLUR`
             // (REST calls it `LAYER_BLUR`); the normalizer bridges both. `offset`
             // resolves to the whitelisted `Vector` struct and `color` to `Color`.
             'Effect' => array('type', 'color', 'offset', 'radius', 'spread', 'visible', 'blendMode', 'showShadowBehindNode'),
-            'Image' => array('hash', 'name'),
+            'Image' => array('hash', 'name', 'width', 'height', 'thumbHash', 'assetRef', 'sourceImage', 'publishID', 'sourceLibraryKey', 'libraryKey'),
+            'SourceImage' => array('hash', 'name', 'width', 'height', 'thumbHash', 'assetRef', 'publishID', 'sourceLibraryKey', 'libraryKey'),
+            'AssetRef' => array('id', 'key', 'nodeID', 'fileKey', 'libraryKey', 'publishID', 'sourceLibraryKey', 'guid'),
+            'ExportSettings' => array('format', 'suffix', 'constraint', 'contentsOnly', 'useAbsoluteBounds'),
+            'ExportConstraint' => array('type', 'value'),
             'Blob' => array('bytes'),
             'Path' => array('commandsBlob', 'windingRule', 'styleID'),
             'VectorPath' => array('commandsBlob', 'windingRule', 'styleID'),
@@ -267,7 +271,8 @@ final class FigKiwiDecodePolicy
             $this->nodeEffectFields(),
             $this->nodeVariableBindingFields(),
             $this->nodePrototypeLinkFields(),
-            $this->documentMetadataFields()
+            $this->documentMetadataFields(),
+            $this->nodeAssetMetadataFields()
         );
     }
 
@@ -405,6 +410,14 @@ final class FigKiwiDecodePolicy
     {
         // Link extraction plus prototype metadata needed for diagnostics; richer animation action data stays undecoded.
         return array('hyperlink', 'prototypeInteractions', 'reactions', 'transitionNodeID', 'navigationType', 'connectionType', 'connectionURL');
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nodeAssetMetadataFields(): array
+    {
+        return array('exportSettings', 'publishID', 'sourceLibraryKey', 'libraryKey', 'originFileKey');
     }
 
     /**

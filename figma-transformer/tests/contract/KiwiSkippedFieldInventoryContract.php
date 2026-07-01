@@ -146,7 +146,7 @@ function blocks_engine_figma_transformer_kiwi_inventory_schema_fixture(): string
         . blocks_engine_figma_transformer_kiwi_schema_field('guid', 0, false, 3)
         . blocks_engine_figma_transformer_kiwi_string('NodeChange')
         . chr(2)
-        . blocks_engine_figma_transformer_wire_varint(20)
+        . blocks_engine_figma_transformer_wire_varint(21)
         . blocks_engine_figma_transformer_kiwi_schema_field('guid', 0, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 3)
@@ -167,6 +167,7 @@ function blocks_engine_figma_transformer_kiwi_inventory_schema_fixture(): string
         . blocks_engine_figma_transformer_kiwi_schema_field('extraGuid', 0, false, 18)
         . blocks_engine_figma_transformer_kiwi_schema_field('metadataAuditTrail', -6, false, 19)
         . blocks_engine_figma_transformer_kiwi_schema_field('handoffStatusHistory', -6, false, 20)
+        . blocks_engine_figma_transformer_kiwi_schema_field('exportPreview', -6, false, 21)
         . blocks_engine_figma_transformer_kiwi_string('Message')
         . chr(2)
         . blocks_engine_figma_transformer_wire_varint(2)
@@ -241,6 +242,8 @@ function blocks_engine_figma_transformer_kiwi_inventory_message_fixture(): strin
         . blocks_engine_figma_transformer_kiwi_string('metadata-audit')
         . blocks_engine_figma_transformer_wire_varint(20)
         . blocks_engine_figma_transformer_kiwi_string('handoff-history')
+        . blocks_engine_figma_transformer_wire_varint(21)
+        . blocks_engine_figma_transformer_kiwi_string('export-preview')
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);
 }
