@@ -554,10 +554,35 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
             $derivedMeasuredLineHeightDiagnostic = $styleDiagnostic;
         }
     }
-    $assert(str_contains($derivedMeasuredLineHeightCss, '.figma-node-text-derived-measured-line-height-measured-line-height{width:120px;height:40px;line-height:20px;white-space:pre-line}'), 'derived-baselines-prefer-measured-line-height');
-    $assert('20px' === ($derivedMeasuredLineHeightDiagnostic['expected']['line_height'] ?? null), 'derived-baselines-measured-line-height-expected-diagnostic');
-    $assert('20px' === ($derivedMeasuredLineHeightDiagnostic['emitted']['line_height'] ?? null), 'derived-baselines-measured-line-height-emitted-diagnostic');
+    $assert(str_contains($derivedMeasuredLineHeightCss, '.figma-node-text-derived-measured-line-height-measured-line-height{width:120px;height:40px;line-height:23px;white-space:pre-line}'), 'derived-baselines-prefer-position-delta-line-height');
+    $assert('23px' === ($derivedMeasuredLineHeightDiagnostic['expected']['line_height'] ?? null), 'derived-baselines-measured-line-height-expected-diagnostic');
+    $assert('23px' === ($derivedMeasuredLineHeightDiagnostic['emitted']['line_height'] ?? null), 'derived-baselines-measured-line-height-emitted-diagnostic');
     $assert(array() === ($derivedMeasuredLineHeightDiagnostic['mismatches'] ?? null), 'derived-baselines-measured-line-height-no-diagnostic-mismatch');
+
+    $singleLineButtonLabelResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Single Line Button Label Fixture',
+        'nodes' => array(
+            array(
+                'id'              => 'text:single-line-button-label',
+                'type'            => 'TEXT',
+                'name'            => 'Button Label',
+                'characters'      => 'Submit',
+                'width'           => 60,
+                'height'          => 12,
+                'fontSize'        => 16,
+                'lineHeightPx'    => 24,
+                'derivedTextData' => array(
+                    'layoutSize' => array('x' => 60, 'y' => 12),
+                    'baselines'  => array(
+                        array('firstCharacter' => 0, 'endCharacter' => 6, 'lineY' => -6, 'lineHeight' => 24, 'lineAscent' => 18, 'position' => array('x' => 0, 'y' => 10)),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $singleLineButtonLabelCss = $fileContent($singleLineButtonLabelResult, 'style.css');
+    $assert(str_contains($singleLineButtonLabelCss, '.figma-node-text-single-line-button-label-button-label{width:60px;font-size:16px;line-height:24px}'), 'single-line-button-label-avoids-fixed-tiny-height');
+    $assert(! str_contains($singleLineButtonLabelCss, '.figma-node-text-single-line-button-label-button-label{width:60px;height:12px'), 'single-line-button-label-no-overflowing-fixed-height');
 }
 
 function blocks_engine_figma_transformer_run_text_style_contract(callable $assert, callable $fileContent, callable $artifactQualitySignal, callable $artifactQualitySignalCodes): void

@@ -3450,6 +3450,9 @@ final class StaticHtmlEmitter
             } elseif ( 'HUG' === $sizing ) {
                 $derivedTextSize = 'TEXT' === $type ? $this->derivedTextLayoutSize($node, $dimension) : null;
                 if ( null !== $derivedTextSize ) {
+                    if ( 'height' === $dimension && $this->textShouldAvoidTinyFixedHeight($node, $derivedTextSize) ) {
+                        continue;
+                    }
                     $styles[] = $dimension . ':' . $this->number($derivedTextSize) . 'px';
                 } elseif ( 'flex' === ($layout['display'] ?? null) && isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
                     $intrinsicMainAxisSize = $this->flexHugMainAxisIntrinsicSizeStyle($node, $dimension);
@@ -3462,6 +3465,9 @@ final class StaticHtmlEmitter
             } elseif ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
                 $property = $dimension;
                 $value = 'height' === $dimension && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : (float) $box[$dimension];
+                if ( 'height' === $dimension && 'TEXT' === $type && $this->textShouldAvoidTinyFixedHeight($node, $value) ) {
+                    continue;
+                }
                 $styles[] = $property . ':' . $this->number($value) . 'px';
             }
         }
@@ -4632,6 +4638,11 @@ final class StaticHtmlEmitter
             return null;
         }
 
+        $baselineDeltaLineHeight = $this->textMedianPositiveBaselinePositionDelta($baselines);
+        if ( null !== $baselineDeltaLineHeight ) {
+            return $baselineDeltaLineHeight;
+        }
+
         $lineHeights = array();
         foreach ( $baselines as $baseline ) {
             if ( is_array($baseline) && isset($baseline['lineHeight']) && is_numeric($baseline['lineHeight']) && 0.0 < (float) $baseline['lineHeight'] ) {
@@ -4643,18 +4654,29 @@ final class StaticHtmlEmitter
             return $lineHeights[(int) floor(( count($lineHeights) - 1 ) / 2)];
         }
 
+        return null;
+    }
+
+    /**
+     * @param array<int, mixed> $baselines
+     */
+    private function textMedianPositiveBaselinePositionDelta(array $baselines): ?float
+    {
         $positions = array();
         foreach ( $baselines as $baseline ) {
             if ( is_array($baseline) && isset($baseline['position_y']) && is_numeric($baseline['position_y']) ) {
                 $positions[] = (float) $baseline['position_y'];
             }
         }
+        if ( 2 > count($positions) ) {
+            return null;
+        }
         sort($positions);
 
         $deltas = array();
         for ( $i = 1; $i < count($positions); $i++ ) {
             $delta = $positions[$i] - $positions[$i - 1];
-            if ( 0.0 < $delta ) {
+            if ( 0.001 < $delta && 10000.0 > $delta ) {
                 $deltas[] = $delta;
             }
         }
@@ -4664,6 +4686,37 @@ final class StaticHtmlEmitter
 
         sort($deltas);
         return $deltas[(int) floor(( count($deltas) - 1 ) / 2)];
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function textShouldAvoidTinyFixedHeight(array $node, float $height): bool
+    {
+        if ( 0.0 >= $height ) {
+            return false;
+        }
+
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        if ( '' === trim($this->nodePlainText($node)) || $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) {
+            return false;
+        }
+
+        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
+        $baselines = is_array($derivedLayout['baselines'] ?? null) ? array_values(array_filter($derivedLayout['baselines'], 'is_array')) : array();
+        if ( 1 !== count($baselines) ) {
+            return false;
+        }
+
+        $baseline = $baselines[0];
+        if ( ! isset($baseline['lineHeight'], $baseline['lineY']) || ! is_numeric($baseline['lineHeight']) || ! is_numeric($baseline['lineY']) ) {
+            return false;
+        }
+
+        $lineHeight = (float) $baseline['lineHeight'];
+        $lineY = (float) $baseline['lineY'];
+
+        return 0.0 > $lineY && $lineHeight > $height + 0.5;
     }
 
     /**
