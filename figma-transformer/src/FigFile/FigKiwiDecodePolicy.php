@@ -55,8 +55,10 @@ final class FigKiwiDecodePolicy
             'DerivedSymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
             'GUIDPath' => array('guids'),
             'StyleId' => array('guid'),
+            'StateGroupPropertyValueOrder' => array('property', 'values'),
+            'VariantPropSpec' => array('propDefId', 'value'),
             'ComponentPropAssignment' => array('defID', 'value', 'varValue'),
-            'ComponentPropValue' => array('boolValue', 'textValue', 'guidValue', 'textDataValue', 'symbolIdValue'),
+            'ComponentPropValue' => array('boolValue', 'textValue', 'guidValue', 'floatValue', 'textDataValue', 'symbolIdValue'),
             'VariableData' => array('value', 'dataType', 'resolvedDataType'),
             'VariableAnyValue' => array('boolValue', 'textValue', 'floatValue', 'colorValue', 'symbolIdValue', 'textDataValue'),
             'SymbolId' => array('guid'),
@@ -124,6 +126,9 @@ final class FigKiwiDecodePolicy
         $name = strtolower($fieldName . ' ' . $type . ' ' . $parentMessage);
         if ( str_contains($name, 'variable') || str_contains($name, 'varvalue') || str_contains($name, 'parameter') || str_contains($name, 'consumption') ) {
             return 'variables_bindings';
+        }
+        if ( str_contains($name, 'stategroup') ) {
+            return 'component_overrides';
         }
         if ( str_contains($name, 'bound') || str_contains($name, 'layout') || str_contains($name, 'constraint') || str_contains($name, 'padding') || str_contains($name, 'size') || str_contains($name, 'transform') || str_contains($name, 'corner') || str_contains($name, 'stack') ) {
             return 'geometry_layout';
@@ -291,6 +296,7 @@ final class FigKiwiDecodePolicy
         return array(
             'key', 'componentKey', 'componentOrStateGroupKey', 'originComponentKey',
             'componentId', 'mainComponentId', 'componentPropAssignments', 'componentPropDefs', 'componentPropRefs',
+            'isStateGroup', 'stateGroupPropertyValueOrders', 'variantPropSpecs',
             'styleIdForEffect',
             'mainComponent', 'component', 'symbolData', 'derivedSymbolData', 'guidPath',
         );

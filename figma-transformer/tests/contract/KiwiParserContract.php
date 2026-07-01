@@ -222,6 +222,49 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert(! array_key_exists('glyphs', $kiwiDerivedText), 'kiwi-selective-skips-derived-text-glyphs');
     $assert('Inter' === ($kiwiDerivedText['fontMetaData']['key']['family'] ?? null), 'kiwi-selective-decodes-derived-text-font-family');
     $assert(700 === ($kiwiDerivedText['fontMetaData']['fontWeight'] ?? null), 'kiwi-selective-decodes-derived-text-font-weight');
+
+    $kiwiStateGroupSchema = $kiwiDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_state_group_schema_fixture());
+    $kiwiStateGroupMessage = $kiwiDecoder->decodeMessageSelective(
+        blocks_engine_figma_transformer_kiwi_state_group_message_fixture(),
+        $kiwiStateGroupSchema['schema'] ?? array()
+    );
+    $kiwiStateGroupNode = $kiwiStateGroupMessage['message']['nodeChanges'][0] ?? array();
+    $kiwiVariantNode = $kiwiStateGroupMessage['message']['nodeChanges'][1] ?? array();
+    $assert(true === ($kiwiStateGroupNode['isStateGroup'] ?? null), 'kiwi-selective-decodes-state-group-flag');
+    $assert('Screen Size' === ($kiwiStateGroupNode['stateGroupPropertyValueOrders'][0]['property'] ?? null), 'kiwi-selective-decodes-state-group-order-property');
+    $assert(array('Desktop', 'Mobile') === ($kiwiStateGroupNode['stateGroupPropertyValueOrders'][0]['values'] ?? null), 'kiwi-selective-decodes-state-group-order-values');
+    $assert('Desktop' === ($kiwiVariantNode['variantPropSpecs'][0]['value'] ?? null), 'kiwi-selective-decodes-variant-prop-spec-value');
+
+    $kiwiStateGroupNormalizer = new ScenegraphNormalizer();
+    $kiwiStateGroupNormalized = $kiwiStateGroupNormalizer->normalize(array(
+        'name'  => 'Kiwi State Group Metadata Fixture',
+        'nodes' => array(
+            array(
+                'id'                             => 'state-group:root',
+                'type'                           => 'FRAME',
+                'name'                           => 'Newsletter Signup',
+                'isStateGroup'                   => true,
+                'stateGroupPropertyValueOrders'  => array(
+                    array('property' => 'Screen Size', 'values' => array('Desktop', 'Mobile')),
+                ),
+            ),
+            array(
+                'id'               => 'state-group:desktop',
+                'type'             => 'SYMBOL',
+                'name'             => 'Screen Size=Desktop',
+                'variantPropSpecs' => array(
+                    array('propDefId' => array('sessionID' => 2422394609, 'localID' => 4048757538), 'value' => 'Desktop'),
+                ),
+            ),
+        ),
+    ));
+    $kiwiStateGroupMetadata = $kiwiStateGroupNormalized['nodes'][0]['figma_component'] ?? array();
+    $kiwiVariantMetadata = $kiwiStateGroupNormalized['nodes'][1]['figma_component'] ?? array();
+    $assert(true === ($kiwiStateGroupMetadata['state_group'] ?? null), 'kiwi-state-group-normalizes-component-flag');
+    $assert('Screen Size' === ($kiwiStateGroupMetadata['state_group_property_value_orders'][0]['property'] ?? null), 'kiwi-state-group-normalizes-order-property');
+    $assert(array('Desktop', 'Mobile') === ($kiwiStateGroupMetadata['state_group_property_value_orders'][0]['values'] ?? null), 'kiwi-state-group-normalizes-order-values');
+    $assert('2422394609:4048757538' === ($kiwiVariantMetadata['variant_prop_specs'][0]['prop_def_id'] ?? null), 'kiwi-variant-normalizes-prop-def-id');
+    $assert('Desktop' === ($kiwiVariantMetadata['variant_prop_specs'][0]['value'] ?? null), 'kiwi-variant-normalizes-value');
     
     $kiwiFrameMaskResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'document' => array(
@@ -791,6 +834,92 @@ function blocks_engine_figma_transformer_kiwi_derived_text_message_fixture(): st
         . blocks_engine_figma_transformer_kiwi_varfloat(24.0)
         . blocks_engine_figma_transformer_wire_varint_signed(700)
         . blocks_engine_figma_transformer_wire_varint(0)
+        . blocks_engine_figma_transformer_wire_varint(0);
+}
+
+function blocks_engine_figma_transformer_kiwi_state_group_schema_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(5)
+        . blocks_engine_figma_transformer_kiwi_string('GUID')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('sessionID', -4, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('localID', -4, false, 2)
+        . blocks_engine_figma_transformer_kiwi_string('StateGroupPropertyValueOrder')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('property', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('values', -6, true, 2)
+        . blocks_engine_figma_transformer_kiwi_string('VariantPropSpec')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('propDefId', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('value', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_string('NodeChange')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(6)
+        . blocks_engine_figma_transformer_kiwi_schema_field('guid', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('isStateGroup', -1, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stateGroupPropertyValueOrders', 1, true, 5)
+        . blocks_engine_figma_transformer_kiwi_schema_field('variantPropSpecs', 2, true, 6)
+        . blocks_engine_figma_transformer_kiwi_string('Message')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 3, true, 2);
+}
+
+function blocks_engine_figma_transformer_kiwi_state_group_message_fixture(): string
+{
+    $stateGroupOrder = blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_string('Screen Size')
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('Desktop')
+        . blocks_engine_figma_transformer_kiwi_string('Mobile')
+        . blocks_engine_figma_transformer_wire_varint(0);
+
+    $stateGroupNode = blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(4166)
+        . blocks_engine_figma_transformer_wire_varint(11733)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('FRAME')
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_string('Newsletter Signup')
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(5)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . $stateGroupOrder
+        . blocks_engine_figma_transformer_wire_varint(0);
+
+    $variantPropSpec = blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(2422394609)
+        . blocks_engine_figma_transformer_wire_varint(4048757538)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('Desktop')
+        . blocks_engine_figma_transformer_wire_varint(0);
+
+    $variantNode = blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(3266)
+        . blocks_engine_figma_transformer_wire_varint(75449)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('SYMBOL')
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_string('Screen Size=Desktop')
+        . blocks_engine_figma_transformer_wire_varint(6)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . $variantPropSpec
+        . blocks_engine_figma_transformer_wire_varint(0);
+
+    return blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_string('NODE_CHANGES')
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . $stateGroupNode
+        . $variantNode
         . blocks_engine_figma_transformer_wire_varint(0);
 }
 
