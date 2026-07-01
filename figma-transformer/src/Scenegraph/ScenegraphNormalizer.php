@@ -1043,6 +1043,14 @@ final class ScenegraphNormalizer
             $metadata['component_properties'] = $node['componentProperties'];
         }
 
+        if ( is_array($node['componentPropDefs'] ?? null) ) {
+            $metadata['component_prop_defs'] = $node['componentPropDefs'];
+        }
+
+        if ( is_array($node['componentPropRefs'] ?? null) ) {
+            $metadata['component_prop_refs'] = $node['componentPropRefs'];
+        }
+
         if ( true === ($node['isStateGroup'] ?? false) ) {
             $metadata['state_group'] = true;
         }

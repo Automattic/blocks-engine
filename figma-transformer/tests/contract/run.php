@@ -3736,6 +3736,48 @@ $assert(! str_contains($derivedSymbolInstanceHtml, '<g transform="scale'), 'deri
 $assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-2-derived-label{width:90px;height:24px;position:absolute;left:12px;top:6px'), 'derived-symbol-instance-label-size-position');
 $assert(str_contains($derivedSymbolInstanceCss, '.figma-node-derived-instance-40-3-derived-icon{width:10px;height:10px;position:absolute;left:110px;top:10px'), 'derived-symbol-instance-icon-size-position');
 
+$derivedSymbolStructInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Derived Symbol Struct Overrides Fixture',
+    'nodes' => array(
+        array(
+            'guid'     => array('sessionID' => 43, 'localID' => 1),
+            'type'     => 'SYMBOL',
+            'name'     => 'Derived Symbol Struct',
+            'children' => array(
+                array(
+                    'guid'       => array('sessionID' => 43, 'localID' => 2),
+                    'type'       => 'TEXT',
+                    'name'       => 'Struct Label',
+                    'characters' => 'Default Struct',
+                    'width'      => 80,
+                    'height'     => 20,
+                ),
+            ),
+        ),
+        array(
+            'id'                => 'derived-struct:instance',
+            'type'              => 'INSTANCE',
+            'name'              => 'Derived Struct Instance',
+            'symbolData'        => array(
+                'symbolID' => array('sessionID' => 43, 'localID' => 1),
+            ),
+            'derivedSymbolData' => array(
+                'symbolID' => array('guid' => array('sessionID' => 43, 'localID' => 1)),
+                'symbolOverrides' => array(
+                    array(
+                        'guidPath' => array('guids' => array(array('sessionID' => 43, 'localID' => 2))),
+                        'textData' => array('characters' => 'Struct override'),
+                    ),
+                ),
+                'uniformScaleFactor' => 1.0,
+            ),
+        ),
+    ),
+));
+$derivedSymbolStructInstanceHtml = $fileContent($derivedSymbolStructInstanceResult, 'index.html');
+$assert(str_contains($derivedSymbolStructInstanceHtml, 'Struct override'), 'derived-symbol-struct-instance-text-override');
+$assert(str_contains($derivedSymbolStructInstanceHtml, 'data-figma-node-id="derived-struct:instance/43:2"'), 'derived-symbol-struct-instance-label-namespaced');
+
 $derivedSymbolPathOverrideResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Derived Symbol Path Override Fixture',
     'blobs' => array(array('bytes' => $vectorCommandBlob)),

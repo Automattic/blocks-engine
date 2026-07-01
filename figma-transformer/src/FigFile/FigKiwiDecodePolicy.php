@@ -64,6 +64,7 @@ final class FigKiwiDecodePolicy
             'Constraints' => array('horizontal', 'vertical'),
             'SymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
             'DerivedSymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
+            'SymbolOverride' => array('nodeId', 'node_id', 'id', 'guidPath', 'characters', 'text', 'name', 'textData', 'derivedTextData', 'fontName', 'fontFamily', 'fontPostScriptName', 'fontWeight', 'fontSize', 'lineHeight', 'lineHeightPx', 'lineHeightPercent', 'letterSpacing', 'listSpacing', 'styleIdForText', 'size', 'relativeTransform', 'absoluteTransform', 'transform', 'fillPaints', 'fills', 'strokes', 'strokePaints', 'strokeWeight', 'strokeAlign', 'dashPattern', 'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight', 'borderLeftWeight', 'borderRightWeight', 'effects', 'styleIdForFill', 'styleIdForStrokeFill', 'styleIdForStroke', 'styleIdForEffect', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd', 'arcData', 'cornerRadius', 'rectangleTopLeftCornerRadius', 'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius', 'rectangleBottomRightCornerRadius', 'stackMode', 'stackPrimarySizing', 'stackCounterSizing', 'stackPositioning', 'stackChildAlignSelf', 'stackChildPrimaryGrow', 'componentPropAssignments'),
             'GUIDPath' => array('guids'),
             'StyleId' => array('guid'),
             'StateGroupPropertyValueOrder' => array('property', 'values'),

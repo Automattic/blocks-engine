@@ -319,6 +319,20 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert(array('Desktop', 'Mobile') === ($kiwiStateGroupNode['stateGroupPropertyValueOrders'][0]['values'] ?? null), 'kiwi-selective-decodes-state-group-order-values');
     $assert('Desktop' === ($kiwiVariantNode['variantPropSpecs'][0]['value'] ?? null), 'kiwi-selective-decodes-variant-prop-spec-value');
 
+    $kiwiDerivedSymbolSchema = $kiwiDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_derived_symbol_schema_fixture());
+    $kiwiDerivedSymbolMessage = $kiwiDecoder->decodeMessageSelective(
+        blocks_engine_figma_transformer_kiwi_derived_symbol_message_fixture(),
+        $kiwiDerivedSymbolSchema['schema'] ?? array()
+    );
+    $kiwiDerivedSymbolNode = $kiwiDerivedSymbolMessage['message']['nodeChanges'][0] ?? array();
+    $kiwiDerivedSymbolOverride = $kiwiDerivedSymbolNode['derivedSymbolData']['symbolOverrides'][0] ?? array();
+    $assert('40:1' === blocks_engine_figma_transformer_kiwi_format_guid($kiwiDerivedSymbolNode['derivedSymbolData']['symbolID']['guid'] ?? null), 'kiwi-selective-decodes-derived-symbol-id');
+    $assert('40:2' === blocks_engine_figma_transformer_kiwi_format_guid($kiwiDerivedSymbolOverride['guidPath']['guids'][0] ?? null), 'kiwi-selective-decodes-derived-symbol-override-guid-path');
+    $assert('Derived override' === ($kiwiDerivedSymbolOverride['textData']['characters'] ?? null), 'kiwi-selective-decodes-derived-symbol-override-text');
+    $kiwiDerivedSymbolResolverDiagnostics = array();
+    $kiwiDerivedSymbolResolverFields = ( new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\InstanceResolver() )->normalizeInstanceOverrides($kiwiDerivedSymbolNode, 'kiwi-derived-symbol:instance', $kiwiDerivedSymbolResolverDiagnostics);
+    $assert('Derived override' === ($kiwiDerivedSymbolResolverFields['40:2']['characters'] ?? null), 'kiwi-derived-symbol-resolver-reads-struct-overrides');
+
     $kiwiStateGroupNormalizer = new ScenegraphNormalizer();
     $kiwiStateGroupNormalized = $kiwiStateGroupNormalizer->normalize(array(
         'name'  => 'Kiwi State Group Metadata Fixture',
@@ -331,6 +345,9 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
                 'stateGroupPropertyValueOrders'  => array(
                     array('property' => 'Screen Size', 'values' => array('Desktop', 'Mobile')),
                 ),
+                'componentPropDefs'              => array(
+                    array('id' => array('sessionID' => 2422394609, 'localID' => 4048757538), 'name' => 'Screen Size'),
+                ),
             ),
             array(
                 'id'               => 'state-group:desktop',
@@ -338,6 +355,9 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
                 'name'             => 'Screen Size=Desktop',
                 'variantPropSpecs' => array(
                     array('propDefId' => array('sessionID' => 2422394609, 'localID' => 4048757538), 'value' => 'Desktop'),
+                ),
+                'componentPropRefs' => array(
+                    array('defID' => array('sessionID' => 2422394609, 'localID' => 4048757538), 'componentPropNodeField' => 'VARIANT'),
                 ),
             ),
         ),
@@ -347,8 +367,10 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert(true === ($kiwiStateGroupMetadata['state_group'] ?? null), 'kiwi-state-group-normalizes-component-flag');
     $assert('Screen Size' === ($kiwiStateGroupMetadata['state_group_property_value_orders'][0]['property'] ?? null), 'kiwi-state-group-normalizes-order-property');
     $assert(array('Desktop', 'Mobile') === ($kiwiStateGroupMetadata['state_group_property_value_orders'][0]['values'] ?? null), 'kiwi-state-group-normalizes-order-values');
+    $assert('Screen Size' === ($kiwiStateGroupMetadata['component_prop_defs'][0]['name'] ?? null), 'kiwi-component-prop-defs-preserved-in-metadata');
     $assert('2422394609:4048757538' === ($kiwiVariantMetadata['variant_prop_specs'][0]['prop_def_id'] ?? null), 'kiwi-variant-normalizes-prop-def-id');
     $assert('Desktop' === ($kiwiVariantMetadata['variant_prop_specs'][0]['value'] ?? null), 'kiwi-variant-normalizes-value');
+    $assert('VARIANT' === ($kiwiVariantMetadata['component_prop_refs'][0]['componentPropNodeField'] ?? null), 'kiwi-component-prop-refs-preserved-in-metadata');
 
     $kiwiDocumentMetadataSchema = $kiwiDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_document_metadata_schema_fixture());
     $kiwiDocumentMetadataMessage = $kiwiDecoder->decodeMessageSelective(
@@ -1490,6 +1512,70 @@ function blocks_engine_figma_transformer_kiwi_document_metadata_message_fixture(
         . blocks_engine_figma_transformer_wire_varint(1)
         . $node
         . blocks_engine_figma_transformer_wire_varint(0);
+}
+
+function blocks_engine_figma_transformer_kiwi_derived_symbol_schema_fixture(): string
+{
+    $field = 'blocks_engine_figma_transformer_kiwi_schema_field';
+    $str = 'blocks_engine_figma_transformer_kiwi_string';
+    $v = 'blocks_engine_figma_transformer_wire_varint';
+
+    return $v(8)
+        . $str('GUID') . chr(1) . $v(2)
+        . $field('sessionID', -4, false, 1)
+        . $field('localID', -4, false, 2)
+        . $str('GUIDPath') . chr(1) . $v(1)
+        . $field('guids', 0, true, 1)
+        . $str('TextData') . chr(2) . $v(1)
+        . $field('characters', -6, false, 1)
+        . $str('SymbolId') . chr(1) . $v(1)
+        . $field('guid', 0, false, 1)
+        . $str('SymbolOverride') . chr(2) . $v(2)
+        . $field('guidPath', 1, false, 1)
+        . $field('textData', 2, false, 2)
+        . $str('DerivedSymbolData') . chr(1) . $v(3)
+        . $field('symbolID', 3, false, 1)
+        . $field('symbolOverrides', 4, true, 2)
+        . $field('uniformScaleFactor', -5, false, 3)
+        . $str('NodeChange') . chr(2) . $v(3)
+        . $field('type', -6, false, 1)
+        . $field('name', -6, false, 2)
+        . $field('derivedSymbolData', 5, false, 3)
+        . $str('Message') . chr(2) . $v(2)
+        . $field('type', -6, false, 1)
+        . $field('nodeChanges', 6, true, 2);
+}
+
+function blocks_engine_figma_transformer_kiwi_derived_symbol_message_fixture(): string
+{
+    $str = 'blocks_engine_figma_transformer_kiwi_string';
+    $v = 'blocks_engine_figma_transformer_wire_varint';
+    $symbolId = $v(40) . $v(1);
+    $guidPath = $v(1) . $v(40) . $v(2);
+    $textData = $v(1) . $str('Derived override') . $v(0);
+    $override = $v(1) . $guidPath
+        . $v(2) . $textData
+        . $v(0);
+    $derivedSymbolData = $symbolId
+        . $v(1) . $override
+        . blocks_engine_figma_transformer_kiwi_float(1.0);
+    $node = $v(1) . $str('INSTANCE')
+        . $v(2) . $str('Derived Symbol Instance')
+        . $v(3) . $derivedSymbolData
+        . $v(0);
+
+    return $v(1) . $str('NODE_CHANGES')
+        . $v(2) . $v(1) . $node
+        . $v(0);
+}
+
+function blocks_engine_figma_transformer_kiwi_format_guid(mixed $guid): ?string
+{
+    if ( ! is_array($guid) || ! isset($guid['sessionID'], $guid['localID']) ) {
+        return null;
+    }
+
+    return (string) $guid['sessionID'] . ':' . (string) $guid['localID'];
 }
 
 /**
