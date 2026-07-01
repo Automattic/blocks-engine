@@ -176,7 +176,7 @@ function blocks_engine_figma_transformer_run_effects_contract(callable $assert, 
     $clippedVectorGlowHtml = $fileContent($clippedVectorGlowResult, 'index.html');
     $clippedVectorGlowCss = $fileContent($clippedVectorGlowResult, 'style.css');
     $assert(str_contains($clippedVectorGlowHtml, 'data-figma-node-id="effects:vector-glow"') && str_contains($clippedVectorGlowHtml, 'data-figma-vector="true"'), 'effects-vector-glow-renders-inline-svg');
-    $assert(str_contains($clippedVectorGlowCss, '.figma-node-effects-clipped-frame-clipped-frame{width:96px;height:96px;overflow:hidden'), 'effects-vector-glow-parent-clips-content');
+    $assert(str_contains($clippedVectorGlowCss, '.figma-node-effects-clipped-frame-clipped-frame{width:96px;height:96px') && ! str_contains($clippedVectorGlowCss, '.figma-node-effects-clipped-frame-clipped-frame{width:96px;height:96px;overflow:hidden'), 'effects-vector-glow-parent-keeps-shadow-overflow-visible');
     $assert(str_contains($clippedVectorGlowCss, '.figma-node-effects-vector-glow-vector-glow{') && str_contains($clippedVectorGlowCss, 'filter:drop-shadow(0px 0px 16px rgba(255,207,0,0.5))'), 'effects-vector-glow-emits-alpha-drop-shadow-filter');
     $assert(! str_contains($clippedVectorGlowCss, '.figma-node-effects-vector-glow-vector-glow{width:96px;height:96px;box-shadow:'), 'effects-vector-glow-no-rectangular-box-shadow');
 
@@ -225,6 +225,7 @@ function blocks_engine_figma_transformer_run_effects_contract(callable $assert, 
         ),
     ));
     $componentCloneGlowCss = $fileContent($componentCloneGlowResult, 'style.css');
+    $assert(! str_contains($componentCloneGlowCss, '.figma-node-clone-clip-clone-clipped-glow-parent{width:96px;height:96px;overflow:hidden'), 'effects-component-clone-glow-parent-keeps-shadow-overflow-visible');
     $assert(str_contains($componentCloneGlowCss, '.figma-node-clone-glow-clone-glow-vector{width:106px;height:106px;position:absolute;left:0px;top:0px;') && str_contains($componentCloneGlowCss, 'filter:drop-shadow(0px 0px 16px '), 'effects-component-clone-local-glow-keeps-local-offset');
     $assert(! str_contains($componentCloneGlowCss, '.figma-node-clone-glow-clone-glow-vector{width:106px;height:106px;position:absolute;left:560px;top:0px'), 'effects-component-clone-local-glow-no-source-x-fallback');
 }

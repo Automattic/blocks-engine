@@ -57,6 +57,12 @@ final class StaticHtmlEmitter
 
     private ?TransformDiagnosticsBuilder $transformDiagnosticsBuilder = null;
 
+    private ?EffectOverflowPolicy $effectOverflowPolicy = null;
+
+    private ?CssPositioningResolver $cssPositioningResolver = null;
+
+    private ?StickyLayoutCoordinator $stickyLayoutCoordinator = null;
+
     private function designSystemExtractor(): DesignSystemExtractor
     {
         return $this->designSystemExtractor ??= new DesignSystemExtractor();
@@ -87,6 +93,27 @@ final class StaticHtmlEmitter
     private function transformDiagnosticsBuilder(): TransformDiagnosticsBuilder
     {
         return $this->transformDiagnosticsBuilder ??= new TransformDiagnosticsBuilder();
+    }
+
+    private function effectOverflowPolicy(): EffectOverflowPolicy
+    {
+        return $this->effectOverflowPolicy ??= new EffectOverflowPolicy();
+    }
+
+    private function cssPositioningResolver(): CssPositioningResolver
+    {
+        return $this->cssPositioningResolver ??= new CssPositioningResolver(
+            $this->layoutIntentClassifier(),
+            fn (float $value): string => $this->number($value),
+        );
+    }
+
+    private function stickyLayoutCoordinator(): StickyLayoutCoordinator
+    {
+        return $this->stickyLayoutCoordinator ??= new StickyLayoutCoordinator(
+            fn (array $node): array => $this->nodeList($node),
+            fn (array $node): string => $this->textContent($node),
+        );
     }
 
     private function layoutIntentClassifier(): LayoutIntentClassifier
@@ -155,15 +182,18 @@ final class StaticHtmlEmitter
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
         $this->nodeReadableNames = array();
+        $this->stickyLayoutCoordinator()->reset();
         $this->linkTargetPaths = $this->normalizeLinkTargetPaths($options);
         $this->linkCoverage = $this->newLinkCoverage();
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $nodes = $this->nodeList($scenegraph);
+        $this->stickyLayoutCoordinator()->detectStickyGhostCandidates($nodes);
         $this->listItemIdCache = array();
         $this->prepareHeadingRanking($nodes);
         $diagnostics = array();
         $nodeStyleDiagnostics = array();
         $assetFiles = $this->normalizeAssets($scenegraph['assets'] ?? array(), $diagnostics);
+        $this->cssPositioningResolver = null;
 
         $this->sectionDepth = $this->sectionDepthFor($nodes);
 
@@ -282,6 +312,7 @@ final class StaticHtmlEmitter
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
         $this->nodeReadableNames = array();
+        $this->stickyLayoutCoordinator()->reset();
         $this->linkTargetPaths = $this->linkTargetPathsFromPagePlan($pagePlan, $options);
         $this->linkCoverage = $this->newLinkCoverage();
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
@@ -312,6 +343,31 @@ final class StaticHtmlEmitter
         $seenPaths = array();
         $mediaBlocks = array();
         $plannedPages = $this->plannedPages($pagePlan);
+
+        $stickyDetectionRoots = array();
+        foreach ( $plannedPages as $page ) {
+            if ( ! is_array($page) ) {
+                continue;
+            }
+
+            $frameIds = array();
+            $frameId = isset($page['frame_id']) && is_scalar($page['frame_id']) ? (string) $page['frame_id'] : '';
+            if ( '' !== $frameId ) {
+                $frameIds[] = $frameId;
+            }
+            foreach ( is_array($page['variants'] ?? null) ? $page['variants'] : array() as $variant ) {
+                if ( is_array($variant) && isset($variant['frame_id']) && is_scalar($variant['frame_id']) ) {
+                    $frameIds[] = (string) $variant['frame_id'];
+                }
+            }
+
+            foreach ( array_values(array_unique($frameIds)) as $candidateFrameId ) {
+                if ( isset($nodeMap[$candidateFrameId]) && is_array($nodeMap[$candidateFrameId]) ) {
+                    $stickyDetectionRoots[] = $nodeMap[$candidateFrameId];
+                }
+            }
+        }
+        $this->stickyLayoutCoordinator()->detectStickyGhostCandidates($stickyDetectionRoots);
 
         foreach ( $plannedPages as $index => $page ) {
             if ( ! is_array($page) ) {
@@ -569,14 +625,20 @@ final class StaticHtmlEmitter
      */
     private function collectVariantNodeStyles(array $node, int $depth, ?array $parentNode, string $pathKey, array &$map): void
     {
+        if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) ) {
+            return;
+        }
+
         $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
         $name = (string) ($node['name'] ?? '');
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
+        $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $this->styleDeclarations($node, $type, $parentNode));
 
         $map[$pathKey] = array(
-            'class'  => $className,
-            'styles' => $this->styleDeclarations($node, $type, $parentNode),
+            'class'           => $className,
+            'styles'          => $styles,
+            'contains_sticky' => $this->stickyLayoutCoordinator()->containsStickyPrimary($node),
         );
 
         $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
@@ -586,7 +648,7 @@ final class StaticHtmlEmitter
 
         $childOrdinal = 0;
         foreach ( $this->nodeList($node) as $child ) {
-            if ( ! is_array($child) || $this->isFullyClippedDecorativeChild($child, $node) ) {
+            if ( ! is_array($child) || $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($child) || $this->isFullyClippedDecorativeChild($child, $node) ) {
                 continue;
             }
 
@@ -619,6 +681,7 @@ final class StaticHtmlEmitter
             $variantDeclarations = is_array($variantStyles[$pathKey]['styles'] ?? null) ? $variantStyles[$pathKey]['styles'] : array();
 
             $changed = array();
+            $baseContainsSticky = true === ($base['contains_sticky'] ?? false);
             foreach ( $variantDeclarations as $declaration ) {
                 $parts = explode(':', (string) $declaration, 2);
                 if ( 2 !== count($parts) ) {
@@ -627,6 +690,9 @@ final class StaticHtmlEmitter
 
                 $property = trim($parts[0]);
                 $value = trim($parts[1]);
+                if ( $baseContainsSticky && 'overflow' === $property ) {
+                    continue;
+                }
                 if ( ! array_key_exists($property, $baseMap) || $baseMap[$property] !== $value ) {
                     $changed[] = $property . ':' . $value;
                 }
@@ -669,6 +735,10 @@ final class StaticHtmlEmitter
      */
     private function emitNode(array $node, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics, int $depth, ?array $parentNode): string
     {
+        if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) ) {
+            return '';
+        }
+
         // Designer-hidden layers carry an explicit `visible: false` from Figma.
         // Skip emitting them and their entire subtree. Absent/null `visible`
         // means visible, so only an explicit false is honored. A hidden node
@@ -728,6 +798,7 @@ final class StaticHtmlEmitter
         }
 
         $styles = $this->styleDeclarations($node, $type, $parentNode);
+        $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $styles);
         if ( ! empty($styles) ) {
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
             $this->nodeReadableNames[$className] = $this->sharedClassBaseName($name, $type);
@@ -2121,6 +2192,10 @@ final class StaticHtmlEmitter
                 'flow_child_count' => 0,
                 'sample_nodes' => array(),
             ),
+            'sticky_ghosts' => array(
+                'count' => count($this->stickyLayoutCoordinator()->stickyGhostCandidates()),
+                'candidates' => $this->stickyLayoutCoordinator()->stickyGhostCandidates(),
+            ),
         );
         $components = array(
             'schema' => 'blocks-engine/figma-transformer/component-coverage/v1',
@@ -2380,6 +2455,10 @@ final class StaticHtmlEmitter
      */
     private function collectTransformDiagnostics(array $node, array &$image, array &$vectors, array &$layout, array &$components, array &$effects, array &$maskEffectClipping, string $html, string $css, ?array $parentNode = null): void
     {
+        if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) ) {
+            return;
+        }
+
         ++$image['total_node_count'];
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
@@ -3450,6 +3529,9 @@ final class StaticHtmlEmitter
             } elseif ( 'HUG' === $sizing ) {
                 $derivedTextSize = 'TEXT' === $type ? $this->derivedTextLayoutSize($node, $dimension) : null;
                 if ( null !== $derivedTextSize ) {
+                    if ( 'height' === $dimension && $this->textShouldAvoidTinyFixedHeight($node, $derivedTextSize) && ! $this->textShouldUseMeasuredFlexHeight($node, $parentNode) ) {
+                        continue;
+                    }
                     $styles[] = $dimension . ':' . $this->number($derivedTextSize) . 'px';
                 } elseif ( 'flex' === ($layout['display'] ?? null) && isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
                     $intrinsicMainAxisSize = $this->flexHugMainAxisIntrinsicSizeStyle($node, $dimension);
@@ -3462,8 +3544,17 @@ final class StaticHtmlEmitter
             } elseif ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
                 $property = $dimension;
                 $value = 'height' === $dimension && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : (float) $box[$dimension];
+                if ( 'height' === $dimension && 'TEXT' === $type && $this->textShouldAvoidTinyFixedHeight($node, $value) && ! $this->textShouldUseMeasuredFlexHeight($node, $parentNode) ) {
+                    continue;
+                }
                 $styles[] = $property . ':' . $this->number($value) . 'px';
             }
+        }
+
+        $absoluteChildReserveHeight = $this->absoluteChildReserveHeight($node);
+        if ( null !== $absoluteChildReserveHeight && ! $this->stylesDeclareProperty($styles, 'min-height') ) {
+            $layoutMinHeight = isset($layout['min_height']) && is_numeric($layout['min_height']) ? (float) $layout['min_height'] : null;
+            $styles[] = 'min-height:' . $this->number(null === $layoutMinHeight ? $absoluteChildReserveHeight : max($layoutMinHeight, $absoluteChildReserveHeight)) . 'px';
         }
 
         // Auto Layout min/max constraints (Kiwi minSize/maxSize). Skip a property
@@ -3479,7 +3570,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        if ( true === ($layout['clips_content'] ?? false) ) {
+        if ( $this->effectOverflowPolicy()->shouldHideOverflow($node, $this->stickyLayoutCoordinator()->containsStickyPrimary($node)) ) {
             $styles[] = 'overflow:hidden';
         }
 
@@ -3489,21 +3580,21 @@ final class StaticHtmlEmitter
             $styles[] = 'position:relative';
         }
 
-		if ( null !== $parentNode && $this->isFreeformContainer($parentNode) ) {
-			$styles[] = 'position:absolute';
-			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode, $node) as $style ) {
-				$styles[] = $style;
-			}
-        } elseif ( $isDecorativeFlexUnderlay ) {
+        if ( $isDecorativeFlexUnderlay ) {
             $styles[] = 'position:absolute';
-			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode, $node) as $style ) {
+            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node) as $style ) {
                 $styles[] = $style;
             }
             $styles[] = 'z-index:0';
             $styles[] = 'pointer-events:none';
-		} elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
+        } elseif ( null !== $parentNode && $this->isFreeformContainer($parentNode) ) {
             $styles[] = 'position:absolute';
-			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode, $node) as $style ) {
+            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node) as $style ) {
+                $styles[] = $style;
+            }
+        } elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
+            $styles[] = 'position:absolute';
+            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node) as $style ) {
                 $styles[] = $style;
             }
         }
@@ -3570,6 +3661,9 @@ final class StaticHtmlEmitter
         if ( 'TEXT' === $type ) {
             foreach ( $this->textStyles($node) as $style ) {
                 $styles[] = $style;
+            }
+            if ( $this->textShouldUseMeasuredFlexHeight($node, $parentNode) ) {
+                $styles[] = 'overflow:visible';
             }
         }
 
@@ -3795,122 +3889,6 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<string, mixed> $box
-     * @param array<string, mixed> $layout
-     * @return array<int, string>
-     */
-    private function absolutePositionStyles(array $box, array $layout, ?array $parentNode, ?array $node = null): array
-    {
-        $styles = array();
-        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
-        $left = $this->positionOffset($box, $parentBox, 'x', $parentNode);
-        $top = $this->positionOffset($box, $parentBox, 'y', $parentNode);
-        if ( null !== $node && $this->hasComponentCloneGeometry($node) ) {
-            $left = $this->componentCloneSourceOffset($node, $box, $parentBox, 'x', $left);
-            $top = $this->componentCloneSourceOffset($node, $box, $parentBox, 'y', $top);
-        }
-        $constraints = is_array($layout['constraints'] ?? null) ? $layout['constraints'] : array();
-
-        foreach ( $this->axisConstraintStyles('horizontal', is_scalar($constraints['horizontal'] ?? null) ? (string) $constraints['horizontal'] : null, $left, $parentBox, $box) as $style ) {
-            $styles[] = $style;
-        }
-        foreach ( $this->axisConstraintStyles('vertical', is_scalar($constraints['vertical'] ?? null) ? (string) $constraints['vertical'] : null, $top, $parentBox, $box) as $style ) {
-            $styles[] = $style;
-        }
-
-        return $styles;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @param array<string, mixed> $box
-     * @param array<string, mixed> $parentBox
-     */
-    private function componentCloneSourceOffset(array $node, array $box, array $parentBox, string $dimension, ?float $offset): ?float
-    {
-        if ( null === $offset ) {
-            return null;
-        }
-
-        if ( 'local' === ($box['coordinate_space'] ?? null) ) {
-            return $offset;
-        }
-
-        $sizeKey = 'x' === $dimension ? 'width' : 'height';
-        if ( ! isset($parentBox[$sizeKey], $box[$sizeKey]) || ! is_numeric($parentBox[$sizeKey]) || ! is_numeric($box[$sizeKey]) ) {
-            return $offset;
-        }
-
-        $parentSize = (float) $parentBox[$sizeKey];
-        $boxSize = (float) $box[$sizeKey];
-        if ( $parentSize <= 0.0 || $boxSize <= 0.0 || ($offset >= -0.5 && $offset + $boxSize <= $parentSize + 0.5) ) {
-            return $offset;
-        }
-
-        $sourceBox = is_array($node['_component_source_clone_source_box'] ?? null) ? $node['_component_source_clone_source_box'] : array();
-        if ( isset($sourceBox[$dimension]) && is_numeric($sourceBox[$dimension]) ) {
-            return (float) $sourceBox[$dimension];
-        }
-
-        return 0.0;
-    }
-
-    /**
-     * Resolve the absolute-position CSS for a single axis from its Figma pin
-     * constraint. The near edge (left/top) is the default; LEFT_RIGHT/TOP_BOTTOM
-     * pin both edges, RIGHT/BOTTOM pin only the far edge, and CENTER holds a fixed
-     * offset from the parent center without relying on `transform` (which the
-     * emitter reserves for the node's own matrix). SCALE is percentage-based and
-     * has no clean pixel translation, so it falls back to the deterministic near
-     * pin instead of emitting a wrong guess.
-     *
-     * @param array<string, mixed> $parentBox
-     * @param array<string, mixed> $box
-     * @return array<int, string>
-     */
-    private function axisConstraintStyles(string $axis, ?string $constraint, ?float $offset, array $parentBox, array $box): array
-    {
-        $isHorizontal = 'horizontal' === $axis;
-        $startProp = $isHorizontal ? 'left' : 'top';
-        $endProp = $isHorizontal ? 'right' : 'bottom';
-        $sizeKey = $isHorizontal ? 'width' : 'height';
-        $bothPin = $isHorizontal ? 'LEFT_RIGHT' : 'TOP_BOTTOM';
-        $farPin = $isHorizontal ? 'RIGHT' : 'BOTTOM';
-        $parentSize = isset($parentBox[$sizeKey]) && is_numeric($parentBox[$sizeKey]) ? (float) $parentBox[$sizeKey] : null;
-        $boxSize = isset($box[$sizeKey]) && is_numeric($box[$sizeKey]) ? (float) $box[$sizeKey] : null;
-        $constraint = null === $constraint ? null : strtoupper($constraint);
-
-        $styles = array();
-
-        // Far-edge-only pin (REST RIGHT/BOTTOM, Kiwi MAX): anchor to the trailing
-        // edge and drop the leading offset so the node stays glued on resize.
-        if ( $farPin === $constraint && null !== $offset && null !== $parentSize && null !== $boxSize ) {
-            $styles[] = $endProp . ':' . $this->number($parentSize - $offset - $boxSize) . 'px';
-            return $styles;
-        }
-
-        // Center pin: keep a constant offset from the parent center. Using calc()
-        // off the leading edge avoids touching transform.
-        if ( 'CENTER' === $constraint && null !== $offset && null !== $parentSize ) {
-            $delta = $offset - ( $parentSize / 2.0 );
-            $sign = $delta < 0 ? '-' : '+';
-            $styles[] = $startProp . ':calc(50% ' . $sign . ' ' . $this->number(abs($delta)) . 'px)';
-            return $styles;
-        }
-
-        // Near-edge pin (LEFT/TOP/default, also SCALE fallback) plus an optional
-        // far-edge pin for the both-side stretch constraint.
-        if ( null !== $offset ) {
-            $styles[] = $startProp . ':' . $this->number($offset) . 'px';
-        }
-        if ( $bothPin === $constraint && null !== $offset && null !== $parentSize && null !== $boxSize ) {
-            $styles[] = $endProp . ':' . $this->number($parentSize - $offset - $boxSize) . 'px';
-        }
-
-        return $styles;
-    }
-
-    /**
-     * @param array<string, mixed> $box
      * @return array<int, string>
      */
     private function localPositionStyles(array $box): array
@@ -3932,6 +3910,61 @@ final class StaticHtmlEmitter
     private function isFreeformContainer(array $node): bool
     {
         return $this->layoutIntentClassifier()->isFreeformContainer($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function absoluteChildReserveHeight(array $node): ?float
+    {
+        $children = $this->nodeList($node);
+        if ( empty($children) || (! $this->isFreeformContainer($node) && ! $this->hasAbsoluteChild($node) && ! $this->hasDecorativeFlexUnderlayChild($node)) ) {
+            return null;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $parentHeight = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
+        $maxBottom = null;
+        $contributingChildren = 0;
+        foreach ( $children as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( ! $this->isFreeformContainer($node) && 'absolute' !== ($layout['positioning'] ?? null) && ! $this->isDecorativeFlexUnderlay($child, $node) ) {
+                continue;
+            }
+
+            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
+            if ( ! isset($childBox['height']) || ! is_numeric($childBox['height']) ) {
+                continue;
+            }
+
+            $top = $this->positionOffset($childBox, $box, 'y');
+            if ( null === $top ) {
+                continue;
+            }
+            if ( $top < -0.5 ) {
+                return null;
+            }
+
+            $bottom = $top + (float) $childBox['height'];
+            if ( null !== $parentHeight && $bottom > $parentHeight + 0.5 ) {
+                return null;
+            }
+            $maxBottom = null === $maxBottom ? $bottom : max($maxBottom, $bottom);
+            $contributingChildren++;
+        }
+
+        if ( $contributingChildren <= 1 || null === $maxBottom || $maxBottom <= 0.0 ) {
+            return null;
+        }
+        if ( null !== $parentHeight && abs($parentHeight - $maxBottom) > 0.5 ) {
+            return null;
+        }
+
+        return $maxBottom;
     }
 
     /**
@@ -4632,6 +4665,11 @@ final class StaticHtmlEmitter
             return null;
         }
 
+        $baselineDeltaLineHeight = $this->textMedianPositiveBaselinePositionDelta($baselines);
+        if ( null !== $baselineDeltaLineHeight ) {
+            return $baselineDeltaLineHeight;
+        }
+
         $lineHeights = array();
         foreach ( $baselines as $baseline ) {
             if ( is_array($baseline) && isset($baseline['lineHeight']) && is_numeric($baseline['lineHeight']) && 0.0 < (float) $baseline['lineHeight'] ) {
@@ -4643,18 +4681,29 @@ final class StaticHtmlEmitter
             return $lineHeights[(int) floor(( count($lineHeights) - 1 ) / 2)];
         }
 
+        return null;
+    }
+
+    /**
+     * @param array<int, mixed> $baselines
+     */
+    private function textMedianPositiveBaselinePositionDelta(array $baselines): ?float
+    {
         $positions = array();
         foreach ( $baselines as $baseline ) {
             if ( is_array($baseline) && isset($baseline['position_y']) && is_numeric($baseline['position_y']) ) {
                 $positions[] = (float) $baseline['position_y'];
             }
         }
+        if ( 2 > count($positions) ) {
+            return null;
+        }
         sort($positions);
 
         $deltas = array();
         for ( $i = 1; $i < count($positions); $i++ ) {
             $delta = $positions[$i] - $positions[$i - 1];
-            if ( 0.0 < $delta ) {
+            if ( 0.001 < $delta && 10000.0 > $delta ) {
                 $deltas[] = $delta;
             }
         }
@@ -4664,6 +4713,56 @@ final class StaticHtmlEmitter
 
         sort($deltas);
         return $deltas[(int) floor(( count($deltas) - 1 ) / 2)];
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function textShouldAvoidTinyFixedHeight(array $node, float $height): bool
+    {
+        if ( 0.0 >= $height ) {
+            return false;
+        }
+
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        if ( '' === trim($this->nodePlainText($node)) || $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) {
+            return false;
+        }
+
+        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
+        $baselines = is_array($derivedLayout['baselines'] ?? null) ? array_values(array_filter($derivedLayout['baselines'], 'is_array')) : array();
+        if ( 1 !== count($baselines) ) {
+            return false;
+        }
+
+        $baseline = $baselines[0];
+        if ( ! isset($baseline['lineHeight'], $baseline['lineY']) || ! is_numeric($baseline['lineHeight']) || ! is_numeric($baseline['lineY']) ) {
+            return false;
+        }
+
+        $lineHeight = (float) $baseline['lineHeight'];
+        $lineY = (float) $baseline['lineY'];
+
+        return 0.0 > $lineY && $lineHeight > $height + 0.5;
+    }
+
+    /**
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function textShouldUseMeasuredFlexHeight(array $node, ?array $parentNode): bool
+    {
+        if ( null === $parentNode || 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) ) {
+            return false;
+        }
+
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        if ( 'flex' !== ($parentLayout['display'] ?? null) ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        return isset($box['height']) && is_numeric($box['height']) && $this->textShouldAvoidTinyFixedHeight($node, (float) $box['height']);
     }
 
     /**

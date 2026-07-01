@@ -979,6 +979,7 @@ final class FigmaTransformer
             'empty_visible_container_categories' => array(),
             'empty_visible_containers' => array(),
             'decorative_underlays' => array('count' => 0, 'nodes' => array()),
+            'sticky_ghosts' => array('count' => 0, 'candidates' => array()),
             'image_heavy_landmark_candidates' => array(),
             'layout_mismatch_count' => 0,
             'layout_mismatch_status' => 'not_evaluated',
@@ -1055,6 +1056,11 @@ final class FigmaTransformer
                     $layout['decorative_underlays']['nodes'][] = array_merge($pageContext, $item);
                 }
             }
+            foreach ( is_array($pageLayout['sticky_ghosts']['candidates'] ?? null) ? $pageLayout['sticky_ghosts']['candidates'] : array() as $item ) {
+                if ( is_array($item) ) {
+                    $layout['sticky_ghosts']['candidates'][] = array_merge($pageContext, $item);
+                }
+            }
             foreach ( is_array($pageLayout['image_heavy_landmark_candidates'] ?? null) ? $pageLayout['image_heavy_landmark_candidates'] : array() as $item ) {
                 if ( is_array($item) ) {
                     $layout['image_heavy_landmark_candidates'][] = array_merge($pageContext, $item);
@@ -1123,6 +1129,8 @@ final class FigmaTransformer
         }
 
         $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
+        $layout['sticky_ghosts']['candidates'] = array_values($layout['sticky_ghosts']['candidates']);
+        $layout['sticky_ghosts']['count'] = count($layout['sticky_ghosts']['candidates']);
         $layout['large_css_offset_nodes'] = array_values($layout['large_css_offset_nodes']);
         $layout['off_canvas_visual_nodes'] = array_values($layout['off_canvas_visual_nodes']);
         $layout['empty_visible_containers'] = array_values($layout['empty_visible_containers']);

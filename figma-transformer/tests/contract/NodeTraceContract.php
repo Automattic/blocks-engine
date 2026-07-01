@@ -58,6 +58,9 @@ function blocks_engine_figma_transformer_run_node_trace_contract(callable $asser
     $assert('TEXT' === ($titleTrace['raw']['type'] ?? null), 'node-trace-raw-type');
     $assert('Trace me' === ($titleTrace['raw']['text']['characters'] ?? null), 'node-trace-raw-text');
     $assert('TEXT' === ($titleTrace['normalized']['type'] ?? null), 'node-trace-normalized-type');
+    $assert(($titleTrace['field_coverage']['raw_count'] ?? 0) > 0, 'node-trace-field-coverage-raw-count');
+    $assert('Trace me' === ($titleTrace['field_coverage']['signal']['raw']['text'] ?? null), 'node-trace-field-coverage-raw-signal');
+    $assert('TEXT' === ($titleTrace['field_coverage']['signal']['normalized']['type'] ?? null), 'node-trace-field-coverage-normalized-signal');
     $assert('figma-node-trace-title-trace-title' === ($titleTrace['emitted']['class'] ?? null), 'node-trace-emitted-class');
     $assert(str_contains((string) ($titleTrace['emitted']['html'] ?? ''), 'data-figma-node-id="trace:title"'), 'node-trace-emitted-html-snippet');
     $assert(str_contains((string) ($titleTrace['emitted']['css'] ?? ''), '.figma-node-trace-title-trace-title{'), 'node-trace-emitted-css-rule');

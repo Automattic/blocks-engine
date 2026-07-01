@@ -98,9 +98,31 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
         ),
     ));
     $strokedGeometryStyleHtml = $fileContent($strokedGeometryStyleResult, 'index.html');
-    $assert(str_contains($strokedGeometryStyleHtml, 'stroke-linecap="round"') && str_contains($strokedGeometryStyleHtml, 'stroke-linejoin="bevel"'), 'stroke-geometry-cap-join-render');
-    $assert(str_contains($strokedGeometryStyleHtml, 'stroke-dasharray="4 2"'), 'stroke-geometry-dash-render');
+    $assert(str_contains($strokedGeometryStyleHtml, '<path d="M1 1L15 15" fill="#000000" data-figma-style-id="42"/>'), 'stroke-geometry-renders-expanded-outline-as-fill');
+    $assert(! str_contains($strokedGeometryStyleHtml, 'stroke-linecap="round"') && ! str_contains($strokedGeometryStyleHtml, 'stroke-dasharray="4 2"'), 'stroke-geometry-does-not-restroke-expanded-outline');
     $assert(str_contains($strokedGeometryStyleHtml, 'data-figma-style-id="42"'), 'vector-path-style-id-carry-through');
+
+    $mixedGeometryVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Mixed Fill And Stroke Geometry Fixture',
+        'nodes' => array(
+            array(
+                'id'             => 'vector:mixed-geometry',
+                'type'           => 'VECTOR',
+                'name'           => 'Mixed Geometry Icon',
+                'width'          => 16,
+                'height'         => 16,
+                'strokeWeight'   => 2,
+                'fillPaints'     => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                'strokePaints'   => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0, 'b' => 0, 'a' => 1))),
+                'fillGeometry'   => array(array('path' => 'M 0 0 L 4 0 L 4 4 L 0 4 Z')),
+                'strokeGeometry' => array(array('path' => 'M 6 6 L 10 6 L 10 10 L 6 10 Z')),
+            ),
+        ),
+    ));
+    $mixedGeometryVectorHtml = $fileContent($mixedGeometryVectorResult, 'index.html');
+    $assert(str_contains($mixedGeometryVectorHtml, '<path d="M0 0L4 0 4 4 0 4Z" fill="#000000"/>'), 'fill-geometry-uses-fill-paint-only');
+    $assert(str_contains($mixedGeometryVectorHtml, '<path d="M6 6L10 6 10 10 6 10Z" fill="#ff0000"/>'), 'stroke-geometry-uses-stroke-paint-as-fill');
+    $assert(! str_contains($mixedGeometryVectorHtml, 'stroke="#ff0000"'), 'mixed-geometry-does-not-restroke-stroke-geometry');
 
     $vectorNetworkObjectResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Vector Network Object Fixture',
@@ -137,7 +159,29 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(str_contains($vectorNetworkObjectHtml, 'data-figma-node-id="vector:network-object"') && str_contains($vectorNetworkObjectHtml, 'data-figma-vector="true"'), 'vector-network-object-renders');
     $assert(str_contains($vectorNetworkObjectHtml, '<g transform="scale(2 2)"><path d="M0 0L10 0 10 10 0 10 0 0Z"'), 'vector-network-normalized-size-scales-path');
     $assert(str_contains($vectorNetworkObjectHtml, 'fill-rule="evenodd"'), 'vector-network-region-winding-rule-renders');
-     
+
+    $staleScaledIconResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Stale Vector Scale Icon Fixture',
+        'nodes' => array(
+            array(
+                'id'                 => 'vector:stale-scale-icon',
+                'type'               => 'VECTOR',
+                'name'               => 'Comment Icon',
+                'width'              => 17.355,
+                'height'             => 17.355,
+                'strokeWeight'       => 1.5,
+                'strokePaints'       => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                'figma_vector_scale' => array('x' => 0.078, 'y' => 0.078),
+                'figma_vector_paths' => array(array('data' => 'M-1.238 -1.116L16.117 -1.116L16.117 16.239L-1.238 16.239Z')),
+            ),
+        ),
+    ));
+    $staleScaledIconHtml = $fileContent($staleScaledIconResult, 'index.html');
+    $assert(str_contains($staleScaledIconHtml, 'data-figma-node-id="vector:stale-scale-icon"') && str_contains($staleScaledIconHtml, 'data-figma-vector="true"'), 'stale-vector-scale-icon-renders');
+    $assert(str_contains($staleScaledIconHtml, 'viewBox="-1.238 -1.116 17.355 17.355"'), 'stale-vector-scale-icon-uses-real-fse-path-bounds');
+    $assert(! str_contains($staleScaledIconHtml, 'scale(0.078 0.078)'), 'stale-vector-scale-icon-skips-stale-scale');
+    $assert(str_contains($staleScaledIconHtml, 'M-1.238-1.116') && str_contains($staleScaledIconHtml, 'stroke="#000000"'), 'stale-vector-scale-icon-path-remains-visible');
+      
     $largeDecodedPath = 'M 0 0' . str_repeat(' L 10 10', 3000) . ' Z';
     $largeDecodedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Large Decoded Vector Fixture',
@@ -285,7 +329,38 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     ));
     $assert(str_contains($containerPaintWithStyleCss, '.figma-node-frame-stale-local-with-style-stale-local-with-style{width:28px;height:3px;background:#ffcf00'), 'style-fill-wins-over-container-stale-local-fill');
     $assert('style' === ($containerPaintWithStyleDiagnostics[0]['context']['precedence'] ?? null), 'container-style-fill-conflict-diagnostic-precedence');
-     
+
+    $shapeCommandBlobPaintWithStyleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'        => 'Shape Command Blob Paint Style Fixture',
+        'figma_blobs' => array('M0 0L28 0 28 3 0 3Z'),
+        'nodes'       => array(
+            array(
+                'id'         => 'paint-style:accent-two',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Accent - Two',
+                'styleType'  => 'FILL',
+                'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0.811764717, 'b' => 0, 'a' => 1))),
+            ),
+            array(
+                'id'             => 'shape:command-blob-stale-local-with-style',
+                'type'           => 'ROUNDED_RECTANGLE',
+                'name'           => 'Command Blob Stale Local With Style',
+                'width'          => 28,
+                'height'         => 3,
+                'styleIdForFill' => 'paint-style:accent-two',
+                'fillPaints'     => array(array('type' => 'SOLID', 'color' => array('r' => 0.850980401, 'g' => 0.850980401, 'b' => 0.850980401, 'a' => 1))),
+                'fillGeometry'   => array(array('commandsBlob' => 0, 'styleID' => 0, 'windingRule' => 'NONZERO')),
+            ),
+        ),
+    ));
+    $shapeCommandBlobPaintWithStyleCss = $fileContent($shapeCommandBlobPaintWithStyleResult, 'style.css');
+    $shapeCommandBlobPaintWithStyleDiagnostics = array_values(array_filter(
+        $shapeCommandBlobPaintWithStyleResult['diagnostics'] ?? array(),
+        static fn (array $diagnostic): bool => 'figma_local_style_paint_conflict' === ($diagnostic['code'] ?? null)
+    ));
+    $assert(str_contains($shapeCommandBlobPaintWithStyleCss, '.figma-node-shape-command-blob-stale-local-with-style-command-blob-stale-local-with-style{width:28px;height:3px;background:#ffcf00'), 'style-fill-wins-over-command-blob-shape-stale-local-fill');
+    $assert('style' === ($shapeCommandBlobPaintWithStyleDiagnostics[0]['context']['precedence'] ?? null), 'command-blob-shape-style-fill-conflict-diagnostic-precedence');
+
     $externalizedEquivalentVectorPath = 'M0,0' . str_repeat('L10,10', 12000) . 'Z';
     $externalizedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Externalized Vector Fixture',

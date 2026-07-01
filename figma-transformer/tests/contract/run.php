@@ -371,6 +371,252 @@ $assert(array(
     'parent_height' => 600,
 ) === ($decorativeUnderlayDiagnostics['nodes'][0] ?? null), 'decorative-underlay-diagnostics-node-entry');
 
+$absoluteDecorativeUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Absolute Decorative Underlay Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'                  => 'abs-underlay:parent',
+            'type'                => 'FRAME',
+            'name'                => 'Footer row',
+            'absoluteBoundingBox' => array('x' => 0, 'y' => 0, 'width' => 600, 'height' => 120),
+            'layoutMode'          => 'HORIZONTAL',
+            'children'            => array(
+                array(
+                    'id'                  => 'abs-underlay:bg',
+                    'type'                => 'RECTANGLE',
+                    'name'                => 'Background plate',
+                    'absoluteBoundingBox' => array('x' => -20, 'y' => -30, 'width' => 660, 'height' => 180),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                    'fill'                => array('r' => 0.02, 'g' => 0.04, 'b' => 0.08),
+                    'fillGeometry'        => array(array('commandsBlob' => 0)),
+                ),
+                array(
+                    'id'       => 'abs-underlay:copy',
+                    'type'     => 'TEXT',
+                    'name'     => 'Footer copy',
+                    'text'     => 'Footer text stays clickable',
+                    'fontSize' => 16,
+                ),
+            ),
+        ),
+    ),
+));
+$absoluteDecorativeUnderlayCss = $fileContent($absoluteDecorativeUnderlayResult, 'style.css');
+$absoluteDecorativeUnderlays = $absoluteDecorativeUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
+$assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-parent-footer-row{width:600px;height:120px;position:relative;display:flex;flex-direction:row}'), 'absolute-decorative-underlay-parent-relative');
+$assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-bg-background-plate{width:660px;height:180px;position:absolute;left:0px;top:0px;z-index:0;pointer-events:none;background:#050a14}'), 'absolute-decorative-underlay-gets-underlay-z-index');
+$assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-copy-footer-copy{position:relative;z-index:1;font-size:16px;flex-shrink:0}'), 'absolute-decorative-underlay-flow-text-stacks-above');
+$assert(1 === ($absoluteDecorativeUnderlays['count'] ?? null), 'absolute-decorative-underlay-diagnostic-count');
+
+$fseFooterUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'FSE Footer Underlay Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'                  => 'fse-footer:row',
+            'type'                => 'FRAME',
+            'name'                => 'Frame 19',
+            'absoluteBoundingBox' => array('x' => 0, 'y' => 352, 'width' => 1440, 'height' => 131),
+            'layoutMode'          => 'HORIZONTAL',
+            'primaryAxisAlignItems' => 'SPACE_BETWEEN',
+            'counterAxisAlignItems' => 'CENTER',
+            'paddingTop'          => 48,
+            'paddingRight'        => 112,
+            'paddingBottom'       => 48,
+            'paddingLeft'         => 112,
+            'children'            => array(
+                array(
+                    'id'                  => 'fse-footer:bg',
+                    'type'                => 'RECTANGLE',
+                    'name'                => 'Rectangle 3',
+                    'absoluteBoundingBox' => array('x' => 0, 'y' => 288, 'width' => 1440, 'height' => 195),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                    'constraints'         => array('horizontal' => 'LEFT', 'vertical' => 'TOP_BOTTOM'),
+                    'fill'                => array('r' => 0.85, 'g' => 0.85, 'b' => 0.85),
+                ),
+                array(
+                    'id'       => 'fse-footer:logo',
+                    'type'     => 'FRAME',
+                    'name'     => 'Logo',
+                    'width'    => 228,
+                    'height'   => 35,
+                    'children' => array(
+                        array(
+                            'id'           => 'fse-footer:logo-mark',
+                            'type'         => 'VECTOR',
+                            'name'         => 'Union',
+                            'width'        => 228,
+                            'height'       => 35,
+                            'fillGeometry' => array(array('commandsBlob' => 0)),
+                        ),
+                    ),
+                ),
+                array(
+                    'id'         => 'fse-footer:links',
+                    'type'       => 'FRAME',
+                    'name'       => 'Frame 29',
+                    'width'      => 265,
+                    'height'     => 26,
+                    'layoutMode' => 'HORIZONTAL',
+                    'children'   => array(
+                        array('id' => 'fse-footer:about', 'type' => 'TEXT', 'name' => 'Footer text', 'text' => 'About', 'fontSize' => 16),
+                        array('id' => 'fse-footer:contact', 'type' => 'TEXT', 'name' => 'Footer text', 'text' => 'Contact', 'fontSize' => 16),
+                    ),
+                ),
+                array('id' => 'fse-footer:powered', 'type' => 'TEXT', 'name' => 'Footer text', 'text' => 'Proudly powered by WordPress.com', 'fontSize' => 16),
+            ),
+        ),
+    ),
+));
+$fseFooterUnderlayCss = $fileContent($fseFooterUnderlayResult, 'style.css');
+$fseFooterUnderlays = $fseFooterUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
+$assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-row-frame-19{width:100%;max-width:1440px;margin-left:auto;margin-right:auto;height:131px;position:relative;display:flex;flex-direction:row;justify-content:space-between;align-items:center;padding-top:48px;padding-right:112px;padding-bottom:48px;padding-left:112px}'), 'fse-footer-row-relative');
+$assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-bg-rectangle-3{width:1440px;height:195px;position:absolute;left:0px;top:-64px;bottom:0px;z-index:0;pointer-events:none;background:#d9d9d9}'), 'fse-footer-background-underlay-protected');
+$assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-logo-logo{width:228px;height:35px;position:relative;z-index:1;flex-shrink:0}'), 'fse-footer-logo-stacks-above-underlay');
+$assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-links-frame-29{width:265px;height:26px;position:relative;z-index:1;display:flex;flex-direction:row;flex-shrink:0}'), 'fse-footer-link-row-stacks-above-underlay');
+$assert(1 === ($fseFooterUnderlays['count'] ?? null), 'fse-footer-underlay-diagnostic-count');
+
+$yellowForegroundOverlapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Yellow Foreground Overlap Fixture',
+    'nodes' => array(
+        array(
+            'id'         => 'paint-style:kiwi-yellow',
+            'type'       => 'RECTANGLE',
+            'name'       => 'Kiwi Yellow paint style',
+            'styleType'  => 'FILL',
+            'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0.811764717, 'b' => 0, 'a' => 1))),
+        ),
+        array(
+            'id'         => 'yellow-overlap:parent',
+            'type'       => 'FRAME',
+            'name'       => 'Featured overlap row',
+            'width'      => 1000,
+            'height'     => 600,
+            'layoutMode' => 'HORIZONTAL',
+            'children'   => array(
+                array(
+                    'id'       => 'yellow-overlap:title',
+                    'type'     => 'TEXT',
+                    'name'     => 'Featured title',
+                    'text'     => 'Featured copy stays behind accent',
+                    'fontSize' => 32,
+                ),
+                array(
+                    'id'             => 'yellow-overlap:accent',
+                    'type'           => 'FRAME',
+                    'name'           => 'Yellow overlap accent',
+                    'width'          => 900,
+                    'height'         => 520,
+                    'styleIdForFill' => 'paint-style:kiwi-yellow',
+                    'fillPaints'     => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                    'fillGeometry'   => array(array('path' => 'M 0 0 L 900 0 L 900 520 L 0 520 Z', 'windingRule' => 'NONZERO')),
+                ),
+            ),
+        ),
+    ),
+));
+$yellowForegroundOverlapCss = $fileContent($yellowForegroundOverlapResult, 'style.css');
+$yellowForegroundOverlapUnderlays = $yellowForegroundOverlapResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
+$yellowForegroundOverlapDiagnostics = array_values(array_filter(
+    $yellowForegroundOverlapResult['diagnostics'] ?? array(),
+    static fn (array $diagnostic): bool => 'figma_local_style_paint_conflict' === ($diagnostic['code'] ?? null)
+));
+$assert(str_contains($yellowForegroundOverlapCss, '.figma-node-yellow-overlap-accent-yellow-overlap-accent{width:900px;height:520px;background:#ffcf00;flex-shrink:0}'), 'yellow-overlap-style-paint-resolves-without-underlay');
+$assert(! str_contains($yellowForegroundOverlapCss, '.figma-node-yellow-overlap-accent-yellow-overlap-accent{width:900px;height:520px;position:absolute'), 'yellow-overlap-foreground-not-decorative-underlay');
+$assert(0 === ($yellowForegroundOverlapUnderlays['count'] ?? null), 'yellow-overlap-foreground-underlay-diagnostic-count');
+$assert('style' === ($yellowForegroundOverlapDiagnostics[0]['context']['precedence'] ?? null), 'yellow-overlap-style-fill-conflict-diagnostic-precedence');
+
+$multiPageFseFooterUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'   => 'Multi Page FSE Footer Underlay Fixture',
+    'assets' => array(
+        array(
+            'id'        => 'asset:rectangle-name-collision',
+            'name'      => 'Rectangle 3',
+            'content'   => 'asset-content',
+            'mime_type' => 'image/png',
+        ),
+    ),
+    'nodes'  => array(
+        array(
+            'id'       => 'multi-fse:canvas',
+            'type'     => 'CANVAS',
+            'name'     => 'Site',
+            'children' => array(
+                array(
+                    'id'       => 'multi-fse:home',
+                    'type'     => 'FRAME',
+                    'name'     => 'Home Desktop',
+                    'width'    => 1440,
+                    'height'   => 600,
+                    'children' => array(
+                        array(
+                            'id'                    => 'multi-fse:row',
+                            'type'                  => 'FRAME',
+                            'name'                  => 'Frame 19',
+                            'absoluteBoundingBox'   => array('x' => 0, 'y' => 352, 'width' => 1440, 'height' => 131),
+                            'layoutMode'            => 'HORIZONTAL',
+                            'primaryAxisAlignItems' => 'SPACE_BETWEEN',
+                            'counterAxisAlignItems' => 'CENTER',
+                            'paddingTop'            => 48,
+                            'paddingRight'          => 112,
+                            'paddingBottom'         => 48,
+                            'paddingLeft'           => 112,
+                            'children'              => array(
+                                array(
+                                    'id'                  => 'multi-fse:bg',
+                                    'type'                => 'RECTANGLE',
+                                    'name'                => 'Rectangle 3',
+                                    'absoluteBoundingBox' => array('x' => 0, 'y' => 288, 'width' => 1440, 'height' => 195),
+                                    'layoutPositioning'   => 'ABSOLUTE',
+                                    'constraints'         => array('horizontal' => 'LEFT', 'vertical' => 'TOP_BOTTOM'),
+                                    'fill'                => array('r' => 0.85, 'g' => 0.85, 'b' => 0.85),
+                                ),
+                                array('id' => 'multi-fse:logo', 'type' => 'VECTOR', 'name' => 'Logo', 'width' => 228, 'height' => 35, 'fillGeometry' => array(array('commandsBlob' => 0))),
+                                array('id' => 'multi-fse:about', 'type' => 'TEXT', 'name' => 'Footer text', 'text' => 'About', 'fontSize' => 16),
+                                array('id' => 'multi-fse:powered', 'type' => 'TEXT', 'name' => 'Footer text', 'text' => 'Proudly powered by WordPress.com', 'fontSize' => 16),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+), array('multi_page' => true, 'frame_ids' => array('multi-fse:home'), 'entry_frame_id' => 'multi-fse:home'));
+$multiPageFseFooterUnderlayCss = $fileContent($multiPageFseFooterUnderlayResult, 'style.css');
+$multiPageFseFooterUnderlays = $multiPageFseFooterUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
+$assert(str_contains($multiPageFseFooterUnderlayCss, '.figma-node-multi-fse-bg-rectangle-3{') && str_contains($multiPageFseFooterUnderlayCss, 'z-index:0;pointer-events:none'), 'multi-page-fse-footer-background-underlay-protected-with-asset-name-collision');
+$assert(1 === ($multiPageFseFooterUnderlays['count'] ?? null), 'multi-page-fse-footer-underlay-diagnostic-count');
+
+$absoluteTextContentGuardResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Absolute Text Content Guard Fixture',
+    'nodes' => array(
+        array(
+            'id'                  => 'abs-textguard:parent',
+            'type'                => 'FRAME',
+            'name'                => 'Footer row',
+            'absoluteBoundingBox' => array('x' => 0, 'y' => 0, 'width' => 600, 'height' => 120),
+            'layoutMode'          => 'HORIZONTAL',
+            'children'            => array(
+                array(
+                    'id'                  => 'abs-textguard:callout',
+                    'type'                => 'TEXT',
+                    'name'                => 'Absolute callout',
+                    'absoluteBoundingBox' => array('x' => -20, 'y' => -30, 'width' => 660, 'height' => 180),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                    'text'                => 'Real absolute content',
+                ),
+                array('id' => 'abs-textguard:sibling', 'type' => 'TEXT', 'name' => 'Sibling copy', 'text' => 'Sibling'),
+            ),
+        ),
+    ),
+));
+$absoluteTextContentGuardCss = $fileContent($absoluteTextContentGuardResult, 'style.css');
+$absoluteTextContentGuardUnderlays = $absoluteTextContentGuardResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
+$assert(str_contains($absoluteTextContentGuardCss, '.figma-node-abs-textguard-callout-absolute-callout{width:660px;height:180px;position:absolute;left:0px;top:0px;flex-shrink:0}'), 'absolute-text-content-remains-absolute-content');
+$assert(! str_contains($absoluteTextContentGuardCss, '.figma-node-abs-textguard-callout-absolute-callout{width:660px;height:180px;position:absolute;left:0px;top:0px;z-index:0;pointer-events:none}'), 'absolute-text-content-not-hidden-as-underlay');
+$assert(0 === ($absoluteTextContentGuardUnderlays['count'] ?? null), 'absolute-text-content-not-decorative-underlay-diagnostic');
+
 $contentCardResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Content Card Fixture',
     'nodes' => array(
@@ -2254,12 +2500,39 @@ $kiwiLayoutFieldsCss = $fileContent($kiwiLayoutFieldsResult, 'style.css');
 $assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-stretch-badge-stretch-badge{width:50px;height:20px;position:absolute;left:20px;right:330px;top:30px;bottom:250px;background:#000000}'), 'kiwi-constraint-stretch-pins-both-edges');
 // Kiwi MAX (horizontal) == far-edge pin only; Kiwi MIN (vertical) == near pin.
 $assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-far-badge-far-badge{width:60px;height:40px;position:absolute;right:40px;top:10px}'), 'kiwi-constraint-max-pins-far-edge-only');
-// Kiwi CENTER == fixed offset from parent center via calc(), no transform.
-$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-center-badge-center-badge{width:50px;height:20px;position:absolute;left:calc(50% - 25px);top:calc(50% - 10px)}'), 'kiwi-constraint-center-uses-calc-offset');
+// Kiwi CENTER == fixed child-center offset from parent center via calc(), no transform.
+$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-center-badge-center-badge{width:50px;height:20px;position:absolute;left:calc(50% - 25px);top:calc(50% - 10px)}'), 'kiwi-constraint-center-uses-child-center-calc-offset');
 // stackChildPrimaryGrow -> flex-grow; minSize/maxSize -> min/max width/height.
 $assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-fill-item-fill-item{width:80px;height:40px;min-width:100px;max-width:200px;min-height:20px;max-height:60px;flex-grow:1}'), 'kiwi-grow-and-min-max-size');
 // stackPrimarySizing RESIZE_TO_FIT -> HUG main axis; stackCounterSizing FIXED -> fixed cross axis.
 $assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-hug-frame-hug-frame{width:max-content;height:40px;display:flex;flex-direction:row;flex-shrink:0}'), 'kiwi-stack-sizing-bridges-to-flex-sizing');
+
+$centerOversizedClippedResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Center Oversized Clipped Fixture',
+    'nodes' => array(
+        array(
+            'id'                  => 'center-clip:parent',
+            'type'                => 'FRAME',
+            'name'                => 'Clipped logo parent',
+            'absoluteBoundingBox' => array('x' => 0, 'y' => 0, 'width' => 200, 'height' => 80),
+            'isClip'              => true,
+            'children'            => array(
+                array(
+                    'id'                   => 'center-clip:logo-piece',
+                    'type'                 => 'RECTANGLE',
+                    'name'                 => 'Oversized logo piece',
+                    'absoluteBoundingBox'  => array('x' => -50, 'y' => -20, 'width' => 300, 'height' => 120),
+                    'stackPositioning'     => 'ABSOLUTE',
+                    'horizontalConstraint' => 'CENTER',
+                    'verticalConstraint'   => 'CENTER',
+                ),
+            ),
+        ),
+    ),
+));
+$centerOversizedClippedCss = $fileContent($centerOversizedClippedResult, 'style.css');
+$assert(str_contains($centerOversizedClippedCss, '.figma-node-center-clip-parent-clipped-logo-parent{width:200px;height:80px;overflow:hidden;position:relative}'), 'center-oversized-clipped-parent-overflow-hidden');
+$assert(str_contains($centerOversizedClippedCss, '.figma-node-center-clip-logo-piece-oversized-logo-piece{width:300px;height:120px;position:absolute;left:calc(50% - 100px);top:calc(50% - 40px)}'), 'center-oversized-clipped-child-uses-child-center-calc');
 
 $plainFrameLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Plain Frame Layout Fixture',
@@ -3540,6 +3813,63 @@ $scaledVectorInstanceCss = $fileContent($scaledVectorInstanceResult, 'style.css'
 $assert(str_contains($scaledVectorInstanceCss, '.figma-node-scaled-icon-instance-scaled-icon-vector-vector{width:20px;height:20px'), 'scaled-vector-instance-child-css-scaled');
 $assert(str_contains($scaledVectorInstanceHtml, '<g transform="scale(2 2)">'), 'scaled-vector-instance-svg-transform');
 
+$nestedScaledVectorInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Nested Scaled Vector Instance Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'       => 'nested-scaled-icon:source',
+            'type'     => 'COMPONENT',
+            'name'     => 'Nested scaled icon source',
+            'key'      => 'nested-scaled-icon-source-key',
+            'width'    => 80,
+            'height'   => 64,
+            'children' => array(
+                array(
+                    'id'           => 'nested-scaled-icon:vector',
+                    'type'         => 'VECTOR',
+                    'name'         => 'Vector',
+                    'width'        => 80,
+                    'height'       => 64,
+                    'fillGeometry' => array(array('commandsBlob' => 0, 'windingRule' => 'NONZERO')),
+                ),
+            ),
+        ),
+        array(
+            'id'       => 'nested-scaled-icon:wrapper',
+            'type'     => 'COMPONENT',
+            'name'     => 'Nested scaled icon wrapper',
+            'key'      => 'nested-scaled-icon-wrapper-key',
+            'width'    => 80,
+            'height'   => 64,
+            'layout'   => array('clips_content' => true),
+            'children' => array(
+                array(
+                    'id'          => 'nested-scaled-icon:nested-instance',
+                    'type'        => 'INSTANCE',
+                    'name'        => 'Nested icon instance',
+                    'componentId' => 'nested-scaled-icon-source-key',
+                    'width'       => 80,
+                    'height'      => 64,
+                ),
+            ),
+        ),
+        array(
+            'id'          => 'nested-scaled-icon:instance',
+            'type'        => 'INSTANCE',
+            'name'        => 'Nested scaled icon instance',
+            'componentId' => 'nested-scaled-icon-wrapper-key',
+            'width'       => 40,
+            'height'      => 32,
+        ),
+    ),
+));
+$nestedScaledVectorInstanceHtml = $fileContent($nestedScaledVectorInstanceResult, 'index.html');
+$nestedScaledVectorInstanceCss = $fileContent($nestedScaledVectorInstanceResult, 'style.css');
+$assert(str_contains($nestedScaledVectorInstanceHtml, 'data-figma-node-id="nested-scaled-icon:instance/nested-scaled-icon:nested-instance"') && str_contains($nestedScaledVectorInstanceCss, '.vector{width:40px;height:32px'), 'nested-scaled-vector-instance-child-css-scaled');
+$assert(str_contains($nestedScaledVectorInstanceHtml, 'data-figma-node-id="nested-scaled-icon:instance/nested-scaled-icon:nested-instance/nested-scaled-icon:vector"') && str_contains($nestedScaledVectorInstanceHtml, 'viewBox="0 0 40 32"'), 'nested-scaled-vector-instance-descendant-css-scaled');
+$assert(str_contains($nestedScaledVectorInstanceHtml, '<g transform="scale(0.5 0.5)">'), 'nested-scaled-vector-instance-svg-transform');
+
 blocks_engine_figma_transformer_run_effects_contract($assert, $fileContent);
 
 $symbolInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -4007,6 +4337,49 @@ $canvasGlobalOverrideCss = $fileContent($canvasGlobalOverrideResult, 'style.css'
 preg_match('/figma-node-cgoc-instance-cgoc-logo[^{]*\{[^}]*left:([\d.]+)px/', $canvasGlobalOverrideCss, $canvasGlobalLogoLeft);
 $canvasGlobalLogoLeftPx = isset($canvasGlobalLogoLeft[1]) ? (float) $canvasGlobalLogoLeft[1] : -1.0;
 $assert($canvasGlobalLogoLeftPx >= 0.0 && $canvasGlobalLogoLeftPx < 1440.0, 'overridden-instance-child-canvas-global-transform-localizes-x');
+
+// Header-like logo wrappers often contain a single vector/boolean mark whose
+// visual box is smaller than the wrapper. Keep that nested visual primitive
+// positioned against the wrapper instead of letting normal flow pin it to 0,0.
+$insetLogoVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Inset Logo Vector Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'ilv:page',
+            'type'     => 'FRAME',
+            'name'     => 'Page',
+            'width'    => 500,
+            'height'   => 120,
+            'children' => array(
+                array(
+                    'id'       => 'ilv:logo',
+                    'type'     => 'INSTANCE',
+                    'name'     => 'Logo',
+                    'x'        => 20,
+                    'y'        => 20,
+                    'width'    => 228,
+                    'height'   => 35,
+                    'children' => array(
+                        array(
+                            'id'           => 'ilv:mark',
+                            'type'         => 'BOOLEAN_OPERATION',
+                            'name'         => 'Union',
+                            'x'            => 0,
+                            'y'            => 0,
+                            'width'        => 227.682,
+                            'height'       => 30,
+                            'fillGeometry' => array(array('path' => 'M0 0L227.682 0L227.682 30L0 30Z', 'windingRule' => 'NONZERO')),
+                            'fills'        => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$insetLogoVectorCss = $fileContent($insetLogoVectorResult, 'style.css');
+$assert(str_contains($insetLogoVectorCss, '.figma-node-ilv-logo-logo{width:228px;height:35px;position:absolute;left:20px;top:20px'), 'inset-logo-wrapper-remains-positioned');
+$assert(str_contains($insetLogoVectorCss, '.figma-node-ilv-mark-union{width:227.682px;height:30px;position:absolute;left:calc(50% - 113.841px);top:calc(50% - 15px)'), 'inset-logo-vector-centers-within-wrapper');
 
 // DOCUMENT-MODE MULTI-PAGE ORIGIN REBASE (#360): emitSite resolves each page
 // frame from scenegraph['node_map'], so render_document normalization must write

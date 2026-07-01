@@ -35,6 +35,10 @@ final class LayoutIntentClassifier
             return true;
         }
 
+        if ( empty($node['layout']['display'] ?? null) && $this->hasInsetSingleVisualChild($node, $children) ) {
+            return true;
+        }
+
         if ( 1 !== count($children) || ! is_array($children[0]) ) {
             return false;
         }
@@ -55,6 +59,29 @@ final class LayoutIntentClassifier
         }
 
         return (float) $childBox['width'] > (float) $box['width'] || (float) $childBox['height'] > (float) $box['height'];
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, mixed>    $children
+     */
+    private function hasInsetSingleVisualChild(array $node, array $children): bool
+    {
+        if ( 1 !== count($children) || ! is_array($children[0]) || ! $this->treeIsVectorShapeOnly($children[0]) ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $childBox = is_array($children[0]['box'] ?? null) ? $children[0]['box'] : array();
+        foreach ( array('width', 'height') as $dimension ) {
+            if ( ! isset($box[$dimension], $childBox[$dimension]) || ! is_numeric($box[$dimension]) || ! is_numeric($childBox[$dimension]) ) {
+                return false;
+            }
+        }
+
+        $widthDelta = (float) $box['width'] - (float) $childBox['width'];
+        $heightDelta = (float) $box['height'] - (float) $childBox['height'];
+        return ($widthDelta > 0.5 && $widthDelta <= 32.0) || ($heightDelta > 0.5 && $heightDelta <= 32.0);
     }
 
     /**
@@ -100,19 +127,15 @@ final class LayoutIntentClassifier
     public function isDecorativeFlexUnderlay(array $node, array $parentNode): bool
     {
         $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
-        if ( ! in_array((string) ($parentLayout['display'] ?? ''), array('flex', 'inline-flex'), true) ) {
+        if ( ! $this->isFlexDisplayLayout($parentLayout) ) {
             return false;
         }
 
-        if ( $this->isAbsoluteChild($node) || $this->treeHasText($node) || $this->treeHasImageReference($node) ) {
+        if ( ! $this->isDecorativeUnderlayVisualCandidate($node) || ! $this->parentHasTextOutsideNode($parentNode, $node) || ! $this->nodeIsBehindTextOutsideNode($parentNode, $node) ) {
             return false;
         }
 
-        if ( ! $this->treeIsVectorShapeOnly($node) || ! $this->parentHasTextOutsideNode($parentNode, $node) ) {
-            return false;
-        }
-
-        return $this->isOversizedAgainstParent($node, $parentNode);
+        return $this->isOversizedAgainstParent($node, $parentNode) || $this->isAbsoluteBackgroundBleed($node, $parentNode, $parentLayout);
     }
 
     /**
@@ -172,6 +195,22 @@ final class LayoutIntentClassifier
      * @param array<string, mixed> $node
      */
     public function isClippableDecorativeVisualNode(array $node): bool
+    {
+        return $this->isDecorativeUnderlayVisualCandidate($node);
+    }
+
+    /**
+     * @param array<string, mixed> $layout
+     */
+    private function isFlexDisplayLayout(array $layout): bool
+    {
+        return in_array((string) ($layout['display'] ?? ''), array('flex', 'inline-flex'), true);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isDecorativeUnderlayVisualCandidate(array $node): bool
     {
         return ! $this->treeHasText($node) && ! $this->treeHasImageReference($node) && $this->treeIsVectorShapeOnly($node);
     }
@@ -336,6 +375,67 @@ final class LayoutIntentClassifier
     }
 
     /**
+     * @param array<string, mixed> $parentNode
+     * @param array<string, mixed> $node
+     */
+    private function nodeIsBehindTextOutsideNode(array $parentNode, array $node): bool
+    {
+        $nodeId = (string) ($node['id'] ?? '');
+        $nodeZIndex = $this->nodeZIndex($node);
+        $nodeSiblingIndex = null;
+        $siblings = $this->nodeList($parentNode);
+
+        foreach ( $siblings as $index => $sibling ) {
+            if ( is_array($sibling) && (string) ($sibling['id'] ?? '') === $nodeId ) {
+                $nodeSiblingIndex = (int) $index;
+                break;
+            }
+        }
+
+        foreach ( $siblings as $index => $sibling ) {
+            if ( ! is_array($sibling) || (string) ($sibling['id'] ?? '') === $nodeId || ! $this->treeHasText($sibling) ) {
+                continue;
+            }
+
+            $siblingZIndex = $this->nodeZIndex($sibling);
+            if ( null !== $nodeZIndex && null !== $siblingZIndex ) {
+                if ( $nodeZIndex < $siblingZIndex ) {
+                    return true;
+                }
+                continue;
+            }
+
+            $nodeOrder = $this->nodeSourceOrder($node) ?? $nodeSiblingIndex;
+            $siblingOrder = $this->nodeSourceOrder($sibling) ?? (int) $index;
+            if ( null !== $nodeOrder && $nodeOrder < $siblingOrder ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodeZIndex(array $node): ?int
+    {
+        return isset($node['layout']['z_index']) && is_numeric($node['layout']['z_index']) ? (int) $node['layout']['z_index'] : null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodeSourceOrder(array $node): ?int
+    {
+        if ( isset($node['layout']['source_order']) && is_numeric($node['layout']['source_order']) ) {
+            return (int) $node['layout']['source_order'];
+        }
+
+        return isset($node['_source_order']) && is_numeric($node['_source_order']) ? (int) $node['_source_order'] : null;
+    }
+
+    /**
      * @param array<string, mixed> $node
      */
     private function isOversizedAgainstParent(array $node, array $parentNode): bool
@@ -361,6 +461,44 @@ final class LayoutIntentClassifier
 
     /**
      * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     * @param array<string, mixed> $parentLayout
+     */
+    private function isAbsoluteBackgroundBleed(array $node, array $parentNode, array $parentLayout): bool
+    {
+        if ( 'absolute' !== ($node['layout']['positioning'] ?? null) ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        foreach ( array('width', 'height') as $dimension ) {
+            if ( ! isset($box[$dimension], $parentBox[$dimension]) || ! is_numeric($box[$dimension]) || ! is_numeric($parentBox[$dimension]) || 0.0 >= (float) $parentBox[$dimension] ) {
+                return false;
+            }
+        }
+
+        $isRow = 'row' === ($parentLayout['flex_direction'] ?? null);
+        $mainAxis = $isRow ? 'width' : 'height';
+        $crossAxis = $isRow ? 'height' : 'width';
+        $crossOrigin = $isRow ? 'y' : 'x';
+        $mainRatio = (float) $box[$mainAxis] / (float) $parentBox[$mainAxis];
+        if ( 0.95 > $mainRatio ) {
+            return false;
+        }
+
+        $crossOffset = $this->positionOffset($box, $parentBox, $crossOrigin, $parentNode);
+        if ( null === $crossOffset ) {
+            return false;
+        }
+
+        $crossSize = (float) $box[$crossAxis];
+        $parentCrossSize = (float) $parentBox[$crossAxis];
+        return 1.0 <= ($crossSize / $parentCrossSize) || ($crossOffset <= 0.0 && $crossOffset + $crossSize >= $parentCrossSize);
+    }
+
+    /**
+     * @param array<string, mixed> $node
      */
     private function treeHasText(array $node): bool
     {
@@ -382,7 +520,7 @@ final class LayoutIntentClassifier
      */
     private function treeHasImageReference(array $node): bool
     {
-        if ( null !== $this->nodeAssetPath($node) || ! empty($this->explicitNodeAssetReferences($node)) || ! empty($this->nodeImagePaints($node)) ) {
+        if ( $this->nodeHasImageReference($node) ) {
             return true;
         }
 
@@ -403,10 +541,10 @@ final class LayoutIntentClassifier
         $type = strtoupper((string) ($node['type'] ?? ''));
         $children = $this->nodeList($node);
         if ( empty($children) ) {
-            return in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON', 'RECTANGLE'), true);
+            return $this->isPrimitiveVectorShapeType($type);
         }
 
-        if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'BOOLEAN_OPERATION'), true) ) {
+        if ( ! $this->isVectorShapeContainerType($type) ) {
             return false;
         }
 
@@ -417,6 +555,16 @@ final class LayoutIntentClassifier
         }
 
         return true;
+    }
+
+    private function isPrimitiveVectorShapeType(string $type): bool
+    {
+        return in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON', 'RECTANGLE', 'ROUNDED_RECTANGLE'), true);
+    }
+
+    private function isVectorShapeContainerType(string $type): bool
+    {
+        return in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'BOOLEAN_OPERATION'), true);
     }
 
     /**
@@ -473,12 +621,20 @@ final class LayoutIntentClassifier
 
     /**
      * @param array<string, mixed> $node
+     */
+    private function nodeHasImageReference(array $node): bool
+    {
+        return null !== $this->nodeAssetPath($node) || ! empty($this->explicitNodeAssetReferences($node)) || ! empty($this->nodeImagePaints($node));
+    }
+
+    /**
+     * @param array<string, mixed> $node
      * @return array<int, string>
      */
     private function nodeAssetReferences(array $node): array
     {
         $references = array();
-        foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref', 'id', 'name') as $key ) {
+        foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref') as $key ) {
             if ( isset($node[$key]) && is_scalar($node[$key]) ) {
                 $references[] = (string) $node[$key];
             }

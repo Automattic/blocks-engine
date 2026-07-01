@@ -615,7 +615,43 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     ));
     $layerOrderHtml = $fileContent($layerOrderResult, 'index.html');
     $assert(strpos($layerOrderHtml, 'data-figma-node-id="layer:bottom"') < strpos($layerOrderHtml, 'data-figma-node-id="layer:top"'), 'freeform-layer-order-uses-parent-index-position');
-    
+
+    $numericLayerOrderResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'         => 'Numeric Layer Order Fixture',
+        'NODE_CHANGES' => array(
+            'numeric-layer:root' => array(
+                'node' => array(
+                    'id'          => 'numeric-layer:root',
+                    'type'        => 'FRAME',
+                    'name'        => 'Numeric layer root',
+                    'width'       => 300,
+                    'height'      => 200,
+                    'resizeToFit' => true,
+                    'children'    => array(
+                        array(
+                            'id'          => 'numeric-layer:front',
+                            'type'        => 'RECTANGLE',
+                            'name'        => 'Front',
+                            'width'       => 100,
+                            'height'      => 40,
+                            'parentIndex' => array('position' => '10'),
+                        ),
+                        array(
+                            'id'          => 'numeric-layer:back',
+                            'type'        => 'RECTANGLE',
+                            'name'        => 'Back',
+                            'width'       => 200,
+                            'height'      => 120,
+                            'parentIndex' => array('position' => '2'),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $numericLayerOrderHtml = $fileContent($numericLayerOrderResult, 'index.html');
+    $assert(strpos($numericLayerOrderHtml, 'data-figma-node-id="numeric-layer:back"') < strpos($numericLayerOrderHtml, 'data-figma-node-id="numeric-layer:front"'), 'freeform-layer-order-uses-numeric-parent-index-position');
+
     $overflowWrapperResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Overflow Wrapper Fixture',
         'nodes' => array(

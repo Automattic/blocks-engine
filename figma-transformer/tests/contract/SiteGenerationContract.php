@@ -139,6 +139,278 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(! in_array('off_canvas_visual_nodes', $normalLocalSignalCodes, true), 'quality-diagnostics-normal-local-no-visual-off-canvas-signal');
     $assert(0 === ($normalLocalPlacementResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['large_absolute_offset_count'] ?? null), 'quality-diagnostics-normal-local-large-offset-count-zero');
     $assert(0 === ($normalLocalPlacementResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['off_canvas_visual_node_count'] ?? null), 'quality-diagnostics-normal-local-visual-offset-count-zero');
+
+    $absoluteChildReserveResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Absolute Child Flow Reserve Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'reserve:root',
+                'type'     => 'FRAME',
+                'name'     => 'Page root',
+                'width'    => 640,
+                'height'   => 700,
+                'children' => array(
+                    array(
+                        'id'       => 'reserve:footer',
+                        'type'     => 'FRAME',
+                        'name'     => 'Footer shell',
+                        'x'        => 0,
+                        'y'        => 120,
+                        'width'    => 640,
+                        'height'   => 483,
+                        'children' => array(
+                            array('id' => 'reserve:newsletter', 'type' => 'FRAME', 'name' => 'Promoted card', 'x' => 112, 'y' => 0, 'width' => 416, 'height' => 352, 'children' => array(
+                                array('id' => 'reserve:newsletter:text', 'type' => 'TEXT', 'name' => 'Card heading', 'characters' => 'Promoted content', 'width' => 240, 'height' => 32, 'fontSize' => 24),
+                            )),
+                            array('id' => 'reserve:bottom', 'type' => 'FRAME', 'name' => 'Bottom bar', 'x' => 0, 'y' => 352, 'width' => 640, 'height' => 131, 'children' => array(
+                                array('id' => 'reserve:bottom:text', 'type' => 'TEXT', 'name' => 'Bottom text', 'characters' => 'Footer links', 'width' => 120, 'height' => 24, 'fontSize' => 16),
+                            )),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $absoluteChildReserveCss = $fileContent($absoluteChildReserveResult, 'style.css');
+    $assert(str_contains($absoluteChildReserveCss, '.figma-node-reserve-footer-footer-shell{') && str_contains($absoluteChildReserveCss, 'height:483px;min-height:483px;'), 'absolute-child-reserve-parent-min-height');
+    $assert(str_contains($absoluteChildReserveCss, '.figma-node-reserve-newsletter-promoted-card{') && str_contains($absoluteChildReserveCss, 'width:416px;height:352px;position:absolute;left:112px;top:0px'), 'absolute-child-reserve-positioned-card-preserved');
+    $assert(str_contains($absoluteChildReserveCss, '.figma-node-reserve-bottom-bottom-bar{') && str_contains($absoluteChildReserveCss, 'width:640px;height:131px;position:absolute;left:0px;top:352px'), 'absolute-child-reserve-positioned-bottom-preserved');
+
+    $stickyGhostResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Sticky Ghost Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'sticky:root',
+                'type'     => 'FRAME',
+                'name'     => 'Sticky page',
+                'width'    => 960,
+                'height'   => 1800,
+                'children' => array(
+                    array(
+                        'id'         => 'sticky:row',
+                        'type'       => 'FRAME',
+                        'name'       => 'Article row',
+                        'width'      => 960,
+                        'height'     => 1600,
+                        'layoutMode' => 'HORIZONTAL',
+                        'itemSpacing' => 24,
+                        'children'   => array(
+                            array('id' => 'sticky:toc-primary', 'type' => 'FRAME', 'name' => 'Table of contents', 'width' => 240, 'height' => 320, 'children' => array(
+                                array('id' => 'sticky:toc-title', 'type' => 'TEXT', 'name' => 'TOC title', 'characters' => 'Contents', 'width' => 120, 'height' => 24, 'fontSize' => 18),
+                                array('id' => 'sticky:toc-link', 'type' => 'TEXT', 'name' => 'TOC link', 'characters' => 'Introduction', 'width' => 120, 'height' => 20, 'fontSize' => 14),
+                            )),
+                            array('id' => 'sticky:article', 'type' => 'FRAME', 'name' => 'Article body', 'width' => 696, 'height' => 1200, 'children' => array(
+                                array('id' => 'sticky:article-title', 'type' => 'TEXT', 'name' => 'Article title', 'characters' => 'Long article', 'width' => 320, 'height' => 48, 'fontSize' => 36),
+                            )),
+                            array('id' => 'sticky:toc-ghost', 'type' => 'FRAME', 'name' => 'Table of contents', 'x' => 0, 'y' => 1280, 'width' => 240, 'height' => 320, 'layoutPositioning' => 'ABSOLUTE', 'constraints' => array('horizontal' => 'LEFT', 'vertical' => 'BOTTOM'), 'opacity' => 0.1, 'children' => array(
+                                array('id' => 'sticky:toc-ghost-title', 'type' => 'TEXT', 'name' => 'TOC title', 'characters' => 'Contents', 'width' => 120, 'height' => 24, 'fontSize' => 18),
+                                array('id' => 'sticky:toc-ghost-link', 'type' => 'TEXT', 'name' => 'TOC link', 'characters' => 'Introduction', 'width' => 120, 'height' => 20, 'fontSize' => 14),
+                            )),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $stickyGhostHtml = $fileContent($stickyGhostResult, 'index.html');
+    $stickyGhostCss = $fileContent($stickyGhostResult, 'style.css');
+    $stickyGhostLayout = $stickyGhostResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+    $assert(str_contains($stickyGhostHtml, 'data-figma-node-id="sticky:toc-primary"'), 'sticky-ghost-primary-emitted');
+    $assert(! str_contains($stickyGhostHtml, 'data-figma-node-id="sticky:toc-ghost"'), 'sticky-ghost-duplicate-suppressed');
+    $assert(str_contains($stickyGhostCss, '.figma-node-sticky-toc-primary-table-of-contents{') && str_contains($stickyGhostCss, 'position:sticky;top:0;align-self:flex-start'), 'sticky-ghost-primary-css-sticky');
+    $assert(1 === ($stickyGhostLayout['sticky_ghosts']['count'] ?? null), 'sticky-ghost-diagnostic-count');
+    $assert('sticky:toc-primary' === ($stickyGhostLayout['sticky_ghosts']['candidates'][0]['primary_id'] ?? null), 'sticky-ghost-diagnostic-primary');
+    $assert('sticky:toc-ghost' === ($stickyGhostLayout['sticky_ghosts']['candidates'][0]['ghost_id'] ?? null), 'sticky-ghost-diagnostic-ghost');
+
+    $stickyGhostSourceMismatchResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Sticky Ghost Source Mismatch Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'sticky-real:root',
+                'type'     => 'FRAME',
+                'name'     => 'Blog Post Desktop',
+                'width'    => 1440,
+                'height'   => 4800,
+                'clipsContent' => true,
+                'children' => array(
+                    array(
+                        'id'         => '4194:2157',
+                        'type'       => 'FRAME',
+                        'name'       => 'Frame 51076550',
+                        'width'      => 1216,
+                        'height'     => 4163.5,
+                        'clipsContent' => true,
+                        'layoutMode' => 'HORIZONTAL',
+                        'itemSpacing' => 105,
+                        'children'   => array(
+                            array('id' => '4212:3087', 'figma_component_source_id' => '4212:3087', 'type' => 'INSTANCE', 'name' => 'Table of Contents', 'width' => 315, 'height' => 510, 'children' => array(
+                                array('id' => '4212:3087/4198:8360', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Table of Contents', 'width' => 180, 'height' => 24, 'fontSize' => 18),
+                                array('id' => '4212:3087/4188:11209', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Unboxing Experience', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                array('id' => '4212:3087/4188:11211', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Build Process', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                array('id' => '4212:3087/4188:11213', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Step-By-Step Construction', 'width' => 240, 'height' => 24, 'fontSize' => 16),
+                                array('id' => '4212:3087/4188:11220', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Conclusion', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                            )),
+                            array('id' => 'sticky-real:article', 'type' => 'FRAME', 'name' => 'Article body', 'width' => 796, 'height' => 3000, 'clipsContent' => true, 'children' => array(
+                                array('id' => 'sticky-real:title', 'type' => 'TEXT', 'name' => 'Article title', 'characters' => 'Long article', 'width' => 420, 'height' => 56, 'fontSize' => 42),
+                            )),
+                            array('id' => '4210:12595', 'figma_component_source_id' => '4210:12595', 'type' => 'INSTANCE', 'name' => 'Table of Contents', 'x' => 0, 'y' => 3654, 'width' => 315, 'height' => 510, 'layoutPositioning' => 'ABSOLUTE', 'constraints' => array('horizontal' => 'LEFT', 'vertical' => 'BOTTOM'), 'opacity' => 0.1, 'children' => array(
+                                array('id' => '4210:12595/4198:8360', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Table of Contents', 'width' => 180, 'height' => 24, 'fontSize' => 18),
+                                array('id' => '4210:12595/4188:11209', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Unboxing Experience', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                array('id' => '4210:12595/4188:11211', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Build Process', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                array('id' => '4210:12595/4188:11213', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Step-By-Step Construction', 'width' => 240, 'height' => 24, 'fontSize' => 16),
+                                array('id' => '4210:12595/4188:11220', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Conclusion', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                            )),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $stickyGhostSourceMismatchHtml = $fileContent($stickyGhostSourceMismatchResult, 'index.html');
+    $stickyGhostSourceMismatchCss = $fileContent($stickyGhostSourceMismatchResult, 'style.css');
+    $stickyGhostSourceMismatchLayout = $stickyGhostSourceMismatchResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+    $assert(str_contains($stickyGhostSourceMismatchHtml, 'data-figma-node-id="4212:3087"'), 'sticky-ghost-source-mismatch-primary-emitted');
+    $assert(! str_contains($stickyGhostSourceMismatchHtml, 'data-figma-node-id="4210:12595"'), 'sticky-ghost-source-mismatch-duplicate-suppressed');
+    $assert(str_contains($stickyGhostSourceMismatchCss, '.figma-node-4212-3087-table-of-contents{') && str_contains($stickyGhostSourceMismatchCss, 'position:sticky;top:0;align-self:flex-start'), 'sticky-ghost-source-mismatch-primary-css-sticky');
+    $assert(! preg_match('/\.figma-node-sticky-real-root-blog-post-desktop\{[^}]*overflow:hidden/', $stickyGhostSourceMismatchCss), 'sticky-ghost-source-mismatch-root-no-overflow-hidden');
+    $assert(! preg_match('/\.figma-node-4194-2157-frame-51076550\{[^}]*overflow:hidden/', $stickyGhostSourceMismatchCss), 'sticky-ghost-source-mismatch-row-no-overflow-hidden');
+    $assert(1 === preg_match('/\.figma-node-sticky-real-article-article-body\{[^}]*overflow:hidden/', $stickyGhostSourceMismatchCss), 'sticky-ghost-source-mismatch-sibling-clipping-preserved');
+    $assert(1 === ($stickyGhostSourceMismatchLayout['sticky_ghosts']['count'] ?? null), 'sticky-ghost-source-mismatch-diagnostic-count');
+    $assert('4212:3087' === ($stickyGhostSourceMismatchLayout['sticky_ghosts']['candidates'][0]['primary_id'] ?? null), 'sticky-ghost-source-mismatch-diagnostic-primary');
+    $assert('4210:12595' === ($stickyGhostSourceMismatchLayout['sticky_ghosts']['candidates'][0]['ghost_id'] ?? null), 'sticky-ghost-source-mismatch-diagnostic-ghost');
+
+    $stickyGhostMultiPageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Sticky Ghost Multi Page Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'sticky-multi:canvas',
+                'type'     => 'CANVAS',
+                'name'     => 'Site',
+                'children' => array(
+                    array(
+                        'id'       => 'sticky-multi:home',
+                        'type'     => 'FRAME',
+                        'name'     => 'Home',
+                        'width'    => 1440,
+                        'height'   => 900,
+                        'children' => array(
+                            array('id' => 'sticky-multi:home-title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Home', 'width' => 180, 'height' => 48, 'fontSize' => 36),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'sticky-multi:section',
+                        'type'     => 'SECTION',
+                        'name'     => 'Blog Post Section',
+                        'children' => array(
+                            array(
+                                'id'       => 'sticky-multi:blog-desktop',
+                                'type'     => 'FRAME',
+                                'name'     => 'Blog Post Desktop',
+                                'width'    => 1440,
+                                'height'   => 4800,
+                                'children' => array(
+                                    array(
+                                        'id'         => '4194:2157',
+                                        'type'       => 'FRAME',
+                                        'name'       => 'Frame 51076550',
+                                        'width'      => 1216,
+                                        'height'     => 4163.5,
+                                        'layoutMode' => 'HORIZONTAL',
+                                        'itemSpacing' => 105,
+                                        'children'   => array(
+                                            array('id' => '4212:3087', 'figma_component_source_id' => '4212:3087', 'type' => 'INSTANCE', 'name' => 'Table of Contents', 'width' => 315, 'height' => 510, 'children' => array(
+                                                array('id' => '4212:3087/4198:8360', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Table of Contents', 'width' => 180, 'height' => 24, 'fontSize' => 18),
+                                                array('id' => '4212:3087/4188:11209', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Unboxing Experience', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                                array('id' => '4212:3087/4188:11211', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Build Process', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                                array('id' => '4212:3087/4188:11213', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Step-By-Step Construction', 'width' => 240, 'height' => 24, 'fontSize' => 16),
+                                                array('id' => '4212:3087/4188:11220', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Conclusion', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                            )),
+                                            array('id' => 'sticky-multi:article', 'type' => 'FRAME', 'name' => 'Article body', 'width' => 796, 'height' => 3000, 'children' => array(
+                                                array('id' => 'sticky-multi:title', 'type' => 'TEXT', 'name' => 'Article title', 'characters' => 'Long article', 'width' => 420, 'height' => 56, 'fontSize' => 42),
+                                            )),
+                                            array('id' => '4210:12595', 'figma_component_source_id' => '4210:12595', 'type' => 'INSTANCE', 'name' => 'Table of Contents', 'x' => 0, 'y' => 3654, 'width' => 315, 'height' => 510, 'layoutPositioning' => 'ABSOLUTE', 'constraints' => array('horizontal' => 'LEFT', 'vertical' => 'BOTTOM'), 'opacity' => 0.1, 'children' => array(
+                                                array('id' => '4210:12595/4198:8360', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Table of Contents', 'width' => 180, 'height' => 24, 'fontSize' => 18),
+                                                array('id' => '4210:12595/4188:11209', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Unboxing Experience', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                                array('id' => '4210:12595/4188:11211', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Build Process', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                                array('id' => '4210:12595/4188:11213', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Step-By-Step Construction', 'width' => 240, 'height' => 24, 'fontSize' => 16),
+                                                array('id' => '4210:12595/4188:11220', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Conclusion', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                            )),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            array(
+                                'id'       => 'sticky-multi:blog-mobile',
+                                'type'     => 'FRAME',
+                                'name'     => 'Blog Post Mobile',
+                                'width'    => 390,
+                                'height'   => 4200,
+                                'children' => array(
+                                    array('id' => 'sticky-multi:mobile-title', 'type' => 'TEXT', 'name' => 'Article title', 'characters' => 'Long article', 'width' => 320, 'height' => 44, 'fontSize' => 32),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ), array(
+        'multi_page'     => true,
+        'frame_ids'      => array('sticky-multi:home', 'sticky-multi:blog-desktop', 'sticky-multi:blog-mobile'),
+        'entry_frame_id' => 'sticky-multi:home',
+    ));
+    $stickyGhostMultiPageHtml = $fileContent($stickyGhostMultiPageResult, 'blog-post.html');
+    $stickyGhostMultiPageCss = $fileContent($stickyGhostMultiPageResult, 'style.css');
+    $stickyGhostMultiPageLayout = $stickyGhostMultiPageResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+    $assert('' !== $stickyGhostMultiPageHtml, 'sticky-ghost-multi-page-blog-post-emitted');
+    $assert(str_contains($stickyGhostMultiPageHtml, 'data-figma-node-id="4212:3087"'), 'sticky-ghost-multi-page-primary-emitted');
+    $assert(! str_contains($stickyGhostMultiPageHtml, 'data-figma-node-id="4210:12595"'), 'sticky-ghost-multi-page-ghost-absent-from-final-html');
+    $assert(str_contains($stickyGhostMultiPageCss, '.figma-node-4212-3087-table-of-contents{') && str_contains($stickyGhostMultiPageCss, 'position:sticky;top:0;align-self:flex-start'), 'sticky-ghost-multi-page-primary-sticky-in-final-css');
+    $assert(! str_contains($stickyGhostMultiPageCss, '.figma-node-4210-12595-table-of-contents'), 'sticky-ghost-multi-page-ghost-absent-from-final-css');
+    $assert(1 === ($stickyGhostMultiPageLayout['sticky_ghosts']['count'] ?? null), 'sticky-ghost-multi-page-diagnostic-count');
+    $assert('4212:3087' === ($stickyGhostMultiPageLayout['sticky_ghosts']['candidates'][0]['primary_id'] ?? null), 'sticky-ghost-multi-page-diagnostic-primary');
+    $assert('4210:12595' === ($stickyGhostMultiPageLayout['sticky_ghosts']['candidates'][0]['ghost_id'] ?? null), 'sticky-ghost-multi-page-diagnostic-ghost');
+
+    $repeatedCardsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Repeated Cards Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'repeat:root',
+                'type'     => 'FRAME',
+                'name'     => 'Repeated cards root',
+                'width'    => 640,
+                'height'   => 900,
+                'children' => array(
+                    array(
+                        'id'         => 'repeat:row',
+                        'type'       => 'FRAME',
+                        'name'       => 'Cards row',
+                        'width'      => 640,
+                        'height'     => 720,
+                        'layoutMode' => 'HORIZONTAL',
+                        'itemSpacing' => 24,
+                        'children'   => array(
+                            array('id' => 'repeat:card-a', 'type' => 'FRAME', 'name' => 'Promo card', 'width' => 240, 'height' => 180, 'children' => array(
+                                array('id' => 'repeat:card-a-title', 'type' => 'TEXT', 'name' => 'Card title', 'characters' => 'Featured', 'width' => 120, 'height' => 24, 'fontSize' => 18),
+                            )),
+                            array('id' => 'repeat:card-b', 'type' => 'FRAME', 'name' => 'Promo card', 'width' => 240, 'height' => 180, 'children' => array(
+                                array('id' => 'repeat:card-b-title', 'type' => 'TEXT', 'name' => 'Card title', 'characters' => 'Featured', 'width' => 120, 'height' => 24, 'fontSize' => 18),
+                            )),
+                            array('id' => 'repeat:card-c', 'type' => 'FRAME', 'name' => 'Promo card', 'x' => 0, 'y' => 540, 'width' => 240, 'height' => 180, 'layoutPositioning' => 'ABSOLUTE', 'constraints' => array('horizontal' => 'LEFT', 'vertical' => 'BOTTOM'), 'opacity' => 1, 'children' => array(
+                                array('id' => 'repeat:card-c-title', 'type' => 'TEXT', 'name' => 'Card title', 'characters' => 'Featured', 'width' => 120, 'height' => 24, 'fontSize' => 18),
+                            )),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $repeatedCardsHtml = $fileContent($repeatedCardsResult, 'index.html');
+    $repeatedCardsLayout = $repeatedCardsResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+    $assert(str_contains($repeatedCardsHtml, 'data-figma-node-id="repeat:card-a"'), 'repeated-cards-flow-card-a-emitted');
+    $assert(str_contains($repeatedCardsHtml, 'data-figma-node-id="repeat:card-b"'), 'repeated-cards-flow-card-b-emitted');
+    $assert(str_contains($repeatedCardsHtml, 'data-figma-node-id="repeat:card-c"'), 'repeated-cards-full-opacity-absolute-emitted');
+    $assert(0 === ($repeatedCardsLayout['sticky_ghosts']['count'] ?? null), 'repeated-cards-no-sticky-ghost-diagnostic');
     
     $emptyVisibleContainerResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Empty Visible Container Classification Fixture',

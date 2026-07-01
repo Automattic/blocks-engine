@@ -1421,6 +1421,15 @@ final class ScenegraphNormalizer
             $merged = $this->rebaseComponentSourceCloneDescendants($merged, $sourceX, $sourceY, $sourceWidth, $sourceHeight);
         }
 
+        if ( is_array($clone['_component_source_clone_scale'] ?? null) && is_array($merged['children'] ?? null) ) {
+            $scaleX = isset($clone['_component_source_clone_scale']['x']) && is_numeric($clone['_component_source_clone_scale']['x']) ? (float) $clone['_component_source_clone_scale']['x'] : 1.0;
+            $scaleY = isset($clone['_component_source_clone_scale']['y']) && is_numeric($clone['_component_source_clone_scale']['y']) ? (float) $clone['_component_source_clone_scale']['y'] : 1.0;
+            if ( abs($scaleX - 1.0) >= 0.0001 || abs($scaleY - 1.0) >= 0.0001 ) {
+                $merged['children'] = $this->scaleVectorChildren($merged['children'], $scaleX, $scaleY);
+                $merged['_component_source_clone_scale'] = array('x' => $scaleX, 'y' => $scaleY);
+            }
+        }
+
 		return $this->markComponentSourceCloneGeometry($merged);
 	}
 
@@ -1932,7 +1941,6 @@ final class ScenegraphNormalizer
         );
         $resolvedChildren = is_array($resolved['children'] ?? null) ? $resolved['children'] : array();
         $resolvedChildren = $this->resolveClonedInstanceChildren($resolvedChildren, $nodeMap, $components, $diagnostics, $blobs, $paintStyles, $textStyles, $options, $resolutionTrail);
-        $resolvedChildren = $this->scaleVectorOnlyInstanceChildren($resolvedChildren, $component, $instance);
         $componentBox = is_array($component['box'] ?? null) ? $component['box'] : array();
         $componentSourceX = isset($componentBox['x']) && is_numeric($componentBox['x']) ? (float) $componentBox['x'] : null;
         $componentSourceY = isset($componentBox['y']) && is_numeric($componentBox['y']) ? (float) $componentBox['y'] : null;
@@ -1942,6 +1950,7 @@ final class ScenegraphNormalizer
             $rebasedSource = $this->rebaseComponentSourceCloneDescendants(array('children' => $resolvedChildren), $componentSourceX, $componentSourceY, $componentSourceWidth, $componentSourceHeight);
             $resolvedChildren = is_array($rebasedSource['children'] ?? null) ? $rebasedSource['children'] : $resolvedChildren;
         }
+        $resolvedChildren = $this->scaleVectorOnlyInstanceChildren($resolvedChildren, $component, $instance);
         // Figma binds per-instance text content through component properties: each
         // master text node references a property definition (componentPropRefs ->
         // componentPropNodeField: TEXT_DATA) and the instance assigns the real value
@@ -2593,13 +2602,21 @@ final class ScenegraphNormalizer
                 }
             }
 
-            if ( is_array($child['figma_box']['transform'] ?? null) ) {
-                foreach ( array('m00' => $scaleX, 'm02' => $scaleX, 'm11' => $scaleY, 'm12' => $scaleY) as $key => $scale ) {
-                    if ( isset($child['figma_box']['transform'][$key]) && is_numeric($child['figma_box']['transform'][$key]) ) {
-                        $child['figma_box']['transform'][$key] = (float) $child['figma_box']['transform'][$key] * $scale;
+            if ( is_array($child['figma_box'] ?? null) ) {
+                foreach ( array('x' => $scaleX, 'width' => $scaleX, 'y' => $scaleY, 'height' => $scaleY) as $key => $scale ) {
+                    if ( isset($child['figma_box'][$key]) && is_numeric($child['figma_box'][$key]) ) {
+                        $child['figma_box'][$key] = (float) $child['figma_box'][$key] * $scale;
                     }
                 }
             }
+
+            foreach ( array('x' => $scaleX, 'width' => $scaleX, 'y' => $scaleY, 'height' => $scaleY) as $key => $scale ) {
+                if ( isset($child[$key]) && is_numeric($child[$key]) ) {
+                    $child[$key] = (float) $child[$key] * $scale;
+                }
+            }
+
+            $child['_component_source_clone_scale'] = array('x' => $scaleX, 'y' => $scaleY);
 
             if ( $this->isScalableVectorType(strtoupper((string) ($child['type'] ?? ''))) ) {
                 $child['figma_vector_scale'] = array('x' => $scaleX, 'y' => $scaleY);
@@ -2620,10 +2637,6 @@ final class ScenegraphNormalizer
      */
     private function isVectorOnlyComponent(array $component): bool
     {
-        if ( ! empty($component['layout']) ) {
-            return false;
-        }
-
         $children = is_array($component['children'] ?? null) ? $component['children'] : array();
         if ( empty($children) ) {
             return false;

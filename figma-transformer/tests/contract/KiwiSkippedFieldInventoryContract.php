@@ -33,6 +33,10 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
     $assert('NodeChange' === ($layoutEntry['parent_message'] ?? null), 'kiwi-skipped-inventory-parent-message');
     $assert('FRAME' === array_key_first(is_array($layoutEntry['node_types'] ?? null) ? $layoutEntry['node_types'] : array()), 'kiwi-skipped-inventory-node-type');
     $assert(array('7:42') === ($layoutEntry['sample_node_ids'] ?? null), 'kiwi-skipped-inventory-node-id-sample');
+    $assert('7:42' === ($layoutEntry['sample_nodes'][0]['node_id'] ?? null), 'kiwi-skipped-inventory-node-sample-id');
+    $assert('FRAME' === ($layoutEntry['sample_nodes'][0]['node_type'] ?? null), 'kiwi-skipped-inventory-node-sample-type');
+    $assert('Message.nodeChanges[].layoutBoundsDebug' === ($layoutEntry['sample_nodes'][0]['path'] ?? null), 'kiwi-skipped-inventory-node-sample-path');
+    $assert('layout' === ($layoutEntry['sample_nodes'][0]['raw_value']['value'] ?? null), 'kiwi-skipped-inventory-node-sample-value');
     $assert(array() === blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'maskType'), 'kiwi-skipped-inventory-mask-type-decoded');
     $assert(array() === blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'arcData'), 'kiwi-skipped-inventory-arc-data-decoded');
     $assert(array() === blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'guides'), 'kiwi-skipped-inventory-guides-decoded');
