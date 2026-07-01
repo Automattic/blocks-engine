@@ -215,6 +215,30 @@ final class TextNormalizer
             }
         }
 
+        foreach ( array('truncationStartIndex' => 'truncation_start_index', 'truncatedHeight' => 'truncated_height', 'minContentHeight' => 'min_content_height', 'layoutVersion' => 'layout_version') as $sourceKey => $targetKey ) {
+            if ( isset($source[$sourceKey]) && is_numeric($source[$sourceKey]) ) {
+                $layout[$targetKey] = (float) $source[$sourceKey];
+            }
+        }
+
+        if ( is_array($source['logicalIndexToCharacterOffsetMap'] ?? null) ) {
+            $offsets = array();
+            foreach ( $source['logicalIndexToCharacterOffsetMap'] as $offset ) {
+                if ( is_numeric($offset) ) {
+                    $offsets[] = (float) $offset;
+                }
+            }
+            if ( ! empty($offsets) ) {
+                $layout['logical_character_offsets'] = $offsets;
+            }
+        }
+
+        foreach ( array('lines' => 'line_count', 'derivedLines' => 'derived_line_count') as $sourceKey => $targetKey ) {
+            if ( is_array($source[$sourceKey] ?? null) ) {
+                $layout[$targetKey] = count($source[$sourceKey]);
+            }
+        }
+
         if ( is_array($source['glyphs'] ?? null) ) {
             $layout['glyph_count'] = count($source['glyphs']);
             if ( ! $decodeGlyphCommandBlobs ) {
@@ -362,6 +386,10 @@ final class TextNormalizer
             }
         }
 
+        if ( isset($source['textTracking']) && is_numeric($source['textTracking']) && ! isset($style['letter_spacing']) ) {
+            $style['letter_spacing'] = (float) $source['textTracking'];
+        }
+
         foreach ( array('fontSize' => 'font_size', 'lineHeightPx' => 'line_height_px', 'lineHeightPercent' => 'line_height_percent', 'letterSpacing' => 'letter_spacing') as $sourceKey => $targetKey ) {
             if ( isset($source[$sourceKey]) && is_numeric($source[$sourceKey]) ) {
                 $style[$targetKey] = (float) $source[$sourceKey];
@@ -388,6 +416,37 @@ final class TextNormalizer
             } elseif ( str_contains($letterSpacingUnits, 'PERCENT') ) {
                 $style['letter_spacing_em'] = (float) $source['letterSpacing']['value'] / 100;
             }
+        }
+
+        if ( is_array($source['fontVariations'] ?? null) ) {
+            $fontVariations = array();
+            foreach ( $source['fontVariations'] as $variation ) {
+                if ( ! is_array($variation) || ! isset($variation['value']) || ! is_numeric($variation['value']) ) {
+                    continue;
+                }
+                $axis = $this->fontVariationAxis($variation);
+                if ( null !== $axis ) {
+                    $fontVariations[$axis] = (float) $variation['value'];
+                }
+            }
+            if ( ! empty($fontVariations) ) {
+                $style['font_variation_settings'] = $fontVariations;
+            }
+        }
+
+        $fontFeatures = $this->normalizeFontFeatures($source);
+        if ( ! empty($fontFeatures) ) {
+            $style['font_feature_settings'] = $fontFeatures;
+        }
+
+        foreach ( array('leadingTrim' => 'leading_trim', 'textTruncation' => 'text_truncation', 'textWrapStyle' => 'text_wrap_style') as $sourceKey => $targetKey ) {
+            if ( isset($source[$sourceKey]) && is_scalar($source[$sourceKey]) && '' !== (string) $source[$sourceKey] ) {
+                $style[$targetKey] = strtolower((string) $source[$sourceKey]);
+            }
+        }
+
+        if ( isset($source['maxLines']) && is_numeric($source['maxLines']) ) {
+            $style['max_lines'] = (int) $source['maxLines'];
         }
 
         foreach ( array('color', 'textColor') as $sourceKey ) {
@@ -444,6 +503,66 @@ final class TextNormalizer
         }
 
         return $style;
+    }
+
+    /**
+     * @param array<string, mixed> $variation
+     */
+    private function fontVariationAxis(array $variation): ?string
+    {
+        if ( isset($variation['axisName']) && is_scalar($variation['axisName']) && 4 === strlen((string) $variation['axisName']) ) {
+            return (string) $variation['axisName'];
+        }
+        if ( isset($variation['axisTag']) && is_numeric($variation['axisTag']) ) {
+            $tag = (int) $variation['axisTag'];
+            $bytes = '';
+            for ( $shift = 24; $shift >= 0; $shift -= 8 ) {
+                $byte = ($tag >> $shift) & 0xff;
+                if ( $byte < 32 || $byte > 126 ) {
+                    return null;
+                }
+                $bytes .= chr($byte);
+            }
+            return $bytes;
+        }
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @return array<string, int>
+     */
+    private function normalizeFontFeatures(array $source): array
+    {
+        $features = array();
+        foreach ( array(
+            'fontVariantCommonLigatures' => 'liga',
+            'fontVariantContextualLigatures' => 'calt',
+            'fontVariantDiscretionaryLigatures' => 'dlig',
+            'fontVariantHistoricalLigatures' => 'hlig',
+            'fontVariantOrdinal' => 'ordn',
+            'fontVariantSlashedZero' => 'zero',
+        ) as $sourceKey => $feature ) {
+            if ( is_bool($source[$sourceKey] ?? null) ) {
+                $features[$feature] = true === $source[$sourceKey] ? 1 : 0;
+            }
+        }
+
+        foreach ( array('toggledOnOTFeatures' => 1, 'toggledOffOTFeatures' => 0) as $sourceKey => $enabled ) {
+            if ( ! is_array($source[$sourceKey] ?? null) ) {
+                continue;
+            }
+            foreach ( $source[$sourceKey] as $feature ) {
+                if ( is_scalar($feature) ) {
+                    $tag = strtolower((string) $feature);
+                    if ( 4 === strlen($tag) ) {
+                        $features[$tag] = $enabled;
+                    }
+                }
+            }
+        }
+
+        return $features;
     }
 
     private function fontWeightFromStyle(string $style): ?int

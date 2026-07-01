@@ -429,6 +429,14 @@ final class FigKiwiDecoder
     /**
      * @return array<string, array<int, string>>
      */
+    public function scenegraphFieldPolicyWithTextGlyphs(): array
+    {
+        return $this->decodePolicy->scenegraphFieldPolicyWithTextGlyphs();
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
     public function scenegraphFieldPolicyGroups(): array
     {
         return $this->decodePolicy->scenegraphFieldPolicyGroups();

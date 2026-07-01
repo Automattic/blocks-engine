@@ -545,6 +545,9 @@ function blocks_engine_figma_transformer_run_text_style_contract(callable $asser
                             'fontFamily'         => 'Example Sans',
                             'fontSize'           => 20,
                             'fontWeight'         => 600,
+                            'fontVariations'     => array(array('axisName' => 'wdth', 'value' => 85)),
+                            'fontVariantCommonLigatures' => false,
+                            'toggledOnOTFeatures' => array('kern'),
                             'lineHeightPercent'  => 125,
                             'letterSpacing'      => 0.5,
                             'textAlignHorizontal'=> 'CENTER',
@@ -627,7 +630,7 @@ function blocks_engine_figma_transformer_run_text_style_contract(callable $asser
     $assert(str_contains($metadataHtml, '<span style="font-weight:400">Hello </span><span style="font-weight:700;text-decoration:underline">World</span>'), 'styled-text-segments-emit');
     $assert(str_contains($metadataCss, 'p,h1,h2,h3,h4,h5,h6{margin:0}'), 'text-elements-reset-default-margins');
     $assert(str_contains($metadataCss, '.figma-node-4-1-metadata-frame{position:relative;background:rgba(51,102,153,0.5);opacity:0.75;border-radius:12px;border:2px solid #000000;box-shadow:0px 0px 0px 0px rgba(0,0,0,0.25)}'), 'normalized-frame-paint-box-style');
-    $assert(str_contains($metadataCss, '.figma-node-4-2-mixed-text{position:absolute;font-family:"Example Sans", sans-serif;font-size:20px;font-weight:600;line-height:125%;letter-spacing:0.5px;color:rgba(255,128,0,0.8);text-align:center;vertical-align:top;text-decoration:underline}'), 'normalized-text-style');
+    $assert(str_contains($metadataCss, '.figma-node-4-2-mixed-text{position:absolute;font-family:"Example Sans", sans-serif;font-size:20px;font-weight:600;font-variation-settings:"wdth" 85;font-feature-settings:"liga" 0,"kern" 1;line-height:125%;letter-spacing:0.5px;color:rgba(255,128,0,0.8);text-align:center;vertical-align:top;text-decoration:underline}'), 'normalized-text-style');
     $assert(str_contains($metadataCss, '.figma-node-4-3-uneven-radius{position:absolute;border-top-left-radius:4px;border-top-right-radius:8px;border-bottom-right-radius:12px;border-bottom-left-radius:16px}'), 'individual-radius-style');
     $assert(str_contains($metadataCss, '.figma-node-4-4-raw-line-height-text{position:absolute;font-family:"Example Sans", sans-serif;font-size:18px;font-weight:600;line-height:1.15}'), 'font-style-weight-and-raw-line-height');
     $assert(str_contains($metadataCss, '.figma-node-4-5-wp-cloud-text-metrics{position:absolute;font-family:"DM Sans", sans-serif;font-size:80px;font-weight:700;line-height:1.05;letter-spacing:-0.02em}'), 'wp-cloud-text-metrics-style');

@@ -35,11 +35,14 @@ final class FigKiwiDecodePolicy
             // already whitelists `styleID`/`fontName`/`fontSize`/`fillPaints`/etc.
             // Without these two names the per-character override data is dropped by
             // `skipField()` and every .fig text node emits flat, single-style text.
-            'TextData' => array('characters', 'layoutSize', 'characterStyleIDs', 'styleOverrideTable'),
-            'DerivedTextData' => array('layoutSize', 'baselines', 'fontMetaData'),
+            'TextData' => array('characters', 'layoutSize', 'characterStyleIDs', 'styleOverrideTable', 'layoutVersion', 'lines', 'minContentHeight', 'truncationStartIndex', 'truncatedHeight', 'logicalIndexToCharacterOffsetMap', 'derivedLines'),
+            'DerivedTextData' => array('layoutSize', 'baselines', 'fontMetaData', 'truncationStartIndex', 'truncatedHeight', 'logicalIndexToCharacterOffsetMap', 'derivedLines'),
+            'TextLineData' => array('lineType', 'styleId', 'indentationLevel', 'sourceDirectionality', 'directionality', 'directionalityIntent', 'downgradeStyleId', 'consistencyStyleId', 'listStartOffset', 'isFirstLineOfList'),
+            'DerivedTextLineData' => array('directionality'),
             'Baseline' => array('position', 'width', 'lineY', 'lineHeight', 'lineAscent', 'firstCharacter', 'endCharacter'),
             'Glyph' => array('position', 'fontSize', 'firstCharacter', 'endCharacter', 'advance', 'rotation', 'styleID'),
-            'FontMetaData' => array('key', 'fontLineHeight', 'fontWeight'),
+            'FontMetaData' => array('key', 'fontLineHeight', 'fontStyle', 'fontWeight'),
+            'FontVariation' => array('axisTag', 'axisName', 'value'),
             'Number' => array('value', 'units'),
             'Paint' => array('type', 'color', 'opacity', 'visible', 'blendMode', 'stops', 'transform', 'imageTransform', 'cropTransform', 'cropRect', 'image', 'imageThumbnail', 'imageScaleMode', 'originalImageWidth', 'originalImageHeight', 'scale', 'rotation', 'imageShouldColorManage', 'thumbHash', 'animationFrame', 'altText'),
             // Effect struct (#328). The Kiwi blur token is `FOREGROUND_BLUR`
@@ -117,6 +120,18 @@ final class FigKiwiDecodePolicy
             'export_metadata' => array('exportSettings', 'ExportSettings'),
             'document_metadata' => array('phase', 'autoRename', 'editInfo', 'pluginData', 'version', 'userFacingVersion', 'isPublishable', 'locked', 'isSoftDeleted', 'annotations', 'annotationCategories', 'publishID', 'sourceLibraryKey', 'ancestorPathBeforeDeletion', 'internalOnly', 'isPageDivider', 'pluginRelaunchData', 'slideThemeMap', 'ackID', 'originFileKey', 'sessionID'),
         );
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    public function scenegraphFieldPolicyWithTextGlyphs(): array
+    {
+        $policy = $this->defaultScenegraphFieldPolicy();
+        $policy['TextData'] = array_values(array_unique(array_merge($policy['TextData'] ?? array(), array('glyphs'))));
+        $policy['DerivedTextData'] = array_values(array_unique(array_merge($policy['DerivedTextData'] ?? array(), array('glyphs'))));
+        $policy['Glyph'] = array_values(array_unique(array_merge($policy['Glyph'] ?? array(), array('commandsBlob', 'emojiCodePoints', 'emojiImageSet'))));
+        return $policy;
     }
 
     /**
@@ -323,7 +338,15 @@ final class FigKiwiDecodePolicy
             'fontSize', 'fontName', 'textData', 'lineHeight', 'letterSpacing',
             'paragraphIndent', 'paragraphSpacing', 'styleID', 'textAlignHorizontal',
             'textAlignVertical', 'textCase', 'textDecoration', 'textAutoResize', 'listSpacing',
-            'derivedTextData',
+            'derivedTextData', 'styleIdForText', 'fontVariantCommonLigatures', 'fontVariantContextualLigatures',
+            'fontVariantDiscretionaryLigatures', 'fontVariantHistoricalLigatures',
+            'fontVariantOrdinal', 'fontVariantSlashedZero', 'fontVariantNumericFigure',
+            'fontVariantNumericSpacing', 'fontVariantNumericFraction', 'fontVariantCaps',
+            'fontVariantPosition', 'fontVersion', 'leadingTrim', 'hangingPunctuation',
+            'hangingList', 'fallbackGlyphs', 'maxLines', 'textUserLayoutVersion',
+            'textExplicitLayoutVersion', 'toggledOnOTFeatures', 'toggledOffOTFeatures',
+            'fontVariations', 'textBidiVersion', 'textTruncation', 'textWrapStyle',
+            'hasHadRTLText', 'textTracking',
         );
     }
 
