@@ -83,11 +83,12 @@ final class ScenegraphNormalizer
             }
         }
 
-        $textInventory   = $this->buildTextInventory($nodeMap);
-        $assetReferences = $this->buildAssetReferences($nodeMap);
-        $sourceName      = $this->readSourceName($source, $renderNodes);
-        $sourceMetadata  = $this->normalizeDocumentMetadata($source);
-        $diagnostics     = $this->vectorGeometryNormalizer->compactUnsupportedVectorNetworkBlobDiagnostics($this->compactGlyphCommandBlobDiagnostics($diagnostics));
+        $textInventory          = $this->buildTextInventory($nodeMap);
+        $assetReferences        = $this->buildAssetReferences($nodeMap);
+        $variableBindingSummary = $this->buildVariableBindingSummary($nodeMap);
+        $sourceMetadata         = $this->normalizeDocumentMetadata($source);
+        $sourceName             = $this->readSourceName($source, $renderNodes);
+        $diagnostics            = $this->vectorGeometryNormalizer->compactUnsupportedVectorNetworkBlobDiagnostics($this->compactGlyphCommandBlobDiagnostics($diagnostics));
 
         return array(
             'schema'              => 'blocks-engine/figma-transformer/scenegraph/v1',
@@ -120,6 +121,7 @@ final class ScenegraphNormalizer
                 'instance_node_count'   => $instanceReport['instance_node_count'],
                 'resolved_instance_count' => $instanceReport['resolved_instance_count'],
                 'unresolved_component_references' => $instanceReport['unresolved_component_references'],
+                'variable_bindings'     => $variableBindingSummary,
                 'diagnostic_count'      => count($diagnostics),
             ),
         );
@@ -595,9 +597,11 @@ final class ScenegraphNormalizer
                     continue;
                 }
 
-                $targetField = isset($entry['variableField']) && is_scalar($entry['variableField']) ? (string) $entry['variableField'] : null;
-                if ( null === $targetField && isset($entry['nodeField']) && is_scalar($entry['nodeField']) ) {
-                    $targetField = 'nodeField:' . (string) $entry['nodeField'];
+                $variableField = isset($entry['variableField']) && is_scalar($entry['variableField']) ? (string) $entry['variableField'] : null;
+                $nodeField = isset($entry['nodeField']) && is_scalar($entry['nodeField']) ? (string) $entry['nodeField'] : null;
+                $targetField = $variableField;
+                if ( null === $targetField && null !== $nodeField ) {
+                    $targetField = 'nodeField:' . $nodeField;
                 }
                 if ( null === $targetField || '' === $targetField ) {
                     continue;
@@ -607,16 +611,16 @@ final class ScenegraphNormalizer
                 $binding = array(
                     'source'             => $sourceKey,
                     'target_field'       => $targetField,
+                    'variable_field'     => $variableField,
+                    'node_field'         => $nodeField,
                     'target_role'        => $this->classifyVariableBindingTarget($targetField),
                     'data_type'          => isset($variableData['dataType']) && is_scalar($variableData['dataType']) ? (string) $variableData['dataType'] : null,
                     'resolved_data_type' => isset($variableData['resolvedDataType']) && is_scalar($variableData['resolvedDataType']) ? (string) $variableData['resolvedDataType'] : null,
                 );
 
                 $value = is_array($variableData['value'] ?? null) ? $variableData['value'] : array();
-                $variableId = $this->readGuidId($value['alias']['guid'] ?? null);
-                if ( null !== $variableId ) {
-                    $binding['variable_id'] = $variableId;
-                }
+                $valueMetadata = $this->normalizeVariableAnyValueMetadata($value);
+                $binding = array_merge($binding, $valueMetadata);
                 $directValue = $this->normalizeVariableAnyValue($value);
                 if ( null !== $directValue ) {
                     $binding['value'] = $directValue;
@@ -671,6 +675,13 @@ final class ScenegraphNormalizer
                         $normalizedMode[$key] = (string) $mode[$key];
                     }
                 }
+                foreach ( array('parentVariableSetId' => 'parent_variable_set_id', 'parentModeId' => 'parent_mode_id') as $sourceKey => $targetKey ) {
+                    $parentSource = $mode[$sourceKey] ?? null;
+                    $parentId = $this->readGuidId(is_array($parentSource) && array_key_exists('guid', $parentSource) ? $parentSource['guid'] : $parentSource);
+                    if ( null !== $parentId ) {
+                        $normalizedMode[$targetKey] = $parentId;
+                    }
+                }
                 $modes[] = $normalizedMode;
             }
             if ( ! empty($modes) ) {
@@ -686,16 +697,18 @@ final class ScenegraphNormalizer
                 }
                 $modeId = $this->readGuidId($entry['modeID'] ?? null);
                 $variableData = is_array($entry['variableData'] ?? null) ? $entry['variableData'] : array();
-                $value = $this->normalizeVariableAnyValue(is_array($variableData['value'] ?? null) ? $variableData['value'] : array());
+                $rawValue = is_array($variableData['value'] ?? null) ? $variableData['value'] : array();
+                $value = $this->normalizeVariableAnyValue($rawValue);
+                $valueMetadata = $this->normalizeVariableAnyValueMetadata($rawValue);
                 if ( null === $modeId && null === $value ) {
                     continue;
                 }
-                $values[] = array_filter(array(
+                $values[] = array_filter(array_merge(array(
                     'mode_id'            => $modeId,
                     'value'              => $value,
                     'data_type'          => isset($variableData['dataType']) && is_scalar($variableData['dataType']) ? (string) $variableData['dataType'] : null,
                     'resolved_data_type' => isset($variableData['resolvedDataType']) && is_scalar($variableData['resolvedDataType']) ? (string) $variableData['resolvedDataType'] : null,
-                ), static fn (mixed $value): bool => null !== $value);
+                ), $valueMetadata), static fn (mixed $value): bool => null !== $value);
             }
             if ( ! empty($values) ) {
                 $normalized['values'] = $values;
@@ -814,6 +827,93 @@ final class ScenegraphNormalizer
     }
 
     /**
+     * @param array<string, array<string, mixed>> $nodeMap
+     * @return array<string, mixed>
+     */
+    private function buildVariableBindingSummary(array $nodeMap): array
+    {
+        $summary = array(
+            'schema'                      => 'blocks-engine/figma-transformer/variable-bindings/v1',
+            'node_count'                  => 0,
+            'binding_count'               => 0,
+            'value_count'                 => 0,
+            'variable_definition_count'   => 0,
+            'variable_set_count'          => 0,
+            'by_source'                   => array(),
+            'by_role'                     => array(),
+            'by_value_type'               => array(),
+            'by_resolved_data_type'       => array(),
+            'sample_nodes'                => array(),
+            'sample_limit'                => 10,
+            'sample_nodes_truncated'      => false,
+        );
+
+        foreach ( $nodeMap as $nodeId => $node ) {
+            $variableBindings = is_array($node['figma_variable_bindings'] ?? null) ? $node['figma_variable_bindings'] : array();
+            if ( empty($variableBindings) ) {
+                continue;
+            }
+
+            $summary['node_count']++;
+            $nodeSample = array(
+                'node_id' => (string) $nodeId,
+                'type'    => isset($node['type']) && is_scalar($node['type']) ? (string) $node['type'] : null,
+                'name'    => isset($node['name']) && is_scalar($node['name']) ? (string) $node['name'] : null,
+            );
+
+            if ( is_array($variableBindings['bindings'] ?? null) ) {
+                foreach ( $variableBindings['bindings'] as $binding ) {
+                    if ( ! is_array($binding) ) {
+                        continue;
+                    }
+                    $summary['binding_count']++;
+                    foreach ( array('source' => 'by_source', 'target_role' => 'by_role', 'value_type' => 'by_value_type', 'resolved_data_type' => 'by_resolved_data_type') as $sourceKey => $bucketKey ) {
+                        if ( isset($binding[$sourceKey]) && is_scalar($binding[$sourceKey]) ) {
+                            $bucket = (string) $binding[$sourceKey];
+                            $summary[$bucketKey][$bucket] = ($summary[$bucketKey][$bucket] ?? 0) + 1;
+                        }
+                    }
+                }
+                $nodeSample['binding_count'] = count($variableBindings['bindings']);
+            }
+
+            if ( is_array($variableBindings['values'] ?? null) ) {
+                $summary['value_count'] += count($variableBindings['values']);
+                $summary['variable_definition_count']++;
+                foreach ( $variableBindings['values'] as $value ) {
+                    if ( ! is_array($value) ) {
+                        continue;
+                    }
+                    foreach ( array('value_type' => 'by_value_type', 'resolved_data_type' => 'by_resolved_data_type') as $sourceKey => $bucketKey ) {
+                        if ( isset($value[$sourceKey]) && is_scalar($value[$sourceKey]) ) {
+                            $bucket = (string) $value[$sourceKey];
+                            $summary[$bucketKey][$bucket] = ($summary[$bucketKey][$bucket] ?? 0) + 1;
+                        }
+                    }
+                }
+                $nodeSample['value_count'] = count($variableBindings['values']);
+            }
+
+            if ( is_array($variableBindings['modes'] ?? null) ) {
+                $summary['variable_set_count']++;
+                $nodeSample['mode_count'] = count($variableBindings['modes']);
+            }
+
+            if ( count($summary['sample_nodes']) < $summary['sample_limit'] ) {
+                $summary['sample_nodes'][] = array_filter($nodeSample, static fn (mixed $value): bool => null !== $value);
+            } else {
+                $summary['sample_nodes_truncated'] = true;
+            }
+        }
+
+        foreach ( array('by_source', 'by_role', 'by_value_type', 'by_resolved_data_type') as $bucketKey ) {
+            arsort($summary[$bucketKey]);
+        }
+
+        return $summary;
+    }
+
+    /**
      * @param array<string, mixed> $value
      */
     private function normalizeVariableAnyValue(array $value): mixed
@@ -835,6 +935,62 @@ final class ScenegraphNormalizer
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $value
+     * @return array<string, mixed>
+     */
+    private function normalizeVariableAnyValueMetadata(array $value): array
+    {
+        foreach ( array('boolValue' => 'bool', 'textValue' => 'text', 'floatValue' => 'float') as $key => $type ) {
+            if ( array_key_exists($key, $value) && is_scalar($value[$key]) ) {
+                return array('value_type' => $type);
+            }
+        }
+
+        if ( is_array($value['alias'] ?? null) ) {
+            $variableId = $this->readGuidId($value['alias']['guid'] ?? null);
+            return array_filter(array(
+                'value_type'  => 'alias',
+                'variable_id' => $variableId,
+            ), static fn (mixed $value): bool => null !== $value);
+        }
+
+        if ( is_array($value['colorValue'] ?? null) ) {
+            return array('value_type' => 'color');
+        }
+        if ( is_array($value['symbolIdValue']['guid'] ?? null) ) {
+            return array(
+                'value_type' => 'symbol_id',
+                'symbol_id'  => $this->readGuidId($value['symbolIdValue']['guid']),
+            );
+        }
+        if ( is_array($value['textDataValue'] ?? null) ) {
+            return array('value_type' => 'text_data');
+        }
+        if ( is_array($value['vectorValue'] ?? null) ) {
+            return array('value_type' => 'vector');
+        }
+        if ( is_array($value['linkValue'] ?? null) ) {
+            return array('value_type' => 'link');
+        }
+        if ( is_array($value['propRefValue'] ?? null) ) {
+            $propRefId = $this->readGuidId($value['propRefValue']['defId'] ?? null);
+            return array_filter(array(
+                'value_type'  => 'prop_ref',
+                'prop_ref_id' => $propRefId,
+            ), static fn (mixed $value): bool => null !== $value);
+        }
+
+        if ( ! empty($value) ) {
+            return array(
+                'value_type' => 'unresolved',
+                'value_keys' => array_values(array_filter(array_keys($value), 'is_string')),
+            );
+        }
+
+        return array();
     }
 
     /**

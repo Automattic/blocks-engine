@@ -5287,6 +5287,40 @@ $variableBindingResult = $variableBindingNormalizer->normalize(array(
             ),
         ),
         array(
+            'id'        => 'variable-node-color',
+            'type'      => 'VARIABLE',
+            'name'      => 'Color / Brand',
+            'variableResolvedType' => 'COLOR',
+            'variableSetID' => array('guid' => array('sessionID' => 9, 'localID' => 1)),
+            'variableScopes' => array('ALL_FILLS', 'STROKE'),
+            'variableDataValues' => array(
+                'entries' => array(
+                    array(
+                        'modeID' => array('sessionID' => 9, 'localID' => 2),
+                        'variableData' => array(
+                            'dataType' => 'COLOR',
+                            'resolvedDataType' => 'COLOR',
+                            'value' => array('colorValue' => array('r' => 0.1, 'g' => 0.2, 'b' => 0.3, 'a' => 1.0)),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array(
+            'id'        => 'variable-set-spacing',
+            'type'      => 'VARIABLE_SET',
+            'name'      => 'Spacing',
+            'variableSetModes' => array(
+                array(
+                    'id' => array('sessionID' => 9, 'localID' => 2),
+                    'name' => 'Desktop',
+                    'sortPosition' => '!',
+                    'parentVariableSetId' => array('guid' => array('sessionID' => 9, 'localID' => 1)),
+                    'parentModeId' => array('sessionID' => 9, 'localID' => 2),
+                ),
+            ),
+        ),
+        array(
             'id'        => 'variable-frame',
             'type'      => 'FRAME',
             'name'      => 'Variable Frame',
@@ -5313,7 +5347,15 @@ $variableBindingResult = $variableBindingNormalizer->normalize(array(
                         'variableData' => array(
                             'dataType' => 'PROP_REF',
                             'resolvedDataType' => 'TEXT_DATA',
-                            'value' => array(),
+                            'value' => array('propRefValue' => array('defId' => array('sessionID' => 7, 'localID' => 4))),
+                        ),
+                    ),
+                    array(
+                        'nodeField' => 17,
+                        'variableData' => array(
+                            'dataType' => 'ALIAS',
+                            'resolvedDataType' => 'FLOAT',
+                            'value' => array('alias' => array('guid' => array('sessionID' => 9, 'localID' => 3))),
                         ),
                     ),
                 ),
@@ -5322,13 +5364,41 @@ $variableBindingResult = $variableBindingNormalizer->normalize(array(
     ),
 ));
 $variableFrameBindings = $variableBindingResult['node_map']['variable-frame']['figma_variable_bindings'] ?? array();
-$assert(2 === ($variableFrameBindings['summary']['binding_count'] ?? null), 'variable-bindings-normalized-count');
+$assert(3 === ($variableFrameBindings['summary']['binding_count'] ?? null), 'variable-bindings-normalized-count');
 $assert(1 === ($variableFrameBindings['summary']['by_role']['layout'] ?? null), 'variable-bindings-layout-role');
 $assert(1 === ($variableFrameBindings['summary']['by_role']['text'] ?? null), 'variable-bindings-text-role');
+$assert(1 === ($variableFrameBindings['summary']['by_role']['unknown'] ?? null), 'variable-bindings-node-field-unknown-role');
 $assert('9:3' === ($variableFrameBindings['bindings'][0]['variable_id'] ?? null), 'variable-bindings-alias-guid-normalized');
+$assert('alias' === ($variableFrameBindings['bindings'][0]['value_type'] ?? null), 'variable-bindings-alias-value-type');
+$assert('TEXT_DATA' === ($variableFrameBindings['bindings'][1]['variable_field'] ?? null), 'variable-bindings-variable-field-preserved');
+$assert('prop_ref' === ($variableFrameBindings['bindings'][1]['value_type'] ?? null), 'variable-bindings-prop-ref-value-type');
+$assert('7:4' === ($variableFrameBindings['bindings'][1]['prop_ref_id'] ?? null), 'variable-bindings-prop-ref-id-normalized');
+$assert('17' === ($variableFrameBindings['bindings'][2]['node_field'] ?? null), 'variable-bindings-node-field-preserved');
+$assert('nodeField:17' === ($variableFrameBindings['bindings'][2]['target_field'] ?? null), 'variable-bindings-node-field-target-normalized');
 $variableDefinition = $variableBindingResult['node_map']['variable-node-gap']['figma_variable_bindings'] ?? array();
 $assert('FLOAT' === ($variableDefinition['resolved_type'] ?? null), 'variable-definition-resolved-type');
 $assert(16.0 === ($variableDefinition['values'][0]['value'] ?? null), 'variable-definition-mode-value');
+$assert('float' === ($variableDefinition['values'][0]['value_type'] ?? null), 'variable-definition-float-value-type');
+$assert('9:1' === ($variableDefinition['variable_set_id'] ?? null), 'variable-definition-set-id-normalized');
+$assert(array('GAP') === ($variableDefinition['scopes'] ?? null), 'variable-definition-scopes-normalized');
+$variableColorDefinition = $variableBindingResult['node_map']['variable-node-color']['figma_variable_bindings'] ?? array();
+$assert('color' === ($variableColorDefinition['values'][0]['value_type'] ?? null), 'variable-definition-color-value-type');
+$assert(array('r' => 0.1, 'g' => 0.2, 'b' => 0.3, 'a' => 1.0) === ($variableColorDefinition['values'][0]['value'] ?? null), 'variable-definition-color-value-preserved');
+$variableSetDefinition = $variableBindingResult['node_map']['variable-set-spacing']['figma_variable_bindings'] ?? array();
+$assert('9:2' === ($variableSetDefinition['modes'][0]['id'] ?? null), 'variable-set-mode-id-normalized');
+$assert('Desktop' === ($variableSetDefinition['modes'][0]['name'] ?? null), 'variable-set-mode-name-preserved');
+$assert('9:1' === ($variableSetDefinition['modes'][0]['parent_variable_set_id'] ?? null), 'variable-set-mode-parent-set-id-normalized');
+$assert('9:2' === ($variableSetDefinition['modes'][0]['parent_mode_id'] ?? null), 'variable-set-mode-parent-mode-id-normalized');
+$variableSourceSummary = $variableBindingResult['source_report']['variable_bindings'] ?? array();
+$assert(4 === ($variableSourceSummary['node_count'] ?? null), 'variable-source-summary-node-count');
+$assert(3 === ($variableSourceSummary['binding_count'] ?? null), 'variable-source-summary-binding-count');
+$assert(2 === ($variableSourceSummary['value_count'] ?? null), 'variable-source-summary-value-count');
+$assert(2 === ($variableSourceSummary['variable_definition_count'] ?? null), 'variable-source-summary-definition-count');
+$assert(1 === ($variableSourceSummary['variable_set_count'] ?? null), 'variable-source-summary-set-count');
+$assert(2 === ($variableSourceSummary['by_value_type']['alias'] ?? null), 'variable-source-summary-alias-count');
+$assert(1 === ($variableSourceSummary['by_value_type']['prop_ref'] ?? null), 'variable-source-summary-prop-ref-count');
+$assert(1 === ($variableSourceSummary['by_value_type']['float'] ?? null), 'variable-source-summary-float-count');
+$assert(1 === ($variableSourceSummary['by_value_type']['color'] ?? null), 'variable-source-summary-color-count');
 
 blocks_engine_figma_transformer_run_fixture_matrix_contract($assert);
 blocks_engine_figma_transformer_run_node_trace_contract($assert);

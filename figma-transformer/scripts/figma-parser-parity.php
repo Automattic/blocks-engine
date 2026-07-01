@@ -284,6 +284,8 @@ function blocks_engine_figma_parser_parity_report(string $input, array $source, 
     )));
     $rawVectorNodeIds = blocks_engine_figma_parser_parity_node_ids_by_type($rawNodes, array('VECTOR', 'BOOLEAN_OPERATION'));
     $rawComponentPropNodeIds = blocks_engine_figma_parser_parity_node_ids_with_paths($rawNodes, array('componentProperties', 'componentPropertyDefinitions', 'component_property_definitions', 'symbolData', 'derivedSymbolData'));
+    $rawVariableNodeIds = blocks_engine_figma_parser_parity_node_ids_with_paths($rawNodes, array('variableConsumptionMap', 'parameterConsumptionMap', 'variableDataValues', 'variableResolvedType', 'variableSetID', 'variableScopes', 'variableSetModes'));
+    $rawVariableFieldCounts = blocks_engine_figma_parser_parity_variable_field_counts($rawNodes);
     $rawAssetRefs = blocks_engine_figma_parser_parity_raw_asset_reference_node_ids($rawNodes);
     $emittedNodeIds = array_fill_keys(array_values(array_unique(array_merge($visualNodeIds, $htmlNodeIds))), true);
     $emittedNodeIdList = array_keys($emittedNodeIds);
@@ -311,6 +313,8 @@ function blocks_engine_figma_parser_parity_report(string $input, array $source, 
             'text_node_count' => count($rawTextNodeIds),
             'vector_node_count' => count($rawVectorNodeIds),
             'component_prop_node_count' => count($rawComponentPropNodeIds),
+            'variable_node_count' => count($rawVariableNodeIds),
+            'variable_field_counts' => $rawVariableFieldCounts,
         ),
         'normalized' => array(
             'node_count' => count($normalizedNodes),
@@ -321,6 +325,7 @@ function blocks_engine_figma_parser_parity_report(string $input, array $source, 
             'text_node_count' => count(is_array($normalized['text_inventory'] ?? null) ? $normalized['text_inventory'] : array()),
             'component_definition_count' => $normalized['source_report']['component_definition_count'] ?? null,
             'instance_node_count' => $normalized['source_report']['instance_node_count'] ?? null,
+            'variable_bindings' => $normalized['source_report']['variable_bindings'] ?? null,
             'diagnostic_count' => count(is_array($normalized['diagnostics'] ?? null) ? $normalized['diagnostics'] : array()),
         ),
         'emitted' => array(
@@ -364,6 +369,36 @@ function blocks_engine_figma_parser_parity_normalized_component_clone_node_ids(a
     }
 
     return array_values(array_unique($ids));
+}
+
+/**
+ * @param array<string, array<string, mixed>> $rawNodes
+ * @return array<string, int>
+ */
+function blocks_engine_figma_parser_parity_variable_field_counts(array $rawNodes): array
+{
+    $counts = array(
+        'variableConsumptionMap' => 0,
+        'parameterConsumptionMap' => 0,
+        'variableDataValues' => 0,
+        'variableResolvedType' => 0,
+        'variableSetID' => 0,
+        'variableScopes' => 0,
+        'variableSetModes' => 0,
+    );
+
+    foreach ( $rawNodes as $node ) {
+        if ( ! is_array($node) ) {
+            continue;
+        }
+        foreach ( array_keys($counts) as $field ) {
+            if ( array_key_exists($field, $node) ) {
+                $counts[$field]++;
+            }
+        }
+    }
+
+    return $counts;
 }
 
 /**
