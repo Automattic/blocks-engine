@@ -342,6 +342,54 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $kiwiDerivedSymbolResolverDiagnostics = array();
     $kiwiDerivedSymbolResolverFields = ( new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\InstanceResolver() )->normalizeInstanceOverrides($kiwiDerivedSymbolNode, 'kiwi-derived-symbol:instance', $kiwiDerivedSymbolResolverDiagnostics);
     $assert('Derived override' === ($kiwiDerivedSymbolResolverFields['40:2']['characters'] ?? null), 'kiwi-derived-symbol-resolver-reads-struct-overrides');
+    $kiwiAlternateOverrideDiagnostics = array();
+    $kiwiAlternateOverrideFields = ( new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\InstanceResolver() )->normalizeInstanceOverrides(array(
+        'symbolData' => array(
+            'symbolOverrides' => array(
+                '40:3' => array('textData' => array('characters' => 'Mapped override')),
+                array('guid' => array('sessionID' => 40, 'localID' => 4), 'characters' => 'Direct guid override'),
+                array('guidPath' => array('guid' => array('sessionID' => 40, 'localID' => 5)), 'text' => 'Single guid path override'),
+                array('nodeID' => array('sessionID' => 40, 'localID' => 6), 'name' => 'NodeID override'),
+            ),
+        ),
+    ), 'kiwi-alternate-overrides:instance', $kiwiAlternateOverrideDiagnostics);
+    $kiwiSingularOverrideDiagnostics = array();
+    $kiwiSingularOverrideFields = ( new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\InstanceResolver() )->normalizeInstanceOverrides(array(
+        'symbolData' => array(
+            'symbolOverride' => array('guid' => array('sessionID' => 40, 'localID' => 7), 'textData' => array('characters' => 'Singular override')),
+        ),
+    ), 'kiwi-singular-override:instance', $kiwiSingularOverrideDiagnostics);
+    $assert('Mapped override' === ($kiwiAlternateOverrideFields['40:3']['characters'] ?? null), 'kiwi-overrides-resolver-reads-map-keyed-overrides');
+    $assert('Direct guid override' === ($kiwiAlternateOverrideFields['40:4']['characters'] ?? null), 'kiwi-overrides-resolver-reads-direct-guid-target');
+    $assert('Single guid path override' === ($kiwiAlternateOverrideFields['40:5']['text'] ?? null), 'kiwi-overrides-resolver-reads-single-guid-path-target');
+    $assert('NodeID override' === ($kiwiAlternateOverrideFields['40:6']['name'] ?? null), 'kiwi-overrides-resolver-reads-node-id-guid-target');
+    $assert('Singular override' === ($kiwiSingularOverrideFields['40:7']['characters'] ?? null), 'kiwi-overrides-resolver-reads-singular-symbol-override');
+
+    $kiwiDerivedSymbolReferenceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Derived Symbol Reference Fixture',
+        'nodes' => array(
+            array(
+                'id'       => '50:1',
+                'type'     => 'COMPONENT',
+                'name'     => 'Referenced component',
+                'width'    => 120,
+                'height'   => 40,
+                'children' => array(
+                    array('id' => '50:2', 'type' => 'TEXT', 'name' => 'Label', 'characters' => 'Resolved derived component', 'width' => 120, 'height' => 20),
+                ),
+            ),
+            array(
+                'id'                => 'derived-symbol:instance',
+                'type'              => 'INSTANCE',
+                'name'              => 'Derived symbol instance',
+                'width'             => 120,
+                'height'            => 40,
+                'derivedSymbolData' => array('symbolID' => array('guid' => array('sessionID' => 50, 'localID' => 1))),
+            ),
+        ),
+    ));
+    $kiwiDerivedSymbolReferenceHtml = $fileContent($kiwiDerivedSymbolReferenceResult, 'index.html');
+    $assert(str_contains($kiwiDerivedSymbolReferenceHtml, 'Resolved derived component'), 'kiwi-derived-symbol-reference-resolves-component-id');
 
     $kiwiStateGroupNormalizer = new ScenegraphNormalizer();
     $kiwiStateGroupNormalized = $kiwiStateGroupNormalizer->normalize(array(

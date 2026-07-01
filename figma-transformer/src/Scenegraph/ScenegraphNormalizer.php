@@ -1894,9 +1894,11 @@ final class ScenegraphNormalizer
             }
         }
 
-        $symbolId = $this->readGuidId($node['symbolData']['symbolID'] ?? null);
-        if ( null !== $symbolId ) {
-            return array('id' => $symbolId, 'source_key' => 'symbolData.symbolID');
+        foreach ( array('symbolData', 'derivedSymbolData') as $key ) {
+            $symbolId = $this->readGuidId($node[$key]['symbolID'] ?? null);
+            if ( null !== $symbolId ) {
+                return array('id' => $symbolId, 'source_key' => $key . '.symbolID');
+            }
         }
 
         return null;
@@ -1904,6 +1906,10 @@ final class ScenegraphNormalizer
 
     private function readGuidId(mixed $guid): ?string
     {
+        if ( is_array($guid) && isset($guid['guid']) ) {
+            return $this->readGuidId($guid['guid']);
+        }
+
         if ( is_array($guid) && isset($guid['sessionID'], $guid['localID']) ) {
             return (string) $guid['sessionID'] . ':' . (string) $guid['localID'];
         }
