@@ -2450,8 +2450,8 @@ $kiwiLayoutFieldsCss = $fileContent($kiwiLayoutFieldsResult, 'style.css');
 $assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-stretch-badge-stretch-badge{width:50px;height:20px;position:absolute;left:20px;right:330px;top:30px;bottom:250px;background:#000000}'), 'kiwi-constraint-stretch-pins-both-edges');
 // Kiwi MAX (horizontal) == far-edge pin only; Kiwi MIN (vertical) == near pin.
 $assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-far-badge-far-badge{width:60px;height:40px;position:absolute;right:40px;top:10px}'), 'kiwi-constraint-max-pins-far-edge-only');
-// Kiwi CENTER == fixed offset from parent center via calc(), no transform.
-$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-center-badge-center-badge{width:50px;height:20px;position:absolute;left:calc(50% + 0px);top:calc(50% + 0px)}'), 'kiwi-constraint-center-uses-child-center-calc-offset');
+// Kiwi CENTER == fixed child-center offset from parent center via calc(), no transform.
+$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-center-badge-center-badge{width:50px;height:20px;position:absolute;left:calc(50% - 25px);top:calc(50% - 10px)}'), 'kiwi-constraint-center-uses-child-center-calc-offset');
 // stackChildPrimaryGrow -> flex-grow; minSize/maxSize -> min/max width/height.
 $assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-fill-item-fill-item{width:80px;height:40px;min-width:100px;max-width:200px;min-height:20px;max-height:60px;flex-grow:1}'), 'kiwi-grow-and-min-max-size');
 // stackPrimarySizing RESIZE_TO_FIT -> HUG main axis; stackCounterSizing FIXED -> fixed cross axis.
@@ -2482,7 +2482,7 @@ $centerOversizedClippedResult = blocks_engine_figma_transformer_transform_sceneg
 ));
 $centerOversizedClippedCss = $fileContent($centerOversizedClippedResult, 'style.css');
 $assert(str_contains($centerOversizedClippedCss, '.figma-node-center-clip-parent-clipped-logo-parent{width:200px;height:80px;overflow:hidden;position:relative}'), 'center-oversized-clipped-parent-overflow-hidden');
-$assert(str_contains($centerOversizedClippedCss, '.figma-node-center-clip-logo-piece-oversized-logo-piece{width:300px;height:120px;position:absolute;left:calc(50% + 50px);top:calc(50% + 20px)}'), 'center-oversized-clipped-child-uses-child-center-calc');
+$assert(str_contains($centerOversizedClippedCss, '.figma-node-center-clip-logo-piece-oversized-logo-piece{width:300px;height:120px;position:absolute;left:calc(50% - 100px);top:calc(50% - 40px)}'), 'center-oversized-clipped-child-uses-child-center-calc');
 
 $plainFrameLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Plain Frame Layout Fixture',

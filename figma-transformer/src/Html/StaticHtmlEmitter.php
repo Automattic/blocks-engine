@@ -4222,12 +4222,14 @@ final class StaticHtmlEmitter
             return $styles;
         }
 
-        // Center pin: keep a constant offset from the parent center. Using calc()
-        // off the leading edge avoids touching transform.
+        // Center pin: keep the child center at a constant offset from the parent
+        // center. Emit the leading edge directly so node transforms remain free.
         if ( 'CENTER' === $constraint && null !== $offset && null !== $parentSize ) {
-            $delta = $offset + ((null !== $boxSize ? $boxSize : 0.0) / 2.0) - ( $parentSize / 2.0 );
-            $sign = $delta < 0 ? '-' : '+';
-            $styles[] = $startProp . ':calc(50% ' . $sign . ' ' . $this->number(abs($delta)) . 'px)';
+            $halfBoxSize = null !== $boxSize ? $boxSize / 2.0 : 0.0;
+            $centerDelta = $offset + $halfBoxSize - ( $parentSize / 2.0 );
+            $leadingDelta = $centerDelta - $halfBoxSize;
+            $sign = $leadingDelta < 0 ? '-' : '+';
+            $styles[] = $startProp . ':calc(50% ' . $sign . ' ' . $this->number(abs($leadingDelta)) . 'px)';
             return $styles;
         }
 
