@@ -1443,18 +1443,25 @@ function blocks_engine_figma_transformer_kiwi_link_schema_fixture(): string
         . $field('NONE', 0, false, 0)
         . $field('INTERNAL_NODE', 0, false, 1)
         . $field('URL', 0, false, 2)
-        // def3: ENUM NavigationType { NAVIGATE = 0 }
-        . $str('NavigationType') . chr(0) . $varint(1)
+        // def3: ENUM NavigationType { NAVIGATE = 0, OVERLAY = 1, SWAP = 2 }
+        . $str('NavigationType') . chr(0) . $varint(3)
         . $field('NAVIGATE', 0, false, 0)
+        . $field('OVERLAY', 0, false, 1)
+        . $field('SWAP', 0, false, 2)
         // def4: MESSAGE PrototypeEvent { interactionType }
         . $str('PrototypeEvent') . chr(2) . $varint(1)
         . $field('interactionType', 1, false, 1)
-        // def5: MESSAGE PrototypeAction { transitionNodeID, connectionType, connectionURL, navigationType }
-        . $str('PrototypeAction') . chr(2) . $varint(4)
+        // def5: MESSAGE PrototypeAction { transitionNodeID, connectionType, connectionURL, navigationType, overlay/swap/open-url metadata }
+        . $str('PrototypeAction') . chr(2) . $varint(9)
         . $field('transitionNodeID', 0, false, 1)
         . $field('connectionType', 2, false, 7)
         . $field('connectionURL', -6, false, 8)
         . $field('navigationType', 3, false, 10)
+        . $field('overlayPositionType', -6, false, 11)
+        . $field('preserveScrollPosition', -1, false, 12)
+        . $field('openUrlInNewTab', -1, false, 13)
+        . $field('urlTarget', -6, false, 14)
+        . $field('resetScrollPosition', -1, false, 15)
         // def6: MESSAGE PrototypeInteraction { event, actions[] }
         . $str('PrototypeInteraction') . chr(2) . $varint(2)
         . $field('event', 4, false, 2)
@@ -1492,15 +1499,20 @@ function blocks_engine_figma_transformer_kiwi_link_message_fixture(): string
     // PrototypeEvent { interactionType = ON_CLICK (0) }
     $event = $v(1) . $v(0) . $v(0);
 
-    // PrototypeAction { connectionType = URL (2), connectionURL }
+    // PrototypeAction { connectionType = URL (2), connectionURL, openUrlInNewTab, urlTarget }
     $actionUrl = $v(7) . $v(2)
         . $v(8) . $str('https://example.com/cta')
+        . $v(13) . chr(1)
+        . $v(14) . $str('NEW_TAB')
         . $v(0);
 
-    // PrototypeAction { transitionNodeID = GUID{7,42}, connectionType = INTERNAL_NODE (1), navigationType = NAVIGATE (0) }
+    // PrototypeAction { transitionNodeID = GUID{7,42}, connectionType = INTERNAL_NODE (1), navigationType = OVERLAY (1), overlayPositionType }
     $actionNode = $v(1) . $v(7) . $v(42) // GUID struct body (sessionID, localID; structs carry no terminator)
         . $v(7) . $v(1)
-        . $v(10) . $v(0)
+        . $v(10) . $v(1)
+        . $v(11) . $str('CENTER')
+        . $v(12) . chr(1)
+        . $v(15) . chr(1)
         . $v(0);
 
     // PrototypeInteraction { event, actions = [actionUrl, actionNode] }

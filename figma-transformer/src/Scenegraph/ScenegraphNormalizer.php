@@ -2833,6 +2833,7 @@ final class ScenegraphNormalizer
                 $link = $this->normalizeActionLink($action);
                 if ( null !== $link ) {
                     $link['source'] = 'reaction';
+                    $this->appendPrototypeLinkContext($link, $reaction, $action);
                     return $link;
                 }
             }
@@ -2861,7 +2862,9 @@ final class ScenegraphNormalizer
         $connectionType = strtoupper((string) ($action['connectionType'] ?? ''));
         $url = $this->readString($action, array('url', 'href', 'connectionURL'));
         if ( ( 'URL' === $type || 'URL' === $connectionType ) && null !== $url ) {
-            return array('type' => 'url', 'url' => $url);
+            $link = array('type' => 'url', 'url' => $url);
+            $this->appendActionLinkMetadata($link, $action, $type, $connectionType, '');
+            return $link;
         }
 
         $destination = $this->readString($action, array('destinationId', 'navigationDestinationId', 'transitionNodeID'))
@@ -2871,17 +2874,93 @@ final class ScenegraphNormalizer
             || 'INTERNAL_NODE' === $connectionType
             || in_array($navigation, array('NAVIGATE', 'OVERLAY', 'SWAP', 'SCROLL_TO'), true);
         if ( $navigatesToNode && null !== $destination && '' !== $destination ) {
-            return array('type' => 'node', 'target_node_id' => $destination);
+            $link = array('type' => 'node', 'target_node_id' => $destination);
+            $this->appendActionLinkMetadata($link, $action, $type, $connectionType, $navigation);
+            return $link;
         }
 
         if ( null !== $url ) {
-            return array('type' => 'url', 'url' => $url);
+            $link = array('type' => 'url', 'url' => $url);
+            $this->appendActionLinkMetadata($link, $action, $type, $connectionType, $navigation);
+            return $link;
         }
         if ( null !== $destination && '' !== $destination ) {
-            return array('type' => 'node', 'target_node_id' => $destination);
+            $link = array('type' => 'node', 'target_node_id' => $destination);
+            $this->appendActionLinkMetadata($link, $action, $type, $connectionType, $navigation);
+            return $link;
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $link
+     * @param array<string, mixed> $reaction
+     * @param array<string, mixed> $action
+     */
+    private function appendPrototypeLinkContext(array &$link, array $reaction, array $action): void
+    {
+        $event = is_array($reaction['event'] ?? null) ? $reaction['event'] : array();
+        $eventType = $this->readString($event, array('interactionType', 'type'));
+        if ( null !== $eventType ) {
+            $link['prototype_event'] = strtoupper($eventType);
+        }
+
+        if ( isset($reaction['id']) && is_scalar($reaction['id']) && '' !== (string) $reaction['id'] ) {
+            $link['prototype_interaction_id'] = (string) $reaction['id'];
+        }
+
+        $this->appendPrototypeMetadataFields($link, $action);
+    }
+
+    /**
+     * @param array<string, mixed> $link
+     * @param array<string, mixed> $action
+     */
+    private function appendActionLinkMetadata(array &$link, array $action, string $type, string $connectionType, string $navigation): void
+    {
+        if ( '' !== $type ) {
+            $link['prototype_action_type'] = $type;
+        }
+        if ( '' !== $connectionType ) {
+            $link['prototype_connection_type'] = $connectionType;
+        }
+        if ( '' !== $navigation ) {
+            $link['prototype_navigation_type'] = $navigation;
+        }
+
+        $this->appendPrototypeMetadataFields($link, $action);
+    }
+
+    /**
+     * @param array<string, mixed> $link
+     * @param array<string, mixed> $action
+     */
+    private function appendPrototypeMetadataFields(array &$link, array $action): void
+    {
+        foreach ( array('overlayPositionType', 'overlayBackgroundInteraction', 'urlTarget') as $field ) {
+            if ( isset($action[$field]) && is_scalar($action[$field]) && '' !== (string) $action[$field] ) {
+                $link['prototype_' . $this->camelToSnake($field)] = strtoupper((string) $action[$field]);
+            }
+        }
+
+        foreach ( array('preserveScrollPosition', 'resetScrollPosition', 'resetVideoPosition', 'openUrlInNewTab') as $field ) {
+            if ( isset($action[$field]) && is_bool($action[$field]) ) {
+                $link['prototype_' . $this->camelToSnake($field)] = $action[$field];
+            }
+        }
+
+        if ( isset($action['overlayRelativePosition']) && is_array($action['overlayRelativePosition']) ) {
+            $link['prototype_overlay_relative_position'] = $action['overlayRelativePosition'];
+        }
+        if ( isset($action['overlayBackground']) && is_array($action['overlayBackground']) ) {
+            $link['prototype_overlay_background'] = $action['overlayBackground'];
+        }
+    }
+
+    private function camelToSnake(string $value): string
+    {
+        return strtolower((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $value));
     }
 
     /**

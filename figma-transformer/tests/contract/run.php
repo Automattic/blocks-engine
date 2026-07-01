@@ -4260,8 +4260,58 @@ $linkInteraction = $linkNodeChanges[1]['prototypeInteractions'][0] ?? array();
 $assert('ON_CLICK' === ($linkInteraction['event']['interactionType'] ?? null), 'link-field-policy-carries-interaction-trigger');
 $assert('URL' === ($linkInteraction['actions'][0]['connectionType'] ?? null), 'link-field-policy-carries-connection-type');
 $assert('https://example.com/cta' === ($linkInteraction['actions'][0]['connectionURL'] ?? null), 'link-field-policy-carries-connection-url');
+$assert(true === ($linkInteraction['actions'][0]['openUrlInNewTab'] ?? null), 'link-field-policy-carries-open-url-new-tab');
+$assert('NEW_TAB' === ($linkInteraction['actions'][0]['urlTarget'] ?? null), 'link-field-policy-carries-url-target');
 $assert('INTERNAL_NODE' === ($linkInteraction['actions'][1]['connectionType'] ?? null), 'link-field-policy-carries-node-connection-type');
 $assert(array('sessionID' => 7, 'localID' => 42) === ($linkInteraction['actions'][1]['transitionNodeID'] ?? null), 'link-field-policy-carries-transition-node-guid');
+$assert('OVERLAY' === ($linkInteraction['actions'][1]['navigationType'] ?? null), 'link-field-policy-carries-overlay-navigation-type');
+$assert('CENTER' === ($linkInteraction['actions'][1]['overlayPositionType'] ?? null), 'link-field-policy-carries-overlay-position-type');
+$assert(true === ($linkInteraction['actions'][1]['preserveScrollPosition'] ?? null), 'link-field-policy-carries-preserve-scroll-position');
+$assert(true === ($linkInteraction['actions'][1]['resetScrollPosition'] ?? null), 'link-field-policy-carries-reset-scroll-position');
+
+$prototypeMetadataNormalizer = new ScenegraphNormalizer();
+$prototypeMetadataNormalized = $prototypeMetadataNormalizer->normalize(array(
+    'name'  => 'Kiwi Prototype Metadata Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'prototype-meta:home',
+            'type'     => 'FRAME',
+            'name'     => 'Home',
+            'children' => array(
+                array(
+                    'id'                    => 'prototype-meta:overlay-trigger',
+                    'type'                  => 'FRAME',
+                    'name'                  => 'Open Overlay',
+                    'prototypeInteractions' => array(
+                        array(
+                            'id'      => 'interaction:overlay',
+                            'event'   => array('interactionType' => 'ON_CLICK'),
+                            'actions' => array(
+                                array(
+                                    'connectionType'          => 'INTERNAL_NODE',
+                                    'transitionNodeID'        => array('sessionID' => 9, 'localID' => 77),
+                                    'navigationType'          => 'OVERLAY',
+                                    'overlayPositionType'     => 'CENTER',
+                                    'preserveScrollPosition'  => true,
+                                    'overlayRelativePosition' => array('x' => 24, 'y' => 32),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$prototypeMetadataLink = $prototypeMetadataNormalized['node_map']['prototype-meta:overlay-trigger']['figma_link'] ?? array();
+$assert('node' === ($prototypeMetadataLink['type'] ?? null), 'prototype-metadata-link-keeps-node-target');
+$assert('9:77' === ($prototypeMetadataLink['target_node_id'] ?? null), 'prototype-metadata-link-normalizes-transition-guid');
+$assert('OVERLAY' === ($prototypeMetadataLink['prototype_navigation_type'] ?? null), 'prototype-metadata-link-carries-navigation-type');
+$assert('CENTER' === ($prototypeMetadataLink['prototype_overlay_position_type'] ?? null), 'prototype-metadata-link-carries-overlay-position-type');
+$assert(true === ($prototypeMetadataLink['prototype_preserve_scroll_position'] ?? null), 'prototype-metadata-link-carries-preserve-scroll-position');
+$assert(array('x' => 24, 'y' => 32) === ($prototypeMetadataLink['prototype_overlay_relative_position'] ?? null), 'prototype-metadata-link-carries-overlay-relative-position');
+$assert('ON_CLICK' === ($prototypeMetadataLink['prototype_event'] ?? null), 'prototype-metadata-link-carries-event');
+$assert('interaction:overlay' === ($prototypeMetadataLink['prototype_interaction_id'] ?? null), 'prototype-metadata-link-carries-interaction-id');
 
 // ---------------------------------------------------------------------------
 // Figma Dev Mode status (#280): decode -> normalize -> select -> diagnose.

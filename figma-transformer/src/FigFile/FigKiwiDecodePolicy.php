@@ -95,13 +95,14 @@ final class FigKiwiDecodePolicy
             // interactions as `PrototypeInteraction { event, actions }` whose
             // `PrototypeAction` carries `connectionType` (URL/INTERNAL_NODE),
             // `connectionURL`, `navigationType`, and the `transitionNodeID`
-            // GUID destination. Only the fields the normalizer needs to build a
-            // URL or node-navigation `figma_link` are whitelisted; animation,
-            // overlay, swap, and variable-mutation action data is left undecoded.
+            // GUID destination. Overlay/swap/open-url metadata is also decoded
+            // so generic normalization can surface prototype diagnostics without
+            // changing current anchor emission behavior. Animation and
+            // variable-mutation action data is left undecoded.
             'Hyperlink' => array('url', 'guid'),
             'PrototypeInteraction' => array('event', 'actions', 'id'),
             'PrototypeEvent' => array('interactionType'),
-            'PrototypeAction' => array('connectionType', 'connectionURL', 'transitionNodeID', 'navigationType'),
+            'PrototypeAction' => array('connectionType', 'connectionURL', 'transitionNodeID', 'navigationType', 'overlayPositionType', 'overlayRelativePosition', 'overlayBackground', 'overlayBackgroundInteraction', 'preserveScrollPosition', 'resetScrollPosition', 'resetVideoPosition', 'openUrlInNewTab', 'urlTarget'),
         );
     }
 
@@ -402,8 +403,8 @@ final class FigKiwiDecodePolicy
      */
     private function nodePrototypeLinkFields(): array
     {
-        // Link extraction only; richer animation/overlay/swap action data stays undecoded.
-        return array('hyperlink', 'prototypeInteractions', 'reactions', 'transitionNodeID');
+        // Link extraction plus prototype metadata needed for diagnostics; richer animation action data stays undecoded.
+        return array('hyperlink', 'prototypeInteractions', 'reactions', 'transitionNodeID', 'navigationType', 'connectionType', 'connectionURL');
     }
 
     /**
