@@ -4563,6 +4563,48 @@ $navHomeHtml = $fileContent($navResult, 'index.html');
 $assert(str_contains($navHomeHtml, '<a class="figma-link" href="about.html" data-figma-link-type="node">'), 'node-hyperlink-resolves-to-slug');
 $assert(2 === substr_count($navHomeHtml, 'href="about.html"'), 'node-and-prototype-links-both-resolve');
 
+// Prototype links may target a descendant inside a planned page frame rather than the frame itself.
+$descendantTargetScenegraph = array(
+    'name'  => 'Descendant Prototype Target Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'desc:home',
+            'type'     => 'FRAME',
+            'name'     => 'Home',
+            'width'    => 1280,
+            'height'   => 900,
+            'children' => array(
+                array(
+                    'id'         => 'desc:cta',
+                    'type'       => 'TEXT',
+                    'name'       => 'About CTA',
+                    'characters' => 'About',
+                    'reactions'  => array(
+                        array(
+                            'action' => array('type' => 'NODE', 'navigation' => 'NAVIGATE', 'destinationId' => 'desc:about:title'),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array(
+            'id'       => 'desc:about',
+            'type'     => 'FRAME',
+            'name'     => 'About',
+            'width'    => 1280,
+            'height'   => 900,
+            'children' => array(
+                array('id' => 'desc:about:title', 'type' => 'TEXT', 'name' => 'About title', 'characters' => 'About us'),
+            ),
+        ),
+    ),
+);
+$descendantTargetResult = blocks_engine_figma_transformer_transform_scenegraph($descendantTargetScenegraph, array('include_all_pages' => true, 'entry_frame_id' => 'desc:home'));
+$descendantTargetHomeHtml = $fileContent($descendantTargetResult, 'index.html');
+$descendantTargetLinks = $descendantTargetResult['source_reports']['figma']['html']['transform_diagnostics']['links'] ?? array();
+$assert(str_contains($descendantTargetHomeHtml, '<a class="figma-link" href="about.html" data-figma-link-type="node">'), 'descendant-prototype-target-resolves-to-containing-page');
+$assert(0 === ($descendantTargetLinks['unresolved'] ?? null) && ($descendantTargetLinks['node_links'] ?? 0) >= 1, 'descendant-prototype-target-link-coverage-resolved');
+
 // Real anchor tags: an unresolved NODE link is counted in the diagnostic and emitted as a placeholder anchor.
 $unresolvedResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Unresolved Link Fixture',
