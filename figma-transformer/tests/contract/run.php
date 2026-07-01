@@ -4386,6 +4386,52 @@ $insetLogoVectorCss = $fileContent($insetLogoVectorResult, 'style.css');
 $assert(str_contains($insetLogoVectorCss, '.figma-node-ilv-logo-logo{width:228px;height:35px;position:absolute;left:20px;top:20px'), 'inset-logo-wrapper-remains-positioned');
 $assert(str_contains($insetLogoVectorCss, '.figma-node-ilv-mark-union{width:227.682px;height:30px;position:absolute;left:calc(50% - 113.841px);top:calc(50% - 15px)'), 'inset-logo-vector-centers-within-wrapper');
 
+// Kiwi relativeTransformBounds carries parent-local layer geometry used by mixed
+// logo/title components. If normalization drops those local x/y bounds, cloned
+// instances emit every child at the implicit 0,0 position and the mark overlaps
+// the leading title text in every header/footer/newsletter placement.
+$kiwiLogoTitleCompositionResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Kiwi Logo Title Composition Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'klt:logo-source',
+            'type'     => 'COMPONENT',
+            'name'     => 'Logo title source',
+            'key'      => 'klt-logo-key',
+            'width'    => 180,
+            'height'   => 32,
+            'children' => array(
+                array(
+                    'id'                      => 'klt:mark',
+                    'type'                    => 'BOOLEAN_OPERATION',
+                    'name'                    => 'Lego head mark',
+                    'relativeTransformBounds' => array('x' => 0, 'y' => 4, 'width' => 24, 'height' => 24),
+                    'fillGeometry'            => array(array('path' => 'M0 0L24 0L24 24L0 24Z', 'windingRule' => 'NONZERO')),
+                    'fills'                   => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0.84, 'b' => 0, 'a' => 1))),
+                ),
+                array(
+                    'id'                      => 'klt:title',
+                    'type'                    => 'TEXT',
+                    'name'                    => 'The Baseplate title',
+                    'characters'              => 'The Baseplate',
+                    'relativeTransformBounds' => array('x' => 32, 'y' => 0, 'width' => 148, 'height' => 32),
+                    'fontSize'                => 24,
+                ),
+            ),
+        ),
+        array('id' => 'klt:header-logo', 'type' => 'INSTANCE', 'name' => 'Header logo', 'componentId' => 'klt:logo-source', 'x' => 32, 'y' => 24, 'width' => 180, 'height' => 32),
+        array('id' => 'klt:footer-logo', 'type' => 'INSTANCE', 'name' => 'Footer logo', 'componentId' => 'klt:logo-source', 'x' => 32, 'y' => 160, 'width' => 180, 'height' => 32),
+        array('id' => 'klt:newsletter-logo', 'type' => 'INSTANCE', 'name' => 'Newsletter logo', 'componentId' => 'klt:logo-source', 'x' => 360, 'y' => 160, 'width' => 180, 'height' => 32),
+    ),
+));
+$kiwiLogoTitleCompositionHtml = $fileContent($kiwiLogoTitleCompositionResult, 'index.html');
+$kiwiLogoTitleCompositionCss = $fileContent($kiwiLogoTitleCompositionResult, 'style.css');
+$assert(str_contains($kiwiLogoTitleCompositionCss, '.lego-head-mark{width:24px;height:24px;position:absolute;left:0px;top:4px'), 'kiwi-logo-title-mark-keeps-relative-bounds');
+$assert(str_contains($kiwiLogoTitleCompositionCss, '.the-baseplate-title{width:148px;height:32px;position:absolute;left:32px;top:0px'), 'kiwi-logo-title-text-keeps-relative-bounds');
+$assert(str_contains($kiwiLogoTitleCompositionHtml, 'data-figma-node-id="klt:header-logo/klt:title"'), 'kiwi-logo-title-header-instance-renders-title');
+$assert(str_contains($kiwiLogoTitleCompositionHtml, 'data-figma-node-id="klt:footer-logo/klt:title"'), 'kiwi-logo-title-footer-instance-renders-title');
+$assert(str_contains($kiwiLogoTitleCompositionHtml, 'data-figma-node-id="klt:newsletter-logo/klt:title"'), 'kiwi-logo-title-newsletter-instance-renders-title');
+
 // DOCUMENT-MODE MULTI-PAGE ORIGIN REBASE (#360): emitSite resolves each page
 // frame from scenegraph['node_map'], so render_document normalization must write
 // page-localized frames back into node_map instead of only rebasing render nodes.

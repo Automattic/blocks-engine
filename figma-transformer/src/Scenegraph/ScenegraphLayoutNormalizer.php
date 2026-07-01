@@ -34,6 +34,18 @@ final class ScenegraphLayoutNormalizer
             }
         }
 
+        if ( is_array($node['relativeTransformBounds'] ?? null) ) {
+            foreach ( array('x', 'y', 'width', 'height') as $dimension ) {
+                if ( ! array_key_exists($dimension, $box) && isset($node['relativeTransformBounds'][$dimension]) && is_numeric($node['relativeTransformBounds'][$dimension]) ) {
+                    $box[$dimension] = (float) $node['relativeTransformBounds'][$dimension];
+                }
+            }
+
+            if ( isset($node['relativeTransformBounds']['x']) || isset($node['relativeTransformBounds']['y']) ) {
+                $sourceKind = GeometryBox::SOURCE_TRANSFORM;
+            }
+        }
+
         foreach ( array('x', 'y', 'width', 'height') as $dimension ) {
             if ( ! array_key_exists($dimension, $box) && isset($node[$dimension]) && is_numeric($node[$dimension]) ) {
                 $box[$dimension] = (float) $node[$dimension];
