@@ -74,10 +74,15 @@ final class RuntimeDependencyParityReport
                     'canvas_api'        => $canvasApi,
                     'source_present'    => array() !== $target,
                     'generated_present' => $exists,
+                    'disposition'       => $this->isSupersededSelector($selector, $superseded) ? self::DISPOSITION_SUPERSEDED : '',
                 ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
                 $dependencies[] = $dependencyRow;
 
                 if ( $exists ) {
+                    continue;
+                }
+
+                if ( array() === $target && 'telemetry' !== $scriptKind ) {
                     continue;
                 }
 
@@ -86,6 +91,10 @@ final class RuntimeDependencyParityReport
                 }
 
                 if ( $this->isTelemetryScriptSelfTarget($scriptKind, $scriptPath, $target) ) {
+                    continue;
+                }
+
+                if ( $this->isSupersededSelector($selector, $superseded) ) {
                     continue;
                 }
 
@@ -120,7 +129,7 @@ final class RuntimeDependencyParityReport
             $findings[] = $finding;
         }
 
-        foreach ( $this->scriptTargetParityFindings($files, $interactionCandidates, $sourceTargets, $generatedTargets, $sourcePath, $flaggedSelectors) as $finding ) {
+        foreach ( $this->scriptTargetParityFindings($files, $interactionCandidates, $sourceTargets, $generatedTargets, $sourcePath, $flaggedSelectors, $superseded) as $finding ) {
             $findings[] = $this->withSupersededDisposition($finding, $superseded);
         }
 
@@ -241,7 +250,7 @@ final class RuntimeDependencyParityReport
      * @param array<string, bool> $flaggedSelectors
      * @return array<int, array<string, mixed>>
      */
-    private function scriptTargetParityFindings(array $files, array $interactionCandidates, array $sourceTargets, array $generatedTargets, string $sourcePath, array $flaggedSelectors): array
+    private function scriptTargetParityFindings(array $files, array $interactionCandidates, array $sourceTargets, array $generatedTargets, string $sourcePath, array $flaggedSelectors, array $superseded): array
     {
         if ( array() === $interactionCandidates || ! $this->hasCarriedFirstPartyClientScript($files) ) {
             return array();
@@ -270,6 +279,9 @@ final class RuntimeDependencyParityReport
                 continue;
             }
             if ( isset($flaggedSelectors[$selector]) || isset($seenSelectors[$selector]) ) {
+                continue;
+            }
+            if ( $this->isSupersededSelector($selector, $superseded) ) {
                 continue;
             }
 
@@ -408,6 +420,15 @@ final class RuntimeDependencyParityReport
             'materialization_hint' => 'none_native_block_provides_the_responsive_navigation_overlay',
             'message'              => sprintf('Script references %s, which the transformer intentionally removed because the navigation became a core/navigation with its own responsive overlay; the missing target is an expected, editable approximation, not a materialization bug.', $selector),
         ));
+    }
+
+    /**
+     * @param array<string, bool> $superseded
+     */
+    private function isSupersededSelector(string $selector, array $superseded): bool
+    {
+        $selector = $this->normalizedTargetSelector($selector);
+        return '' !== $selector && isset($superseded[$selector]);
     }
 
     /**

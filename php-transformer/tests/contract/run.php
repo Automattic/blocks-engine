@@ -377,34 +377,37 @@ $assert('contract-test' === ($contextual['provenance'][0]['scope'] ?? ''), 'HTML
 $formFallback = ( new HtmlTransformer() )->transform(
     '<main><form action="/contact" method="post" data-action="contact-submit"><label for="email">Email</label><input id="email" name="email" type="email" required><select name="topic"><option value="support" selected>Support</option></select><button type="submit">Send</button></form></main>'
 )->toArray();
-$formRuntimeIsland = $formFallback['source_reports']['runtime_islands'][0] ?? array();
-$formFallbackBlocks = $formFallback['blocks'][0]['innerBlocks'] ?? array();
 $formFallbackDiagnostic = $formFallback['fallbacks'][0] ?? array();
 $assert(1 === count($formFallback['fallbacks'] ?? array()), 'data-entry runtime form surfaces a materializable form fallback finding');
 $assert('html_form_fallback' === ($formFallbackDiagnostic['diagnostic_code'] ?? ''), 'data-entry runtime form fallback carries the form diagnostic code');
 $assert('email' === ($formFallbackDiagnostic['controls'][0]['name'] ?? ''), 'data-entry runtime form fallback carries generic control metadata');
 $assert('/contact' === ($formFallbackDiagnostic['form']['action'] ?? ''), 'data-entry runtime form fallback carries form action metadata');
 $assertNormalizedFallbackDiagnostic($formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array(), 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
-$assert('core/group' === ($formFallback['blocks'][0]['blockName'] ?? ''), 'runtime form materializes readable control blocks');
-$assert('core/paragraph' === ($formFallbackBlocks[0]['blockName'] ?? ''), 'runtime form exposes readable input text');
-$assert('core/group' === ($formFallbackBlocks[1]['blockName'] ?? ''), 'runtime form exposes readable select options');
-$assert('core/buttons' === ($formFallbackBlocks[2]['blockName'] ?? ''), 'runtime form exposes readable submit button');
+$assert('core/html' === ($formFallback['blocks'][0]['blockName'] ?? ''), 'data-entry form materializes as preserved form HTML');
+$assert(str_contains((string) ($formFallback['serialized_blocks'] ?? ''), '<form action="/contact" method="post"'), 'data-entry form serialized markup keeps the form element');
+$assert(str_contains((string) ($formFallback['serialized_blocks'] ?? ''), '<input id="email"'), 'data-entry form serialized markup keeps input controls');
+$assert(str_contains((string) ($formFallback['serialized_blocks'] ?? ''), '<select name="topic"'), 'data-entry form serialized markup keeps select controls');
+$assert(str_contains((string) ($formFallback['serialized_blocks'] ?? ''), '<button type="submit"'), 'data-entry form serialized markup keeps submit buttons');
 $assert('form' === ($formFallback['source_reports']['interaction_candidates'][0]['kind'] ?? ''), 'HTML source report exposes form interaction candidate');
 $assert('form' === ($formFallback['source_reports']['conversion_report']['interaction_candidates'][0]['kind'] ?? ''), 'conversion report projects interaction candidates');
 $assert('/contact' === ($formFallback['source_reports']['interaction_candidates'][0]['target'] ?? ''), 'form interaction candidate exposes action target');
-$assert('form' === ($formRuntimeIsland['kind'] ?? ''), 'readable runtime form reports as a runtime island');
-$assert('form_requires_runtime' === ($formRuntimeIsland['preservation_reason'] ?? ''), 'form runtime island exposes preservation reason');
-$assert('interactive_form' === ($formRuntimeIsland['pattern_family'] ?? ''), 'form runtime island exposes generic pattern family');
-$assert('preserve_runtime_island' === ($formRuntimeIsland['suggested_generic_repair_class'] ?? ''), 'form runtime island exposes generic repair class metadata');
-$assert('/contact' === ($formRuntimeIsland['form']['action'] ?? ''), 'form runtime island exposes form action metadata');
-$assert('post' === ($formRuntimeIsland['form']['method'] ?? ''), 'form runtime island exposes normalized form method metadata');
-$assert(3 === ($formRuntimeIsland['control_count'] ?? null), 'form runtime island exposes form control count');
-$assert('email' === ($formRuntimeIsland['controls'][0]['name'] ?? ''), 'form runtime island exposes form control names');
-$assert('Email' === ($formRuntimeIsland['controls'][0]['label'] ?? ''), 'form runtime island exposes form control labels');
-$assert(true === ($formRuntimeIsland['controls'][0]['required'] ?? null), 'form runtime island exposes required form controls');
-$assert('support' === ($formRuntimeIsland['controls'][1]['options'][0]['value'] ?? ''), 'form runtime island exposes select option values');
-$assert(is_int($formRuntimeIsland['source_bytes'] ?? null), 'form runtime island exposes bounded source byte size');
-$assert('core/group' === ($formRuntimeIsland['readable_blocks'][0]['blockName'] ?? ''), 'form runtime island carries its readable approximation metadata');
+
+$inlineSvgArtwork = ( new HtmlTransformer() )->transform(
+    '<main><svg class="album-art" viewBox="0 0 100 100" role="img" aria-label="Album art"><rect width="100" height="100" fill="#111"/><circle cx="50" cy="50" r="30" fill="#c4581a"/></svg></main>'
+)->toArray();
+$inlineSvgMarkup = (string) ($inlineSvgArtwork['serialized_blocks'] ?? '');
+$assert('core/image' === ($inlineSvgArtwork['blocks'][0]['blockName'] ?? ''), 'meaningful inline SVG artwork materializes as an image block');
+$assert(str_contains($inlineSvgMarkup, '<!-- wp:image'), 'meaningful inline SVG artwork serializes as core/image');
+$assert(str_contains($inlineSvgMarkup, 'data:image/svg+xml'), 'meaningful inline SVG artwork uses a safe data image URL');
+$assert(str_contains($inlineSvgMarkup, 'alt="Album art"'), 'meaningful inline SVG artwork preserves accessible label as image alt text');
+
+$outlineButton = ( new HtmlTransformer() )->transform(
+    '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;background:transparent;color:#eee;text-transform:uppercase" href="/tickets"><span>Tickets</span></a></main>'
+)->toArray();
+$outlineButtonMarkup = (string) ($outlineButton['serialized_blocks'] ?? '');
+$assert(str_contains($outlineButtonMarkup, '<!-- wp:button'), 'styled anchor with presentational span materializes as core/button');
+$assert(str_contains($outlineButtonMarkup, 'background-color:transparent'), 'outline button emits transparent background to suppress default theme fill');
+$assert(! str_contains($outlineButtonMarkup, '<span>Tickets</span>'), 'button label unwraps presentational span to avoid nested default styling');
 
 $scriptOnlyFormFallback = ( new HtmlTransformer() )->transform('<main><form action="/contact" method="post"><script>window.submitContact()</script></form></main>')->toArray();
 $scriptOnlyFormDiagnostic = $scriptOnlyFormFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
@@ -1456,6 +1459,42 @@ $assert(
     array() === array_values(array_filter($nestedSelfRumFindings, static fn (array $finding): bool => '#netlify-rum-container' === ($finding['selector'] ?? ''))),
     'nested telemetry script self-target is not reported as a missing block DOM target'
 );
+
+$sharedScriptSite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><h1>Home</h1><script src="js/site.js"></script></main>',
+            'js/site.js' => 'document.querySelectorAll(".only-on-shop").forEach(function (button) { button.addEventListener("click", function () {}); });',
+        ),
+    )
+)->toArray();
+$sharedScriptReport = $sharedScriptSite['source_reports']['runtime_dependency_parity'] ?? array();
+$sharedScriptDependencies = $sharedScriptReport['dependencies'] ?? array();
+$sharedScriptFindings = $sharedScriptReport['findings'] ?? array();
+$sharedScriptDependency = array_values(array_filter($sharedScriptDependencies, static fn (array $dependency): bool => '.only-on-shop' === ($dependency['selector'] ?? '')))[0] ?? null;
+$assert(
+    null !== $sharedScriptDependency,
+    'runtime dependency parity records shared-script selectors absent from the entry source'
+);
+$assert(
+    array() === array_values(array_filter($sharedScriptFindings, static fn (array $finding): bool => '.only-on-shop' === ($finding['selector'] ?? ''))),
+    'runtime dependency parity does not fail entry output for selectors absent from that entry source'
+);
+
+$hamburgerOverlaySite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<nav aria-label="Main"><a href="/">Home</a><button class="menu-toggle" aria-label="Toggle menu"><span></span><span></span><span></span></button></nav><ul class="drawer-menu" aria-label="Mobile navigation"><li><a href="/">Home</a></li><li><a href="/music">Music</a></li></ul><main><h1>Home</h1><script src="js/site.js"></script></main>',
+            'js/site.js' => 'const menu = document.querySelector(".drawer-menu"); document.querySelector(".menu-toggle")?.addEventListener("click", function () { menu?.classList.toggle("open"); });',
+        ),
+    )
+)->toArray();
+$hamburgerOverlayReport = $hamburgerOverlaySite['source_reports']['runtime_dependency_parity'] ?? array();
+$hamburgerOverlaySuperseded = $hamburgerOverlaySite['source_reports']['superseded_selectors'] ?? array();
+$assert(in_array('.drawer-menu', $hamburgerOverlaySuperseded, true), 'adjacent mobile navigation overlay is recorded as superseded when its hamburger toggle is removed');
+$assert('pass' === ($hamburgerOverlayReport['status'] ?? ''), 'superseded adjacent mobile navigation overlay does not fail runtime dependency parity');
 
 $decorativeCanvasSite = $compiler->compile(
     array(

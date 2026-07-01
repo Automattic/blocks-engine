@@ -24,7 +24,8 @@
     { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
     { "path": "fallbacks.0.tag", "assert": "equals", "value": "form" },
     { "path": "fallbacks.0.control_count", "assert": "equals", "value": 2 },
-    { "path": "source_reports.runtime_islands", "assert": "count", "count": 1 },
-    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "form" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "<form class=\"signup\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<input type=\"email\" id=\"e\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<button>Subscribe</button>" }
   ]
 }

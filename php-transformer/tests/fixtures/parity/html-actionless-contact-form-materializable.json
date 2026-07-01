@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-actionless-contact-form-materializable",
-  "description": "Surfaces a standard data-entry contact form with no action/method/script as a materializable form finding instead of flattening it to prose.",
+  "description": "Surfaces a standard data-entry contact form with no action/method/script as a materializable form finding while preserving the actual form markup instead of flattening it to prose.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-actionless-contact-form-materializable.json",
@@ -16,7 +16,7 @@
     "content": "<main><form class=\"contact-form\"><label for=\"name\">Full Name</label><input type=\"text\" id=\"name\" name=\"name\" placeholder=\"Your name\" required><label for=\"email\">Email Address</label><input type=\"email\" id=\"email\" name=\"email\" placeholder=\"your@email.com\" required><label for=\"subject\">Subject</label><select id=\"subject\" name=\"subject\"><option>Distillery visit</option><option>Wholesale</option><option>Bespoke</option></select><label for=\"message\">Message</label><textarea id=\"message\" name=\"message\" placeholder=\"Your message\" required></textarea><button type=\"submit\">Send Message</button></form></main>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group" }
+    { "path": "blocks.0", "name": "core/html" }
   ],
   "expected_fallbacks": [
     { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" }
@@ -36,9 +36,10 @@
     { "path": "fallbacks.0.controls.2.options.0.label", "assert": "equals", "value": "Distillery visit" },
     { "path": "fallbacks.0.controls.3.tag", "assert": "equals", "value": "textarea" },
     { "path": "fallbacks.0.controls.4.type", "assert": "equals", "value": "submit" },
-    { "path": "source_reports.runtime_islands", "assert": "count", "count": 1 },
-    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "form" },
-    { "path": "source_reports.runtime_islands.0.control_count", "assert": "equals", "value": 5 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "Full Name: Your name (required)" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "<form class=\"contact-form\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<input type=\"text\" id=\"name\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<select id=\"subject\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<textarea id=\"message\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<button type=\"submit\">Send Message</button>" }
   ]
 }

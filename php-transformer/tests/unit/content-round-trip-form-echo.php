@@ -68,11 +68,10 @@ $result = $roundTrip($html);
 $assert('pass' === $result['status'], '2: synthesized select option echoes are not flagged', implode(' | ', $result['texts']));
 
 // ---------------------------------------------------------------------------
-// 3. Suppression is load-bearing, not incidental: the synthesized placeholder
-//    value ("you@example.com") is genuinely absent from the source's visible
-//    text (it lives in a placeholder attribute). The transform passes, yet the
-//    SAME serialized output run through a reporter with NO ignore set DOES flag
-//    it — proving the transformer's declared echoes are what suppress it.
+// 3. Data-entry forms preserve the real controls now, so placeholder values stay
+//    inside attributes instead of becoming synthesized prose in the block output.
+//    The round-trip reporter no longer needs an ignore set to hide placeholder
+//    echoes for this path.
 // ---------------------------------------------------------------------------
 $html = '<form><label for="e2">Email</label><input id="e2" placeholder="you@example.com" required></form>';
 $arr = $transformer->transform($html, array())->toArray();
@@ -82,9 +81,9 @@ $result = $roundTrip($html);
 $assert('pass' === $result['status'], '3: placeholder echo suppressed in the wired transform', implode(' | ', $result['texts']));
 
 $unsuppressed = ( new ContentRoundTripReporter() )->report($serialized, $html);
-$assert('warning' === ($unsuppressed['status'] ?? ''), '3b: same output WOULD flag without the ignore set (suppression is load-bearing)');
+$assert('pass' === ($unsuppressed['status'] ?? ''), '3b: preserved form controls do not synthesize placeholder prose without the ignore set');
 $unsuppressedText = strtolower(implode(' | ', array_map(static fn (array $f): string => (string) ($f['text'] ?? ''), $unsuppressed['findings'] ?? array())));
-$assert(str_contains($unsuppressedText, 'you@example.com'), '3c: the placeholder value is what the unsuppressed run flags', $unsuppressedText);
+$assert(! str_contains($unsuppressedText, 'you@example.com'), '3c: placeholder value remains attribute text, not invented visible prose', $unsuppressedText);
 
 // ---------------------------------------------------------------------------
 // Summary

@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "artifact-runtime-nav-toggle-superseded-disposition",
-  "description": "Reclassifies a missing-DOM-target finding as an acceptable, superseded loss when the selector belongs to a hamburger menu-toggle (and the menu it controlled) the transformer intentionally dropped in favor of core/navigation's own responsive overlay, while a genuinely-missing target the script depends on stays an unacceptable parity loss.",
+  "description": "Records superseded hamburger menu-toggle dependencies without emitting missing-DOM-target findings when the transformer intentionally drops them in favor of core/navigation's responsive overlay, while selectors absent from the entry source remain dependency rows without becoming materialization failures.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/artifact-runtime-nav-toggle-superseded-disposition.json",
-    "notes": "The .nav-toggle hamburger is folded into core/navigation and its aria-controls menu (#nav-links) loses its id, so a preserved script referencing .nav-toggle / #nav-links is an expected, editable approximation (disposition superseded_by_native_interactivity, severity info). The same script also references .search-results, which does not exist in the output and was never a dropped nav toggle, so it remains an unacceptable runtime_dom_target_preservation loss (severity warning)."
+    "notes": "The .nav-toggle hamburger is folded into core/navigation, so a preserved script referencing .nav-toggle is recorded as a superseded dependency row rather than a gateable missing-target finding. The same script also references .search-results, which is absent from the source entry, so it is recorded as a dependency row without becoming a missing-target finding."
   },
   "legacy_comparison": {
     "skip": true,
@@ -31,26 +31,17 @@
   },
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "warning" },
-    { "path": "source_reports.runtime_dependency_parity.findings", "assert": "count", "count": 3 },
+    { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
+    { "path": "source_reports.runtime_dependency_parity.dependencies", "assert": "count", "count": 2 },
     { "path": "source_reports.superseded_selectors.0", "assert": "equals", "value": ".nav-toggle" },
 
-    { "path": "source_reports.runtime_dependency_parity.findings.0.code", "assert": "equals", "value": "runtime_dependency_target_missing" },
-    { "path": "source_reports.runtime_dependency_parity.findings.0.selector", "assert": "equals", "value": ".nav-toggle" },
-    { "path": "source_reports.runtime_dependency_parity.findings.0.severity", "assert": "equals", "value": "info" },
-    { "path": "source_reports.runtime_dependency_parity.findings.0.disposition", "assert": "equals", "value": "superseded_by_native_interactivity" },
-    { "path": "source_reports.runtime_dependency_parity.findings.0.loss_class", "assert": "equals", "value": "editable_approximation" },
-    { "path": "source_reports.runtime_dependency_parity.findings.0.recoverability", "assert": "equals", "value": "acceptable_loss" },
-    { "path": "source_reports.runtime_dependency_parity.findings.0.repair_bucket", "assert": "equals", "value": "runtime_behavior_superseded_by_native_block" },
+    { "path": "source_reports.runtime_dependency_parity.dependencies.0.selector", "assert": "equals", "value": ".nav-toggle" },
+    { "path": "source_reports.runtime_dependency_parity.dependencies.0.source_present", "assert": "equals", "value": true },
+    { "path": "source_reports.runtime_dependency_parity.dependencies.0.generated_present", "assert": "equals", "value": false },
+    { "path": "source_reports.runtime_dependency_parity.dependencies.0.disposition", "assert": "equals", "value": "superseded_by_native_interactivity" },
 
-    { "path": "source_reports.runtime_dependency_parity.findings.1.code", "assert": "equals", "value": "runtime_dependency_target_missing" },
-    { "path": "source_reports.runtime_dependency_parity.findings.1.selector", "assert": "equals", "value": ".search-results" },
-    { "path": "source_reports.runtime_dependency_parity.findings.1.severity", "assert": "equals", "value": "warning" },
-    { "path": "source_reports.runtime_dependency_parity.findings.1.repair_bucket", "assert": "equals", "value": "runtime_dom_target_preservation" },
-
-    { "path": "source_reports.runtime_dependency_parity.findings.2.code", "assert": "equals", "value": "runtime_script_target_missing" },
-    { "path": "source_reports.runtime_dependency_parity.findings.2.selector", "assert": "equals", "value": "#nav-links" },
-    { "path": "source_reports.runtime_dependency_parity.findings.2.severity", "assert": "equals", "value": "info" },
-    { "path": "source_reports.runtime_dependency_parity.findings.2.disposition", "assert": "equals", "value": "superseded_by_native_interactivity" }
+    { "path": "source_reports.runtime_dependency_parity.dependencies.1.selector", "assert": "equals", "value": ".search-results" },
+    { "path": "source_reports.runtime_dependency_parity.dependencies.1.source_present", "assert": "equals", "value": false },
+    { "path": "source_reports.runtime_dependency_parity.dependencies.1.generated_present", "assert": "equals", "value": false }
   ]
 }

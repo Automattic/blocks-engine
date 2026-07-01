@@ -48,8 +48,8 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "Newest" },
     { "path": "serialized_blocks", "assert": "contains", "value": "available" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "note-search" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "js-sort-select" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "js-filter-check" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "js-sort-select" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "js-filter-check" },
     { "path": "serialized_blocks", "assert": "contains", "value": "contact-form" },
     { "path": "serialized_blocks", "assert": "contains", "value": "form-success" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "drawer-nav" }
