@@ -139,6 +139,93 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(! in_array('off_canvas_visual_nodes', $normalLocalSignalCodes, true), 'quality-diagnostics-normal-local-no-visual-off-canvas-signal');
     $assert(0 === ($normalLocalPlacementResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['large_absolute_offset_count'] ?? null), 'quality-diagnostics-normal-local-large-offset-count-zero');
     $assert(0 === ($normalLocalPlacementResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['off_canvas_visual_node_count'] ?? null), 'quality-diagnostics-normal-local-visual-offset-count-zero');
+
+    $stickyGhostResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Sticky Ghost Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'sticky:root',
+                'type'     => 'FRAME',
+                'name'     => 'Sticky page',
+                'width'    => 960,
+                'height'   => 1800,
+                'children' => array(
+                    array(
+                        'id'         => 'sticky:row',
+                        'type'       => 'FRAME',
+                        'name'       => 'Article row',
+                        'width'      => 960,
+                        'height'     => 1600,
+                        'layoutMode' => 'HORIZONTAL',
+                        'itemSpacing' => 24,
+                        'children'   => array(
+                            array('id' => 'sticky:toc-primary', 'type' => 'FRAME', 'name' => 'Table of contents', 'width' => 240, 'height' => 320, 'children' => array(
+                                array('id' => 'sticky:toc-title', 'type' => 'TEXT', 'name' => 'TOC title', 'characters' => 'Contents', 'width' => 120, 'height' => 24, 'fontSize' => 18),
+                                array('id' => 'sticky:toc-link', 'type' => 'TEXT', 'name' => 'TOC link', 'characters' => 'Introduction', 'width' => 120, 'height' => 20, 'fontSize' => 14),
+                            )),
+                            array('id' => 'sticky:article', 'type' => 'FRAME', 'name' => 'Article body', 'width' => 696, 'height' => 1200, 'children' => array(
+                                array('id' => 'sticky:article-title', 'type' => 'TEXT', 'name' => 'Article title', 'characters' => 'Long article', 'width' => 320, 'height' => 48, 'fontSize' => 36),
+                            )),
+                            array('id' => 'sticky:toc-ghost', 'type' => 'FRAME', 'name' => 'Table of contents', 'x' => 0, 'y' => 1280, 'width' => 240, 'height' => 320, 'layoutPositioning' => 'ABSOLUTE', 'constraints' => array('horizontal' => 'LEFT', 'vertical' => 'BOTTOM'), 'opacity' => 0.1, 'children' => array(
+                                array('id' => 'sticky:toc-ghost-title', 'type' => 'TEXT', 'name' => 'TOC title', 'characters' => 'Contents', 'width' => 120, 'height' => 24, 'fontSize' => 18),
+                                array('id' => 'sticky:toc-ghost-link', 'type' => 'TEXT', 'name' => 'TOC link', 'characters' => 'Introduction', 'width' => 120, 'height' => 20, 'fontSize' => 14),
+                            )),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $stickyGhostHtml = $fileContent($stickyGhostResult, 'index.html');
+    $stickyGhostCss = $fileContent($stickyGhostResult, 'style.css');
+    $stickyGhostLayout = $stickyGhostResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+    $assert(str_contains($stickyGhostHtml, 'data-figma-node-id="sticky:toc-primary"'), 'sticky-ghost-primary-emitted');
+    $assert(! str_contains($stickyGhostHtml, 'data-figma-node-id="sticky:toc-ghost"'), 'sticky-ghost-duplicate-suppressed');
+    $assert(str_contains($stickyGhostCss, '.figma-node-sticky-toc-primary-table-of-contents{') && str_contains($stickyGhostCss, 'position:sticky;top:0;align-self:flex-start'), 'sticky-ghost-primary-css-sticky');
+    $assert(1 === ($stickyGhostLayout['sticky_ghosts']['count'] ?? null), 'sticky-ghost-diagnostic-count');
+    $assert('sticky:toc-primary' === ($stickyGhostLayout['sticky_ghosts']['candidates'][0]['primary_id'] ?? null), 'sticky-ghost-diagnostic-primary');
+    $assert('sticky:toc-ghost' === ($stickyGhostLayout['sticky_ghosts']['candidates'][0]['ghost_id'] ?? null), 'sticky-ghost-diagnostic-ghost');
+
+    $repeatedCardsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Repeated Cards Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'repeat:root',
+                'type'     => 'FRAME',
+                'name'     => 'Repeated cards root',
+                'width'    => 640,
+                'height'   => 900,
+                'children' => array(
+                    array(
+                        'id'         => 'repeat:row',
+                        'type'       => 'FRAME',
+                        'name'       => 'Cards row',
+                        'width'      => 640,
+                        'height'     => 720,
+                        'layoutMode' => 'HORIZONTAL',
+                        'itemSpacing' => 24,
+                        'children'   => array(
+                            array('id' => 'repeat:card-a', 'type' => 'FRAME', 'name' => 'Promo card', 'width' => 240, 'height' => 180, 'children' => array(
+                                array('id' => 'repeat:card-a-title', 'type' => 'TEXT', 'name' => 'Card title', 'characters' => 'Featured', 'width' => 120, 'height' => 24, 'fontSize' => 18),
+                            )),
+                            array('id' => 'repeat:card-b', 'type' => 'FRAME', 'name' => 'Promo card', 'width' => 240, 'height' => 180, 'children' => array(
+                                array('id' => 'repeat:card-b-title', 'type' => 'TEXT', 'name' => 'Card title', 'characters' => 'Featured', 'width' => 120, 'height' => 24, 'fontSize' => 18),
+                            )),
+                            array('id' => 'repeat:card-c', 'type' => 'FRAME', 'name' => 'Promo card', 'x' => 0, 'y' => 540, 'width' => 240, 'height' => 180, 'layoutPositioning' => 'ABSOLUTE', 'constraints' => array('horizontal' => 'LEFT', 'vertical' => 'BOTTOM'), 'opacity' => 1, 'children' => array(
+                                array('id' => 'repeat:card-c-title', 'type' => 'TEXT', 'name' => 'Card title', 'characters' => 'Featured', 'width' => 120, 'height' => 24, 'fontSize' => 18),
+                            )),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $repeatedCardsHtml = $fileContent($repeatedCardsResult, 'index.html');
+    $repeatedCardsLayout = $repeatedCardsResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+    $assert(str_contains($repeatedCardsHtml, 'data-figma-node-id="repeat:card-a"'), 'repeated-cards-flow-card-a-emitted');
+    $assert(str_contains($repeatedCardsHtml, 'data-figma-node-id="repeat:card-b"'), 'repeated-cards-flow-card-b-emitted');
+    $assert(str_contains($repeatedCardsHtml, 'data-figma-node-id="repeat:card-c"'), 'repeated-cards-full-opacity-absolute-emitted');
+    $assert(0 === ($repeatedCardsLayout['sticky_ghosts']['count'] ?? null), 'repeated-cards-no-sticky-ghost-diagnostic');
     
     $emptyVisibleContainerResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Empty Visible Container Classification Fixture',
