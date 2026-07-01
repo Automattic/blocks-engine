@@ -603,4 +603,97 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $staleCanvasImage = blocks_engine_figma_transformer_contract_find_visual_node($staleCanvasTransformResult, 'instance:card/source:card/image');
     $assert(str_contains($staleCanvasImageCss, '.image{width:376px;height:282px;position:absolute;left:0px;top:0px}'), 'visual-map-component-source-stale-canvas-transform-css-parent-local');
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $staleCanvasImage, array('x' => 112.0, 'y' => 198.0, 'width' => 376.0, 'height' => 282.0), 'visual-map-component-source-stale-canvas-transform-rect-parent-local');
+
+    $staleNestedInstanceGeometryResult = blocks_engine_figma_transformer_contract_transform(
+        array(
+            'name'  => 'Nested Instance Stale Definition Geometry Fixture',
+            'nodes' => array(
+                array(
+                    'id'       => 'source:image-component',
+                    'type'     => 'COMPONENT',
+                    'name'     => 'Aspect Ratio=4:3',
+                    'x'        => 16,
+                    'y'        => 480,
+                    'width'    => 240,
+                    'height'   => 180,
+                    'children' => array(
+                        array(
+                            'id'     => 'source:image-component/fill',
+                            'type'   => 'RECTANGLE',
+                            'name'   => 'Fill',
+                            'x'      => 0,
+                            'y'      => 0,
+                            'width'  => 240,
+                            'height' => 180,
+                        ),
+                    ),
+                ),
+                array(
+                    'id'       => 'source:nested-card',
+                    'type'     => 'COMPONENT',
+                    'name'     => 'Post card',
+                    'width'    => 376,
+                    'height'   => 477,
+                    'children' => array(
+                        array(
+                            'id'          => 'source:nested-card/image',
+                            'type'        => 'INSTANCE',
+                            'name'        => 'Image',
+                            'componentId' => 'source:image-component',
+                            'x'           => 0,
+                            'y'           => 0,
+                            'width'       => 376,
+                            'height'      => 282,
+                        ),
+                        array(
+                            'id'     => 'source:nested-card/content',
+                            'type'   => 'FRAME',
+                            'name'   => 'Content',
+                            'x'      => 0,
+                            'y'      => 314,
+                            'width'  => 376,
+                            'height' => 163,
+                        ),
+                    ),
+                ),
+                array(
+                    'id'       => 'source:nested-page',
+                    'type'     => 'FRAME',
+                    'name'     => 'Page',
+                    'width'    => 600,
+                    'height'   => 800,
+                    'children' => array(
+                        array(
+                            'id'                => 'instance:nested-card',
+                            'type'              => 'INSTANCE',
+                            'name'              => 'Placed card',
+                            'componentId'       => 'source:nested-card',
+                            'x'                 => 112,
+                            'y'                 => 198,
+                            'width'             => 376,
+                            'height'            => 477,
+                            'derivedSymbolData' => array(
+                                array(
+                                    'nodeId'     => 'source:nested-card/image',
+                                    'size'       => array('x' => 376, 'y' => 282),
+                                    'fillPaints' => array(
+                                        array(
+                                            'type'    => 'SOLID',
+                                            'color'   => array('r' => 1, 'g' => 0, 'b' => 0),
+                                            'opacity' => 1,
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array('frame_id' => 'source:nested-page')
+    );
+    $staleNestedInstanceGeometryCss = blocks_engine_figma_transformer_contract_file_content($staleNestedInstanceGeometryResult, 'style.css');
+    $staleNestedInstanceImage = blocks_engine_figma_transformer_contract_find_visual_node($staleNestedInstanceGeometryResult, 'instance:nested-card/source:nested-card/image');
+    $assert(str_contains($staleNestedInstanceGeometryCss, 'width:376px;height:282px;position:absolute;left:0px;top:0px'), 'visual-map-nested-instance-stale-definition-transform-css-parent-local');
+    blocks_engine_figma_transformer_contract_assert_node_rect($assert, $staleNestedInstanceImage, array('x' => 112.0, 'y' => 198.0, 'width' => 376.0, 'height' => 282.0), 'visual-map-nested-instance-stale-definition-transform-rect-parent-local');
 }

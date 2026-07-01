@@ -1912,6 +1912,14 @@ final class ScenegraphNormalizer
             }
         }
 
+		foreach ( array('size', 'transform', 'relativeTransform', 'absoluteTransform', 'absoluteBoundingBox') as $key ) {
+			if ( array_key_exists($key, $instance) ) {
+				$resolved[$key] = $instance[$key];
+			} else {
+				unset($resolved[$key]);
+			}
+		}
+
         $resolved['figma_component'] = array_merge(
             is_array($instance['figma_component'] ?? null) ? $instance['figma_component'] : array(),
             array(
