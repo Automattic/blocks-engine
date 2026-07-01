@@ -4451,6 +4451,7 @@ final class HtmlTransformer
                 'label'       => '' !== $inputLabel ? $inputLabel : 'Search',
                 'placeholder' => $this->attr($textInput, 'placeholder'),
                 'buttonText'  => $submitControl instanceof DOMElement ? $this->submitButtonText($submitControl) : '',
+                'buttonUseIcon' => $submitControl instanceof DOMElement && $this->isSearchIconSubmitButton($submitControl) ? true : null,
             )
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
 
@@ -5151,6 +5152,31 @@ final class HtmlTransformer
 
         $value = trim($this->attr($control, 'value'));
         return '' !== $value ? $value : 'Search';
+    }
+
+    private function isSearchIconSubmitButton(DOMElement $control): bool
+    {
+        if ( '' !== trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '') ) {
+            return false;
+        }
+
+        if ( '' !== trim($this->attr($control, 'value')) ) {
+            return false;
+        }
+
+        foreach ( array('svg', 'img') as $tagName ) {
+            if ( 0 < $control->getElementsByTagName($tagName)->length ) {
+                return true;
+            }
+        }
+
+        $haystack = strtolower(implode(' ', array(
+            $this->attr($control, 'aria-label'),
+            $this->attr($control, 'title'),
+            $this->attr($control, 'class'),
+        )));
+
+        return str_contains($haystack, 'search') && str_contains($haystack, 'icon');
     }
 
     /**

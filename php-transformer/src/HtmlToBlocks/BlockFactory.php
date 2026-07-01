@@ -443,9 +443,19 @@ final class BlockFactory
             'placeholder' => (string) ($attrs['placeholder'] ?? ''),
         );
         $buttonText = (string) ($attrs['buttonText'] ?? 'Search');
-        $button = '' !== trim($buttonText) ? '<button type="submit" class="wp-block-search__button wp-element-button">' . $buttonText . '</button>' : '';
+        if ( ! empty($attrs['buttonUseIcon']) ) {
+            $buttonLabel = '' !== trim($buttonText) ? $buttonText : 'Search';
+            $button = '<button type="submit" aria-label="' . htmlspecialchars($buttonLabel, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" class="wp-block-search__button has-icon wp-element-button">' . $this->searchIconSvg() . '</button>';
+        } else {
+            $button = '' !== trim($buttonText) ? '<button type="submit" class="wp-block-search__button wp-element-button">' . $buttonText . '</button>' : '';
+        }
 
         return '<form role="search" method="get"' . $this->blockSupportAttrs($attrs, 'wp-block-search') . '><label' . $this->htmlAttrs($labelAttrs) . '>' . $label . '</label><div class="wp-block-search__inside-wrapper"><input' . $this->htmlAttrs($inputAttrs) . ' />' . $button . '</div></form>';
+    }
+
+    private function searchIconSvg(): string
+    {
+        return '<svg class="search-icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M13 5c-3.3 0-6 2.7-6 6 0 1.4.5 2.7 1.3 3.7l-3.8 3.8 1.1 1.1 3.8-3.8c1 .8 2.3 1.3 3.7 1.3 3.3 0 6-2.7 6-6S16.3 5 13 5zm0 10.5c-2.5 0-4.5-2-4.5-4.5s2-4.5 4.5-4.5 4.5 2 4.5 4.5-2 4.5-4.5 4.5z"></path></svg>';
     }
 
     /**

@@ -929,6 +929,16 @@ $assert(str_contains($headerClusterSerialized, 'nav-link'), 'header cluster pres
 $assert(str_contains($headerClusterSerialized, '<!-- wp:search'), 'header cluster converts search form to core/search');
 $assert(str_contains($headerClusterSerialized, '<!-- wp:buttons'), 'header cluster converts CTA action to buttons');
 
+$iconSearch = ( new HtmlTransformer() )->transform(
+    '<form class="site-search" role="search"><label for="q-icon">Search</label><input id="q-icon" type="search" name="q" placeholder="Search"><button type="submit" aria-label="Search"><svg viewBox="0 0 16 16"><path d="M6 1a5 5 0 0 1 3.9 8.1l4 4-1 1-4-4A5 5 0 1 1 6 1z"></path></svg></button></form>'
+)->toArray();
+$iconSearchSerialized = (string) ($iconSearch['serialized_blocks'] ?? '');
+$iconSearchAttrs = $iconSearch['blocks'][0]['attrs'] ?? array();
+$assert(true === ($iconSearchAttrs['buttonUseIcon'] ?? null), 'search form icon-only submit preserves core/search buttonUseIcon intent');
+$assert(str_contains($iconSearchSerialized, '"buttonUseIcon":true'), 'search form icon intent is serialized in the core/search block comment');
+$assert(str_contains($iconSearchSerialized, 'wp-block-search__button has-icon'), 'search form icon-only submit renders a visible core search icon button');
+$assert(str_contains($iconSearchSerialized, '<svg class="search-icon"'), 'search form icon-only submit renders the search icon SVG');
+
 $unmappedNavigation = ( new HtmlTransformer() )->transform(
     '<main><nav aria-label="Main navigation"><ul><li><a href="/">Home</a></li></ul><p>Unexpected helper copy</p></nav></main>'
 )->toArray();
