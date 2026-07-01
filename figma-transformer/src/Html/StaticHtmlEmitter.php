@@ -3551,6 +3551,12 @@ final class StaticHtmlEmitter
             }
         }
 
+        $absoluteChildReserveHeight = $this->absoluteChildReserveHeight($node);
+        if ( null !== $absoluteChildReserveHeight && ! $this->stylesDeclareProperty($styles, 'min-height') ) {
+            $layoutMinHeight = isset($layout['min_height']) && is_numeric($layout['min_height']) ? (float) $layout['min_height'] : null;
+            $styles[] = 'min-height:' . $this->number(null === $layoutMinHeight ? $absoluteChildReserveHeight : max($layoutMinHeight, $absoluteChildReserveHeight)) . 'px';
+        }
+
         // Auto Layout min/max constraints (Kiwi minSize/maxSize). Skip a property
         // the width/height pass already emitted (e.g. the fluid root max-width).
         foreach ( array(
@@ -3901,6 +3907,61 @@ final class StaticHtmlEmitter
     private function isFreeformContainer(array $node): bool
     {
         return $this->layoutIntentClassifier()->isFreeformContainer($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function absoluteChildReserveHeight(array $node): ?float
+    {
+        $children = $this->nodeList($node);
+        if ( empty($children) || (! $this->isFreeformContainer($node) && ! $this->hasAbsoluteChild($node) && ! $this->hasDecorativeFlexUnderlayChild($node)) ) {
+            return null;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $parentHeight = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
+        $maxBottom = null;
+        $contributingChildren = 0;
+        foreach ( $children as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( ! $this->isFreeformContainer($node) && 'absolute' !== ($layout['positioning'] ?? null) && ! $this->isDecorativeFlexUnderlay($child, $node) ) {
+                continue;
+            }
+
+            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
+            if ( ! isset($childBox['height']) || ! is_numeric($childBox['height']) ) {
+                continue;
+            }
+
+            $top = $this->positionOffset($childBox, $box, 'y');
+            if ( null === $top ) {
+                continue;
+            }
+            if ( $top < -0.5 ) {
+                return null;
+            }
+
+            $bottom = $top + (float) $childBox['height'];
+            if ( null !== $parentHeight && $bottom > $parentHeight + 0.5 ) {
+                return null;
+            }
+            $maxBottom = null === $maxBottom ? $bottom : max($maxBottom, $bottom);
+            $contributingChildren++;
+        }
+
+        if ( $contributingChildren <= 1 || null === $maxBottom || $maxBottom <= 0.0 ) {
+            return null;
+        }
+        if ( null !== $parentHeight && abs($parentHeight - $maxBottom) > 0.5 ) {
+            return null;
+        }
+
+        return $maxBottom;
     }
 
     /**

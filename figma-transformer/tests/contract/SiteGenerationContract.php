@@ -140,6 +140,42 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(0 === ($normalLocalPlacementResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['large_absolute_offset_count'] ?? null), 'quality-diagnostics-normal-local-large-offset-count-zero');
     $assert(0 === ($normalLocalPlacementResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['off_canvas_visual_node_count'] ?? null), 'quality-diagnostics-normal-local-visual-offset-count-zero');
 
+    $absoluteChildReserveResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Absolute Child Flow Reserve Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'reserve:root',
+                'type'     => 'FRAME',
+                'name'     => 'Page root',
+                'width'    => 640,
+                'height'   => 700,
+                'children' => array(
+                    array(
+                        'id'       => 'reserve:footer',
+                        'type'     => 'FRAME',
+                        'name'     => 'Footer shell',
+                        'x'        => 0,
+                        'y'        => 120,
+                        'width'    => 640,
+                        'height'   => 483,
+                        'children' => array(
+                            array('id' => 'reserve:newsletter', 'type' => 'FRAME', 'name' => 'Promoted card', 'x' => 112, 'y' => 0, 'width' => 416, 'height' => 352, 'children' => array(
+                                array('id' => 'reserve:newsletter:text', 'type' => 'TEXT', 'name' => 'Card heading', 'characters' => 'Promoted content', 'width' => 240, 'height' => 32, 'fontSize' => 24),
+                            )),
+                            array('id' => 'reserve:bottom', 'type' => 'FRAME', 'name' => 'Bottom bar', 'x' => 0, 'y' => 352, 'width' => 640, 'height' => 131, 'children' => array(
+                                array('id' => 'reserve:bottom:text', 'type' => 'TEXT', 'name' => 'Bottom text', 'characters' => 'Footer links', 'width' => 120, 'height' => 24, 'fontSize' => 16),
+                            )),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $absoluteChildReserveCss = $fileContent($absoluteChildReserveResult, 'style.css');
+    $assert(str_contains($absoluteChildReserveCss, '.figma-node-reserve-footer-footer-shell{') && str_contains($absoluteChildReserveCss, 'height:483px;min-height:483px;'), 'absolute-child-reserve-parent-min-height');
+    $assert(str_contains($absoluteChildReserveCss, '.figma-node-reserve-newsletter-promoted-card{') && str_contains($absoluteChildReserveCss, 'width:416px;height:352px;position:absolute;left:112px;top:0px'), 'absolute-child-reserve-positioned-card-preserved');
+    $assert(str_contains($absoluteChildReserveCss, '.figma-node-reserve-bottom-bottom-bar{') && str_contains($absoluteChildReserveCss, 'width:640px;height:131px;position:absolute;left:0px;top:352px'), 'absolute-child-reserve-positioned-bottom-preserved');
+
     $stickyGhostResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Sticky Ghost Fixture',
         'nodes' => array(
