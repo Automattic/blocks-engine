@@ -3763,6 +3763,63 @@ $scaledVectorInstanceCss = $fileContent($scaledVectorInstanceResult, 'style.css'
 $assert(str_contains($scaledVectorInstanceCss, '.figma-node-scaled-icon-instance-scaled-icon-vector-vector{width:20px;height:20px'), 'scaled-vector-instance-child-css-scaled');
 $assert(str_contains($scaledVectorInstanceHtml, '<g transform="scale(2 2)">'), 'scaled-vector-instance-svg-transform');
 
+$nestedScaledVectorInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Nested Scaled Vector Instance Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'       => 'nested-scaled-icon:source',
+            'type'     => 'COMPONENT',
+            'name'     => 'Nested scaled icon source',
+            'key'      => 'nested-scaled-icon-source-key',
+            'width'    => 80,
+            'height'   => 64,
+            'children' => array(
+                array(
+                    'id'           => 'nested-scaled-icon:vector',
+                    'type'         => 'VECTOR',
+                    'name'         => 'Vector',
+                    'width'        => 80,
+                    'height'       => 64,
+                    'fillGeometry' => array(array('commandsBlob' => 0, 'windingRule' => 'NONZERO')),
+                ),
+            ),
+        ),
+        array(
+            'id'       => 'nested-scaled-icon:wrapper',
+            'type'     => 'COMPONENT',
+            'name'     => 'Nested scaled icon wrapper',
+            'key'      => 'nested-scaled-icon-wrapper-key',
+            'width'    => 80,
+            'height'   => 64,
+            'layout'   => array('clips_content' => true),
+            'children' => array(
+                array(
+                    'id'          => 'nested-scaled-icon:nested-instance',
+                    'type'        => 'INSTANCE',
+                    'name'        => 'Nested icon instance',
+                    'componentId' => 'nested-scaled-icon-source-key',
+                    'width'       => 80,
+                    'height'      => 64,
+                ),
+            ),
+        ),
+        array(
+            'id'          => 'nested-scaled-icon:instance',
+            'type'        => 'INSTANCE',
+            'name'        => 'Nested scaled icon instance',
+            'componentId' => 'nested-scaled-icon-wrapper-key',
+            'width'       => 40,
+            'height'      => 32,
+        ),
+    ),
+));
+$nestedScaledVectorInstanceHtml = $fileContent($nestedScaledVectorInstanceResult, 'index.html');
+$nestedScaledVectorInstanceCss = $fileContent($nestedScaledVectorInstanceResult, 'style.css');
+$assert(str_contains($nestedScaledVectorInstanceHtml, 'data-figma-node-id="nested-scaled-icon:instance/nested-scaled-icon:nested-instance"') && str_contains($nestedScaledVectorInstanceCss, '.vector{width:40px;height:32px'), 'nested-scaled-vector-instance-child-css-scaled');
+$assert(str_contains($nestedScaledVectorInstanceHtml, 'data-figma-node-id="nested-scaled-icon:instance/nested-scaled-icon:nested-instance/nested-scaled-icon:vector"') && str_contains($nestedScaledVectorInstanceHtml, 'viewBox="0 0 40 32"'), 'nested-scaled-vector-instance-descendant-css-scaled');
+$assert(str_contains($nestedScaledVectorInstanceHtml, '<g transform="scale(0.5 0.5)">'), 'nested-scaled-vector-instance-svg-transform');
+
 blocks_engine_figma_transformer_run_effects_contract($assert, $fileContent);
 
 $symbolInstanceResult = blocks_engine_figma_transformer_transform_scenegraph(array(
