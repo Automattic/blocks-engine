@@ -4094,6 +4094,9 @@ final class StaticHtmlEmitter
         if ( isset($layout['align']) && 'STRETCH' === $layout['align'] ) {
             $styles[] = 'align-self:stretch';
         }
+        if ( $isFlexChild && isset($layout['order']) && is_numeric($layout['order']) ) {
+            $styles[] = 'order:' . (string) (int) $layout['order'];
+        }
 
         return $styles;
     }

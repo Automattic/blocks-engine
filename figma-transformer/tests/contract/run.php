@@ -2466,6 +2466,7 @@ $kiwiLayoutFieldsResult = blocks_engine_figma_transformer_transform_scenegraph(a
             'width'     => 300,
             'height'    => 100,
             'stackMode' => 'HORIZONTAL',
+            'stackHorizontalGap' => 14,
             'children'  => array(
                 array(
                     'id'                    => 'kiwi-layout:fill-item',
@@ -2474,6 +2475,7 @@ $kiwiLayoutFieldsResult = blocks_engine_figma_transformer_transform_scenegraph(a
                     'width'                 => 80,
                     'height'                => 40,
                     'stackChildPrimaryGrow' => 1,
+                    'layoutOrder'           => 2,
                     'minSize'               => array('x' => 100, 'y' => 20),
                     'maxSize'               => array('x' => 200, 'y' => 60),
                 ),
@@ -2486,6 +2488,7 @@ $kiwiLayoutFieldsResult = blocks_engine_figma_transformer_transform_scenegraph(a
                     'stackMode'          => 'HORIZONTAL',
                     'stackPrimarySizing' => 'RESIZE_TO_FIT',
                     'stackCounterSizing' => 'FIXED',
+                    'stackChildOrder'     => 1,
                     'children'           => array(
                         array('id' => 'kiwi-layout:hug-a', 'type' => 'RECTANGLE', 'name' => 'Hug A', 'width' => 30, 'height' => 20),
                         array('id' => 'kiwi-layout:hug-b', 'type' => 'RECTANGLE', 'name' => 'Hug B', 'width' => 40, 'height' => 20),
@@ -2502,10 +2505,12 @@ $assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-stretch-badg
 $assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-far-badge-far-badge{width:60px;height:40px;position:absolute;right:40px;top:10px}'), 'kiwi-constraint-max-pins-far-edge-only');
 // Kiwi CENTER == fixed child-center offset from parent center via calc(), no transform.
 $assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-center-badge-center-badge{width:50px;height:20px;position:absolute;left:calc(50% - 25px);top:calc(50% - 10px)}'), 'kiwi-constraint-center-uses-child-center-calc-offset');
+// stackHorizontalGap aliases to the normal item gap even when stackSpacing is absent.
+$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-flexframe-kiwi-flex-frame{width:300px;height:100px;display:flex;flex-direction:row;gap:14px}'), 'kiwi-stack-horizontal-gap-alias-emits-gap');
 // stackChildPrimaryGrow -> flex-grow; minSize/maxSize -> min/max width/height.
-$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-fill-item-fill-item{width:80px;height:40px;min-width:100px;max-width:200px;min-height:20px;max-height:60px;flex-grow:1}'), 'kiwi-grow-and-min-max-size');
+$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-fill-item-fill-item{width:80px;height:40px;min-width:100px;max-width:200px;min-height:20px;max-height:60px;flex-grow:1;order:2}'), 'kiwi-grow-min-max-size-and-order');
 // stackPrimarySizing RESIZE_TO_FIT -> HUG main axis; stackCounterSizing FIXED -> fixed cross axis.
-$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-hug-frame-hug-frame{width:max-content;height:40px;display:flex;flex-direction:row;flex-shrink:0}'), 'kiwi-stack-sizing-bridges-to-flex-sizing');
+$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-hug-frame-hug-frame{width:max-content;height:40px;display:flex;flex-direction:row;flex-shrink:0;order:1}'), 'kiwi-stack-sizing-bridges-to-flex-sizing-and-order');
 
 $centerOversizedClippedResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Center Oversized Clipped Fixture',

@@ -227,6 +227,8 @@ final class ScenegraphLayoutNormalizer
                 $padding[$edge] = (float) $node['paddingHorizontal'];
             } elseif ( ! array_key_exists($edge, $padding) && isset($node['stackHorizontalPadding']) && is_numeric($node['stackHorizontalPadding']) ) {
                 $padding[$edge] = (float) $node['stackHorizontalPadding'];
+            } elseif ( ! array_key_exists($edge, $padding) && isset($node['horizontalPadding']) && is_numeric($node['horizontalPadding']) ) {
+                $padding[$edge] = (float) $node['horizontalPadding'];
             }
         }
         foreach ( array('top', 'bottom') as $edge ) {
@@ -234,6 +236,8 @@ final class ScenegraphLayoutNormalizer
                 $padding[$edge] = (float) $node['paddingVertical'];
             } elseif ( ! array_key_exists($edge, $padding) && isset($node['stackVerticalPadding']) && is_numeric($node['stackVerticalPadding']) ) {
                 $padding[$edge] = (float) $node['stackVerticalPadding'];
+            } elseif ( ! array_key_exists($edge, $padding) && isset($node['verticalPadding']) && is_numeric($node['verticalPadding']) ) {
+                $padding[$edge] = (float) $node['verticalPadding'];
             }
         }
         if ( ! empty($padding) ) {
@@ -244,11 +248,19 @@ final class ScenegraphLayoutNormalizer
             $layout['item_spacing'] = (float) $node['itemSpacing'];
         } elseif ( isset($node['stackSpacing']) && is_numeric($node['stackSpacing']) ) {
             $layout['item_spacing'] = (float) $node['stackSpacing'];
+        } elseif ( isset($node['gap']) && is_numeric($node['gap']) ) {
+            $layout['item_spacing'] = (float) $node['gap'];
+        } elseif ( isset($node['stackHorizontalGap']) && is_numeric($node['stackHorizontalGap']) ) {
+            $layout['item_spacing'] = (float) $node['stackHorizontalGap'];
+        } elseif ( isset($node['stackVerticalGap']) && is_numeric($node['stackVerticalGap']) ) {
+            $layout['item_spacing'] = (float) $node['stackVerticalGap'];
         }
         if ( isset($node['counterAxisSpacing']) && is_numeric($node['counterAxisSpacing']) ) {
             $layout['counter_axis_spacing'] = (float) $node['counterAxisSpacing'];
         } elseif ( isset($node['stackCounterSpacing']) && is_numeric($node['stackCounterSpacing']) ) {
             $layout['counter_axis_spacing'] = (float) $node['stackCounterSpacing'];
+        } elseif ( isset($node['counterAxisGap']) && is_numeric($node['counterAxisGap']) ) {
+            $layout['counter_axis_spacing'] = (float) $node['counterAxisGap'];
         }
 
         if ( isset($node['layoutWrap']) && is_scalar($node['layoutWrap']) ) {
@@ -283,6 +295,12 @@ final class ScenegraphLayoutNormalizer
             $layout['align'] = strtoupper((string) $node['layoutAlign']);
         } elseif ( isset($node['stackChildAlignSelf']) && is_scalar($node['stackChildAlignSelf']) ) {
             $layout['align'] = strtoupper((string) $node['stackChildAlignSelf']);
+        }
+        foreach ( array('layoutOrder', 'stackChildOrder') as $orderKey ) {
+            if ( isset($node[$orderKey]) && is_numeric($node[$orderKey]) ) {
+                $layout['order'] = (int) $node[$orderKey];
+                break;
+            }
         }
         if ( true === ($node['clipsContent'] ?? false) || true === ($node['isClip'] ?? false) || false === ($node['frameMaskDisabled'] ?? null) ) {
             $layout['clips_content'] = true;
