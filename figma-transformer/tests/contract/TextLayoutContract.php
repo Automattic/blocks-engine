@@ -59,6 +59,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
                             'fontWeight'     => 400,
                         ),
                     ),
+                    'logicalIndexToCharacterOffsetMap' => range(0, 299),
                 ),
             ),
         ),
@@ -76,6 +77,9 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert(1 === ($derivedTextVisualNode['text']['baseline_count'] ?? null), 'visual-node-derived-text-baseline-count');
     $assert(3 === ($derivedTextVisualNode['text']['glyph_count'] ?? null), 'visual-node-derived-text-glyph-count');
     $assert(146.5 === ($derivedTextVisualNode['text']['derived_layout']['size']['width'] ?? null), 'visual-node-derived-text-layout-width');
+    $assert(300 === ($derivedTextVisualNode['text']['derived_layout']['logical_character_offset_count'] ?? null), 'visual-node-derived-text-logical-offset-count');
+    $assert(256 === count($derivedTextVisualNode['text']['derived_layout']['logical_character_offsets'] ?? array()), 'visual-node-derived-text-logical-offset-sample-count');
+    $assert(true === ($derivedTextVisualNode['text']['derived_layout']['logical_character_offsets_truncated'] ?? null), 'visual-node-derived-text-logical-offset-truncated');
     $assert(! isset($derivedTextVisualNode['text']['derived_layout']['glyph_paths']), 'visual-node-derived-text-default-omits-glyph-paths');
     $assert('dom_text' === ($derivedTextVisualNode['text']['glyph_rendering'] ?? null), 'visual-node-derived-text-default-dom-rendering');
     $derivedTextLayoutCss = $fileContent($derivedTextLayoutResult, 'style.css');
