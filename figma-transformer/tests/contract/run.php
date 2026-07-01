@@ -371,6 +371,73 @@ $assert(array(
     'parent_height' => 600,
 ) === ($decorativeUnderlayDiagnostics['nodes'][0] ?? null), 'decorative-underlay-diagnostics-node-entry');
 
+$absoluteDecorativeUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Absolute Decorative Underlay Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'                  => 'abs-underlay:parent',
+            'type'                => 'FRAME',
+            'name'                => 'Footer row',
+            'absoluteBoundingBox' => array('x' => 0, 'y' => 0, 'width' => 600, 'height' => 120),
+            'layoutMode'          => 'HORIZONTAL',
+            'children'            => array(
+                array(
+                    'id'                  => 'abs-underlay:bg',
+                    'type'                => 'RECTANGLE',
+                    'name'                => 'Background plate',
+                    'absoluteBoundingBox' => array('x' => -20, 'y' => -30, 'width' => 660, 'height' => 180),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                    'fill'                => array('r' => 0.02, 'g' => 0.04, 'b' => 0.08),
+                    'fillGeometry'        => array(array('commandsBlob' => 0)),
+                ),
+                array(
+                    'id'       => 'abs-underlay:copy',
+                    'type'     => 'TEXT',
+                    'name'     => 'Footer copy',
+                    'text'     => 'Footer text stays clickable',
+                    'fontSize' => 16,
+                ),
+            ),
+        ),
+    ),
+));
+$absoluteDecorativeUnderlayCss = $fileContent($absoluteDecorativeUnderlayResult, 'style.css');
+$absoluteDecorativeUnderlays = $absoluteDecorativeUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
+$assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-parent-footer-row{width:600px;height:120px;position:relative;display:flex;flex-direction:row}'), 'absolute-decorative-underlay-parent-relative');
+$assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-bg-background-plate{width:660px;height:180px;position:absolute;left:0px;top:0px;z-index:0;pointer-events:none;background:#050a14}'), 'absolute-decorative-underlay-gets-underlay-z-index');
+$assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-copy-footer-copy{position:relative;z-index:1;font-size:16px;flex-shrink:0}'), 'absolute-decorative-underlay-flow-text-stacks-above');
+$assert(1 === ($absoluteDecorativeUnderlays['count'] ?? null), 'absolute-decorative-underlay-diagnostic-count');
+
+$absoluteTextContentGuardResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Absolute Text Content Guard Fixture',
+    'nodes' => array(
+        array(
+            'id'                  => 'abs-textguard:parent',
+            'type'                => 'FRAME',
+            'name'                => 'Footer row',
+            'absoluteBoundingBox' => array('x' => 0, 'y' => 0, 'width' => 600, 'height' => 120),
+            'layoutMode'          => 'HORIZONTAL',
+            'children'            => array(
+                array(
+                    'id'                  => 'abs-textguard:callout',
+                    'type'                => 'TEXT',
+                    'name'                => 'Absolute callout',
+                    'absoluteBoundingBox' => array('x' => -20, 'y' => -30, 'width' => 660, 'height' => 180),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                    'text'                => 'Real absolute content',
+                ),
+                array('id' => 'abs-textguard:sibling', 'type' => 'TEXT', 'name' => 'Sibling copy', 'text' => 'Sibling'),
+            ),
+        ),
+    ),
+));
+$absoluteTextContentGuardCss = $fileContent($absoluteTextContentGuardResult, 'style.css');
+$absoluteTextContentGuardUnderlays = $absoluteTextContentGuardResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
+$assert(str_contains($absoluteTextContentGuardCss, '.figma-node-abs-textguard-callout-absolute-callout{width:660px;height:180px;position:absolute;left:0px;top:0px;flex-shrink:0}'), 'absolute-text-content-remains-absolute-content');
+$assert(! str_contains($absoluteTextContentGuardCss, '.figma-node-abs-textguard-callout-absolute-callout{width:660px;height:180px;position:absolute;left:0px;top:0px;z-index:0;pointer-events:none}'), 'absolute-text-content-not-hidden-as-underlay');
+$assert(0 === ($absoluteTextContentGuardUnderlays['count'] ?? null), 'absolute-text-content-not-decorative-underlay-diagnostic');
+
 $contentCardResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Content Card Fixture',
     'nodes' => array(
@@ -2255,11 +2322,38 @@ $assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-stretch-badg
 // Kiwi MAX (horizontal) == far-edge pin only; Kiwi MIN (vertical) == near pin.
 $assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-far-badge-far-badge{width:60px;height:40px;position:absolute;right:40px;top:10px}'), 'kiwi-constraint-max-pins-far-edge-only');
 // Kiwi CENTER == fixed offset from parent center via calc(), no transform.
-$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-center-badge-center-badge{width:50px;height:20px;position:absolute;left:calc(50% - 25px);top:calc(50% - 10px)}'), 'kiwi-constraint-center-uses-calc-offset');
+$assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-center-badge-center-badge{width:50px;height:20px;position:absolute;left:calc(50% + 0px);top:calc(50% + 0px)}'), 'kiwi-constraint-center-uses-child-center-calc-offset');
 // stackChildPrimaryGrow -> flex-grow; minSize/maxSize -> min/max width/height.
 $assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-fill-item-fill-item{width:80px;height:40px;min-width:100px;max-width:200px;min-height:20px;max-height:60px;flex-grow:1}'), 'kiwi-grow-and-min-max-size');
 // stackPrimarySizing RESIZE_TO_FIT -> HUG main axis; stackCounterSizing FIXED -> fixed cross axis.
 $assert(str_contains($kiwiLayoutFieldsCss, '.figma-node-kiwi-layout-hug-frame-hug-frame{width:max-content;height:40px;display:flex;flex-direction:row;flex-shrink:0}'), 'kiwi-stack-sizing-bridges-to-flex-sizing');
+
+$centerOversizedClippedResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Center Oversized Clipped Fixture',
+    'nodes' => array(
+        array(
+            'id'                  => 'center-clip:parent',
+            'type'                => 'FRAME',
+            'name'                => 'Clipped logo parent',
+            'absoluteBoundingBox' => array('x' => 0, 'y' => 0, 'width' => 200, 'height' => 80),
+            'isClip'              => true,
+            'children'            => array(
+                array(
+                    'id'                   => 'center-clip:logo-piece',
+                    'type'                 => 'RECTANGLE',
+                    'name'                 => 'Oversized logo piece',
+                    'absoluteBoundingBox'  => array('x' => -50, 'y' => -20, 'width' => 300, 'height' => 120),
+                    'stackPositioning'     => 'ABSOLUTE',
+                    'horizontalConstraint' => 'CENTER',
+                    'verticalConstraint'   => 'CENTER',
+                ),
+            ),
+        ),
+    ),
+));
+$centerOversizedClippedCss = $fileContent($centerOversizedClippedResult, 'style.css');
+$assert(str_contains($centerOversizedClippedCss, '.figma-node-center-clip-parent-clipped-logo-parent{width:200px;height:80px;overflow:hidden;position:relative}'), 'center-oversized-clipped-parent-overflow-hidden');
+$assert(str_contains($centerOversizedClippedCss, '.figma-node-center-clip-logo-piece-oversized-logo-piece{width:300px;height:120px;position:absolute;left:calc(50% + 50px);top:calc(50% + 20px)}'), 'center-oversized-clipped-child-uses-child-center-calc');
 
 $plainFrameLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Plain Frame Layout Fixture',

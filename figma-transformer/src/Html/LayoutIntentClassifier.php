@@ -104,7 +104,7 @@ final class LayoutIntentClassifier
             return false;
         }
 
-        if ( $this->isAbsoluteChild($node) || $this->treeHasText($node) || $this->treeHasImageReference($node) ) {
+        if ( $this->treeHasText($node) || $this->treeHasImageReference($node) ) {
             return false;
         }
 

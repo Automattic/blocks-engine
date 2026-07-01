@@ -3891,7 +3891,7 @@ final class StaticHtmlEmitter
         // Center pin: keep a constant offset from the parent center. Using calc()
         // off the leading edge avoids touching transform.
         if ( 'CENTER' === $constraint && null !== $offset && null !== $parentSize ) {
-            $delta = $offset - ( $parentSize / 2.0 );
+            $delta = $offset + ((null !== $boxSize ? $boxSize : 0.0) / 2.0) - ( $parentSize / 2.0 );
             $sign = $delta < 0 ? '-' : '+';
             $styles[] = $startProp . ':calc(50% ' . $sign . ' ' . $this->number(abs($delta)) . 'px)';
             return $styles;
