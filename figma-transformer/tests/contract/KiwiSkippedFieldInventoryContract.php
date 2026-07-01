@@ -28,11 +28,14 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
     $assert(1 === ($inventory['summary']['by_role']['export_metadata'] ?? null), 'kiwi-skipped-inventory-export-role');
     $assert(1 === ($inventory['summary']['by_role']['document_metadata'] ?? null), 'kiwi-skipped-inventory-document-role');
 
-    $layoutEntry = blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'layoutGrids');
+    $layoutEntry = blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'layoutBoundsDebug');
     $assert('NodeChange' === ($layoutEntry['parent_message'] ?? null), 'kiwi-skipped-inventory-parent-message');
     $assert('FRAME' === array_key_first(is_array($layoutEntry['node_types'] ?? null) ? $layoutEntry['node_types'] : array()), 'kiwi-skipped-inventory-node-type');
     $assert(array('7:42') === ($layoutEntry['sample_node_ids'] ?? null), 'kiwi-skipped-inventory-node-id-sample');
     $assert(array() === blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'maskType'), 'kiwi-skipped-inventory-mask-type-decoded');
+    $assert(array() === blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'arcData'), 'kiwi-skipped-inventory-arc-data-decoded');
+    $assert(array() === blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'guides'), 'kiwi-skipped-inventory-guides-decoded');
+    $assert(array() === blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'listSpacing'), 'kiwi-skipped-inventory-list-spacing-decoded');
     $phaseEntry = blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'phase');
     $assert('document_metadata' === ($phaseEntry['field_role'] ?? null), 'kiwi-skipped-inventory-phase-document-role');
     $glyphEntry = blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'glyphs');
@@ -49,6 +52,14 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
     $assert('kiwi_struct' === ($guidEntry['wire_type'] ?? null), 'kiwi-skipped-inventory-struct-wire-type');
     $assert(99 === ($guidEntry['sample_raw_values'][0]['items']['localID']['value'] ?? null), 'kiwi-skipped-inventory-struct-sample-value');
     $assert('sessionID' === ($inventory['schema_definitions']['GUID']['fields'][0]['name'] ?? null), 'kiwi-skipped-inventory-schema-definition-inventory');
+
+    $message = $decoder->decodeMessageSelective(blocks_engine_figma_transformer_kiwi_inventory_message_fixture(), $schema)['message'] ?? array();
+    $node = is_array($message['nodeChanges'][0] ?? null) ? $message['nodeChanges'][0] : array();
+    $assert(array('startingAngle' => 0.0, 'endingAngle' => 1.5, 'innerRadius' => 0.25) === ($node['arcData'] ?? null), 'kiwi-selective-arc-data-shape');
+    $assert('HORIZONTAL' === ($node['guides'][0]['axis'] ?? null), 'kiwi-selective-guide-axis');
+    $assert(12.5 === ($node['guides'][0]['offset'] ?? null), 'kiwi-selective-guide-offset');
+    $assert('7:99' === blocks_engine_figma_transformer_kiwi_inventory_format_guid($node['guides'][0]['guid'] ?? null), 'kiwi-selective-guide-guid');
+    $assert(6.0 === ($node['listSpacing'] ?? null), 'kiwi-selective-list-spacing');
 
     $fixture = SyntheticFigKiwiFixtureBuilder::figArchive(
         SyntheticFigKiwiFixtureBuilder::canvas(array(
@@ -108,19 +119,31 @@ function blocks_engine_figma_transformer_kiwi_inventory_find_field(array $fields
 
 function blocks_engine_figma_transformer_kiwi_inventory_schema_fixture(): string
 {
-    return blocks_engine_figma_transformer_wire_varint(4)
+    return blocks_engine_figma_transformer_wire_varint(6)
         . blocks_engine_figma_transformer_kiwi_string('GUID')
         . chr(1)
         . blocks_engine_figma_transformer_wire_varint(2)
         . blocks_engine_figma_transformer_kiwi_schema_field('sessionID', -4, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('localID', -4, false, 2)
+        . blocks_engine_figma_transformer_kiwi_string('ArcData')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('startingAngle', -5, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('endingAngle', -5, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('innerRadius', -5, false, 3)
+        . blocks_engine_figma_transformer_kiwi_string('Guide')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('axis', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('offset', -5, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('guid', 0, false, 3)
         . blocks_engine_figma_transformer_kiwi_string('NodeChange')
         . chr(2)
-        . blocks_engine_figma_transformer_wire_varint(15)
+        . blocks_engine_figma_transformer_wire_varint(18)
         . blocks_engine_figma_transformer_kiwi_schema_field('guid', 0, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 3)
-        . blocks_engine_figma_transformer_kiwi_schema_field('layoutGrids', -6, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('layoutBoundsDebug', -6, false, 4)
         . blocks_engine_figma_transformer_kiwi_schema_field('componentProperties', -6, false, 5)
         . blocks_engine_figma_transformer_kiwi_schema_field('imageFilters', -6, false, 6)
         . blocks_engine_figma_transformer_kiwi_schema_field('maskType', -6, false, 7)
@@ -130,13 +153,16 @@ function blocks_engine_figma_transformer_kiwi_inventory_schema_fixture(): string
         . blocks_engine_figma_transformer_kiwi_schema_field('variableConsumptionMap', -6, false, 11)
         . blocks_engine_figma_transformer_kiwi_schema_field('exportSettings', -6, false, 12)
         . blocks_engine_figma_transformer_kiwi_schema_field('glyphs', -6, false, 13)
-        . blocks_engine_figma_transformer_kiwi_schema_field('inventoryStatus', 3, false, 14)
-        . blocks_engine_figma_transformer_kiwi_schema_field('extraGuid', 0, false, 15)
+        . blocks_engine_figma_transformer_kiwi_schema_field('arcData', 1, false, 14)
+        . blocks_engine_figma_transformer_kiwi_schema_field('guides', 2, true, 15)
+        . blocks_engine_figma_transformer_kiwi_schema_field('listSpacing', -5, false, 16)
+        . blocks_engine_figma_transformer_kiwi_schema_field('inventoryStatus', 5, false, 17)
+        . blocks_engine_figma_transformer_kiwi_schema_field('extraGuid', 0, false, 18)
         . blocks_engine_figma_transformer_kiwi_string('Message')
         . chr(2)
         . blocks_engine_figma_transformer_wire_varint(2)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
-        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 1, true, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 3, true, 2)
         . blocks_engine_figma_transformer_kiwi_string('InventoryStatus')
         . chr(0)
         . blocks_engine_figma_transformer_wire_varint(2)
@@ -179,9 +205,37 @@ function blocks_engine_figma_transformer_kiwi_inventory_message_fixture(): strin
         . blocks_engine_figma_transformer_kiwi_string('glyphs')
         . blocks_engine_figma_transformer_wire_varint(14)
         . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_float(0.0)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_float(1.5)
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_float(0.25)
+        . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(15)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_string('HORIZONTAL')
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_float(12.5)
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_wire_varint(7)
+        . blocks_engine_figma_transformer_wire_varint(99)
+        . blocks_engine_figma_transformer_wire_varint(0)
+        . blocks_engine_figma_transformer_wire_varint(16)
+        . blocks_engine_figma_transformer_kiwi_float(6.0)
+        . blocks_engine_figma_transformer_wire_varint(17)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(18)
         . blocks_engine_figma_transformer_wire_varint(9)
         . blocks_engine_figma_transformer_wire_varint(99)
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);
+}
+
+function blocks_engine_figma_transformer_kiwi_inventory_format_guid(mixed $guid): ?string
+{
+    if ( ! is_array($guid) || ! isset($guid['sessionID'], $guid['localID']) ) {
+        return null;
+    }
+    return (string) $guid['sessionID'] . ':' . (string) $guid['localID'];
 }

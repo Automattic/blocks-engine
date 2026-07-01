@@ -518,6 +518,10 @@ final class VectorSvgRenderer
             return array('<line x1="0" y1="0" x2="' . $this->number($width) . '" y2="' . $this->number($height) . '" ' . implode(' ', $paint) . '/>');
         }
         if ( 'ELLIPSE' === $type ) {
+            $arcPath = $this->primitiveEllipseArcPath($node, $width, $height);
+            if ( null !== $arcPath ) {
+                return array('<path d="' . $this->sanitizeAttribute($arcPath) . '" ' . implode(' ', $paint) . '/>');
+            }
             return array('<ellipse cx="' . $this->number($width / 2) . '" cy="' . $this->number($height / 2) . '" rx="' . $this->number($width / 2) . '" ry="' . $this->number($height / 2) . '" ' . implode(' ', $paint) . '/>');
         }
         if ( 'STAR' === $type ) {
@@ -568,6 +572,64 @@ final class VectorSvgRenderer
         }
 
         return array();
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function primitiveEllipseArcPath(array $node, float $width, float $height): ?string
+    {
+        $arc = is_array($node['arcData'] ?? null) ? $node['arcData'] : array();
+        if ( ! isset($arc['startingAngle'], $arc['endingAngle']) || ! is_numeric($arc['startingAngle']) || ! is_numeric($arc['endingAngle']) ) {
+            return null;
+        }
+
+        $start = (float) $arc['startingAngle'];
+        $end = (float) $arc['endingAngle'];
+        $sweep = $end - $start;
+        if ( abs($sweep) >= (2 * M_PI) - 0.0001 || abs($sweep) <= 0.0001 ) {
+            return null;
+        }
+
+        $rx = $width / 2;
+        $ry = $height / 2;
+        $cx = $rx;
+        $cy = $ry;
+        $innerRadiusRatio = isset($arc['innerRadius']) && is_numeric($arc['innerRadius']) ? max(0.0, min(1.0, (float) $arc['innerRadius'])) : 0.0;
+        $largeArc = abs($sweep) > M_PI ? 1 : 0;
+        $sweepFlag = $sweep >= 0 ? 1 : 0;
+        $outerStart = $this->ellipsePoint($cx, $cy, $rx, $ry, $start);
+        $outerEnd = $this->ellipsePoint($cx, $cy, $rx, $ry, $end);
+
+        if ( $innerRadiusRatio <= 0.0001 ) {
+            return 'M ' . $this->number($cx) . ' ' . $this->number($cy)
+                . ' L ' . $this->number($outerStart[0]) . ' ' . $this->number($outerStart[1])
+                . ' A ' . $this->number($rx) . ' ' . $this->number($ry) . ' 0 ' . $largeArc . ' ' . $sweepFlag . ' ' . $this->number($outerEnd[0]) . ' ' . $this->number($outerEnd[1])
+                . ' Z';
+        }
+
+        $innerRx = $rx * $innerRadiusRatio;
+        $innerRy = $ry * $innerRadiusRatio;
+        $innerEnd = $this->ellipsePoint($cx, $cy, $innerRx, $innerRy, $end);
+        $innerStart = $this->ellipsePoint($cx, $cy, $innerRx, $innerRy, $start);
+        $innerSweepFlag = 1 === $sweepFlag ? 0 : 1;
+
+        return 'M ' . $this->number($outerStart[0]) . ' ' . $this->number($outerStart[1])
+            . ' A ' . $this->number($rx) . ' ' . $this->number($ry) . ' 0 ' . $largeArc . ' ' . $sweepFlag . ' ' . $this->number($outerEnd[0]) . ' ' . $this->number($outerEnd[1])
+            . ' L ' . $this->number($innerEnd[0]) . ' ' . $this->number($innerEnd[1])
+            . ' A ' . $this->number($innerRx) . ' ' . $this->number($innerRy) . ' 0 ' . $largeArc . ' ' . $innerSweepFlag . ' ' . $this->number($innerStart[0]) . ' ' . $this->number($innerStart[1])
+            . ' Z';
+    }
+
+    /**
+     * @return array{0: float, 1: float}
+     */
+    private function ellipsePoint(float $cx, float $cy, float $rx, float $ry, float $angle): array
+    {
+        return array(
+            $cx + ($rx * cos($angle)),
+            $cy + ($ry * sin($angle)),
+        );
     }
 
     /**
