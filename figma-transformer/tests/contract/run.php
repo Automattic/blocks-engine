@@ -5748,6 +5748,11 @@ $variableBindingResult = $variableBindingNormalizer->normalize(array(
             'height'    => 200,
             'stackMode' => 'VERTICAL',
             'stackSpacing' => 16,
+            'boundVariables' => array(
+                'itemSpacing' => array('type' => 'VARIABLE_ALIAS', 'id' => 'VariableID:9:3'),
+                'fills' => array(array('type' => 'VARIABLE_ALIAS', 'id' => 'VariableID:9:4')),
+                'characters' => array('guid' => array('sessionID' => 9, 'localID' => 5)),
+            ),
             'variableConsumptionMap' => array(
                 'entries' => array(
                     array(
@@ -5784,9 +5789,10 @@ $variableBindingResult = $variableBindingNormalizer->normalize(array(
     ),
 ));
 $variableFrameBindings = $variableBindingResult['node_map']['variable-frame']['figma_variable_bindings'] ?? array();
-$assert(3 === ($variableFrameBindings['summary']['binding_count'] ?? null), 'variable-bindings-normalized-count');
-$assert(1 === ($variableFrameBindings['summary']['by_role']['layout'] ?? null), 'variable-bindings-layout-role');
-$assert(1 === ($variableFrameBindings['summary']['by_role']['text'] ?? null), 'variable-bindings-text-role');
+$assert(6 === ($variableFrameBindings['summary']['binding_count'] ?? null), 'variable-bindings-normalized-count');
+$assert(2 === ($variableFrameBindings['summary']['by_role']['layout'] ?? null), 'variable-bindings-layout-role');
+$assert(2 === ($variableFrameBindings['summary']['by_role']['text'] ?? null), 'variable-bindings-text-role');
+$assert(1 === ($variableFrameBindings['summary']['by_role']['paint'] ?? null), 'variable-bindings-paint-role');
 $assert(1 === ($variableFrameBindings['summary']['by_role']['unknown'] ?? null), 'variable-bindings-node-field-unknown-role');
 $assert('9:3' === ($variableFrameBindings['bindings'][0]['variable_id'] ?? null), 'variable-bindings-alias-guid-normalized');
 $assert('alias' === ($variableFrameBindings['bindings'][0]['value_type'] ?? null), 'variable-bindings-alias-value-type');
@@ -5795,6 +5801,11 @@ $assert('prop_ref' === ($variableFrameBindings['bindings'][1]['value_type'] ?? n
 $assert('7:4' === ($variableFrameBindings['bindings'][1]['prop_ref_id'] ?? null), 'variable-bindings-prop-ref-id-normalized');
 $assert('17' === ($variableFrameBindings['bindings'][2]['node_field'] ?? null), 'variable-bindings-node-field-preserved');
 $assert('nodeField:17' === ($variableFrameBindings['bindings'][2]['target_field'] ?? null), 'variable-bindings-node-field-target-normalized');
+$assert('ITEM_SPACING' === ($variableFrameBindings['bindings'][3]['target_field'] ?? null), 'bound-variables-camel-target-normalized');
+$assert('VariableID:9:3' === ($variableFrameBindings['bindings'][3]['variable_id'] ?? null), 'bound-variables-string-id-preserved');
+$assert('--figma-var-variableid-9-3' === ($variableFrameBindings['bindings'][3]['css_custom_property'] ?? null), 'bound-variables-css-custom-property-candidate');
+$assert('FILLS' === ($variableFrameBindings['bindings'][4]['target_field'] ?? null), 'bound-variables-list-target-normalized');
+$assert('9:5' === ($variableFrameBindings['bindings'][5]['variable_id'] ?? null), 'bound-variables-guid-normalized');
 $variableDefinition = $variableBindingResult['node_map']['variable-node-gap']['figma_variable_bindings'] ?? array();
 $assert('FLOAT' === ($variableDefinition['resolved_type'] ?? null), 'variable-definition-resolved-type');
 $assert(16.0 === ($variableDefinition['values'][0]['value'] ?? null), 'variable-definition-mode-value');
@@ -5811,14 +5822,54 @@ $assert('9:1' === ($variableSetDefinition['modes'][0]['parent_variable_set_id'] 
 $assert('9:2' === ($variableSetDefinition['modes'][0]['parent_mode_id'] ?? null), 'variable-set-mode-parent-mode-id-normalized');
 $variableSourceSummary = $variableBindingResult['source_report']['variable_bindings'] ?? array();
 $assert(4 === ($variableSourceSummary['node_count'] ?? null), 'variable-source-summary-node-count');
-$assert(3 === ($variableSourceSummary['binding_count'] ?? null), 'variable-source-summary-binding-count');
+$assert(6 === ($variableSourceSummary['binding_count'] ?? null), 'variable-source-summary-binding-count');
 $assert(2 === ($variableSourceSummary['value_count'] ?? null), 'variable-source-summary-value-count');
 $assert(2 === ($variableSourceSummary['variable_definition_count'] ?? null), 'variable-source-summary-definition-count');
 $assert(1 === ($variableSourceSummary['variable_set_count'] ?? null), 'variable-source-summary-set-count');
-$assert(2 === ($variableSourceSummary['by_value_type']['alias'] ?? null), 'variable-source-summary-alias-count');
+$assert(5 === ($variableSourceSummary['by_value_type']['alias'] ?? null), 'variable-source-summary-alias-count');
 $assert(1 === ($variableSourceSummary['by_value_type']['prop_ref'] ?? null), 'variable-source-summary-prop-ref-count');
 $assert(1 === ($variableSourceSummary['by_value_type']['float'] ?? null), 'variable-source-summary-float-count');
 $assert(1 === ($variableSourceSummary['by_value_type']['color'] ?? null), 'variable-source-summary-color-count');
+
+$styleReferenceResult = $variableBindingNormalizer->normalize(array(
+    'name' => 'Style Reference Fixture',
+    'nodes' => array(
+        array(
+            'id' => 'paint-style:brand',
+            'type' => 'RECTANGLE',
+            'styleType' => 'FILL',
+            'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.2, 'g' => 0.3, 'b' => 0.4))),
+        ),
+        array(
+            'id' => 'text-style:headline',
+            'type' => 'TEXT',
+            'styleType' => 'TEXT',
+            'characters' => 'Headline style',
+            'fontFamily' => 'Inter',
+            'fontSize' => 32,
+        ),
+        array(
+            'id' => 'style-consumer',
+            'type' => 'TEXT',
+            'characters' => 'Styled',
+            'styles' => array(
+                'fill' => 'paint-style:brand',
+                'text' => 'text-style:headline',
+                'stroke' => 'missing-stroke-style',
+                'effect' => 'missing-effect-style',
+            ),
+        ),
+    ),
+));
+$styleConsumer = $styleReferenceResult['node_map']['style-consumer'] ?? array();
+$assert('paint-style:brand' === ($styleConsumer['styleIdForFill'] ?? null), 'styles-map-fill-normalized-to-style-id-field');
+$assert('text-style:headline' === ($styleConsumer['styleIdForText'] ?? null), 'styles-map-text-normalized-to-style-id-field');
+$assert(array('r' => 0.2, 'g' => 0.3, 'b' => 0.4) === ($styleConsumer['figma_text']['style']['color'] ?? null), 'styles-map-fill-style-resolves-text-color');
+$assert(32.0 === ($styleConsumer['figma_text']['style']['font_size'] ?? null), 'styles-map-text-style-resolves-typography');
+$assert('missing-stroke-style' === ($styleConsumer['figma_style_references']['stroke'] ?? null), 'styles-map-stroke-reference-preserved');
+$styleDiagnosticCodes = array_map(static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), $styleReferenceResult['diagnostics'] ?? array());
+$assert(in_array('figma_missing_paint_style_reference', $styleDiagnosticCodes, true), 'missing-paint-style-reference-diagnosed');
+$assert(in_array('figma_missing_effect_style_reference', $styleDiagnosticCodes, true), 'missing-effect-style-reference-diagnosed');
 
 blocks_engine_figma_transformer_run_fixture_matrix_contract($assert);
 blocks_engine_figma_transformer_run_node_trace_contract($assert);

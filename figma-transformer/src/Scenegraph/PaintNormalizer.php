@@ -107,6 +107,7 @@ final class PaintNormalizer
 
         $stylePaints = $this->readStylePaints($paintStyles, $styleId, $collection);
         if ( empty($stylePaints) ) {
+            $this->appendMissingPaintStyleDiagnostic($diagnostics, $nodeId, $collection, $styleId);
             return;
         }
 
@@ -323,6 +324,35 @@ final class PaintNormalizer
                 'precedence_rule' => $precedence['reason'],
                 'local_paints'    => $localPaints,
                 'style_paints'    => $stylePaints,
+            ),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $diagnostics
+     */
+    private function appendMissingPaintStyleDiagnostic(array &$diagnostics, string $nodeId, string $collection, string $styleId): void
+    {
+        foreach ( $diagnostics as $diagnostic ) {
+            if ( 'figma_missing_paint_style_reference' !== ($diagnostic['code'] ?? null) || ! is_array($diagnostic['context'] ?? null) ) {
+                continue;
+            }
+
+            $context = $diagnostic['context'];
+            if ( $nodeId === ($context['node_id'] ?? null) && $collection === ($context['collection'] ?? null) && $styleId === ($context['style_id'] ?? null) ) {
+                return;
+            }
+        }
+
+        $diagnostics[] = array(
+            'severity' => 'warning',
+            'code'     => 'figma_missing_paint_style_reference',
+            'message'  => 'Figma node references a paint style that is not present in the decoded source graph.',
+            'source'   => 'PaintNormalizer',
+            'context'  => array(
+                'node_id'    => $nodeId,
+                'collection' => $collection,
+                'style_id'   => $styleId,
             ),
         );
     }

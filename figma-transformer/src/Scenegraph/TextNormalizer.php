@@ -44,6 +44,8 @@ final class TextNormalizer
         $styleId = $this->readStyleGuidId($node['styleIdForText'] ?? null);
         if ( null !== $styleId && is_array($textStyles[$styleId] ?? null) ) {
             $style = $this->normalizeTextStyle($textStyles[$styleId]);
+        } elseif ( null !== $styleId ) {
+            $this->appendMissingTextStyleDiagnostic($diagnostics, $nodeId, $styleId);
         }
 
         if ( is_array($node['style'] ?? null) ) {
@@ -54,6 +56,13 @@ final class TextNormalizer
         foreach ( $rootStyle as $key => $value ) {
             if ( ! array_key_exists($key, $style) ) {
                 $style[$key] = $value;
+            }
+        }
+
+        if ( ! isset($style['color']) ) {
+            $fillColor = $this->styleFillColor($node['styleIdForFill'] ?? null, $paintStyles);
+            if ( null !== $fillColor ) {
+                $style['color'] = $fillColor;
             }
         }
 
@@ -84,6 +93,34 @@ final class TextNormalizer
         }
 
         return $text;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $diagnostics
+     */
+    private function appendMissingTextStyleDiagnostic(array &$diagnostics, string $nodeId, string $styleId): void
+    {
+        foreach ( $diagnostics as $diagnostic ) {
+            if ( 'figma_missing_text_style_reference' !== ($diagnostic['code'] ?? null) || ! is_array($diagnostic['context'] ?? null) ) {
+                continue;
+            }
+
+            $context = $diagnostic['context'];
+            if ( $nodeId === ($context['node_id'] ?? null) && $styleId === ($context['style_id'] ?? null) ) {
+                return;
+            }
+        }
+
+        $diagnostics[] = array(
+            'severity' => 'warning',
+            'code'     => 'figma_missing_text_style_reference',
+            'message'  => 'Figma text node references a text style that is not present in the decoded source graph.',
+            'source'   => 'TextNormalizer',
+            'context'  => array(
+                'node_id'  => $nodeId,
+                'style_id' => $styleId,
+            ),
+        );
     }
 
     /**

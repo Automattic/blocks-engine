@@ -432,6 +432,11 @@ final class ScenegraphNormalizer
         $id = (string) ($node['id'] ?? '');
         $type = strtoupper((string) ($node['type'] ?? ''));
 
+        $styleReferences = $this->normalizeStyleReferences($node);
+        if ( ! empty($styleReferences) ) {
+            $node['figma_style_references'] = $styleReferences;
+        }
+
         $component = $this->normalizeComponentMetadata($node, $type);
         if ( ! empty($component) ) {
             $node['figma_component'] = $component;
@@ -560,6 +565,53 @@ final class ScenegraphNormalizer
 
     /**
      * @param array<string, mixed> $node
+     * @return array<string, string>
+     */
+    private function normalizeStyleReferences(array &$node): array
+    {
+        if ( ! is_array($node['styles'] ?? null) ) {
+            return array();
+        }
+
+        $references = array();
+        foreach ( array(
+            'fill'   => array('field' => 'styleIdForFill', 'source_keys' => array('fill', 'fills')),
+            'stroke' => array('field' => 'styleIdForStroke', 'source_keys' => array('stroke', 'strokes')),
+            'text'   => array('field' => 'styleIdForText', 'source_keys' => array('text')),
+            'effect' => array('field' => 'styleIdForEffect', 'source_keys' => array('effect', 'effects')),
+        ) as $role => $config ) {
+            $styleId = $this->readFirstStyleMapId($node['styles'], $config['source_keys']);
+            if ( null === $styleId ) {
+                continue;
+            }
+
+            $references[$role] = $styleId;
+            if ( ! isset($node[$config['field']]) ) {
+                $node[$config['field']] = $styleId;
+            }
+        }
+
+        return $references;
+    }
+
+    /**
+     * @param array<string, mixed> $styles
+     * @param array<int, string> $keys
+     */
+    private function readFirstStyleMapId(array $styles, array $keys): ?string
+    {
+        foreach ( $keys as $key ) {
+            $styleId = $this->readGuidId($styles[$key] ?? null);
+            if ( null !== $styleId ) {
+                return $styleId;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
      * @return array<string, mixed>
      */
     private function normalizeAssetMetadata(array $node): array
@@ -682,6 +734,12 @@ final class ScenegraphNormalizer
             }
         }
 
+        foreach ( $this->normalizeBoundVariableBindings($node) as $binding ) {
+            $bindings[] = $binding;
+            $role = (string) ($binding['target_role'] ?? 'unknown');
+            $byRole[$role] = ($byRole[$role] ?? 0) + 1;
+        }
+
         if ( ! empty($bindings) ) {
             arsort($byRole);
             $normalized['bindings'] = $bindings;
@@ -766,6 +824,83 @@ final class ScenegraphNormalizer
         }
 
         return $normalized;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeBoundVariableBindings(array $node): array
+    {
+        if ( ! is_array($node['boundVariables'] ?? null) ) {
+            return array();
+        }
+
+        $bindings = array();
+        foreach ( $node['boundVariables'] as $targetField => $rawBinding ) {
+            if ( ! is_string($targetField) || '' === $targetField ) {
+                continue;
+            }
+
+            $items = array_is_list($rawBinding) ? $rawBinding : array($rawBinding);
+            foreach ( $items as $item ) {
+                $variableId = $this->readBoundVariableId($item);
+                if ( null === $variableId ) {
+                    continue;
+                }
+
+                $normalizedTarget = $this->normalizeBoundVariableTargetField($targetField);
+                $bindings[] = array_filter(array(
+                    'source'              => 'boundVariables',
+                    'target_field'        => $normalizedTarget,
+                    'target_role'         => $this->classifyVariableBindingTarget($normalizedTarget),
+                    'value_type'          => 'alias',
+                    'variable_id'         => $variableId,
+                    'css_custom_property' => $this->cssCustomPropertyName($variableId),
+                ), static fn (mixed $value): bool => null !== $value);
+            }
+        }
+
+        return $bindings;
+    }
+
+    private function readBoundVariableId(mixed $binding): ?string
+    {
+        if ( is_scalar($binding) ) {
+            return '' !== (string) $binding ? (string) $binding : null;
+        }
+
+        if ( ! is_array($binding) ) {
+            return null;
+        }
+
+        foreach ( array('id', 'variableId', 'variableID', 'key') as $key ) {
+            if ( isset($binding[$key]) && is_scalar($binding[$key]) && '' !== (string) $binding[$key] ) {
+                return (string) $binding[$key];
+            }
+        }
+
+        foreach ( array('guid', 'alias') as $key ) {
+            $id = $this->readGuidId($binding[$key] ?? null);
+            if ( null !== $id ) {
+                return $id;
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizeBoundVariableTargetField(string $targetField): string
+    {
+        $normalized = preg_replace('/(?<!^)[A-Z]/', '_$0', $targetField) ?? $targetField;
+        return strtoupper($normalized);
+    }
+
+    private function cssCustomPropertyName(string $variableId): string
+    {
+        $slug = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $variableId) ?? $variableId);
+        $slug = trim($slug, '-');
+        return '--figma-var-' . ('' !== $slug ? $slug : 'unknown');
     }
 
     /**
@@ -865,11 +1000,11 @@ final class ScenegraphNormalizer
     private function classifyVariableBindingTarget(string $targetField): string
     {
         return match ($targetField) {
-            'TEXT_DATA', 'FONT_FAMILY', 'FONT_STYLE', 'FONT_VARIATIONS', 'FONT_SIZE', 'LETTER_SPACING', 'LINE_HEIGHT', 'PARAGRAPH_SPACING', 'PARAGRAPH_INDENT' => 'text',
-            'STACK_SPACING', 'STACK_COUNTER_SPACING', 'STACK_PADDING_LEFT', 'STACK_PADDING_TOP', 'STACK_PADDING_RIGHT', 'STACK_PADDING_BOTTOM', 'WIDTH', 'HEIGHT', 'MIN_WIDTH', 'MAX_WIDTH', 'MIN_HEIGHT', 'MAX_HEIGHT', 'X_POSITION', 'Y_POSITION', 'ROTATION' => 'layout',
+            'TEXT_DATA', 'CHARACTERS', 'FONT_FAMILY', 'FONT_STYLE', 'FONT_VARIATIONS', 'FONT_SIZE', 'LETTER_SPACING', 'LINE_HEIGHT', 'PARAGRAPH_SPACING', 'PARAGRAPH_INDENT' => 'text',
+            'STACK_SPACING', 'STACK_COUNTER_SPACING', 'STACK_PADDING_LEFT', 'STACK_PADDING_TOP', 'STACK_PADDING_RIGHT', 'STACK_PADDING_BOTTOM', 'ITEM_SPACING', 'COUNTER_AXIS_SPACING', 'PADDING_LEFT', 'PADDING_TOP', 'PADDING_RIGHT', 'PADDING_BOTTOM', 'PADDING_HORIZONTAL', 'PADDING_VERTICAL', 'WIDTH', 'HEIGHT', 'MIN_WIDTH', 'MAX_WIDTH', 'MIN_HEIGHT', 'MAX_HEIGHT', 'X_POSITION', 'Y_POSITION', 'ROTATION' => 'layout',
             'CORNER_RADIUS', 'RECTANGLE_TOP_LEFT_CORNER_RADIUS', 'RECTANGLE_TOP_RIGHT_CORNER_RADIUS', 'RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS', 'RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS' => 'geometry',
             'VISIBLE' => 'visibility',
-            'OPACITY', 'ALL_FILLS', 'FRAME_FILL', 'SHAPE_FILL', 'TEXT_FILL', 'STROKE', 'STROKE_FLOAT', 'COLOR_OPACITY' => 'paint',
+            'OPACITY', 'ALL_FILLS', 'FILLS', 'FRAME_FILL', 'SHAPE_FILL', 'TEXT_FILL', 'STROKES', 'STROKE', 'STROKE_FLOAT', 'COLOR_OPACITY' => 'paint',
             'VARIANT_PROPERTIES', 'OVERRIDDEN_SYMBOL_ID', 'SLOT_CONTENT_ID' => 'component',
             'HYPERLINK' => 'link',
             default => 'unknown',
@@ -3439,7 +3574,11 @@ final class ScenegraphNormalizer
      */
     private function normalizeEffects(array $node, string $nodeId, array &$diagnostics): array
     {
+        $effectStyleId = $this->readGuidId($node['styleIdForEffect'] ?? null);
         if ( ! is_array($node['effects'] ?? null) ) {
+            if ( null !== $effectStyleId ) {
+                $this->appendMissingEffectStyleDiagnostic($diagnostics, $nodeId, $effectStyleId);
+            }
             return array();
         }
 
@@ -3513,6 +3652,34 @@ final class ScenegraphNormalizer
         }
 
         return $effects;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $diagnostics
+     */
+    private function appendMissingEffectStyleDiagnostic(array &$diagnostics, string $nodeId, string $styleId): void
+    {
+        foreach ( $diagnostics as $diagnostic ) {
+            if ( 'figma_missing_effect_style_reference' !== ($diagnostic['code'] ?? null) || ! is_array($diagnostic['context'] ?? null) ) {
+                continue;
+            }
+
+            $context = $diagnostic['context'];
+            if ( $nodeId === ($context['node_id'] ?? null) && $styleId === ($context['style_id'] ?? null) ) {
+                return;
+            }
+        }
+
+        $diagnostics[] = array(
+            'severity' => 'warning',
+            'code'     => 'figma_missing_effect_style_reference',
+            'message'  => 'Figma node references an effect style but the decoded source graph does not include resolvable effect values.',
+            'source'   => 'ScenegraphNormalizer',
+            'context'  => array(
+                'node_id'  => $nodeId,
+                'style_id' => $styleId,
+            ),
+        );
     }
 
     /**
