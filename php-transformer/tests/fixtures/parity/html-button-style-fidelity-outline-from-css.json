@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-button-style-fidelity-outline-from-css",
-  "description": "Outline/ghost CTA button whose styling lives only in page <style> CSS gets native border + text color attributes (style.border.* + style.color.text) and never a background, so it renders as a colored outline instead of a bare default outline.",
+  "description": "Outline/ghost CTA button whose styling lives only in page <style> CSS gets native border, text color, and transparent background attributes so theme defaults do not fill it gray.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-button-style-fidelity-outline-from-css.json",
@@ -17,15 +17,13 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Learn more", "url": "/learn", "className": "btn btn-ghost is-style-outline", "style": { "color": { "text": "#135e96" }, "border": { "width": "2px", "style": "solid", "color": "#135e96", "radius": "8px" }, "spacing": { "padding": { "top": "12px", "right": "24px", "bottom": "12px", "left": "24px" } } } } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Learn more", "url": "/learn", "className": "btn btn-ghost is-style-outline", "style": { "color": { "text": "#135e96", "background": "transparent" }, "border": { "width": "2px", "style": "solid", "color": "#135e96", "radius": "8px" }, "spacing": { "padding": { "top": "12px", "right": "24px", "bottom": "12px", "left": "24px" } } } } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button btn btn-ghost is-style-outline\">" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link has-text-color has-border-color wp-element-button\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"color:#135e96;border-color:#135e96;border-width:2px;border-style:solid;border-radius:8px;padding-top:12px;padding-right:24px;padding-bottom:12px;padding-left:24px\"" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "background-color" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "has-background" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link has-text-color has-background has-border-color wp-element-button\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"color:#135e96;background-color:transparent;border-color:#135e96;border-width:2px;border-style:solid;border-radius:8px;padding-top:12px;padding-right:24px;padding-bottom:12px;padding-left:24px\"" }
   ]
 }

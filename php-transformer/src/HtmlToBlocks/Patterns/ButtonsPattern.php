@@ -179,6 +179,10 @@ final class ButtonsPattern
             $attrs = array_merge($attrs, $native);
         }
 
+        if ( $this->hasOutlineSignal($element, $resolvedStyle) ) {
+            $attrs['style']['color']['background'] = 'transparent';
+        }
+
         return $attrs;
     }
 

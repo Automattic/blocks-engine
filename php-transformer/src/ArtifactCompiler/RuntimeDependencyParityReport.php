@@ -81,6 +81,10 @@ final class RuntimeDependencyParityReport
                     continue;
                 }
 
+                if ( array() === $target && 'telemetry' !== $scriptKind ) {
+                    continue;
+                }
+
                 if ( $this->isFormControlTarget($target) && true !== ( $dependency['control_runtime'] ?? false ) ) {
                     continue;
                 }

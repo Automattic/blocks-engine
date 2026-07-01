@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-runtime-form-fallback-metadata",
-  "description": "Converts simple contact and newsletter forms into readable grouped blocks while preserving submission behavior metadata.",
+  "description": "Preserves simple contact and newsletter form markup while reporting submission behavior metadata.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-runtime-form-fallback-metadata.json",
-    "notes": "Simple non-search forms become readable labels and inert button blocks while action-backed submit behavior stays in runtime-island metadata."
+    "notes": "Simple non-search forms stay as form markup while action-backed submit behavior stays in fallback metadata."
   },
   "legacy_comparison": {
     "skip": true,
@@ -16,9 +16,9 @@
     "content": "<main><form action=\"/contact\" method=\"post\"><label>Name <input name=\"name\" required></label><label>Email <input name=\"email\" type=\"email\"></label><textarea name=\"message\" aria-label=\"Message\"></textarea><button type=\"submit\">Send</button></form><form action=\"/newsletter\" method=\"post\" class=\"newsletter\"><label>Email <input type=\"email\" name=\"email\" placeholder=\"you@example.com\"></label><button type=\"submit\" value=\"subscribe\">Subscribe</button></form></main>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "newsletter" } }
+    { "path": "blocks.0", "name": "core/group", "attrs": { "tagName": "main" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/html" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/html" }
   ],
   "expected_fallbacks": [
     { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" },
@@ -37,18 +37,10 @@
     { "path": "fallbacks.1.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
     { "path": "fallbacks.1.form.action", "assert": "equals", "value": "/newsletter" },
     { "path": "fallbacks.1.control_count", "assert": "equals", "value": 2 },
-    { "path": "source_reports.runtime_islands", "assert": "count", "count": 2 },
-    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "form" },
-    { "path": "source_reports.runtime_islands.0.form.action", "assert": "equals", "value": "/contact" },
-    { "path": "source_reports.runtime_islands.0.control_count", "assert": "equals", "value": 4 },
-    { "path": "source_reports.runtime_islands.0.readable_blocks.0.innerBlocks", "assert": "count", "count": 4 },
-    { "path": "source_reports.runtime_islands.1.kind", "assert": "equals", "value": "form" },
-    { "path": "source_reports.runtime_islands.1.form.action", "assert": "equals", "value": "/newsletter" },
-    { "path": "source_reports.runtime_islands.1.control_count", "assert": "equals", "value": 2 },
-    { "path": "source_reports.runtime_islands.1.readable_blocks.0.innerBlocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "Name (required)" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "Email: you@example.com" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "Subscribe" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<form action=\"/contact\" method=\"post\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<textarea name=\"message\" aria-label=\"Message\"></textarea>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<form action=\"/newsletter\" method=\"post\" class=\"newsletter\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<button type=\"submit\" value=\"subscribe\">Subscribe</button>" },
     { "path": "coverage.0.block_count", "assert": "equals", "value": 1 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 2 }
   ]

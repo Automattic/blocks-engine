@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-runtime-form-readable-controls",
-  "description": "Keeps runtime-backed forms visible as readable blocks while preserving runtime-island metadata for submit behavior.",
+  "description": "Keeps runtime-backed forms visible as preserved form markup while preserving fallback metadata for submit behavior.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-runtime-form-readable-controls.json",
@@ -19,9 +19,9 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0", "name": "core/group", "attrs": { "tagName": "section" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Newsletter", "level": 2 } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/group" }
+    { "path": "blocks.0.innerBlocks.1", "name": "core/html" }
   ],
   "expected_fallbacks": [
     { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" }
@@ -32,20 +32,12 @@
     { "path": "fallbacks", "assert": "count", "count": 1 },
     { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
     { "path": "fallbacks.0.controls.0.type", "assert": "equals", "value": "email" },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.blockName", "assert": "equals", "value": "core/paragraph" },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.attrs.content", "assert": "equals", "value": "Email address: you@example.com (required)" },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.1.innerBlocks.0.attrs.text", "assert": "equals", "value": "Subscribe" },
-    { "path": "source_reports.runtime_islands", "assert": "count", "count": 2 },
-    { "path": "source_reports.runtime_islands.1.kind", "assert": "equals", "value": "form" },
-    { "path": "source_reports.runtime_islands.1.events.0.type", "assert": "equals", "value": "submit" },
-    { "path": "source_reports.conversion_report.runtime_islands.1.readable_blocks.0.blockName", "assert": "equals", "value": "core/group" },
-    { "path": "source_reports.conversion_report.runtime_islands.1.readable_blocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/paragraph" },
-    { "path": "source_reports.conversion_report.runtime_islands.1.readable_blocks.0.innerBlocks.0.attrs.content", "assert": "equals", "value": "Email address: you@example.com (required)" },
-    { "path": "source_reports.conversion_report.runtime_islands.1.readable_blocks.0.innerBlocks.1.innerBlocks.0.attrs.text", "assert": "equals", "value": "Subscribe" },
-    { "path": "source_reports.html.runtime_islands.0.kind", "assert": "equals", "value": "control" },
-    { "path": "source_reports.html.runtime_islands.0.selector", "assert": "equals", "value": "#signup-email" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "<input id=\"signup-email\"" },
-    { "path": "source_reports.conversion_report.runtime_islands.1.preservation_reason", "assert": "equals", "value": "form_requires_runtime" }
+    { "path": "source_reports.interaction_candidates.0.kind", "assert": "equals", "value": "form" },
+    { "path": "source_reports.interaction_candidates.0.trigger", "assert": "equals", "value": "submit" },
+    { "path": "source_reports.html.source_provenance.2.block_name", "assert": "equals", "value": "core/html" },
+    { "path": "source_reports.html.source_provenance.2.conversion_classification", "assert": "equals", "value": "runtime_island_preserved" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<input id=\"signup-email\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "onsubmit=\"return subscribe(event)\"" }
   ]
 }

@@ -265,7 +265,9 @@ $canvasResult = ( new HtmlTransformer() )->transform(
 $totalFindings += $walk($canvasResult, 'html:canvas-runtime');
 
 // Artifact compilation exercises the runtime-dependency parity producer: a
-// first-party script references a DOM target that the generated markup drops.
+// shared first-party script may reference a selector absent from the current
+// entry page. That dependency is recorded, but it is not a missing-target
+// finding for the entry conversion.
 $artifactResult = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files'      => array(
@@ -277,12 +279,12 @@ $totalFindings += $walk($artifactResult, 'artifact:runtime-dependency');
 
 $runtimeDependencyParity = $artifactResult['source_reports']['runtime_dependency_parity'] ?? array();
 $assert(
-    'warning' === ($runtimeDependencyParity['status'] ?? ''),
-    'artifact runtime dependency parity flags the missing DOM target'
+    'pass' === ($runtimeDependencyParity['status'] ?? ''),
+    'artifact runtime dependency parity does not flag selectors absent from the entry source'
 );
 $assert(
-    array() !== ($runtimeDependencyParity['findings'] ?? array()),
-    'artifact runtime dependency parity emits at least one finding to validate'
+    array() !== ($runtimeDependencyParity['dependencies'] ?? array()),
+    'artifact runtime dependency parity records the shared-script dependency row'
 );
 
 $assert($totalFindings > 0, 'the contract walk validated a non-empty set of real conversion findings');

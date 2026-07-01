@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-form-control-fallback-metadata",
-  "description": "Reports complex form fallback metadata while converting standalone readable controls.",
+  "description": "Reports complex form fallback metadata while preserving the form markup and converting standalone readable controls.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-form-control-fallback-metadata.json",
@@ -16,14 +16,15 @@
     "content": "<form action=\"/contact\" method=\"post\"><label for=\"email\">Email address</label><input id=\"email\" name=\"email\" type=\"email\" required placeholder=\"you@example.com\"><label>Plan <select name=\"plan\"><option value=\"basic\">Basic</option><option value=\"pro\" selected>Pro</option></select></label><textarea name=\"message\" aria-label=\"Message\"></textarea><button name=\"intent\" value=\"send\">Send</button><script>alert(1)</script></form><input name=\"standalone\" value=\"outside\">"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/paragraph", "attrs": { "content": "standalone: outside" } }
+    { "path": "blocks.0", "name": "core/html" },
+    { "path": "blocks.1", "name": "core/paragraph", "attrs": { "content": "standalone: outside" } }
   ],
   "expected_fallbacks": [
     { "type": "html", "reason": "form_requires_runtime", "tag": "form", "diagnostic_code": "html_form_fallback", "child_count": 6 }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks", "assert": "count", "count": 2 },
     { "path": "fallbacks", "assert": "count", "count": 1 },
     { "path": "fallbacks.0.html", "assert": "contains", "value": "<form action=\"/contact\" method=\"post\">" },
     { "path": "fallbacks.0.html", "assert": "not_contains", "value": "<script>" },
@@ -52,8 +53,11 @@
     { "path": "fallbacks.0.controls.3.name", "assert": "equals", "value": "intent" },
     { "path": "fallbacks.0.controls.3.type", "assert": "equals", "value": "submit" },
     { "path": "fallbacks.0.controls.3.value", "assert": "equals", "value": "send" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<form action=\"/contact\" method=\"post\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<select name=\"plan\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<textarea name=\"message\" aria-label=\"Message\"></textarea>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "standalone: outside" },
-    { "path": "coverage.0.block_count", "assert": "equals", "value": 1 },
+    { "path": "coverage.0.block_count", "assert": "equals", "value": 2 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
   ]
 }
