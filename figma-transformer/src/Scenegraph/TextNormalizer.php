@@ -918,15 +918,22 @@ final class TextNormalizer
     private function normalizeCharacterStyleOverrideSegments(array $node, array $paintStyles = array()): array
     {
         $textData = is_array($node['textData'] ?? null) ? $node['textData'] : array();
+        $derivedTextData = is_array($node['derivedTextData'] ?? null) ? $node['derivedTextData'] : array();
 
         $overrides = is_array($node['characterStyleOverrides'] ?? null) ? array_values($node['characterStyleOverrides']) : array();
         if ( empty($overrides) && is_array($textData['characterStyleIDs'] ?? null) ) {
             $overrides = array_values($textData['characterStyleIDs']);
         }
+        if ( empty($overrides) && is_array($derivedTextData['characterStyleIDs'] ?? null) ) {
+            $overrides = array_values($derivedTextData['characterStyleIDs']);
+        }
 
         $overrideTable = is_array($node['styleOverrideTable'] ?? null) ? $node['styleOverrideTable'] : array();
         if ( empty($overrideTable) && is_array($textData['styleOverrideTable'] ?? null) ) {
             $overrideTable = $this->indexKiwiStyleOverrideTable($textData['styleOverrideTable']);
+        }
+        if ( empty($overrideTable) && is_array($derivedTextData['styleOverrideTable'] ?? null) ) {
+            $overrideTable = $this->indexKiwiStyleOverrideTable($derivedTextData['styleOverrideTable']);
         }
 
         if ( empty($overrides) || empty($overrideTable) ) {
@@ -953,6 +960,9 @@ final class TextNormalizer
         }
         if ( '' === $characters && isset($textData['characters']) && is_scalar($textData['characters']) ) {
             $characters = (string) $textData['characters'];
+        }
+        if ( '' === $characters && isset($derivedTextData['characters']) && is_scalar($derivedTextData['characters']) ) {
+            $characters = (string) $derivedTextData['characters'];
         }
         if ( '' === $characters ) {
             return array();
@@ -1034,6 +1044,8 @@ final class TextNormalizer
                         }
                     }
 
+                    $this->applyExplicitOriginalTextCaseOverride($rawOverride, $baseStyle, $overrideStyle);
+
                     $delta = array();
                     foreach ( $overrideStyle as $key => $value ) {
                         if ( ! array_key_exists($key, $baseStyle) || $baseStyle[$key] !== $value ) {
@@ -1051,6 +1063,29 @@ final class TextNormalizer
         }
 
         return $segments;
+    }
+
+    /**
+     * @param array<string, mixed> $rawOverride
+     * @param array<string, mixed> $baseStyle
+     * @param array<string, mixed> $overrideStyle
+     */
+    private function applyExplicitOriginalTextCaseOverride(array $rawOverride, array $baseStyle, array &$overrideStyle): void
+    {
+        if ( ! isset($rawOverride['textCase']) || ! is_scalar($rawOverride['textCase']) ) {
+            return;
+        }
+
+        if ( 'ORIGINAL' !== strtoupper((string) $rawOverride['textCase']) ) {
+            return;
+        }
+
+        if ( isset($baseStyle['text_transform']) ) {
+            $overrideStyle['text_transform'] = 'none';
+        }
+        if ( isset($baseStyle['font_variant']) ) {
+            $overrideStyle['font_variant'] = 'normal';
+        }
     }
 
     /**

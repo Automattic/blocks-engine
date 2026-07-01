@@ -5174,14 +5174,14 @@ final class StaticHtmlEmitter
 
         if ( isset($style['text_transform']) && is_scalar($style['text_transform']) ) {
             $transform = strtolower((string) $style['text_transform']);
-            if ( in_array($transform, array('uppercase', 'lowercase', 'capitalize'), true) ) {
+            if ( in_array($transform, array('uppercase', 'lowercase', 'capitalize', 'none'), true) ) {
                 $styles[] = 'text-transform:' . $transform;
             }
         }
 
         if ( isset($style['font_variant']) && is_scalar($style['font_variant']) ) {
             $variant = strtolower((string) $style['font_variant']);
-            if ( 'small-caps' === $variant ) {
+            if ( in_array($variant, array('small-caps', 'normal'), true) ) {
                 $styles[] = 'font-variant:' . $variant;
             }
         }

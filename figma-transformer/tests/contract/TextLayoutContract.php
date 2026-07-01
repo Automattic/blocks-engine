@@ -1285,6 +1285,127 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     // Kiwi mixed-weight: only "Bold" differs in font-weight — derived from the override
     // entry's bold `fontName` — and " plain text" stays unwrapped.
     $assert(str_contains($kiwiInlineTextStyleHtml, '<span style="font-weight:700">Bold</span> plain text'), 'kiwi-inline-style-mixed-weight-spans');
+
+    // Kiwi derived rich text spans: production .fig payloads can put the character
+    // range IDs and NodeChange-shaped override table under `derivedTextData` while
+    // the root text node still carries stale uppercase/heading-sized styling from a
+    // component instance. The range overrides are authoritative for the rich text:
+    // each repeated item starts with a bold lead statement and then returns to normal
+    // sentence case/size. Repeated sibling item frames should still emit as a
+    // semantic unordered list.
+    $kiwiDerivedRichTextResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Kiwi Derived Rich Text List Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'krt:1',
+                'type'     => 'FRAME',
+                'name'     => 'What sets us apart',
+                'width'    => 1200,
+                'height'   => 600,
+                'children' => array(
+                    array(
+                        'id'       => 'krt:list',
+                        'type'     => 'FRAME',
+                        'name'     => 'Apart list',
+                        'width'    => 720,
+                        'height'   => 240,
+                        'children' => array(
+                            array(
+                                'id'       => 'krt:item-1',
+                                'type'     => 'FRAME',
+                                'name'     => 'List item 1',
+                                'width'    => 720,
+                                'height'   => 56,
+                                'children' => array(
+                                    array(
+                                        'id'              => 'krt:text-1',
+                                        'type'            => 'TEXT',
+                                        'name'            => 'Movement item',
+                                        'fontName'        => array('family' => 'Inter', 'style' => 'Bold'),
+                                        'fontSize'        => 32,
+                                        'textCase'        => 'UPPER',
+                                        'textData'        => array('characters' => 'Movement made gentle: Tips fit your day.'),
+                                        'derivedTextData' => array(
+                                            'characterStyleIDs' => array_merge(array_fill(0, 21, 1), array_fill(0, 19, 2)),
+                                            'styleOverrideTable' => array(
+                                                array(
+                                                    'styleID'  => 1,
+                                                    'fontName' => array('family' => 'Inter', 'style' => 'Bold'),
+                                                    'fontSize' => 16,
+                                                    'textCase' => 'ORIGINAL',
+                                                ),
+                                                array(
+                                                    'styleID'  => 2,
+                                                    'fontName' => array('family' => 'Inter', 'style' => 'Regular'),
+                                                    'fontSize' => 16,
+                                                    'textCase' => 'ORIGINAL',
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            array(
+                                'id'       => 'krt:item-2',
+                                'type'     => 'FRAME',
+                                'name'     => 'List item 2',
+                                'width'    => 720,
+                                'height'   => 56,
+                                'children' => array(
+                                    array(
+                                        'id'              => 'krt:text-2',
+                                        'type'            => 'TEXT',
+                                        'name'            => 'Recovery item',
+                                        'fontName'        => array('family' => 'Inter', 'style' => 'Bold'),
+                                        'fontSize'        => 32,
+                                        'textCase'        => 'UPPER',
+                                        'textData'        => array('characters' => 'Recovery that lasts: Build steady habits.'),
+                                        'derivedTextData' => array(
+                                            'characterStyleIDs' => array_merge(array_fill(0, 20, 1), array_fill(0, 21, 2)),
+                                            'styleOverrideTable' => array(
+                                                array('styleID' => 1, 'fontName' => array('family' => 'Inter', 'style' => 'Bold'), 'fontSize' => 16, 'textCase' => 'ORIGINAL'),
+                                                array('styleID' => 2, 'fontName' => array('family' => 'Inter', 'style' => 'Regular'), 'fontSize' => 16, 'textCase' => 'ORIGINAL'),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            array(
+                                'id'       => 'krt:item-3',
+                                'type'     => 'FRAME',
+                                'name'     => 'List item 3',
+                                'width'    => 720,
+                                'height'   => 56,
+                                'children' => array(
+                                    array(
+                                        'id'              => 'krt:text-3',
+                                        'type'            => 'TEXT',
+                                        'name'            => 'Support item',
+                                        'fontName'        => array('family' => 'Inter', 'style' => 'Bold'),
+                                        'fontSize'        => 32,
+                                        'textCase'        => 'UPPER',
+                                        'textData'        => array('characters' => 'Support between visits: Keep moving safely.'),
+                                        'derivedTextData' => array(
+                                            'characterStyleIDs' => array_merge(array_fill(0, 24, 1), array_fill(0, 20, 2)),
+                                            'styleOverrideTable' => array(
+                                                array('styleID' => 1, 'fontName' => array('family' => 'Inter', 'style' => 'Bold'), 'fontSize' => 16, 'textCase' => 'ORIGINAL'),
+                                                array('styleID' => 2, 'fontName' => array('family' => 'Inter', 'style' => 'Regular'), 'fontSize' => 16, 'textCase' => 'ORIGINAL'),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $kiwiDerivedRichTextHtml = $fileContent($kiwiDerivedRichTextResult, 'index.html');
+    $assert(str_contains($kiwiDerivedRichTextHtml, '<ul'), 'kiwi-derived-rich-text-list-container');
+    $assert(3 === substr_count($kiwiDerivedRichTextHtml, '<li '), 'kiwi-derived-rich-text-list-items');
+    $assert(str_contains($kiwiDerivedRichTextHtml, '<span style="font-size:16px;text-transform:none">Movement made gentle:</span><span style="font-size:16px;font-weight:400;text-transform:none"> Tips fit your day.</span>'), 'kiwi-derived-rich-text-bold-lead-and-normal-tip');
+    $assert(! str_contains($kiwiDerivedRichTextHtml, 'MOVEMENT MADE GENTLE'), 'kiwi-derived-rich-text-no-baked-uppercase');
     
     // Kiwi text style references: production .fig payloads can carry stale inline
     // `fontName` data on a text node while `styleIdForText` points at the canonical
