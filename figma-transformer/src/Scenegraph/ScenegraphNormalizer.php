@@ -444,6 +444,11 @@ final class ScenegraphNormalizer
             $node['figma_vector_paths'] = $vectorPaths;
         }
 
+        $vectorScale = $this->vectorGeometryNormalizer->normalizedVectorScale($node);
+        if ( null !== $vectorScale ) {
+            $node['figma_vector_scale'] = $vectorScale;
+        }
+
         $box = $this->normalizeVisualBox($node);
         if ( ! empty($box) ) {
             $node['figma_box'] = $box;

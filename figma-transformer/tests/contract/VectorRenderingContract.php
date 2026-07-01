@@ -78,7 +78,66 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $strokedInlineVectorCss = $fileContent($strokedInlineVectorResult, 'style.css');
     $assert(str_contains($strokedInlineVectorHtml, 'stroke="#1f1f1f"') && str_contains($strokedInlineVectorHtml, 'stroke-width="2"'), 'stroked-inline-vector-svg-carries-stroke');
     $assert(! str_contains($strokedInlineVectorCss, 'border:2px solid #1f1f1f'), 'stroked-inline-vector-wrapper-no-css-border');
-    
+
+    $strokedGeometryStyleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Stroked Geometry Style Fixture',
+        'nodes' => array(
+            array(
+                'id'             => 'vector:stroke-geometry-style',
+                'type'           => 'VECTOR',
+                'name'           => 'Stroked Geometry Style',
+                'width'          => 16,
+                'height'         => 16,
+                'strokeWeight'   => 3,
+                'strokeCap'      => 'ROUND',
+                'strokeJoin'     => 'BEVEL',
+                'dashPattern'    => array(4, 2),
+                'strokePaints'   => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                'strokeGeometry' => array(array('path' => 'M 1 1 L 15 15', 'styleID' => 42)),
+            ),
+        ),
+    ));
+    $strokedGeometryStyleHtml = $fileContent($strokedGeometryStyleResult, 'index.html');
+    $assert(str_contains($strokedGeometryStyleHtml, 'stroke-linecap="round"') && str_contains($strokedGeometryStyleHtml, 'stroke-linejoin="bevel"'), 'stroke-geometry-cap-join-render');
+    $assert(str_contains($strokedGeometryStyleHtml, 'stroke-dasharray="4 2"'), 'stroke-geometry-dash-render');
+    $assert(str_contains($strokedGeometryStyleHtml, 'data-figma-style-id="42"'), 'vector-path-style-id-carry-through');
+
+    $vectorNetworkObjectResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Vector Network Object Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'vector:network-object',
+                'type'       => 'VECTOR',
+                'name'       => 'Network Object',
+                'width'      => 20,
+                'height'     => 20,
+                'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                'vectorData' => array(
+                    'normalizedSize' => array('x' => 10, 'y' => 10),
+                    'vectorNetwork'  => array(
+                        'vertices' => array(
+                            array('x' => 0, 'y' => 0),
+                            array('x' => 10, 'y' => 0),
+                            array('x' => 10, 'y' => 10),
+                            array('x' => 0, 'y' => 10),
+                        ),
+                        'segments' => array(
+                            array('start' => 0, 'end' => 1),
+                            array('start' => 1, 'end' => 2),
+                            array('start' => 2, 'end' => 3),
+                            array('start' => 3, 'end' => 0),
+                        ),
+                        'regions' => array(array('segments' => array(0, 1, 2, 3), 'windingRule' => 'EVENODD')),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $vectorNetworkObjectHtml = $fileContent($vectorNetworkObjectResult, 'index.html');
+    $assert(str_contains($vectorNetworkObjectHtml, 'data-figma-node-id="vector:network-object"') && str_contains($vectorNetworkObjectHtml, 'data-figma-vector="true"'), 'vector-network-object-renders');
+    $assert(str_contains($vectorNetworkObjectHtml, '<g transform="scale(2 2)"><path d="M0 0L10 0 10 10 0 10 0 0Z"'), 'vector-network-normalized-size-scales-path');
+    $assert(str_contains($vectorNetworkObjectHtml, 'fill-rule="evenodd"'), 'vector-network-region-winding-rule-renders');
+     
     $largeDecodedPath = 'M 0 0' . str_repeat(' L 10 10', 3000) . ' Z';
     $largeDecodedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Large Decoded Vector Fixture',
