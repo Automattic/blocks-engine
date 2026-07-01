@@ -238,6 +238,98 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert('4212:3087' === ($stickyGhostSourceMismatchLayout['sticky_ghosts']['candidates'][0]['primary_id'] ?? null), 'sticky-ghost-source-mismatch-diagnostic-primary');
     $assert('4210:12595' === ($stickyGhostSourceMismatchLayout['sticky_ghosts']['candidates'][0]['ghost_id'] ?? null), 'sticky-ghost-source-mismatch-diagnostic-ghost');
 
+    $stickyGhostMultiPageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Sticky Ghost Multi Page Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'sticky-multi:canvas',
+                'type'     => 'CANVAS',
+                'name'     => 'Site',
+                'children' => array(
+                    array(
+                        'id'       => 'sticky-multi:home',
+                        'type'     => 'FRAME',
+                        'name'     => 'Home',
+                        'width'    => 1440,
+                        'height'   => 900,
+                        'children' => array(
+                            array('id' => 'sticky-multi:home-title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Home', 'width' => 180, 'height' => 48, 'fontSize' => 36),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'sticky-multi:section',
+                        'type'     => 'SECTION',
+                        'name'     => 'Blog Post Section',
+                        'children' => array(
+                            array(
+                                'id'       => 'sticky-multi:blog-desktop',
+                                'type'     => 'FRAME',
+                                'name'     => 'Blog Post Desktop',
+                                'width'    => 1440,
+                                'height'   => 4800,
+                                'children' => array(
+                                    array(
+                                        'id'         => '4194:2157',
+                                        'type'       => 'FRAME',
+                                        'name'       => 'Frame 51076550',
+                                        'width'      => 1216,
+                                        'height'     => 4163.5,
+                                        'layoutMode' => 'HORIZONTAL',
+                                        'itemSpacing' => 105,
+                                        'children'   => array(
+                                            array('id' => '4212:3087', 'figma_component_source_id' => '4212:3087', 'type' => 'INSTANCE', 'name' => 'Table of Contents', 'width' => 315, 'height' => 510, 'children' => array(
+                                                array('id' => '4212:3087/4198:8360', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Table of Contents', 'width' => 180, 'height' => 24, 'fontSize' => 18),
+                                                array('id' => '4212:3087/4188:11209', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Unboxing Experience', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                                array('id' => '4212:3087/4188:11211', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Build Process', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                                array('id' => '4212:3087/4188:11213', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Step-By-Step Construction', 'width' => 240, 'height' => 24, 'fontSize' => 16),
+                                                array('id' => '4212:3087/4188:11220', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Conclusion', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                            )),
+                                            array('id' => 'sticky-multi:article', 'type' => 'FRAME', 'name' => 'Article body', 'width' => 796, 'height' => 3000, 'children' => array(
+                                                array('id' => 'sticky-multi:title', 'type' => 'TEXT', 'name' => 'Article title', 'characters' => 'Long article', 'width' => 420, 'height' => 56, 'fontSize' => 42),
+                                            )),
+                                            array('id' => '4210:12595', 'figma_component_source_id' => '4210:12595', 'type' => 'INSTANCE', 'name' => 'Table of Contents', 'x' => 0, 'y' => 3654, 'width' => 315, 'height' => 510, 'layoutPositioning' => 'ABSOLUTE', 'constraints' => array('horizontal' => 'LEFT', 'vertical' => 'BOTTOM'), 'opacity' => 0.1, 'children' => array(
+                                                array('id' => '4210:12595/4198:8360', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Table of Contents', 'width' => 180, 'height' => 24, 'fontSize' => 18),
+                                                array('id' => '4210:12595/4188:11209', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Unboxing Experience', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                                array('id' => '4210:12595/4188:11211', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Build Process', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                                array('id' => '4210:12595/4188:11213', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Step-By-Step Construction', 'width' => 240, 'height' => 24, 'fontSize' => 16),
+                                                array('id' => '4210:12595/4188:11220', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Conclusion', 'width' => 240, 'height' => 28, 'fontSize' => 20),
+                                            )),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            array(
+                                'id'       => 'sticky-multi:blog-mobile',
+                                'type'     => 'FRAME',
+                                'name'     => 'Blog Post Mobile',
+                                'width'    => 390,
+                                'height'   => 4200,
+                                'children' => array(
+                                    array('id' => 'sticky-multi:mobile-title', 'type' => 'TEXT', 'name' => 'Article title', 'characters' => 'Long article', 'width' => 320, 'height' => 44, 'fontSize' => 32),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ), array(
+        'multi_page'     => true,
+        'frame_ids'      => array('sticky-multi:home', 'sticky-multi:blog-desktop', 'sticky-multi:blog-mobile'),
+        'entry_frame_id' => 'sticky-multi:home',
+    ));
+    $stickyGhostMultiPageHtml = $fileContent($stickyGhostMultiPageResult, 'blog-post.html');
+    $stickyGhostMultiPageCss = $fileContent($stickyGhostMultiPageResult, 'style.css');
+    $stickyGhostMultiPageLayout = $stickyGhostMultiPageResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
+    $assert('' !== $stickyGhostMultiPageHtml, 'sticky-ghost-multi-page-blog-post-emitted');
+    $assert(str_contains($stickyGhostMultiPageHtml, 'data-figma-node-id="4212:3087"'), 'sticky-ghost-multi-page-primary-emitted');
+    $assert(! str_contains($stickyGhostMultiPageHtml, 'data-figma-node-id="4210:12595"'), 'sticky-ghost-multi-page-ghost-absent-from-final-html');
+    $assert(str_contains($stickyGhostMultiPageCss, '.figma-node-4212-3087-table-of-contents{') && str_contains($stickyGhostMultiPageCss, 'position:sticky;top:0;align-self:flex-start'), 'sticky-ghost-multi-page-primary-sticky-in-final-css');
+    $assert(! str_contains($stickyGhostMultiPageCss, '.figma-node-4210-12595-table-of-contents'), 'sticky-ghost-multi-page-ghost-absent-from-final-css');
+    $assert(1 === ($stickyGhostMultiPageLayout['sticky_ghosts']['count'] ?? null), 'sticky-ghost-multi-page-diagnostic-count');
+    $assert('4212:3087' === ($stickyGhostMultiPageLayout['sticky_ghosts']['candidates'][0]['primary_id'] ?? null), 'sticky-ghost-multi-page-diagnostic-primary');
+    $assert('4210:12595' === ($stickyGhostMultiPageLayout['sticky_ghosts']['candidates'][0]['ghost_id'] ?? null), 'sticky-ghost-multi-page-diagnostic-ghost');
+
     $repeatedCardsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Repeated Cards Fixture',
         'nodes' => array(

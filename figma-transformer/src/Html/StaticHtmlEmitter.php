@@ -301,6 +301,9 @@ final class StaticHtmlEmitter
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
         $this->nodeReadableNames = array();
+        $this->stickyGhostNodeIds = array();
+        $this->stickyPrimaryNodeIds = array();
+        $this->stickyGhostCandidates = array();
         $this->linkTargetPaths = $this->linkTargetPathsFromPagePlan($pagePlan, $options);
         $this->linkCoverage = $this->newLinkCoverage();
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
@@ -331,6 +334,31 @@ final class StaticHtmlEmitter
         $seenPaths = array();
         $mediaBlocks = array();
         $plannedPages = $this->plannedPages($pagePlan);
+
+        $stickyDetectionRoots = array();
+        foreach ( $plannedPages as $page ) {
+            if ( ! is_array($page) ) {
+                continue;
+            }
+
+            $frameIds = array();
+            $frameId = isset($page['frame_id']) && is_scalar($page['frame_id']) ? (string) $page['frame_id'] : '';
+            if ( '' !== $frameId ) {
+                $frameIds[] = $frameId;
+            }
+            foreach ( is_array($page['variants'] ?? null) ? $page['variants'] : array() as $variant ) {
+                if ( is_array($variant) && isset($variant['frame_id']) && is_scalar($variant['frame_id']) ) {
+                    $frameIds[] = (string) $variant['frame_id'];
+                }
+            }
+
+            foreach ( array_values(array_unique($frameIds)) as $candidateFrameId ) {
+                if ( isset($nodeMap[$candidateFrameId]) && is_array($nodeMap[$candidateFrameId]) ) {
+                    $stickyDetectionRoots[] = $nodeMap[$candidateFrameId];
+                }
+            }
+        }
+        $this->detectStickyGhostCandidates($stickyDetectionRoots);
 
         foreach ( $plannedPages as $index => $page ) {
             if ( ! is_array($page) ) {
@@ -588,14 +616,19 @@ final class StaticHtmlEmitter
      */
     private function collectVariantNodeStyles(array $node, int $depth, ?array $parentNode, string $pathKey, array &$map): void
     {
+        if ( $this->isSuppressedStickyGhost($node) ) {
+            return;
+        }
+
         $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
         $name = (string) ($node['name'] ?? '');
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
+        $styles = $this->stickyAwareStyleDeclarations($node, $type, $parentNode);
 
         $map[$pathKey] = array(
             'class'  => $className,
-            'styles' => $this->styleDeclarations($node, $type, $parentNode),
+            'styles' => $styles,
         );
 
         $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
@@ -605,7 +638,7 @@ final class StaticHtmlEmitter
 
         $childOrdinal = 0;
         foreach ( $this->nodeList($node) as $child ) {
-            if ( ! is_array($child) || $this->isFullyClippedDecorativeChild($child, $node) ) {
+            if ( ! is_array($child) || $this->isSuppressedStickyGhost($child) || $this->isFullyClippedDecorativeChild($child, $node) ) {
                 continue;
             }
 
@@ -751,15 +784,7 @@ final class StaticHtmlEmitter
         }
 
         $styles = $this->styleDeclarations($node, $type, $parentNode);
-        if ( $this->isStickyPrimary($node) ) {
-            $styles = array_values(array_filter(
-                $styles,
-                static fn (string $style): bool => ! str_starts_with($style, 'position:') && ! str_starts_with($style, 'top:')
-            ));
-            $styles[] = 'position:sticky';
-            $styles[] = 'top:0';
-            $styles[] = 'align-self:flex-start';
-        }
+        $styles = $this->stickyAwareStyleDeclarations($node, $type, $parentNode, $styles);
         if ( ! empty($styles) ) {
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
             $this->nodeReadableNames[$className] = $this->sharedClassBaseName($name, $type);
@@ -3568,6 +3593,30 @@ final class StaticHtmlEmitter
     {
         $id = (string) ($node['id'] ?? '');
         return '' !== $id && isset($this->stickyPrimaryNodeIds[$id]);
+    }
+
+    /**
+     * @param array<string, mixed>      $node
+     * @param array<int, string>|null   $styles
+     * @param array<string, mixed>|null $parentNode
+     * @return array<int, string>
+     */
+    private function stickyAwareStyleDeclarations(array $node, string $type, ?array $parentNode, ?array $styles = null): array
+    {
+        $styles = $styles ?? $this->styleDeclarations($node, $type, $parentNode);
+        if ( ! $this->isStickyPrimary($node) ) {
+            return $styles;
+        }
+
+        $styles = array_values(array_filter(
+            $styles,
+            static fn (string $style): bool => ! str_starts_with($style, 'position:') && ! str_starts_with($style, 'top:')
+        ));
+        $styles[] = 'position:sticky';
+        $styles[] = 'top:0';
+        $styles[] = 'align-self:flex-start';
+
+        return $styles;
     }
 
     /**

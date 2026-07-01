@@ -441,7 +441,7 @@ final class LayoutIntentClassifier
         $type = strtoupper((string) ($node['type'] ?? ''));
         $children = $this->nodeList($node);
         if ( empty($children) ) {
-            return in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON', 'RECTANGLE'), true);
+            return in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON', 'RECTANGLE', 'ROUNDED_RECTANGLE'), true);
         }
 
         if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'BOOLEAN_OPERATION'), true) ) {
@@ -516,7 +516,7 @@ final class LayoutIntentClassifier
     private function nodeAssetReferences(array $node): array
     {
         $references = array();
-        foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref', 'id', 'name') as $key ) {
+        foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref') as $key ) {
             if ( isset($node[$key]) && is_scalar($node[$key]) ) {
                 $references[] = (string) $node[$key];
             }

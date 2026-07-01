@@ -477,6 +477,67 @@ $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-logo-logo{wi
 $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-links-frame-29{width:265px;height:26px;position:relative;z-index:1;display:flex;flex-direction:row;flex-shrink:0}'), 'fse-footer-link-row-stacks-above-underlay');
 $assert(1 === ($fseFooterUnderlays['count'] ?? null), 'fse-footer-underlay-diagnostic-count');
 
+$multiPageFseFooterUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'   => 'Multi Page FSE Footer Underlay Fixture',
+    'assets' => array(
+        array(
+            'id'        => 'asset:rectangle-name-collision',
+            'name'      => 'Rectangle 3',
+            'content'   => 'asset-content',
+            'mime_type' => 'image/png',
+        ),
+    ),
+    'nodes'  => array(
+        array(
+            'id'       => 'multi-fse:canvas',
+            'type'     => 'CANVAS',
+            'name'     => 'Site',
+            'children' => array(
+                array(
+                    'id'       => 'multi-fse:home',
+                    'type'     => 'FRAME',
+                    'name'     => 'Home Desktop',
+                    'width'    => 1440,
+                    'height'   => 600,
+                    'children' => array(
+                        array(
+                            'id'                    => 'multi-fse:row',
+                            'type'                  => 'FRAME',
+                            'name'                  => 'Frame 19',
+                            'absoluteBoundingBox'   => array('x' => 0, 'y' => 352, 'width' => 1440, 'height' => 131),
+                            'layoutMode'            => 'HORIZONTAL',
+                            'primaryAxisAlignItems' => 'SPACE_BETWEEN',
+                            'counterAxisAlignItems' => 'CENTER',
+                            'paddingTop'            => 48,
+                            'paddingRight'          => 112,
+                            'paddingBottom'         => 48,
+                            'paddingLeft'           => 112,
+                            'children'              => array(
+                                array(
+                                    'id'                  => 'multi-fse:bg',
+                                    'type'                => 'RECTANGLE',
+                                    'name'                => 'Rectangle 3',
+                                    'absoluteBoundingBox' => array('x' => 0, 'y' => 288, 'width' => 1440, 'height' => 195),
+                                    'layoutPositioning'   => 'ABSOLUTE',
+                                    'constraints'         => array('horizontal' => 'LEFT', 'vertical' => 'TOP_BOTTOM'),
+                                    'fill'                => array('r' => 0.85, 'g' => 0.85, 'b' => 0.85),
+                                ),
+                                array('id' => 'multi-fse:logo', 'type' => 'VECTOR', 'name' => 'Logo', 'width' => 228, 'height' => 35, 'fillGeometry' => array(array('commandsBlob' => 0))),
+                                array('id' => 'multi-fse:about', 'type' => 'TEXT', 'name' => 'Footer text', 'text' => 'About', 'fontSize' => 16),
+                                array('id' => 'multi-fse:powered', 'type' => 'TEXT', 'name' => 'Footer text', 'text' => 'Proudly powered by WordPress.com', 'fontSize' => 16),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+), array('multi_page' => true, 'frame_ids' => array('multi-fse:home'), 'entry_frame_id' => 'multi-fse:home'));
+$multiPageFseFooterUnderlayCss = $fileContent($multiPageFseFooterUnderlayResult, 'style.css');
+$multiPageFseFooterUnderlays = $multiPageFseFooterUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
+$assert(str_contains($multiPageFseFooterUnderlayCss, '.figma-node-multi-fse-bg-rectangle-3{') && str_contains($multiPageFseFooterUnderlayCss, 'z-index:0;pointer-events:none'), 'multi-page-fse-footer-background-underlay-protected-with-asset-name-collision');
+$assert(1 === ($multiPageFseFooterUnderlays['count'] ?? null), 'multi-page-fse-footer-underlay-diagnostic-count');
+
 $absoluteTextContentGuardResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Absolute Text Content Guard Fixture',
     'nodes' => array(
