@@ -4318,7 +4318,7 @@ $assert('Selected label' === ($componentPropAssignment['value']['textValue']['ch
 $assert('Selected label via variable' === ($componentPropAssignment['varValue']['value']['textDataValue']['characters'] ?? null), 'component-prop-field-policy-carries-var-value-text-data');
 $assert(array('sessionID' => 9, 'localID' => 10) === ($componentPropRef['defID'] ?? null), 'component-prop-field-policy-carries-ref-def-id');
 $assert('TEXT_DATA' === ($componentPropRef['componentPropNodeField'] ?? null), 'component-prop-field-policy-carries-text-ref-field');
-$assert(! array_key_exists('pluginData', $componentPropNodeChange), 'component-prop-field-policy-skips-adjacent-plugin-data');
+$assert('raw' === ($componentPropNodeChange['pluginData'] ?? null), 'component-prop-field-policy-carries-adjacent-plugin-data');
 
 // NORMALIZE: raw sectionStatus tokens map onto a clean dev_status with the raw
 // value carried for auditability.

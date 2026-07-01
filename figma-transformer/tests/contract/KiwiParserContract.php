@@ -284,7 +284,71 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert(array('Desktop', 'Mobile') === ($kiwiStateGroupMetadata['state_group_property_value_orders'][0]['values'] ?? null), 'kiwi-state-group-normalizes-order-values');
     $assert('2422394609:4048757538' === ($kiwiVariantMetadata['variant_prop_specs'][0]['prop_def_id'] ?? null), 'kiwi-variant-normalizes-prop-def-id');
     $assert('Desktop' === ($kiwiVariantMetadata['variant_prop_specs'][0]['value'] ?? null), 'kiwi-variant-normalizes-value');
-    
+
+    $kiwiDocumentMetadataSchema = $kiwiDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_document_metadata_schema_fixture());
+    $kiwiDocumentMetadataMessage = $kiwiDecoder->decodeMessageSelective(
+        blocks_engine_figma_transformer_kiwi_document_metadata_message_fixture(),
+        $kiwiDocumentMetadataSchema['schema'] ?? array()
+    );
+    $kiwiDocumentMetadataRoot = $kiwiDocumentMetadataMessage['message'] ?? array();
+    $kiwiDocumentMetadataNode = $kiwiDocumentMetadataRoot['nodeChanges'][0] ?? array();
+    $assert(42 === ($kiwiDocumentMetadataRoot['fileVersion'] ?? null), 'kiwi-document-metadata-decodes-root-file-version');
+    $assert('COMPLETED' === ($kiwiDocumentMetadataRoot['sectionStatus']['status'] ?? null), 'kiwi-document-metadata-decodes-root-section-status');
+    $assert('DESIGN' === ($kiwiDocumentMetadataNode['phase'] ?? null), 'kiwi-document-metadata-decodes-phase');
+    $assert(false === ($kiwiDocumentMetadataNode['autoRename'] ?? null), 'kiwi-document-metadata-decodes-auto-rename');
+    $assert('editor-1' === ($kiwiDocumentMetadataNode['editInfo']['userID'] ?? null), 'kiwi-document-metadata-decodes-edit-info');
+    $assert('plugin-1' === ($kiwiDocumentMetadataNode['pluginData']['pluginID'] ?? null), 'kiwi-document-metadata-decodes-plugin-data');
+    $assert(7 === ($kiwiDocumentMetadataNode['version'] ?? null), 'kiwi-document-metadata-decodes-version');
+    $assert('v7-public' === ($kiwiDocumentMetadataNode['userFacingVersion'] ?? null), 'kiwi-document-metadata-decodes-user-facing-version');
+    $assert('pub-123' === ($kiwiDocumentMetadataNode['publishID'] ?? null), 'kiwi-document-metadata-decodes-publish-id');
+    $assert('library-key-1' === ($kiwiDocumentMetadataNode['sourceLibraryKey'] ?? null), 'kiwi-document-metadata-decodes-source-library-key');
+    $assert('annotation-1' === ($kiwiDocumentMetadataNode['annotations'][0]['id'] ?? null), 'kiwi-document-metadata-decodes-annotations');
+    $assert('category-1' === ($kiwiDocumentMetadataNode['annotationCategories'][0]['id'] ?? null), 'kiwi-document-metadata-decodes-annotation-categories');
+    $assert('BUILD' === ($kiwiDocumentMetadataNode['sectionStatus'] ?? null), 'kiwi-document-metadata-decodes-section-status');
+    $assert('COMPLETED' === ($kiwiDocumentMetadataNode['sectionStatusInfo']['status'] ?? null), 'kiwi-document-metadata-decodes-section-status-info');
+    $assert('BUILD' === ($kiwiDocumentMetadataNode['handoffStatus']['status'] ?? null), 'kiwi-document-metadata-decodes-handoff-status');
+    $assert(true === ($kiwiDocumentMetadataNode['internalOnly'] ?? null), 'kiwi-document-metadata-decodes-internal-only');
+    $assert(true === ($kiwiDocumentMetadataNode['isPageDivider'] ?? null), 'kiwi-document-metadata-decodes-page-divider');
+    $assert('origin-file-1' === ($kiwiDocumentMetadataNode['originFileKey'] ?? null), 'kiwi-document-metadata-decodes-origin-file-key');
+    $assert('session-1' === ($kiwiDocumentMetadataNode['sessionID'] ?? null), 'kiwi-document-metadata-decodes-session-id');
+
+    $kiwiDocumentMetadataNormalizer = new ScenegraphNormalizer();
+    $kiwiDocumentMetadataNormalized = $kiwiDocumentMetadataNormalizer->normalize(array(
+        'name'          => 'Kiwi Document Metadata Fixture',
+        'fileVersion'   => 42,
+        'sectionStatus' => array('status' => 'COMPLETED', 'description' => 'File complete'),
+        'nodes'         => array(
+            array_merge($kiwiDocumentMetadataNode, array('id' => 'metadata:page', 'width' => 320, 'height' => 180)),
+        ),
+    ));
+    $kiwiDocumentMetadata = $kiwiDocumentMetadataNormalized['nodes'][0]['figma_metadata'] ?? array();
+    $kiwiDocumentMetadataReport = $kiwiDocumentMetadataNormalized['source_report']['figma_metadata'] ?? array();
+    $assert(42 === ($kiwiDocumentMetadataReport['file_version'] ?? null), 'kiwi-document-metadata-normalizes-root-file-version');
+    $assert('DESIGN' === ($kiwiDocumentMetadata['phase'] ?? null), 'kiwi-document-metadata-normalizes-phase');
+    $assert(false === ($kiwiDocumentMetadata['auto_rename'] ?? null), 'kiwi-document-metadata-normalizes-auto-rename');
+    $assert('editor-1' === ($kiwiDocumentMetadata['edit_info']['user_id'] ?? null), 'kiwi-document-metadata-normalizes-edit-info');
+    $assert('plugin-1' === ($kiwiDocumentMetadata['plugin_data']['plugin_id'] ?? null), 'kiwi-document-metadata-normalizes-plugin-data');
+    $assert('v7-public' === ($kiwiDocumentMetadata['user_facing_version'] ?? null), 'kiwi-document-metadata-normalizes-user-facing-version');
+    $assert('pub-123' === ($kiwiDocumentMetadata['publish_id'] ?? null), 'kiwi-document-metadata-normalizes-publish-id');
+    $assert('library-key-1' === ($kiwiDocumentMetadata['source_library_key'] ?? null), 'kiwi-document-metadata-normalizes-source-library-key');
+    $assert('annotation-1' === ($kiwiDocumentMetadata['annotations'][0]['id'] ?? null), 'kiwi-document-metadata-normalizes-annotations');
+    $assert('category-1' === ($kiwiDocumentMetadata['annotation_categories'][0]['id'] ?? null), 'kiwi-document-metadata-normalizes-annotation-categories');
+    $assert(true === ($kiwiDocumentMetadata['internal_only'] ?? null), 'kiwi-document-metadata-normalizes-internal-only');
+    $assert(true === ($kiwiDocumentMetadata['is_page_divider'] ?? null), 'kiwi-document-metadata-normalizes-page-divider');
+    $assert('origin-file-1' === ($kiwiDocumentMetadata['origin_file_key'] ?? null), 'kiwi-document-metadata-normalizes-origin-file-key');
+    $assert('session-1' === ($kiwiDocumentMetadata['session_id'] ?? null), 'kiwi-document-metadata-normalizes-session-id');
+
+    $metadataVisualBaseline = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Metadata Visual Baseline',
+        'nodes' => array(array('id' => 'metadata:visual', 'type' => 'FRAME', 'name' => 'Metadata Visual', 'width' => 320, 'height' => 180)),
+    ));
+    $metadataVisualWithFields = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Metadata Visual Baseline',
+        'nodes' => array(array_merge($kiwiDocumentMetadataNode, array('id' => 'metadata:visual', 'type' => 'FRAME', 'name' => 'Metadata Visual', 'width' => 320, 'height' => 180))),
+    ));
+    $assert($fileContent($metadataVisualBaseline, 'index.html') === $fileContent($metadataVisualWithFields, 'index.html'), 'kiwi-document-metadata-does-not-change-html');
+    $assert($fileContent($metadataVisualBaseline, 'style.css') === $fileContent($metadataVisualWithFields, 'style.css'), 'kiwi-document-metadata-does-not-change-css');
+
     $kiwiFrameMaskResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'document' => array(
             'id'       => 'kiwi-mask:document',
@@ -975,6 +1039,145 @@ function blocks_engine_figma_transformer_kiwi_state_group_message_fixture(): str
         . blocks_engine_figma_transformer_wire_varint(2)
         . $stateGroupNode
         . $variantNode
+        . blocks_engine_figma_transformer_wire_varint(0);
+}
+
+function blocks_engine_figma_transformer_kiwi_document_metadata_schema_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(9)
+        . blocks_engine_figma_transformer_kiwi_string('GUID')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('sessionID', -4, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('localID', -4, false, 2)
+        . blocks_engine_figma_transformer_kiwi_string('EditInfo')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('userID', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('userName', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_string('PluginData')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('pluginID', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('data', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_string('Annotation')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('id', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('label', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_string('AnnotationCategory')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('id', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_string('SectionStatus')
+        . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('BUILD', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('COMPLETED', 0, false, 2)
+        . blocks_engine_figma_transformer_kiwi_string('SectionStatusInfo')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('status', 5, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('description', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_string('NodeChange')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(20)
+        . blocks_engine_figma_transformer_kiwi_schema_field('guid', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('phase', -6, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('autoRename', -1, false, 5)
+        . blocks_engine_figma_transformer_kiwi_schema_field('editInfo', 1, false, 6)
+        . blocks_engine_figma_transformer_kiwi_schema_field('pluginData', 2, false, 7)
+        . blocks_engine_figma_transformer_kiwi_schema_field('version', -4, false, 8)
+        . blocks_engine_figma_transformer_kiwi_schema_field('userFacingVersion', -6, false, 9)
+        . blocks_engine_figma_transformer_kiwi_schema_field('publishID', -6, false, 10)
+        . blocks_engine_figma_transformer_kiwi_schema_field('sourceLibraryKey', -6, false, 11)
+        . blocks_engine_figma_transformer_kiwi_schema_field('annotations', 3, true, 12)
+        . blocks_engine_figma_transformer_kiwi_schema_field('annotationCategories', 4, true, 13)
+        . blocks_engine_figma_transformer_kiwi_schema_field('sectionStatus', 5, false, 14)
+        . blocks_engine_figma_transformer_kiwi_schema_field('sectionStatusInfo', 6, false, 15)
+        . blocks_engine_figma_transformer_kiwi_schema_field('handoffStatus', 6, false, 16)
+        . blocks_engine_figma_transformer_kiwi_schema_field('internalOnly', -1, false, 17)
+        . blocks_engine_figma_transformer_kiwi_schema_field('isPageDivider', -1, false, 18)
+        . blocks_engine_figma_transformer_kiwi_schema_field('originFileKey', -6, false, 19)
+        . blocks_engine_figma_transformer_kiwi_schema_field('sessionID', -6, false, 20)
+        . blocks_engine_figma_transformer_kiwi_string('Message')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('fileVersion', -4, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('sectionStatus', 6, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 7, true, 4);
+}
+
+function blocks_engine_figma_transformer_kiwi_document_metadata_message_fixture(): string
+{
+    $annotation = blocks_engine_figma_transformer_kiwi_string('annotation-1')
+        . blocks_engine_figma_transformer_kiwi_string('Primary annotation');
+    $category = blocks_engine_figma_transformer_kiwi_string('category-1')
+        . blocks_engine_figma_transformer_kiwi_string('Accessibility');
+    $completedInfo = blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('Complete');
+    $buildInfo = blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_string('Ready');
+    $node = blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(10)
+        . blocks_engine_figma_transformer_wire_varint(20)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('FRAME')
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_string('Metadata Page')
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_kiwi_string('DESIGN')
+        . blocks_engine_figma_transformer_wire_varint(5)
+        . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(6)
+        . blocks_engine_figma_transformer_kiwi_string('editor-1')
+        . blocks_engine_figma_transformer_kiwi_string('Editor One')
+        . blocks_engine_figma_transformer_wire_varint(7)
+        . blocks_engine_figma_transformer_kiwi_string('plugin-1')
+        . blocks_engine_figma_transformer_kiwi_string('{"ok":true}')
+        . blocks_engine_figma_transformer_wire_varint(8)
+        . blocks_engine_figma_transformer_wire_varint(7)
+        . blocks_engine_figma_transformer_wire_varint(9)
+        . blocks_engine_figma_transformer_kiwi_string('v7-public')
+        . blocks_engine_figma_transformer_wire_varint(10)
+        . blocks_engine_figma_transformer_kiwi_string('pub-123')
+        . blocks_engine_figma_transformer_wire_varint(11)
+        . blocks_engine_figma_transformer_kiwi_string('library-key-1')
+        . blocks_engine_figma_transformer_wire_varint(12)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . $annotation
+        . blocks_engine_figma_transformer_wire_varint(13)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . $category
+        . blocks_engine_figma_transformer_wire_varint(14)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(15)
+        . $completedInfo
+        . blocks_engine_figma_transformer_wire_varint(16)
+        . $buildInfo
+        . blocks_engine_figma_transformer_wire_varint(17)
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(18)
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(19)
+        . blocks_engine_figma_transformer_kiwi_string('origin-file-1')
+        . blocks_engine_figma_transformer_wire_varint(20)
+        . blocks_engine_figma_transformer_kiwi_string('session-1')
+        . blocks_engine_figma_transformer_wire_varint(0);
+
+    return blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_string('NODE_CHANGES')
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(42)
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . $completedInfo
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . $node
         . blocks_engine_figma_transformer_wire_varint(0);
 }
 
