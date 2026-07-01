@@ -297,6 +297,9 @@ final class VectorSvgRenderer
             if ( null !== ($path['windingRule'] ?? null) ) {
                 $attributes[] = 'fill-rule="' . $path['windingRule'] . '"';
             }
+            if ( null !== ($path['styleID'] ?? null) ) {
+                $attributes[] = 'data-figma-style-id="' . $this->sanitizeAttribute($path['styleID']) . '"';
+            }
             $elements[] = '<path d="' . $this->sanitizeAttribute($path['d']) . '" ' . implode(' ', $attributes) . '/>';
         }
 
@@ -305,7 +308,7 @@ final class VectorSvgRenderer
 
     /**
      * @param array<string, mixed> $node
-     * @return array<int, array{d: string, windingRule: string|null}>
+     * @return array<int, array{d: string, windingRule: string|null, styleID: string|null}>
      */
     private function nodeVectorPathData(array $node): array
     {
@@ -340,7 +343,12 @@ final class VectorSvgRenderer
                 }
             }
 
-            $paths[] = array('d' => $path, 'windingRule' => $rule);
+            $styleId = null;
+            if ( is_array($rawPath) && isset($rawPath['styleID']) && is_scalar($rawPath['styleID']) && '' !== trim((string) $rawPath['styleID']) ) {
+                $styleId = (string) $rawPath['styleID'];
+            }
+
+            $paths[] = array('d' => $path, 'windingRule' => $rule, 'styleID' => $styleId);
         }
 
         return $paths;
@@ -391,7 +399,7 @@ final class VectorSvgRenderer
 
     /**
      * @param array<string, mixed> $node
-     * @return array<int, array{paths: array<int, array{d: string, windingRule: string|null}>, paint: array<int, string>, dx: float, dy: float}>
+     * @return array<int, array{paths: array<int, array{d: string, windingRule: string|null, styleID: string|null}>, paint: array<int, string>, dx: float, dy: float}>
      */
     private function booleanOperationChildVectors(array $node): array
     {
@@ -448,6 +456,9 @@ final class VectorSvgRenderer
                 $attributes = $paint;
                 if ( null !== ($path['windingRule'] ?? null) ) {
                     $attributes[] = 'fill-rule="' . $path['windingRule'] . '"';
+                }
+                if ( null !== ($path['styleID'] ?? null) ) {
+                    $attributes[] = 'data-figma-style-id="' . $this->sanitizeAttribute($path['styleID']) . '"';
                 }
                 $elements .= '<path d="' . $this->sanitizeAttribute((string) $path['d']) . '" ' . implode(' ', $attributes) . '/>';
             }
@@ -857,7 +868,7 @@ final class VectorSvgRenderer
     {
         if ( is_array($rawPath) && isset($rawPath['source']) && is_scalar($rawPath['source']) ) {
             $source = (string) $rawPath['source'];
-            if ( str_starts_with($source, 'fillGeometry') || str_starts_with($source, 'strokeGeometry') || 'vectorData.vectorNetworkBlob' === $source ) {
+            if ( str_starts_with($source, 'fillGeometry') || str_starts_with($source, 'strokeGeometry') || str_starts_with($source, 'vectorData.vectorNetwork') ) {
                 return self::MAX_DECODED_FIGMA_SVG_PATH_DATA_BYTES;
             }
         }
@@ -880,6 +891,47 @@ final class VectorSvgRenderer
         if ( null !== $stroke ) {
             $attributes[] = 'stroke="' . $this->sanitizeAttribute($stroke) . '"';
             $attributes[] = 'stroke-width="' . $this->number($this->strokeWeight($node)) . '"';
+            foreach ( $this->strokeGeometryAttributes($node) as $attribute ) {
+                $attributes[] = $attribute;
+            }
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function strokeGeometryAttributes(array $node): array
+    {
+        $attributes = array();
+
+        $cap = strtoupper((string) ($node['strokeCap'] ?? ''));
+        $capMap = array('ROUND' => 'round', 'SQUARE' => 'square', 'BUTT' => 'butt', 'NONE' => 'butt');
+        if ( isset($capMap[$cap]) ) {
+            $attributes[] = 'stroke-linecap="' . $capMap[$cap] . '"';
+        }
+
+        $join = strtoupper((string) ($node['strokeJoin'] ?? ''));
+        $joinMap = array('ROUND' => 'round', 'BEVEL' => 'bevel', 'MITER' => 'miter');
+        if ( isset($joinMap[$join]) ) {
+            $attributes[] = 'stroke-linejoin="' . $joinMap[$join] . '"';
+        }
+
+        $dashPattern = is_array($node['dashPattern'] ?? null) ? $node['dashPattern'] : array();
+        $dashes = array();
+        foreach ( $dashPattern as $dash ) {
+            if ( ! is_numeric($dash) ) {
+                return $attributes;
+            }
+            $value = max(0.0, (float) $dash);
+            if ( $value > 0.0 ) {
+                $dashes[] = $this->number($value);
+            }
+        }
+        if ( ! empty($dashes) ) {
+            $attributes[] = 'stroke-dasharray="' . implode(' ', $dashes) . '"';
         }
 
         return $attributes;

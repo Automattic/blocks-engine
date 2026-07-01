@@ -11,6 +11,37 @@ final class VectorGeometryNormalizer
 {
     private const MAX_VECTOR_COMMAND_BLOB_COMMANDS = 5000;
     private const MAX_VECTOR_COMMAND_BLOB_PATH_BYTES = 131072;
+    private const MAX_VECTOR_NETWORK_OBJECT_VERTICES = 20000;
+    private const MAX_VECTOR_NETWORK_OBJECT_SEGMENTS = 40000;
+    private const MAX_VECTOR_NETWORK_OBJECT_REGIONS = 20000;
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array{x: float, y: float}|null
+     */
+    public function normalizedVectorScale(array $node): ?array
+    {
+        $size = is_array($node['vectorData']['normalizedSize'] ?? null) ? $node['vectorData']['normalizedSize'] : array();
+        $normalizedWidth = $this->readPointCoordinate($size, 'x') ?? $this->readPointCoordinate($size, 'width');
+        $normalizedHeight = $this->readPointCoordinate($size, 'y') ?? $this->readPointCoordinate($size, 'height');
+        if ( null === $normalizedWidth || null === $normalizedHeight || $normalizedWidth <= 0.0 || $normalizedHeight <= 0.0 ) {
+            return null;
+        }
+
+        $width = $this->rawNodeDimension($node, 'width');
+        $height = $this->rawNodeDimension($node, 'height');
+        if ( $width <= 0.0 || $height <= 0.0 ) {
+            return null;
+        }
+
+        $scaleX = $width / $normalizedWidth;
+        $scaleY = $height / $normalizedHeight;
+        if ( ! is_finite($scaleX) || ! is_finite($scaleY) || ( abs($scaleX - 1.0) < 0.0001 && abs($scaleY - 1.0) < 0.0001 ) ) {
+            return null;
+        }
+
+        return array('x' => $scaleX, 'y' => $scaleY);
+    }
 
     /**
      * @param array<int, array<string, mixed>> $diagnostics
@@ -155,6 +186,17 @@ final class VectorGeometryNormalizer
                 if ( isset($geometry['windingRule']) && is_scalar($geometry['windingRule']) ) {
                     $normalized['windingRule'] = (string) $geometry['windingRule'];
                 }
+                $styleId = $this->readStyleId($geometry['styleID'] ?? $geometry['styleId'] ?? null);
+                if ( null !== $styleId ) {
+                    $normalized['styleID'] = $styleId;
+                }
+                $paths[] = $normalized;
+            }
+        }
+
+        if ( empty($paths) && is_array($node['vectorData']['vectorNetwork'] ?? null) ) {
+            $normalized = $this->normalizeVectorNetwork($node['vectorData']['vectorNetwork']);
+            if ( null !== $normalized ) {
                 $paths[] = $normalized;
             }
         }
@@ -167,6 +209,159 @@ final class VectorGeometryNormalizer
         }
 
         return $paths;
+    }
+
+    /**
+     * @param array<string, mixed> $network
+     * @return array<string, mixed>|null
+     */
+    private function normalizeVectorNetwork(array $network): ?array
+    {
+        $vertices = $this->normalizeVectorNetworkObjectVertices($network['vertices'] ?? null);
+        $segments = $this->normalizeVectorNetworkObjectSegments($network['segments'] ?? null, count($vertices));
+        if ( empty($vertices) || empty($segments) ) {
+            return null;
+        }
+
+        $regions = is_array($network['regions'] ?? null) ? $network['regions'] : array();
+        if ( count($regions) > self::MAX_VECTOR_NETWORK_OBJECT_REGIONS ) {
+            return null;
+        }
+
+        $subpaths = array();
+        $windingRule = 'NONZERO';
+        foreach ( $regions as $region ) {
+            if ( ! is_array($region) ) {
+                return null;
+            }
+            $entries = $this->normalizeVectorNetworkRegionEntries($region['segments'] ?? $region['segmentIndices'] ?? $region['loop'] ?? null, count($segments));
+            if ( empty($entries) ) {
+                return null;
+            }
+            $subpath = $this->vectorNetworkRegionSubpath($vertices, $segments, $entries);
+            if ( null === $subpath ) {
+                return null;
+            }
+            $subpaths[] = $subpath;
+            $rule = strtoupper((string) ($region['windingRule'] ?? $region['fillRule'] ?? ''));
+            if ( in_array($rule, array('EVENODD', 'EVEN_ODD'), true) ) {
+                $windingRule = 'EVENODD';
+            }
+        }
+
+        if ( empty($subpaths) ) {
+            $subpath = $this->vectorNetworkObjectClosedLoopSubpath($vertices, $segments);
+            if ( null === $subpath ) {
+                return null;
+            }
+            $subpaths[] = $subpath;
+        }
+
+        return array(
+            'data'        => implode(' ', $subpaths),
+            'source'      => 'vectorData.vectorNetwork',
+            'windingRule' => $windingRule,
+        );
+    }
+
+    /**
+     * @return array<int, array{0: float, 1: float}>
+     */
+    private function normalizeVectorNetworkObjectVertices(mixed $rawVertices): array
+    {
+        if ( ! is_array($rawVertices) || count($rawVertices) > self::MAX_VECTOR_NETWORK_OBJECT_VERTICES ) {
+            return array();
+        }
+
+        $vertices = array();
+        foreach ( $rawVertices as $vertex ) {
+            if ( ! is_array($vertex) ) {
+                return array();
+            }
+            $point = is_array($vertex['position'] ?? null) ? $vertex['position'] : $vertex;
+            $x = $this->readPointCoordinate($point, 'x') ?? $this->readPointCoordinate($point, 0);
+            $y = $this->readPointCoordinate($point, 'y') ?? $this->readPointCoordinate($point, 1);
+            if ( null === $x || null === $y || ! is_finite($x) || ! is_finite($y) ) {
+                return array();
+            }
+            $vertices[] = array($x, $y);
+        }
+
+        return $vertices;
+    }
+
+    /**
+     * @return array<int, array{start: int, end: int, tangentStart: array{0: float, 1: float}, tangentEnd: array{0: float, 1: float}}>
+     */
+    private function normalizeVectorNetworkObjectSegments(mixed $rawSegments, int $vertexCount): array
+    {
+        if ( ! is_array($rawSegments) || count($rawSegments) > self::MAX_VECTOR_NETWORK_OBJECT_SEGMENTS ) {
+            return array();
+        }
+
+        $segments = array();
+        foreach ( $rawSegments as $segment ) {
+            if ( ! is_array($segment) ) {
+                return array();
+            }
+            $start = $this->readIndex($segment['start'] ?? $segment['startVertex'] ?? $segment[0] ?? null);
+            $end = $this->readIndex($segment['end'] ?? $segment['endVertex'] ?? $segment[1] ?? null);
+            if ( null === $start || null === $end || $start < 0 || $end < 0 || $start >= $vertexCount || $end >= $vertexCount || $start === $end ) {
+                return array();
+            }
+
+            $segments[] = array(
+                'start' => $start,
+                'end' => $end,
+                'tangentStart' => $this->readTangent($segment['tangentStart'] ?? $segment['startTangent'] ?? null),
+                'tangentEnd' => $this->readTangent($segment['tangentEnd'] ?? $segment['endTangent'] ?? null),
+            );
+        }
+
+        return $segments;
+    }
+
+    /**
+     * @return array<int, array{0: int, 1: int}>
+     */
+    private function normalizeVectorNetworkRegionEntries(mixed $rawEntries, int $segmentCount): array
+    {
+        if ( ! is_array($rawEntries) || empty($rawEntries) || count($rawEntries) > $segmentCount ) {
+            return array();
+        }
+
+        $entries = array();
+        foreach ( $rawEntries as $entry ) {
+            $segmentIndex = is_array($entry) ? $this->readIndex($entry['segment'] ?? $entry['segmentIndex'] ?? $entry['index'] ?? $entry[0] ?? null) : $this->readIndex($entry);
+            $direction = 0;
+            if ( is_array($entry) ) {
+                if ( isset($entry['direction']) && is_numeric($entry['direction']) ) {
+                    $direction = (int) $entry['direction'];
+                } elseif ( false === ($entry['forward'] ?? true) || true === ($entry['reverse'] ?? false) ) {
+                    $direction = 1;
+                }
+            }
+            if ( null === $segmentIndex || $segmentIndex < 0 || $segmentIndex >= $segmentCount || ( 0 !== $direction && 1 !== $direction ) ) {
+                return array();
+            }
+            $entries[] = array($segmentIndex, $direction);
+        }
+
+        return $entries;
+    }
+
+    /**
+     * @param array<int, array{0: float, 1: float}> $vertices
+     * @param array<int, array{start: int, end: int, tangentStart: array{0: float, 1: float}, tangentEnd: array{0: float, 1: float}}> $segments
+     */
+    private function vectorNetworkObjectClosedLoopSubpath(array $vertices, array $segments): ?string
+    {
+        if ( count($segments) < 3 ) {
+            return null;
+        }
+
+        $entries = array_map(static fn (int $index): array => array($index, 0), array_keys($segments));
+        return $this->vectorNetworkRegionSubpath($vertices, $segments, $entries);
     }
 
     /**
@@ -969,6 +1164,52 @@ final class VectorGeometryNormalizer
 
         $value = unpack('V', substr($bytes, $offset, 4));
         return false === $value ? null : (int) $value[1];
+    }
+
+    private function readPointCoordinate(array $point, string|int $key): ?float
+    {
+        return isset($point[$key]) && is_numeric($point[$key]) ? (float) $point[$key] : null;
+    }
+
+    private function readIndex(mixed $value): ?int
+    {
+        return is_numeric($value) ? (int) $value : null;
+    }
+
+    /**
+     * @return array{0: float, 1: float}
+     */
+    private function readTangent(mixed $value): array
+    {
+        if ( ! is_array($value) ) {
+            return array(0.0, 0.0);
+        }
+
+        $x = $this->readPointCoordinate($value, 'x') ?? $this->readPointCoordinate($value, 0) ?? 0.0;
+        $y = $this->readPointCoordinate($value, 'y') ?? $this->readPointCoordinate($value, 1) ?? 0.0;
+        return is_finite($x) && is_finite($y) ? array($x, $y) : array(0.0, 0.0);
+    }
+
+    private function readStyleId(mixed $value): ?string
+    {
+        if ( is_scalar($value) && '' !== trim((string) $value) ) {
+            return (string) $value;
+        }
+
+        if ( ! is_array($value) ) {
+            return null;
+        }
+
+        if ( is_array($value['guid'] ?? null) ) {
+            $value = $value['guid'];
+        }
+        $session = $value['sessionID'] ?? null;
+        $local = $value['localID'] ?? null;
+        if ( is_scalar($session) && is_scalar($local) ) {
+            return (string) $session . ':' . (string) $local;
+        }
+
+        return is_scalar($local) ? (string) $local : null;
     }
 
     private function svgNumber(float $value): string
