@@ -390,7 +390,7 @@ final class StaticHtmlEmitter
 
         $assetFiles = array_merge($this->referencedAssetFiles($assetFiles), array_values($this->generatedAssetFiles));
 
-        $shared   = $this->applySharedStyleClasses($cssRules);
+        $shared   = $this->applySharedStyleClasses($cssRules, true);
         $cssRules = $shared['rules'];
         if ( ! empty($shared['class_map']) ) {
             foreach ( $files as $fileIndex => $file ) {
@@ -3438,7 +3438,16 @@ final class StaticHtmlEmitter
         foreach ( array('width', 'height') as $dimension ) {
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
             $sizing = strtoupper((string) ($layout[$sizingKey] ?? ''));
-            if ( 'HUG' === $sizing ) {
+            if ( 'width' === $dimension && $this->isFluidRootWidth($box, $parentNode) ) {
+                // Page root: centered fluid container. width:100% lets it shrink
+                // below the design width without forcing horizontal scroll, while
+                // max-width pins the intrinsic frame width so rendering stays
+                // pixel-faithful at and above the native canvas size.
+                $styles[] = 'width:100%';
+                $styles[] = 'max-width:' . $this->number((float) $box['width']) . 'px';
+                $styles[] = 'margin-left:auto';
+                $styles[] = 'margin-right:auto';
+            } elseif ( 'HUG' === $sizing ) {
                 $derivedTextSize = 'TEXT' === $type ? $this->derivedTextLayoutSize($node, $dimension) : null;
                 if ( null !== $derivedTextSize ) {
                     $styles[] = $dimension . ':' . $this->number($derivedTextSize) . 'px';
@@ -3451,20 +3460,9 @@ final class StaticHtmlEmitter
             } elseif ( 'FILL' === $sizing ) {
                 $styles[] = $dimension . ':100%';
             } elseif ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
-                if ( 'width' === $dimension && null === $parentNode && (float) $box['width'] >= self::FLUID_ROOT_MIN_WIDTH ) {
-                    // Page root: centered fluid container. width:100% lets it shrink
-                    // below the design width without forcing horizontal scroll, while
-                    // max-width pins the intrinsic frame width so rendering stays
-                    // pixel-faithful at and above the native canvas size.
-                    $styles[] = 'width:100%';
-                    $styles[] = 'max-width:' . $this->number((float) $box['width']) . 'px';
-                    $styles[] = 'margin-left:auto';
-                    $styles[] = 'margin-right:auto';
-                } else {
-                    $property = $dimension;
-                    $value = 'height' === $dimension && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : (float) $box[$dimension];
-                    $styles[] = $property . ':' . $this->number($value) . 'px';
-                }
+                $property = $dimension;
+                $value = 'height' === $dimension && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : (float) $box[$dimension];
+                $styles[] = $property . ':' . $this->number($value) . 'px';
             }
         }
 
@@ -3768,6 +3766,17 @@ final class StaticHtmlEmitter
         $intrinsicMainSpan = $childMainSpan + $paddingSpan + max(0, $childCount - 1) * $gap;
 
         return $intrinsicMainSpan > (float) $box[$dimension] + 1.0 ? 'max-content' : null;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     */
+    private function isFluidRootWidth(array $box, ?array $parentNode): bool
+    {
+        return null === $parentNode
+            && isset($box['width'])
+            && is_numeric($box['width'])
+            && (float) $box['width'] >= self::FLUID_ROOT_MIN_WIDTH;
     }
 
     /**
@@ -5944,7 +5953,7 @@ final class StaticHtmlEmitter
      * @param array<int, string> $cssRules
      * @return array{rules: array<int, string>, class_map: array<string, string>}
      */
-    private function applySharedStyleClasses(array $cssRules): array
+    private function applySharedStyleClasses(array $cssRules, bool $hashReadableNames = false): array
     {
         $pattern = '/^\.(figma-node-[A-Za-z0-9_-]+)\{(.*)\}$/s';
 
@@ -5981,6 +5990,9 @@ final class StaticHtmlEmitter
         foreach ( array_keys($sharedOrder) as $body ) {
             $firstSelector = $bodyToSelectors[$body][0];
             $base = $this->nodeReadableNames[$firstSelector] ?? 'style';
+            if ( $hashReadableNames ) {
+                $base .= '-' . substr(sha1($body), 0, 8);
+            }
             $name = $base;
             $suffix = 2;
             while ( isset($usedNames[$name]) || isset($reserved[$name]) ) {

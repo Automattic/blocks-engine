@@ -575,6 +575,7 @@ final class FigmaTransformer
         $files = array();
         $assetsByPath = array();
         $cssChunks = array();
+        $cssChunkIndexesByPath = array();
         $pageReports = array();
         $fontFamilies = array();
         $fontUsage = array();
@@ -633,6 +634,7 @@ final class FigmaTransformer
             $html = $this->fileContent($pageResult['files'] ?? array(), 'index.html');
             $css = $this->fileContent($pageResult['files'] ?? array(), 'style.css');
             if ( '' !== $css ) {
+                $cssChunkIndexesByPath[$path] = count($cssChunks);
                 $cssChunks[] = $css;
             }
 
@@ -673,7 +675,18 @@ final class FigmaTransformer
             );
         }
 
-        $css = $this->mergeCssChunks($cssChunks);
+        $mergedCss = $this->mergeCssChunks($cssChunks);
+        $css = $mergedCss['css'];
+        foreach ( $files as $fileIndex => $file ) {
+            if ( 'text/html' !== ($file['mime_type'] ?? '') || ! isset($file['content'], $file['path']) || ! is_scalar($file['path']) ) {
+                continue;
+            }
+            $chunkIndex = $cssChunkIndexesByPath[(string) $file['path']] ?? null;
+            if ( null === $chunkIndex || empty($mergedCss['class_maps'][$chunkIndex]) ) {
+                continue;
+            }
+            $files[$fileIndex]['content'] = $this->applyCssClassRenameMapToHtml((string) $file['content'], $mergedCss['class_maps'][$chunkIndex]);
+        }
         if ( '' !== $css ) {
             $files[] = array(
                 'path'      => 'style.css',
@@ -1418,13 +1431,15 @@ final class FigmaTransformer
      * breakpoints still win the cascade at their own viewport width.
      *
      * @param array<int, string> $chunks
+     * @return array{css: string, class_maps: array<int, array<string, string>>}
      */
-    private function mergeCssChunks(array $chunks): string
+    private function mergeCssChunks(array $chunks): array
     {
         $imports = array();
         $rules = array();
         $atBlocks = array();
-        foreach ( $chunks as $chunk ) {
+        $readableRules = array();
+        foreach ( $chunks as $chunkIndex => $chunk ) {
             foreach ( $this->splitCssStatements($chunk) as $statement ) {
                 $statement = trim($statement);
                 if ( '' === $statement ) {
@@ -1442,13 +1457,76 @@ final class FigmaTransformer
                     $atBlocks[$statement] = true;
                     continue;
                 }
+                $readableRule = $this->readableCssRule($statement);
+                if ( null !== $readableRule ) {
+                    $readableRules[$readableRule['class']][$readableRule['body']][] = $chunkIndex;
+                }
                 $rules[$statement] = true;
             }
         }
 
+        $classMaps = array();
+        $renamesByStatement = array();
+        foreach ( $readableRules as $class => $bodies ) {
+            if ( count($bodies) < 2 ) {
+                continue;
+            }
+            foreach ( $bodies as $body => $chunkIndexes ) {
+                $renamedClass = $class . '-' . substr(sha1($body), 0, 8);
+                $renamesByStatement['.' . $class . '{' . $body . '}'] = '.' . $renamedClass . '{' . $body . '}';
+                foreach ( $chunkIndexes as $chunkIndex ) {
+                    $classMaps[$chunkIndex][$class] = $renamedClass;
+                }
+            }
+        }
+
+        if ( ! empty($renamesByStatement) ) {
+            $renamedRules = array();
+            foreach ( array_keys($rules) as $statement ) {
+                $renamedRules[$renamesByStatement[$statement] ?? $statement] = true;
+            }
+            $rules = $renamedRules;
+        }
+
         $ordered = array_merge(array_keys($imports), array_keys($rules), array_keys($atBlocks));
 
-        return implode("\n", $ordered) . (empty($ordered) ? '' : "\n");
+        return array(
+            'css' => implode("\n", $ordered) . (empty($ordered) ? '' : "\n"),
+            'class_maps' => $classMaps,
+        );
+    }
+
+    /**
+     * @return array{class: string, body: string}|null
+     */
+    private function readableCssRule(string $statement): ?array
+    {
+        if ( 1 !== preg_match('/^\.([A-Za-z][A-Za-z0-9_-]*)\{(.*)\}$/s', $statement, $matches) ) {
+            return null;
+        }
+
+        $class = $matches[1];
+        if ( str_starts_with($class, 'figma-node-') || in_array($class, array('figma-root', 'figma-link', 'figma-text-glyphs', 'figma-vector-asset'), true) ) {
+            return null;
+        }
+
+        return array('class' => $class, 'body' => $matches[2]);
+    }
+
+    /**
+     * @param array<string, string> $classMap
+     */
+    private function applyCssClassRenameMapToHtml(string $html, array $classMap): string
+    {
+        if ( empty($classMap) ) {
+            return $html;
+        }
+
+        return (string) preg_replace_callback('/class="([^"]*)"/', static function (array $matches) use ($classMap): string {
+            $classes = preg_split('/\s+/', trim((string) $matches[1])) ?: array();
+            $classes = array_map(static fn (string $class): string => $classMap[$class] ?? $class, $classes);
+            return 'class="' . implode(' ', array_values(array_filter($classes, static fn (string $class): bool => '' !== $class))) . '"';
+        }, $html);
     }
 
     /**
