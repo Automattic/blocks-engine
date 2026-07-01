@@ -7,8 +7,10 @@ declare(strict_types=1);
  */
 function blocks_engine_figma_transformer_run_parser_parity_contract(callable $assert): void
 {
-    $fixturePath = sys_get_temp_dir() . '/figma-parser-parity-contract-' . getmypid() . '-' . bin2hex(random_bytes(4)) . '.json';
-    file_put_contents($fixturePath, json_encode(array(
+    $report = blocks_engine_figma_transformer_contract_run_json_fixture_script(
+        'figma-parser-parity-contract',
+        __DIR__ . '/../../scripts/figma-parser-parity.php',
+        array(
         'name'   => 'Parser Parity Fixture',
         'blobs'  => array(array('bytes' => 'synthetic-vector-blob')),
         'assets' => array(
@@ -188,17 +190,13 @@ function blocks_engine_figma_transformer_run_parser_parity_contract(callable $as
                 ),
             ),
         ),
-    ), JSON_THROW_ON_ERROR));
-
-    $command = escapeshellarg(PHP_BINARY)
-        . ' ' . escapeshellarg(__DIR__ . '/../../scripts/figma-parser-parity.php')
-        . ' ' . escapeshellarg($fixturePath)
-        . ' --frame-id=' . escapeshellarg('parity:frame')
-        . ' --limit=10 --sample-limit=3';
-    $output = shell_exec($command);
-    @unlink($fixturePath);
-
-    $report = is_string($output) ? json_decode($output, true) : null;
+        ),
+        array(
+            '--frame-id=' . escapeshellarg('parity:frame'),
+            '--limit=10',
+            '--sample-limit=3',
+        )
+    );
     $assert(is_array($report), 'parser-parity-json-output');
     $assert('blocks-engine/figma-transformer/parser-parity/v1' === ($report['schema'] ?? null), 'parser-parity-schema');
     $assert('parity:frame' === ($report['options']['frame_id'] ?? null), 'parser-parity-frame-option');
@@ -214,41 +212,39 @@ function blocks_engine_figma_transformer_run_parser_parity_contract(callable $as
     $assert(1 <= ($report['coverage']['raw_vector_to_emitted']['covered_count'] ?? 0), 'parser-parity-vector-emitted-clone-suffix-coverage');
     $assert(is_int($report['coverage']['raw_vector_to_emitted']['missing_count'] ?? null), 'parser-parity-vector-emitted-missing-count');
     $assert(4 === ($report['coverage']['raw_asset_refs_to_normalized_asset_refs']['covered_count'] ?? null), 'parser-parity-asset-reference-coverage');
-    $assert('blocks-engine/figma-transformer/parser-parity-transform-diagnostics/v1' === ($report['transform_diagnostics']['schema'] ?? null), 'parser-parity-transform-diagnostics-schema');
-    $assert(1 <= ($report['transform_diagnostics']['effects']['source_effect_node_count'] ?? 0), 'parser-parity-effect-source-count');
-    $assert(1 <= ($report['transform_diagnostics']['mask_effect_clipping']['mask_node_count'] ?? 0), 'parser-parity-mask-count');
-    $assert(1 <= ($report['transform_diagnostics']['mask_effect_clipping']['clipped_effect_node_count'] ?? 0), 'parser-parity-clipped-effect-count');
-    $assert(1 <= ($report['transform_diagnostics']['vector_child_composition']['vector_child_node_count'] ?? 0), 'parser-parity-vector-child-composition-count');
-    $assert(1 <= ($report['transform_diagnostics']['stacking_order']['mixed_positioning_parent_count'] ?? 0), 'parser-parity-stacking-order-count');
+    $transformDiagnostics = is_array($report['transform_diagnostics'] ?? null) ? $report['transform_diagnostics'] : array();
+    blocks_engine_figma_transformer_contract_assert_diagnostic_summary_envelope($assert, $transformDiagnostics, 'blocks-engine/figma-transformer/parser-parity-transform-diagnostics/v1', 'parser-parity-transform-diagnostics');
+    $assert(1 <= ($transformDiagnostics['effects']['source_effect_node_count'] ?? 0), 'parser-parity-effect-source-count');
+    $assert(1 <= ($transformDiagnostics['mask_effect_clipping']['mask_node_count'] ?? 0), 'parser-parity-mask-count');
+    $assert(1 <= ($transformDiagnostics['mask_effect_clipping']['clipped_effect_node_count'] ?? 0), 'parser-parity-clipped-effect-count');
+    $assert(1 <= ($transformDiagnostics['vector_child_composition']['vector_child_node_count'] ?? 0), 'parser-parity-vector-child-composition-count');
+    $assert(1 <= ($transformDiagnostics['stacking_order']['mixed_positioning_parent_count'] ?? 0), 'parser-parity-stacking-order-count');
     $assert(is_array($report['coverage']['normalized_component_clone_to_emitted'] ?? null), 'parser-parity-component-clone-emitted-coverage');
     $assert(is_array($report['top_missing_field_paths'] ?? null), 'parser-parity-missing-field-paths-present');
 
-    $figPath = SyntheticFigKiwiFixtureBuilder::figArchive(
-        SyntheticFigKiwiFixtureBuilder::canvas(array(
-            SyntheticFigKiwiFixtureBuilder::jsonZlibChunk(array(
-                'nodes' => array(
-                    array(
-                        'id'       => 'parity:fig-frame',
-                        'type'     => 'FRAME',
-                        'name'     => 'Parser Parity Fig Frame',
-                        'width'    => 320,
-                        'height'   => 180,
-                        'children' => array(),
-                    ),
+    $figPath = SyntheticFigKiwiFixtureBuilder::jsonFigArchive(
+        array(
+            'nodes' => array(
+                array(
+                    'id'       => 'parity:fig-frame',
+                    'type'     => 'FRAME',
+                    'name'     => 'Parser Parity Fig Frame',
+                    'width'    => 320,
+                    'height'   => 180,
+                    'children' => array(),
                 ),
-            )),
-        )),
+            ),
+        ),
         array('images/fixture.png' => str_repeat('asset-bytes', 128))
     );
 
-    $figCommand = escapeshellarg(PHP_BINARY)
-        . ' ' . escapeshellarg(__DIR__ . '/../../scripts/figma-parser-parity.php')
-        . ' ' . escapeshellarg($figPath)
-        . ' --limit=1 --sample-limit=1';
-    $figOutput = shell_exec($figCommand);
+    $figReport = blocks_engine_figma_transformer_contract_run_json_script(
+        __DIR__ . '/../../scripts/figma-parser-parity.php',
+        $figPath,
+        array('--limit=1', '--sample-limit=1')
+    );
     @unlink($figPath);
 
-    $figReport = is_string($figOutput) ? json_decode($figOutput, true) : null;
     $assert(is_array($figReport), 'parser-parity-fig-json-output');
     $assert(false === ($figReport['input']['archive_options']['include_asset_content'] ?? null), 'parser-parity-fig-omits-asset-content-by-default');
     $assert(1 === ($figReport['input']['archive_options']['max_kiwi_message_decode_bytes'] ?? null), 'parser-parity-fig-forces-selective-kiwi-decode-by-default');

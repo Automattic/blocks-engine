@@ -7,8 +7,10 @@ declare(strict_types=1);
  */
 function blocks_engine_figma_transformer_run_node_trace_contract(callable $assert): void
 {
-    $traceFixturePath = sys_get_temp_dir() . '/figma-node-trace-contract-' . getmypid() . '-' . bin2hex(random_bytes(4)) . '.json';
-    file_put_contents($traceFixturePath, json_encode(array(
+    $trace = blocks_engine_figma_transformer_contract_run_json_fixture_script(
+        'figma-node-trace-contract',
+        __DIR__ . '/../../scripts/figma-node-trace.php',
+        array(
         'name'  => 'Node Trace Fixture',
         'nodes' => array(
             array(
@@ -31,28 +33,18 @@ function blocks_engine_figma_transformer_run_node_trace_contract(callable $asser
                 ),
             ),
         ),
-    ), JSON_THROW_ON_ERROR));
-
-    $command = escapeshellarg(PHP_BINARY)
-        . ' ' . escapeshellarg(__DIR__ . '/../../scripts/figma-node-trace.php')
-        . ' ' . escapeshellarg($traceFixturePath)
-        . ' --frame-id=' . escapeshellarg('trace:frame')
-        . ' --node-ids=' . escapeshellarg('trace:frame,trace:title');
-    $output = shell_exec($command);
-    @unlink($traceFixturePath);
-
-    $trace = is_string($output) ? json_decode($output, true) : null;
+        ),
+        array(
+            '--frame-id=' . escapeshellarg('trace:frame'),
+            '--node-ids=' . escapeshellarg('trace:frame,trace:title'),
+        )
+    );
     $assert(is_array($trace), 'node-trace-json-output');
     $assert('blocks-engine/figma-transformer/node-trace/v1' === ($trace['schema'] ?? null), 'node-trace-schema');
     $assert('trace:frame' === ($trace['frame_id'] ?? null), 'node-trace-frame-id');
     $assert(2 === count(is_array($trace['nodes'] ?? null) ? $trace['nodes'] : array()), 'node-trace-node-count');
 
-    $titleTrace = null;
-    foreach ( is_array($trace['nodes'] ?? null) ? $trace['nodes'] : array() as $nodeTrace ) {
-        if ( is_array($nodeTrace) && 'trace:title' === ($nodeTrace['id'] ?? null) ) {
-            $titleTrace = $nodeTrace;
-        }
-    }
+    $titleTrace = blocks_engine_figma_transformer_contract_find_trace_node(is_array($trace['nodes'] ?? null) ? $trace['nodes'] : array(), 'trace:title');
 
     $assert(is_array($titleTrace), 'node-trace-title-present');
     $assert('TEXT' === ($titleTrace['raw']['type'] ?? null), 'node-trace-raw-type');
@@ -67,8 +59,10 @@ function blocks_engine_figma_transformer_run_node_trace_contract(callable $asser
     $assert(is_array($titleTrace['visual']['rect'] ?? null), 'node-trace-visual-rect');
     $assert(is_array($trace['diagnostics_sample']['transform'] ?? null), 'node-trace-transform-diagnostics-sample');
 
-    $cloneTraceFixturePath = sys_get_temp_dir() . '/figma-node-trace-clone-contract-' . getmypid() . '-' . bin2hex(random_bytes(4)) . '.json';
-    file_put_contents($cloneTraceFixturePath, json_encode(array(
+    $cloneTrace = blocks_engine_figma_transformer_contract_run_json_fixture_script(
+        'figma-node-trace-clone-contract',
+        __DIR__ . '/../../scripts/figma-node-trace.php',
+        array(
         'name'  => 'Node Trace Clone Fixture',
         'nodes' => array(
             array(
@@ -108,17 +102,12 @@ function blocks_engine_figma_transformer_run_node_trace_contract(callable $asser
                 ),
             ),
         ),
-    ), JSON_THROW_ON_ERROR));
-
-    $cloneCommand = escapeshellarg(PHP_BINARY)
-        . ' ' . escapeshellarg(__DIR__ . '/../../scripts/figma-node-trace.php')
-        . ' ' . escapeshellarg($cloneTraceFixturePath)
-        . ' --frame-id=' . escapeshellarg('trace-clone:frame')
-        . ' --node-ids=' . escapeshellarg('trace-clone:instance/trace-clone:component/title');
-    $cloneOutput = shell_exec($cloneCommand);
-    @unlink($cloneTraceFixturePath);
-
-    $cloneTrace = is_string($cloneOutput) ? json_decode($cloneOutput, true) : null;
+        ),
+        array(
+            '--frame-id=' . escapeshellarg('trace-clone:frame'),
+            '--node-ids=' . escapeshellarg('trace-clone:instance/trace-clone:component/title'),
+        )
+    );
     $assert(is_array($cloneTrace), 'node-trace-clone-json-output');
     $cloneTitleTrace = is_array($cloneTrace['nodes'][0] ?? null) ? $cloneTrace['nodes'][0] : array();
     $assert('trace-clone:instance/trace-clone:component/title' === ($cloneTitleTrace['id'] ?? null), 'node-trace-clone-generated-id');

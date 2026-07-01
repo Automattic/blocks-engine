@@ -68,6 +68,34 @@ final class SyntheticFigKiwiFixtureBuilder
     }
 
     /**
+     * @param array<int, string>     $payloads
+     * @param array<string, string>  $images
+     * @param array<string, mixed>   $meta
+     */
+    public static function zlibFigArchive(array $payloads, array $images = array(), array $meta = array('name' => 'Synthetic Fixture')): string
+    {
+        return self::figArchive(
+            self::canvas(array_map(static fn (string $payload): string => self::zlibChunk($payload), $payloads)),
+            $images,
+            $meta
+        );
+    }
+
+    /**
+     * @param array<string, mixed>  $payload
+     * @param array<string, string> $images
+     * @param array<string, mixed>  $meta
+     */
+    public static function jsonFigArchive(array $payload, array $images = array(), array $meta = array('name' => 'Synthetic Fixture')): string
+    {
+        return self::figArchive(
+            self::canvas(array(self::jsonZlibChunk($payload))),
+            $images,
+            $meta
+        );
+    }
+
+    /**
      * @param array<string, string> $images
      */
     public static function wrapperArchive(string $canvas, array $images = array('images/synthetic' => 'asset')): string
