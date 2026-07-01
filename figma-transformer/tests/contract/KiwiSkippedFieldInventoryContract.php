@@ -16,15 +16,15 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
     $fields = is_array($inventory['fields'] ?? null) ? $inventory['fields'] : array();
 
     $assert('blocks-engine/figma-transformer/kiwi-skipped-field-inventory/v1' === ($inventory['schema'] ?? null), 'kiwi-skipped-inventory-schema');
-    $assert(11 === ($inventory['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-field-count');
-    $assert(11 === ($inventory['summary']['occurrences'] ?? null), 'kiwi-skipped-inventory-occurrences');
+    $assert(10 === ($inventory['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-field-count');
+    $assert(10 === ($inventory['summary']['occurrences'] ?? null), 'kiwi-skipped-inventory-occurrences');
     $assert(1 === ($inventory['summary']['by_role']['geometry_layout'] ?? null), 'kiwi-skipped-inventory-geometry-role');
     $assert(1 === ($inventory['summary']['by_role']['component_overrides'] ?? null), 'kiwi-skipped-inventory-component-role');
     $assert(1 === ($inventory['summary']['by_role']['fills_images'] ?? null), 'kiwi-skipped-inventory-image-role');
     $assert(! isset($inventory['summary']['by_role']['masks_effects']), 'kiwi-skipped-inventory-mask-role');
     $assert(2 === ($inventory['summary']['by_role']['text_style'] ?? null), 'kiwi-skipped-inventory-text-role');
     $assert(1 === ($inventory['summary']['by_role']['vectors'] ?? null), 'kiwi-skipped-inventory-vector-role');
-    $assert(1 === ($inventory['summary']['by_role']['variables_bindings'] ?? null), 'kiwi-skipped-inventory-variables-role');
+    $assert(! isset($inventory['summary']['by_role']['variables_bindings']), 'kiwi-skipped-inventory-variables-role-decoded');
     $assert(1 === ($inventory['summary']['by_role']['export_metadata'] ?? null), 'kiwi-skipped-inventory-export-role');
     $assert(1 === ($inventory['summary']['by_role']['document_metadata'] ?? null), 'kiwi-skipped-inventory-document-role');
 
@@ -61,6 +61,9 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
     $assert('7:99' === blocks_engine_figma_transformer_kiwi_inventory_format_guid($node['guides'][0]['guid'] ?? null), 'kiwi-selective-guide-guid');
     $assert(6.0 === ($node['listSpacing'] ?? null), 'kiwi-selective-list-spacing');
 
+    $message = $decoder->decodeMessageSelective(blocks_engine_figma_transformer_kiwi_inventory_message_fixture(), $schema)['message'] ?? array();
+    $assert('variables' === ($message['nodeChanges'][0]['variableConsumptionMap'] ?? null), 'kiwi-selective-decodes-variable-consumption-map');
+
     $fixture = SyntheticFigKiwiFixtureBuilder::figArchive(
         SyntheticFigKiwiFixtureBuilder::canvas(array(
             SyntheticFigKiwiFixtureBuilder::zlibChunk(blocks_engine_figma_transformer_kiwi_inventory_schema_fixture()),
@@ -76,7 +79,7 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
 
     $assert(is_array($cli), 'kiwi-skipped-inventory-cli-json');
     $assert('blocks-engine/figma-transformer/kiwi-skipped-field-inventory-file/v1' === ($cli['schema'] ?? null), 'kiwi-skipped-inventory-cli-schema');
-    $assert(11 === ($cli['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-cli-field-count');
+    $assert(10 === ($cli['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-cli-field-count');
 
     $fixture = SyntheticFigKiwiFixtureBuilder::figArchive(
         SyntheticFigKiwiFixtureBuilder::canvas(array(
@@ -100,7 +103,7 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
     $assert('blocks-engine/figma-transformer/kiwi-skipped-field-inventory-output/v1' === ($cli['schema'] ?? null), 'kiwi-skipped-inventory-output-cli-schema');
     $assert(is_array($written), 'kiwi-skipped-inventory-output-file-json');
     $assert('blocks-engine/figma-transformer/kiwi-skipped-field-inventory-file/v1' === ($written['schema'] ?? null), 'kiwi-skipped-inventory-output-file-schema');
-    $assert(11 === ($written['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-output-file-field-count');
+    $assert(10 === ($written['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-output-file-field-count');
 }
 
 /**

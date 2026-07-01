@@ -413,6 +413,11 @@ final class ScenegraphNormalizer
             $node['figma_component'] = $component;
         }
 
+        $variableBindings = $this->normalizeVariableBindings($node);
+        if ( ! empty($variableBindings) ) {
+            $node['figma_variable_bindings'] = $variableBindings;
+        }
+
         if ( 'TEXT' === $type ) {
             $text = $this->textNormalizer->normalizeText($node, $blobs, $id, $diagnostics, $paintStyles, $textStyles, $options);
             if ( ! empty($text) ) {
@@ -487,6 +492,174 @@ final class ScenegraphNormalizer
         }
 
         return $node;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function normalizeVariableBindings(array $node): array
+    {
+        $normalized = array();
+        $bindings = array();
+        $byRole = array();
+
+        foreach ( array('variableConsumptionMap', 'parameterConsumptionMap') as $sourceKey ) {
+            if ( ! is_array($node[$sourceKey]['entries'] ?? null) ) {
+                continue;
+            }
+
+            foreach ( $node[$sourceKey]['entries'] as $entry ) {
+                if ( ! is_array($entry) ) {
+                    continue;
+                }
+
+                $targetField = isset($entry['variableField']) && is_scalar($entry['variableField']) ? (string) $entry['variableField'] : null;
+                if ( null === $targetField && isset($entry['nodeField']) && is_scalar($entry['nodeField']) ) {
+                    $targetField = 'nodeField:' . (string) $entry['nodeField'];
+                }
+                if ( null === $targetField || '' === $targetField ) {
+                    continue;
+                }
+
+                $variableData = is_array($entry['variableData'] ?? null) ? $entry['variableData'] : array();
+                $binding = array(
+                    'source'             => $sourceKey,
+                    'target_field'       => $targetField,
+                    'target_role'        => $this->classifyVariableBindingTarget($targetField),
+                    'data_type'          => isset($variableData['dataType']) && is_scalar($variableData['dataType']) ? (string) $variableData['dataType'] : null,
+                    'resolved_data_type' => isset($variableData['resolvedDataType']) && is_scalar($variableData['resolvedDataType']) ? (string) $variableData['resolvedDataType'] : null,
+                );
+
+                $value = is_array($variableData['value'] ?? null) ? $variableData['value'] : array();
+                $variableId = $this->readGuidId($value['alias']['guid'] ?? null);
+                if ( null !== $variableId ) {
+                    $binding['variable_id'] = $variableId;
+                }
+                $directValue = $this->normalizeVariableAnyValue($value);
+                if ( null !== $directValue ) {
+                    $binding['value'] = $directValue;
+                }
+
+                $bindings[] = array_filter($binding, static fn (mixed $value): bool => null !== $value);
+                $role = (string) $binding['target_role'];
+                $byRole[$role] = ($byRole[$role] ?? 0) + 1;
+            }
+        }
+
+        if ( ! empty($bindings) ) {
+            arsort($byRole);
+            $normalized['bindings'] = $bindings;
+            $normalized['summary'] = array(
+                'binding_count' => count($bindings),
+                'by_role'       => $byRole,
+            );
+        }
+
+        if ( isset($node['variableResolvedType']) && is_scalar($node['variableResolvedType']) ) {
+            $normalized['resolved_type'] = (string) $node['variableResolvedType'];
+        }
+
+        if ( is_array($node['variableSetID'] ?? null) ) {
+            $setId = $this->readGuidId($node['variableSetID']['guid'] ?? null);
+            if ( null !== $setId ) {
+                $normalized['variable_set_id'] = $setId;
+            }
+        }
+
+        if ( is_array($node['variableScopes'] ?? null) ) {
+            $scopes = array_values(array_filter($node['variableScopes'], 'is_scalar'));
+            if ( ! empty($scopes) ) {
+                $normalized['scopes'] = array_map('strval', $scopes);
+            }
+        }
+
+        if ( is_array($node['variableSetModes'] ?? null) ) {
+            $modes = array();
+            foreach ( $node['variableSetModes'] as $mode ) {
+                if ( ! is_array($mode) ) {
+                    continue;
+                }
+                $modeId = $this->readGuidId($mode['id'] ?? null);
+                if ( null === $modeId ) {
+                    continue;
+                }
+                $normalizedMode = array('id' => $modeId);
+                foreach ( array('name', 'sortPosition') as $key ) {
+                    if ( isset($mode[$key]) && is_scalar($mode[$key]) ) {
+                        $normalizedMode[$key] = (string) $mode[$key];
+                    }
+                }
+                $modes[] = $normalizedMode;
+            }
+            if ( ! empty($modes) ) {
+                $normalized['modes'] = $modes;
+            }
+        }
+
+        if ( is_array($node['variableDataValues']['entries'] ?? null) ) {
+            $values = array();
+            foreach ( $node['variableDataValues']['entries'] as $entry ) {
+                if ( ! is_array($entry) ) {
+                    continue;
+                }
+                $modeId = $this->readGuidId($entry['modeID'] ?? null);
+                $variableData = is_array($entry['variableData'] ?? null) ? $entry['variableData'] : array();
+                $value = $this->normalizeVariableAnyValue(is_array($variableData['value'] ?? null) ? $variableData['value'] : array());
+                if ( null === $modeId && null === $value ) {
+                    continue;
+                }
+                $values[] = array_filter(array(
+                    'mode_id'            => $modeId,
+                    'value'              => $value,
+                    'data_type'          => isset($variableData['dataType']) && is_scalar($variableData['dataType']) ? (string) $variableData['dataType'] : null,
+                    'resolved_data_type' => isset($variableData['resolvedDataType']) && is_scalar($variableData['resolvedDataType']) ? (string) $variableData['resolvedDataType'] : null,
+                ), static fn (mixed $value): bool => null !== $value);
+            }
+            if ( ! empty($values) ) {
+                $normalized['values'] = $values;
+            }
+        }
+
+        return $normalized;
+    }
+
+    private function classifyVariableBindingTarget(string $targetField): string
+    {
+        return match ($targetField) {
+            'TEXT_DATA', 'FONT_FAMILY', 'FONT_STYLE', 'FONT_VARIATIONS', 'FONT_SIZE', 'LETTER_SPACING', 'LINE_HEIGHT', 'PARAGRAPH_SPACING', 'PARAGRAPH_INDENT' => 'text',
+            'STACK_SPACING', 'STACK_COUNTER_SPACING', 'STACK_PADDING_LEFT', 'STACK_PADDING_TOP', 'STACK_PADDING_RIGHT', 'STACK_PADDING_BOTTOM', 'WIDTH', 'HEIGHT', 'MIN_WIDTH', 'MAX_WIDTH', 'MIN_HEIGHT', 'MAX_HEIGHT', 'X_POSITION', 'Y_POSITION', 'ROTATION' => 'layout',
+            'CORNER_RADIUS', 'RECTANGLE_TOP_LEFT_CORNER_RADIUS', 'RECTANGLE_TOP_RIGHT_CORNER_RADIUS', 'RECTANGLE_BOTTOM_LEFT_CORNER_RADIUS', 'RECTANGLE_BOTTOM_RIGHT_CORNER_RADIUS' => 'geometry',
+            'VISIBLE' => 'visibility',
+            'OPACITY', 'ALL_FILLS', 'FRAME_FILL', 'SHAPE_FILL', 'TEXT_FILL', 'STROKE', 'STROKE_FLOAT', 'COLOR_OPACITY' => 'paint',
+            'VARIANT_PROPERTIES', 'OVERRIDDEN_SYMBOL_ID', 'SLOT_CONTENT_ID' => 'component',
+            'HYPERLINK' => 'link',
+            default => 'unknown',
+        };
+    }
+
+    /**
+     * @param array<string, mixed> $value
+     */
+    private function normalizeVariableAnyValue(array $value): mixed
+    {
+        foreach ( array('boolValue', 'textValue', 'floatValue') as $key ) {
+            if ( array_key_exists($key, $value) && is_scalar($value[$key]) ) {
+                return $value[$key];
+            }
+        }
+
+        if ( is_array($value['colorValue'] ?? null) ) {
+            return $value['colorValue'];
+        }
+        if ( is_array($value['textDataValue'] ?? null) ) {
+            return $value['textDataValue'];
+        }
+        if ( is_array($value['symbolIdValue']['guid'] ?? null) ) {
+            return $this->readGuidId($value['symbolIdValue']['guid']);
+        }
+
+        return null;
     }
 
     /**
@@ -1360,7 +1533,7 @@ final class ScenegraphNormalizer
         // the definition's visibility and incorrectly emit to HTML.
         $resolved['visible'] = $instance['visible'] ?? true;
 
-        foreach ( array('box', 'figma_box', 'layout', 'figma_paints', 'figma_effects', 'figma_link', 'figma_vector_paths', 'componentProperties', 'fillPaints', 'effects', 'styleIdForFill', 'styleIdForEffect', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd', 'strokeWeight', 'strokeAlign', 'dashPattern', 'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight', 'borderLeftWeight', 'borderRightWeight') as $key ) {
+        foreach ( array('box', 'figma_box', 'layout', 'figma_paints', 'figma_effects', 'figma_link', 'figma_vector_paths', 'figma_variable_bindings', 'componentProperties', 'fillPaints', 'effects', 'styleIdForFill', 'styleIdForEffect', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd', 'strokeWeight', 'strokeAlign', 'dashPattern', 'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight', 'borderLeftWeight', 'borderRightWeight', 'variableConsumptionMap', 'parameterConsumptionMap', 'variableDataValues', 'variableResolvedType', 'variableSetID', 'variableScopes', 'variableSetModes') as $key ) {
             if ( array_key_exists($key, $instance) ) {
                 $resolved[$key] = $instance[$key];
             }

@@ -62,8 +62,16 @@ final class FigKiwiDecodePolicy
             'VariantPropSpec' => array('propDefId', 'value'),
             'ComponentPropAssignment' => array('defID', 'value', 'varValue'),
             'ComponentPropValue' => array('boolValue', 'textValue', 'guidValue', 'floatValue', 'textDataValue', 'symbolIdValue'),
+            'VariableDataMap' => array('entries'),
+            'VariableDataMapEntry' => array('nodeField', 'variableData', 'variableField'),
             'VariableData' => array('value', 'dataType', 'resolvedDataType'),
-            'VariableAnyValue' => array('boolValue', 'textValue', 'floatValue', 'colorValue', 'symbolIdValue', 'textDataValue'),
+            'VariableAnyValue' => array('boolValue', 'textValue', 'floatValue', 'alias', 'colorValue', 'symbolIdValue', 'textDataValue', 'vectorValue', 'linkValue', 'propRefValue'),
+            'VariableID' => array('guid', 'assetRef'),
+            'VariableOverrideId' => array('guid', 'assetRef'),
+            'VariableDataValues' => array('entries'),
+            'VariableDataValuesEntry' => array('modeID', 'variableData'),
+            'VariableSetMode' => array('id', 'name', 'sortPosition', 'parentVariableSetId', 'parentModeId'),
+            'VariableSetID' => array('guid', 'assetRef'),
             'SymbolId' => array('guid'),
             'ComponentPropDef' => array('id', 'parentPropDefId', 'name', 'initialValue', 'sortPosition', 'type', 'preferredValues', 'varValue'),
             'ComponentPropRef' => array('defID', 'componentPropNodeField'),
@@ -234,6 +242,7 @@ final class FigKiwiDecodePolicy
             $this->nodeTextFields(),
             $this->nodeLayoutFields(),
             $this->nodeEffectFields(),
+            $this->nodeVariableBindingFields(),
             $this->nodePrototypeLinkFields()
         );
     }
@@ -349,5 +358,13 @@ final class FigKiwiDecodePolicy
     {
         // Link extraction only; richer animation/overlay/swap action data stays undecoded.
         return array('hyperlink', 'prototypeInteractions', 'reactions', 'transitionNodeID');
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nodeVariableBindingFields(): array
+    {
+        return array('variableConsumptionMap', 'parameterConsumptionMap', 'variableDataValues', 'variableResolvedType', 'variableSetID', 'variableScopes', 'variableSetModes');
     }
 }

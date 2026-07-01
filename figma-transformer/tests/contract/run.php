@@ -29,6 +29,7 @@ use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiDecoder;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\VisualAttributionReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameClassifier;
+use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphPagePlanner;
 
 $failures = array();
@@ -5205,6 +5206,74 @@ $rootLevelBandsResult = blocks_engine_figma_transformer_transform_scenegraph(arr
 ));
 $rootLevelHtml = $fileContent($rootLevelBandsResult, 'index.html');
 $assert(2 === substr_count($rootLevelHtml, '<section'), 'section-refinement-root-level-bands-are-sections');
+
+$variableBindingNormalizer = new ScenegraphNormalizer();
+$variableBindingResult = $variableBindingNormalizer->normalize(array(
+    'name'  => 'Variable Binding Fixture',
+    'nodes' => array(
+        array(
+            'id'        => 'variable-node-gap',
+            'type'      => 'VARIABLE',
+            'name'      => 'Gap / Medium',
+            'variableResolvedType' => 'FLOAT',
+            'variableSetID' => array('guid' => array('sessionID' => 9, 'localID' => 1)),
+            'variableScopes' => array('GAP'),
+            'variableDataValues' => array(
+                'entries' => array(
+                    array(
+                        'modeID' => array('sessionID' => 9, 'localID' => 2),
+                        'variableData' => array(
+                            'dataType' => 'FLOAT',
+                            'resolvedDataType' => 'FLOAT',
+                            'value' => array('floatValue' => 16.0),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array(
+            'id'        => 'variable-frame',
+            'type'      => 'FRAME',
+            'name'      => 'Variable Frame',
+            'width'     => 320,
+            'height'    => 200,
+            'stackMode' => 'VERTICAL',
+            'stackSpacing' => 16,
+            'variableConsumptionMap' => array(
+                'entries' => array(
+                    array(
+                        'variableField' => 'STACK_SPACING',
+                        'variableData' => array(
+                            'dataType' => 'ALIAS',
+                            'resolvedDataType' => 'FLOAT',
+                            'value' => array('alias' => array('guid' => array('sessionID' => 9, 'localID' => 3))),
+                        ),
+                    ),
+                ),
+            ),
+            'parameterConsumptionMap' => array(
+                'entries' => array(
+                    array(
+                        'variableField' => 'TEXT_DATA',
+                        'variableData' => array(
+                            'dataType' => 'PROP_REF',
+                            'resolvedDataType' => 'TEXT_DATA',
+                            'value' => array(),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$variableFrameBindings = $variableBindingResult['node_map']['variable-frame']['figma_variable_bindings'] ?? array();
+$assert(2 === ($variableFrameBindings['summary']['binding_count'] ?? null), 'variable-bindings-normalized-count');
+$assert(1 === ($variableFrameBindings['summary']['by_role']['layout'] ?? null), 'variable-bindings-layout-role');
+$assert(1 === ($variableFrameBindings['summary']['by_role']['text'] ?? null), 'variable-bindings-text-role');
+$assert('9:3' === ($variableFrameBindings['bindings'][0]['variable_id'] ?? null), 'variable-bindings-alias-guid-normalized');
+$variableDefinition = $variableBindingResult['node_map']['variable-node-gap']['figma_variable_bindings'] ?? array();
+$assert('FLOAT' === ($variableDefinition['resolved_type'] ?? null), 'variable-definition-resolved-type');
+$assert(16.0 === ($variableDefinition['values'][0]['value'] ?? null), 'variable-definition-mode-value');
 
 blocks_engine_figma_transformer_run_fixture_matrix_contract($assert);
 blocks_engine_figma_transformer_run_node_trace_contract($assert);
