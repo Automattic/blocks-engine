@@ -11,6 +11,9 @@ final class FigKiwiDecoder
 {
     private const TYPES = array('bool', 'byte', 'int', 'uint', 'float', 'string', 'int64', 'uint64');
     private const KINDS = array('ENUM', 'STRUCT', 'MESSAGE');
+    private const INVENTORY_SAMPLE_LIMIT = 3;
+    private const INVENTORY_SAMPLE_STRING_BYTES = 120;
+    private const INVENTORY_SAMPLE_ARRAY_ITEMS = 8;
 
     private FigKiwiDecodePolicy $decodePolicy;
 
@@ -137,10 +140,11 @@ final class FigKiwiDecoder
 
             $policy = empty($fieldPolicy) ? $this->decodePolicy->defaultScenegraphFieldPolicy() : $fieldPolicy;
             $inventory = array(
-                'schema'        => 'blocks-engine/figma-transformer/kiwi-skipped-field-inventory/v1',
-                'root_type'     => $rootType,
-                'policy_groups' => $this->decodePolicy->scenegraphFieldPolicyGroups(),
-                'fields'        => array(),
+                'schema'             => 'blocks-engine/figma-transformer/kiwi-skipped-field-inventory/v1',
+                'root_type'          => $rootType,
+                'policy_groups'      => $this->decodePolicy->scenegraphFieldPolicyGroups(),
+                'schema_definitions' => $this->schemaDefinitionInventory($schema),
+                'fields'             => array(),
             );
             $context = $this->decodePolicy->initialInventoryContext($rootType);
 
@@ -465,8 +469,8 @@ final class FigKiwiDecoder
                 if ( isset($allowed[$fieldName]) ) {
                     $this->inventoryDecodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $inventory, $context);
                 } else {
-                    $this->recordSkippedField($inventory, $field, $context);
-                    $this->skipField($reader, $field, $definitions);
+                    $sample = $this->readFieldValue($reader, $field, $definitions);
+                    $this->recordSkippedField($inventory, $field, $definitions, $context, $sample);
                 }
             }
         }
@@ -480,8 +484,8 @@ final class FigKiwiDecoder
             if ( isset($allowed[$fieldName]) ) {
                 $this->inventoryDecodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $inventory, $context);
             } else {
-                $this->recordSkippedField($inventory, $field, $context);
-                $this->skipField($reader, $field, $definitions);
+                $sample = $this->readFieldValue($reader, $field, $definitions);
+                $this->recordSkippedField($inventory, $field, $definitions, $context, $sample);
             }
         }
     }
@@ -588,7 +592,7 @@ final class FigKiwiDecoder
      * @param array<string, mixed> $field
      * @param array<string, mixed> $context
      */
-    private function recordSkippedField(array &$inventory, array $field, array $context): void
+    private function recordSkippedField(array &$inventory, array $field, array $definitions, array $context, mixed $sample): void
     {
         $fieldName = (string) ($field['name'] ?? '');
         $type = (string) ($field['type'] ?? '');
@@ -596,18 +600,24 @@ final class FigKiwiDecoder
         $path = (string) ($context['path'] ?? $parentType) . '.' . $fieldName;
         $role = $this->decodePolicy->classifySkippedFieldRole($fieldName, $type, $parentType);
         $key = $parentType . '|' . $path . '|' . $fieldName . '|' . $type;
+        $typeDefinition = $this->fieldTypeDefinition($type, $definitions);
 
         if ( ! isset($inventory['fields'][$key]) ) {
             $inventory['fields'][$key] = array(
-                'path'            => $path,
-                'field'           => $fieldName,
-                'type'            => $type,
-                'parent_message'  => $parentType,
-                'field_role'      => $role,
-                'is_array'        => true === ($field['is_array'] ?? false),
-                'occurrences'     => 0,
-                'node_types'      => array(),
-                'sample_node_ids' => array(),
+                'path'              => $path,
+                'field'             => $fieldName,
+                'type'              => $type,
+                'type_kind'         => $typeDefinition['kind'] ?? 'PRIMITIVE',
+                'wire_type'         => $this->fieldWireType($field, $definitions),
+                'type_definition'   => $typeDefinition,
+                'parent_message'    => $parentType,
+                'field_role'        => $role,
+                'is_array'          => true === ($field['is_array'] ?? false),
+                'field_number'      => (int) ($field['value'] ?? 0),
+                'occurrences'       => 0,
+                'node_types'        => array(),
+                'sample_node_ids'   => array(),
+                'sample_raw_values' => array(),
             );
         }
 
@@ -618,6 +628,178 @@ final class FigKiwiDecoder
         if ( '' !== $nodeId && count($inventory['fields'][$key]['sample_node_ids']) < 5 && ! in_array($nodeId, $inventory['fields'][$key]['sample_node_ids'], true) ) {
             $inventory['fields'][$key]['sample_node_ids'][] = $nodeId;
         }
+
+        if ( count($inventory['fields'][$key]['sample_raw_values']) < self::INVENTORY_SAMPLE_LIMIT ) {
+            $normalized = $this->normalizeInventorySample($sample);
+            if ( ! in_array($normalized, $inventory['fields'][$key]['sample_raw_values'], true) ) {
+                $inventory['fields'][$key]['sample_raw_values'][] = $normalized;
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed>                $field
+     * @param array<string, array<string, mixed>> $definitions
+     */
+    private function readFieldValue(FigKiwiByteReader $reader, array $field, array $definitions): mixed
+    {
+        $type = (string) ($field['type'] ?? '');
+        if ( true === ($field['is_array'] ?? false) ) {
+            if ( 'byte' === $type ) {
+                return $reader->readByteArray();
+            }
+
+            $length = $reader->readVarUint();
+            $value = array();
+            for ( $i = 0; $i < $length; $i++ ) {
+                $value[] = $this->decodeValue($reader, $type, $definitions);
+            }
+            return $value;
+        }
+
+        return $this->decodeValue($reader, $type, $definitions);
+    }
+
+    /**
+     * @param array<string, mixed>                $field
+     * @param array<string, array<string, mixed>> $definitions
+     */
+    private function fieldWireType(array $field, array $definitions): string
+    {
+        $type = (string) ($field['type'] ?? '');
+        if ( true === ($field['is_array'] ?? false) ) {
+            return 'length_delimited_array';
+        }
+
+        if ( in_array($type, array('bool', 'byte', 'int', 'uint', 'int64', 'uint64'), true) ) {
+            return 'varint';
+        }
+        if ( 'float' === $type ) {
+            return 'varfloat';
+        }
+        if ( 'string' === $type ) {
+            return 'null_terminated_string';
+        }
+
+        $definition = $definitions[$type] ?? null;
+        if ( ! is_array($definition) ) {
+            return 'unknown';
+        }
+
+        return match ( $definition['kind'] ?? null ) {
+            'ENUM' => 'varint_enum',
+            'STRUCT' => 'kiwi_struct',
+            'MESSAGE' => 'kiwi_message',
+            default => 'unknown',
+        };
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $definitions
+     * @return array<string, mixed>
+     */
+    private function fieldTypeDefinition(string $type, array $definitions): array
+    {
+        if ( in_array($type, self::TYPES, true) ) {
+            return array('name' => $type, 'kind' => 'PRIMITIVE');
+        }
+
+        $definition = $definitions[$type] ?? null;
+        return is_array($definition) ? $this->normalizeSchemaDefinition($definition) : array('name' => $type, 'kind' => 'UNKNOWN');
+    }
+
+    /**
+     * @param array<string, mixed> $schema
+     * @return array<string, array<string, mixed>>
+     */
+    private function schemaDefinitionInventory(array $schema): array
+    {
+        $inventory = array();
+        foreach ( $schema['definitions'] ?? array() as $definition ) {
+            if ( is_array($definition) && isset($definition['name']) ) {
+                $inventory[(string) $definition['name']] = $this->normalizeSchemaDefinition($definition);
+            }
+        }
+        ksort($inventory);
+        return $inventory;
+    }
+
+    /**
+     * @param array<string, mixed> $definition
+     * @return array<string, mixed>
+     */
+    private function normalizeSchemaDefinition(array $definition): array
+    {
+        $fields = array();
+        foreach ( $definition['fields'] ?? array() as $field ) {
+            if ( ! is_array($field) ) {
+                continue;
+            }
+            $fields[] = array(
+                'name'       => (string) ($field['name'] ?? ''),
+                'type'       => (string) ($field['type'] ?? ''),
+                'is_array'   => true === ($field['is_array'] ?? false),
+                'number'     => (int) ($field['value'] ?? 0),
+                'deprecated' => true === ($field['is_deprecated'] ?? false),
+            );
+        }
+
+        return array(
+            'name'   => (string) ($definition['name'] ?? ''),
+            'kind'   => (string) ($definition['kind'] ?? 'UNKNOWN'),
+            'fields' => $fields,
+        );
+    }
+
+    /**
+     * @return mixed
+     */
+    private function normalizeInventorySample(mixed $value): mixed
+    {
+        if ( is_string($value) ) {
+            $bytes = strlen($value);
+            $printable = preg_match('/^[\x09\x0A\x0D\x20-\x7E]*$/', $value) ? $value : null;
+            return array(
+                'kind'        => 'string',
+                'bytes'       => $bytes,
+                'value'       => null === $printable ? null : substr($printable, 0, self::INVENTORY_SAMPLE_STRING_BYTES),
+                'truncated'   => null !== $printable && $bytes > self::INVENTORY_SAMPLE_STRING_BYTES,
+                'preview_hex' => bin2hex(substr($value, 0, 32)),
+            );
+        }
+
+        if ( is_array($value) ) {
+            $items = array();
+            $count = 0;
+            foreach ( $value as $key => $item ) {
+                if ( $count >= self::INVENTORY_SAMPLE_ARRAY_ITEMS ) {
+                    break;
+                }
+                $items[(string) $key] = $this->normalizeInventorySample($item);
+                $count++;
+            }
+            return array(
+                'kind'      => 'array',
+                'count'     => count($value),
+                'items'     => $items,
+                'truncated' => count($value) > self::INVENTORY_SAMPLE_ARRAY_ITEMS,
+            );
+        }
+
+        if ( is_bool($value) ) {
+            return array('kind' => 'bool', 'value' => $value);
+        }
+        if ( is_int($value) ) {
+            return array('kind' => 'int', 'value' => $value);
+        }
+        if ( is_float($value) ) {
+            return array('kind' => 'float', 'value' => $value);
+        }
+        if ( null === $value ) {
+            return array('kind' => 'null', 'value' => null);
+        }
+
+        return array('kind' => get_debug_type($value));
     }
 
     /**
