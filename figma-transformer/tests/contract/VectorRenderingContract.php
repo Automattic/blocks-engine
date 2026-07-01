@@ -58,7 +58,7 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $arcEllipseHtml = $fileContent($arcEllipseResult, 'index.html');
     $assert(str_contains($arcEllipseHtml, 'data-figma-node-id="ellipse:arc"') && str_contains($arcEllipseHtml, '<path d="M 20 10 A 10 10 0 0 1'), 'arc-ellipse-renders-path');
     $assert(! str_contains($arcEllipseHtml, '<ellipse cx="10" cy="10"'), 'arc-ellipse-does-not-render-full-ellipse');
-     
+
     $strokedInlineVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Stroked Inline Vector Fixture',
         'nodes' => array(
@@ -605,7 +605,49 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(2 === ($vectorNetworkDiagnostic['context']['affected_node_count'] ?? null), 'vector-network-diagnostic-affected-node-count');
     $assert(array('vector:data-malformed', 'vector:data-painted-fallback') === ($vectorNetworkDiagnostic['context']['sample_node_ids'] ?? null), 'vector-network-diagnostic-sample-nodes');
     $assert(array('1') === ($vectorNetworkDiagnostic['context']['sample_blob_refs'] ?? null), 'vector-network-diagnostic-sample-blob-refs');
-    
+
+    // Compact vectorNetwork blob: straight segments can be encoded as just
+    // start/end uint32 pairs. This is a generic .fig layout, not a named-icon
+    // signature, and should render deterministically with the region fill rule.
+    $compactNetworkBlob = pack('V3', 4, 4, 1);
+    foreach ( array(array(0.0, 0.0), array(12.0, 0.0), array(12.0, 8.0), array(0.0, 8.0)) as $point ) {
+        $compactNetworkBlob .= pack('V', 0) . pack('g', $point[0]) . pack('g', $point[1]) . pack('V2', 0, 0);
+    }
+    foreach ( array(array(0, 1), array(1, 2), array(2, 3), array(3, 0)) as $segment ) {
+        $compactNetworkBlob .= pack('V2', $segment[0], $segment[1]);
+    }
+    $compactNetworkBlob .= pack('V3', 4, 1, 0);
+    foreach ( array(array(0, 0), array(1, 0), array(2, 0), array(3, 0)) as $entry ) {
+        $compactNetworkBlob .= pack('V2', $entry[0], $entry[1]);
+    }
+
+    $compactNetworkResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Compact Vector Network Fixture',
+        'blobs' => array(array('bytes' => $compactNetworkBlob)),
+        'nodes' => array(
+            array(
+                'id'         => 'vector:compact-network',
+                'type'       => 'VECTOR',
+                'name'       => 'Compact Network',
+                'width'      => 12,
+                'height'     => 8,
+                'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.2, 'g' => 0.3, 'b' => 0.4))),
+                'vectorData' => array('vectorNetworkBlob' => 0),
+            ),
+        ),
+    ));
+    $compactNetworkHtml = $fileContent($compactNetworkResult, 'index.html');
+    $compactNetworkDiagnosticCodes = array_map(
+        static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+        $compactNetworkResult['diagnostics'] ?? array()
+    );
+    $compactNetworkVectors = $compactNetworkResult['source_reports']['figma']['html']['transform_diagnostics']['vectors'] ?? array();
+    $assert(str_contains($compactNetworkHtml, 'data-figma-node-id="vector:compact-network"') && str_contains($compactNetworkHtml, 'd="M0 0L12 0 12 8 0 8 0 0Z"'), 'compact-vector-network-renders-path');
+    $assert(str_contains($compactNetworkHtml, 'fill="#334d66"') && str_contains($compactNetworkHtml, 'fill-rule="evenodd"'), 'compact-vector-network-preserves-paint-and-fill-rule');
+    $assert(! str_contains($compactNetworkHtml, 'data-figma-unsupported-vector="true"'), 'compact-vector-network-not-placeholder');
+    $assert(! in_array('unsupported_vector_network_blob', $compactNetworkDiagnosticCodes, true), 'compact-vector-network-no-unsupported-diagnostic');
+    $assert(1 === (int) ($compactNetworkVectors['vector_network_decoded'] ?? 0), 'compact-vector-network-counted-decoded');
+
     // General vectorNetwork decode: 3 vertices, 3 segments (one carrying bezier
     // tangents), one NONZERO region. Stride is 24 bytes (tangent-bearing), so the
     // blob is rejected by the legacy exact-match decoders and handled by the new
