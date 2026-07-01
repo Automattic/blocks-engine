@@ -50,7 +50,10 @@ final class FigKiwiDecodePolicy
             'Blob' => array('bytes'),
             'Path' => array('commandsBlob', 'windingRule', 'styleID'),
             'VectorPath' => array('commandsBlob', 'windingRule', 'styleID'),
-            'VectorData' => array('vectorNetworkBlob', 'vectorNetwork'),
+            'VectorData' => array('vectorNetworkBlob', 'vectorNetwork', 'normalizedSize'),
+            'ArcData' => array('startingAngle', 'endingAngle', 'innerRadius'),
+            'Guide' => array('axis', 'offset', 'guid'),
+            'LayoutGrid' => array('type', 'axis', 'visible', 'numSections', 'offset', 'sectionSize', 'gutterSize', 'color', 'pattern'),
             'SymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
             'DerivedSymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
             'GUIDPath' => array('guids'),
@@ -130,7 +133,7 @@ final class FigKiwiDecodePolicy
         if ( str_contains($name, 'stategroup') ) {
             return 'component_overrides';
         }
-        if ( str_contains($name, 'bound') || str_contains($name, 'layout') || str_contains($name, 'constraint') || str_contains($name, 'padding') || str_contains($name, 'size') || str_contains($name, 'transform') || str_contains($name, 'corner') || str_contains($name, 'stack') ) {
+        if ( str_contains($name, 'arcdata') || str_contains($name, 'guide') || str_contains($name, 'bound') || str_contains($name, 'layout') || str_contains($name, 'constraint') || str_contains($name, 'padding') || str_contains($name, 'size') || str_contains($name, 'transform') || str_contains($name, 'corner') || str_contains($name, 'stack') ) {
             return 'geometry_layout';
         }
         if ( str_contains($name, 'paint') || str_contains($name, 'fill') || str_contains($name, 'stroke') || str_contains($name, 'image') || str_contains($name, 'blob') || str_contains($name, 'blendmode') || str_contains($name, 'background') ) {
@@ -258,7 +261,7 @@ final class FigKiwiDecodePolicy
     private function nodeGeometryFields(): array
     {
         return array(
-            'size', 'transform', 'useAbsoluteBounds', 'cornerRadius',
+            'size', 'transform', 'useAbsoluteBounds', 'cornerRadius', 'arcData', 'guides', 'layoutGrids',
             'rectangleTopLeftCornerRadius', 'rectangleTopRightCornerRadius',
             'rectangleBottomLeftCornerRadius', 'rectangleBottomRightCornerRadius',
             'horizontalConstraint', 'verticalConstraint', 'resizeToFit', 'isClip', 'frameMaskDisabled', 'minSize', 'maxSize',
@@ -310,7 +313,7 @@ final class FigKiwiDecodePolicy
         return array(
             'fontSize', 'fontName', 'textData', 'lineHeight', 'letterSpacing',
             'paragraphIndent', 'paragraphSpacing', 'styleID', 'textAlignHorizontal',
-            'textAlignVertical', 'textCase', 'textDecoration', 'textAutoResize',
+            'textAlignVertical', 'textCase', 'textDecoration', 'textAutoResize', 'listSpacing',
             'derivedTextData',
         );
     }

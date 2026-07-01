@@ -439,6 +439,10 @@ final class TextNormalizer
             $style['paragraph_indent'] = (float) $source['paragraphIndent'];
         }
 
+        if ( isset($source['listSpacing']) && is_numeric($source['listSpacing']) ) {
+            $style['list_spacing'] = (float) $source['listSpacing'];
+        }
+
         return $style;
     }
 

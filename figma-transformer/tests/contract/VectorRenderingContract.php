@@ -40,7 +40,25 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $edgeAlignedFilledVectorHtml = $fileContent($edgeAlignedFilledVectorResult, 'index.html');
     $assert(str_contains($edgeAlignedFilledVectorHtml, 'viewBox="0 0 10 10"'), 'edge-aligned-filled-vector-viewbox-keeps-intrinsic-bounds');
     $assert(! str_contains($edgeAlignedFilledVectorHtml, 'viewBox="-0.5 -0.5 11 11"'), 'edge-aligned-filled-vector-no-stroke-padding');
-    
+
+    $arcEllipseResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Arc Ellipse Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'ellipse:arc',
+                'type'       => 'ELLIPSE',
+                'name'       => 'Progress Ring',
+                'width'      => 20,
+                'height'     => 20,
+                'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0))),
+                'arcData'    => array('startingAngle' => 0.0, 'endingAngle' => 1.57079632679, 'innerRadius' => 0.5),
+            ),
+        ),
+    ));
+    $arcEllipseHtml = $fileContent($arcEllipseResult, 'index.html');
+    $assert(str_contains($arcEllipseHtml, 'data-figma-node-id="ellipse:arc"') && str_contains($arcEllipseHtml, '<path d="M 20 10 A 10 10 0 0 1'), 'arc-ellipse-renders-path');
+    $assert(! str_contains($arcEllipseHtml, '<ellipse cx="10" cy="10"'), 'arc-ellipse-does-not-render-full-ellipse');
+     
     $strokedInlineVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Stroked Inline Vector Fixture',
         'nodes' => array(
