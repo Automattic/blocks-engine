@@ -11,6 +11,7 @@ final class TextNormalizer
 {
     private const MAX_TEXT_GLYPH_COMMAND_BLOB_BYTES = 262144;
     private const MAX_TEXT_GLYPH_COMMAND_BLOB_BYTES_PER_NODE = 262144;
+    private const MAX_LOGICAL_CHARACTER_OFFSET_SAMPLES = 256;
 
     public function __construct(
         private readonly VectorGeometryNormalizer $vectorGeometryNormalizer = new VectorGeometryNormalizer()
@@ -223,13 +224,22 @@ final class TextNormalizer
 
         if ( is_array($source['logicalIndexToCharacterOffsetMap'] ?? null) ) {
             $offsets = array();
+            $offsetCount = 0;
             foreach ( $source['logicalIndexToCharacterOffsetMap'] as $offset ) {
                 if ( is_numeric($offset) ) {
+                    $offsetCount++;
+                    if ( $offsetCount > self::MAX_LOGICAL_CHARACTER_OFFSET_SAMPLES ) {
+                        continue;
+                    }
                     $offsets[] = (float) $offset;
                 }
             }
             if ( ! empty($offsets) ) {
                 $layout['logical_character_offsets'] = $offsets;
+                $layout['logical_character_offset_count'] = $offsetCount;
+                if ( $offsetCount > self::MAX_LOGICAL_CHARACTER_OFFSET_SAMPLES ) {
+                    $layout['logical_character_offsets_truncated'] = true;
+                }
             }
         }
 
