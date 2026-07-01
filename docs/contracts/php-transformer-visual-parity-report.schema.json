@@ -40,6 +40,7 @@
         }
       }
     },
+    "capture_diagnostics": { "$ref": "#/$defs/capture_diagnostics" },
     "findings": {
       "type": "array",
       "items": { "$ref": "#/$defs/finding" }
@@ -193,6 +194,24 @@
         "selector_evidence": { "$ref": "#/$defs/selector_evidence" }
       }
     },
+    "property_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "property": { "type": "string" },
+        "source_property": { "type": "string" },
+        "target_property": { "type": "string" },
+        "source_value": { "type": ["string", "number", "boolean", "null"] },
+        "target_value": { "type": ["string", "number", "boolean", "null"] },
+        "expected_value": { "type": ["string", "number", "boolean", "null"] },
+        "actual_value": { "type": ["string", "number", "boolean", "null"] },
+        "delta": { "type": ["string", "number", "boolean", "null"] },
+        "unit": { "type": "string" },
+        "tolerance": { "type": "number", "minimum": 0 },
+        "source_rule": { "type": "string" },
+        "target_rule": { "type": "string" }
+      }
+    },
     "visual_diff_viewport": {
       "type": "object",
       "additionalProperties": false,
@@ -214,9 +233,14 @@
         "severity": { "$ref": "#/$defs/severity" },
         "category": { "type": "string", "enum": ["dom", "style", "layout", "visual", "interaction", "content", "asset", "accessibility"] },
         "summary": { "type": "string" },
+        "reason_code": { "type": "string" },
+        "repair_bucket": { "type": "string" },
+        "pattern_family": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
         "viewport_id": { "type": "string" },
         "kind": { "$ref": "#/$defs/component_kind" },
         "selector_evidence": { "$ref": "#/$defs/selector_evidence" },
+        "property_evidence": { "type": "array", "items": { "$ref": "#/$defs/property_evidence" } },
         "style_deltas": { "type": "array", "items": { "$ref": "#/$defs/computed_style_delta" } },
         "visual_diff": { "$ref": "#/$defs/visual_diff_viewport" },
         "recommendation_ids": { "type": "array", "items": { "type": "string" } }
@@ -230,9 +254,31 @@
         "id": { "type": "string" },
         "priority": { "type": "string", "enum": ["low", "medium", "high", "blocking"] },
         "summary": { "type": "string" },
+        "reason_code": { "type": "string" },
+        "repair_bucket": { "type": "string" },
+        "pattern_family": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
         "rationale": { "type": "string" },
         "selector_evidence": { "$ref": "#/$defs/selector_evidence" },
+        "property_evidence": { "type": "array", "items": { "$ref": "#/$defs/property_evidence" } },
         "finding_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "capture_diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": { "type": "string" },
+        "runner": { "type": "string" },
+        "runner_version": { "type": "string" },
+        "browser": { "type": "string" },
+        "browser_version": { "type": "string" },
+        "device_scale_factor": { "type": "number", "minimum": 0 },
+        "timing_ms": { "type": "number", "minimum": 0 },
+        "artifact_paths": { "type": "array", "items": { "type": "string" } },
+        "warnings": { "type": "array", "items": { "type": "string" } },
+        "errors": { "type": "array", "items": { "type": "string" } },
+        "metadata": { "type": "object", "additionalProperties": true }
       }
     }
   }

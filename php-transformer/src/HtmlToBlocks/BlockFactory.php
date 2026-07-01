@@ -504,6 +504,9 @@ final class BlockFactory
         }
 
         $typography = is_array($style['typography'] ?? null) ? $style['typography'] : array();
+        if ( isset($typography['fontSize']) && '' !== (string) $typography['fontSize'] ) {
+            $classes[] = 'has-custom-font-size';
+        }
         $typographyMap = array(
             'fontSize'      => 'font-size',
             'fontWeight'    => 'font-weight',

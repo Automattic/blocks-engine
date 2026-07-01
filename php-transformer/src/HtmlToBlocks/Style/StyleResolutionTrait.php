@@ -439,9 +439,17 @@ trait StyleResolutionTrait
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style)
             && ! preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style)
         ) {
+            if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $inlineStyle) ) {
+                return array();
+            }
+
             return array( 'type' => 'flex' );
         }
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $style) ) {
+            if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $inlineStyle) && preg_match('/(?:^|;)\s*grid-template-columns\s*:/', $style) ) {
+                return array();
+            }
+
             return array( 'type' => 'grid' );
         }
 
