@@ -1327,7 +1327,12 @@ $stylePaintResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     ),
 ));
 $stylePaintCss = $fileContent($stylePaintResult, 'style.css');
+$stylePaintDiagnostics = array_values(array_filter(
+    $stylePaintResult['diagnostics'] ?? array(),
+    static fn (array $diagnostic): bool => 'figma_local_style_paint_conflict' === ($diagnostic['code'] ?? null)
+));
 $assert(str_contains($stylePaintCss, '.figma-node-style-button-styled-button{width:100px;height:40px;background:#1acc80}'), 'style-paint-overrides-stale-inline-fill');
+$assert('style' === ($stylePaintDiagnostics[0]['context']['precedence'] ?? null), 'style-paint-conflict-diagnostic-precedence');
 
 $outsideStrokeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Outside Stroke Fixture',
