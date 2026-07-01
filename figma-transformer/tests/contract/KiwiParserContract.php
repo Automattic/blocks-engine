@@ -265,6 +265,7 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert(3 === ($kiwiDerivedText['truncationStartIndex'] ?? null), 'kiwi-selective-decodes-derived-text-truncation-start');
     $assert(24.0 === ($kiwiDerivedText['truncatedHeight'] ?? null), 'kiwi-selective-decodes-derived-text-truncated-height');
     $assert(array(0.0, 12.5) === ($kiwiDerivedText['logicalIndexToCharacterOffsetMap'] ?? null), 'kiwi-selective-decodes-derived-text-logical-offset-map');
+    $assert('RTL' === ($kiwiDerivedText['derivedLines'][0]['directionality'] ?? null), 'kiwi-selective-decodes-derived-text-line-directionality');
     $kiwiDerivedTextWithGlyphsMessage = $kiwiDecoder->decodeMessageSelective(
         blocks_engine_figma_transformer_kiwi_derived_text_message_fixture(),
         $kiwiDerivedTextSchema['schema'] ?? array(),
@@ -993,7 +994,7 @@ function blocks_engine_figma_transformer_kiwi_export_settings_bytes(string $form
 
 function blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture(): string
 {
-    return blocks_engine_figma_transformer_wire_varint(9)
+    return blocks_engine_figma_transformer_wire_varint(11)
         // def0: ENUM MessageType { NODE_CHANGES = 1 }
         . blocks_engine_figma_transformer_kiwi_string('MessageType')
         . chr(0)
@@ -1042,10 +1043,22 @@ function blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture(): str
         . blocks_engine_figma_transformer_kiwi_schema_field('key', 2, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('fontLineHeight', -5, false, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('fontWeight', -3, false, 3)
-        // def6: STRUCT DerivedTextData { layoutSize, baselines[], glyphs[], fontMetaData, truncationStartIndex, truncatedHeight, logicalIndexToCharacterOffsetMap[] }
+        // def6: ENUM Directionality { UNKNOWN, LTR, RTL }
+        . blocks_engine_figma_transformer_kiwi_string('Directionality')
+        . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('UNKNOWN', 0, false, 0)
+        . blocks_engine_figma_transformer_kiwi_schema_field('LTR', 0, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('RTL', 0, false, 2)
+        // def7: MESSAGE DerivedTextLineData { directionality }
+        . blocks_engine_figma_transformer_kiwi_string('DerivedTextLineData')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('directionality', 6, false, 1)
+        // def8: STRUCT DerivedTextData { layoutSize, baselines[], glyphs[], fontMetaData, truncationStartIndex, truncatedHeight, logicalIndexToCharacterOffsetMap[], derivedLines[] }
         . blocks_engine_figma_transformer_kiwi_string('DerivedTextData')
         . chr(1)
-        . blocks_engine_figma_transformer_wire_varint(7)
+        . blocks_engine_figma_transformer_wire_varint(8)
         . blocks_engine_figma_transformer_kiwi_schema_field('layoutSize', 1, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('baselines', 3, true, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('glyphs', 4, true, 3)
@@ -1053,19 +1066,20 @@ function blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture(): str
         . blocks_engine_figma_transformer_kiwi_schema_field('truncationStartIndex', -3, false, 5)
         . blocks_engine_figma_transformer_kiwi_schema_field('truncatedHeight', -5, false, 6)
         . blocks_engine_figma_transformer_kiwi_schema_field('logicalIndexToCharacterOffsetMap', -5, true, 7)
-        // def7: MESSAGE NodeChange { type, name, derivedTextData }
+        . blocks_engine_figma_transformer_kiwi_schema_field('derivedLines', 7, true, 8)
+        // def9: MESSAGE NodeChange { type, name, derivedTextData }
         . blocks_engine_figma_transformer_kiwi_string('NodeChange')
         . chr(2)
         . blocks_engine_figma_transformer_wire_varint(3)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 2)
-        . blocks_engine_figma_transformer_kiwi_schema_field('derivedTextData', 6, false, 3)
-        // def8: MESSAGE Message { type, nodeChanges[] }
+        . blocks_engine_figma_transformer_kiwi_schema_field('derivedTextData', 8, false, 3)
+        // def10: MESSAGE Message { type, nodeChanges[] }
         . blocks_engine_figma_transformer_kiwi_string('Message')
         . chr(2)
         . blocks_engine_figma_transformer_wire_varint(2)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', 0, false, 1)
-        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 7, true, 2);
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 9, true, 2);
 }
 
 function blocks_engine_figma_transformer_kiwi_derived_text_message_fixture(): string
@@ -1115,6 +1129,11 @@ function blocks_engine_figma_transformer_kiwi_derived_text_message_fixture(): st
         . blocks_engine_figma_transformer_wire_varint(2)
         . blocks_engine_figma_transformer_kiwi_varfloat(0.0)
         . blocks_engine_figma_transformer_kiwi_varfloat(12.5)
+        // DerivedTextData.derivedLines[].
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);
 }

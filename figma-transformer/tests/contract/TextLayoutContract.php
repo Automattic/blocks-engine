@@ -34,6 +34,30 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
                 'height'          => 32.25,
                 'fontSize'        => 10,
                 'fontName'        => array('family' => 'Example Sans', 'style' => 'Regular'),
+                'textTruncation'  => 'ENDING',
+                'textWrapStyle'   => 'BALANCE',
+                'maxLines'        => 2,
+                'hangingList'     => true,
+                'hangingPunctuation' => false,
+                'hasHadRTLText'   => true,
+                'textBidiVersion' => 3,
+                'listSpacing'     => 8,
+                'textData'        => array(
+                    'lines' => array(
+                        array(
+                            'lineType'             => 'BULLET',
+                            'styleId'              => 4,
+                            'indentationLevel'     => 1,
+                            'sourceDirectionality' => 'AUTO',
+                            'directionality'       => 'LTR',
+                            'directionalityIntent' => 'EXPLICIT',
+                            'downgradeStyleId'     => 2,
+                            'consistencyStyleId'   => 3,
+                            'listStartOffset'      => 1,
+                            'isFirstLineOfList'    => true,
+                        ),
+                    ),
+                ),
                 'derivedTextData' => array(
                     'layoutSize' => array('x' => 146.5, 'y' => 32.25),
                     'baselines'  => array(
@@ -60,11 +84,16 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
                         ),
                     ),
                     'logicalIndexToCharacterOffsetMap' => range(0, 299),
+                    'derivedLines' => array(
+                        array('directionality' => 'RTL'),
+                    ),
                 ),
             ),
         ),
     );
     $derivedTextLayoutResult = blocks_engine_figma_transformer_transform_scenegraph($derivedTextLayoutScenegraph);
+    $derivedTextNormalized = ( new \Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer() )->normalize($derivedTextLayoutScenegraph);
+    $derivedTextNormalizedNode = $derivedTextNormalized['nodes'][0] ?? array();
     $derivedTextVisualNodes = $derivedTextLayoutResult['source_reports']['figma']['html']['visual_node_map'] ?? array();
     $derivedTextVisualNode = null;
     foreach ( is_array($derivedTextVisualNodes) ? $derivedTextVisualNodes : array() as $visualNode ) {
@@ -80,6 +109,20 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert(300 === ($derivedTextVisualNode['text']['derived_layout']['logical_character_offset_count'] ?? null), 'visual-node-derived-text-logical-offset-count');
     $assert(256 === count($derivedTextVisualNode['text']['derived_layout']['logical_character_offsets'] ?? array()), 'visual-node-derived-text-logical-offset-sample-count');
     $assert(true === ($derivedTextVisualNode['text']['derived_layout']['logical_character_offsets_truncated'] ?? null), 'visual-node-derived-text-logical-offset-truncated');
+    $assert(1 === ($derivedTextVisualNode['text']['derived_layout']['line_count'] ?? null), 'visual-node-text-line-count');
+    $assert('BULLET' === ($derivedTextVisualNode['text']['derived_layout']['lines'][0]['line_type'] ?? null), 'visual-node-text-line-type');
+    $assert(1 === ($derivedTextVisualNode['text']['derived_layout']['lines'][0]['indentation_level'] ?? null), 'visual-node-text-line-indentation');
+    $assert('LTR' === ($derivedTextVisualNode['text']['derived_layout']['lines'][0]['directionality'] ?? null), 'visual-node-text-line-directionality');
+    $assert(true === ($derivedTextVisualNode['text']['derived_layout']['lines'][0]['is_first_line_of_list'] ?? null), 'visual-node-text-line-list-first');
+    $assert(1 === ($derivedTextVisualNode['text']['derived_layout']['derived_line_count'] ?? null), 'visual-node-derived-text-line-count');
+    $assert('RTL' === ($derivedTextVisualNode['text']['derived_layout']['derived_lines'][0]['directionality'] ?? null), 'visual-node-derived-text-line-directionality');
+    $assert('ending' === ($derivedTextNormalizedNode['figma_text']['style']['text_truncation'] ?? null), 'normalized-text-style-truncation');
+    $assert('balance' === ($derivedTextNormalizedNode['figma_text']['style']['text_wrap_style'] ?? null), 'normalized-text-style-wrap');
+    $assert(true === ($derivedTextNormalizedNode['figma_text']['style']['hanging_list'] ?? null), 'normalized-text-style-hanging-list');
+    $assert(false === ($derivedTextNormalizedNode['figma_text']['style']['hanging_punctuation'] ?? null), 'normalized-text-style-hanging-punctuation');
+    $assert(true === ($derivedTextNormalizedNode['figma_text']['style']['has_had_rtl_text'] ?? null), 'normalized-text-style-had-rtl');
+    $assert(3 === ($derivedTextNormalizedNode['figma_text']['style']['text_bidi_version'] ?? null), 'normalized-text-style-bidi-version');
+    $assert(8.0 === ($derivedTextNormalizedNode['figma_text']['style']['list_spacing'] ?? null), 'normalized-text-style-list-spacing');
     $assert(! isset($derivedTextVisualNode['text']['derived_layout']['glyph_paths']), 'visual-node-derived-text-default-omits-glyph-paths');
     $assert('dom_text' === ($derivedTextVisualNode['text']['glyph_rendering'] ?? null), 'visual-node-derived-text-default-dom-rendering');
     $derivedTextLayoutCss = $fileContent($derivedTextLayoutResult, 'style.css');
