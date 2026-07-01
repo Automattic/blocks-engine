@@ -131,6 +131,67 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $assert(true === ($imageScaleFillVisualNode['image']['color_managed'] ?? null), 'visual-node-image-color-managed');
     $assert(200.0 === ($imageScaleFillVisualNode['image']['originalImageWidth'] ?? null), 'visual-node-image-original-width');
 
+    $assetRefResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'   => 'Asset Ref Fixture',
+        'assets' => array(
+            array('id' => 'asset-ref-image', 'key' => 'asset-ref-key', 'mime_type' => 'image/png', 'content' => 'asset ref image'),
+            array('id' => 'nested-ref-image', 'mime_type' => 'image/jpeg', 'content' => 'nested ref image'),
+            array('id' => 'source-hash-image', 'hash' => 'source-image-hash', 'mime_type' => 'image/webp', 'content' => 'source hash image'),
+        ),
+        'nodes'  => array(
+            array(
+                'id'         => 'assetref:paint',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Paint asset ref',
+                'width'      => 10,
+                'height'     => 10,
+                'fillPaints' => array(array('type' => 'IMAGE', 'assetRef' => array('key' => 'asset-ref-key'))),
+            ),
+            array(
+                'id'         => 'assetref:nested',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Nested asset ref',
+                'width'      => 10,
+                'height'     => 10,
+                'fillPaints' => array(array('type' => 'IMAGE', 'image' => array('assetRef' => array('id' => 'nested-ref-image')))),
+            ),
+            array(
+                'id'         => 'assetref:source',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Source hash image',
+                'width'      => 10,
+                'height'     => 10,
+                'fillPaints' => array(array('type' => 'IMAGE', 'sourceImage' => array('hash' => 'source-image-hash'))),
+            ),
+        ),
+    ));
+    $assetRefCss = $fileContent($assetRefResult, 'style.css');
+    $assetRefSourceRefs = $assetRefResult['source_reports']['figma']['scenegraph']['asset_references'] ?? array();
+    $assetRefSourceKeys = array_map(static fn (array $reference): string => (string) ($reference['source_key'] ?? ''), is_array($assetRefSourceRefs) ? $assetRefSourceRefs : array());
+    $assert(str_contains($assetRefCss, 'background-image:url("assets/asset-ref-image.png")'), 'paint-asset-ref-key-resolves-asset');
+    $assert(str_contains($assetRefCss, 'background-image:url("assets/nested-ref-image.jpg")'), 'nested-image-asset-ref-id-resolves-asset');
+    $assert(str_contains($assetRefCss, 'background-image:url("assets/source-hash-image.webp")'), 'source-image-hash-resolves-asset');
+    $assert(in_array('assetRef.key', $assetRefSourceKeys, true), 'scenegraph-reports-paint-asset-ref-key');
+    $assert(in_array('image.assetRef.id', $assetRefSourceKeys, true), 'scenegraph-reports-nested-image-asset-ref-id');
+    $assert(in_array('sourceImage.hash', $assetRefSourceKeys, true), 'scenegraph-reports-source-image-hash');
+
+    $missingAssetRefResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Missing Asset Ref Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'assetref:missing',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Missing asset ref',
+                'width'      => 10,
+                'height'     => 10,
+                'fillPaints' => array(array('type' => 'IMAGE', 'assetRef' => array('fileKey' => 'missing-file-key'))),
+            ),
+        ),
+    ));
+    $missingAssets = $missingAssetRefResult['source_reports']['figma']['html']['transform_diagnostics']['images']['missing_assets'] ?? array();
+    $missingRefs = is_array($missingAssets[0]['refs'] ?? null) ? $missingAssets[0]['refs'] : array();
+    $assert(in_array('missing-file-key', $missingRefs, true), 'missing-asset-ref-reports-reference');
+
     $imageTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'   => 'Image Transform Fixture',
         'assets' => array(

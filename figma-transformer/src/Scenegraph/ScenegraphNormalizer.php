@@ -3879,6 +3879,12 @@ final class ScenegraphNormalizer
             }
         }
 
+        if ( is_array($paint['assetRef'] ?? null) ) {
+            foreach ( $this->readAssetRefReferences($paint['assetRef'], 'assetRef') as $reference ) {
+                $references[] = $reference;
+            }
+        }
+
         foreach ( array('image', 'thumbnail', 'imageThumbnail', 'sourceImage') as $imageKey ) {
             if ( ! is_array($paint[$imageKey] ?? null) ) {
                 continue;
@@ -3890,14 +3896,8 @@ final class ScenegraphNormalizer
                 );
             }
             if ( is_array($paint[$imageKey]['assetRef'] ?? null) ) {
-                foreach ( array('id', 'key', 'nodeID', 'fileKey') as $assetKey ) {
-                    if ( isset($paint[$imageKey]['assetRef'][$assetKey]) && is_scalar($paint[$imageKey]['assetRef'][$assetKey]) && '' !== (string) $paint[$imageKey]['assetRef'][$assetKey] ) {
-                        $references[] = array(
-                            'source_key' => $imageKey . '.assetRef.' . $assetKey,
-                            'ref'        => (string) $paint[$imageKey]['assetRef'][$assetKey],
-                        );
-                        break;
-                    }
+                foreach ( $this->readAssetRefReferences($paint[$imageKey]['assetRef'], $imageKey . '.assetRef') as $reference ) {
+                    $references[] = $reference;
                 }
             }
             if ( is_array($paint[$imageKey]['sourceImage'] ?? null) && isset($paint[$imageKey]['sourceImage']['hash']) && is_scalar($paint[$imageKey]['sourceImage']['hash']) && '' !== (string) $paint[$imageKey]['sourceImage']['hash'] ) {
@@ -3906,6 +3906,36 @@ final class ScenegraphNormalizer
                     'ref'        => (string) $paint[$imageKey]['sourceImage']['hash'],
                 );
             }
+        }
+
+        return $references;
+    }
+
+    /**
+     * @param array<string, mixed> $assetRef
+     * @return array<int, array{source_key: string, ref: string}>
+     */
+    private function readAssetRefReferences(array $assetRef, string $prefix): array
+    {
+        $references = array();
+        foreach ( array('id', 'key', 'nodeID', 'fileKey', 'libraryKey', 'publishID', 'sourceLibraryKey') as $assetKey ) {
+            if ( isset($assetRef[$assetKey]) && is_scalar($assetRef[$assetKey]) && '' !== (string) $assetRef[$assetKey] ) {
+                $references[] = array(
+                    'source_key' => $prefix . '.' . $assetKey,
+                    'ref'        => (string) $assetRef[$assetKey],
+                );
+            }
+        }
+        if ( is_array($assetRef['guid'] ?? null) && isset($assetRef['guid']['sessionID'], $assetRef['guid']['localID']) ) {
+            $references[] = array(
+                'source_key' => $prefix . '.guid',
+                'ref'        => (string) $assetRef['guid']['sessionID'] . ':' . (string) $assetRef['guid']['localID'],
+            );
+        } elseif ( isset($assetRef['guid']) && is_scalar($assetRef['guid']) && '' !== (string) $assetRef['guid'] ) {
+            $references[] = array(
+                'source_key' => $prefix . '.guid',
+                'ref'        => (string) $assetRef['guid'],
+            );
         }
 
         return $references;

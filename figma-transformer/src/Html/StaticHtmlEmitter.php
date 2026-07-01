@@ -3355,11 +3355,7 @@ final class StaticHtmlEmitter
             }
         }
         if ( is_array($node['image'] ?? null) ) {
-            foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref') as $key ) {
-                if ( isset($node['image'][$key]) && is_scalar($node['image'][$key]) && '' !== (string) $node['image'][$key] ) {
-                    $references[] = (string) $node['image'][$key];
-                }
-            }
+            $references = array_merge($references, $this->imageAssetReferences($node['image']));
         }
 
         return array_values(array_unique($references));
@@ -3373,11 +3369,7 @@ final class StaticHtmlEmitter
     {
         $references = array();
         foreach ( $this->nodeImagePaints($node) as $paint ) {
-            foreach ( array('ref', 'imageRef', 'imageHash', 'asset_id', 'image_ref') as $key ) {
-                if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
-                    $references[] = (string) $paint[$key];
-                }
-            }
+            $references = array_merge($references, $this->paintAssetReferences($paint));
         }
 
         return array_values(array_unique($references));
@@ -5079,8 +5071,8 @@ final class StaticHtmlEmitter
     private function nodeAssetPath(array $node): ?string
     {
         foreach ( $this->nodeAssetReferences($node) as $assetId ) {
-            if ( isset($this->assetsById[$assetId]) ) {
-                $path = (string) $this->assetsById[$assetId]['path'];
+            $path = $this->resolveAssetPath($assetId);
+            if ( null !== $path ) {
                 $this->usedAssetPaths[$path] = true;
                 return $path;
             }
@@ -5129,24 +5121,14 @@ final class StaticHtmlEmitter
                         continue;
                     }
 
-                    foreach ( array('ref', 'imageRef', 'imageHash', 'asset_id', 'image_ref') as $key ) {
-                        if ( ! isset($paint[$key]) || ! is_scalar($paint[$key]) || '' === (string) $paint[$key] ) {
+                    foreach ( $this->paintAssetReferences($paint) as $assetId ) {
+                        $path = $this->resolveAssetPath($assetId);
+                        if ( null === $path ) {
                             continue;
                         }
-                        $assetId = (string) $paint[$key];
-                        if ( isset($this->assetsById[$assetId]) ) {
-                            $p = (string) $this->assetsById[$assetId]['path'];
-                            $this->usedAssetPaths[$p] = true;
-                            $paths[] = $p;
-                            break;
-                        }
-                        $slugged = $this->slug($assetId);
-                        if ( isset($this->assetsById[$slugged]) ) {
-                            $p = (string) $this->assetsById[$slugged]['path'];
-                            $this->usedAssetPaths[$p] = true;
-                            $paths[] = $p;
-                            break;
-                        }
+                        $this->usedAssetPaths[$path] = true;
+                        $paths[] = $path;
+                        break;
                     }
                 }
             }
@@ -5425,7 +5407,7 @@ final class StaticHtmlEmitter
     private function assetAliases(array $asset, string $id): array
     {
         $aliases = array($id);
-        foreach ( array('hash', 'imageRef', 'imageHash', 'asset_id', 'assetId', 'image_ref', 'source_id', 'node_id', 'nodeId', 'name', 'fileName', 'filename') as $key ) {
+        foreach ( array('hash', 'imageRef', 'imageHash', 'asset_id', 'assetId', 'image_ref', 'source_id', 'node_id', 'nodeId', 'name', 'fileName', 'filename', 'key', 'fileKey', 'libraryKey', 'publishID', 'sourceLibraryKey') as $key ) {
             if ( isset($asset[$key]) && is_scalar($asset[$key]) ) {
                 $aliases[] = (string) $asset[$key];
             }
@@ -5473,17 +5455,93 @@ final class StaticHtmlEmitter
                         continue;
                     }
 
-                    foreach ( array('ref', 'imageRef', 'imageHash', 'asset_id', 'image_ref') as $key ) {
-                        if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
-                            $references[] = (string) $paint[$key];
-                        }
-                    }
+                    $references = array_merge($references, $this->paintAssetReferences($paint));
                 }
             }
         }
 
         foreach ( $references as $reference ) {
             $references[] = $this->slug($reference);
+        }
+
+        return array_values(array_unique($references));
+    }
+
+    private function resolveAssetPath(string $assetId): ?string
+    {
+        if ( isset($this->assetsById[$assetId]) ) {
+            return (string) $this->assetsById[$assetId]['path'];
+        }
+
+        $slugged = $this->slug($assetId);
+        return isset($this->assetsById[$slugged]) ? (string) $this->assetsById[$slugged]['path'] : null;
+    }
+
+    /**
+     * @param array<string, mixed> $paint
+     * @return array<int, string>
+     */
+    private function paintAssetReferences(array $paint): array
+    {
+        $references = array();
+        foreach ( array('ref', 'imageRef', 'imageHash', 'asset_id', 'assetId', 'image_ref') as $key ) {
+            if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
+                $references[] = (string) $paint[$key];
+            }
+        }
+
+        if ( is_array($paint['assetRef'] ?? null) ) {
+            $references = array_merge($references, $this->assetRefReferences($paint['assetRef']));
+        }
+
+        foreach ( array('image', 'thumbnail', 'imageThumbnail', 'sourceImage') as $imageKey ) {
+            if ( is_array($paint[$imageKey] ?? null) ) {
+                $references = array_merge($references, $this->imageAssetReferences($paint[$imageKey]));
+            }
+        }
+
+        return array_values(array_unique($references));
+    }
+
+    /**
+     * @param array<string, mixed> $image
+     * @return array<int, string>
+     */
+    private function imageAssetReferences(array $image): array
+    {
+        $references = array();
+        foreach ( array('hash', 'imageRef', 'imageHash', 'asset_id', 'assetId', 'image_ref', 'ref', 'source_id', 'node_id', 'nodeId', 'name', 'fileName', 'filename') as $key ) {
+            if ( isset($image[$key]) && is_scalar($image[$key]) && '' !== (string) $image[$key] ) {
+                $references[] = (string) $image[$key];
+            }
+        }
+
+        if ( is_array($image['assetRef'] ?? null) ) {
+            $references = array_merge($references, $this->assetRefReferences($image['assetRef']));
+        }
+        if ( is_array($image['sourceImage'] ?? null) ) {
+            $references = array_merge($references, $this->imageAssetReferences($image['sourceImage']));
+        }
+
+        return array_values(array_unique($references));
+    }
+
+    /**
+     * @param array<string, mixed> $assetRef
+     * @return array<int, string>
+     */
+    private function assetRefReferences(array $assetRef): array
+    {
+        $references = array();
+        foreach ( array('id', 'key', 'nodeID', 'fileKey', 'libraryKey', 'publishID', 'sourceLibraryKey') as $key ) {
+            if ( isset($assetRef[$key]) && is_scalar($assetRef[$key]) && '' !== (string) $assetRef[$key] ) {
+                $references[] = (string) $assetRef[$key];
+            }
+        }
+        if ( is_array($assetRef['guid'] ?? null) && isset($assetRef['guid']['sessionID'], $assetRef['guid']['localID']) ) {
+            $references[] = (string) $assetRef['guid']['sessionID'] . ':' . (string) $assetRef['guid']['localID'];
+        } elseif ( isset($assetRef['guid']) && is_scalar($assetRef['guid']) && '' !== (string) $assetRef['guid'] ) {
+            $references[] = (string) $assetRef['guid'];
         }
 
         return array_values(array_unique($references));
