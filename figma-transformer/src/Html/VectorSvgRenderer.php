@@ -45,6 +45,10 @@ final class VectorSvgRenderer
      */
     public function supportedVectorSvg(array $node, string $type, ?array $parentNode = null): ?string
     {
+        if ( 'GROUP' === $type ) {
+            return $this->composedVectorGroupSvg($node, $type);
+        }
+
         if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
             return null;
         }
@@ -109,6 +113,150 @@ final class VectorSvgRenderer
         }
 
         return '<svg ' . implode(' ', $attributes) . '>' . $body . '</svg>';
+    }
+
+    /**
+     * Compose vector-only Figma containers into one SVG so layered logos/icons keep
+     * their source z-order and child geometry without CSS reflow drift.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function composedVectorGroupSvg(array $node, string $type): ?string
+    {
+        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
+        if ( empty($children) || ! $this->isVectorOnlyContainer($node) ) {
+            return null;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width']) : 0.0;
+        $height = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height']) : 0.0;
+        if ( $width <= 0.0 || $height <= 0.0 ) {
+            return null;
+        }
+
+        $originBox = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : $box;
+        $originX = isset($originBox['x']) && is_numeric($originBox['x']) ? (float) $originBox['x'] : 0.0;
+        $originY = isset($originBox['y']) && is_numeric($originBox['y']) ? (float) $originBox['y'] : 0.0;
+        $body = $this->composedVectorGroupBody($children, $originX, $originY);
+        if ( '' === $body ) {
+            return null;
+        }
+
+        $attributes = array(
+            'xmlns="http://www.w3.org/2000/svg"',
+            'viewBox="0 0 ' . $this->number($width) . ' ' . $this->number($height) . '"',
+            'width="100%"',
+            'height="100%"',
+            'role="img"',
+            'aria-label="' . $this->sanitizeAttribute((string) ($node['name'] ?? $type)) . '"',
+            'data-figma-vector="true"',
+            'data-figma-vector-composition="group"',
+        );
+
+        return '<svg ' . implode(' ', $attributes) . '>' . $body . '</svg>';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isVectorOnlyContainer(array $node): bool
+    {
+        if ( '' !== trim((string) ($node['characters'] ?? $node['text'] ?? '')) ) {
+            return false;
+        }
+        if ( ! empty($this->nodeImagePaints($node)) || ! empty($this->explicitNodeAssetReferences($node)) ) {
+            return false;
+        }
+
+        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
+        if ( empty($children) ) {
+            return false;
+        }
+
+        foreach ( $children as $child ) {
+            if ( false === ($child['visible'] ?? true) ) {
+                continue;
+            }
+            $type = strtoupper((string) ($child['type'] ?? ''));
+            if ( in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
+                continue;
+            }
+            if ( 'GROUP' === $type && $this->isVectorOnlyContainer($child) ) {
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function composedVectorGroupBody(array $children, float $originX, float $originY): string
+    {
+        $body = '';
+        foreach ( $children as $child ) {
+            if ( false === ($child['visible'] ?? true) ) {
+                continue;
+            }
+
+            $childType = strtoupper((string) ($child['type'] ?? ''));
+            if ( 'GROUP' === $childType ) {
+                $body .= $this->composedVectorGroupBody(array_values(array_filter($this->nodeList($child), 'is_array')), $originX, $originY);
+                continue;
+            }
+
+            $elements = implode('', $this->vectorElementsForComposition($child, $childType));
+            if ( '' === $elements ) {
+                continue;
+            }
+
+            $box = is_array($child['figma_box'] ?? null) ? $child['figma_box'] : (is_array($child['box'] ?? null) ? $child['box'] : array());
+            $dx = isset($box['x']) && is_numeric($box['x']) ? (float) $box['x'] - $originX : 0.0;
+            $dy = isset($box['y']) && is_numeric($box['y']) ? (float) $box['y'] - $originY : 0.0;
+            if ( abs($dx) >= 0.0001 || abs($dy) >= 0.0001 ) {
+                $body .= '<g transform="translate(' . $this->number($dx) . ' ' . $this->number($dy) . ')">' . $elements . '</g>';
+            } else {
+                $body .= $elements;
+            }
+        }
+
+        return $body;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function vectorElementsForComposition(array $node, string $type): array
+    {
+        if ( 'BOOLEAN_OPERATION' === $type && $this->shouldComposeBooleanOperationChildren($node) ) {
+            $svg = $this->booleanOperationSvg($node, null);
+            if ( null !== $svg && preg_match('/<svg\b[^>]*>(.*)<\/svg>/s', $svg, $matches) ) {
+                return array((string) $matches[1]);
+            }
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width']) : 0.0;
+        $height = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height']) : 0.0;
+        $renderHeight = $height <= 0.0 ? $this->zeroHeightVectorFallbackHeight($node, $type) : $height;
+        if ( $width <= 0.0 || null === $renderHeight || $renderHeight <= 0.0 ) {
+            return array();
+        }
+
+        $elements = $this->vectorPathElements($node);
+        if ( empty($elements) && $height <= 0.0 ) {
+            $elements = $this->zeroHeightVectorElements($node, $type, $width, $renderHeight);
+        }
+        if ( empty($elements) ) {
+            $elements = $this->primitiveVectorElements($node, $type, $width, $renderHeight);
+        }
+
+        return $elements;
     }
 
     /**

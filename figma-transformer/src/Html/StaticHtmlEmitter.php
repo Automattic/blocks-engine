@@ -747,7 +747,7 @@ final class StaticHtmlEmitter
         $assetPath = $this->nodeAssetPath($node);
         $hasVectorAssetFallback = $this->isUnsupportedVectorType($type) && null !== $assetPath;
 
-        if ( ! in_array($tag, array('input', 'textarea'), true) && ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) ) {
+        if ( ! in_array($tag, array('input', 'textarea'), true) && ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) && ! $this->vectorSvgComposesChildren($vectorSvg) ) {
             foreach ( $children as $child ) {
                 if ( is_array($child) ) {
                     if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
@@ -5897,6 +5897,11 @@ final class StaticHtmlEmitter
     private function supportedVectorSvg(array $node, string $type, ?array $parentNode = null): ?string
     {
         return $this->vectorSvgRenderer()->supportedVectorSvg($node, $type, $parentNode);
+    }
+
+    private function vectorSvgComposesChildren(?string $vectorSvg): bool
+    {
+        return null !== $vectorSvg && (str_contains($vectorSvg, 'data-figma-vector-composition="group"') || str_contains($vectorSvg, 'data-figma-boolean-operation='));
     }
 
     /**

@@ -1003,4 +1003,74 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(! str_contains($vectorChildFallbackHtml, 'data-figma-unsupported-vector="true"'), 'vector-child-fallback-not-placeholder');
     $assert(in_array('unsupported_vector_network_blob', $vectorChildFallbackDiagnosticCodes, true), 'vector-child-fallback-network-diagnostic-kept');
     $assert(! in_array('unsupported_vector_node_placeholder', $vectorChildFallbackDiagnosticCodes, true), 'vector-child-fallback-no-placeholder-diagnostic');
+
+    $layeredLogoResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Layered Vector Logo Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'logo:group',
+                'type'     => 'GROUP',
+                'name'     => 'Newsletter Logo',
+                'x'        => 100,
+                'y'        => 50,
+                'width'    => 40,
+                'height'   => 24,
+                'children' => array(
+                    array(
+                        'id'                 => 'logo:back-leaf',
+                        'type'               => 'VECTOR',
+                        'name'               => 'Back Leaf',
+                        'x'                  => 102,
+                        'y'                  => 53,
+                        'width'              => 14,
+                        'height'             => 12,
+                        'fillPaints'         => array(array('type' => 'SOLID', 'color' => array('r' => 0.1176470588, 'g' => 0.4862745098, 'b' => 0.2352941176))),
+                        'figma_vector_paths' => array(array('data' => 'M0 0L14 0L14 12L0 12Z')),
+                    ),
+                    array(
+                        'id'       => 'logo:nested-mark',
+                        'type'     => 'GROUP',
+                        'name'     => 'Nested Mark',
+                        'x'        => 118,
+                        'y'        => 50,
+                        'width'    => 18,
+                        'height'   => 18,
+                        'children' => array(
+                            array(
+                                'id'                 => 'logo:front-leaf',
+                                'type'               => 'VECTOR',
+                                'name'               => 'Front Leaf',
+                                'x'                  => 118,
+                                'y'                  => 50,
+                                'width'              => 18,
+                                'height'             => 18,
+                                'strokeWeight'       => 2,
+                                'strokePaints'       => array(array('type' => 'SOLID', 'color' => array('r' => 0.0588235294, 'g' => 0.2823529412, 'b' => 0.137254902))),
+                                'figma_vector_paths' => array(array('data' => 'M1 17L17 1')),
+                            ),
+                            array(
+                                'id'                 => 'logo:hidden-leaf',
+                                'type'               => 'VECTOR',
+                                'name'               => 'Hidden Leaf',
+                                'visible'            => false,
+                                'x'                  => 120,
+                                'y'                  => 52,
+                                'width'              => 8,
+                                'height'             => 8,
+                                'figma_vector_paths' => array(array('data' => 'M0 0L8 8')),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $layeredLogoHtml = $fileContent($layeredLogoResult, 'index.html');
+    $layeredLogoCss = $fileContent($layeredLogoResult, 'style.css');
+    $assert(str_contains($layeredLogoHtml, 'data-figma-node-id="logo:group"') && str_contains($layeredLogoHtml, 'data-figma-vector-composition="group"'), 'layered-vector-logo-composes-container-svg');
+    $assert(str_contains($layeredLogoHtml, 'viewBox="0 0 40 24"'), 'layered-vector-logo-uses-container-viewbox');
+    $assert(str_contains($layeredLogoHtml, 'transform="translate(2 3)"') && str_contains($layeredLogoHtml, 'transform="translate(18 0)"'), 'layered-vector-logo-preserves-child-offsets');
+    $assert(str_contains($layeredLogoHtml, 'fill="#1e7c3c"') && str_contains($layeredLogoHtml, 'stroke="#0f4823"'), 'layered-vector-logo-preserves-child-paints');
+    $assert(! str_contains($layeredLogoHtml, 'data-figma-node-id="logo:back-leaf"') && ! str_contains($layeredLogoHtml, 'data-figma-node-id="logo:hidden-leaf"'), 'layered-vector-logo-does-not-duplicate-child-html');
+    $assert(! str_contains($layeredLogoCss, '.figma-node-logo-back-leaf-back-leaf'), 'layered-vector-logo-css-omits-child-layer-rules');
 }
