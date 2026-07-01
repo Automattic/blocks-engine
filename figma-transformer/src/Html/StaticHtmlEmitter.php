@@ -3463,15 +3463,11 @@ final class StaticHtmlEmitter
         foreach ( array('width', 'height') as $dimension ) {
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
             $sizing = strtoupper((string) ($layout[$sizingKey] ?? ''));
-            if ( 'width' === $dimension && $this->isFluidRootWidth($box, $parentNode) ) {
-                // Page root: centered fluid container. width:100% lets it shrink
-                // below the design width without forcing horizontal scroll, while
-                // max-width pins the intrinsic frame width so rendering stays
-                // pixel-faithful at and above the native canvas size.
+            if ( 'width' === $dimension && $this->isFluidPageWidth($box, $layout, $parentNode) ) {
+                // Full-page roots and matching first-level bands should occupy the
+                // viewport. Explicit Kiwi/Figma max-width constraints still apply
+                // below; the intrinsic frame width is evidence, not a viewport cap.
                 $styles[] = 'width:100%';
-                $styles[] = 'max-width:' . $this->number((float) $box['width']) . 'px';
-                $styles[] = 'margin-left:auto';
-                $styles[] = 'margin-right:auto';
             } elseif ( 'HUG' === $sizing ) {
                 $derivedTextSize = 'TEXT' === $type ? $this->derivedTextLayoutSize($node, $dimension) : null;
                 if ( null !== $derivedTextSize ) {
@@ -3819,12 +3815,29 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $box
      */
-    private function isFluidRootWidth(array $box, ?array $parentNode): bool
+    private function isFluidPageWidth(array $box, array $layout, ?array $parentNode): bool
     {
-        return null === $parentNode
-            && isset($box['width'])
-            && is_numeric($box['width'])
-            && (float) $box['width'] >= self::FLUID_ROOT_MIN_WIDTH;
+        if ( ! isset($box['width']) || ! is_numeric($box['width']) ) {
+            return false;
+        }
+
+        $width = (float) $box['width'];
+        if ( null === $parentNode ) {
+            return $width >= self::FLUID_ROOT_MIN_WIDTH;
+        }
+
+        if ( 'absolute' === ($layout['positioning'] ?? null) ) {
+            return false;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        if ( ! isset($parentBox['width']) || ! is_numeric($parentBox['width']) || (float) $parentBox['width'] < self::FLUID_ROOT_MIN_WIDTH ) {
+            return false;
+        }
+
+        $offset = isset($box['x']) && is_numeric($box['x']) ? abs((float) $box['x']) : 0.0;
+        $parentWidth = (float) $parentBox['width'];
+        return $offset <= 1.0 && abs($width - $parentWidth) <= 1.0;
     }
 
     /**
