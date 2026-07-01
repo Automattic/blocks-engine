@@ -137,7 +137,28 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(str_contains($vectorNetworkObjectHtml, 'data-figma-node-id="vector:network-object"') && str_contains($vectorNetworkObjectHtml, 'data-figma-vector="true"'), 'vector-network-object-renders');
     $assert(str_contains($vectorNetworkObjectHtml, '<g transform="scale(2 2)"><path d="M0 0L10 0 10 10 0 10 0 0Z"'), 'vector-network-normalized-size-scales-path');
     $assert(str_contains($vectorNetworkObjectHtml, 'fill-rule="evenodd"'), 'vector-network-region-winding-rule-renders');
-     
+
+    $staleScaledIconResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Stale Vector Scale Icon Fixture',
+        'nodes' => array(
+            array(
+                'id'                 => 'vector:stale-scale-icon',
+                'type'               => 'VECTOR',
+                'name'               => 'Comment Icon',
+                'width'              => 17.355,
+                'height'             => 17.355,
+                'strokeWeight'       => 1.5,
+                'strokePaints'       => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                'figma_vector_scale' => array('x' => 0.078, 'y' => 0.078),
+                'figma_vector_paths' => array(array('data' => 'M1.25 2.25L16.105 2.25L16.105 12.75L8.6775 12.75L4.5 16.105L4.5 12.75L1.25 12.75Z')),
+            ),
+        ),
+    ));
+    $staleScaledIconHtml = $fileContent($staleScaledIconResult, 'index.html');
+    $assert(str_contains($staleScaledIconHtml, 'data-figma-node-id="vector:stale-scale-icon"') && str_contains($staleScaledIconHtml, 'data-figma-vector="true"'), 'stale-vector-scale-icon-renders');
+    $assert(! str_contains($staleScaledIconHtml, 'scale(0.078 0.078)'), 'stale-vector-scale-icon-skips-stale-scale');
+    $assert(str_contains($staleScaledIconHtml, '<path d="M1.25 2.25L16.105 2.25') && str_contains($staleScaledIconHtml, 'stroke="#000000"'), 'stale-vector-scale-icon-path-remains-visible');
+      
     $largeDecodedPath = 'M 0 0' . str_repeat(' L 10 10', 3000) . ' Z';
     $largeDecodedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Large Decoded Vector Fixture',

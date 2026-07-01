@@ -104,7 +104,7 @@ final class VectorSvgRenderer
         $scale = is_array($node['figma_vector_scale'] ?? null) ? $node['figma_vector_scale'] : array();
         $scaleX = isset($scale['x']) && is_numeric($scale['x']) ? (float) $scale['x'] : 1.0;
         $scaleY = isset($scale['y']) && is_numeric($scale['y']) ? (float) $scale['y'] : 1.0;
-        if ( abs($scaleX - 1.0) >= 0.0001 || abs($scaleY - 1.0) >= 0.0001 ) {
+        if ( ( abs($scaleX - 1.0) >= 0.0001 || abs($scaleY - 1.0) >= 0.0001 ) && $this->shouldApplyVectorScale($pathBounds, $width, $renderHeight) ) {
             $body = '<g transform="scale(' . $this->number($scaleX) . ' ' . $this->number($scaleY) . ')">' . $body . '</g>';
         }
 
@@ -282,6 +282,26 @@ final class VectorSvgRenderer
         }
 
         return array('x' => $minX, 'y' => $minY, 'width' => $maxX - $minX, 'height' => $maxY - $minY);
+    }
+
+    /**
+     * @param array{x: float, y: float, width: float, height: float}|null $pathBounds
+     */
+    private function shouldApplyVectorScale(?array $pathBounds, float $width, float $height): bool
+    {
+        if ( null === $pathBounds || $width <= 0.0 || $height <= 0.0 ) {
+            return true;
+        }
+
+        $tolerance = max(0.5, min($width, $height) * 0.05);
+        $fitsBox = $pathBounds['x'] >= -$tolerance
+            && $pathBounds['y'] >= -$tolerance
+            && $pathBounds['x'] + $pathBounds['width'] <= $width + $tolerance
+            && $pathBounds['y'] + $pathBounds['height'] <= $height + $tolerance;
+        $fillsBox = $pathBounds['width'] >= $width * 0.75
+            && $pathBounds['height'] >= $height * 0.75;
+
+        return ! ( $fitsBox && $fillsBox );
     }
 
     /**
