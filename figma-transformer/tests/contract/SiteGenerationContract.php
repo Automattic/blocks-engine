@@ -264,6 +264,32 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($overlappingFooterLayerCss, '.figma-node-footer-layer-newsletter-newsletter-card{') && str_contains($overlappingFooterLayerCss, 'position:absolute;left:112px;top:0px;z-index:2'), 'overlapping-footer-newsletter-layer-on-top');
     $assert(str_contains($overlappingFooterLayerCss, '.figma-node-footer-layer-bottom-yellow-footer-area{') && str_contains($overlappingFooterLayerCss, 'position:absolute;left:0px;top:300px;z-index:1'), 'overlapping-footer-bottom-layer-under-newsletter');
 
+    $kiwiSourceGapReserveResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Kiwi Source Gap Reserve Fixture',
+        'nodes' => array(
+            array(
+                'id'           => 'kiwi-gap:root',
+                'type'         => 'FRAME',
+                'name'         => 'Article template',
+                'width'        => 960,
+                'height'       => 720,
+                'stackMode'    => 'VERTICAL',
+                'stackSpacing' => 24,
+                'children'     => array(
+                    array('id' => 'kiwi-gap:read-next', 'type' => 'FRAME', 'name' => 'Read next section', 'width' => 960, 'height' => 200, 'transform' => array('m02' => 0, 'm12' => 0), 'children' => array(
+                        array('id' => 'kiwi-gap:read-next:title', 'type' => 'TEXT', 'name' => 'Read next title', 'characters' => 'Read Next', 'width' => 160, 'height' => 32, 'fontSize' => 24),
+                    )),
+                    array('id' => 'kiwi-gap:footer', 'type' => 'FRAME', 'name' => 'Footer', 'width' => 960, 'height' => 120, 'transform' => array('m02' => 0, 'm12' => 280), 'children' => array(
+                        array('id' => 'kiwi-gap:footer:text', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Footer links', 'width' => 140, 'height' => 24, 'fontSize' => 16),
+                    )),
+                ),
+            ),
+        ),
+    ));
+    $kiwiSourceGapReserveCss = $fileContent($kiwiSourceGapReserveResult, 'style.css');
+    $assert(str_contains($kiwiSourceGapReserveCss, '.figma-node-kiwi-gap-root-article-template{') && str_contains($kiwiSourceGapReserveCss, 'display:flex;flex-direction:column;gap:24px'), 'kiwi-source-gap-reserve-parent-auto-layout-gap');
+    $assert(str_contains($kiwiSourceGapReserveCss, '.figma-node-kiwi-gap-footer-footer{') && str_contains($kiwiSourceGapReserveCss, 'margin-top:56px'), 'kiwi-source-gap-reserve-footer-residual-margin');
+
     $stickyGhostResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Sticky Ghost Fixture',
         'nodes' => array(

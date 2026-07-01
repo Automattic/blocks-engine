@@ -3667,7 +3667,7 @@ final class StaticHtmlEmitter
         }
 
         if ( ! $isDecorativeFlexUnderlay ) {
-            foreach ( $this->flexItemStyles($layout, $parentNode) as $style ) {
+            foreach ( $this->flexItemStyles($node, $layout, $parentNode) as $style ) {
                 $styles[] = $style;
             }
         }
@@ -4086,7 +4086,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $layout
      * @return array<int, string>
      */
-    private function flexItemStyles(array $layout, ?array $parentNode): array
+    private function flexItemStyles(array $node, array $layout, ?array $parentNode): array
     {
         $styles = array();
         $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
@@ -4108,7 +4108,102 @@ final class StaticHtmlEmitter
             $styles[] = 'order:' . (string) (int) $layout['order'];
         }
 
+        if ( $isFlexChild ) {
+            $sourceGapMargin = $this->sourceGeometryFlexGapMargin($node, $parentNode);
+            if ( null !== $sourceGapMargin ) {
+                $styles[] = $sourceGapMargin['property'] . ':' . $this->number($sourceGapMargin['value']) . 'px';
+            }
+        }
+
         return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @return array{property: string, value: float}|null
+     */
+    private function sourceGeometryFlexGapMargin(array $node, ?array $parentNode): ?array
+    {
+        if ( null === $parentNode || ! $this->normalFlexFlowChild($node, $parentNode) ) {
+            return null;
+        }
+
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        $direction = (string) ($parentLayout['flex_direction'] ?? '');
+        if ( ! in_array($direction, array('row', 'column'), true) ) {
+            return null;
+        }
+
+        $justifyContent = (string) ($parentLayout['justify_content'] ?? '');
+        if ( in_array($justifyContent, array('space-between', 'space-around', 'space-evenly'), true) ) {
+            return null;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $axis = 'column' === $direction ? 'y' : 'x';
+        $size = 'column' === $direction ? 'height' : 'width';
+        $property = 'column' === $direction ? 'margin-top' : 'margin-left';
+        if ( ! isset($box[$size]) || ! is_numeric($box[$size]) ) {
+            return null;
+        }
+
+        $offset = $this->positionOffset($box, $parentBox, $axis, $parentNode);
+        if ( null === $offset ) {
+            return null;
+        }
+
+        $previous = null;
+        foreach ( $this->nodeList($parentNode) as $sibling ) {
+            if ( ! is_array($sibling) || ! $this->normalFlexFlowChild($sibling, $parentNode) ) {
+                continue;
+            }
+            if ( (string) ($sibling['id'] ?? '') === (string) ($node['id'] ?? '') ) {
+                break;
+            }
+            $previous = $sibling;
+        }
+
+        if ( null === $previous ) {
+            return null;
+        }
+
+        $previousBox = is_array($previous['box'] ?? null) ? $previous['box'] : array();
+        if ( ! isset($previousBox[$size]) || ! is_numeric($previousBox[$size]) ) {
+            return null;
+        }
+
+        $previousOffset = $this->positionOffset($previousBox, $parentBox, $axis, $parentNode);
+        if ( null === $previousOffset ) {
+            return null;
+        }
+
+        $sourceGap = $offset - ($previousOffset + (float) $previousBox[$size]);
+        $cssGap = isset($parentLayout['item_spacing']) && is_numeric($parentLayout['item_spacing']) ? (float) $parentLayout['item_spacing'] : 0.0;
+        $residualGap = $sourceGap - $cssGap;
+        if ( $residualGap <= 0.5 ) {
+            return null;
+        }
+
+        return array('property' => $property, 'value' => $residualGap);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function normalFlexFlowChild(array $node, array $parentNode): bool
+    {
+        if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) || false === ($node['visible'] ?? null) ) {
+            return false;
+        }
+        if ( $this->isFullyClippedDecorativeChild($node, $parentNode) || $this->isDecorativeFlexUnderlay($node, $parentNode) ) {
+            return false;
+        }
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return 'absolute' !== ($layout['positioning'] ?? null);
     }
 
     /**
