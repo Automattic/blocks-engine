@@ -747,7 +747,7 @@ final class StaticHtmlEmitter
         $assetPath = $this->nodeAssetPath($node);
         $hasVectorAssetFallback = $this->isUnsupportedVectorType($type) && null !== $assetPath;
 
-        if ( 'input' !== $tag && ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) ) {
+        if ( ! in_array($tag, array('input', 'textarea'), true) && ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) ) {
             foreach ( $children as $child ) {
                 if ( is_array($child) ) {
                     if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
@@ -793,8 +793,10 @@ final class StaticHtmlEmitter
         if ( null !== $anchorId ) {
             $attributes .= ' id="' . $this->sanitizeAttribute($anchorId) . '"';
         }
-        if ( 'input' === $tag ) {
-            $attributes .= $this->inputControlAttributes($node);
+        if ( in_array($tag, array('input', 'textarea'), true) ) {
+            $attributes .= $this->formControlAttributes($node, $tag);
+        } elseif ( 'button' === $tag ) {
+            $attributes .= $this->buttonControlAttributes($node);
         }
         if ( 'RECTANGLE' === $type && '' === $content ) {
             $attributes .= ' aria-hidden="true"';
@@ -848,6 +850,10 @@ final class StaticHtmlEmitter
         // List items: a repeated, structurally-similar child of a list container.
         if ( null !== $parentNode && $this->isListItemOf($node, $parentNode) ) {
             return 'li';
+        }
+
+        if ( $this->isTextareaLike($node) ) {
+            return 'textarea';
         }
 
         if ( $this->isInputLike($node) ) {
@@ -1152,7 +1158,7 @@ final class StaticHtmlEmitter
      */
     private function isButtonLike(array $node): bool
     {
-        if ( $this->isInputLike($node) ) {
+        if ( $this->isTextareaLike($node) || $this->isInputLike($node) ) {
             return false;
         }
         if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
@@ -1189,15 +1195,22 @@ final class StaticHtmlEmitter
             return false;
         }
 
+        if ( $this->isTextareaLike($node) ) {
+            return false;
+        }
+
         $name = strtolower((string) ($node['name'] ?? ''));
         if ( str_contains($name, 'button') || str_contains($name, 'btn') || str_contains($name, 'cta') ) {
             return false;
         }
 
+        $placeholder = strtolower(trim($this->subtreePlainText($node)));
+        $haystack = $name . ' ' . $placeholder;
         $hasInputName = str_contains($name, 'input')
             || str_contains($name, 'text field')
             || str_contains($name, 'textfield')
             || str_contains($name, 'form field')
+            || str_contains($haystack, 'search')
             || preg_match('/(^|[^a-z])field([^a-z]|$)/', $name);
         if ( ! $hasInputName ) {
             return false;
@@ -1211,6 +1224,48 @@ final class StaticHtmlEmitter
         $width = $this->boxValue($node, 'width');
         $height = $this->boxValue($node, 'height');
         if ( (null !== $width && $width > 640.0) || (null !== $height && $height > 120.0) ) {
+            return false;
+        }
+
+        return null !== $this->backgroundColor($node) || $this->cornerRadius($node) > 0.0 || $this->hasStrokePaint($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isTextareaLike(array $node): bool
+    {
+        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+            return false;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        if ( str_contains($name, 'button') || str_contains($name, 'btn') || str_contains($name, 'cta') ) {
+            return false;
+        }
+
+        $placeholder = strtolower(trim($this->subtreePlainText($node)));
+        $haystack = $name . ' ' . $placeholder;
+        $hasTextareaIntent = str_contains($haystack, 'textarea')
+            || str_contains($haystack, 'text area')
+            || str_contains($haystack, 'message')
+            || str_contains($haystack, 'comment')
+            || str_contains($haystack, 'reply');
+        if ( ! $hasTextareaIntent ) {
+            return false;
+        }
+
+        $textCount = $this->textDescendantCount($node);
+        if ( $textCount < 1 || $textCount > 3 ) {
+            return false;
+        }
+
+        $width = $this->boxValue($node, 'width');
+        $height = $this->boxValue($node, 'height');
+        if ( null !== $width && $width > 900.0 ) {
+            return false;
+        }
+        if ( null !== $height && $height < 72.0 ) {
             return false;
         }
 
@@ -1243,18 +1298,41 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function inputControlAttributes(array $node): string
+    private function formControlAttributes(array $node, string $tag): string
     {
         $placeholder = trim($this->subtreePlainText($node));
         $name = (string) ($node['name'] ?? '');
         $haystack = strtolower($name . ' ' . $placeholder);
-        $type = str_contains($haystack, 'email') || str_contains($haystack, 'e-mail') ? 'email' : 'text';
+        $type = 'text';
+        if ( str_contains($haystack, 'search') ) {
+            $type = 'search';
+        } elseif ( str_contains($haystack, 'email') || str_contains($haystack, 'e-mail') ) {
+            $type = 'email';
+        }
 
-        $attributes = ' type="' . $type . '"';
+        $attributes = 'input' === $tag ? ' type="' . $type . '"' : '';
         if ( '' !== $placeholder ) {
             $attributes .= ' placeholder="' . $this->sanitizeAttribute($placeholder) . '"';
             $attributes .= ' aria-label="' . $this->sanitizeAttribute($placeholder) . '"';
         } elseif ( '' !== $name ) {
+            $attributes .= ' aria-label="' . $this->sanitizeAttribute($name) . '"';
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function buttonControlAttributes(array $node): string
+    {
+        $label = trim($this->subtreePlainText($node));
+        $name = (string) ($node['name'] ?? '');
+        $haystack = strtolower($name . ' ' . $label);
+        $type = preg_match('/(^|[^a-z])(submit|send|post|search|sign up|subscribe)([^a-z]|$)/', $haystack) ? 'submit' : 'button';
+
+        $attributes = ' type="' . $type . '"';
+        if ( '' === $label && '' !== $name ) {
             $attributes .= ' aria-label="' . $this->sanitizeAttribute($name) . '"';
         }
 
