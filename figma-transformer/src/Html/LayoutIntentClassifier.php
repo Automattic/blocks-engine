@@ -131,7 +131,7 @@ final class LayoutIntentClassifier
             return false;
         }
 
-        if ( ! $this->isDecorativeUnderlayVisualCandidate($node) || ! $this->parentHasTextOutsideNode($parentNode, $node) ) {
+        if ( ! $this->isDecorativeUnderlayVisualCandidate($node) || ! $this->parentHasTextOutsideNode($parentNode, $node) || ! $this->nodeIsBehindTextOutsideNode($parentNode, $node) ) {
             return false;
         }
 
@@ -372,6 +372,67 @@ final class LayoutIntentClassifier
         }
 
         return false;
+    }
+
+    /**
+     * @param array<string, mixed> $parentNode
+     * @param array<string, mixed> $node
+     */
+    private function nodeIsBehindTextOutsideNode(array $parentNode, array $node): bool
+    {
+        $nodeId = (string) ($node['id'] ?? '');
+        $nodeZIndex = $this->nodeZIndex($node);
+        $nodeSiblingIndex = null;
+        $siblings = $this->nodeList($parentNode);
+
+        foreach ( $siblings as $index => $sibling ) {
+            if ( is_array($sibling) && (string) ($sibling['id'] ?? '') === $nodeId ) {
+                $nodeSiblingIndex = (int) $index;
+                break;
+            }
+        }
+
+        foreach ( $siblings as $index => $sibling ) {
+            if ( ! is_array($sibling) || (string) ($sibling['id'] ?? '') === $nodeId || ! $this->treeHasText($sibling) ) {
+                continue;
+            }
+
+            $siblingZIndex = $this->nodeZIndex($sibling);
+            if ( null !== $nodeZIndex && null !== $siblingZIndex ) {
+                if ( $nodeZIndex < $siblingZIndex ) {
+                    return true;
+                }
+                continue;
+            }
+
+            $nodeOrder = $this->nodeSourceOrder($node) ?? $nodeSiblingIndex;
+            $siblingOrder = $this->nodeSourceOrder($sibling) ?? (int) $index;
+            if ( null !== $nodeOrder && $nodeOrder < $siblingOrder ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodeZIndex(array $node): ?int
+    {
+        return isset($node['layout']['z_index']) && is_numeric($node['layout']['z_index']) ? (int) $node['layout']['z_index'] : null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodeSourceOrder(array $node): ?int
+    {
+        if ( isset($node['layout']['source_order']) && is_numeric($node['layout']['source_order']) ) {
+            return (int) $node['layout']['source_order'];
+        }
+
+        return isset($node['_source_order']) && is_numeric($node['_source_order']) ? (int) $node['_source_order'] : null;
     }
 
     /**

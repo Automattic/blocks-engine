@@ -477,6 +477,56 @@ $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-logo-logo{wi
 $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-links-frame-29{width:265px;height:26px;position:relative;z-index:1;display:flex;flex-direction:row;flex-shrink:0}'), 'fse-footer-link-row-stacks-above-underlay');
 $assert(1 === ($fseFooterUnderlays['count'] ?? null), 'fse-footer-underlay-diagnostic-count');
 
+$yellowForegroundOverlapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Yellow Foreground Overlap Fixture',
+    'nodes' => array(
+        array(
+            'id'         => 'paint-style:kiwi-yellow',
+            'type'       => 'RECTANGLE',
+            'name'       => 'Kiwi Yellow paint style',
+            'styleType'  => 'FILL',
+            'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0.811764717, 'b' => 0, 'a' => 1))),
+        ),
+        array(
+            'id'         => 'yellow-overlap:parent',
+            'type'       => 'FRAME',
+            'name'       => 'Featured overlap row',
+            'width'      => 1000,
+            'height'     => 600,
+            'layoutMode' => 'HORIZONTAL',
+            'children'   => array(
+                array(
+                    'id'       => 'yellow-overlap:title',
+                    'type'     => 'TEXT',
+                    'name'     => 'Featured title',
+                    'text'     => 'Featured copy stays behind accent',
+                    'fontSize' => 32,
+                ),
+                array(
+                    'id'             => 'yellow-overlap:accent',
+                    'type'           => 'FRAME',
+                    'name'           => 'Yellow overlap accent',
+                    'width'          => 900,
+                    'height'         => 520,
+                    'styleIdForFill' => 'paint-style:kiwi-yellow',
+                    'fillPaints'     => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                    'fillGeometry'   => array(array('path' => 'M 0 0 L 900 0 L 900 520 L 0 520 Z', 'windingRule' => 'NONZERO')),
+                ),
+            ),
+        ),
+    ),
+));
+$yellowForegroundOverlapCss = $fileContent($yellowForegroundOverlapResult, 'style.css');
+$yellowForegroundOverlapUnderlays = $yellowForegroundOverlapResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
+$yellowForegroundOverlapDiagnostics = array_values(array_filter(
+    $yellowForegroundOverlapResult['diagnostics'] ?? array(),
+    static fn (array $diagnostic): bool => 'figma_local_style_paint_conflict' === ($diagnostic['code'] ?? null)
+));
+$assert(str_contains($yellowForegroundOverlapCss, '.figma-node-yellow-overlap-accent-yellow-overlap-accent{width:900px;height:520px;background:#ffcf00;flex-shrink:0}'), 'yellow-overlap-style-paint-resolves-without-underlay');
+$assert(! str_contains($yellowForegroundOverlapCss, '.figma-node-yellow-overlap-accent-yellow-overlap-accent{width:900px;height:520px;position:absolute'), 'yellow-overlap-foreground-not-decorative-underlay');
+$assert(0 === ($yellowForegroundOverlapUnderlays['count'] ?? null), 'yellow-overlap-foreground-underlay-diagnostic-count');
+$assert('style' === ($yellowForegroundOverlapDiagnostics[0]['context']['precedence'] ?? null), 'yellow-overlap-style-fill-conflict-diagnostic-precedence');
+
 $multiPageFseFooterUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'   => 'Multi Page FSE Footer Underlay Fixture',
     'assets' => array(
