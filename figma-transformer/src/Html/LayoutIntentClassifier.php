@@ -35,6 +35,10 @@ final class LayoutIntentClassifier
             return true;
         }
 
+        if ( empty($node['layout']['display'] ?? null) && $this->hasInsetSingleVisualChild($node, $children) ) {
+            return true;
+        }
+
         if ( 1 !== count($children) || ! is_array($children[0]) ) {
             return false;
         }
@@ -55,6 +59,29 @@ final class LayoutIntentClassifier
         }
 
         return (float) $childBox['width'] > (float) $box['width'] || (float) $childBox['height'] > (float) $box['height'];
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, mixed>    $children
+     */
+    private function hasInsetSingleVisualChild(array $node, array $children): bool
+    {
+        if ( 1 !== count($children) || ! is_array($children[0]) || ! $this->treeIsVectorShapeOnly($children[0]) ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $childBox = is_array($children[0]['box'] ?? null) ? $children[0]['box'] : array();
+        foreach ( array('width', 'height') as $dimension ) {
+            if ( ! isset($box[$dimension], $childBox[$dimension]) || ! is_numeric($box[$dimension]) || ! is_numeric($childBox[$dimension]) ) {
+                return false;
+            }
+        }
+
+        $widthDelta = (float) $box['width'] - (float) $childBox['width'];
+        $heightDelta = (float) $box['height'] - (float) $childBox['height'];
+        return ($widthDelta > 0.5 && $widthDelta <= 32.0) || ($heightDelta > 0.5 && $heightDelta <= 32.0);
     }
 
     /**

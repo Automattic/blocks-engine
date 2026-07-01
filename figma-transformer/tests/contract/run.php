@@ -4231,6 +4231,49 @@ preg_match('/figma-node-cgoc-instance-cgoc-logo[^{]*\{[^}]*left:([\d.]+)px/', $c
 $canvasGlobalLogoLeftPx = isset($canvasGlobalLogoLeft[1]) ? (float) $canvasGlobalLogoLeft[1] : -1.0;
 $assert($canvasGlobalLogoLeftPx >= 0.0 && $canvasGlobalLogoLeftPx < 1440.0, 'overridden-instance-child-canvas-global-transform-localizes-x');
 
+// Header-like logo wrappers often contain a single vector/boolean mark whose
+// visual box is smaller than the wrapper. Keep that nested visual primitive
+// positioned against the wrapper instead of letting normal flow pin it to 0,0.
+$insetLogoVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Inset Logo Vector Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'ilv:page',
+            'type'     => 'FRAME',
+            'name'     => 'Page',
+            'width'    => 500,
+            'height'   => 120,
+            'children' => array(
+                array(
+                    'id'       => 'ilv:logo',
+                    'type'     => 'INSTANCE',
+                    'name'     => 'Logo',
+                    'x'        => 20,
+                    'y'        => 20,
+                    'width'    => 228,
+                    'height'   => 35,
+                    'children' => array(
+                        array(
+                            'id'           => 'ilv:mark',
+                            'type'         => 'BOOLEAN_OPERATION',
+                            'name'         => 'Union',
+                            'x'            => 0,
+                            'y'            => 0,
+                            'width'        => 227.682,
+                            'height'       => 30,
+                            'fillGeometry' => array(array('path' => 'M0 0L227.682 0L227.682 30L0 30Z', 'windingRule' => 'NONZERO')),
+                            'fills'        => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$insetLogoVectorCss = $fileContent($insetLogoVectorResult, 'style.css');
+$assert(str_contains($insetLogoVectorCss, '.figma-node-ilv-logo-logo{width:228px;height:35px;position:absolute;left:20px;top:20px'), 'inset-logo-wrapper-remains-positioned');
+$assert(str_contains($insetLogoVectorCss, '.figma-node-ilv-mark-union{width:227.682px;height:30px;position:absolute;left:calc(50% - 113.841px);top:calc(50% - 15px)'), 'inset-logo-vector-centers-within-wrapper');
+
 // DOCUMENT-MODE MULTI-PAGE ORIGIN REBASE (#360): emitSite resolves each page
 // frame from scenegraph['node_map'], so render_document normalization must write
 // page-localized frames back into node_map instead of only rebasing render nodes.

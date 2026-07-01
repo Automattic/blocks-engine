@@ -31,11 +31,18 @@ final class CssPositioningResolver
         $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
         $left = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'x', $parentNode);
         $top = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'y', $parentNode);
+        $centerInsetVisualChild = null !== $node && null !== $parentNode && $this->isInsetSingleVisualChild($node, $parentNode);
         if ( null !== $node && $this->hasComponentCloneGeometry($node) ) {
             $left = $this->componentCloneSourceOffset($node, $box, $parentBox, 'x', $left);
             $top = $this->componentCloneSourceOffset($node, $box, $parentBox, 'y', $top);
         }
         $constraints = is_array($layout['constraints'] ?? null) ? $layout['constraints'] : array();
+        if ( $centerInsetVisualChild ) {
+            $left = $this->centeredInsetOffset($box, $parentBox, 'width');
+            $top = $this->centeredInsetOffset($box, $parentBox, 'height');
+            $constraints['horizontal'] = 'CENTER';
+            $constraints['vertical'] = 'CENTER';
+        }
 
         foreach ( $this->axisConstraintStyles('horizontal', is_scalar($constraints['horizontal'] ?? null) ? (string) $constraints['horizontal'] : null, $left, $parentBox, $box) as $style ) {
             $styles[] = $style;
@@ -45,6 +52,69 @@ final class CssPositioningResolver
         }
 
         return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isInsetSingleVisualChild(array $node, array $parentNode): bool
+    {
+        $children = $this->nodeList($parentNode);
+        if ( 1 !== count($children) || ! is_array($children[0]) || (string) ($children[0]['id'] ?? '') !== (string) ($node['id'] ?? '') ) {
+            return false;
+        }
+
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) ) {
+            return false;
+        }
+
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        if ( ! empty($parentLayout['display'] ?? null) ) {
+            return false;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        foreach ( array('width', 'height') as $dimension ) {
+            if ( ! isset($parentBox[$dimension], $box[$dimension]) || ! is_numeric($parentBox[$dimension]) || ! is_numeric($box[$dimension]) ) {
+                return false;
+            }
+        }
+
+        $left = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'x', $parentNode);
+        $top = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'y', $parentNode);
+        if ( (null !== $left && abs($left) > 0.5) || (null !== $top && abs($top) > 0.5) ) {
+            return false;
+        }
+
+        $widthDelta = (float) $parentBox['width'] - (float) $box['width'];
+        $heightDelta = (float) $parentBox['height'] - (float) $box['height'];
+        return ($widthDelta > 0.5 && $widthDelta <= 32.0) || ($heightDelta > 0.5 && $heightDelta <= 32.0);
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $parentBox
+     */
+    private function centeredInsetOffset(array $box, array $parentBox, string $dimension): ?float
+    {
+        if ( ! isset($box[$dimension], $parentBox[$dimension]) || ! is_numeric($box[$dimension]) || ! is_numeric($parentBox[$dimension]) ) {
+            return null;
+        }
+
+        return ((float) $parentBox[$dimension] - (float) $box[$dimension]) / 2.0;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, mixed>
+     */
+    private function nodeList(array $node): array
+    {
+        $children = $node['children'] ?? array();
+        return is_array($children) && array_is_list($children) ? $children : array();
     }
 
     /**
