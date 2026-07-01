@@ -539,11 +539,85 @@ final class ScenegraphNormalizer
             $metadata['component_properties'] = $node['componentProperties'];
         }
 
+        if ( true === ($node['isStateGroup'] ?? false) ) {
+            $metadata['state_group'] = true;
+        }
+
+        if ( is_array($node['stateGroupPropertyValueOrders'] ?? null) ) {
+            $orders = $this->normalizeStateGroupPropertyValueOrders($node['stateGroupPropertyValueOrders']);
+            if ( ! empty($orders) ) {
+                $metadata['state_group_property_value_orders'] = $orders;
+            }
+        }
+
+        if ( is_array($node['variantPropSpecs'] ?? null) ) {
+            $variantSpecs = $this->normalizeVariantPropSpecs($node['variantPropSpecs']);
+            if ( ! empty($variantSpecs) ) {
+                $metadata['variant_prop_specs'] = $variantSpecs;
+            }
+        }
+
         if ( is_array($node['overrides'] ?? null) ) {
             $metadata['overrides'] = $node['overrides'];
         }
 
         return $metadata;
+    }
+
+    /**
+     * @param array<int, mixed> $orders
+     * @return array<int, array{property: string, values: array<int, string>}>
+     */
+    private function normalizeStateGroupPropertyValueOrders(array $orders): array
+    {
+        $normalized = array();
+
+        foreach ( $orders as $order ) {
+            if ( ! is_array($order) || ! isset($order['property']) || ! is_scalar($order['property']) ) {
+                continue;
+            }
+
+            $values = array();
+            foreach ( is_array($order['values'] ?? null) ? $order['values'] : array() as $value ) {
+                if ( is_scalar($value) ) {
+                    $values[] = (string) $value;
+                }
+            }
+
+            $normalized[] = array(
+                'property' => (string) $order['property'],
+                'values'   => $values,
+            );
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param array<int, mixed> $specs
+     * @return array<int, array{prop_def_id: string, value: string}>
+     */
+    private function normalizeVariantPropSpecs(array $specs): array
+    {
+        $normalized = array();
+
+        foreach ( $specs as $spec ) {
+            if ( ! is_array($spec) || ! isset($spec['value']) || ! is_scalar($spec['value']) ) {
+                continue;
+            }
+
+            $propDefId = $this->readGuidId($spec['propDefId'] ?? null);
+            if ( null === $propDefId ) {
+                continue;
+            }
+
+            $normalized[] = array(
+                'prop_def_id' => $propDefId,
+                'value'       => (string) $spec['value'],
+            );
+        }
+
+        return $normalized;
     }
 
     /**
