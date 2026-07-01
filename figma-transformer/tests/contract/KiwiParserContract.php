@@ -1512,6 +1512,8 @@ function blocks_engine_figma_transformer_kiwi_document_metadata_message_fixture(
         . blocks_engine_figma_transformer_wire_varint(1)
         . $node
         . blocks_engine_figma_transformer_wire_varint(0);
+}
+
 function blocks_engine_figma_transformer_kiwi_derived_symbol_schema_fixture(): string
 {
     $field = 'blocks_engine_figma_transformer_kiwi_schema_field';
