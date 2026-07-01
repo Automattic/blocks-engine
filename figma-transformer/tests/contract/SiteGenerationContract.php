@@ -899,6 +899,8 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
                         'children' => array(
                             array('id' => 'text:home', 'type' => 'TEXT', 'name' => 'Home title', 'characters' => 'Home Hero', 'fontName' => array('family' => 'Example Sans', 'style' => 'Regular'), 'fontSize' => 20),
                             array('id' => 'image:home', 'type' => 'RECTANGLE', 'name' => 'Home image', 'width' => 100, 'height' => 60, 'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'home-image'))),
+                            array('id' => 'button:home:one', 'type' => 'TEXT', 'name' => 'Button', 'characters' => 'Read more', 'width' => 80, 'height' => 24, 'fontSize' => 16, 'fontWeight' => 700),
+                            array('id' => 'button:home:two', 'type' => 'TEXT', 'name' => 'Button', 'characters' => 'Subscribe', 'width' => 80, 'height' => 24, 'fontSize' => 16, 'fontWeight' => 700),
                             array('id' => 'vector:home-large', 'type' => 'VECTOR', 'name' => 'Home Large Vector', 'width' => 10, 'height' => 10, 'figma_vector_paths' => array(array('data' => $externalizedVectorPath, 'source' => 'strokeGeometry'))),
                         ),
                     ),
@@ -911,6 +913,8 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
                         'children' => array(
                             array('id' => 'text:about', 'type' => 'TEXT', 'name' => 'About title', 'characters' => 'About Hero', 'fontName' => array('family' => 'Example Sans', 'style' => 'Bold'), 'fontSize' => 20),
                             array('id' => 'image:about', 'type' => 'RECTANGLE', 'name' => 'About image', 'width' => 100, 'height' => 60, 'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'about-image'))),
+                            array('id' => 'button:about:one', 'type' => 'TEXT', 'name' => 'Button', 'characters' => 'Read more', 'width' => 96, 'height' => 28, 'fontSize' => 18, 'fontWeight' => 500),
+                            array('id' => 'button:about:two', 'type' => 'TEXT', 'name' => 'Button', 'characters' => 'Subscribe', 'width' => 96, 'height' => 28, 'fontSize' => 18, 'fontWeight' => 500),
                         ),
                     ),
                 ),
@@ -950,6 +954,9 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(str_contains($multiPageIndex, '<style data-figma-transformer-css="true">') && str_contains($multiPageIndex, '.figma-node-frame-home-home'), 'multi-page-index-inlines-page-css');
     $assert(str_contains($multiPageStyle, '.figma-node-frame-home-home'), 'multi-page-shared-css-home');
     $assert(str_contains($multiPageStyle, '.figma-node-frame-about-about'), 'multi-page-shared-css-about');
+    preg_match_all('/\.button-[0-9a-f]{8}\{/', $multiPageStyle, $multiPageButtonSharedClasses);
+    $assert(2 === count(array_unique($multiPageButtonSharedClasses[0] ?? array())), 'multi-page-shared-readable-classes-are-hashed');
+    $assert(! str_contains($multiPageStyle, '.button{'), 'multi-page-shared-readable-class-base-not-reused');
     $assert(2 === ($multiPageResult['metrics']['page_count'] ?? null), 'multi-page-page-count');
     $assert(2 === ($multiPageResult['source_reports']['compiled_site']['totals']['page_count'] ?? null), 'multi-page-compiled-site-page-count');
     $assert('about.html' === ($multiPageResult['source_reports']['compiled_site']['pages'][1]['path'] ?? null), 'multi-page-compiled-site-page-path');
