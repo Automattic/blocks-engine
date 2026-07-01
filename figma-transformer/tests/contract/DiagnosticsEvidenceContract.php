@@ -22,8 +22,9 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
             ),
         ),
     ));
-    $normalDiagnostics = $normalResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $normalDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($normalResult);
     $normalSignalCodes = blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($normalResult);
+    blocks_engine_figma_transformer_contract_assert_diagnostic_envelope($assert, $normalDiagnostics, 'blocks-engine/figma-transformer/transform-diagnostics/v1', 'diagnostics-evidence-normal-envelope');
     $assert(1 === ($normalDiagnostics['text']['decoded_text_node_count'] ?? null), 'diagnostics-evidence-normal-decoded-text-count');
     $assert(1 === ($normalDiagnostics['text']['emitted_text_node_count'] ?? null), 'diagnostics-evidence-normal-emitted-text-count');
     $assert(0 === ($normalDiagnostics['text']['missing_emitted_text_node_count'] ?? null), 'diagnostics-evidence-normal-missing-text-zero');
@@ -48,7 +49,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
             ),
         ),
     ));
-    $clippedDiagnostics = $clippedResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $clippedDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($clippedResult);
     $clippedSignalCodes = blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($clippedResult);
     $assert(1 === ($clippedDiagnostics['layout']['clipped_visual_node_count'] ?? null), 'diagnostics-evidence-clipped-count');
     $assert(0.5 === ($clippedDiagnostics['layout']['clipped_visual_area_ratio'] ?? null), 'diagnostics-evidence-clipped-area-ratio');
@@ -70,7 +71,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
             ),
         ),
     ));
-    $largeOffsetDiagnostics = $largeOffsetResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $largeOffsetDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($largeOffsetResult);
     $largeOffsetNodes = $largeOffsetDiagnostics['layout']['large_css_offset_nodes'] ?? array();
     $assert('empty_visible_container' === ($largeOffsetNodes[0]['classification'] ?? null), 'diagnostics-evidence-large-css-offset-classification');
 
@@ -89,7 +90,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
             ),
         ),
     ));
-    $emptyTextDiagnostics = $emptyTextResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $emptyTextDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($emptyTextResult);
     $emptyTextSignalCodes = blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($emptyTextResult);
     $assert(1 === ($emptyTextDiagnostics['text']['empty_decoded_text_node_count'] ?? null), 'diagnostics-evidence-empty-text-count');
     $assert('diag:empty-text' === ($emptyTextDiagnostics['text']['empty_decoded_text_nodes'][0]['node_id'] ?? null), 'diagnostics-evidence-empty-text-sample-node');
@@ -128,7 +129,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
             ),
         ),
     ));
-    $maskMetadataDiagnostics = $maskMetadataResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $maskMetadataDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($maskMetadataResult);
     $maskEffectClipping = $maskMetadataDiagnostics['mask_effect_clipping'] ?? array();
     $assert(1 === ($maskEffectClipping['mask_node_count'] ?? null), 'diagnostics-evidence-mask-node-count');
     $assert(3 === ($maskEffectClipping['mask_metadata_node_count'] ?? null), 'diagnostics-evidence-mask-metadata-node-count');
@@ -175,7 +176,8 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
             ),
         ),
     ), array('multi_page' => true, 'frame_ids' => array('diag:aggregation-home', 'diag:aggregation-about'), 'entry_frame_id' => 'diag:aggregation-home'));
-    $multiPageDiagnostics = $multiPageResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $multiPageDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($multiPageResult);
+    blocks_engine_figma_transformer_contract_assert_diagnostic_envelope($assert, $multiPageDiagnostics, 'blocks-engine/figma-transformer/transform-diagnostics/v1', 'diagnostics-evidence-multi-page-envelope');
     $missingAssets = $multiPageDiagnostics['images']['missing_assets'] ?? array();
     $placeholderNodes = $multiPageDiagnostics['vectors']['placeholder_nodes'] ?? array();
     $assert('multi_page' === ($multiPageDiagnostics['scope'] ?? null), 'diagnostics-evidence-multi-page-scope');

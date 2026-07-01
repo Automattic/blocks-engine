@@ -9,6 +9,41 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Scenegraph;
  */
 final class PaintNormalizer
 {
+    private const PAINT_COLLECTION_SOURCES = array(
+        'fills'            => 'fills',
+        'fillPaints'       => 'fills',
+        'strokes'          => 'strokes',
+        'strokePaints'     => 'strokes',
+        'background'       => 'background',
+        'backgroundPaints' => 'background',
+    );
+
+    private const FALLBACK_COLOR_SOURCES = array(
+        'fill'            => 'fills',
+        'backgroundColor' => 'background',
+    );
+
+    private const STYLE_REFERENCE_FIELDS = array(
+        'fills'   => array('styleIdForFill'),
+        'strokes' => array('styleIdForStrokeFill', 'styleIdForStroke'),
+    );
+
+    private const STYLE_PAINT_COLLECTION = array(
+        'fills'   => 'fills',
+        'strokes' => 'fills',
+    );
+
+    private const NON_VECTOR_PAINT_SOURCE_NODE_TYPES = array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'SECTION', 'CANVAS', 'DOCUMENT');
+
+    private const VECTOR_GEOMETRY_FIELDS = array(
+        'fills'   => array('fillGeometry'),
+        'strokes' => array('strokeGeometry'),
+    );
+
+    private const VECTOR_PATH_COLLECTION_FIELDS = array('vectorPaths', 'paths');
+
+    private const VECTOR_PATH_SCALAR_FIELDS = array('pathData', 'path', 'd');
+
     /**
      * @param array<string, mixed>             $node
      * @param array<int, array<string, mixed>> $diagnostics
@@ -16,44 +51,12 @@ final class PaintNormalizer
      */
     public function normalizePaintCollections(array $node, string $nodeId, array &$diagnostics, array $paintStyles = array()): array
     {
-        $collections = array();
-        foreach ( array('fills' => 'fills', 'fillPaints' => 'fills', 'strokes' => 'strokes', 'strokePaints' => 'strokes', 'background' => 'background', 'backgroundPaints' => 'background') as $sourceKey => $targetKey ) {
-            if ( ! is_array($node[$sourceKey] ?? null) ) {
-                continue;
-            }
-
-            $paints = $this->normalizePaintList($node[$sourceKey], $nodeId, $sourceKey, $diagnostics);
-
-            if ( ! empty($paints) ) {
-                $collections[$targetKey] = $paints;
-            }
+        $collections = $this->normalizeLocalPaintCollections($node, $nodeId, $diagnostics);
+        foreach ( array_keys(self::STYLE_REFERENCE_FIELDS) as $collection ) {
+            $this->applyReferencedPaintStyle($collections, $node, $nodeId, $collection, $paintStyles, $diagnostics);
         }
 
-        $styleFillId = $this->readStyleGuidId($node['styleIdForFill'] ?? null);
-        if ( null !== $styleFillId && ! empty($paintStyles[$styleFillId]['fills']) ) {
-            $styleFills = $paintStyles[$styleFillId]['fills'];
-            $localFillPrecedence = $this->hasLocalVectorPaintSource($node, 'fills');
-            if ( ! empty($collections['fills']) && $collections['fills'] !== $styleFills ) {
-                $this->appendLocalStylePaintConflictDiagnostic($diagnostics, $nodeId, 'fills', $styleFillId, $collections['fills'], $styleFills, $localFillPrecedence);
-            }
-            if ( empty($collections['fills']) || ! $localFillPrecedence ) {
-                $collections['fills'] = $styleFills;
-            }
-        }
-
-        $styleStrokeId = $this->readStyleGuidId($node['styleIdForStrokeFill'] ?? $node['styleIdForStroke'] ?? null);
-        if ( null !== $styleStrokeId && ! empty($paintStyles[$styleStrokeId]['fills']) ) {
-            $styleStrokes = $paintStyles[$styleStrokeId]['fills'];
-            $localStrokePrecedence = $this->hasLocalVectorPaintSource($node, 'strokes');
-            if ( ! empty($collections['strokes']) && $collections['strokes'] !== $styleStrokes ) {
-                $this->appendLocalStylePaintConflictDiagnostic($diagnostics, $nodeId, 'strokes', $styleStrokeId, $collections['strokes'], $styleStrokes, $localStrokePrecedence);
-            }
-            if ( empty($collections['strokes']) || ! $localStrokePrecedence ) {
-                $collections['strokes'] = $styleStrokes;
-            }
-        }
-
-        foreach ( array('fill' => 'fills', 'backgroundColor' => 'background') as $sourceKey => $targetKey ) {
+        foreach ( self::FALLBACK_COLOR_SOURCES as $sourceKey => $targetKey ) {
             if ( ! isset($node[$sourceKey]) ) {
                 continue;
             }
@@ -65,6 +68,98 @@ final class PaintNormalizer
         }
 
         return $collections;
+    }
+
+    /**
+     * @param array<string, mixed>             $node
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, array<int, array<string, mixed>>>
+     */
+    private function normalizeLocalPaintCollections(array $node, string $nodeId, array &$diagnostics): array
+    {
+        $collections = array();
+        foreach ( self::PAINT_COLLECTION_SOURCES as $sourceKey => $targetKey ) {
+            if ( ! is_array($node[$sourceKey] ?? null) ) {
+                continue;
+            }
+
+            $paints = $this->normalizePaintList($node[$sourceKey], $nodeId, $sourceKey, $diagnostics);
+            if ( ! empty($paints) ) {
+                $collections[$targetKey] = $paints;
+            }
+        }
+
+        return $collections;
+    }
+
+    /**
+     * @param array<string, array<int, array<string, mixed>>> $collections
+     * @param array<string, mixed>                            $node
+     * @param array<string, array<string, mixed>>             $paintStyles
+     * @param array<int, array<string, mixed>>                $diagnostics
+     */
+    private function applyReferencedPaintStyle(array &$collections, array $node, string $nodeId, string $collection, array $paintStyles, array &$diagnostics): void
+    {
+        $styleId = $this->readStyleReferenceId($node, $collection);
+        if ( null === $styleId ) {
+            return;
+        }
+
+        $stylePaints = $this->readStylePaints($paintStyles, $styleId, $collection);
+        if ( empty($stylePaints) ) {
+            return;
+        }
+
+        $precedence = $this->resolveLocalStylePaintPrecedence($node, $collection, ! empty($collections[$collection]));
+        if ( ! empty($collections[$collection]) && $collections[$collection] !== $stylePaints ) {
+            $this->appendLocalStylePaintConflictDiagnostic($diagnostics, $nodeId, $collection, $styleId, $collections[$collection], $stylePaints, $precedence);
+        }
+
+        if ( empty($collections[$collection]) || 'style' === $precedence['winner'] ) {
+            $collections[$collection] = $stylePaints;
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function readStyleReferenceId(array $node, string $collection): ?string
+    {
+        foreach ( self::STYLE_REFERENCE_FIELDS[$collection] ?? array() as $field ) {
+            $id = $this->readStyleGuidId($node[$field] ?? null);
+            if ( null !== $id ) {
+                return $id;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $paintStyles
+     * @return array<int, array<string, mixed>>
+     */
+    private function readStylePaints(array $paintStyles, string $styleId, string $collection): array
+    {
+        $styleCollection = self::STYLE_PAINT_COLLECTION[$collection] ?? $collection;
+        $paints = $paintStyles[$styleId][$styleCollection] ?? null;
+
+        return is_array($paints) ? $paints : array();
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array{winner: string, local_vector_source: bool, reason: string}
+     */
+    private function resolveLocalStylePaintPrecedence(array $node, string $collection, bool $hasLocalPaints): array
+    {
+        $hasLocalVectorSource = $hasLocalPaints && $this->hasLocalVectorPaintSource($node, $collection);
+
+        return array(
+            'winner'              => $hasLocalVectorSource ? 'local' : 'style',
+            'local_vector_source' => $hasLocalVectorSource,
+            'reason'              => $hasLocalVectorSource ? 'local_vector_geometry' : 'style_reference',
+        );
     }
 
     /**
@@ -149,27 +244,23 @@ final class PaintNormalizer
     private function hasLocalVectorPaintSource(array $node, string $collection): bool
     {
         $type = strtoupper((string) ($node['type'] ?? ''));
-        if ( in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'SECTION', 'CANVAS', 'DOCUMENT'), true) ) {
+        if ( in_array($type, self::NON_VECTOR_PAINT_SOURCE_NODE_TYPES, true) ) {
             return false;
         }
 
-        $keys = 'strokes' === $collection
-            ? array('strokeGeometry')
-            : array('fillGeometry');
-
-        foreach ( $keys as $key ) {
+        foreach ( self::VECTOR_GEOMETRY_FIELDS[$collection] ?? array() as $key ) {
             if ( $this->hasAuthoredVectorPathGeometry($node[$key] ?? null) ) {
                 return true;
             }
         }
 
-        foreach ( array('vectorPaths', 'paths') as $key ) {
+        foreach ( self::VECTOR_PATH_COLLECTION_FIELDS as $key ) {
             if ( ! empty($node[$key]) ) {
                 return true;
             }
         }
 
-        foreach ( array('pathData', 'path', 'd') as $key ) {
+        foreach ( self::VECTOR_PATH_SCALAR_FIELDS as $key ) {
             if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== trim((string) $node[$key]) ) {
                 return true;
             }
@@ -203,17 +294,17 @@ final class PaintNormalizer
      * @param array<int, array<string, mixed>> $diagnostics
      * @param array<int, array<string, mixed>> $localPaints
      * @param array<int, array<string, mixed>> $stylePaints
+     * @param array{winner: string, local_vector_source: bool, reason: string} $precedence
      */
-    private function appendLocalStylePaintConflictDiagnostic(array &$diagnostics, string $nodeId, string $collection, string $styleId, array $localPaints, array $stylePaints, bool $geometryBacked): void
+    private function appendLocalStylePaintConflictDiagnostic(array &$diagnostics, string $nodeId, string $collection, string $styleId, array $localPaints, array $stylePaints, array $precedence): void
     {
-        $precedence = $geometryBacked ? 'local' : 'style';
         foreach ( $diagnostics as $diagnostic ) {
             if ( 'figma_local_style_paint_conflict' !== ($diagnostic['code'] ?? null) || ! is_array($diagnostic['context'] ?? null) ) {
                 continue;
             }
 
             $context = $diagnostic['context'];
-            if ( $nodeId === ($context['node_id'] ?? null) && $collection === ($context['collection'] ?? null) && $styleId === ($context['style_id'] ?? null) && $precedence === ($context['precedence'] ?? null) ) {
+            if ( $nodeId === ($context['node_id'] ?? null) && $collection === ($context['collection'] ?? null) && $styleId === ($context['style_id'] ?? null) && $precedence['winner'] === ($context['precedence'] ?? null) ) {
                 return;
             }
         }
@@ -227,8 +318,9 @@ final class PaintNormalizer
                 'node_id'         => $nodeId,
                 'collection'      => $collection,
                 'style_id'        => $styleId,
-                'geometry_backed' => $geometryBacked,
-                'precedence'      => $precedence,
+                'geometry_backed' => $precedence['local_vector_source'],
+                'precedence'      => $precedence['winner'],
+                'precedence_rule' => $precedence['reason'],
                 'local_paints'    => $localPaints,
                 'style_paints'    => $stylePaints,
             ),

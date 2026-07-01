@@ -29,7 +29,7 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
     $assert(1 === ($inventory['summary']['by_role']['document_metadata'] ?? null), 'kiwi-skipped-inventory-document-role');
     $assert(1 === ($inventory['summary']['by_role']['dev_status'] ?? null), 'kiwi-skipped-inventory-dev-status-role');
 
-    $layoutEntry = blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'layoutBoundsDebug');
+    $layoutEntry = blocks_engine_figma_transformer_contract_find_named_field($fields, 'layoutBoundsDebug');
     $assert('NodeChange' === ($layoutEntry['parent_message'] ?? null), 'kiwi-skipped-inventory-parent-message');
     $assert('FRAME' === array_key_first(is_array($layoutEntry['node_types'] ?? null) ? $layoutEntry['node_types'] : array()), 'kiwi-skipped-inventory-node-type');
     $assert(array('7:42') === ($layoutEntry['sample_node_ids'] ?? null), 'kiwi-skipped-inventory-node-id-sample');
@@ -37,25 +37,25 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
     $assert('FRAME' === ($layoutEntry['sample_nodes'][0]['node_type'] ?? null), 'kiwi-skipped-inventory-node-sample-type');
     $assert('Message.nodeChanges[].layoutBoundsDebug' === ($layoutEntry['sample_nodes'][0]['path'] ?? null), 'kiwi-skipped-inventory-node-sample-path');
     $assert('layout' === ($layoutEntry['sample_nodes'][0]['raw_value']['value'] ?? null), 'kiwi-skipped-inventory-node-sample-value');
-    $assert(array() === blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'maskType'), 'kiwi-skipped-inventory-mask-type-decoded');
-    $assert(array() === blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'arcData'), 'kiwi-skipped-inventory-arc-data-decoded');
-    $assert(array() === blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'guides'), 'kiwi-skipped-inventory-guides-decoded');
-    $assert(array() === blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'listSpacing'), 'kiwi-skipped-inventory-list-spacing-decoded');
-    $assert(array() === blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'phase'), 'kiwi-skipped-inventory-phase-decoded');
-    $documentEntry = blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'metadataAuditTrail');
+    $assert(array() === blocks_engine_figma_transformer_contract_find_named_field($fields, 'maskType'), 'kiwi-skipped-inventory-mask-type-decoded');
+    $assert(array() === blocks_engine_figma_transformer_contract_find_named_field($fields, 'arcData'), 'kiwi-skipped-inventory-arc-data-decoded');
+    $assert(array() === blocks_engine_figma_transformer_contract_find_named_field($fields, 'guides'), 'kiwi-skipped-inventory-guides-decoded');
+    $assert(array() === blocks_engine_figma_transformer_contract_find_named_field($fields, 'listSpacing'), 'kiwi-skipped-inventory-list-spacing-decoded');
+    $assert(array() === blocks_engine_figma_transformer_contract_find_named_field($fields, 'phase'), 'kiwi-skipped-inventory-phase-decoded');
+    $documentEntry = blocks_engine_figma_transformer_contract_find_named_field($fields, 'metadataAuditTrail');
     $assert('document_metadata' === ($documentEntry['field_role'] ?? null), 'kiwi-skipped-inventory-metadata-document-role');
-    $handoffEntry = blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'handoffStatusHistory');
+    $handoffEntry = blocks_engine_figma_transformer_contract_find_named_field($fields, 'handoffStatusHistory');
     $assert('dev_status' === ($handoffEntry['field_role'] ?? null), 'kiwi-skipped-inventory-handoff-dev-role');
-    $glyphEntry = blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'glyphs');
+    $glyphEntry = blocks_engine_figma_transformer_contract_find_named_field($fields, 'glyphs');
     $assert('text_style' === ($glyphEntry['field_role'] ?? null), 'kiwi-skipped-inventory-glyph-text-role');
     $assert('null_terminated_string' === ($glyphEntry['wire_type'] ?? null), 'kiwi-skipped-inventory-string-wire-type');
     $assert('glyphs' === ($glyphEntry['sample_raw_values'][0]['value'] ?? null), 'kiwi-skipped-inventory-string-sample-value');
-    $statusEntry = blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'inventoryStatus');
+    $statusEntry = blocks_engine_figma_transformer_contract_find_named_field($fields, 'inventoryStatus');
     $assert('ENUM' === ($statusEntry['type_kind'] ?? null), 'kiwi-skipped-inventory-enum-kind');
     $assert('varint_enum' === ($statusEntry['wire_type'] ?? null), 'kiwi-skipped-inventory-enum-wire-type');
     $assert('READY' === ($statusEntry['sample_raw_values'][0]['value'] ?? null), 'kiwi-skipped-inventory-enum-sample-value');
     $assert('READY' === ($statusEntry['type_definition']['fields'][1]['name'] ?? null), 'kiwi-skipped-inventory-enum-definition');
-    $guidEntry = blocks_engine_figma_transformer_kiwi_inventory_find_field($fields, 'extraGuid');
+    $guidEntry = blocks_engine_figma_transformer_contract_find_named_field($fields, 'extraGuid');
     $assert('STRUCT' === ($guidEntry['type_kind'] ?? null), 'kiwi-skipped-inventory-struct-kind');
     $assert('kiwi_struct' === ($guidEntry['wire_type'] ?? null), 'kiwi-skipped-inventory-struct-wire-type');
     $assert(99 === ($guidEntry['sample_raw_values'][0]['items']['localID']['value'] ?? null), 'kiwi-skipped-inventory-struct-sample-value');
@@ -72,12 +72,7 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
     $message = $decoder->decodeMessageSelective(blocks_engine_figma_transformer_kiwi_inventory_message_fixture(), $schema)['message'] ?? array();
     $assert('variables' === ($message['nodeChanges'][0]['variableConsumptionMap'] ?? null), 'kiwi-selective-decodes-variable-consumption-map');
 
-    $fixture = SyntheticFigKiwiFixtureBuilder::figArchive(
-        SyntheticFigKiwiFixtureBuilder::canvas(array(
-            SyntheticFigKiwiFixtureBuilder::zlibChunk(blocks_engine_figma_transformer_kiwi_inventory_schema_fixture()),
-            SyntheticFigKiwiFixtureBuilder::zlibChunk(blocks_engine_figma_transformer_kiwi_inventory_message_fixture()),
-        ))
-    );
+    $fixture = blocks_engine_figma_transformer_kiwi_inventory_fixture();
     $command = escapeshellarg(PHP_BINARY)
         . ' ' . escapeshellarg(__DIR__ . '/../../scripts/figma-kiwi-skipped-field-inventory.php')
         . ' ' . escapeshellarg($fixture);
@@ -89,12 +84,7 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
     $assert('blocks-engine/figma-transformer/kiwi-skipped-field-inventory-file/v1' === ($cli['schema'] ?? null), 'kiwi-skipped-inventory-cli-schema');
     $assert(11 === ($cli['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-cli-field-count');
 
-    $fixture = SyntheticFigKiwiFixtureBuilder::figArchive(
-        SyntheticFigKiwiFixtureBuilder::canvas(array(
-            SyntheticFigKiwiFixtureBuilder::zlibChunk(blocks_engine_figma_transformer_kiwi_inventory_schema_fixture()),
-            SyntheticFigKiwiFixtureBuilder::zlibChunk(blocks_engine_figma_transformer_kiwi_inventory_message_fixture()),
-        ))
-    );
+    $fixture = blocks_engine_figma_transformer_kiwi_inventory_fixture();
     $outputPath = tempnam(sys_get_temp_dir(), 'blocks-engine-kiwi-inventory-output-');
     $command = escapeshellarg(PHP_BINARY)
         . ' ' . escapeshellarg(__DIR__ . '/../../scripts/figma-kiwi-skipped-field-inventory.php')
@@ -114,18 +104,12 @@ function blocks_engine_figma_transformer_run_kiwi_skipped_field_inventory_contra
     $assert(11 === ($written['summary']['field_count'] ?? null), 'kiwi-skipped-inventory-output-file-field-count');
 }
 
-/**
- * @param array<string, array<string, mixed>> $fields
- * @return array<string, mixed>
- */
-function blocks_engine_figma_transformer_kiwi_inventory_find_field(array $fields, string $fieldName): array
+function blocks_engine_figma_transformer_kiwi_inventory_fixture(): string
 {
-    foreach ( $fields as $field ) {
-        if ( $fieldName === ($field['field'] ?? null) ) {
-            return $field;
-        }
-    }
-    return array();
+    return SyntheticFigKiwiFixtureBuilder::zlibFigArchive(array(
+        blocks_engine_figma_transformer_kiwi_inventory_schema_fixture(),
+        blocks_engine_figma_transformer_kiwi_inventory_message_fixture(),
+    ));
 }
 
 function blocks_engine_figma_transformer_kiwi_inventory_schema_fixture(): string

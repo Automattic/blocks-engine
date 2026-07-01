@@ -15,14 +15,34 @@ final class ScenegraphNormalizer
 
     private readonly InstanceResolver $instanceResolver;
 
+    private readonly ScenegraphDiagnostics $diagnosticsNormalizer;
+
+    private readonly ScenegraphLayoutNormalizer $layoutNormalizer;
+
+    private readonly ScenegraphSourceOrderPropagator $sourceOrderPropagator;
+
+    private readonly ScenegraphVectorInstanceScaler $vectorInstanceScaler;
+
+    private readonly ComponentSourceCloneGeometry $componentSourceCloneGeometry;
+
     public function __construct(
         private readonly ScenegraphIndex $index = new ScenegraphIndex(),
         private readonly VectorGeometryNormalizer $vectorGeometryNormalizer = new VectorGeometryNormalizer(),
         private readonly PaintNormalizer $paintNormalizer = new PaintNormalizer(),
-        ?TextNormalizer $textNormalizer = null
+        ?TextNormalizer $textNormalizer = null,
+        ?ScenegraphDiagnostics $diagnosticsNormalizer = null,
+        ?ScenegraphLayoutNormalizer $layoutNormalizer = null,
+        ?ScenegraphSourceOrderPropagator $sourceOrderPropagator = null,
+        ?ScenegraphVectorInstanceScaler $vectorInstanceScaler = null,
+        ?ComponentSourceCloneGeometry $componentSourceCloneGeometry = null
     ) {
         $this->textNormalizer = $textNormalizer ?? new TextNormalizer($this->vectorGeometryNormalizer);
         $this->instanceResolver = new InstanceResolver();
+        $this->diagnosticsNormalizer = $diagnosticsNormalizer ?? new ScenegraphDiagnostics($this->vectorGeometryNormalizer);
+        $this->layoutNormalizer = $layoutNormalizer ?? new ScenegraphLayoutNormalizer();
+        $this->sourceOrderPropagator = $sourceOrderPropagator ?? new ScenegraphSourceOrderPropagator();
+        $this->vectorInstanceScaler = $vectorInstanceScaler ?? new ScenegraphVectorInstanceScaler();
+        $this->componentSourceCloneGeometry = $componentSourceCloneGeometry ?? new ComponentSourceCloneGeometry($this->vectorInstanceScaler);
     }
 
     /**
@@ -88,7 +108,7 @@ final class ScenegraphNormalizer
         $variableBindingSummary = $this->buildVariableBindingSummary($nodeMap);
         $sourceMetadata         = $this->normalizeDocumentMetadata($source);
         $sourceName             = $this->readSourceName($source, $renderNodes);
-        $diagnostics            = $this->vectorGeometryNormalizer->compactUnsupportedVectorNetworkBlobDiagnostics($this->compactGlyphCommandBlobDiagnostics($diagnostics));
+        $diagnostics            = $this->diagnosticsNormalizer->compact($diagnostics);
 
         return array(
             'schema'              => 'blocks-engine/figma-transformer/scenegraph/v1',
@@ -500,11 +520,7 @@ final class ScenegraphNormalizer
             foreach ( $node[$childrenKey] as $index => $child ) {
                 if ( is_array($child) ) {
                     $normalizedChild = $this->normalizeNode($child, $diagnostics, $blobs, $paintStyles, $textStyles, $options);
-                    $childLayout = is_array($normalizedChild['layout'] ?? null) ? $normalizedChild['layout'] : array();
-                    $childLayout['source_order'] = isset($normalizedChild['_source_order']) && is_numeric($normalizedChild['_source_order'])
-                        ? (int) $normalizedChild['_source_order']
-                        : (int) $index;
-                    $normalizedChild['layout'] = $childLayout;
+                    $normalizedChild = $this->sourceOrderPropagator->apply($normalizedChild, (int) $index);
                     $node[$childrenKey][$index] = $normalizedChild;
                 }
             }
@@ -1287,11 +1303,11 @@ final class ScenegraphNormalizer
         $id = (string) ($node['id'] ?? '');
         $sourceId = (string) ($node['figma_component_source_id'] ?? '');
         $refreshId = '' !== $id && isset($nodeMap[$id]) ? $id : $sourceId;
-        $refreshesComponentSourceClone = '' !== $sourceId && $refreshId === $sourceId && $this->isRefreshableComponentSourceClone($node, $nodeMap[$refreshId] ?? array());
-        if ( '' !== $refreshId && isset($nodeMap[$refreshId]) && ! in_array($refreshId, $trail, true) && ($refreshId === $id || ($refreshesComponentSourceClone && ! $this->subtreeHasInstanceOverrideApplied($node))) ) {
+        $refreshesComponentSourceClone = '' !== $sourceId && $refreshId === $sourceId && $this->componentSourceCloneGeometry->isRefreshable($node, $nodeMap[$refreshId] ?? array());
+        if ( '' !== $refreshId && isset($nodeMap[$refreshId]) && ! in_array($refreshId, $trail, true) && ($refreshId === $id || ($refreshesComponentSourceClone && ! $this->componentSourceCloneGeometry->subtreeHasInstanceOverrideApplied($node))) ) {
             $node = $refreshId === $id
                 ? $nodeMap[$refreshId]
-                : $this->mergeRefreshedComponentSource($node, $nodeMap[$refreshId], $refreshId);
+                : $this->componentSourceCloneGeometry->mergeRefreshed($node, $nodeMap[$refreshId], $refreshId);
             $trail[] = $refreshId;
         }
 
@@ -1307,7 +1323,7 @@ final class ScenegraphNormalizer
 			$node['children'][$index] = $this->refreshResolvedTree($child, $nodeMap, $trail);
 		}
 
-		return $this->repairFarComponentSourceCloneGeometry($node, $nodeMap);
+		return $this->componentSourceCloneGeometry->repairFarGeometry($node, $nodeMap);
 	}
 
 	/**
@@ -1425,7 +1441,7 @@ final class ScenegraphNormalizer
             $scaleX = isset($clone['_component_source_clone_scale']['x']) && is_numeric($clone['_component_source_clone_scale']['x']) ? (float) $clone['_component_source_clone_scale']['x'] : 1.0;
             $scaleY = isset($clone['_component_source_clone_scale']['y']) && is_numeric($clone['_component_source_clone_scale']['y']) ? (float) $clone['_component_source_clone_scale']['y'] : 1.0;
             if ( abs($scaleX - 1.0) >= 0.0001 || abs($scaleY - 1.0) >= 0.0001 ) {
-                $merged['children'] = $this->scaleVectorChildren($merged['children'], $scaleX, $scaleY);
+            $merged['children'] = $this->vectorInstanceScaler->scaleVectorChildren($merged['children'], $scaleX, $scaleY);
                 $merged['_component_source_clone_scale'] = array('x' => $scaleX, 'y' => $scaleY);
             }
         }
@@ -1947,10 +1963,10 @@ final class ScenegraphNormalizer
         $componentSourceWidth = isset($componentBox['width']) && is_numeric($componentBox['width']) ? (float) $componentBox['width'] : null;
         $componentSourceHeight = isset($componentBox['height']) && is_numeric($componentBox['height']) ? (float) $componentBox['height'] : null;
         if ( null !== $componentSourceX || null !== $componentSourceY ) {
-            $rebasedSource = $this->rebaseComponentSourceCloneDescendants(array('children' => $resolvedChildren), $componentSourceX, $componentSourceY, $componentSourceWidth, $componentSourceHeight);
+            $rebasedSource = $this->componentSourceCloneGeometry->rebaseDescendants(array('children' => $resolvedChildren), $componentSourceX, $componentSourceY, $componentSourceWidth, $componentSourceHeight);
             $resolvedChildren = is_array($rebasedSource['children'] ?? null) ? $rebasedSource['children'] : $resolvedChildren;
         }
-        $resolvedChildren = $this->scaleVectorOnlyInstanceChildren($resolvedChildren, $component, $instance);
+        $resolvedChildren = $this->vectorInstanceScaler->scaleVectorOnlyInstanceChildren($resolvedChildren, $component, $instance);
         // Figma binds per-instance text content through component properties: each
         // master text node references a property definition (componentPropRefs ->
         // componentPropNodeField: TEXT_DATA) and the instance assigns the real value
@@ -2541,7 +2557,7 @@ final class ScenegraphNormalizer
                         $refreshed = $this->cloneComponentForInstance($components[$reference['id']], $refreshed, $reference['id'], $overrides, $nodeMap, $components, $diagnostics, $blobs, $paintStyles, $textStyles, $options, array_merge($resolutionTrail, array($id)));
                     }
                 }
-                $child = $this->mergeRefreshedComponentSource($child, $refreshed, $id);
+                $child = $this->componentSourceCloneGeometry->mergeRefreshed($child, $refreshed, $id);
             }
 
             if ( is_array($child['children'] ?? null) ) {
@@ -2729,7 +2745,7 @@ final class ScenegraphNormalizer
             $nestedComponentPropertyOverrides = $this->nestedComponentPropertyOverridesForChild($child, $overrideFields, $components);
             unset($overrideFields['componentPropAssignments']);
             if ( null !== $swapComponentId && isset($components[$swapComponentId]) ) {
-                $child = $this->mergeRefreshedComponentSource($child, $components[$swapComponentId], $swapComponentId);
+                $child = $this->componentSourceCloneGeometry->mergeRefreshed($child, $components[$swapComponentId], $swapComponentId);
                 if ( is_array($child['children'] ?? null) ) {
                     $child['children'] = $this->resolveClonedInstanceChildren($child['children'], $nodeMap, $components, $diagnostics, $blobs, $paintStyles, $textStyles, $options);
                 }
@@ -3601,65 +3617,7 @@ final class ScenegraphNormalizer
      */
     private function normalizeLayoutBox(array $node): array
     {
-        $box = array();
-        $sourceKind = null;
-
-        foreach ( array('absoluteBoundingBox', 'absoluteRenderBounds') as $boundsKey ) {
-            if ( ! is_array($node[$boundsKey] ?? null) ) {
-                continue;
-            }
-
-            foreach ( array('x', 'y', 'width', 'height') as $dimension ) {
-                if ( ! array_key_exists($dimension, $box) && isset($node[$boundsKey][$dimension]) && is_numeric($node[$boundsKey][$dimension]) ) {
-                    $box[$dimension] = (float) $node[$boundsKey][$dimension];
-                }
-            }
-
-            if ( isset($node[$boundsKey]['x']) || isset($node[$boundsKey]['y']) ) {
-                $sourceKind = GeometryBox::SOURCE_ABSOLUTE_BOUNDS;
-            }
-        }
-
-        foreach ( array('x', 'y', 'width', 'height') as $dimension ) {
-            if ( ! array_key_exists($dimension, $box) && isset($node[$dimension]) && is_numeric($node[$dimension]) ) {
-                $box[$dimension] = (float) $node[$dimension];
-                if ( 'x' === $dimension || 'y' === $dimension ) {
-                    $sourceKind = isset($node[GeometryBox::PROVENANCE_KEY]) && is_scalar($node[GeometryBox::PROVENANCE_KEY])
-                        ? (string) $node[GeometryBox::PROVENANCE_KEY]
-                        : GeometryBox::SOURCE_EXPLICIT_LOCAL;
-                }
-            }
-        }
-
-        if ( is_array($node['size'] ?? null) ) {
-            foreach ( array('x' => 'width', 'y' => 'height') as $source => $target ) {
-                if ( ! array_key_exists($target, $box) && isset($node['size'][$source]) && is_numeric($node['size'][$source]) ) {
-                    $box[$target] = (float) $node['size'][$source];
-                    $sourceKind ??= GeometryBox::SOURCE_SIZE_ONLY;
-                }
-            }
-        }
-
-        foreach ( array('stackWidth' => 'width', 'stackHeight' => 'height') as $source => $target ) {
-            if ( ! array_key_exists($target, $box) && isset($node[$source]) && is_numeric($node[$source]) ) {
-                $box[$target] = (float) $node[$source];
-                $sourceKind ??= GeometryBox::SOURCE_SIZE_ONLY;
-            }
-        }
-
-        $transformBox = $this->layoutBoxFromTransform($node);
-        foreach ( array('x', 'y') as $dimension ) {
-            if ( ! array_key_exists($dimension, $box) && isset($transformBox[$dimension]) ) {
-                $box[$dimension] = $transformBox[$dimension];
-                $sourceKind = $transformBox[GeometryBox::PROVENANCE_KEY];
-            }
-        }
-
-        if ( null !== $sourceKind ) {
-            $box = GeometryBox::withProvenance($box, $sourceKind);
-        }
-
-        return GeometryBox::withoutProvenance($box);
+        return $this->layoutNormalizer->normalizeLayoutBox($node);
     }
 
     /**
@@ -3698,285 +3656,7 @@ final class ScenegraphNormalizer
      */
     private function normalizeLayout(array $node): array
     {
-        $layout = array();
-
-        if ( isset($node['layoutMode']) && is_scalar($node['layoutMode']) ) {
-            $mode = strtoupper((string) $node['layoutMode']);
-            $layout['mode'] = $mode;
-
-            if ( 'HORIZONTAL' === $mode ) {
-                $layout['display'] = 'flex';
-                $layout['flex_direction'] = 'row';
-            } elseif ( 'VERTICAL' === $mode ) {
-                $layout['display'] = 'flex';
-                $layout['flex_direction'] = 'column';
-            }
-        } elseif ( isset($node['stackMode']) && is_scalar($node['stackMode']) ) {
-            $mode = strtoupper((string) $node['stackMode']);
-            $layout['mode'] = $mode;
-
-            if ( 'HORIZONTAL' === $mode ) {
-                $layout['display'] = 'flex';
-                $layout['flex_direction'] = 'row';
-            } elseif ( 'VERTICAL' === $mode ) {
-                $layout['display'] = 'flex';
-                $layout['flex_direction'] = 'column';
-            }
-        }
-
-        foreach ( array(
-            'layoutSizingHorizontal' => 'sizing_horizontal',
-            'layoutSizingVertical' => 'sizing_vertical',
-            'horizontalSizing' => 'sizing_horizontal',
-            'verticalSizing' => 'sizing_vertical',
-        ) as $source => $target ) {
-            if ( isset($node[$source]) && is_scalar($node[$source]) ) {
-                $layout[$target] = strtoupper((string) $node[$source]);
-            }
-        }
-
-        // REST exposes `primaryAxisSizingMode`/`counterAxisSizingMode`; the .fig
-        // Kiwi schema carries the same intent as flat `stackPrimarySizing`/
-        // `stackCounterSizing` enums. Read REST first, fall back to Kiwi, and
-        // normalize both vocabularies to canonical HUG/FIXED tokens.
-        foreach ( array(
-            'primary_axis_sizing' => array('rest' => 'primaryAxisSizingMode', 'kiwi' => 'stackPrimarySizing'),
-            'counter_axis_sizing' => array('rest' => 'counterAxisSizingMode', 'kiwi' => 'stackCounterSizing'),
-        ) as $target => $sources ) {
-            $raw = null;
-            if ( isset($node[$sources['rest']]) && is_scalar($node[$sources['rest']]) ) {
-                $raw = (string) $node[$sources['rest']];
-            } elseif ( isset($node[$sources['kiwi']]) && is_scalar($node[$sources['kiwi']]) ) {
-                $raw = (string) $node[$sources['kiwi']];
-            }
-            if ( null !== $raw ) {
-                $layout[$target] = $this->normalizeAxisSizingValue($raw);
-            }
-        }
-
-        // Bridge axis sizing onto the horizontal/vertical sizing fields the HTML
-        // emitter consumes, mapping primary/counter to physical axes by stack
-        // orientation. .fig input never sets `layoutSizingHorizontal`, so without
-        // this bridge HUG/FIXED intent from the Kiwi stack enums is pure data loss.
-        $flexDirection = $layout['flex_direction'] ?? null;
-        if ( 'row' === $flexDirection || 'column' === $flexDirection ) {
-            $primaryAxisKey = 'row' === $flexDirection ? 'sizing_horizontal' : 'sizing_vertical';
-            $counterAxisKey = 'row' === $flexDirection ? 'sizing_vertical' : 'sizing_horizontal';
-            if ( isset($layout['primary_axis_sizing']) && ! isset($layout[$primaryAxisKey]) ) {
-                $layout[$primaryAxisKey] = $layout['primary_axis_sizing'];
-            }
-            if ( isset($layout['counter_axis_sizing']) && ! isset($layout[$counterAxisKey]) ) {
-                $layout[$counterAxisKey] = $layout['counter_axis_sizing'];
-            }
-        }
-
-        // Figma `textAutoResize` (TEXT auto-resize behaviour) governs whether a
-        // text box hugs its content. WIDTH_AND_HEIGHT hugs both axes, HEIGHT keeps
-        // a fixed width while the height hugs content, NONE is a fixed box, and
-        // TRUNCATE is a fixed box that clips overflow. It is decoded by the Kiwi
-        // parser but was never read, so the intent was dropped for .fig input.
-        // Bridge it onto the HUG/FIXED sizing fields and clip flag the emitter
-        // already consumes rather than inventing a parallel sizing channel.
-        if ( isset($node['textAutoResize']) && is_scalar($node['textAutoResize']) && '' !== (string) $node['textAutoResize'] ) {
-            $autoResize = strtoupper((string) $node['textAutoResize']);
-            $layout['text_auto_resize'] = $autoResize;
-            [$autoResizeHorizontal, $autoResizeVertical] = match ( $autoResize ) {
-                'WIDTH_AND_HEIGHT' => array('HUG', 'HUG'),
-                'HEIGHT'           => array(null, 'HUG'),
-                default            => array(null, null),
-            };
-            if ( null !== $autoResizeHorizontal && ! isset($layout['sizing_horizontal']) ) {
-                $layout['sizing_horizontal'] = $autoResizeHorizontal;
-            }
-            if ( null !== $autoResizeVertical && ! isset($layout['sizing_vertical']) ) {
-                $layout['sizing_vertical'] = $autoResizeVertical;
-            }
-            if ( 'TRUNCATE' === $autoResize ) {
-                $layout['clips_content'] = true;
-            }
-        }
-
-        foreach ( array(
-            'primaryAxisAlignItems' => 'primary_axis_alignment',
-            'counterAxisAlignItems' => 'counter_axis_alignment',
-            'stackPrimaryAlignItems' => 'primary_axis_alignment',
-            'stackCounterAlignItems' => 'counter_axis_alignment',
-        ) as $source => $target ) {
-            if ( isset($node[$source]) && is_scalar($node[$source]) ) {
-                $layout[$target] = strtoupper((string) $node[$source]);
-            }
-        }
-
-        if ( isset($layout['primary_axis_alignment']) ) {
-            $layout['justify_content'] = $this->cssAxisAlignment((string) $layout['primary_axis_alignment']);
-        }
-
-        if ( isset($layout['counter_axis_alignment']) ) {
-            $layout['align_items'] = $this->cssAxisAlignment((string) $layout['counter_axis_alignment']);
-        }
-
-        $padding = array();
-        if ( isset($node['stackPadding']) && is_numeric($node['stackPadding']) ) {
-            foreach ( array('top', 'right', 'bottom', 'left') as $edge ) {
-                $padding[$edge] = (float) $node['stackPadding'];
-            }
-        }
-        foreach ( array('top' => 'paddingTop', 'right' => 'paddingRight', 'bottom' => 'paddingBottom', 'left' => 'paddingLeft') as $edge => $source ) {
-            if ( isset($node[$source]) && is_numeric($node[$source]) ) {
-                $padding[$edge] = (float) $node[$source];
-            }
-        }
-        foreach ( array('left' => 'stackPaddingLeft', 'right' => 'stackPaddingRight', 'top' => 'stackPaddingTop', 'bottom' => 'stackPaddingBottom') as $edge => $source ) {
-            if ( isset($node[$source]) && is_numeric($node[$source]) ) {
-                $padding[$edge] = (float) $node[$source];
-            }
-        }
-        foreach ( array('left', 'right') as $edge ) {
-            if ( ! array_key_exists($edge, $padding) && isset($node['paddingHorizontal']) && is_numeric($node['paddingHorizontal']) ) {
-                $padding[$edge] = (float) $node['paddingHorizontal'];
-            } elseif ( ! array_key_exists($edge, $padding) && isset($node['stackHorizontalPadding']) && is_numeric($node['stackHorizontalPadding']) ) {
-                $padding[$edge] = (float) $node['stackHorizontalPadding'];
-            }
-        }
-        foreach ( array('top', 'bottom') as $edge ) {
-            if ( ! array_key_exists($edge, $padding) && isset($node['paddingVertical']) && is_numeric($node['paddingVertical']) ) {
-                $padding[$edge] = (float) $node['paddingVertical'];
-            } elseif ( ! array_key_exists($edge, $padding) && isset($node['stackVerticalPadding']) && is_numeric($node['stackVerticalPadding']) ) {
-                $padding[$edge] = (float) $node['stackVerticalPadding'];
-            }
-        }
-        if ( ! empty($padding) ) {
-            $layout['padding'] = $padding;
-        }
-
-        if ( isset($node['itemSpacing']) && is_numeric($node['itemSpacing']) ) {
-            $layout['item_spacing'] = (float) $node['itemSpacing'];
-        } elseif ( isset($node['stackSpacing']) && is_numeric($node['stackSpacing']) ) {
-            $layout['item_spacing'] = (float) $node['stackSpacing'];
-        }
-
-        // REST `counterAxisSpacing`; Kiwi `stackCounterSpacing`. The cross-axis gap
-        // between wrapped rows/columns in a wrapping Auto Layout, distinct from the
-        // main-axis `item_spacing`. Decoded by the Kiwi parser but never read, so
-        // the wrap gap was dropped for .fig input. The emitter folds it into the
-        // two-value CSS `gap` shorthand when it differs from the main spacing.
-        if ( isset($node['counterAxisSpacing']) && is_numeric($node['counterAxisSpacing']) ) {
-            $layout['counter_axis_spacing'] = (float) $node['counterAxisSpacing'];
-        } elseif ( isset($node['stackCounterSpacing']) && is_numeric($node['stackCounterSpacing']) ) {
-            $layout['counter_axis_spacing'] = (float) $node['stackCounterSpacing'];
-        }
-
-        if ( isset($node['layoutWrap']) && is_scalar($node['layoutWrap']) ) {
-            $layout['wrap'] = strtoupper((string) $node['layoutWrap']);
-            if ( 'WRAP' === $layout['wrap'] ) {
-                $layout['flex_wrap'] = 'wrap';
-            }
-        } elseif ( isset($node['stackWrap']) && is_scalar($node['stackWrap']) ) {
-            $layout['wrap'] = strtoupper((string) $node['stackWrap']);
-            if ( 'WRAP' === $layout['wrap'] ) {
-                $layout['flex_wrap'] = 'wrap';
-            }
-        }
-
-        if ( true === ($node['stackReverseZIndex'] ?? false) || 'true' === strtolower((string) ($node['stackReverseZIndex'] ?? '')) || 1 === ($node['stackReverseZIndex'] ?? null) || '1' === (string) ($node['stackReverseZIndex'] ?? '') ) {
-            $layout['reverse_z_index'] = true;
-        }
-
-        // REST `layoutPositioning`; Kiwi `stackPositioning`. Both encode the
-        // absolute-in-auto-layout escape with an `ABSOLUTE` enum token.
-        $positioning = null;
-        if ( isset($node['layoutPositioning']) && is_scalar($node['layoutPositioning']) ) {
-            $positioning = strtoupper((string) $node['layoutPositioning']);
-        } elseif ( isset($node['stackPositioning']) && is_scalar($node['stackPositioning']) ) {
-            $positioning = strtoupper((string) $node['stackPositioning']);
-        }
-        if ( 'ABSOLUTE' === $positioning ) {
-            $layout['positioning'] = 'absolute';
-        }
-
-        // REST `layoutGrow`; Kiwi `stackChildPrimaryGrow`. Flex-grow factor.
-        if ( isset($node['layoutGrow']) && is_numeric($node['layoutGrow']) ) {
-            $layout['grow'] = (float) $node['layoutGrow'];
-        } elseif ( isset($node['stackChildPrimaryGrow']) && is_numeric($node['stackChildPrimaryGrow']) ) {
-            $layout['grow'] = (float) $node['stackChildPrimaryGrow'];
-        }
-
-        if ( isset($node['layoutAlign']) && is_scalar($node['layoutAlign']) ) {
-            $layout['align'] = strtoupper((string) $node['layoutAlign']);
-        } elseif ( isset($node['stackChildAlignSelf']) && is_scalar($node['stackChildAlignSelf']) ) {
-            $layout['align'] = strtoupper((string) $node['stackChildAlignSelf']);
-        }
-
-        if ( true === ($node['clipsContent'] ?? false) || true === ($node['isClip'] ?? false) || false === ($node['frameMaskDisabled'] ?? null) ) {
-            $layout['clips_content'] = true;
-        }
-
-        // REST exposes a nested `constraints` object with LEFT/RIGHT/LEFT_RIGHT/
-        // CENTER/SCALE (and TOP/BOTTOM/TOP_BOTTOM) tokens. The .fig Kiwi schema
-        // instead carries flat `horizontalConstraint`/`verticalConstraint` enums
-        // whose token vocabulary is MIN/CENTER/MAX/STRETCH/SCALE. Read the REST
-        // shape first, then fall back to the Kiwi scalars, translating the Kiwi
-        // enum onto the REST vocabulary so the emitter sees a single language.
-        $constraints = array();
-        if ( is_array($node['constraints'] ?? null) ) {
-            foreach ( array('horizontal', 'vertical') as $axis ) {
-                if ( isset($node['constraints'][$axis]) && is_scalar($node['constraints'][$axis]) ) {
-                    $constraints[$axis] = strtoupper((string) $node['constraints'][$axis]);
-                }
-            }
-        }
-        foreach ( array('horizontal' => 'horizontalConstraint', 'vertical' => 'verticalConstraint') as $axis => $kiwiKey ) {
-            if ( isset($constraints[$axis]) || ! isset($node[$kiwiKey]) || ! is_scalar($node[$kiwiKey]) ) {
-                continue;
-            }
-            $translated = $this->normalizeKiwiConstraint(strtoupper((string) $node[$kiwiKey]), $axis);
-            if ( null !== $translated ) {
-                $constraints[$axis] = $translated;
-            }
-        }
-        if ( ! empty($constraints) ) {
-            $layout['constraints'] = $constraints;
-        }
-
-        // Auto Layout min/max width/height. Kiwi decodes `minSize`/`maxSize` as
-        // OptionalVector {x, y} objects (x = width, y = height) but nothing ever
-        // referenced them, so they were decoded-and-dropped for .fig input.
-        foreach ( array('minSize' => 'min', 'maxSize' => 'max') as $source => $prefix ) {
-            if ( ! is_array($node[$source] ?? null) ) {
-                continue;
-            }
-            foreach ( array('x' => 'width', 'y' => 'height') as $axis => $dimension ) {
-                if ( ! isset($node[$source][$axis]) || ! is_numeric($node[$source][$axis]) ) {
-                    continue;
-                }
-                $value = (float) $node[$source][$axis];
-                if ( is_finite($value) && $value >= 0.0 ) {
-                    $layout[$prefix . '_' . $dimension] = $value;
-                }
-            }
-        }
-        foreach ( array(
-            'minWidth'  => 'min_width',
-            'maxWidth'  => 'max_width',
-            'minHeight' => 'min_height',
-            'maxHeight' => 'max_height',
-        ) as $source => $target ) {
-            if ( isset($node[$source]) && is_numeric($node[$source]) ) {
-                $value = (float) $node[$source];
-                if ( is_finite($value) && $value >= 0.0 ) {
-                    $layout[$target] = $value;
-                }
-            }
-        }
-
-        if ( ! isset($layout['display']) && is_array($node['children'] ?? null) && count($node['children']) > 1 ) {
-            $type = strtoupper((string) ($node['type'] ?? ''));
-            if ( true === ($node['resizeToFit'] ?? false) || in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'SECTION'), true) ) {
-                $layout['freeform'] = true;
-            }
-        }
-
-        return $layout;
+        return $this->layoutNormalizer->normalizeLayout($node);
     }
 
     /**

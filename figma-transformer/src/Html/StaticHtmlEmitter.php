@@ -63,6 +63,8 @@ final class StaticHtmlEmitter
 
     private ?StickyLayoutCoordinator $stickyLayoutCoordinator = null;
 
+    private ?HtmlArtifactAssembler $htmlArtifactAssembler = null;
+
     private function designSystemExtractor(): DesignSystemExtractor
     {
         return $this->designSystemExtractor ??= new DesignSystemExtractor();
@@ -113,6 +115,13 @@ final class StaticHtmlEmitter
         return $this->stickyLayoutCoordinator ??= new StickyLayoutCoordinator(
             fn (array $node): array => $this->nodeList($node),
             fn (array $node): string => $this->textContent($node),
+        );
+    }
+
+    private function htmlArtifactAssembler(): HtmlArtifactAssembler
+    {
+        return $this->htmlArtifactAssembler ??= new HtmlArtifactAssembler(
+            fn (string $value): string => $this->sanitizeAttribute($value),
         );
     }
 
@@ -198,20 +207,7 @@ final class StaticHtmlEmitter
         $this->sectionDepth = $this->sectionDepthFor($nodes);
 
         $body = '';
-        $cssRules = array(
-            'html{box-sizing:border-box}',
-            '*,*::before,*::after{box-sizing:inherit}',
-            'body{margin:0}',
-            '.figma-root{position:relative;width:100%}',
-            'p,h1,h2,h3,h4,h5,h6{margin:0}',
-            'ul,ol{margin:0;padding:0;list-style:none}',
-            'img{display:block;max-width:100%;height:auto}',
-            'a.figma-link{display:contents;color:inherit;text-decoration:inherit}',
-            '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
-        );
-        if ( $this->renderTextGlyphPaths ) {
-            $cssRules[] = '.figma-text-glyphs{display:block;width:100%;height:100%;overflow:visible}';
-        }
+        $cssRules = $this->htmlArtifactAssembler()->baseCssRules($this->renderTextGlyphPaths);
         $operatorFontCss = $this->fontCss($options);
         $familyOverrides = $this->fontFamilyOverrides($options);
 
@@ -238,15 +234,13 @@ final class StaticHtmlEmitter
             $diagnostics[] = $diagnostic;
         }
 
-        $css = ('' !== $fontCss ? $fontCss . "\n" : '')
-            . ('' !== $designSystem['css'] ? $designSystem['css'] : '')
-            . implode("\n", $cssRules) . "\n";
+        $css = $this->htmlArtifactAssembler()->stylesheet($fontCss, (string) $designSystem['css'], $cssRules);
         $files = array(
             array(
                 'path'      => 'index.html',
                 'role'      => 'entrypoint',
                 'mime_type' => 'text/html',
-                'content'   => "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>" . $title . "</title>\n<link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n<main class=\"figma-root\" data-figma-root=\"true\">\n" . $body . "</main>\n</body>\n</html>\n",
+                'content'   => $this->htmlArtifactAssembler()->htmlDocument($title, 'style.css', $body),
             ),
             array(
                 'path'      => 'style.css',
@@ -321,20 +315,7 @@ final class StaticHtmlEmitter
         $assetFiles = $this->normalizeAssets($scenegraph['assets'] ?? array(), $diagnostics);
         $nodeMap = $this->nodeMap($scenegraph);
 
-        $cssRules = array(
-            'html{box-sizing:border-box}',
-            '*,*::before,*::after{box-sizing:inherit}',
-            'body{margin:0}',
-            '.figma-root{position:relative;width:100%}',
-            'p,h1,h2,h3,h4,h5,h6{margin:0}',
-            'ul,ol{margin:0;padding:0;list-style:none}',
-            'img{display:block;max-width:100%;height:auto}',
-            'a.figma-link{display:contents;color:inherit;text-decoration:inherit}',
-            '.figma-vector-asset{display:block;width:100%;height:100%;object-fit:fill}',
-        );
-        if ( $this->renderTextGlyphPaths ) {
-            $cssRules[] = '.figma-text-glyphs{display:block;width:100%;height:100%;overflow:visible}';
-        }
+        $cssRules = $this->htmlArtifactAssembler()->baseCssRules($this->renderTextGlyphPaths);
         $operatorFontCss = $this->fontCss($options);
         $familyOverrides = $this->fontFamilyOverrides($options);
         $files = array();
@@ -410,7 +391,7 @@ final class StaticHtmlEmitter
                 'path'      => $path,
                 'role'      => true === ($page['entrypoint'] ?? false) ? 'entrypoint' : 'document',
                 'mime_type' => 'text/html',
-                'content'   => $this->htmlDocument($this->sanitizeText($pageName), $this->stylesheetHref($path), $body),
+                'content'   => $this->htmlArtifactAssembler()->htmlDocument($this->sanitizeText($pageName), $this->stylesheetHref($path), $body),
             );
             $renderedNodes[] = $frameNode;
 
@@ -438,7 +419,7 @@ final class StaticHtmlEmitter
                     'path'      => 'index.html',
                     'role'      => 'entrypoint',
                     'mime_type' => 'text/html',
-                    'content'   => $this->htmlDocument($title, 'style.css', $body),
+                    'content'   => $this->htmlArtifactAssembler()->htmlDocument($title, 'style.css', $body),
                 );
                 $renderedNodes[] = $node;
             }
@@ -464,14 +445,7 @@ final class StaticHtmlEmitter
         foreach ( $this->designSystemDiagnostics($designSystem) as $diagnostic ) {
             $diagnostics[] = $diagnostic;
         }
-        $css = ('' !== $fontCss ? $fontCss . "\n" : '')
-            . ('' !== $designSystem['css'] ? $designSystem['css'] : '')
-            . implode("\n", array_values(array_unique($cssRules))) . "\n";
-        if ( ! empty($mediaBlocks) ) {
-            // Responsive overrides cascade AFTER the widest-first base rules so
-            // narrower breakpoints win at their own viewport width.
-            $css .= implode("\n", $mediaBlocks) . "\n";
-        }
+        $css = $this->htmlArtifactAssembler()->stylesheet($fontCss, (string) $designSystem['css'], $cssRules, $mediaBlocks, true);
         $files[] = array(
             'path'      => 'style.css',
             'role'      => 'stylesheet',
@@ -486,7 +460,7 @@ final class StaticHtmlEmitter
         $files = (new InlineCssFileInjector())->inject($files, $css);
 
         $visualNodeMap = $this->visualNodeMap($renderedNodes);
-        $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics, $this->htmlFilesContent($files));
+        $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics, $this->htmlArtifactAssembler()->htmlFilesContent($files));
         foreach ( $this->unresolvedSourceFontDiagnostics($fontResolution) as $diagnostic ) {
             $diagnostics[] = $diagnostic;
         }
@@ -706,26 +680,6 @@ final class StaticHtmlEmitter
         }
 
         return $rules;
-    }
-
-    private function htmlDocument(string $title, string $stylesheetHref, string $body): string
-    {
-        return "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>" . $title . "</title>\n<link rel=\"stylesheet\" href=\"" . $this->sanitizeAttribute($stylesheetHref) . "\">\n</head>\n<body>\n<main class=\"figma-root\" data-figma-root=\"true\">\n" . $body . "</main>\n</body>\n</html>\n";
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     */
-    private function htmlFilesContent(array $files): string
-    {
-        $html = '';
-        foreach ( $files as $file ) {
-            if ( is_array($file) && 'text/html' === ($file['mime_type'] ?? null) && isset($file['content']) && is_scalar($file['content']) ) {
-                $html .= "\n" . (string) $file['content'];
-            }
-        }
-
-        return $html;
     }
 
     /**
