@@ -274,6 +274,38 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $kiwiDerivedTextWithGlyphs = $kiwiDerivedTextWithGlyphsMessage['message']['nodeChanges'][0]['derivedTextData'] ?? array();
     $assert(7 === ($kiwiDerivedTextWithGlyphs['glyphs'][0]['commandsBlob'] ?? null), 'kiwi-selective-opt-in-decodes-derived-text-glyph-blob-ref');
 
+    $kiwiAutoLayoutSchema = $kiwiDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_auto_layout_schema_fixture());
+    $kiwiAutoLayoutMessage = $kiwiDecoder->decodeMessageSelective(
+        blocks_engine_figma_transformer_kiwi_auto_layout_message_fixture(),
+        $kiwiAutoLayoutSchema['schema'] ?? array()
+    );
+    $kiwiAutoLayoutNode = $kiwiAutoLayoutMessage['message']['nodeChanges'][0] ?? array();
+    $assert(320.0 === ($kiwiAutoLayoutNode['stackWidth'] ?? null), 'kiwi-selective-decodes-stack-width');
+    $assert(180.0 === ($kiwiAutoLayoutNode['stackHeight'] ?? null), 'kiwi-selective-decodes-stack-height');
+    $assert('HORIZONTAL' === ($kiwiAutoLayoutNode['stackMode'] ?? null), 'kiwi-selective-decodes-stack-mode');
+    $assert('RESIZE_TO_FIT' === ($kiwiAutoLayoutNode['stackPrimarySizing'] ?? null), 'kiwi-selective-decodes-stack-primary-sizing');
+    $assert(24.0 === ($kiwiAutoLayoutNode['stackCounterSpacing'] ?? null), 'kiwi-selective-decodes-stack-counter-spacing');
+    $assert('WRAP' === ($kiwiAutoLayoutNode['stackWrap'] ?? null), 'kiwi-selective-decodes-stack-wrap');
+    $assert(true === ($kiwiAutoLayoutNode['stackReverseZIndex'] ?? null), 'kiwi-selective-decodes-stack-reverse-z-index');
+    $assert(1.0 === ($kiwiAutoLayoutNode['layoutGrow'] ?? null), 'kiwi-selective-decodes-layout-grow-alias');
+    $assert('STRETCH' === ($kiwiAutoLayoutNode['layoutAlign'] ?? null), 'kiwi-selective-decodes-layout-align-alias');
+    $assert('LEFT_RIGHT' === ($kiwiAutoLayoutNode['constraints']['horizontal'] ?? null), 'kiwi-selective-decodes-constraints-horizontal');
+    $assert(64.0 === ($kiwiAutoLayoutNode['minSize']['x'] ?? null), 'kiwi-selective-decodes-min-size-width');
+
+    $kiwiAutoLayoutNode['id'] = 'kiwi:auto-layout';
+    $kiwiAutoLayoutNormalized = ( new ScenegraphNormalizer() )->normalize(array('name' => 'Kiwi Auto Layout Fixture', 'nodes' => array($kiwiAutoLayoutNode)));
+    $kiwiAutoLayoutNormalizedNode = $kiwiAutoLayoutNormalized['nodes'][0] ?? array();
+    $assert(320.0 === ($kiwiAutoLayoutNormalizedNode['box']['width'] ?? null), 'kiwi-normalizes-stack-width-to-box-width');
+    $assert(180.0 === ($kiwiAutoLayoutNormalizedNode['box']['height'] ?? null), 'kiwi-normalizes-stack-height-to-box-height');
+    $assert('flex' === ($kiwiAutoLayoutNormalizedNode['layout']['display'] ?? null), 'kiwi-normalizes-stack-mode-to-flex');
+    $assert('wrap' === ($kiwiAutoLayoutNormalizedNode['layout']['flex_wrap'] ?? null), 'kiwi-normalizes-stack-wrap-to-css-wrap');
+    $assert(24.0 === ($kiwiAutoLayoutNormalizedNode['layout']['counter_axis_spacing'] ?? null), 'kiwi-normalizes-counter-axis-spacing');
+    $assert(true === ($kiwiAutoLayoutNormalizedNode['layout']['reverse_z_index'] ?? null), 'kiwi-normalizes-reverse-z-index');
+    $assert('LEFT_RIGHT' === ($kiwiAutoLayoutNormalizedNode['layout']['constraints']['horizontal'] ?? null), 'kiwi-normalizes-nested-constraints');
+    $assert(64.0 === ($kiwiAutoLayoutNormalizedNode['layout']['min_width'] ?? null), 'kiwi-normalizes-min-width');
+    $assert(1.0 === ($kiwiAutoLayoutNormalizedNode['layout']['grow'] ?? null), 'kiwi-normalizes-layout-grow-alias');
+    $assert('STRETCH' === ($kiwiAutoLayoutNormalizedNode['layout']['align'] ?? null), 'kiwi-normalizes-layout-align-alias');
+
     $kiwiStateGroupSchema = $kiwiDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_state_group_schema_fixture());
     $kiwiStateGroupMessage = $kiwiDecoder->decodeMessageSelective(
         blocks_engine_figma_transformer_kiwi_state_group_message_fixture(),
@@ -1083,6 +1115,135 @@ function blocks_engine_figma_transformer_kiwi_derived_text_message_fixture(): st
         . blocks_engine_figma_transformer_wire_varint(2)
         . blocks_engine_figma_transformer_kiwi_varfloat(0.0)
         . blocks_engine_figma_transformer_kiwi_varfloat(12.5)
+        . blocks_engine_figma_transformer_wire_varint(0)
+        . blocks_engine_figma_transformer_wire_varint(0);
+}
+
+function blocks_engine_figma_transformer_kiwi_auto_layout_schema_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(5)
+        // def0: STRUCT OptionalVector { x, y }
+        . blocks_engine_figma_transformer_kiwi_string('OptionalVector')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('x', -5, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('y', -5, false, 2)
+        // def1: STRUCT Constraints { horizontal, vertical }
+        . blocks_engine_figma_transformer_kiwi_string('Constraints')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('horizontal', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('vertical', -6, false, 2)
+        // def2: MESSAGE NodeChange with generic Auto Layout fields seen in REST and Kiwi schemas.
+        . blocks_engine_figma_transformer_kiwi_string('NodeChange')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(28)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('name', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackWidth', -5, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackHeight', -5, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackMode', -6, false, 5)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackPrimarySizing', -6, false, 6)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackCounterSizing', -6, false, 7)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackSpacing', -5, false, 8)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackCounterSpacing', -5, false, 9)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackWrap', -6, false, 10)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackPrimaryAlignItems', -6, false, 11)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackCounterAlignItems', -6, false, 12)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackPadding', -5, false, 13)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackPaddingLeft', -5, false, 14)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackPaddingRight', -5, false, 15)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackPaddingTop', -5, false, 16)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackPaddingBottom', -5, false, 17)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackChildPrimaryGrow', -5, false, 18)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackChildAlignSelf', -6, false, 19)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackReverseZIndex', -1, false, 20)
+        . blocks_engine_figma_transformer_kiwi_schema_field('stackPositioning', -6, false, 21)
+        . blocks_engine_figma_transformer_kiwi_schema_field('horizontalConstraint', -6, false, 22)
+        . blocks_engine_figma_transformer_kiwi_schema_field('verticalConstraint', -6, false, 23)
+        . blocks_engine_figma_transformer_kiwi_schema_field('minSize', 0, false, 24)
+        . blocks_engine_figma_transformer_kiwi_schema_field('maxSize', 0, false, 25)
+        . blocks_engine_figma_transformer_kiwi_schema_field('layoutGrow', -5, false, 26)
+        . blocks_engine_figma_transformer_kiwi_schema_field('layoutAlign', -6, false, 27)
+        . blocks_engine_figma_transformer_kiwi_schema_field('constraints', 1, false, 28)
+        // def3: MESSAGE Message { type, nodeChanges[] }
+        . blocks_engine_figma_transformer_kiwi_string('Message')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 2, true, 2)
+        // def4: intentionally unrelated enum to keep definition indexes realistic.
+        . blocks_engine_figma_transformer_kiwi_string('UnusedEnum')
+        . chr(0)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('UNUSED', -3, false, 1);
+}
+
+function blocks_engine_figma_transformer_kiwi_auto_layout_message_fixture(): string
+{
+    return blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_string('NODE_CHANGES')
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_string('FRAME')
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('Auto Layout Frame')
+        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_kiwi_varfloat(320.0)
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_kiwi_varfloat(180.0)
+        . blocks_engine_figma_transformer_wire_varint(5)
+        . blocks_engine_figma_transformer_kiwi_string('HORIZONTAL')
+        . blocks_engine_figma_transformer_wire_varint(6)
+        . blocks_engine_figma_transformer_kiwi_string('RESIZE_TO_FIT')
+        . blocks_engine_figma_transformer_wire_varint(7)
+        . blocks_engine_figma_transformer_kiwi_string('FIXED')
+        . blocks_engine_figma_transformer_wire_varint(8)
+        . blocks_engine_figma_transformer_kiwi_varfloat(12.0)
+        . blocks_engine_figma_transformer_wire_varint(9)
+        . blocks_engine_figma_transformer_kiwi_varfloat(24.0)
+        . blocks_engine_figma_transformer_wire_varint(10)
+        . blocks_engine_figma_transformer_kiwi_string('WRAP')
+        . blocks_engine_figma_transformer_wire_varint(11)
+        . blocks_engine_figma_transformer_kiwi_string('SPACE_BETWEEN')
+        . blocks_engine_figma_transformer_wire_varint(12)
+        . blocks_engine_figma_transformer_kiwi_string('CENTER')
+        . blocks_engine_figma_transformer_wire_varint(13)
+        . blocks_engine_figma_transformer_kiwi_varfloat(8.0)
+        . blocks_engine_figma_transformer_wire_varint(14)
+        . blocks_engine_figma_transformer_kiwi_varfloat(16.0)
+        . blocks_engine_figma_transformer_wire_varint(15)
+        . blocks_engine_figma_transformer_kiwi_varfloat(20.0)
+        . blocks_engine_figma_transformer_wire_varint(16)
+        . blocks_engine_figma_transformer_kiwi_varfloat(4.0)
+        . blocks_engine_figma_transformer_wire_varint(17)
+        . blocks_engine_figma_transformer_kiwi_varfloat(6.0)
+        . blocks_engine_figma_transformer_wire_varint(18)
+        . blocks_engine_figma_transformer_kiwi_varfloat(2.0)
+        . blocks_engine_figma_transformer_wire_varint(19)
+        . blocks_engine_figma_transformer_kiwi_string('STRETCH')
+        . blocks_engine_figma_transformer_wire_varint(20)
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(21)
+        . blocks_engine_figma_transformer_kiwi_string('ABSOLUTE')
+        . blocks_engine_figma_transformer_wire_varint(22)
+        . blocks_engine_figma_transformer_kiwi_string('STRETCH')
+        . blocks_engine_figma_transformer_wire_varint(23)
+        . blocks_engine_figma_transformer_kiwi_string('CENTER')
+        . blocks_engine_figma_transformer_wire_varint(24)
+        . blocks_engine_figma_transformer_kiwi_varfloat(64.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(32.0)
+        . blocks_engine_figma_transformer_wire_varint(25)
+        . blocks_engine_figma_transformer_kiwi_varfloat(640.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(360.0)
+        . blocks_engine_figma_transformer_wire_varint(26)
+        . blocks_engine_figma_transformer_kiwi_varfloat(1.0)
+        . blocks_engine_figma_transformer_wire_varint(27)
+        . blocks_engine_figma_transformer_kiwi_string('STRETCH')
+        . blocks_engine_figma_transformer_wire_varint(28)
+        . blocks_engine_figma_transformer_kiwi_string('LEFT_RIGHT')
+        . blocks_engine_figma_transformer_kiwi_string('TOP_BOTTOM')
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);
 }

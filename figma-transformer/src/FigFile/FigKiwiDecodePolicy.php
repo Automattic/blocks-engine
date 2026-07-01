@@ -61,6 +61,7 @@ final class FigKiwiDecodePolicy
             'ArcData' => array('startingAngle', 'endingAngle', 'innerRadius'),
             'Guide' => array('axis', 'offset', 'guid'),
             'LayoutGrid' => array('type', 'axis', 'visible', 'numSections', 'offset', 'sectionSize', 'gutterSize', 'color', 'pattern'),
+            'Constraints' => array('horizontal', 'vertical'),
             'SymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
             'DerivedSymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
             'GUIDPath' => array('guids'),
@@ -390,6 +391,12 @@ final class FigKiwiDecodePolicy
             'stackPaddingRight', 'stackPaddingTop', 'stackPaddingBottom', 'stackPrimaryAlignItems',
             'stackCounterAlignItems', 'stackCounterSizing', 'stackWrap', 'stackCounterSpacing',
             'stackReverseZIndex', 'stackChildPrimaryGrow', 'stackChildAlignSelf', 'stackPositioning',
+            'layoutMode', 'primaryAxisSizingMode', 'counterAxisSizingMode', 'primaryAxisAlignItems',
+            'counterAxisAlignItems', 'itemSpacing', 'counterAxisSpacing', 'layoutWrap',
+            'layoutGrow', 'layoutAlign', 'layoutPositioning', 'layoutSizingHorizontal',
+            'layoutSizingVertical', 'horizontalSizing', 'verticalSizing', 'paddingTop',
+            'paddingRight', 'paddingBottom', 'paddingLeft', 'paddingHorizontal', 'paddingVertical',
+            'constraints', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight',
         );
     }
 
