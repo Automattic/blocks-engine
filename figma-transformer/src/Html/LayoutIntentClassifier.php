@@ -112,7 +112,7 @@ final class LayoutIntentClassifier
             return false;
         }
 
-        return $this->isOversizedAgainstParent($node, $parentNode);
+        return $this->isOversizedAgainstParent($node, $parentNode) || $this->isAbsoluteBackgroundBleed($node, $parentNode, $parentLayout);
     }
 
     /**
@@ -357,6 +357,44 @@ final class LayoutIntentClassifier
         $areaRatio = ((float) $box['width'] * (float) $box['height']) / ((float) $parentBox['width'] * (float) $parentBox['height']);
 
         return 0.75 <= $widthRatio || 0.75 <= $heightRatio || 0.45 <= $areaRatio;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     * @param array<string, mixed> $parentLayout
+     */
+    private function isAbsoluteBackgroundBleed(array $node, array $parentNode, array $parentLayout): bool
+    {
+        if ( 'absolute' !== ($node['layout']['positioning'] ?? null) ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        foreach ( array('width', 'height') as $dimension ) {
+            if ( ! isset($box[$dimension], $parentBox[$dimension]) || ! is_numeric($box[$dimension]) || ! is_numeric($parentBox[$dimension]) || 0.0 >= (float) $parentBox[$dimension] ) {
+                return false;
+            }
+        }
+
+        $isRow = 'row' === ($parentLayout['flex_direction'] ?? null);
+        $mainAxis = $isRow ? 'width' : 'height';
+        $crossAxis = $isRow ? 'height' : 'width';
+        $crossOrigin = $isRow ? 'y' : 'x';
+        $mainRatio = (float) $box[$mainAxis] / (float) $parentBox[$mainAxis];
+        if ( 0.95 > $mainRatio ) {
+            return false;
+        }
+
+        $crossOffset = $this->positionOffset($box, $parentBox, $crossOrigin, $parentNode);
+        if ( null === $crossOffset ) {
+            return false;
+        }
+
+        $crossSize = (float) $box[$crossAxis];
+        $parentCrossSize = (float) $parentBox[$crossAxis];
+        return 1.0 <= ($crossSize / $parentCrossSize) || ($crossOffset <= 0.0 && $crossOffset + $crossSize >= $parentCrossSize);
     }
 
     /**

@@ -409,6 +409,74 @@ $assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-b
 $assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-copy-footer-copy{position:relative;z-index:1;font-size:16px;flex-shrink:0}'), 'absolute-decorative-underlay-flow-text-stacks-above');
 $assert(1 === ($absoluteDecorativeUnderlays['count'] ?? null), 'absolute-decorative-underlay-diagnostic-count');
 
+$fseFooterUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'FSE Footer Underlay Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'                  => 'fse-footer:row',
+            'type'                => 'FRAME',
+            'name'                => 'Frame 19',
+            'absoluteBoundingBox' => array('x' => 0, 'y' => 352, 'width' => 1440, 'height' => 131),
+            'layoutMode'          => 'HORIZONTAL',
+            'primaryAxisAlignItems' => 'SPACE_BETWEEN',
+            'counterAxisAlignItems' => 'CENTER',
+            'paddingTop'          => 48,
+            'paddingRight'        => 112,
+            'paddingBottom'       => 48,
+            'paddingLeft'         => 112,
+            'children'            => array(
+                array(
+                    'id'                  => 'fse-footer:bg',
+                    'type'                => 'RECTANGLE',
+                    'name'                => 'Rectangle 3',
+                    'absoluteBoundingBox' => array('x' => 0, 'y' => 288, 'width' => 1440, 'height' => 195),
+                    'layoutPositioning'   => 'ABSOLUTE',
+                    'constraints'         => array('horizontal' => 'LEFT', 'vertical' => 'TOP_BOTTOM'),
+                    'fill'                => array('r' => 0.85, 'g' => 0.85, 'b' => 0.85),
+                ),
+                array(
+                    'id'       => 'fse-footer:logo',
+                    'type'     => 'FRAME',
+                    'name'     => 'Logo',
+                    'width'    => 228,
+                    'height'   => 35,
+                    'children' => array(
+                        array(
+                            'id'           => 'fse-footer:logo-mark',
+                            'type'         => 'VECTOR',
+                            'name'         => 'Union',
+                            'width'        => 228,
+                            'height'       => 35,
+                            'fillGeometry' => array(array('commandsBlob' => 0)),
+                        ),
+                    ),
+                ),
+                array(
+                    'id'         => 'fse-footer:links',
+                    'type'       => 'FRAME',
+                    'name'       => 'Frame 29',
+                    'width'      => 265,
+                    'height'     => 26,
+                    'layoutMode' => 'HORIZONTAL',
+                    'children'   => array(
+                        array('id' => 'fse-footer:about', 'type' => 'TEXT', 'name' => 'Footer text', 'text' => 'About', 'fontSize' => 16),
+                        array('id' => 'fse-footer:contact', 'type' => 'TEXT', 'name' => 'Footer text', 'text' => 'Contact', 'fontSize' => 16),
+                    ),
+                ),
+                array('id' => 'fse-footer:powered', 'type' => 'TEXT', 'name' => 'Footer text', 'text' => 'Proudly powered by WordPress.com', 'fontSize' => 16),
+            ),
+        ),
+    ),
+));
+$fseFooterUnderlayCss = $fileContent($fseFooterUnderlayResult, 'style.css');
+$fseFooterUnderlays = $fseFooterUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
+$assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-row-frame-19{width:100%;max-width:1440px;margin-left:auto;margin-right:auto;height:131px;position:relative;display:flex;flex-direction:row;justify-content:space-between;align-items:center;padding-top:48px;padding-right:112px;padding-bottom:48px;padding-left:112px}'), 'fse-footer-row-relative');
+$assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-bg-rectangle-3{width:1440px;height:195px;position:absolute;left:0px;top:-64px;bottom:0px;z-index:0;pointer-events:none;background:#d9d9d9}'), 'fse-footer-background-underlay-protected');
+$assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-logo-logo{width:228px;height:35px;position:relative;z-index:1;flex-shrink:0}'), 'fse-footer-logo-stacks-above-underlay');
+$assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-links-frame-29{width:265px;height:26px;position:relative;z-index:1;display:flex;flex-direction:row;flex-shrink:0}'), 'fse-footer-link-row-stacks-above-underlay');
+$assert(1 === ($fseFooterUnderlays['count'] ?? null), 'fse-footer-underlay-diagnostic-count');
+
 $absoluteTextContentGuardResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Absolute Text Content Guard Fixture',
     'nodes' => array(

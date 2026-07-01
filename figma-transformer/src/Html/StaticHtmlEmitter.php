@@ -3757,18 +3757,18 @@ final class StaticHtmlEmitter
             $styles[] = 'position:relative';
         }
 
-		if ( null !== $parentNode && $this->isFreeformContainer($parentNode) ) {
+		if ( $isDecorativeFlexUnderlay ) {
 			$styles[] = 'position:absolute';
 			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode, $node) as $style ) {
 				$styles[] = $style;
 			}
-        } elseif ( $isDecorativeFlexUnderlay ) {
-            $styles[] = 'position:absolute';
+			$styles[] = 'z-index:0';
+			$styles[] = 'pointer-events:none';
+		} elseif ( null !== $parentNode && $this->isFreeformContainer($parentNode) ) {
+			$styles[] = 'position:absolute';
 			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode, $node) as $style ) {
-                $styles[] = $style;
-            }
-            $styles[] = 'z-index:0';
-            $styles[] = 'pointer-events:none';
+				$styles[] = $style;
+			}
 		} elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
             $styles[] = 'position:absolute';
 			foreach ( $this->absolutePositionStyles($box, $layout, $parentNode, $node) as $style ) {
