@@ -36,12 +36,15 @@ final class FigKiwiDecodePolicy
             // Without these two names the per-character override data is dropped by
             // `skipField()` and every .fig text node emits flat, single-style text.
             'TextData' => array('characters', 'layoutSize', 'characterStyleIDs', 'styleOverrideTable', 'layoutVersion', 'lines', 'minContentHeight', 'truncationStartIndex', 'truncatedHeight', 'logicalIndexToCharacterOffsetMap', 'derivedLines'),
-            'DerivedTextData' => array('layoutSize', 'baselines', 'fontMetaData', 'truncationStartIndex', 'truncatedHeight', 'logicalIndexToCharacterOffsetMap', 'derivedLines'),
+            'DerivedTextData' => array('layoutSize', 'baselines', 'fontMetaData', 'truncationStartIndex', 'truncatedHeight', 'logicalIndexToCharacterOffsetMap', 'derivedLines', 'decorations', 'hyperlinkBoxes'),
             'TextLineData' => array('lineType', 'styleId', 'indentationLevel', 'sourceDirectionality', 'directionality', 'directionalityIntent', 'downgradeStyleId', 'consistencyStyleId', 'listStartOffset', 'isFirstLineOfList'),
             'DerivedTextLineData' => array('directionality'),
             'Baseline' => array('position', 'width', 'lineY', 'lineHeight', 'lineAscent', 'firstCharacter', 'endCharacter'),
             'Glyph' => array('position', 'fontSize', 'firstCharacter', 'endCharacter', 'advance', 'rotation', 'styleID'),
-            'FontMetaData' => array('key', 'fontLineHeight', 'fontStyle', 'fontWeight'),
+            'FontMetaData' => array('key', 'fontLineHeight', 'fontStyle', 'fontWeight', 'fontDigest'),
+            'Rect' => array('x', 'y', 'w', 'h', 'width', 'height'),
+            'Decoration' => array('rects', 'styleID'),
+            'HyperlinkBox' => array('bounds', 'url', 'guid', 'hyperlinkID', 'cmsTarget', 'openInNewTab'),
             'FontVariation' => array('axisTag', 'axisName', 'value'),
             'Number' => array('value', 'units'),
             'Paint' => array('type', 'color', 'opacity', 'visible', 'blendMode', 'stops', 'transform', 'imageTransform', 'cropTransform', 'cropRect', 'image', 'imageThumbnail', 'imageScaleMode', 'originalImageWidth', 'originalImageHeight', 'scale', 'rotation', 'imageShouldColorManage', 'thumbHash', 'animationFrame', 'altText', 'assetRef', 'sourceImage', 'publishID', 'sourceLibraryKey', 'libraryKey', 'exportSettings'),

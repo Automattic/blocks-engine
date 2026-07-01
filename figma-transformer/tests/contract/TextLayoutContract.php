@@ -81,6 +81,21 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
                             'key'            => array('family' => 'Example Sans', 'style' => 'Regular'),
                             'fontLineHeight' => 1.2,
                             'fontWeight'     => 400,
+                            'fontDigest'     => 'example-font-digest',
+                        ),
+                    ),
+                    'decorations' => array(
+                        array(
+                            'rects'   => array(array('x' => 1, 'y' => 20, 'w' => 80, 'h' => 2)),
+                            'styleID' => 4,
+                        ),
+                    ),
+                    'hyperlinkBoxes' => array(
+                        array(
+                            'bounds'       => array('x' => 1, 'y' => 0, 'w' => 80, 'h' => 18),
+                            'url'          => 'https://example.com/text-link',
+                            'hyperlinkID'  => 9,
+                            'openInNewTab' => true,
                         ),
                     ),
                     'logicalIndexToCharacterOffsetMap' => range(0, 299),
@@ -116,6 +131,12 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert(true === ($derivedTextVisualNode['text']['derived_layout']['lines'][0]['is_first_line_of_list'] ?? null), 'visual-node-text-line-list-first');
     $assert(1 === ($derivedTextVisualNode['text']['derived_layout']['derived_line_count'] ?? null), 'visual-node-derived-text-line-count');
     $assert('RTL' === ($derivedTextVisualNode['text']['derived_layout']['derived_lines'][0]['directionality'] ?? null), 'visual-node-derived-text-line-directionality');
+    $assert('example-font-digest' === ($derivedTextVisualNode['text']['derived_layout']['fonts'][0]['font_digest'] ?? null), 'visual-node-derived-text-font-digest');
+    $assert(1 === ($derivedTextVisualNode['text']['derived_layout']['decoration_count'] ?? null), 'visual-node-derived-text-decoration-count');
+    $assert(80.0 === ($derivedTextVisualNode['text']['derived_layout']['decorations'][0]['rects'][0]['width'] ?? null), 'visual-node-derived-text-decoration-rect-width');
+    $assert(1 === ($derivedTextVisualNode['text']['derived_layout']['hyperlink_box_count'] ?? null), 'visual-node-derived-text-hyperlink-box-count');
+    $assert('https://example.com/text-link' === ($derivedTextVisualNode['text']['derived_layout']['hyperlink_boxes'][0]['url'] ?? null), 'visual-node-derived-text-hyperlink-box-url');
+    $assert(18.0 === ($derivedTextVisualNode['text']['derived_layout']['hyperlink_boxes'][0]['bounds']['height'] ?? null), 'visual-node-derived-text-hyperlink-box-height');
     $assert('ending' === ($derivedTextNormalizedNode['figma_text']['style']['text_truncation'] ?? null), 'normalized-text-style-truncation');
     $assert('balance' === ($derivedTextNormalizedNode['figma_text']['style']['text_wrap_style'] ?? null), 'normalized-text-style-wrap');
     $assert(true === ($derivedTextNormalizedNode['figma_text']['style']['hanging_list'] ?? null), 'normalized-text-style-hanging-list');

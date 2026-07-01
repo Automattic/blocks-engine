@@ -262,10 +262,21 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert(! array_key_exists('glyphs', $kiwiDerivedText), 'kiwi-selective-skips-derived-text-glyphs');
     $assert('Inter' === ($kiwiDerivedText['fontMetaData']['key']['family'] ?? null), 'kiwi-selective-decodes-derived-text-font-family');
     $assert(700 === ($kiwiDerivedText['fontMetaData']['fontWeight'] ?? null), 'kiwi-selective-decodes-derived-text-font-weight');
+    $assert('inter-digest' === ($kiwiDerivedText['fontMetaData']['fontDigest'] ?? null), 'kiwi-selective-decodes-derived-text-font-digest');
     $assert(3 === ($kiwiDerivedText['truncationStartIndex'] ?? null), 'kiwi-selective-decodes-derived-text-truncation-start');
     $assert(24.0 === ($kiwiDerivedText['truncatedHeight'] ?? null), 'kiwi-selective-decodes-derived-text-truncated-height');
     $assert(array(0.0, 12.5) === ($kiwiDerivedText['logicalIndexToCharacterOffsetMap'] ?? null), 'kiwi-selective-decodes-derived-text-logical-offset-map');
     $assert('RTL' === ($kiwiDerivedText['derivedLines'][0]['directionality'] ?? null), 'kiwi-selective-decodes-derived-text-line-directionality');
+    $assert(42.0 === ($kiwiDerivedText['decorations'][0]['rects'][0]['w'] ?? null), 'kiwi-selective-decodes-derived-text-decoration-rect');
+    $assert('https://example.com/text-link' === ($kiwiDerivedText['hyperlinkBoxes'][0]['url'] ?? null), 'kiwi-selective-decodes-derived-text-hyperlink-box-url');
+
+    $kiwiDerivedTextNode = array('id' => 'kiwi:derived-text', 'type' => 'TEXT', 'characters' => 'Glyph Text', 'derivedTextData' => $kiwiDerivedText);
+    $kiwiDerivedNormalized = ( new ScenegraphNormalizer() )->normalize(array('name' => 'Kiwi Derived Text Fixture', 'nodes' => array($kiwiDerivedTextNode)));
+    $kiwiDerivedNormalizedNode = $kiwiDerivedNormalized['nodes'][0] ?? array();
+    $assert('inter-digest' === ($kiwiDerivedNormalizedNode['figma_text']['derived_layout']['fonts'][0]['font_digest'] ?? null), 'kiwi-normalizes-derived-text-font-digest');
+    $assert(1 === ($kiwiDerivedNormalizedNode['figma_text']['derived_layout']['decoration_count'] ?? null), 'kiwi-normalizes-derived-text-decoration-count');
+    $assert(42.0 === ($kiwiDerivedNormalizedNode['figma_text']['derived_layout']['decorations'][0]['rects'][0]['width'] ?? null), 'kiwi-normalizes-derived-text-decoration-width');
+    $assert('https://example.com/text-link' === ($kiwiDerivedNormalizedNode['figma_text']['derived_layout']['hyperlink_boxes'][0]['url'] ?? null), 'kiwi-normalizes-derived-text-hyperlink-box-url');
     $kiwiDerivedTextWithGlyphsMessage = $kiwiDecoder->decodeMessageSelective(
         blocks_engine_figma_transformer_kiwi_derived_text_message_fixture(),
         $kiwiDerivedTextSchema['schema'] ?? array(),
@@ -1110,7 +1121,7 @@ function blocks_engine_figma_transformer_kiwi_export_settings_bytes(string $form
 
 function blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture(): string
 {
-    return blocks_engine_figma_transformer_wire_varint(11)
+    return blocks_engine_figma_transformer_wire_varint(14)
         // def0: ENUM MessageType { NODE_CHANGES = 1 }
         . blocks_engine_figma_transformer_kiwi_string('MessageType')
         . chr(0)
@@ -1152,13 +1163,14 @@ function blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture(): str
         . blocks_engine_figma_transformer_kiwi_schema_field('advance', -5, false, 6)
         . blocks_engine_figma_transformer_kiwi_schema_field('rotation', -5, false, 7)
         . blocks_engine_figma_transformer_kiwi_schema_field('styleID', -4, false, 8)
-        // def5: STRUCT FontMetaData { key, fontLineHeight, fontWeight }
+        // def5: STRUCT FontMetaData { key, fontLineHeight, fontWeight, fontDigest }
         . blocks_engine_figma_transformer_kiwi_string('FontMetaData')
         . chr(1)
-        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_wire_varint(4)
         . blocks_engine_figma_transformer_kiwi_schema_field('key', 2, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('fontLineHeight', -5, false, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('fontWeight', -3, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('fontDigest', -6, false, 4)
         // def6: ENUM Directionality { UNKNOWN, LTR, RTL }
         . blocks_engine_figma_transformer_kiwi_string('Directionality')
         . chr(0)
@@ -1171,10 +1183,10 @@ function blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture(): str
         . chr(2)
         . blocks_engine_figma_transformer_wire_varint(1)
         . blocks_engine_figma_transformer_kiwi_schema_field('directionality', 6, false, 1)
-        // def8: STRUCT DerivedTextData { layoutSize, baselines[], glyphs[], fontMetaData, truncationStartIndex, truncatedHeight, logicalIndexToCharacterOffsetMap[], derivedLines[] }
+        // def8: STRUCT DerivedTextData { layoutSize, baselines[], glyphs[], fontMetaData, truncationStartIndex, truncatedHeight, logicalIndexToCharacterOffsetMap[], derivedLines[], decorations[], hyperlinkBoxes[] }
         . blocks_engine_figma_transformer_kiwi_string('DerivedTextData')
         . chr(1)
-        . blocks_engine_figma_transformer_wire_varint(8)
+        . blocks_engine_figma_transformer_wire_varint(10)
         . blocks_engine_figma_transformer_kiwi_schema_field('layoutSize', 1, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('baselines', 3, true, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('glyphs', 4, true, 3)
@@ -1183,6 +1195,8 @@ function blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture(): str
         . blocks_engine_figma_transformer_kiwi_schema_field('truncatedHeight', -5, false, 6)
         . blocks_engine_figma_transformer_kiwi_schema_field('logicalIndexToCharacterOffsetMap', -5, true, 7)
         . blocks_engine_figma_transformer_kiwi_schema_field('derivedLines', 7, true, 8)
+        . blocks_engine_figma_transformer_kiwi_schema_field('decorations', 12, true, 9)
+        . blocks_engine_figma_transformer_kiwi_schema_field('hyperlinkBoxes', 13, true, 10)
         // def9: MESSAGE NodeChange { type, name, derivedTextData }
         . blocks_engine_figma_transformer_kiwi_string('NodeChange')
         . chr(2)
@@ -1195,7 +1209,29 @@ function blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture(): str
         . chr(2)
         . blocks_engine_figma_transformer_wire_varint(2)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', 0, false, 1)
-        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 9, true, 2);
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 9, true, 2)
+        // def11: STRUCT Rect { x, y, w, h }
+        . blocks_engine_figma_transformer_kiwi_string('Rect')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('x', -5, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('y', -5, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('w', -5, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('h', -5, false, 4)
+        // def12: MESSAGE Decoration { rects[], styleID }
+        . blocks_engine_figma_transformer_kiwi_string('Decoration')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('rects', 11, true, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('styleID', -4, false, 2)
+        // def13: MESSAGE HyperlinkBox { bounds, url, hyperlinkID, openInNewTab }
+        . blocks_engine_figma_transformer_kiwi_string('HyperlinkBox')
+        . chr(2)
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('bounds', 11, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('url', -6, false, 2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('hyperlinkID', -3, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('openInNewTab', -1, false, 6);
 }
 
 function blocks_engine_figma_transformer_kiwi_derived_text_message_fixture(): string
@@ -1239,6 +1275,7 @@ function blocks_engine_figma_transformer_kiwi_derived_text_message_fixture(): st
         . blocks_engine_figma_transformer_kiwi_string('Inter-Bold')
         . blocks_engine_figma_transformer_kiwi_varfloat(24.0)
         . blocks_engine_figma_transformer_wire_varint_signed(700)
+        . blocks_engine_figma_transformer_kiwi_string('inter-digest')
         // DerivedTextData.truncationStartIndex, truncatedHeight, logicalIndexToCharacterOffsetMap[].
         . blocks_engine_figma_transformer_wire_varint_signed(3)
         . blocks_engine_figma_transformer_kiwi_varfloat(24.0)
@@ -1249,6 +1286,31 @@ function blocks_engine_figma_transformer_kiwi_derived_text_message_fixture(): st
         . blocks_engine_figma_transformer_wire_varint(1)
         . blocks_engine_figma_transformer_wire_varint(1)
         . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(0)
+        // DerivedTextData.decorations[].
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_varfloat(1.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(20.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(42.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(2.0)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_wire_varint(7)
+        . blocks_engine_figma_transformer_wire_varint(0)
+        // DerivedTextData.hyperlinkBoxes[].
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_varfloat(1.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(0.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(42.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(18.0)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_string('https://example.com/text-link')
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_wire_varint_signed(5)
+        . blocks_engine_figma_transformer_wire_varint(6)
+        . chr(1)
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);

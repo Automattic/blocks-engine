@@ -276,6 +276,18 @@ final class TextNormalizer
             }
         }
 
+        $decorations = $this->normalizeTextDecorations($source['decorations'] ?? $textDataSource['decorations'] ?? null);
+        if ( ! empty($decorations) ) {
+            $layout['decorations'] = $decorations;
+            $layout['decoration_count'] = count($decorations);
+        }
+
+        $hyperlinkBoxes = $this->normalizeTextHyperlinkBoxes($source['hyperlinkBoxes'] ?? $textDataSource['hyperlinkBoxes'] ?? null);
+        if ( ! empty($hyperlinkBoxes) ) {
+            $layout['hyperlink_boxes'] = $hyperlinkBoxes;
+            $layout['hyperlink_box_count'] = count($hyperlinkBoxes);
+        }
+
         if ( is_array($source['glyphs'] ?? null) ) {
             $layout['glyph_count'] = count($source['glyphs']);
             if ( ! $decodeGlyphCommandBlobs ) {
@@ -360,6 +372,113 @@ final class TextNormalizer
     }
 
     /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeTextDecorations(mixed $decorations): array
+    {
+        if ( ! is_array($decorations) ) {
+            return array();
+        }
+
+        $normalized = array();
+        foreach ( $decorations as $decoration ) {
+            if ( ! is_array($decoration) ) {
+                continue;
+            }
+
+            $entry = array();
+            if ( isset($decoration['styleID']) && is_numeric($decoration['styleID']) ) {
+                $entry['style_id'] = (int) $decoration['styleID'];
+            }
+            $rects = $this->normalizeTextRects($decoration['rects'] ?? null);
+            if ( ! empty($rects) ) {
+                $entry['rects'] = $rects;
+            }
+            if ( ! empty($entry) ) {
+                $normalized[] = $entry;
+            }
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeTextHyperlinkBoxes(mixed $boxes): array
+    {
+        if ( ! is_array($boxes) ) {
+            return array();
+        }
+
+        $normalized = array();
+        foreach ( $boxes as $box ) {
+            if ( ! is_array($box) ) {
+                continue;
+            }
+
+            $entry = array();
+            $bounds = $this->normalizeTextRect($box['bounds'] ?? null);
+            if ( null !== $bounds ) {
+                $entry['bounds'] = $bounds;
+            }
+            if ( isset($box['url']) && is_scalar($box['url']) && '' !== (string) $box['url'] ) {
+                $entry['url'] = (string) $box['url'];
+            }
+            if ( isset($box['hyperlinkID']) && is_numeric($box['hyperlinkID']) ) {
+                $entry['hyperlink_id'] = (int) $box['hyperlinkID'];
+            }
+            if ( isset($box['openInNewTab']) && is_bool($box['openInNewTab']) ) {
+                $entry['open_in_new_tab'] = $box['openInNewTab'];
+            }
+            if ( ! empty($entry) ) {
+                $normalized[] = $entry;
+            }
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @return array<int, array<string, float>>
+     */
+    private function normalizeTextRects(mixed $rects): array
+    {
+        if ( ! is_array($rects) ) {
+            return array();
+        }
+
+        $normalized = array();
+        foreach ( $rects as $rect ) {
+            $normalizedRect = $this->normalizeTextRect($rect);
+            if ( null !== $normalizedRect ) {
+                $normalized[] = $normalizedRect;
+            }
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @return array<string, float>|null
+     */
+    private function normalizeTextRect(mixed $rect): ?array
+    {
+        if ( ! is_array($rect) ) {
+            return null;
+        }
+
+        $normalized = array();
+        foreach ( array('x' => 'x', 'y' => 'y', 'w' => 'width', 'width' => 'width', 'h' => 'height', 'height' => 'height') as $sourceKey => $targetKey ) {
+            if ( ! isset($normalized[$targetKey]) && isset($rect[$sourceKey]) && is_numeric($rect[$sourceKey]) ) {
+                $normalized[$targetKey] = (float) $rect[$sourceKey];
+            }
+        }
+
+        return empty($normalized) ? null : $normalized;
+    }
+
+    /**
      * @param array<int, mixed> $lines
      * @return array<int, array<string, mixed>>
      */
@@ -408,8 +527,9 @@ final class TextNormalizer
     private function appendDerivedTextFonts(array $layout, array $source): array
     {
         if ( is_array($source['fontMetaData'] ?? null) ) {
+            $fontMetaData = array_is_list($source['fontMetaData']) ? $source['fontMetaData'] : array($source['fontMetaData']);
             $fonts = array();
-            foreach ( $source['fontMetaData'] as $font ) {
+            foreach ( $fontMetaData as $font ) {
                 if ( ! is_array($font) ) {
                     continue;
                 }
@@ -418,6 +538,7 @@ final class TextNormalizer
                     'style' => (string) ($font['key']['style'] ?? ''),
                     'font_weight' => isset($font['fontWeight']) && is_numeric($font['fontWeight']) ? (int) $font['fontWeight'] : null,
                     'font_line_height' => isset($font['fontLineHeight']) && is_numeric($font['fontLineHeight']) ? (float) $font['fontLineHeight'] : null,
+                    'font_digest' => isset($font['fontDigest']) && is_scalar($font['fontDigest']) ? (string) $font['fontDigest'] : null,
                 );
             }
             if ( ! empty($fonts) ) {
