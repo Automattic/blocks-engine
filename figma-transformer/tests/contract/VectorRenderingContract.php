@@ -196,6 +196,36 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(str_contains($localPaintWithStyleCss, '.figma-node-vector-local-paint-with-style-local-paint-with-style{width:28px;height:3px;background:#d9d9d9'), 'local-fill-paint-wins-over-style-fill');
     $assert(! str_contains($localPaintWithStyleCss, '.figma-node-vector-local-paint-with-style-local-paint-with-style{width:28px;height:3px;background:#ffffff'), 'style-fill-does-not-overwrite-local-fill-paint');
     $assert('local' === ($localPaintWithStyleDiagnostics[0]['context']['precedence'] ?? null), 'local-style-fill-conflict-diagnostic-precedence');
+
+    $containerPaintWithStyleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Container Paint With Style Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'paint-style:yellow',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Yellow paint style',
+                'styleType'  => 'FILL',
+                'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0.811764717, 'b' => 0, 'a' => 1))),
+            ),
+            array(
+                'id'             => 'frame:stale-local-with-style',
+                'type'           => 'FRAME',
+                'name'           => 'Stale Local With Style',
+                'width'          => 28,
+                'height'         => 3,
+                'styleIdForFill' => 'paint-style:yellow',
+                'fillPaints'     => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                'fillGeometry'   => array(array('path' => 'M 0 0 L 28 0 L 28 3 L 0 3 Z', 'windingRule' => 'NONZERO')),
+            ),
+        ),
+    ));
+    $containerPaintWithStyleCss = $fileContent($containerPaintWithStyleResult, 'style.css');
+    $containerPaintWithStyleDiagnostics = array_values(array_filter(
+        $containerPaintWithStyleResult['diagnostics'] ?? array(),
+        static fn (array $diagnostic): bool => 'figma_local_style_paint_conflict' === ($diagnostic['code'] ?? null)
+    ));
+    $assert(str_contains($containerPaintWithStyleCss, '.figma-node-frame-stale-local-with-style-stale-local-with-style{width:28px;height:3px;background:#ffcf00'), 'style-fill-wins-over-container-stale-local-fill');
+    $assert('style' === ($containerPaintWithStyleDiagnostics[0]['context']['precedence'] ?? null), 'container-style-fill-conflict-diagnostic-precedence');
      
     $externalizedEquivalentVectorPath = 'M0,0' . str_repeat('L10,10', 12000) . 'Z';
     $externalizedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(

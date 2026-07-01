@@ -32,10 +32,11 @@ final class PaintNormalizer
         $styleFillId = $this->readStyleGuidId($node['styleIdForFill'] ?? null);
         if ( null !== $styleFillId && ! empty($paintStyles[$styleFillId]['fills']) ) {
             $styleFills = $paintStyles[$styleFillId]['fills'];
+            $localFillPrecedence = $this->hasLocalVectorPaintSource($node, 'fills');
             if ( ! empty($collections['fills']) && $collections['fills'] !== $styleFills ) {
-                $this->appendLocalStylePaintConflictDiagnostic($diagnostics, $nodeId, 'fills', $styleFillId, $collections['fills'], $styleFills, $this->hasGeometryPaintSource($node));
+                $this->appendLocalStylePaintConflictDiagnostic($diagnostics, $nodeId, 'fills', $styleFillId, $collections['fills'], $styleFills, $localFillPrecedence);
             }
-            if ( empty($collections['fills']) || ! $this->hasGeometryPaintSource($node) ) {
+            if ( empty($collections['fills']) || ! $localFillPrecedence ) {
                 $collections['fills'] = $styleFills;
             }
         }
@@ -43,10 +44,11 @@ final class PaintNormalizer
         $styleStrokeId = $this->readStyleGuidId($node['styleIdForStrokeFill'] ?? $node['styleIdForStroke'] ?? null);
         if ( null !== $styleStrokeId && ! empty($paintStyles[$styleStrokeId]['fills']) ) {
             $styleStrokes = $paintStyles[$styleStrokeId]['fills'];
+            $localStrokePrecedence = $this->hasLocalVectorPaintSource($node, 'strokes');
             if ( ! empty($collections['strokes']) && $collections['strokes'] !== $styleStrokes ) {
-                $this->appendLocalStylePaintConflictDiagnostic($diagnostics, $nodeId, 'strokes', $styleStrokeId, $collections['strokes'], $styleStrokes, $this->hasGeometryPaintSource($node));
+                $this->appendLocalStylePaintConflictDiagnostic($diagnostics, $nodeId, 'strokes', $styleStrokeId, $collections['strokes'], $styleStrokes, $localStrokePrecedence);
             }
-            if ( empty($collections['strokes']) || ! $this->hasGeometryPaintSource($node) ) {
+            if ( empty($collections['strokes']) || ! $localStrokePrecedence ) {
                 $collections['strokes'] = $styleStrokes;
             }
         }
@@ -144,9 +146,18 @@ final class PaintNormalizer
     /**
      * @param array<string, mixed> $node
      */
-    private function hasGeometryPaintSource(array $node): bool
+    private function hasLocalVectorPaintSource(array $node, string $collection): bool
     {
-        foreach ( array('fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths') as $key ) {
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        if ( in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'SECTION', 'CANVAS', 'DOCUMENT'), true) ) {
+            return false;
+        }
+
+        $keys = 'strokes' === $collection
+            ? array('strokeGeometry')
+            : array('fillGeometry');
+
+        foreach ( array_merge($keys, array('vectorPaths', 'paths')) as $key ) {
             if ( ! empty($node[$key]) ) {
                 return true;
             }
