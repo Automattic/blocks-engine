@@ -583,6 +583,50 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $singleLineButtonLabelCss = $fileContent($singleLineButtonLabelResult, 'style.css');
     $assert(str_contains($singleLineButtonLabelCss, '.figma-node-text-single-line-button-label-button-label{width:60px;font-size:16px;line-height:24px}'), 'single-line-button-label-avoids-fixed-tiny-height');
     $assert(! str_contains($singleLineButtonLabelCss, '.figma-node-text-single-line-button-label-button-label{width:60px;height:12px'), 'single-line-button-label-no-overflowing-fixed-height');
+
+    $hugButtonLabelResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Hug Button Label Fixture',
+        'nodes' => array(
+            array(
+                'id'              => 'text:hug-button',
+                'type'            => 'FRAME',
+                'name'            => 'Button',
+                'width'           => 73,
+                'height'          => 36,
+                'layoutMode'      => 'HORIZONTAL',
+                'paddingTop'      => 12,
+                'paddingRight'    => 16,
+                'paddingBottom'   => 12,
+                'paddingLeft'     => 16,
+                'itemSpacing'     => 8,
+                'cornerRadius'    => 999,
+                'fills'           => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                'children'        => array(
+                    array(
+                        'id'              => 'text:hug-button-label',
+                        'type'            => 'TEXT',
+                        'name'            => 'Reply',
+                        'characters'      => 'Reply',
+                        'x'               => 16,
+                        'y'               => 12,
+                        'width'           => 39,
+                        'height'          => 10,
+                        'fontSize'        => 14,
+                        'lineHeightPx'    => 22,
+                        'derivedTextData' => array(
+                            'layoutSize' => array('x' => 39, 'y' => 10),
+                            'baselines'  => array(
+                                array('firstCharacter' => 0, 'endCharacter' => 5, 'lineY' => -6.282, 'lineHeight' => 22, 'lineAscent' => 14, 'position' => array('x' => 0, 'y' => 10.43)),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $hugButtonLabelCss = $fileContent($hugButtonLabelResult, 'style.css');
+    $assert(str_contains($hugButtonLabelCss, '.figma-node-text-hug-button-button{width:73px;height:36px;'), 'hug-button-label-parent-keeps-figma-height');
+    $assert(str_contains($hugButtonLabelCss, '.figma-node-text-hug-button-label-reply{width:39px;height:10px;font-size:14px;line-height:22px;overflow:visible;flex-shrink:0}'), 'hug-button-label-flex-item-uses-measured-height');
 }
 
 function blocks_engine_figma_transformer_run_text_style_contract(callable $assert, callable $fileContent, callable $artifactQualitySignal, callable $artifactQualitySignalCodes): void

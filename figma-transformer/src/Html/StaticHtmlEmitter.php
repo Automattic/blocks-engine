@@ -3529,7 +3529,7 @@ final class StaticHtmlEmitter
             } elseif ( 'HUG' === $sizing ) {
                 $derivedTextSize = 'TEXT' === $type ? $this->derivedTextLayoutSize($node, $dimension) : null;
                 if ( null !== $derivedTextSize ) {
-                    if ( 'height' === $dimension && $this->textShouldAvoidTinyFixedHeight($node, $derivedTextSize) ) {
+                    if ( 'height' === $dimension && $this->textShouldAvoidTinyFixedHeight($node, $derivedTextSize) && ! $this->textShouldUseMeasuredFlexHeight($node, $parentNode) ) {
                         continue;
                     }
                     $styles[] = $dimension . ':' . $this->number($derivedTextSize) . 'px';
@@ -3544,7 +3544,7 @@ final class StaticHtmlEmitter
             } elseif ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
                 $property = $dimension;
                 $value = 'height' === $dimension && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : (float) $box[$dimension];
-                if ( 'height' === $dimension && 'TEXT' === $type && $this->textShouldAvoidTinyFixedHeight($node, $value) ) {
+                if ( 'height' === $dimension && 'TEXT' === $type && $this->textShouldAvoidTinyFixedHeight($node, $value) && ! $this->textShouldUseMeasuredFlexHeight($node, $parentNode) ) {
                     continue;
                 }
                 $styles[] = $property . ':' . $this->number($value) . 'px';
@@ -3661,6 +3661,9 @@ final class StaticHtmlEmitter
         if ( 'TEXT' === $type ) {
             foreach ( $this->textStyles($node) as $style ) {
                 $styles[] = $style;
+            }
+            if ( $this->textShouldUseMeasuredFlexHeight($node, $parentNode) ) {
+                $styles[] = 'overflow:visible';
             }
         }
 
@@ -4741,6 +4744,25 @@ final class StaticHtmlEmitter
         $lineY = (float) $baseline['lineY'];
 
         return 0.0 > $lineY && $lineHeight > $height + 0.5;
+    }
+
+    /**
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function textShouldUseMeasuredFlexHeight(array $node, ?array $parentNode): bool
+    {
+        if ( null === $parentNode || 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) ) {
+            return false;
+        }
+
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        if ( 'flex' !== ($parentLayout['display'] ?? null) ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        return isset($box['height']) && is_numeric($box['height']) && $this->textShouldAvoidTinyFixedHeight($node, (float) $box['height']);
     }
 
     /**
