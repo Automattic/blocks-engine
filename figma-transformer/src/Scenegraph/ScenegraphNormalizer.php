@@ -1358,7 +1358,10 @@ final class ScenegraphNormalizer
         $cloneType = strtoupper((string) ($clone['type'] ?? ''));
         $refreshedType = strtoupper((string) ($refreshed['type'] ?? ''));
 
-        return 'INSTANCE' === $cloneType || 'INSTANCE' === $refreshedType || true === ($clone['figma_component']['resolved'] ?? false) || true === ($refreshed['figma_component']['resolved'] ?? false);
+        return 'INSTANCE' === $cloneType
+            || 'INSTANCE' === $refreshedType
+            || true === ($clone['figma_component']['resolved'] ?? false)
+            || true === ($refreshed['figma_component']['resolved'] ?? false);
     }
 
     /**
@@ -1401,6 +1404,7 @@ final class ScenegraphNormalizer
 				$merged[$key] = $clone[$key];
 			}
 		}
+		$merged = $this->mergeComponentSourceCloneLayoutMetadata($merged, $clone, $refreshed);
 		if ( $preferRefreshedGeometry && is_array($refreshed['box'] ?? null) ) {
 			foreach ( array('x', 'y') as $dimension ) {
 				if ( isset($refreshed['box'][$dimension]) && is_numeric($refreshed['box'][$dimension]) ) {
@@ -1419,6 +1423,31 @@ final class ScenegraphNormalizer
 
 		return $this->markComponentSourceCloneGeometry($merged);
 	}
+
+    /**
+     * @param array<string, mixed> $merged
+     * @param array<string, mixed> $clone
+     * @param array<string, mixed> $refreshed
+     * @return array<string, mixed>
+     */
+    private function mergeComponentSourceCloneLayoutMetadata(array $merged, array $clone, array $refreshed): array
+    {
+        $refreshedLayout = is_array($refreshed['layout'] ?? null) ? $refreshed['layout'] : array();
+        if ( ! isset($refreshedLayout['z_index']) || ! is_numeric($refreshedLayout['z_index']) ) {
+            return $merged;
+        }
+
+        $cloneLayout = is_array($clone['layout'] ?? null) ? $clone['layout'] : array();
+        if ( isset($cloneLayout['z_index']) && is_numeric($cloneLayout['z_index']) ) {
+            return $merged;
+        }
+
+        $mergedLayout = is_array($merged['layout'] ?? null) ? $merged['layout'] : array();
+        $mergedLayout['z_index'] = (int) $refreshedLayout['z_index'];
+        $merged['layout'] = $mergedLayout;
+
+        return $merged;
+    }
 
 	/**
 	 * @param array<string, mixed> $clone
@@ -1916,12 +1945,44 @@ final class ScenegraphNormalizer
         if ( $this->instanceOverridesUseTransforms($overrides) ) {
             $resolved['layout'] = array('freeform' => true);
         }
-        $resolved['children'] = $this->namespaceResolvedInstanceChildren(
-            $this->applyInstanceOverridesToChildren($resolvedChildren, $overrides, $nodeMap, $components, $diagnostics, $blobs, $paintStyles, $textStyles, $options),
-            $context['instance_id']
-        );
+        $resolvedChildren = $this->applyInstanceOverridesToChildren($resolvedChildren, $overrides, $nodeMap, $components, $diagnostics, $blobs, $paintStyles, $textStyles, $options);
+        $resolvedChildren = $this->mergeComponentSourceCloneDescendantLayoutMetadata($resolvedChildren, $nodeMap);
+        $resolved['children'] = $this->namespaceResolvedInstanceChildren($resolvedChildren, $context['instance_id']);
 
         return $resolved;
+    }
+
+    /**
+     * @param array<int, mixed> $children
+     * @param array<string, array<string, mixed>> $nodeMap
+     * @return array<int, mixed>
+     */
+    private function mergeComponentSourceCloneDescendantLayoutMetadata(array $children, array $nodeMap): array
+    {
+        foreach ( $children as $index => $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $sourceId = isset($child['figma_component_source_id']) && is_scalar($child['figma_component_source_id'])
+                ? (string) $child['figma_component_source_id']
+                : (isset($child['id']) && is_scalar($child['id']) ? (string) $child['id'] : '');
+            if ( '' !== $sourceId && isset($nodeMap[$sourceId]['layout']['z_index']) && is_numeric($nodeMap[$sourceId]['layout']['z_index']) ) {
+                $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+                if ( ! isset($layout['z_index']) || ! is_numeric($layout['z_index']) ) {
+                    $layout['z_index'] = (int) $nodeMap[$sourceId]['layout']['z_index'];
+                    $child['layout'] = $layout;
+                }
+            }
+
+            if ( is_array($child['children'] ?? null) ) {
+                $child['children'] = $this->mergeComponentSourceCloneDescendantLayoutMetadata($child['children'], $nodeMap);
+            }
+
+            $children[$index] = $child;
+        }
+
+        return $children;
     }
 
     /**
