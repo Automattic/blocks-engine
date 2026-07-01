@@ -949,7 +949,9 @@ final class FigmaTransformer
             }
 
             $frameId = isset($page['frame_id']) && is_scalar($page['frame_id']) ? (string) $page['frame_id'] : '';
-            $path = isset($page['path']) && is_scalar($page['path']) ? (string) $page['path'] : '';
+            $path = isset($page['path']) && is_scalar($page['path']) && '' !== (string) $page['path']
+                ? (string) $page['path']
+                : (true === ($page['entrypoint'] ?? false) ? 'index.html' : (string) ($page['slug'] ?? $frameId) . '.html');
             if ( '' === $frameId || '' === $path ) {
                 continue;
             }

@@ -366,6 +366,10 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
                             )),
                             array('id' => 'sticky-real:article', 'type' => 'FRAME', 'name' => 'Article body', 'width' => 796, 'height' => 3000, 'clipsContent' => true, 'children' => array(
                                 array('id' => 'sticky-real:title', 'type' => 'TEXT', 'name' => 'Article title', 'characters' => 'Long article', 'width' => 420, 'height' => 56, 'fontSize' => 42),
+                                array('id' => 'sticky-real:unboxing', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Unboxing Experience', 'width' => 520, 'height' => 44, 'fontSize' => 28),
+                                array('id' => 'sticky-real:build', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Build Process', 'width' => 520, 'height' => 44, 'fontSize' => 28),
+                                array('id' => 'sticky-real:steps', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Step-By-Step Construction', 'width' => 480, 'height' => 32, 'fontSize' => 22),
+                                array('id' => 'sticky-real:conclusion', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Conclusion', 'width' => 520, 'height' => 44, 'fontSize' => 28),
                             )),
                             array('id' => '4210:12595', 'figma_component_source_id' => '4210:12595', 'type' => 'INSTANCE', 'name' => 'Table of Contents', 'x' => 0, 'y' => 3654, 'width' => 315, 'height' => 510, 'layoutPositioning' => 'ABSOLUTE', 'constraints' => array('horizontal' => 'LEFT', 'vertical' => 'BOTTOM'), 'opacity' => 0.1, 'children' => array(
                                 array('id' => '4210:12595/4198:8360', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Table of Contents', 'width' => 180, 'height' => 24, 'fontSize' => 18),
@@ -389,6 +393,10 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(! preg_match('/\.figma-node-sticky-real-root-blog-post-desktop\{[^}]*overflow:hidden/', $stickyGhostSourceMismatchCss), 'sticky-ghost-source-mismatch-root-no-overflow-hidden');
     $assert(! preg_match('/\.figma-node-4194-2157-frame-51076550\{[^}]*overflow:hidden/', $stickyGhostSourceMismatchCss), 'sticky-ghost-source-mismatch-row-no-overflow-hidden');
     $assert(1 === preg_match('/\.figma-node-sticky-real-article-article-body\{[^}]*overflow:hidden/', $stickyGhostSourceMismatchCss), 'sticky-ghost-source-mismatch-sibling-clipping-preserved');
+    $assert(1 === preg_match('/<a class="figma-link figma-toc-link" href="#the-unboxing-experience" data-figma-link-type="toc"><p class="[^"]*figma-node-4212-3087-4188-11209-heading[^"]*"/', $stickyGhostSourceMismatchHtml), 'toc-entry-links-to-matching-heading');
+    $assert(1 === preg_match('/<h2 class="[^"]*figma-node-sticky-real-unboxing-heading[^"]*"[^>]*id="the-unboxing-experience"[^>]*>The Unboxing Experience<\/h2>/', $stickyGhostSourceMismatchHtml), 'matching-heading-receives-text-anchor');
+    $assert(1 === preg_match('/<h3 class="[^"]*figma-node-sticky-real-steps-heading[^"]*"[^>]*id="step-by-step-construction"[^>]*>Step-By-Step Construction<\/h3>/', $stickyGhostSourceMismatchHtml), 'nested-heading-keeps-structural-level');
+    $assert(! str_contains($stickyGhostSourceMismatchHtml, '<h2 class="figma-node-4212-3087-4188-11209-heading"'), 'toc-entry-not-rendered-as-heading');
     $assert(1 === ($stickyGhostSourceMismatchLayout['sticky_ghosts']['count'] ?? null), 'sticky-ghost-source-mismatch-diagnostic-count');
     $assert('4212:3087' === ($stickyGhostSourceMismatchLayout['sticky_ghosts']['candidates'][0]['primary_id'] ?? null), 'sticky-ghost-source-mismatch-diagnostic-primary');
     $assert('4210:12595' === ($stickyGhostSourceMismatchLayout['sticky_ghosts']['candidates'][0]['ghost_id'] ?? null), 'sticky-ghost-source-mismatch-diagnostic-ghost');
@@ -1285,7 +1293,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
                         'children' => array(
                             array('id' => 'text:home', 'type' => 'TEXT', 'name' => 'Home title', 'characters' => 'Home Hero', 'fontName' => array('family' => 'Example Sans', 'style' => 'Regular'), 'fontSize' => 20),
                             array('id' => 'image:home', 'type' => 'RECTANGLE', 'name' => 'Home image', 'width' => 100, 'height' => 60, 'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'home-image'))),
-                            array('id' => 'button:home:one', 'type' => 'TEXT', 'name' => 'Button', 'characters' => 'Read more', 'width' => 80, 'height' => 24, 'fontSize' => 16, 'fontWeight' => 700),
+                            array('id' => 'button:home:one', 'type' => 'TEXT', 'name' => 'Button', 'characters' => 'Read more', 'width' => 80, 'height' => 24, 'fontSize' => 16, 'fontWeight' => 700, 'prototypeInteractions' => array(array('actions' => array(array('connectionType' => 'INTERNAL_NODE', 'transitionNodeID' => 'text:about', 'navigationType' => 'NAVIGATE'))))),
                             array('id' => 'button:home:two', 'type' => 'TEXT', 'name' => 'Button', 'characters' => 'Subscribe', 'width' => 80, 'height' => 24, 'fontSize' => 16, 'fontWeight' => 700),
                             array('id' => 'vector:home-large', 'type' => 'VECTOR', 'name' => 'Home Large Vector', 'width' => 10, 'height' => 10, 'figma_vector_paths' => array(array('data' => $externalizedVectorPath, 'source' => 'strokeGeometry'))),
                         ),
@@ -1337,6 +1345,8 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(str_contains($multiPageIndex, 'Home Hero'), 'multi-page-index-renders-entry-frame');
     $assert(! str_contains($multiPageIndex, 'About Hero'), 'multi-page-index-omits-other-frame');
     $assert(str_contains($multiPageAbout, 'About Hero'), 'multi-page-about-renders-second-frame');
+    $assert(1 === preg_match('/<a class="figma-link" href="about\.html" data-figma-link-type="node"><p class="[^"]*figma-node-button-home-one-button[^"]*"/', $multiPageIndex), 'multi-page-descendant-prototype-link-resolves-to-page');
+    $assert(! str_contains($multiPageIndex, 'href="#" data-figma-link-type="node"'), 'multi-page-prototype-link-not-placeholder');
     $assert(str_contains($multiPageIndex, '<style data-figma-transformer-css="true">') && str_contains($multiPageIndex, '.figma-node-frame-home-home'), 'multi-page-index-inlines-page-css');
     $assert(str_contains($multiPageStyle, '.figma-node-frame-home-home'), 'multi-page-shared-css-home');
     $assert(str_contains($multiPageStyle, '.figma-node-frame-about-about'), 'multi-page-shared-css-about');

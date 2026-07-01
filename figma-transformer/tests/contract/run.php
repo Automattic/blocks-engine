@@ -4648,7 +4648,7 @@ $descendantTargetScenegraph = array(
 $descendantTargetResult = blocks_engine_figma_transformer_transform_scenegraph($descendantTargetScenegraph, array('include_all_pages' => true, 'entry_frame_id' => 'desc:home'));
 $descendantTargetHomeHtml = $fileContent($descendantTargetResult, 'index.html');
 $descendantTargetLinks = $descendantTargetResult['source_reports']['figma']['html']['transform_diagnostics']['links'] ?? array();
-$assert(str_contains($descendantTargetHomeHtml, '<a class="figma-link" href="about.html" data-figma-link-type="node">'), 'descendant-prototype-target-resolves-to-containing-page');
+$assert(str_contains($descendantTargetHomeHtml, '<a class="figma-link" href="about.html#about-us" data-figma-link-type="node">'), 'descendant-prototype-target-resolves-to-containing-page');
 $assert(0 === ($descendantTargetLinks['unresolved'] ?? null) && ($descendantTargetLinks['node_links'] ?? 0) >= 1, 'descendant-prototype-target-link-coverage-resolved');
 
 // Real anchor tags: an unresolved NODE link is counted in the diagnostic and emitted as a placeholder anchor.

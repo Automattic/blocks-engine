@@ -154,6 +154,22 @@ final class StaticHtmlEmitter
     private array $headingLevels = array();
 
     /**
+     * Per-page heading node id => stable DOM id, derived from heading text.
+     *
+     * @var array<string, string>
+     */
+    private array $headingAnchorIds = array();
+
+    /**
+     * Per-page normalized heading text => page-local hash href for TOC entries.
+     *
+     * @var array<string, string>
+     */
+    private array $tocHrefByText = array();
+
+    private string $currentPagePath = 'index.html';
+
+    /**
      * Memoized list-item id sets keyed by container node id, so list-container
      * (<ul>) and list-item (<li>) decisions stay consistent within a page.
      *
@@ -199,6 +215,7 @@ final class StaticHtmlEmitter
         $this->stickyLayoutCoordinator()->detectStickyGhostCandidates($nodes);
         $this->listItemIdCache = array();
         $this->prepareHeadingRanking($nodes);
+        $this->prepareHeadingAnchors($nodes, 'index.html');
         $diagnostics = array();
         $nodeStyleDiagnostics = array();
         $assetFiles = $this->normalizeAssets($scenegraph['assets'] ?? array(), $diagnostics);
@@ -383,6 +400,7 @@ final class StaticHtmlEmitter
 
             $this->listItemIdCache = array();
             $this->prepareHeadingRanking(array($frameNode));
+            $this->prepareHeadingAnchors(array($frameNode), $path);
             // A planned page is a single wrapping frame; its bands are its
             // direct children one level down.
             $this->sectionDepth = 1;
@@ -409,8 +427,12 @@ final class StaticHtmlEmitter
         }
 
         if ( empty($files) ) {
-            $this->sectionDepth = $this->sectionDepthFor($this->nodeList($scenegraph));
-            foreach ( $this->nodeList($scenegraph) as $node ) {
+            $this->currentPagePath = 'index.html';
+            $fallbackNodes = $this->nodeList($scenegraph);
+            $this->prepareHeadingRanking($fallbackNodes);
+            $this->prepareHeadingAnchors($fallbackNodes, 'index.html');
+            $this->sectionDepth = $this->sectionDepthFor($fallbackNodes);
+            foreach ( $fallbackNodes as $node ) {
                 if ( ! is_array($node) ) {
                     continue;
                 }
@@ -767,6 +789,10 @@ final class StaticHtmlEmitter
         }
 
         $attributes = sprintf(' class="%1$s" data-figma-node-id="%2$s" data-figma-node-name="%3$s"', $className, $id, $attributeName);
+        $anchorId = $this->headingAnchorId($node, $tag);
+        if ( null !== $anchorId ) {
+            $attributes .= ' id="' . $this->sanitizeAttribute($anchorId) . '"';
+        }
         if ( 'input' === $tag ) {
             $attributes .= $this->inputControlAttributes($node);
         }
@@ -785,7 +811,7 @@ final class StaticHtmlEmitter
             $element = sprintf("<%1\$s%2\$s>%3\$s</%1\$s>\n", $tag, $attributes, $content);
         }
 
-        return $this->wrapWithLink($node, $element, $diagnostics, $this->isButtonLike($node));
+        return $this->wrapWithLink($node, $element, $diagnostics, $this->isButtonLike($node), $parentNode);
     }
 
     /**
@@ -809,7 +835,7 @@ final class StaticHtmlEmitter
                 return 'span';
             }
 
-            $heading = $this->headingLevel($node, $lowerName, $depth);
+            $heading = $this->headingLevel($node, $lowerName, $depth, $parentNode);
             if ( null !== $heading ) {
                 return $heading;
             }
@@ -1078,8 +1104,12 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function headingLevel(array $node, string $lowerName, int $depth): ?string
+    private function headingLevel(array $node, string $lowerName, int $depth, ?array $parentNode = null): ?string
     {
+        if ( $this->isTocEntryText($node, $parentNode) ) {
+            return null;
+        }
+
         $size = $this->textFontSize($node);
         if ( null !== $size ) {
             $key = $this->sizeKey($size);
@@ -1517,6 +1547,90 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array<int, mixed> $nodes
+     */
+    private function prepareHeadingAnchors(array $nodes, string $pagePath): void
+    {
+        $this->headingAnchorIds = array();
+        $this->tocHrefByText = array();
+        $this->currentPagePath = $pagePath;
+
+        $used = array();
+        $this->collectHeadingAnchors($nodes, 0, null, false, $used);
+    }
+
+    /**
+     * @param array<int, mixed> $nodes
+     * @param array<string, int> $used
+     */
+    private function collectHeadingAnchors(array $nodes, int $depth, ?array $parentNode, bool $insideToc, array &$used): void
+    {
+        foreach ( $nodes as $node ) {
+            if ( ! is_array($node) ) {
+                continue;
+            }
+
+            $isToc = $insideToc || $this->isTocContainer($node);
+            if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) && ! $isToc ) {
+                $text = $this->normalizedAnchorText($this->nodePlainText($node));
+                $heading = $this->headingLevel($node, strtolower((string) ($node['name'] ?? '')), $depth, $parentNode);
+                $nodeId = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
+                if ( null !== $heading && '' !== $nodeId && '' !== $text ) {
+                    $base = $this->slug($text);
+                    $count = ($used[$base] ?? 0) + 1;
+                    $used[$base] = $count;
+                    $anchorId = 1 === $count ? $base : $base . '-' . $count;
+                    $this->headingAnchorIds[$nodeId] = $anchorId;
+                    $this->tocHrefByText[$text] ??= '#' . $anchorId;
+                }
+            }
+
+            $this->collectHeadingAnchors($this->nodeList($node), $depth + 1, $node, $isToc, $used);
+        }
+    }
+
+    private function headingAnchorId(array $node, string $tag): ?string
+    {
+        if ( ! preg_match('/^h[1-6]$/', $tag) ) {
+            return null;
+        }
+
+        $nodeId = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
+        return '' !== $nodeId && isset($this->headingAnchorIds[$nodeId]) ? $this->headingAnchorIds[$nodeId] : null;
+    }
+
+    private function implicitTocHref(array $node): ?string
+    {
+        $text = $this->normalizedAnchorText($this->nodePlainText($node));
+        return '' !== $text && isset($this->tocHrefByText[$text]) ? $this->tocHrefByText[$text] : null;
+    }
+
+    private function normalizedAnchorText(string $text): string
+    {
+        return strtolower(trim((string) preg_replace('/\s+/', ' ', $text)));
+    }
+
+    private function isTocContainer(array $node): bool
+    {
+        $name = strtolower((string) ($node['name'] ?? ''));
+        if ( str_contains($name, 'table of contents') || preg_match('/\btoc\b/', $name) ) {
+            return true;
+        }
+
+        return in_array($this->normalizedAnchorText($this->nodePlainText($node)), array('contents', 'table of contents'), true)
+            && 2 <= $this->textDescendantCount($node);
+    }
+
+    private function isTocEntryText(array $node, ?array $parentNode): bool
+    {
+        if ( null === $parentNode || ! $this->isTocContainer($parentNode) ) {
+            return false;
+        }
+
+        return ! in_array($this->normalizedAnchorText($this->nodePlainText($node)), array('contents', 'table of contents'), true);
+    }
+
+    /**
      * @param array<string, mixed> $node
      */
     private function textWordCount(array $node): int
@@ -1902,6 +2016,7 @@ final class StaticHtmlEmitter
             'anchors_emitted'    => 0,
             'url_links'          => 0,
             'node_links'         => 0,
+            'toc_links'          => 0,
             'unresolved'         => 0,
             'unresolved_targets' => array(),
         );
@@ -1955,10 +2070,22 @@ final class StaticHtmlEmitter
      * @param array<string, mixed>             $node
      * @param array<int, array<string, mixed>> $diagnostics
      */
-    private function wrapWithLink(array $node, string $element, array &$diagnostics, bool $buttonLike = false): string
+    private function wrapWithLink(array $node, string $element, array &$diagnostics, bool $buttonLike = false, ?array $parentNode = null): string
     {
         $link = is_array($node['figma_link'] ?? null) ? $node['figma_link'] : array();
         if ( empty($link) ) {
+            $tocHref = $this->isTocEntryText($node, $parentNode) ? $this->implicitTocHref($node) : null;
+            if ( null !== $tocHref ) {
+                $this->linkCoverage['toc_links']++;
+                $this->linkCoverage['anchors_emitted']++;
+
+                return sprintf(
+                    "<a class=\"figma-link figma-toc-link\" href=\"%1\$s\" data-figma-link-type=\"toc\">%2\$s</a>\n",
+                    $this->sanitizeAttribute($tocHref),
+                    $element
+                );
+            }
+
             return $element;
         }
 
@@ -1977,6 +2104,12 @@ final class StaticHtmlEmitter
             $this->linkCoverage['node_links']++;
             if ( '' !== $targetNodeId && isset($this->linkTargetPaths[$targetNodeId]) ) {
                 $href = $this->linkTargetPaths[$targetNodeId];
+                if ( isset($this->headingAnchorIds[$targetNodeId]) ) {
+                    $href = $this->linkHrefWithHash($href, $this->headingAnchorIds[$targetNodeId]);
+                }
+                $resolved = true;
+            } elseif ( '' !== $targetNodeId && isset($this->headingAnchorIds[$targetNodeId]) ) {
+                $href = '#' . $this->headingAnchorIds[$targetNodeId];
                 $resolved = true;
             } else {
                 $href = '#';
@@ -2045,6 +2178,16 @@ final class StaticHtmlEmitter
         return $url;
     }
 
+    private function linkHrefWithHash(string $href, string $anchorId): string
+    {
+        $base = preg_replace('/#.*$/', '', $href) ?? $href;
+        if ( '' === $base || $base === $this->currentPagePath ) {
+            return '#' . $anchorId;
+        }
+
+        return $base . '#' . $anchorId;
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -2058,6 +2201,7 @@ final class StaticHtmlEmitter
             'anchors_emitted'    => (int) ($coverage['anchors_emitted'] ?? 0),
             'url_links'          => (int) ($coverage['url_links'] ?? 0),
             'node_links'         => (int) ($coverage['node_links'] ?? 0),
+            'toc_links'          => (int) ($coverage['toc_links'] ?? 0),
             'unresolved'         => (int) ($coverage['unresolved'] ?? 0),
             'unresolved_targets' => array_values(is_array($coverage['unresolved_targets'] ?? null) ? $coverage['unresolved_targets'] : array()),
         );
