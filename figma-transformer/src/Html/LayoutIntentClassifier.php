@@ -100,15 +100,11 @@ final class LayoutIntentClassifier
     public function isDecorativeFlexUnderlay(array $node, array $parentNode): bool
     {
         $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
-        if ( ! in_array((string) ($parentLayout['display'] ?? ''), array('flex', 'inline-flex'), true) ) {
+        if ( ! $this->isFlexDisplayLayout($parentLayout) ) {
             return false;
         }
 
-        if ( $this->treeHasText($node) || $this->treeHasImageReference($node) ) {
-            return false;
-        }
-
-        if ( ! $this->treeIsVectorShapeOnly($node) || ! $this->parentHasTextOutsideNode($parentNode, $node) ) {
+        if ( ! $this->isDecorativeUnderlayVisualCandidate($node) || ! $this->parentHasTextOutsideNode($parentNode, $node) ) {
             return false;
         }
 
@@ -172,6 +168,22 @@ final class LayoutIntentClassifier
      * @param array<string, mixed> $node
      */
     public function isClippableDecorativeVisualNode(array $node): bool
+    {
+        return $this->isDecorativeUnderlayVisualCandidate($node);
+    }
+
+    /**
+     * @param array<string, mixed> $layout
+     */
+    private function isFlexDisplayLayout(array $layout): bool
+    {
+        return in_array((string) ($layout['display'] ?? ''), array('flex', 'inline-flex'), true);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isDecorativeUnderlayVisualCandidate(array $node): bool
     {
         return ! $this->treeHasText($node) && ! $this->treeHasImageReference($node) && $this->treeIsVectorShapeOnly($node);
     }
@@ -420,7 +432,7 @@ final class LayoutIntentClassifier
      */
     private function treeHasImageReference(array $node): bool
     {
-        if ( null !== $this->nodeAssetPath($node) || ! empty($this->explicitNodeAssetReferences($node)) || ! empty($this->nodeImagePaints($node)) ) {
+        if ( $this->nodeHasImageReference($node) ) {
             return true;
         }
 
@@ -441,10 +453,10 @@ final class LayoutIntentClassifier
         $type = strtoupper((string) ($node['type'] ?? ''));
         $children = $this->nodeList($node);
         if ( empty($children) ) {
-            return in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON', 'RECTANGLE', 'ROUNDED_RECTANGLE'), true);
+            return $this->isPrimitiveVectorShapeType($type);
         }
 
-        if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'BOOLEAN_OPERATION'), true) ) {
+        if ( ! $this->isVectorShapeContainerType($type) ) {
             return false;
         }
 
@@ -455,6 +467,16 @@ final class LayoutIntentClassifier
         }
 
         return true;
+    }
+
+    private function isPrimitiveVectorShapeType(string $type): bool
+    {
+        return in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON', 'RECTANGLE', 'ROUNDED_RECTANGLE'), true);
+    }
+
+    private function isVectorShapeContainerType(string $type): bool
+    {
+        return in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'BOOLEAN_OPERATION'), true);
     }
 
     /**
@@ -507,6 +529,14 @@ final class LayoutIntentClassifier
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodeHasImageReference(array $node): bool
+    {
+        return null !== $this->nodeAssetPath($node) || ! empty($this->explicitNodeAssetReferences($node)) || ! empty($this->nodeImagePaints($node));
     }
 
     /**
