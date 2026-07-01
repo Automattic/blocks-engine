@@ -176,6 +176,41 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($absoluteChildReserveCss, '.figma-node-reserve-newsletter-promoted-card{') && str_contains($absoluteChildReserveCss, 'width:416px;height:352px;position:absolute;left:112px;top:0px'), 'absolute-child-reserve-positioned-card-preserved');
     $assert(str_contains($absoluteChildReserveCss, '.figma-node-reserve-bottom-bottom-bar{') && str_contains($absoluteChildReserveCss, 'width:640px;height:131px;position:absolute;left:0px;top:352px'), 'absolute-child-reserve-positioned-bottom-preserved');
 
+    $overlappingFooterLayerResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Overlapping Footer Layer Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'footer-layer:root',
+                'type'     => 'FRAME',
+                'name'     => 'Page root',
+                'width'    => 640,
+                'height'   => 700,
+                'children' => array(
+                    array(
+                        'id'       => 'footer-layer:footer',
+                        'type'     => 'FRAME',
+                        'name'     => 'Footer shell',
+                        'x'        => 0,
+                        'y'        => 120,
+                        'width'    => 640,
+                        'height'   => 483,
+                        'children' => array(
+                            array('id' => 'footer-layer:bottom', 'type' => 'FRAME', 'name' => 'Yellow footer area', 'x' => 0, 'y' => 300, 'width' => 640, 'height' => 183, 'parentIndex' => array('position' => 'a'), 'children' => array(
+                                array('id' => 'footer-layer:bottom:text', 'type' => 'TEXT', 'name' => 'Bottom text', 'characters' => 'Footer links', 'width' => 120, 'height' => 24, 'fontSize' => 16),
+                            )),
+                            array('id' => 'footer-layer:newsletter', 'type' => 'FRAME', 'name' => 'Newsletter card', 'x' => 112, 'y' => 0, 'width' => 416, 'height' => 352, 'parentIndex' => array('position' => 'b'), 'children' => array(
+                                array('id' => 'footer-layer:newsletter:text', 'type' => 'TEXT', 'name' => 'Card heading', 'characters' => 'Get the newsletter', 'width' => 240, 'height' => 32, 'fontSize' => 24),
+                            )),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $overlappingFooterLayerCss = $fileContent($overlappingFooterLayerResult, 'style.css');
+    $assert(str_contains($overlappingFooterLayerCss, '.figma-node-footer-layer-newsletter-newsletter-card{') && str_contains($overlappingFooterLayerCss, 'position:absolute;left:112px;top:0px;z-index:2'), 'overlapping-footer-newsletter-layer-on-top');
+    $assert(str_contains($overlappingFooterLayerCss, '.figma-node-footer-layer-bottom-yellow-footer-area{') && str_contains($overlappingFooterLayerCss, 'position:absolute;left:0px;top:300px;z-index:1'), 'overlapping-footer-bottom-layer-under-newsletter');
+
     $stickyGhostResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Sticky Ghost Fixture',
         'nodes' => array(

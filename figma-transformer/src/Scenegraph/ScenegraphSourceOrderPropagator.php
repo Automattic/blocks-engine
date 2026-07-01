@@ -19,6 +19,9 @@ final class ScenegraphSourceOrderPropagator
         $layout['source_order'] = isset($node['_source_order']) && is_numeric($node['_source_order'])
             ? (int) $node['_source_order']
             : $fallbackOrder;
+        if ( isset($node['_parent_sort_position']) && is_scalar($node['_parent_sort_position']) ) {
+            $layout['layer_order'] = (string) $node['_parent_sort_position'];
+        }
         $node['layout'] = $layout;
 
         return $node;

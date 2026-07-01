@@ -3552,6 +3552,11 @@ final class StaticHtmlEmitter
 
         if ( isset($layout['z_index']) && is_numeric($layout['z_index']) && ! $this->stylesDeclareProperty($styles, 'z-index') ) {
             $styles[] = 'z-index:' . (string) (int) $layout['z_index'];
+        } elseif ( null !== $parentNode && ! $this->stylesDeclareProperty($styles, 'z-index') ) {
+            $overlapZIndex = $this->layoutIntentClassifier()->overlappingSiblingZIndex($node, $parentNode);
+            if ( null !== $overlapZIndex ) {
+                $styles[] = 'z-index:' . (string) $overlapZIndex;
+            }
         }
 
         if ( 'TEXT' !== $type && ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) ) {
