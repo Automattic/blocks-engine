@@ -609,20 +609,21 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
         'name'  => 'Hug Button Label Fixture',
         'nodes' => array(
             array(
-                'id'              => 'text:hug-button',
-                'type'            => 'FRAME',
-                'name'            => 'Button',
-                'width'           => 73,
-                'height'          => 36,
-                'layoutMode'      => 'HORIZONTAL',
-                'paddingTop'      => 12,
-                'paddingRight'    => 16,
-                'paddingBottom'   => 12,
-                'paddingLeft'     => 16,
-                'itemSpacing'     => 8,
-                'cornerRadius'    => 999,
-                'fills'           => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
-                'children'        => array(
+                'id'                    => 'text:hug-button',
+                'type'                  => 'FRAME',
+                'name'                  => 'Button',
+                'width'                 => 73,
+                'height'                => 36,
+                'layoutMode'            => 'HORIZONTAL',
+                'counterAxisAlignItems' => 'CENTER',
+                'paddingTop'            => 12,
+                'paddingRight'          => 16,
+                'paddingBottom'         => 12,
+                'paddingLeft'           => 16,
+                'itemSpacing'           => 8,
+                'cornerRadius'          => 999,
+                'fills'                 => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                'children'              => array(
                     array(
                         'id'              => 'text:hug-button-label',
                         'type'            => 'TEXT',
@@ -646,8 +647,48 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
         ),
     ));
     $hugButtonLabelCss = $fileContent($hugButtonLabelResult, 'style.css');
-    $assert(str_contains($hugButtonLabelCss, '.figma-node-text-hug-button-button{width:73px;height:36px;'), 'hug-button-label-parent-keeps-figma-height');
-    $assert(str_contains($hugButtonLabelCss, '.figma-node-text-hug-button-label-reply{width:39px;height:10px;font-size:14px;line-height:22px;overflow:visible;flex-shrink:0}'), 'hug-button-label-flex-item-uses-measured-height');
+    $assert(str_contains($hugButtonLabelCss, '.figma-node-text-hug-button-button{width:73px;height:36px;') && str_contains($hugButtonLabelCss, 'align-items:center'), 'hug-button-label-parent-keeps-figma-height');
+    $assert(str_contains($hugButtonLabelCss, '.figma-node-text-hug-button-label-reply{width:39px;font-size:14px;line-height:22px;flex-shrink:0}'), 'centered-button-label-uses-line-box-height');
+    $assert(! str_contains($hugButtonLabelCss, '.figma-node-text-hug-button-label-reply{width:39px;height:10px'), 'centered-button-label-no-tiny-measured-height');
+
+    $startAlignedFlexLabelResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Start Aligned Flex Label Fixture',
+        'nodes' => array(
+            array(
+                'id'            => 'text:start-flex-button',
+                'type'          => 'FRAME',
+                'name'          => 'Button',
+                'width'         => 73,
+                'height'        => 36,
+                'layoutMode'    => 'HORIZONTAL',
+                'paddingTop'    => 12,
+                'paddingRight'  => 16,
+                'paddingBottom' => 12,
+                'paddingLeft'   => 16,
+                'itemSpacing'   => 8,
+                'children'      => array(
+                    array(
+                        'id'              => 'text:start-flex-button-label',
+                        'type'            => 'TEXT',
+                        'name'            => 'Reply',
+                        'characters'      => 'Reply',
+                        'width'           => 39,
+                        'height'          => 10,
+                        'fontSize'        => 14,
+                        'lineHeightPx'    => 22,
+                        'derivedTextData' => array(
+                            'layoutSize' => array('x' => 39, 'y' => 10),
+                            'baselines'  => array(
+                                array('firstCharacter' => 0, 'endCharacter' => 5, 'lineY' => -6.282, 'lineHeight' => 22, 'lineAscent' => 14, 'position' => array('x' => 0, 'y' => 10.43)),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $startAlignedFlexLabelCss = $fileContent($startAlignedFlexLabelResult, 'style.css');
+    $assert(str_contains($startAlignedFlexLabelCss, '.figma-node-text-start-flex-button-label-reply{width:39px;height:10px;font-size:14px;line-height:22px;overflow:visible;flex-shrink:0}'), 'non-centered-flex-label-keeps-measured-height');
 }
 
 function blocks_engine_figma_transformer_run_text_style_contract(callable $assert, callable $fileContent, callable $artifactQualitySignal, callable $artifactQualitySignalCodes): void

@@ -4726,6 +4726,10 @@ final class StaticHtmlEmitter
             return false;
         }
 
+        if ( 'center' === ($parentLayout['align_items'] ?? null) ) {
+            return false;
+        }
+
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         return isset($box['height']) && is_numeric($box['height']) && $this->textShouldAvoidTinyFixedHeight($node, (float) $box['height']);
     }
