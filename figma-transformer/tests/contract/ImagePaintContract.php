@@ -305,4 +305,84 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $styleBackedImageOverrideCss = $fileContent($styleBackedImageOverrideResult, 'style.css');
     $assert(str_contains($styleBackedImageOverrideCss, 'background-image:url("assets/styled-override-image.bin")'), 'style-backed-image-override-replaces-style-image-paint');
     $assert(! str_contains($styleBackedImageOverrideCss, 'styled-default-image.bin'), 'style-backed-image-override-drops-stale-style-image-paint');
+
+    $paintMetadataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Paint Metadata Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'paint-style:gradient-transform',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Gradient Transform Style',
+                'styleType'  => 'FILL',
+                'fillPaints' => array(
+                    array(
+                        'type'      => 'GRADIENT_LINEAR',
+                        'opacity'   => 0.5,
+                        'blendMode' => 'MULTIPLY',
+                        'stops'     => array(
+                            array('position' => 0, 'color' => array('r' => 1, 'g' => 0, 'b' => 0, 'a' => 1)),
+                            array('position' => 1, 'color' => array('r' => 0, 'g' => 0, 'b' => 1, 'a' => 1)),
+                        ),
+                        'transform' => array(
+                            array(0, 1, 0),
+                            array(-1, 0, 1),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id'         => 'paint-style:stroke-blue',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Blue Stroke Style',
+                'styleType'  => 'FILL',
+                'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 1, 'a' => 1))),
+            ),
+            array(
+                'id'              => 'paint:metadata-frame',
+                'type'            => 'FRAME',
+                'name'            => 'Paint Metadata Frame',
+                'width'           => 80,
+                'height'          => 40,
+                'styleIdForFill'  => 'paint-style:gradient-transform',
+                'fillPaints'      => array(array('type' => 'SOLID', 'visible' => false, 'color' => array('r' => 0, 'g' => 1, 'b' => 0, 'a' => 1))),
+                'backgroundPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 0, 'a' => 1), 'opacity' => 0.25)),
+                'blendMode'       => 'PASS_THROUGH',
+            ),
+            array(
+                'guid'                  => array('sessionID' => 702, 'localID' => 1),
+                'type'                  => 'COMPONENT',
+                'name'                  => 'Stroke Style Component',
+                'children'              => array(
+                    array(
+                        'guid'                 => array('sessionID' => 702, 'localID' => 2),
+                        'type'                 => 'RECTANGLE',
+                        'name'                 => 'Stroke Style Child',
+                        'width'                => 20,
+                        'height'               => 20,
+                        'styleIdForStrokeFill' => 'paint-style:stroke-blue',
+                        'strokeWeight'         => 2,
+                        'strokeAlign'          => 'INSIDE',
+                    ),
+                ),
+            ),
+            array(
+                'id'         => 'instance:stroke-style',
+                'type'       => 'INSTANCE',
+                'name'       => 'Stroke Style Instance',
+                'symbolData' => array('symbolID' => array('sessionID' => 702, 'localID' => 1)),
+            ),
+        ),
+    ));
+    $paintMetadataCss = $fileContent($paintMetadataResult, 'style.css');
+    $paintMetadataFrame = blocks_engine_figma_transformer_contract_find_visual_node($paintMetadataResult, 'paint:metadata-frame');
+    $strokeStyleChild = blocks_engine_figma_transformer_contract_find_visual_node($paintMetadataResult, 'instance:stroke-style/702:2');
+    $assert(str_contains($paintMetadataCss, '.figma-node-paint-metadata-frame-paint-metadata-frame{width:80px;height:40px;background:linear-gradient(') && str_contains($paintMetadataCss, 'rgba(255,0,0,0.5) 0%,rgba(0,0,255,0.5) 100%'), 'style-gradient-transform-wins-over-invisible-local-fill');
+    $assert(! str_contains($paintMetadataCss, '#00ff00'), 'invisible-local-fill-omitted');
+    $assert(0.25 === ($paintMetadataFrame['paints']['background'][0]['opacity'] ?? null), 'visual-node-carries-background-paint-opacity');
+    $assert('GRADIENT_LINEAR' === ($paintMetadataFrame['paints']['fills'][0]['type'] ?? null), 'visual-node-carries-style-fill-paint-type');
+    $assert(0.5 === ($paintMetadataFrame['paints']['fills'][0]['opacity'] ?? null), 'visual-node-carries-style-fill-opacity');
+    $assert('MULTIPLY' === ($paintMetadataFrame['paints']['fills'][0]['blendMode'] ?? null), 'visual-node-carries-style-fill-blend-mode');
+    $assert(array(array(0, 1, 0), array(-1, 0, 1)) === ($paintMetadataFrame['paints']['fills'][0]['gradientTransform'] ?? null), 'visual-node-carries-gradient-transform-from-transform-field');
+    $assert('SOLID' === ($strokeStyleChild['paints']['strokes'][0]['type'] ?? null), 'cloned-instance-carries-stroke-style-paint');
+    $assert(str_contains($paintMetadataCss, 'border:2px solid #0000ff'), 'cloned-instance-stroke-style-emits-border');
 }

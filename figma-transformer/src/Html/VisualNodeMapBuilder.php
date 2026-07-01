@@ -87,6 +87,7 @@ final class VisualNodeMapBuilder
                     'coordinate_space' => $box['coordinate_space'] ?? null,
                 ),
                 'image' => null === $imagePaint ? null : $this->visualImageMetadata($imagePaint),
+                'paints' => is_array($node['figma_paints'] ?? null) ? $node['figma_paints'] : null,
                 'text' => empty($text) ? null : $this->visualTextMetadata($text),
                 // Figma Dev Mode status (#280) surfaced for the diagnostics map.
                 'dev_status' => isset($node['dev_status']) && is_string($node['dev_status']) ? $node['dev_status'] : null,

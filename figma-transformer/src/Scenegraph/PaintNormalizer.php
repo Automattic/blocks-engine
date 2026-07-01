@@ -340,8 +340,11 @@ final class PaintNormalizer
                 if ( isset($paint['blendMode']) && is_scalar($paint['blendMode']) ) {
                     $normalized['blendMode'] = strtoupper((string) $paint['blendMode']);
                 }
-                if ( is_array($paint['gradientTransform'] ?? null) ) {
-                    $normalized['gradientTransform'] = $paint['gradientTransform'];
+                foreach ( array('gradientTransform', 'transform') as $transformKey ) {
+                    if ( is_array($paint[$transformKey] ?? null) ) {
+                        $normalized['gradientTransform'] = $paint[$transformKey];
+                        break;
+                    }
                 }
 
                 return $normalized;
