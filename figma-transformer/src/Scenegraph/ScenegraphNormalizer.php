@@ -86,6 +86,7 @@ final class ScenegraphNormalizer
         $textInventory   = $this->buildTextInventory($nodeMap);
         $assetReferences = $this->buildAssetReferences($nodeMap);
         $sourceName      = $this->readSourceName($source, $renderNodes);
+        $sourceMetadata  = $this->normalizeDocumentMetadata($source);
         $diagnostics     = $this->vectorGeometryNormalizer->compactUnsupportedVectorNetworkBlobDiagnostics($this->compactGlyphCommandBlobDiagnostics($diagnostics));
 
         return array(
@@ -114,6 +115,7 @@ final class ScenegraphNormalizer
                 'text_node_count'       => count($textInventory),
                 'asset_reference_count' => count($assetReferences),
                 'asset_references'      => $assetReferences,
+                'figma_metadata'        => $sourceMetadata,
                 'component_definition_count' => $componentDefinitionCount,
                 'instance_node_count'   => $instanceReport['instance_node_count'],
                 'resolved_instance_count' => $instanceReport['resolved_instance_count'],
@@ -418,6 +420,11 @@ final class ScenegraphNormalizer
             $node['figma_variable_bindings'] = $variableBindings;
         }
 
+        $metadata = $this->normalizeDocumentMetadata($node);
+        if ( ! empty($metadata) ) {
+            $node['figma_metadata'] = $metadata;
+        }
+
         if ( 'TEXT' === $type ) {
             $text = $this->textNormalizer->normalizeText($node, $blobs, $id, $diagnostics, $paintStyles, $textStyles, $options);
             if ( ! empty($text) ) {
@@ -619,6 +626,100 @@ final class ScenegraphNormalizer
             if ( ! empty($values) ) {
                 $normalized['values'] = $values;
             }
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function normalizeDocumentMetadata(array $node): array
+    {
+        $metadata = array();
+
+        foreach ( array('phase', 'autoRename', 'version', 'userFacingVersion', 'fileVersion', 'publishID', 'publishId', 'sourceLibraryKey', 'ancestorPathBeforeDeletion', 'ackID', 'ackId') as $key ) {
+            if ( array_key_exists($key, $node) && is_scalar($node[$key]) ) {
+                $metadata[$this->normalizeMetadataKey($key)] = $node[$key];
+            }
+        }
+
+        foreach ( array('isPublishable', 'locked', 'isSoftDeleted', 'internalOnly', 'isPageDivider') as $key ) {
+            if ( array_key_exists($key, $node) && is_bool($node[$key]) ) {
+                $metadata[$this->normalizeMetadataKey($key)] = $node[$key];
+            }
+        }
+
+        foreach ( array('originFileKey', 'fileKey', 'sessionID', 'sessionId') as $key ) {
+            if ( ! array_key_exists($key, $node) ) {
+                continue;
+            }
+            $value = $this->readGuidId($node[$key]);
+            if ( null !== $value ) {
+                $metadata[$this->normalizeMetadataKey($key)] = $value;
+            }
+        }
+
+        foreach ( array('editInfo', 'pluginData', 'annotations', 'annotationCategories', 'categories', 'pluginRelaunchData', 'slideThemeMap') as $key ) {
+            if ( ! array_key_exists($key, $node) ) {
+                continue;
+            }
+            $value = $this->normalizeMetadataValue($node[$key]);
+            if ( null !== $value && array() !== $value ) {
+                $metadata[$this->normalizeMetadataKey($key)] = $value;
+            }
+        }
+
+        return $metadata;
+    }
+
+    private function normalizeMetadataKey(string $key): string
+    {
+        return match ($key) {
+            'autoRename' => 'auto_rename',
+            'userFacingVersion' => 'user_facing_version',
+            'fileVersion' => 'file_version',
+            'publishID', 'publishId' => 'publish_id',
+            'sourceLibraryKey' => 'source_library_key',
+            'ancestorPathBeforeDeletion' => 'ancestor_path_before_deletion',
+            'isPublishable' => 'is_publishable',
+            'isSoftDeleted' => 'is_soft_deleted',
+            'internalOnly' => 'internal_only',
+            'isPageDivider' => 'is_page_divider',
+            'originFileKey' => 'origin_file_key',
+            'fileKey' => 'file_key',
+            'sessionID', 'sessionId' => 'session_id',
+            'ackID', 'ackId' => 'ack_id',
+            'userID', 'userId' => 'user_id',
+            'pluginID', 'pluginId' => 'plugin_id',
+            'categoryID', 'categoryId' => 'category_id',
+            'editInfo' => 'edit_info',
+            'pluginData' => 'plugin_data',
+            'annotationCategories' => 'annotation_categories',
+            'pluginRelaunchData' => 'plugin_relaunch_data',
+            'slideThemeMap' => 'slide_theme_map',
+            default => $key,
+        };
+    }
+
+    private function normalizeMetadataValue(mixed $value): mixed
+    {
+        if ( is_scalar($value) || null === $value ) {
+            return $value;
+        }
+
+        if ( ! is_array($value) ) {
+            return null;
+        }
+
+        $normalized = array();
+        foreach ( $value as $key => $item ) {
+            $normalizedItem = $this->normalizeMetadataValue($item);
+            if ( null === $normalizedItem ) {
+                continue;
+            }
+            $normalized[is_int($key) ? $key : $this->normalizeMetadataKey((string) $key)] = $normalizedItem;
         }
 
         return $normalized;

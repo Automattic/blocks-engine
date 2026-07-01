@@ -82,6 +82,10 @@ final class FigKiwiDecodePolicy
             // token string automatically, so only the struct/entry field names
             // that reach it need whitelisting. Over-listing plausible inner
             // field names is safe: unknown fields are skipped, not mis-read.
+            'EditInfo' => array('userID', 'userId', 'userName', 'timestamp', 'updatedAt'),
+            'PluginData' => array('pluginID', 'pluginId', 'data', 'name', 'key', 'value'),
+            'Annotation' => array('id', 'label', 'description', 'categoryID', 'categoryId'),
+            'AnnotationCategory' => array('id', 'label', 'name', 'color'),
             'SectionStatusInfo' => array('status', 'currentStatus', 'statusInfo', 'type', 'name', 'description'),
             'HandoffStatusMap' => array('entries', 'values', 'handoffStatuses'),
             'HandoffStatusMapEntry' => array('key', 'guid', 'nodeId', 'value', 'status', 'statusInfo', 'currentStatus'),
@@ -118,7 +122,7 @@ final class FigKiwiDecodePolicy
             'prototype_links' => $this->nodePrototypeLinkFields(),
             'variables_bindings' => array('variableConsumptionMap', 'parameterConsumptionMap', 'variableDataValues', 'variableResolvedType', 'variableSetID', 'variableScopes', 'variableSetModes', 'VariableDataMap', 'VariableDataValues', 'VariableResolvedDataType', 'VariableSetID', 'VariableScope', 'VariableSetMode'),
             'export_metadata' => array('exportSettings', 'ExportSettings'),
-            'document_metadata' => array('phase', 'autoRename', 'editInfo', 'pluginData', 'version', 'userFacingVersion', 'isPublishable', 'locked', 'isSoftDeleted', 'annotations', 'annotationCategories', 'publishID', 'sourceLibraryKey', 'ancestorPathBeforeDeletion', 'internalOnly', 'isPageDivider', 'pluginRelaunchData', 'slideThemeMap', 'ackID', 'originFileKey', 'sessionID'),
+            'document_metadata' => $this->documentMetadataFields(),
         );
     }
 
@@ -156,6 +160,9 @@ final class FigKiwiDecodePolicy
         if ( str_contains($name, 'stategroup') ) {
             return 'component_overrides';
         }
+        if ( str_contains($name, 'sectionstatus') || str_contains($name, 'handoffstatus') || str_contains($name, 'devstatus') || str_contains($name, 'currentstatus') || str_contains($name, 'statusinfo') ) {
+            return 'dev_status';
+        }
         if ( str_contains($name, 'arcdata') || str_contains($name, 'guide') || str_contains($name, 'bound') || str_contains($name, 'layout') || str_contains($name, 'constraint') || str_contains($name, 'padding') || str_contains($name, 'size') || str_contains($name, 'transform') || str_contains($name, 'corner') || str_contains($name, 'stack') ) {
             return 'geometry_layout';
         }
@@ -171,7 +178,7 @@ final class FigKiwiDecodePolicy
         if ( str_contains($name, 'export') ) {
             return 'export_metadata';
         }
-        if ( str_contains($name, 'phase') || str_contains($name, 'autorename') || str_contains($name, 'editinfo') || str_contains($name, 'plugindata') || str_contains($name, 'version') || str_contains($name, 'publish') || str_contains($name, 'locked') || str_contains($name, 'softdeleted') || str_contains($name, 'annotation') || str_contains($name, 'librarykey') || str_contains($name, 'internalonly') || str_contains($name, 'pagedivider') || str_contains($name, 'relaunch') || str_contains($name, 'slidetheme') || str_contains($name, 'ackid') || str_contains($name, 'originfilekey') || str_contains($name, 'sessionid') ) {
+        if ( str_contains($name, 'metadata') || str_contains($name, 'phase') || str_contains($name, 'autorename') || str_contains($name, 'editinfo') || str_contains($name, 'plugindata') || str_contains($name, 'version') || str_contains($name, 'publish') || str_contains($name, 'locked') || str_contains($name, 'softdeleted') || str_contains($name, 'annotation') || str_contains($name, 'librarykey') || str_contains($name, 'internalonly') || str_contains($name, 'pagedivider') || str_contains($name, 'relaunch') || str_contains($name, 'slidetheme') || str_contains($name, 'ackid') || str_contains($name, 'originfilekey') || str_contains($name, 'filekey') || str_contains($name, 'sessionid') || str_contains($name, 'ancestorpath') ) {
             return 'document_metadata';
         }
         if ( str_contains($name, 'component') || str_contains($name, 'symbol') || str_contains($name, 'override') || str_contains($name, 'prop') || str_contains($name, 'variant') ) {
@@ -239,7 +246,7 @@ final class FigKiwiDecodePolicy
     private function scenegraphRootFields(): array
     {
         // `handoffStatus`/`sectionStatus` may also surface at the file root as a handoff map.
-        return array('type', 'nodeChanges', 'blobs', 'blobBaseIndex', 'fileVersion', 'sectionStatus', 'handoffStatus');
+        return array_values(array_unique(array_merge(array('type', 'nodeChanges', 'blobs', 'blobBaseIndex', 'fileVersion', 'sectionStatus', 'handoffStatus'), $this->documentMetadataFields())));
     }
 
     /**
@@ -258,7 +265,22 @@ final class FigKiwiDecodePolicy
             $this->nodeLayoutFields(),
             $this->nodeEffectFields(),
             $this->nodeVariableBindingFields(),
-            $this->nodePrototypeLinkFields()
+            $this->nodePrototypeLinkFields(),
+            $this->documentMetadataFields()
+        );
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function documentMetadataFields(): array
+    {
+        return array(
+            'phase', 'autoRename', 'editInfo', 'pluginData', 'version', 'userFacingVersion',
+            'fileVersion', 'isPublishable', 'locked', 'isSoftDeleted', 'annotations',
+            'annotationCategories', 'categories', 'publishID', 'publishId', 'sourceLibraryKey',
+            'ancestorPathBeforeDeletion', 'internalOnly', 'isPageDivider', 'pluginRelaunchData',
+            'slideThemeMap', 'ackID', 'ackId', 'originFileKey', 'fileKey', 'sessionID', 'sessionId',
         );
     }
 
