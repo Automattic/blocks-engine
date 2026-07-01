@@ -9,17 +9,18 @@ namespace Automattic\BlocksEngine\FigmaTransformer\FigFile;
  */
 final class FigKiwiDecoder
 {
-    private const TYPES = array('bool', 'byte', 'int', 'uint', 'float', 'string', 'int64', 'uint64');
     private const KINDS = array('ENUM', 'STRUCT', 'MESSAGE');
     private const INVENTORY_SAMPLE_LIMIT = 3;
     private const INVENTORY_SAMPLE_STRING_BYTES = 120;
     private const INVENTORY_SAMPLE_ARRAY_ITEMS = 8;
 
     private FigKiwiDecodePolicy $decodePolicy;
+    private FigKiwiSchemaFields $schemaFields;
 
-    public function __construct(?FigKiwiDecodePolicy $decodePolicy = null)
+    public function __construct(?FigKiwiDecodePolicy $decodePolicy = null, ?FigKiwiSchemaFields $schemaFields = null)
     {
         $this->decodePolicy = $decodePolicy ?? new FigKiwiDecodePolicy();
+        $this->schemaFields = $schemaFields ?? new FigKiwiSchemaFields();
     }
 
     /**
@@ -60,7 +61,7 @@ final class FigKiwiDecoder
                 foreach ( $definition['fields'] as $fieldIndex => $field ) {
                     $type = $field['type'];
                     if ( null !== $type && $type < 0 ) {
-                        $definitions[$definitionIndex]['fields'][$fieldIndex]['type'] = self::TYPES[~$type] ?? null;
+                        $definitions[$definitionIndex]['fields'][$fieldIndex]['type'] = FigKiwiSchemaFields::PRIMITIVE_TYPES[~$type] ?? null;
                     } elseif ( null !== $type ) {
                         $definitions[$definitionIndex]['fields'][$fieldIndex]['type'] = $definitions[$type]['name'] ?? null;
                     }
@@ -83,7 +84,7 @@ final class FigKiwiDecoder
     public function decodeMessage(string $payload, array $schema, string $rootType = 'Message'): array
     {
         try {
-            $definitions = $this->definitionsByName($schema);
+            $definitions = $this->schemaFields->definitionsByName($schema);
             if ( ! isset($definitions[$rootType]) ) {
                 return array('message' => null, 'diagnostics' => array($this->diagnostic('figma_transformer_kiwi_message_schema_missing', 'Kiwi schema does not define the expected root message.', $rootType)));
             }
@@ -107,7 +108,7 @@ final class FigKiwiDecoder
     public function decodeMessageSelective(string $payload, array $schema, string $rootType = 'Message', array $fieldPolicy = array()): array
     {
         try {
-            $definitions = $this->definitionsByName($schema);
+            $definitions = $this->schemaFields->definitionsByName($schema);
             if ( ! isset($definitions[$rootType]) ) {
                 return array('message' => null, 'diagnostics' => array($this->diagnostic('figma_transformer_kiwi_message_schema_missing', 'Kiwi schema does not define the expected root message.', $rootType)));
             }
@@ -133,7 +134,7 @@ final class FigKiwiDecoder
     public function inventorySkippedFieldsSelective(string $payload, array $schema, string $rootType = 'Message', array $fieldPolicy = array()): array
     {
         try {
-            $definitions = $this->definitionsByName($schema);
+            $definitions = $this->schemaFields->definitionsByName($schema);
             if ( ! isset($definitions[$rootType]) ) {
                 return array('inventory' => null, 'diagnostics' => array($this->diagnostic('figma_transformer_kiwi_message_schema_missing', 'Kiwi schema does not define the expected root message.', $rootType)));
             }
@@ -143,7 +144,7 @@ final class FigKiwiDecoder
                 'schema'             => 'blocks-engine/figma-transformer/kiwi-skipped-field-inventory/v1',
                 'root_type'          => $rootType,
                 'policy_groups'      => $this->decodePolicy->scenegraphFieldPolicyGroups(),
-                'schema_definitions' => $this->schemaDefinitionInventory($schema),
+                'schema_definitions' => $this->schemaFields->schemaDefinitionInventory($schema),
                 'fields'             => array(),
             );
             $context = $this->decodePolicy->initialInventoryContext($rootType);
@@ -160,22 +161,6 @@ final class FigKiwiDecoder
     }
 
     /**
-     * @param array<string, mixed> $schema
-     * @return array<string, array<string, mixed>>
-     */
-    private function definitionsByName(array $schema): array
-    {
-        $definitions = array();
-        foreach ( $schema['definitions'] ?? array() as $definition ) {
-            if ( is_array($definition) && isset($definition['name']) ) {
-                $definitions[(string) $definition['name']] = $definition;
-            }
-        }
-
-        return $definitions;
-    }
-
-    /**
      * @param array<string, mixed>                $definition
      * @param array<string, array<string, mixed>> $definitions
      */
@@ -183,12 +168,7 @@ final class FigKiwiDecoder
     {
         $result = array();
         if ( 'MESSAGE' === ($definition['kind'] ?? null) ) {
-            $fieldsByValue = array();
-            foreach ( $definition['fields'] ?? array() as $field ) {
-                if ( is_array($field) ) {
-                    $fieldsByValue[(int) ($field['value'] ?? 0)] = $field;
-                }
-            }
+            $fieldsByValue = $this->schemaFields->fieldsByValue($definition);
 
             while ( true ) {
                 $fieldValue = $reader->readVarUint();
@@ -202,10 +182,8 @@ final class FigKiwiDecoder
             }
         }
 
-        foreach ( $definition['fields'] ?? array() as $field ) {
-            if ( is_array($field) ) {
-                $this->decodeField($reader, $field, $definitions, $result);
-            }
+        foreach ( $this->schemaFields->fields($definition) as $field ) {
+            $this->decodeField($reader, $field, $definitions, $result);
         }
 
         return $result;
@@ -223,12 +201,7 @@ final class FigKiwiDecoder
         $allowed = array_flip($fieldPolicy[$typeName] ?? array());
 
         if ( 'MESSAGE' === ($definition['kind'] ?? null) ) {
-            $fieldsByValue = array();
-            foreach ( $definition['fields'] ?? array() as $field ) {
-                if ( is_array($field) ) {
-                    $fieldsByValue[(int) ($field['value'] ?? 0)] = $field;
-                }
-            }
+            $fieldsByValue = $this->schemaFields->fieldsByValue($definition);
 
             while ( true ) {
                 $fieldValue = $reader->readVarUint();
@@ -240,7 +213,7 @@ final class FigKiwiDecoder
                 }
 
                 $field = $fieldsByValue[$fieldValue];
-                $fieldName = (string) ($field['name'] ?? '');
+                $fieldName = $this->schemaFields->fieldName($field);
                 if ( isset($allowed[$fieldName]) ) {
                     $this->decodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $result);
                 } else {
@@ -249,12 +222,8 @@ final class FigKiwiDecoder
             }
         }
 
-        foreach ( $definition['fields'] ?? array() as $field ) {
-            if ( ! is_array($field) ) {
-                continue;
-            }
-
-            $fieldName = (string) ($field['name'] ?? '');
+        foreach ( $this->schemaFields->fields($definition) as $field ) {
+            $fieldName = $this->schemaFields->fieldName($field);
             if ( isset($allowed[$fieldName]) ) {
                 $this->decodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $result);
             } else {
@@ -273,8 +242,8 @@ final class FigKiwiDecoder
      */
     private function decodeFieldSelective(FigKiwiByteReader $reader, array $field, array $definitions, array $fieldPolicy, array &$result): void
     {
-        $type = (string) ($field['type'] ?? '');
-        if ( true === ($field['is_array'] ?? false) ) {
+        $type = $this->schemaFields->fieldType($field);
+        if ( $this->schemaFields->isArrayField($field) ) {
             if ( 'byte' === $type ) {
                 $value = $reader->readByteArray();
             } else {
@@ -288,8 +257,8 @@ final class FigKiwiDecoder
             $value = $this->decodeValueSelective($reader, $type, $definitions, $fieldPolicy);
         }
 
-        if ( true !== ($field['is_deprecated'] ?? false) && isset($field['name']) ) {
-            $result[(string) $field['name']] = $value;
+        if ( ! $this->schemaFields->isDeprecatedField($field) && isset($field['name']) ) {
+            $result[$this->schemaFields->fieldName($field)] = $value;
         }
     }
 
@@ -342,8 +311,8 @@ final class FigKiwiDecoder
      */
     private function skipField(FigKiwiByteReader $reader, array $field, array $definitions): void
     {
-        $type = (string) ($field['type'] ?? '');
-        if ( true === ($field['is_array'] ?? false) ) {
+        $type = $this->schemaFields->fieldType($field);
+        if ( $this->schemaFields->isArrayField($field) ) {
             if ( 'byte' === $type ) {
                 $reader->skipByteArray();
                 return;
@@ -392,12 +361,7 @@ final class FigKiwiDecoder
         }
 
         if ( 'MESSAGE' === ($definition['kind'] ?? null) ) {
-            $fieldsByValue = array();
-            foreach ( $definition['fields'] ?? array() as $field ) {
-                if ( is_array($field) ) {
-                    $fieldsByValue[(int) ($field['value'] ?? 0)] = $field;
-                }
-            }
+            $fieldsByValue = $this->schemaFields->fieldsByValue($definition);
 
             while ( true ) {
                 $fieldValue = $reader->readVarUint();
@@ -411,10 +375,8 @@ final class FigKiwiDecoder
             }
         }
 
-        foreach ( $definition['fields'] ?? array() as $field ) {
-            if ( is_array($field) ) {
-                $this->skipField($reader, $field, $definitions);
-            }
+        foreach ( $this->schemaFields->fields($definition) as $field ) {
+            $this->skipField($reader, $field, $definitions);
         }
     }
 
@@ -456,12 +418,7 @@ final class FigKiwiDecoder
         $context['parent_type'] = $typeName;
 
         if ( 'MESSAGE' === ($definition['kind'] ?? null) ) {
-            $fieldsByValue = array();
-            foreach ( $definition['fields'] ?? array() as $field ) {
-                if ( is_array($field) ) {
-                    $fieldsByValue[(int) ($field['value'] ?? 0)] = $field;
-                }
-            }
+            $fieldsByValue = $this->schemaFields->fieldsByValue($definition);
 
             while ( true ) {
                 $fieldValue = $reader->readVarUint();
@@ -473,7 +430,7 @@ final class FigKiwiDecoder
                 }
 
                 $field = $fieldsByValue[$fieldValue];
-                $fieldName = (string) ($field['name'] ?? '');
+                $fieldName = $this->schemaFields->fieldName($field);
                 if ( isset($allowed[$fieldName]) ) {
                     $this->inventoryDecodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $inventory, $context);
                 } else {
@@ -483,12 +440,8 @@ final class FigKiwiDecoder
             }
         }
 
-        foreach ( $definition['fields'] ?? array() as $field ) {
-            if ( ! is_array($field) ) {
-                continue;
-            }
-
-            $fieldName = (string) ($field['name'] ?? '');
+        foreach ( $this->schemaFields->fields($definition) as $field ) {
+            $fieldName = $this->schemaFields->fieldName($field);
             if ( isset($allowed[$fieldName]) ) {
                 $this->inventoryDecodeFieldSelective($reader, $field, $definitions, $fieldPolicy, $inventory, $context);
             } else {
@@ -507,11 +460,11 @@ final class FigKiwiDecoder
      */
     private function inventoryDecodeFieldSelective(FigKiwiByteReader $reader, array $field, array $definitions, array $fieldPolicy, array &$inventory, array &$context): void
     {
-        $fieldName = (string) ($field['name'] ?? '');
-        $type = (string) ($field['type'] ?? '');
-        $fieldPath = (string) ($context['path'] ?? '') . '.' . $fieldName;
+        $fieldName = $this->schemaFields->fieldName($field);
+        $type = $this->schemaFields->fieldType($field);
+        $fieldPath = $this->schemaFields->fieldPath((string) ($context['path'] ?? ''), $fieldName);
 
-        if ( true === ($field['is_array'] ?? false) ) {
+        if ( $this->schemaFields->isArrayField($field) ) {
             if ( 'byte' === $type ) {
                 $value = $reader->readByteArray();
             } else {
@@ -602,13 +555,13 @@ final class FigKiwiDecoder
      */
     private function recordSkippedField(array &$inventory, array $field, array $definitions, array $context, mixed $sample): void
     {
-        $fieldName = (string) ($field['name'] ?? '');
-        $type = (string) ($field['type'] ?? '');
+        $fieldName = $this->schemaFields->fieldName($field);
+        $type = $this->schemaFields->fieldType($field);
         $parentType = (string) ($context['parent_type'] ?? '');
-        $path = (string) ($context['path'] ?? $parentType) . '.' . $fieldName;
+        $path = $this->schemaFields->fieldPath((string) ($context['path'] ?? $parentType), $fieldName);
         $role = $this->decodePolicy->classifySkippedFieldRole($fieldName, $type, $parentType);
-        $key = $parentType . '|' . $path . '|' . $fieldName . '|' . $type;
-        $typeDefinition = $this->fieldTypeDefinition($type, $definitions);
+        $key = $this->schemaFields->inventoryKey($parentType, $path, $fieldName, $type);
+        $typeDefinition = $this->schemaFields->typeDefinition($type, $definitions);
 
         if ( ! isset($inventory['fields'][$key]) ) {
             $inventory['fields'][$key] = array(
@@ -616,12 +569,12 @@ final class FigKiwiDecoder
                 'field'             => $fieldName,
                 'type'              => $type,
                 'type_kind'         => $typeDefinition['kind'] ?? 'PRIMITIVE',
-                'wire_type'         => $this->fieldWireType($field, $definitions),
+                'wire_type'         => $this->schemaFields->wireType($field, $definitions),
                 'type_definition'   => $typeDefinition,
                 'parent_message'    => $parentType,
                 'field_role'        => $role,
-                'is_array'          => true === ($field['is_array'] ?? false),
-                'field_number'      => (int) ($field['value'] ?? 0),
+                'is_array'          => $this->schemaFields->isArrayField($field),
+                'field_number'      => $this->schemaFields->fieldNumber($field),
                 'occurrences'       => 0,
                 'node_types'        => array(),
                 'sample_node_ids'   => array(),
@@ -664,8 +617,8 @@ final class FigKiwiDecoder
      */
     private function readFieldValue(FigKiwiByteReader $reader, array $field, array $definitions): mixed
     {
-        $type = (string) ($field['type'] ?? '');
-        if ( true === ($field['is_array'] ?? false) ) {
+        $type = $this->schemaFields->fieldType($field);
+        if ( $this->schemaFields->isArrayField($field) ) {
             if ( 'byte' === $type ) {
                 return $reader->readByteArray();
             }
@@ -679,97 +632,6 @@ final class FigKiwiDecoder
         }
 
         return $this->decodeValue($reader, $type, $definitions);
-    }
-
-    /**
-     * @param array<string, mixed>                $field
-     * @param array<string, array<string, mixed>> $definitions
-     */
-    private function fieldWireType(array $field, array $definitions): string
-    {
-        $type = (string) ($field['type'] ?? '');
-        if ( true === ($field['is_array'] ?? false) ) {
-            return 'length_delimited_array';
-        }
-
-        if ( in_array($type, array('bool', 'byte', 'int', 'uint', 'int64', 'uint64'), true) ) {
-            return 'varint';
-        }
-        if ( 'float' === $type ) {
-            return 'varfloat';
-        }
-        if ( 'string' === $type ) {
-            return 'null_terminated_string';
-        }
-
-        $definition = $definitions[$type] ?? null;
-        if ( ! is_array($definition) ) {
-            return 'unknown';
-        }
-
-        return match ( $definition['kind'] ?? null ) {
-            'ENUM' => 'varint_enum',
-            'STRUCT' => 'kiwi_struct',
-            'MESSAGE' => 'kiwi_message',
-            default => 'unknown',
-        };
-    }
-
-    /**
-     * @param array<string, array<string, mixed>> $definitions
-     * @return array<string, mixed>
-     */
-    private function fieldTypeDefinition(string $type, array $definitions): array
-    {
-        if ( in_array($type, self::TYPES, true) ) {
-            return array('name' => $type, 'kind' => 'PRIMITIVE');
-        }
-
-        $definition = $definitions[$type] ?? null;
-        return is_array($definition) ? $this->normalizeSchemaDefinition($definition) : array('name' => $type, 'kind' => 'UNKNOWN');
-    }
-
-    /**
-     * @param array<string, mixed> $schema
-     * @return array<string, array<string, mixed>>
-     */
-    private function schemaDefinitionInventory(array $schema): array
-    {
-        $inventory = array();
-        foreach ( $schema['definitions'] ?? array() as $definition ) {
-            if ( is_array($definition) && isset($definition['name']) ) {
-                $inventory[(string) $definition['name']] = $this->normalizeSchemaDefinition($definition);
-            }
-        }
-        ksort($inventory);
-        return $inventory;
-    }
-
-    /**
-     * @param array<string, mixed> $definition
-     * @return array<string, mixed>
-     */
-    private function normalizeSchemaDefinition(array $definition): array
-    {
-        $fields = array();
-        foreach ( $definition['fields'] ?? array() as $field ) {
-            if ( ! is_array($field) ) {
-                continue;
-            }
-            $fields[] = array(
-                'name'       => (string) ($field['name'] ?? ''),
-                'type'       => (string) ($field['type'] ?? ''),
-                'is_array'   => true === ($field['is_array'] ?? false),
-                'number'     => (int) ($field['value'] ?? 0),
-                'deprecated' => true === ($field['is_deprecated'] ?? false),
-            );
-        }
-
-        return array(
-            'name'   => (string) ($definition['name'] ?? ''),
-            'kind'   => (string) ($definition['kind'] ?? 'UNKNOWN'),
-            'fields' => $fields,
-        );
     }
 
     /**
@@ -830,8 +692,8 @@ final class FigKiwiDecoder
      */
     private function decodeField(FigKiwiByteReader $reader, array $field, array $definitions, array &$result): void
     {
-        $type = (string) ($field['type'] ?? '');
-        if ( true === ($field['is_array'] ?? false) ) {
+        $type = $this->schemaFields->fieldType($field);
+        if ( $this->schemaFields->isArrayField($field) ) {
             if ( 'byte' === $type ) {
                 $value = $reader->readByteArray();
             } else {
@@ -845,8 +707,8 @@ final class FigKiwiDecoder
             $value = $this->decodeValue($reader, $type, $definitions);
         }
 
-        if ( true !== ($field['is_deprecated'] ?? false) && isset($field['name']) ) {
-            $result[(string) $field['name']] = $value;
+        if ( ! $this->schemaFields->isDeprecatedField($field) && isset($field['name']) ) {
+            $result[$this->schemaFields->fieldName($field)] = $value;
         }
     }
 
