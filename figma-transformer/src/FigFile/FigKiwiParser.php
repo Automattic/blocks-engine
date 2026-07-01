@@ -175,7 +175,8 @@ final class FigKiwiParser
             } else {
                 $maxMessageDecodeBytes = (int) ($options['max_kiwi_message_decode_bytes'] ?? self::DEFAULT_MAX_KIWI_MESSAGE_DECODE_BYTES);
                 if ( $maxMessageDecodeBytes > 0 && strlen($payload) > $maxMessageDecodeBytes ) {
-                    $messageResult = $this->kiwiDecoder->decodeMessageSelective($payload, $kiwiSchema);
+                    $fieldPolicy = true === ($options['render_text_glyph_paths'] ?? false) ? $this->kiwiDecoder->scenegraphFieldPolicyWithTextGlyphs() : array();
+                    $messageResult = $this->kiwiDecoder->decodeMessageSelective($payload, $kiwiSchema, 'Message', $fieldPolicy);
                     $diagnostics = array_merge($diagnostics, $messageResult['diagnostics']);
                     if ( null !== $messageResult['message'] ) {
                         $diagnostics[] = $this->diagnostic(

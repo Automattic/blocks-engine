@@ -4644,6 +4644,30 @@ final class StaticHtmlEmitter
             $styles[] = 'font-weight:' . $this->number((float) $style['font_weight']);
         }
 
+        if ( is_array($style['font_variation_settings'] ?? null) ) {
+            $settings = array();
+            foreach ( $style['font_variation_settings'] as $axis => $value ) {
+                if ( is_string($axis) && 1 === preg_match('/^[A-Za-z0-9 ]{4}$/', $axis) && is_numeric($value) ) {
+                    $settings[] = '"' . $axis . '" ' . $this->number((float) $value);
+                }
+            }
+            if ( ! empty($settings) ) {
+                $styles[] = 'font-variation-settings:' . implode(',', $settings);
+            }
+        }
+
+        if ( is_array($style['font_feature_settings'] ?? null) ) {
+            $settings = array();
+            foreach ( $style['font_feature_settings'] as $feature => $enabled ) {
+                if ( is_string($feature) && 1 === preg_match('/^[A-Za-z0-9 ]{4}$/', $feature) && is_numeric($enabled) ) {
+                    $settings[] = '"' . $feature . '" ' . ((int) $enabled);
+                }
+            }
+            if ( ! empty($settings) ) {
+                $styles[] = 'font-feature-settings:' . implode(',', $settings);
+            }
+        }
+
         if ( isset($style['line_height_px']) && is_numeric($style['line_height_px']) && 0.0 < (float) $style['line_height_px'] ) {
             $styles[] = 'line-height:' . $this->number((float) $style['line_height_px']) . 'px';
         } elseif ( isset($style['line_height_raw']) && is_numeric($style['line_height_raw']) && 0.0 < (float) $style['line_height_raw'] ) {
@@ -4715,6 +4739,13 @@ final class StaticHtmlEmitter
             if ( 'small-caps' === $variant ) {
                 $styles[] = 'font-variant:' . $variant;
             }
+        }
+
+        if ( isset($style['max_lines']) && is_numeric($style['max_lines']) && 0 < (int) $style['max_lines'] ) {
+            $styles[] = '-webkit-line-clamp:' . ((int) $style['max_lines']);
+            $styles[] = 'display:-webkit-box';
+            $styles[] = '-webkit-box-orient:vertical';
+            $styles[] = 'overflow:hidden';
         }
 
         return $styles;

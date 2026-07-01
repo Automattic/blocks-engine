@@ -222,6 +222,17 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert(! array_key_exists('glyphs', $kiwiDerivedText), 'kiwi-selective-skips-derived-text-glyphs');
     $assert('Inter' === ($kiwiDerivedText['fontMetaData']['key']['family'] ?? null), 'kiwi-selective-decodes-derived-text-font-family');
     $assert(700 === ($kiwiDerivedText['fontMetaData']['fontWeight'] ?? null), 'kiwi-selective-decodes-derived-text-font-weight');
+    $assert(3 === ($kiwiDerivedText['truncationStartIndex'] ?? null), 'kiwi-selective-decodes-derived-text-truncation-start');
+    $assert(24.0 === ($kiwiDerivedText['truncatedHeight'] ?? null), 'kiwi-selective-decodes-derived-text-truncated-height');
+    $assert(array(0.0, 12.5) === ($kiwiDerivedText['logicalIndexToCharacterOffsetMap'] ?? null), 'kiwi-selective-decodes-derived-text-logical-offset-map');
+    $kiwiDerivedTextWithGlyphsMessage = $kiwiDecoder->decodeMessageSelective(
+        blocks_engine_figma_transformer_kiwi_derived_text_message_fixture(),
+        $kiwiDerivedTextSchema['schema'] ?? array(),
+        'Message',
+        $kiwiDecoder->scenegraphFieldPolicyWithTextGlyphs()
+    );
+    $kiwiDerivedTextWithGlyphs = $kiwiDerivedTextWithGlyphsMessage['message']['nodeChanges'][0]['derivedTextData'] ?? array();
+    $assert(7 === ($kiwiDerivedTextWithGlyphs['glyphs'][0]['commandsBlob'] ?? null), 'kiwi-selective-opt-in-decodes-derived-text-glyph-blob-ref');
 
     $kiwiStateGroupSchema = $kiwiDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_state_group_schema_fixture());
     $kiwiStateGroupMessage = $kiwiDecoder->decodeMessageSelective(
@@ -769,14 +780,17 @@ function blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture(): str
         . blocks_engine_figma_transformer_kiwi_schema_field('key', 2, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('fontLineHeight', -5, false, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('fontWeight', -3, false, 3)
-        // def6: STRUCT DerivedTextData { layoutSize, baselines[], glyphs[], fontMetaData }
+        // def6: STRUCT DerivedTextData { layoutSize, baselines[], glyphs[], fontMetaData, truncationStartIndex, truncatedHeight, logicalIndexToCharacterOffsetMap[] }
         . blocks_engine_figma_transformer_kiwi_string('DerivedTextData')
         . chr(1)
-        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_wire_varint(7)
         . blocks_engine_figma_transformer_kiwi_schema_field('layoutSize', 1, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('baselines', 3, true, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('glyphs', 4, true, 3)
         . blocks_engine_figma_transformer_kiwi_schema_field('fontMetaData', 5, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('truncationStartIndex', -3, false, 5)
+        . blocks_engine_figma_transformer_kiwi_schema_field('truncatedHeight', -5, false, 6)
+        . blocks_engine_figma_transformer_kiwi_schema_field('logicalIndexToCharacterOffsetMap', -5, true, 7)
         // def7: MESSAGE NodeChange { type, name, derivedTextData }
         . blocks_engine_figma_transformer_kiwi_string('NodeChange')
         . chr(2)
@@ -833,6 +847,12 @@ function blocks_engine_figma_transformer_kiwi_derived_text_message_fixture(): st
         . blocks_engine_figma_transformer_kiwi_string('Inter-Bold')
         . blocks_engine_figma_transformer_kiwi_varfloat(24.0)
         . blocks_engine_figma_transformer_wire_varint_signed(700)
+        // DerivedTextData.truncationStartIndex, truncatedHeight, logicalIndexToCharacterOffsetMap[].
+        . blocks_engine_figma_transformer_wire_varint_signed(3)
+        . blocks_engine_figma_transformer_kiwi_varfloat(24.0)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_varfloat(0.0)
+        . blocks_engine_figma_transformer_kiwi_varfloat(12.5)
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);
 }
