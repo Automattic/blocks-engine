@@ -9,6 +9,24 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class LayoutIntentClassifier
 {
+    /** @var array<int, string> */
+    private const FREEFORM_CONTAINER_TYPES = array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'SECTION');
+
+    /** @var array<int, string> */
+    private const PRIMITIVE_VECTOR_SHAPE_TYPES = array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON', 'RECTANGLE', 'ROUNDED_RECTANGLE');
+
+    /** @var array<int, string> */
+    private const VECTOR_SHAPE_CONTAINER_TYPES = array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'BOOLEAN_OPERATION');
+
+    /** @var array<int, string> */
+    private const ASSET_REFERENCE_KEYS = array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref');
+
+    /** @var array<int, string> */
+    private const PAINT_ASSET_REFERENCE_KEYS = array('imageRef', 'imageHash', 'ref', 'asset_id', 'assetId', 'image_ref');
+
+    /** @var array<int, string> */
+    private const PAINT_COLLECTION_KEYS = array('fills', 'strokes', 'background');
+
     /**
      * @param array<string, array<string, mixed>> $assetsById
      */
@@ -27,38 +45,82 @@ final class LayoutIntentClassifier
         }
 
         $children = $this->nodeList($node);
-        if ( true === ($node['figma_component']['resolved'] ?? false) && ! empty($children) && empty($node['layout']['display'] ?? null) ) {
+        if ( true === ($node['figma_component']['resolved'] ?? false) && ! empty($children) && $this->hasNoDeclaredDisplay($node) ) {
             return true;
         }
 
-        if ( empty($node['layout']['display'] ?? null) && $this->hasPositionedSourceChild($node, $children) ) {
+        if ( $this->hasNoDeclaredDisplay($node) && $this->hasPositionedSourceChild($node, $children) ) {
             return true;
         }
 
-        if ( empty($node['layout']['display'] ?? null) && $this->hasInsetSingleVisualChild($node, $children) ) {
+        if ( $this->hasNoDeclaredDisplay($node) && $this->hasInsetSingleVisualChild($node, $children) ) {
             return true;
         }
 
+        return $this->hasSingleChildOverflowingLayoutBox($node, $children);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasNoDeclaredDisplay(array $node): bool
+    {
+        return empty($node['layout']['display'] ?? null);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, mixed>    $children
+     */
+    private function hasSingleChildOverflowingLayoutBox(array $node, array $children): bool
+    {
         if ( 1 !== count($children) || ! is_array($children[0]) ) {
             return false;
         }
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $childBox = is_array($children[0]['box'] ?? null) ? $children[0]['box'] : array();
-        if ( ! isset($box['width'], $box['height'], $childBox['width'], $childBox['height']) || ! is_numeric($box['width']) || ! is_numeric($box['height']) || ! is_numeric($childBox['width']) || ! is_numeric($childBox['height']) ) {
+        if ( ! $this->boxesHaveDimensions($box, $childBox, array('width', 'height')) ) {
             return false;
         }
 
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
         if ( ! empty($layout['display'] ?? null) ) {
-            if ( 'flex' !== ($layout['display'] ?? null) ) {
-                return false;
-            }
-            $mainAxis = 'row' === ($layout['flex_direction'] ?? null) ? 'width' : 'height';
-            return (float) $childBox[$mainAxis] > (float) $box[$mainAxis];
+            return $this->flexChildOverflowsMainAxis($layout, $box, $childBox);
         }
 
         return (float) $childBox['width'] > (float) $box['width'] || (float) $childBox['height'] > (float) $box['height'];
+    }
+
+    /**
+     * @param array<string, mixed> $layout
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $childBox
+     */
+    private function flexChildOverflowsMainAxis(array $layout, array $box, array $childBox): bool
+    {
+        if ( 'flex' !== ($layout['display'] ?? null) ) {
+            return false;
+        }
+
+        $mainAxis = 'row' === ($layout['flex_direction'] ?? null) ? 'width' : 'height';
+        return (float) $childBox[$mainAxis] > (float) $box[$mainAxis];
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $childBox
+     * @param array<int, string>   $dimensions
+     */
+    private function boxesHaveDimensions(array $box, array $childBox, array $dimensions): bool
+    {
+        foreach ( $dimensions as $dimension ) {
+            if ( ! isset($box[$dimension], $childBox[$dimension]) || ! is_numeric($box[$dimension]) || ! is_numeric($childBox[$dimension]) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -73,10 +135,8 @@ final class LayoutIntentClassifier
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $childBox = is_array($children[0]['box'] ?? null) ? $children[0]['box'] : array();
-        foreach ( array('width', 'height') as $dimension ) {
-            if ( ! isset($box[$dimension], $childBox[$dimension]) || ! is_numeric($box[$dimension]) || ! is_numeric($childBox[$dimension]) ) {
-                return false;
-            }
+        if ( ! $this->boxesHaveDimensions($box, $childBox, array('width', 'height')) ) {
+            return false;
         }
 
         $widthDelta = (float) $box['width'] - (float) $childBox['width'];
@@ -127,11 +187,11 @@ final class LayoutIntentClassifier
     public function isDecorativeFlexUnderlay(array $node, array $parentNode): bool
     {
         $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
-        if ( ! $this->isFlexDisplayLayout($parentLayout) ) {
+        if ( ! $this->parentSupportsDecorativeFlexUnderlay($parentLayout) ) {
             return false;
         }
 
-        if ( ! $this->isDecorativeUnderlayVisualCandidate($node) || ! $this->parentHasTextOutsideNode($parentNode, $node) || ! $this->nodeIsBehindTextOutsideNode($parentNode, $node) ) {
+        if ( ! $this->hasDecorativeUnderlayForegroundEvidence($node, $parentNode) ) {
             return false;
         }
 
@@ -202,9 +262,20 @@ final class LayoutIntentClassifier
     /**
      * @param array<string, mixed> $layout
      */
-    private function isFlexDisplayLayout(array $layout): bool
+    private function parentSupportsDecorativeFlexUnderlay(array $layout): bool
     {
         return in_array((string) ($layout['display'] ?? ''), array('flex', 'inline-flex'), true);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function hasDecorativeUnderlayForegroundEvidence(array $node, array $parentNode): bool
+    {
+        return $this->isDecorativeUnderlayVisualCandidate($node)
+            && $this->parentHasTextOutsideNode($parentNode, $node)
+            && $this->nodeIsBehindTextOutsideNode($parentNode, $node);
     }
 
     /**
@@ -212,7 +283,7 @@ final class LayoutIntentClassifier
      */
     private function isDecorativeUnderlayVisualCandidate(array $node): bool
     {
-        return ! $this->treeHasText($node) && ! $this->treeHasImageReference($node) && $this->treeIsVectorShapeOnly($node);
+        return ! $this->treeHasText($node) && ! $this->treeHasImageReference($node) && $this->treeIsShapeOnlyPrimitiveVisual($node);
     }
 
     /**
@@ -222,7 +293,7 @@ final class LayoutIntentClassifier
     private function hasPositionedSourceChild(array $node, array $children): bool
     {
         $type = strtoupper((string) ($node['type'] ?? ''));
-        if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'SECTION'), true) ) {
+        if ( ! in_array($type, self::FREEFORM_CONTAINER_TYPES, true) ) {
             return false;
         }
 
@@ -352,7 +423,15 @@ final class LayoutIntentClassifier
      */
     private function isContainingBlockOriginCandidate(array $node): bool
     {
-        return $this->treeHasText($node) || $this->treeHasImageReference($node) || ! $this->treeIsVectorShapeOnly($node);
+        return $this->treeHasText($node) || $this->isImageBackedLandmark($node) || ! $this->treeIsShapeOnlyPrimitiveVisual($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isImageBackedLandmark(array $node): bool
+    {
+        return $this->treeHasImageReference($node);
     }
 
     /**
@@ -382,37 +461,50 @@ final class LayoutIntentClassifier
     {
         $nodeId = (string) ($node['id'] ?? '');
         $nodeZIndex = $this->nodeZIndex($node);
-        $nodeSiblingIndex = null;
         $siblings = $this->nodeList($parentNode);
-
-        foreach ( $siblings as $index => $sibling ) {
-            if ( is_array($sibling) && (string) ($sibling['id'] ?? '') === $nodeId ) {
-                $nodeSiblingIndex = (int) $index;
-                break;
-            }
-        }
+        $nodeSiblingIndex = $this->nodeSiblingIndex($siblings, $nodeId);
 
         foreach ( $siblings as $index => $sibling ) {
             if ( ! is_array($sibling) || (string) ($sibling['id'] ?? '') === $nodeId || ! $this->treeHasText($sibling) ) {
                 continue;
             }
 
-            $siblingZIndex = $this->nodeZIndex($sibling);
-            if ( null !== $nodeZIndex && null !== $siblingZIndex ) {
-                if ( $nodeZIndex < $siblingZIndex ) {
-                    return true;
-                }
-                continue;
-            }
-
-            $nodeOrder = $this->nodeSourceOrder($node) ?? $nodeSiblingIndex;
-            $siblingOrder = $this->nodeSourceOrder($sibling) ?? (int) $index;
-            if ( null !== $nodeOrder && $nodeOrder < $siblingOrder ) {
+            if ( $this->nodeHasPaintOrderEvidenceBehindSibling($node, $sibling, $nodeZIndex, $nodeSiblingIndex, (int) $index) ) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * @param array<int, mixed> $siblings
+     */
+    private function nodeSiblingIndex(array $siblings, string $nodeId): ?int
+    {
+        foreach ( $siblings as $index => $sibling ) {
+            if ( is_array($sibling) && (string) ($sibling['id'] ?? '') === $nodeId ) {
+                return (int) $index;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $sibling
+     */
+    private function nodeHasPaintOrderEvidenceBehindSibling(array $node, array $sibling, ?int $nodeZIndex, ?int $nodeSiblingIndex, int $siblingIndex): bool
+    {
+        $siblingZIndex = $this->nodeZIndex($sibling);
+        if ( null !== $nodeZIndex && null !== $siblingZIndex ) {
+            return $nodeZIndex < $siblingZIndex;
+        }
+
+        $nodeOrder = $this->nodeSourceOrder($node) ?? $nodeSiblingIndex;
+        $siblingOrder = $this->nodeSourceOrder($sibling) ?? $siblingIndex;
+        return null !== $nodeOrder && $nodeOrder < $siblingOrder;
     }
 
     /**
@@ -557,14 +649,22 @@ final class LayoutIntentClassifier
         return true;
     }
 
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function treeIsShapeOnlyPrimitiveVisual(array $node): bool
+    {
+        return $this->treeIsVectorShapeOnly($node);
+    }
+
     private function isPrimitiveVectorShapeType(string $type): bool
     {
-        return in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON', 'RECTANGLE', 'ROUNDED_RECTANGLE'), true);
+        return in_array($type, self::PRIMITIVE_VECTOR_SHAPE_TYPES, true);
     }
 
     private function isVectorShapeContainerType(string $type): bool
     {
-        return in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'BOOLEAN_OPERATION'), true);
+        return in_array($type, self::VECTOR_SHAPE_CONTAINER_TYPES, true);
     }
 
     /**
@@ -634,17 +734,17 @@ final class LayoutIntentClassifier
     private function nodeAssetReferences(array $node): array
     {
         $references = array();
-        foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref') as $key ) {
+        foreach ( self::ASSET_REFERENCE_KEYS as $key ) {
             if ( isset($node[$key]) && is_scalar($node[$key]) ) {
                 $references[] = (string) $node[$key];
             }
         }
-        foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
+        foreach ( self::PAINT_COLLECTION_KEYS as $paintKey ) {
             foreach ( is_array($node[$paintKey] ?? null) ? $node[$paintKey] : array() as $paint ) {
                 if ( ! is_array($paint) ) {
                     continue;
                 }
-                foreach ( array('imageRef', 'imageHash', 'ref', 'asset_id', 'assetId', 'image_ref') as $key ) {
+                foreach ( self::PAINT_ASSET_REFERENCE_KEYS as $key ) {
                     if ( isset($paint[$key]) && is_scalar($paint[$key]) ) {
                         $references[] = (string) $paint[$key];
                     }
@@ -662,13 +762,13 @@ final class LayoutIntentClassifier
     private function explicitNodeAssetReferences(array $node): array
     {
         $references = array();
-        foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref') as $key ) {
+        foreach ( self::ASSET_REFERENCE_KEYS as $key ) {
             if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== (string) $node[$key] ) {
                 $references[] = (string) $node[$key];
             }
         }
         if ( is_array($node['image'] ?? null) ) {
-            foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref') as $key ) {
+            foreach ( self::ASSET_REFERENCE_KEYS as $key ) {
                 if ( isset($node['image'][$key]) && is_scalar($node['image'][$key]) && '' !== (string) $node['image'][$key] ) {
                     $references[] = (string) $node['image'][$key];
                 }
@@ -685,7 +785,7 @@ final class LayoutIntentClassifier
     private function nodeImagePaints(array $node): array
     {
         $imagePaints = array();
-        foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
+        foreach ( self::PAINT_COLLECTION_KEYS as $paintKey ) {
             $paintCollections = array();
             if ( is_array($node[$paintKey] ?? null) ) {
                 $paintCollections[] = $node[$paintKey];
