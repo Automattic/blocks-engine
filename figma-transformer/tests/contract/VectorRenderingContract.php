@@ -98,9 +98,31 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
         ),
     ));
     $strokedGeometryStyleHtml = $fileContent($strokedGeometryStyleResult, 'index.html');
-    $assert(str_contains($strokedGeometryStyleHtml, 'stroke-linecap="round"') && str_contains($strokedGeometryStyleHtml, 'stroke-linejoin="bevel"'), 'stroke-geometry-cap-join-render');
-    $assert(str_contains($strokedGeometryStyleHtml, 'stroke-dasharray="4 2"'), 'stroke-geometry-dash-render');
+    $assert(str_contains($strokedGeometryStyleHtml, '<path d="M1 1L15 15" fill="#000000" data-figma-style-id="42"/>'), 'stroke-geometry-renders-expanded-outline-as-fill');
+    $assert(! str_contains($strokedGeometryStyleHtml, 'stroke-linecap="round"') && ! str_contains($strokedGeometryStyleHtml, 'stroke-dasharray="4 2"'), 'stroke-geometry-does-not-restroke-expanded-outline');
     $assert(str_contains($strokedGeometryStyleHtml, 'data-figma-style-id="42"'), 'vector-path-style-id-carry-through');
+
+    $mixedGeometryVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Mixed Fill And Stroke Geometry Fixture',
+        'nodes' => array(
+            array(
+                'id'             => 'vector:mixed-geometry',
+                'type'           => 'VECTOR',
+                'name'           => 'Mixed Geometry Icon',
+                'width'          => 16,
+                'height'         => 16,
+                'strokeWeight'   => 2,
+                'fillPaints'     => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                'strokePaints'   => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0, 'b' => 0, 'a' => 1))),
+                'fillGeometry'   => array(array('path' => 'M 0 0 L 4 0 L 4 4 L 0 4 Z')),
+                'strokeGeometry' => array(array('path' => 'M 6 6 L 10 6 L 10 10 L 6 10 Z')),
+            ),
+        ),
+    ));
+    $mixedGeometryVectorHtml = $fileContent($mixedGeometryVectorResult, 'index.html');
+    $assert(str_contains($mixedGeometryVectorHtml, '<path d="M0 0L4 0 4 4 0 4Z" fill="#000000"/>'), 'fill-geometry-uses-fill-paint-only');
+    $assert(str_contains($mixedGeometryVectorHtml, '<path d="M6 6L10 6 10 10 6 10Z" fill="#ff0000"/>'), 'stroke-geometry-uses-stroke-paint-as-fill');
+    $assert(! str_contains($mixedGeometryVectorHtml, 'stroke="#ff0000"'), 'mixed-geometry-does-not-restroke-stroke-geometry');
 
     $vectorNetworkObjectResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Vector Network Object Fixture',

@@ -312,10 +312,9 @@ final class VectorSvgRenderer
      */
     private function vectorPathElements(array $node): array
     {
-        $paint = $this->svgPaintAttributes($node);
         $elements = array();
         foreach ( $this->nodeVectorPathData($node) as $path ) {
-            $attributes = $paint;
+            $attributes = $this->svgPathPaintAttributes($node, $path);
             if ( null !== ($path['windingRule'] ?? null) ) {
                 $attributes[] = 'fill-rule="' . $path['windingRule'] . '"';
             }
@@ -330,7 +329,7 @@ final class VectorSvgRenderer
 
     /**
      * @param array<string, mixed> $node
-     * @return array<int, array{d: string, windingRule: string|null, styleID: string|null}>
+     * @return array<int, array{d: string, windingRule: string|null, styleID: string|null, source: string|null}>
      */
     private function nodeVectorPathData(array $node): array
     {
@@ -370,7 +369,12 @@ final class VectorSvgRenderer
                 $styleId = (string) $rawPath['styleID'];
             }
 
-            $paths[] = array('d' => $path, 'windingRule' => $rule, 'styleID' => $styleId);
+            $source = null;
+            if ( is_array($rawPath) && isset($rawPath['source']) && is_scalar($rawPath['source']) && '' !== trim((string) $rawPath['source']) ) {
+                $source = (string) $rawPath['source'];
+            }
+
+            $paths[] = array('d' => $path, 'windingRule' => $rule, 'styleID' => $styleId, 'source' => $source);
         }
 
         return $paths;
@@ -421,7 +425,7 @@ final class VectorSvgRenderer
 
     /**
      * @param array<string, mixed> $node
-     * @return array<int, array{paths: array<int, array{d: string, windingRule: string|null, styleID: string|null}>, paint: array<int, string>, dx: float, dy: float}>
+     * @return array<int, array{paths: array<int, array{d: string, windingRule: string|null, styleID: string|null, source: string|null}>, node: array<string, mixed>, dx: float, dy: float}>
      */
     private function booleanOperationChildVectors(array $node): array
     {
@@ -452,7 +456,7 @@ final class VectorSvgRenderer
             $dy = isset($box['y']) && is_numeric($box['y']) ? (float) $box['y'] - $originY : 0.0;
             $collected[] = array(
                 'paths' => $paths,
-                'paint' => $this->svgPaintAttributes($node),
+                'node'  => $node,
                 'dx'    => $dx,
                 'dy'    => $dy,
             );
@@ -472,10 +476,13 @@ final class VectorSvgRenderer
     {
         $body = '';
         foreach ( $children as $child ) {
-            $paint = is_array($child['paint'] ?? null) && ! empty($child['paint']) ? $child['paint'] : array('fill="currentColor"');
+            $node = is_array($child['node'] ?? null) ? $child['node'] : array();
             $elements = '';
             foreach ( is_array($child['paths'] ?? null) ? $child['paths'] : array() as $path ) {
-                $attributes = $paint;
+                $attributes = $this->svgPathPaintAttributes($node, $path);
+                if ( empty($attributes) ) {
+                    $attributes = array('fill="currentColor"');
+                }
                 if ( null !== ($path['windingRule'] ?? null) ) {
                     $attributes[] = 'fill-rule="' . $path['windingRule'] . '"';
                 }
@@ -904,10 +911,8 @@ final class VectorSvgRenderer
      */
     private function svgPaintAttributes(array $node): array
     {
-        $paints = is_array($node['figma_paints']['fills'] ?? null) ? $node['figma_paints']['fills'] : array();
-        $fill = $this->firstSolidPaint($paints);
-        $paints = is_array($node['figma_paints']['strokes'] ?? null) ? $node['figma_paints']['strokes'] : array();
-        $stroke = $this->firstSolidPaint($paints);
+        $fill = $this->nodeSolidPaint($node, 'fills');
+        $stroke = $this->nodeSolidPaint($node, 'strokes');
 
         $attributes = array('fill="' . ( null === $fill ? 'none' : $this->sanitizeAttribute($fill) ) . '"');
         if ( null !== $stroke ) {
@@ -919,6 +924,36 @@ final class VectorSvgRenderer
         }
 
         return $attributes;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array{source?: string|null} $path
+     * @return array<int, string>
+     */
+    private function svgPathPaintAttributes(array $node, array $path): array
+    {
+        $source = (string) ($path['source'] ?? '');
+        if ( str_starts_with($source, 'strokeGeometry') ) {
+            $stroke = $this->nodeSolidPaint($node, 'strokes');
+            return array('fill="' . ( null === $stroke ? 'none' : $this->sanitizeAttribute($stroke) ) . '"');
+        }
+
+        if ( str_starts_with($source, 'fillGeometry') ) {
+            $fill = $this->nodeSolidPaint($node, 'fills');
+            return array('fill="' . ( null === $fill ? 'none' : $this->sanitizeAttribute($fill) ) . '"');
+        }
+
+        return $this->svgPaintAttributes($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodeSolidPaint(array $node, string $collection): ?string
+    {
+        $paints = is_array($node['figma_paints'][$collection] ?? null) ? $node['figma_paints'][$collection] : array();
+        return $this->firstSolidPaint($paints);
     }
 
     /**
