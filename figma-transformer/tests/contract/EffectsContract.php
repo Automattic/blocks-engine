@@ -19,11 +19,13 @@ function blocks_engine_figma_transformer_run_effects_contract(callable $assert, 
                 'height'  => 100,
                 'effects' => array(
                     array(
-                        'type'   => 'DROP_SHADOW',
-                        'offset' => array('x' => 0, 'y' => 6),
-                        'radius' => 6,
-                        'spread' => 0,
-                        'color'  => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 0.16),
+                        'type'                 => 'DROP_SHADOW',
+                        'offset'               => array('x' => 0, 'y' => 6),
+                        'radius'               => 6,
+                        'spread'               => 2,
+                        'blendMode'            => 'MULTIPLY',
+                        'showShadowBehindNode' => true,
+                        'color'                => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 0.16),
                     ),
                     array(
                         'type'   => 'INNER_SHADOW',
@@ -55,14 +57,20 @@ function blocks_engine_figma_transformer_run_effects_contract(callable $assert, 
         ),
     ));
     $effectsCss = $fileContent($effectsResult, 'style.css');
+    $effectsDiagnostics = $effectsResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
     $effectsDiagnosticCodes = array_map(
         static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
         $effectsResult['diagnostics'] ?? array()
     );
-    $assert(str_contains($effectsCss, 'box-shadow:0px 6px 6px 0px rgba(0,0,0,0.16),inset 1px 2px 3px 4px rgba(255,0,0,0.5)'), 'effects-box-shadow-css');
+    $assert(str_contains($effectsCss, 'box-shadow:0px 6px 6px 2px rgba(0,0,0,0.16),inset 1px 2px 3px 4px rgba(255,0,0,0.5)'), 'effects-box-shadow-css');
     $assert(str_contains($effectsCss, 'filter:blur(2px)'), 'effects-layer-blur-css');
     $assert(str_contains($effectsCss, 'backdrop-filter:blur(5px)'), 'effects-background-blur-css');
     $assert(str_contains($effectsCss, 'text-shadow:1px 1px 2px 0px rgba(0,0,0,0.4)'), 'effects-text-shadow-css');
+    $assert(2 === ($effectsDiagnostics['effects']['source_effect_node_count'] ?? null), 'effects-diagnostics-source-node-count');
+    $assert(1 === ($effectsDiagnostics['effects']['field_coverage']['blend_mode'] ?? null), 'effects-diagnostics-blend-mode-coverage');
+    $assert(1 === ($effectsDiagnostics['effects']['field_coverage']['show_shadow_behind_node'] ?? null), 'effects-diagnostics-show-shadow-behind-node-coverage');
+    $assert(5 === ($effectsDiagnostics['effects']['field_coverage']['source_type'] ?? null), 'effects-diagnostics-source-type-coverage');
+    $assert(array('background_blur', 'drop_shadow', 'inner_shadow', 'layer_blur') === array_keys($effectsDiagnostics['effects']['by_type'] ?? array()), 'effects-diagnostics-effect-type-inventory');
     $assert(! in_array('unsupported_figma_effect_type', $effectsDiagnosticCodes, true), 'effects-supported-no-diagnostic');
 
     // ---------------------------------------------------------------------------
@@ -85,6 +93,8 @@ function blocks_engine_figma_transformer_run_effects_contract(callable $assert, 
     $assert('FOREGROUND_BLUR' === ($kiwiDecodedEffects[1]['type'] ?? null), 'kiwi-effects-decodes-foreground-blur-token');
     $assert(6 === (int) round((float) ($kiwiDecodedEffects[0]['offset']['y'] ?? 0)), 'kiwi-effects-decodes-shadow-offset');
     $assert(true === ($kiwiDecodedEffects[0]['showShadowBehindNode'] ?? null), 'kiwi-effects-decodes-show-shadow-behind-node');
+    $assert('MULTIPLY' === ($kiwiDecodedEffects[0]['blendMode'] ?? null), 'kiwi-effects-decodes-blend-mode');
+    $assert(4 === (int) round((float) ($kiwiDecodedEffects[0]['spread'] ?? 0)), 'kiwi-effects-decodes-spread');
     $assert(8 === (int) round((float) ($kiwiDecodedEffects[1]['radius'] ?? 0)), 'kiwi-effects-decodes-blur-radius');
 
     $kiwiEffectsNormalizer = new ScenegraphNormalizer();
@@ -103,6 +113,8 @@ function blocks_engine_figma_transformer_run_effects_contract(callable $assert, 
     ));
     $kiwiEffectsNormalizedNode = $kiwiEffectsNormalized['nodes'][0] ?? array();
     $assert(true === ($kiwiEffectsNormalizedNode['figma_effects'][0]['show_shadow_behind_node'] ?? null), 'kiwi-effects-normalizes-show-shadow-behind-node');
+    $assert('MULTIPLY' === ($kiwiEffectsNormalizedNode['figma_effects'][0]['blend_mode'] ?? null), 'kiwi-effects-normalizes-blend-mode');
+    $assert('DROP_SHADOW' === ($kiwiEffectsNormalizedNode['figma_effects'][0]['source_type'] ?? null), 'kiwi-effects-normalizes-source-type');
 
     // EMIT: feed the decoded Kiwi effects verbatim through normalize -> emit and
     // assert the exact box-shadow + filter CSS reaches style.css.
@@ -124,7 +136,7 @@ function blocks_engine_figma_transformer_run_effects_contract(callable $assert, 
         static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
         $kiwiEffectsRenderResult['diagnostics'] ?? array()
     );
-    $assert(str_contains($kiwiEffectsCss, 'box-shadow:0px 6px 6px 0px rgba(0,0,0,0.5)'), 'kiwi-effects-emits-drop-shadow-css');
+    $assert(str_contains($kiwiEffectsCss, 'box-shadow:0px 6px 6px 4px rgba(0,0,0,0.5)'), 'kiwi-effects-emits-drop-shadow-css');
     $assert(str_contains($kiwiEffectsCss, 'filter:blur(8px)'), 'kiwi-effects-emits-foreground-blur-css');
     $assert(! in_array('unsupported_figma_effect_type', $kiwiEffectsDiagnosticCodes, true), 'kiwi-effects-foreground-blur-no-diagnostic');
 
@@ -248,17 +260,18 @@ function blocks_engine_figma_transformer_kiwi_effects_schema_fixture(): string
         . blocks_engine_figma_transformer_kiwi_schema_field('DROP_SHADOW', 0, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('FOREGROUND_BLUR', 0, false, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('BACKGROUND_BLUR', 0, false, 3)
-        // def3: STRUCT Effect { EffectType type; Color color; Vector offset; float radius; float spread; bool visible; bool showShadowBehindNode }
+        // def3: STRUCT Effect { EffectType type; Color color; Vector offset; float radius; float spread; bool visible; string blendMode; bool showShadowBehindNode }
         . blocks_engine_figma_transformer_kiwi_string('Effect')
         . chr(1)
-        . blocks_engine_figma_transformer_wire_varint(7)
+        . blocks_engine_figma_transformer_wire_varint(8)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', 2, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('color', 0, false, 2)
         . blocks_engine_figma_transformer_kiwi_schema_field('offset', 1, false, 3)
         . blocks_engine_figma_transformer_kiwi_schema_field('radius', -5, false, 4)
         . blocks_engine_figma_transformer_kiwi_schema_field('spread', -5, false, 5)
         . blocks_engine_figma_transformer_kiwi_schema_field('visible', -1, false, 6)
-        . blocks_engine_figma_transformer_kiwi_schema_field('showShadowBehindNode', -1, false, 7)
+        . blocks_engine_figma_transformer_kiwi_schema_field('blendMode', -6, false, 7)
+        . blocks_engine_figma_transformer_kiwi_schema_field('showShadowBehindNode', -1, false, 8)
         // def4: MESSAGE NodeChange { type, name, effects[] }
         . blocks_engine_figma_transformer_kiwi_string('NodeChange')
         . chr(2)
@@ -289,8 +302,9 @@ function blocks_engine_figma_transformer_kiwi_effects_message_fixture(): string
         . blocks_engine_figma_transformer_kiwi_varfloat(0.0)   // offset.x
         . blocks_engine_figma_transformer_kiwi_varfloat(6.0)   // offset.y
         . blocks_engine_figma_transformer_kiwi_varfloat(6.0)   // radius
-        . blocks_engine_figma_transformer_kiwi_varfloat(0.0)   // spread
+        . blocks_engine_figma_transformer_kiwi_varfloat(4.0)   // spread
         . chr(1)                                                // visible
+        . blocks_engine_figma_transformer_kiwi_string('MULTIPLY') // blendMode
         . chr(1);                                               // showShadowBehindNode
 
     $foregroundBlur = blocks_engine_figma_transformer_wire_varint(2) // EffectType FOREGROUND_BLUR
@@ -303,6 +317,7 @@ function blocks_engine_figma_transformer_kiwi_effects_message_fixture(): string
         . blocks_engine_figma_transformer_kiwi_varfloat(8.0)   // radius
         . blocks_engine_figma_transformer_kiwi_varfloat(0.0)   // spread
         . chr(1)                                                // visible
+        . blocks_engine_figma_transformer_kiwi_string('NORMAL') // blendMode
         . chr(0);                                               // showShadowBehindNode
 
     $nodeChange = blocks_engine_figma_transformer_wire_varint(1)

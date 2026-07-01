@@ -96,6 +96,51 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('Empty Text Page' === ($emptyTextDiagnostics['text']['empty_decoded_text_nodes'][0]['page_name'] ?? null), 'diagnostics-evidence-empty-text-page-context');
     $assert(in_array('decoded_text_empty', $emptyTextSignalCodes, true), 'diagnostics-evidence-empty-text-signal');
 
+    $maskMetadataResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Mask Metadata Fixture',
+        'nodes' => array(
+            array(
+                'id'                => 'diag:mask-frame',
+                'type'              => 'FRAME',
+                'name'              => 'Mask Clip Frame',
+                'width'             => 120,
+                'height'            => 80,
+                'frameMaskDisabled' => false,
+                'children'          => array(
+                    array(
+                        'id'       => 'diag:mask-source',
+                        'type'     => 'VECTOR',
+                        'name'     => 'Alpha Mask Source',
+                        'width'    => 80,
+                        'height'   => 80,
+                        'isMask'   => true,
+                        'maskType' => 'ALPHA',
+                    ),
+                    array(
+                        'id'     => 'diag:clip-source',
+                        'type'   => 'FRAME',
+                        'name'   => 'Explicit Clip Source',
+                        'width'  => 20,
+                        'height' => 20,
+                        'isClip' => true,
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $maskMetadataDiagnostics = $maskMetadataResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $maskEffectClipping = $maskMetadataDiagnostics['mask_effect_clipping'] ?? array();
+    $assert(1 === ($maskEffectClipping['mask_node_count'] ?? null), 'diagnostics-evidence-mask-node-count');
+    $assert(3 === ($maskEffectClipping['mask_metadata_node_count'] ?? null), 'diagnostics-evidence-mask-metadata-node-count');
+    $assert(2 === ($maskEffectClipping['clips_content_node_count'] ?? null), 'diagnostics-evidence-mask-clips-content-count');
+    $assert(1 === ($maskEffectClipping['by_mask_type']['ALPHA'] ?? null), 'diagnostics-evidence-mask-type-count');
+    $assert(false === ($maskEffectClipping['sample_nodes'][0]['frame_mask_disabled'] ?? null), 'diagnostics-evidence-frame-mask-disabled-sample');
+    $assert(true === ($maskEffectClipping['sample_nodes'][1]['is_mask'] ?? null), 'diagnostics-evidence-is-mask-sample');
+    $assert('ALPHA' === ($maskEffectClipping['sample_nodes'][1]['type'] ?? null), 'diagnostics-evidence-mask-type-sample');
+    $assert(true === ($maskEffectClipping['sample_nodes'][2]['is_clip'] ?? null), 'diagnostics-evidence-is-clip-sample');
+    $assert(1 === ($maskMetadataDiagnostics['artifact_quality']['summary']['mask_nodes'] ?? null), 'diagnostics-evidence-artifact-summary-mask-nodes');
+    $assert(3 === ($maskMetadataDiagnostics['artifact_quality']['summary']['mask_metadata_nodes'] ?? null), 'diagnostics-evidence-artifact-summary-mask-metadata-nodes');
+
     $multiPageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Diagnostics Aggregation Fixture',
         'nodes' => array(
