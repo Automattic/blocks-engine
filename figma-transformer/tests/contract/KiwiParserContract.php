@@ -201,6 +201,10 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     );
     $kiwiDirectImagePaint = $kiwiImagePaintMessage['message']['nodeChanges'][0]['fillPaints'][0] ?? array();
     $kiwiOverrideImagePaint = $kiwiImagePaintMessage['message']['nodeChanges'][0]['symbolData']['symbolOverrides'][0]['fillPaints'][0] ?? array();
+    $kiwiDirectFillStyle = $kiwiImagePaintMessage['message']['nodeChanges'][0]['styleIdForFill']['guid'] ?? array();
+    $kiwiDirectStrokeStyle = $kiwiImagePaintMessage['message']['nodeChanges'][0]['styleIdForStrokeFill']['guid'] ?? array();
+    $kiwiOverrideFillStyle = $kiwiImagePaintMessage['message']['nodeChanges'][0]['symbolData']['symbolOverrides'][0]['styleIdForFill']['guid'] ?? array();
+    $kiwiOverrideStrokeStyle = $kiwiImagePaintMessage['message']['nodeChanges'][0]['symbolData']['symbolOverrides'][0]['styleIdForStrokeFill']['guid'] ?? array();
     $assert(true === ($kiwiDirectImagePaint['imageShouldColorManage'] ?? null), 'kiwi-selective-decodes-image-color-management');
     $assert(15.0 === round((float) ($kiwiDirectImagePaint['rotation'] ?? 0.0), 4), 'kiwi-selective-decodes-image-rotation');
     $assert(2.0 === round((float) ($kiwiDirectImagePaint['scale'] ?? 0.0), 4), 'kiwi-selective-decodes-image-scale');
@@ -209,6 +213,10 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert(0.5 === round((float) ($kiwiDirectImagePaint['imageTransform']['m00'] ?? 0.0), 4), 'kiwi-selective-decodes-image-transform');
     $assert(false === ($kiwiOverrideImagePaint['imageShouldColorManage'] ?? null), 'kiwi-selective-decodes-override-image-color-management');
     $assert(9 === ($kiwiOverrideImagePaint['animationFrame'] ?? null), 'kiwi-selective-decodes-override-image-animation-frame');
+    $assert(9001 === ($kiwiDirectFillStyle['sessionID'] ?? null) && 101 === ($kiwiDirectFillStyle['localID'] ?? null), 'kiwi-selective-decodes-style-id-for-fill');
+    $assert(9001 === ($kiwiDirectStrokeStyle['sessionID'] ?? null) && 102 === ($kiwiDirectStrokeStyle['localID'] ?? null), 'kiwi-selective-decodes-style-id-for-stroke-fill');
+    $assert(9002 === ($kiwiOverrideFillStyle['sessionID'] ?? null) && 201 === ($kiwiOverrideFillStyle['localID'] ?? null), 'kiwi-selective-decodes-override-style-id-for-fill');
+    $assert(9002 === ($kiwiOverrideStrokeStyle['sessionID'] ?? null) && 202 === ($kiwiOverrideStrokeStyle['localID'] ?? null), 'kiwi-selective-decodes-override-style-id-for-stroke-fill');
     
     $kiwiDerivedTextSchema = $kiwiDecoder->decodeSchema(blocks_engine_figma_transformer_kiwi_derived_text_schema_fixture());
     $kiwiDerivedTextMessage = $kiwiDecoder->decodeMessageSelective(
@@ -631,7 +639,7 @@ function blocks_engine_figma_transformer_kiwi_frame_mask_message_fixture(): stri
 
 function blocks_engine_figma_transformer_kiwi_image_paint_schema_fixture(): string
 {
-    return blocks_engine_figma_transformer_wire_varint(7)
+    return blocks_engine_figma_transformer_wire_varint(9)
         // def0: ENUM MessageType { NODE_CHANGES = 1 }
         . blocks_engine_figma_transformer_kiwi_string('MessageType')
         . chr(0)
@@ -666,24 +674,37 @@ function blocks_engine_figma_transformer_kiwi_image_paint_schema_fixture(): stri
         . blocks_engine_figma_transformer_kiwi_schema_field('animationFrame', -4, false, 7)
         . blocks_engine_figma_transformer_kiwi_schema_field('thumbHash', -2, true, 8)
         . blocks_engine_figma_transformer_kiwi_schema_field('imageTransform', 1, false, 9)
-        // def4: STRUCT SymbolData { symbolOverrides[] }
+        // def4: STRUCT GUID { sessionID, localID }
+        . blocks_engine_figma_transformer_kiwi_string('GUID')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(2)
+        . blocks_engine_figma_transformer_kiwi_schema_field('sessionID', -4, false, 1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('localID', -4, false, 2)
+        // def5: STRUCT StyleId { guid }
+        . blocks_engine_figma_transformer_kiwi_string('StyleId')
+        . chr(1)
+        . blocks_engine_figma_transformer_wire_varint(1)
+        . blocks_engine_figma_transformer_kiwi_schema_field('guid', 4, false, 1)
+        // def6: STRUCT SymbolData { symbolOverrides[] }
         . blocks_engine_figma_transformer_kiwi_string('SymbolData')
         . chr(1)
         . blocks_engine_figma_transformer_wire_varint(1)
-        . blocks_engine_figma_transformer_kiwi_schema_field('symbolOverrides', 5, true, 1)
-        // def5: MESSAGE NodeChange { type, fillPaints[], symbolData }
+        . blocks_engine_figma_transformer_kiwi_schema_field('symbolOverrides', 7, true, 1)
+        // def7: MESSAGE NodeChange { type, fillPaints[], symbolData, styleIdForFill, styleIdForStrokeFill }
         . blocks_engine_figma_transformer_kiwi_string('NodeChange')
         . chr(2)
-        . blocks_engine_figma_transformer_wire_varint(3)
+        . blocks_engine_figma_transformer_wire_varint(5)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', -6, false, 1)
         . blocks_engine_figma_transformer_kiwi_schema_field('fillPaints', 3, true, 2)
-        . blocks_engine_figma_transformer_kiwi_schema_field('symbolData', 4, false, 3)
-        // def6: MESSAGE Message { type, nodeChanges[] }
+        . blocks_engine_figma_transformer_kiwi_schema_field('symbolData', 6, false, 3)
+        . blocks_engine_figma_transformer_kiwi_schema_field('styleIdForFill', 5, false, 4)
+        . blocks_engine_figma_transformer_kiwi_schema_field('styleIdForStrokeFill', 5, false, 5)
+        // def8: MESSAGE Message { type, nodeChanges[] }
         . blocks_engine_figma_transformer_kiwi_string('Message')
         . chr(2)
         . blocks_engine_figma_transformer_wire_varint(2)
         . blocks_engine_figma_transformer_kiwi_schema_field('type', 0, false, 1)
-        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 5, true, 2);
+        . blocks_engine_figma_transformer_kiwi_schema_field('nodeChanges', 7, true, 2);
 }
 
 function blocks_engine_figma_transformer_kiwi_image_paint_message_fixture(): string
@@ -697,6 +718,10 @@ function blocks_engine_figma_transformer_kiwi_image_paint_message_fixture(): str
         . blocks_engine_figma_transformer_wire_varint(2)
         . blocks_engine_figma_transformer_wire_varint(1)
         . blocks_engine_figma_transformer_kiwi_image_paint_bytes('direct-hash', true, 15.0, 2.0, 7, 'abc', 0.5)
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_kiwi_style_id_bytes(9001, 101)
+        . blocks_engine_figma_transformer_wire_varint(5)
+        . blocks_engine_figma_transformer_kiwi_style_id_bytes(9001, 102)
         . blocks_engine_figma_transformer_wire_varint(3)
         . blocks_engine_figma_transformer_wire_varint(1)
         . blocks_engine_figma_transformer_wire_varint(1)
@@ -704,9 +729,19 @@ function blocks_engine_figma_transformer_kiwi_image_paint_message_fixture(): str
         . blocks_engine_figma_transformer_wire_varint(2)
         . blocks_engine_figma_transformer_wire_varint(1)
         . blocks_engine_figma_transformer_kiwi_image_paint_bytes('override-hash', false, 30.0, 1.25, 9, 'xyz', 0.25)
+        . blocks_engine_figma_transformer_wire_varint(4)
+        . blocks_engine_figma_transformer_kiwi_style_id_bytes(9002, 201)
+        . blocks_engine_figma_transformer_wire_varint(5)
+        . blocks_engine_figma_transformer_kiwi_style_id_bytes(9002, 202)
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0)
         . blocks_engine_figma_transformer_wire_varint(0);
+}
+
+function blocks_engine_figma_transformer_kiwi_style_id_bytes(int $sessionID, int $localID): string
+{
+    return blocks_engine_figma_transformer_wire_varint($sessionID)
+        . blocks_engine_figma_transformer_wire_varint($localID);
 }
 
 function blocks_engine_figma_transformer_kiwi_image_paint_bytes(string $hash, bool $colorManaged, float $rotation, float $scale, int $animationFrame, string $thumbHash, float $m00): string

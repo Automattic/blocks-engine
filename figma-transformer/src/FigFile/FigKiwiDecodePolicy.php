@@ -267,7 +267,7 @@ final class FigKiwiDecodePolicy
      */
     private function nodeIdentityFields(): array
     {
-        return array('guid', 'parentIndex', 'sortPosition', 'type', 'name', 'visible', 'opacity', 'blendMode');
+        return array('guid', 'parentIndex', 'sortPosition', 'type', 'name', 'visible', 'opacity', 'blendMode', 'styleType');
     }
 
     /**
@@ -300,6 +300,7 @@ final class FigKiwiDecodePolicy
         // Stroke geometry (#328): weight/align/dash fields feed border emission.
         return array(
             'fillPaints', 'strokePaints', 'backgroundPaints',
+            'styleIdForFill', 'styleIdForStrokeFill', 'styleIdForStroke',
             'strokeWeight', 'strokeAlign', 'strokeCap', 'strokeJoin', 'dashPattern',
             'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight',
             'borderLeftWeight', 'borderRightWeight',
