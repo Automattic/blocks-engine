@@ -323,12 +323,17 @@ final class ScenegraphIndex
 
     /**
      * @param array<string, mixed> $node
-     * @return array{0: int, 1: string|int, 2: string}
+     * @return array{0: int, 1: int|float, 2: string|int, 3?: string}
      */
     private static function layerOrderKey(array $node, string $id): array
     {
         if ( isset($node['_parent_sort_position']) && is_scalar($node['_parent_sort_position']) ) {
-            return array(0, (string) $node['_parent_sort_position'], $id);
+            $position = (string) $node['_parent_sort_position'];
+            if ( is_numeric($position) ) {
+                return array(0, 0, (float) $position, $id);
+            }
+
+            return array(0, 1, $position, $id);
         }
 
         return array(1, (int) ($node['_source_order'] ?? 0), $id);
