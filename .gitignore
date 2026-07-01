@@ -3,3 +3,4 @@
 dist/
 **/docs/superpowers/
 node_modules/
+figma-transformer/tmp/

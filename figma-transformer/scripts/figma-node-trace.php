@@ -87,6 +87,7 @@ foreach ( $nodeIds as $nodeId ) {
         'raw' => blocks_engine_figma_trace_node_summary($rawNodes[$nodeId] ?? (null !== $sourceId ? ($rawNodes[$sourceId] ?? null) : null), array(), isset($rawNodes[$nodeId]['id']) && is_scalar($rawNodes[$nodeId]['id']) ? (string) $rawNodes[$nodeId]['id'] : ($sourceId ?? $nodeId)),
         'source' => null !== $sourceId ? blocks_engine_figma_trace_node_summary($rawNodes[$sourceId] ?? ($normalizedNodes[$sourceId] ?? null), $normalized, $sourceId) : null,
         'normalized' => blocks_engine_figma_trace_node_summary($normalizedNode, $normalized, $nodeId),
+        'field_coverage' => blocks_engine_figma_trace_field_coverage($rawNodes[$nodeId] ?? (null !== $sourceId ? ($rawNodes[$sourceId] ?? null) : null), $normalizedNode),
         'emitted' => array_filter(array(
             'class' => '' !== $className ? $className : null,
             'tag' => is_array($style) ? ($style['node']['tag'] ?? null) : null,
@@ -349,7 +350,7 @@ function blocks_engine_figma_trace_find_raw_nodes(array $scenegraph, array $node
  */
 function blocks_engine_figma_trace_collect_raw_nodes(array $node, array $wanted, array &$found): void
 {
-    $nodeId = is_scalar($node['id'] ?? null) ? (string) $node['id'] : '';
+    $nodeId = blocks_engine_figma_trace_raw_node_id($node);
     if ( '' !== $nodeId && isset($wanted[$nodeId]) ) {
         $found[$nodeId] = $node;
     }
@@ -363,7 +364,10 @@ function blocks_engine_figma_trace_collect_raw_nodes(array $node, array $wanted,
             if ( ! is_array($candidate) ) {
                 continue;
             }
-            $id = is_scalar($candidate['id'] ?? null) ? (string) $candidate['id'] : (is_scalar($key) ? (string) $key : '');
+            $id = blocks_engine_figma_trace_raw_node_id($candidate);
+            if ( '' === $id && is_scalar($key) ) {
+                $id = (string) $key;
+            }
             if ( '' !== $id && isset($wanted[$id]) ) {
                 $found[$id] = $candidate;
             }
@@ -385,6 +389,20 @@ function blocks_engine_figma_trace_collect_raw_nodes(array $node, array $wanted,
             blocks_engine_figma_trace_collect_raw_nodes($children, $wanted, $found);
         }
     }
+}
+
+function blocks_engine_figma_trace_raw_node_id(array $node): string
+{
+    if ( isset($node['id']) && is_scalar($node['id']) && '' !== (string) $node['id'] ) {
+        return (string) $node['id'];
+    }
+
+    $guid = $node['guid'] ?? null;
+    if ( is_array($guid) && isset($guid['sessionID'], $guid['localID']) && is_scalar($guid['sessionID']) && is_scalar($guid['localID']) ) {
+        return (string) $guid['sessionID'] . ':' . (string) $guid['localID'];
+    }
+
+    return '';
 }
 
 /**
@@ -525,6 +543,118 @@ function blocks_engine_figma_trace_paint_summary(array $node): array
     return array_map(static function (mixed $paint): array {
         return is_array($paint) ? array_intersect_key($paint, array_flip(array('type', 'color', 'opacity', 'ref', 'imageHash', 'imageName'))) : array();
     }, array_values($paints));
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_trace_field_coverage(mixed $rawNode, mixed $normalizedNode): array
+{
+    $rawFields = is_array($rawNode) ? blocks_engine_figma_trace_node_field_names($rawNode) : array();
+    $normalizedFields = is_array($normalizedNode) ? blocks_engine_figma_trace_node_field_names($normalizedNode) : array();
+    $rawOnly = array_values(array_diff($rawFields, $normalizedFields));
+    $normalizedOnly = array_values(array_diff($normalizedFields, $rawFields));
+    $common = array_values(array_intersect($rawFields, $normalizedFields));
+
+    sort($rawOnly);
+    sort($normalizedOnly);
+    sort($common);
+
+    return array_filter(array(
+        'raw_count' => count($rawFields),
+        'normalized_count' => count($normalizedFields),
+        'common' => blocks_engine_figma_trace_limit_values($common, 80),
+        'raw_only' => blocks_engine_figma_trace_limit_values($rawOnly, 120),
+        'normalized_only' => blocks_engine_figma_trace_limit_values($normalizedOnly, 120),
+        'signal' => blocks_engine_figma_trace_signal_fields(is_array($rawNode) ? $rawNode : array(), is_array($normalizedNode) ? $normalizedNode : array()),
+    ), static fn (mixed $value): bool => array() !== $value);
+}
+
+/**
+ * @return array<int, string>
+ */
+function blocks_engine_figma_trace_node_field_names(array $node): array
+{
+    $fields = array();
+    foreach ( $node as $field => $_value ) {
+        if ( is_string($field) && ! in_array($field, array('children'), true) ) {
+            $fields[] = $field;
+        }
+    }
+    sort($fields);
+    return $fields;
+}
+
+/**
+ * @param array<int, string> $values
+ * @return array<int, string>
+ */
+function blocks_engine_figma_trace_limit_values(array $values, int $limit): array
+{
+    return array_slice($values, 0, max(0, $limit));
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_trace_signal_fields(array $rawNode, array $normalizedNode): array
+{
+    $fields = array(
+        'raw' => blocks_engine_figma_trace_interesting_fields($rawNode),
+        'normalized' => blocks_engine_figma_trace_interesting_fields($normalizedNode),
+    );
+    return array_filter($fields, static fn (mixed $value): bool => array() !== $value);
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function blocks_engine_figma_trace_interesting_fields(array $node): array
+{
+    $interesting = array(
+        'id', 'type', 'name', 'visible', 'opacity', 'blendMode', 'blend_mode', 'isMask', 'mask', 'maskType', 'effects',
+        'constraints', 'horizontalConstraint', 'verticalConstraint', 'layoutMode', 'layoutPositioning', 'primaryAxisAlignItems',
+        'counterAxisAlignItems', 'primaryAxisSizingMode', 'counterAxisSizingMode', 'stackPrimarySizing', 'stackCounterSizing',
+        'itemSpacing', 'paddingLeft', 'paddingRight', 'paddingTop', 'paddingBottom', 'relativeTransform', 'absoluteTransform',
+        'absoluteBoundingBox', 'absoluteRenderBounds', 'size', 'x', 'y', 'width', 'height', 'rotation', 'fills', 'fillPaints',
+        'strokes', 'strokePaints', 'styles', 'styleIdForFill', 'styleIdForStroke', 'boundVariables', 'variableConsumptionMap',
+        'componentId', 'componentProperties', 'componentPropertyDefinitions', 'overrides', 'overrideTable', 'overrideMap',
+        'characters', 'text', 'figma_text', 'style', 'textStyleOverrides', 'lineTypes', 'lineIndentations', 'vectorNetwork',
+        'vectorPaths', 'vectorPath', 'arcData', 'cornerRadius', 'rectangleCornerRadii', 'figma_component_source_id',
+    );
+    $summary = array();
+    foreach ( $interesting as $field ) {
+        if ( array_key_exists($field, $node) ) {
+            $summary[$field] = blocks_engine_figma_trace_summarize_field_value($node[$field]);
+        }
+    }
+    return $summary;
+}
+
+function blocks_engine_figma_trace_summarize_field_value(mixed $value): mixed
+{
+    if ( is_scalar($value) || null === $value ) {
+        return $value;
+    }
+    if ( is_array($value) ) {
+        if ( array_is_list($value) ) {
+            return array(
+                'kind' => 'list',
+                'count' => count($value),
+                'sample' => array_slice(array_map('blocks_engine_figma_trace_summarize_field_value', $value), 0, 3),
+            );
+        }
+        $sample = array();
+        foreach ( array_slice($value, 0, 12, true) as $key => $item ) {
+            $sample[(string) $key] = blocks_engine_figma_trace_summarize_field_value($item);
+        }
+        return array(
+            'kind' => 'map',
+            'count' => count($value),
+            'sample' => $sample,
+        );
+    }
+    return get_debug_type($value);
 }
 
 function blocks_engine_figma_trace_style_diagnostic(array $htmlReport, string $nodeId): ?array

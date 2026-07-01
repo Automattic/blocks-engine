@@ -625,6 +625,7 @@ final class FigKiwiDecoder
                 'occurrences'       => 0,
                 'node_types'        => array(),
                 'sample_node_ids'   => array(),
+                'sample_nodes'      => array(),
                 'sample_raw_values' => array(),
             );
         }
@@ -637,8 +638,20 @@ final class FigKiwiDecoder
             $inventory['fields'][$key]['sample_node_ids'][] = $nodeId;
         }
 
+        $normalized = $this->normalizeInventorySample($sample);
+        if ( count($inventory['fields'][$key]['sample_nodes']) < self::INVENTORY_SAMPLE_LIMIT ) {
+            $nodeSample = array_filter(array(
+                'node_id'   => '' !== $nodeId ? $nodeId : null,
+                'node_type' => $nodeType,
+                'path'      => $path,
+                'raw_value' => $normalized,
+            ), static fn (mixed $value): bool => null !== $value);
+            if ( ! in_array($nodeSample, $inventory['fields'][$key]['sample_nodes'], true) ) {
+                $inventory['fields'][$key]['sample_nodes'][] = $nodeSample;
+            }
+        }
+
         if ( count($inventory['fields'][$key]['sample_raw_values']) < self::INVENTORY_SAMPLE_LIMIT ) {
-            $normalized = $this->normalizeInventorySample($sample);
             if ( ! in_array($normalized, $inventory['fields'][$key]['sample_raw_values'], true) ) {
                 $inventory['fields'][$key]['sample_raw_values'][] = $normalized;
             }
