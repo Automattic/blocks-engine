@@ -329,7 +329,38 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     ));
     $assert(str_contains($containerPaintWithStyleCss, '.figma-node-frame-stale-local-with-style-stale-local-with-style{width:28px;height:3px;background:#ffcf00'), 'style-fill-wins-over-container-stale-local-fill');
     $assert('style' === ($containerPaintWithStyleDiagnostics[0]['context']['precedence'] ?? null), 'container-style-fill-conflict-diagnostic-precedence');
-     
+
+    $shapeCommandBlobPaintWithStyleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'        => 'Shape Command Blob Paint Style Fixture',
+        'figma_blobs' => array('M0 0L28 0 28 3 0 3Z'),
+        'nodes'       => array(
+            array(
+                'id'         => 'paint-style:accent-two',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Accent - Two',
+                'styleType'  => 'FILL',
+                'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0.811764717, 'b' => 0, 'a' => 1))),
+            ),
+            array(
+                'id'             => 'shape:command-blob-stale-local-with-style',
+                'type'           => 'ROUNDED_RECTANGLE',
+                'name'           => 'Command Blob Stale Local With Style',
+                'width'          => 28,
+                'height'         => 3,
+                'styleIdForFill' => 'paint-style:accent-two',
+                'fillPaints'     => array(array('type' => 'SOLID', 'color' => array('r' => 0.850980401, 'g' => 0.850980401, 'b' => 0.850980401, 'a' => 1))),
+                'fillGeometry'   => array(array('commandsBlob' => 0, 'styleID' => 0, 'windingRule' => 'NONZERO')),
+            ),
+        ),
+    ));
+    $shapeCommandBlobPaintWithStyleCss = $fileContent($shapeCommandBlobPaintWithStyleResult, 'style.css');
+    $shapeCommandBlobPaintWithStyleDiagnostics = array_values(array_filter(
+        $shapeCommandBlobPaintWithStyleResult['diagnostics'] ?? array(),
+        static fn (array $diagnostic): bool => 'figma_local_style_paint_conflict' === ($diagnostic['code'] ?? null)
+    ));
+    $assert(str_contains($shapeCommandBlobPaintWithStyleCss, '.figma-node-shape-command-blob-stale-local-with-style-command-blob-stale-local-with-style{width:28px;height:3px;background:#ffcf00'), 'style-fill-wins-over-command-blob-shape-stale-local-fill');
+    $assert('style' === ($shapeCommandBlobPaintWithStyleDiagnostics[0]['context']['precedence'] ?? null), 'command-blob-shape-style-fill-conflict-diagnostic-precedence');
+
     $externalizedEquivalentVectorPath = 'M0,0' . str_repeat('L10,10', 12000) . 'Z';
     $externalizedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Externalized Vector Fixture',

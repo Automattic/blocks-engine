@@ -157,7 +157,13 @@ final class PaintNormalizer
             ? array('strokeGeometry')
             : array('fillGeometry');
 
-        foreach ( array_merge($keys, array('vectorPaths', 'paths')) as $key ) {
+        foreach ( $keys as $key ) {
+            if ( $this->hasAuthoredVectorPathGeometry($node[$key] ?? null) ) {
+                return true;
+            }
+        }
+
+        foreach ( array('vectorPaths', 'paths') as $key ) {
             if ( ! empty($node[$key]) ) {
                 return true;
             }
@@ -170,6 +176,27 @@ final class PaintNormalizer
         }
 
         return isset($node['vectorData']) && is_array($node['vectorData']) && ! empty($node['vectorData']);
+    }
+
+    private function hasAuthoredVectorPathGeometry(mixed $geometry): bool
+    {
+        if ( ! is_array($geometry) ) {
+            return false;
+        }
+
+        foreach ( $geometry as $entry ) {
+            if ( ! is_array($entry) ) {
+                continue;
+            }
+
+            foreach ( array('path', 'pathData', 'd', 'data') as $key ) {
+                if ( isset($entry[$key]) && is_scalar($entry[$key]) && '' !== trim((string) $entry[$key]) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
