@@ -82,8 +82,13 @@ final class VectorSvgRenderer
 
         $viewBox = array('x' => 0.0, 'y' => 0.0, 'width' => $width, 'height' => $renderHeight);
         $pathBounds = $this->vectorPathBounds($node);
+        $allowSvgOverflow = false;
         if ( null !== $pathBounds && ( $pathBounds['width'] > $width + 0.001 || $pathBounds['height'] > $height + 0.001 || $pathBounds['x'] < -0.001 || $pathBounds['y'] < -0.001 ) ) {
-            $viewBox = $pathBounds;
+            if ( $this->hasComponentCloneGeometry($node) && $this->pathBoundsFitVectorBox($pathBounds, $width, $renderHeight) ) {
+                $allowSvgOverflow = true;
+            } else {
+                $viewBox = $pathBounds;
+            }
         } elseif ( null !== $pathBounds && $this->vectorMayClipStrokeAtViewBoxEdge($node) && $this->vectorPathTouchesViewBoxEdge($pathBounds, $viewBox) ) {
             $padding = 0.5;
             $viewBox = array(
@@ -103,6 +108,9 @@ final class VectorSvgRenderer
             'aria-label="' . $this->sanitizeAttribute((string) ($node['name'] ?? $type)) . '"',
             'data-figma-vector="true"',
         );
+        if ( $allowSvgOverflow ) {
+            $attributes[] = 'overflow="visible"';
+        }
 
         $body = implode('', $elements);
         $scale = is_array($node['figma_vector_scale'] ?? null) ? $node['figma_vector_scale'] : array();
@@ -374,6 +382,33 @@ final class VectorSvgRenderer
             || abs($pathBounds['y'] - $viewBox['y']) <= $epsilon
             || abs(($pathBounds['x'] + $pathBounds['width']) - ($viewBox['x'] + $viewBox['width'])) <= $epsilon
             || abs(($pathBounds['y'] + $pathBounds['height']) - ($viewBox['y'] + $viewBox['height'])) <= $epsilon;
+    }
+
+    /**
+     * @param array{x: float, y: float, width: float, height: float} $pathBounds
+     */
+    private function pathBoundsFitVectorBox(array $pathBounds, float $width, float $height): bool
+    {
+        return $pathBounds['width'] <= $width + 0.001 && $pathBounds['height'] <= $height + 0.001;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasComponentCloneGeometry(array $node): bool
+    {
+        if ( true === ($node['_component_source_clone_geometry'] ?? false) ) {
+            return true;
+        }
+
+        foreach ( array('box', 'figma_box') as $boxKey ) {
+            $box = is_array($node[$boxKey] ?? null) ? $node[$boxKey] : array();
+            if ( 'component_source_clone' === ($box['geometry_semantics'] ?? null) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -65,6 +65,8 @@ final class StaticHtmlEmitter
 
     private ?HtmlArtifactAssembler $htmlArtifactAssembler = null;
 
+    private ?BreakpointMediaDiffBuilder $breakpointMediaDiffBuilder = null;
+
     private function designSystemExtractor(): DesignSystemExtractor
     {
         return $this->designSystemExtractor ??= new DesignSystemExtractor();
@@ -122,6 +124,21 @@ final class StaticHtmlEmitter
     {
         return $this->htmlArtifactAssembler ??= new HtmlArtifactAssembler(
             fn (string $value): string => $this->sanitizeAttribute($value),
+        );
+    }
+
+    private function breakpointMediaDiffBuilder(): BreakpointMediaDiffBuilder
+    {
+        return $this->breakpointMediaDiffBuilder ??= new BreakpointMediaDiffBuilder(
+            $this->stickyLayoutCoordinator(),
+            fn (array $node): array => $this->nodeList($node),
+            fn (array $node, string $type, ?array $parentNode, ?array $grandParentNode): array => $this->styleDeclarations($node, $type, $parentNode, $grandParentNode),
+            fn (array $node, string $type, ?array $parentNode): mixed => $this->supportedVectorSvg($node, $type, $parentNode),
+            fn (array $child, array $parent): bool => $this->isFullyClippedDecorativeChild($child, $parent),
+            fn (array $node): bool => $this->isPaginationContainer($node),
+            fn (string $value): string => $this->sanitizeAttribute($value),
+            fn (string $value): string => $this->slug($value),
+            fn (float $value): string => $this->number($value),
         );
     }
 
@@ -413,7 +430,7 @@ final class StaticHtmlEmitter
             );
             $renderedNodes[] = $frameNode;
 
-            foreach ( $this->breakpointMediaBlocks($page, $frameNode, $nodeMap) as $mediaBlock ) {
+            foreach ( $this->breakpointMediaDiffBuilder()->buildMediaBlocks($page, $frameNode, $nodeMap) as $mediaBlock ) {
                 $mediaBlocks[] = $mediaBlock;
             }
 
@@ -521,210 +538,6 @@ final class StaticHtmlEmitter
     }
 
     /**
-     * Build the `@media (max-width: …)` CSS blocks for one responsive page.
-     *
-     * The primary (widest) variant frame is already rendered as the base layout
-     * by {@see emitSite}. For every narrower breakpoint variant this walks the
-     * variant frame, computes per-node style declarations with the same
-     * machinery the base used, maps each variant node onto its base counterpart
-     * by structural position, and emits only the declarations that DIFFER from
-     * the base inside a `max-width` media block keyed on the variant viewport.
-     *
-     * Single-variant pages return an empty list, so they render exactly as
-     * before with no `@media` output.
-     *
-     * @param array<string, mixed>                $page     Planned page (carries `variants`).
-     * @param array<string, mixed>                $baseNode Primary variant frame node.
-     * @param array<string, array<string, mixed>> $nodeMap  Id => node lookup.
-     * @return array<int, string>
-     */
-    private function breakpointMediaBlocks(array $page, array $baseNode, array $nodeMap): array
-    {
-        $variants = is_array($page['variants'] ?? null) ? array_values($page['variants']) : array();
-        if ( count($variants) < 2 ) {
-            return array();
-        }
-
-        $baseStyles = array();
-        $this->collectVariantNodeStyles($baseNode, 0, null, null, 'r', $baseStyles);
-
-        // Derive the primary (base) viewport width from the variants list so we
-        // can compute midpoint breakpoints between adjacent variant widths.
-        $primaryViewportWidth = null;
-        foreach ( $variants as $variant ) {
-            if ( is_array($variant) && true === ($variant['primary'] ?? false) && is_numeric($variant['viewport_width'] ?? null) ) {
-                $primaryViewportWidth = (float) $variant['viewport_width'];
-                break;
-            }
-        }
-
-        $blocks = array();
-        // Variants are ordered widest-first, so iterating in order emits the
-        // narrower breakpoints later in the cascade — exactly the precedence
-        // overlapping `max-width` queries need.
-        // Track the previously seen (wider) viewport width so each breakpoint
-        // keys at the midpoint between adjacent variant widths rather than at
-        // the narrow variant's own width, which would be too narrow for most
-        // browsers and phones.
-        $prevViewportWidth = $primaryViewportWidth;
-        foreach ( $variants as $variant ) {
-            if ( ! is_array($variant) || true === ($variant['primary'] ?? false) ) {
-                continue;
-            }
-
-            $variantId = isset($variant['frame_id']) && is_scalar($variant['frame_id']) ? (string) $variant['frame_id'] : '';
-            $viewportWidth = $variant['viewport_width'] ?? null;
-            if ( '' === $variantId || ! isset($nodeMap[$variantId]) || ! is_numeric($viewportWidth) ) {
-                continue;
-            }
-
-            $variantStyles = array();
-            $this->collectVariantNodeStyles($nodeMap[$variantId], 0, null, null, 'r', $variantStyles);
-
-            $rules = $this->breakpointDiffRules($baseStyles, $variantStyles);
-            if ( empty($rules) ) {
-                $prevViewportWidth = (float) $viewportWidth;
-                continue;
-            }
-
-            // Key the breakpoint at the midpoint between this variant and its
-            // next-wider neighbour (the previous iteration, or the primary).
-            // Midpoint avoids keying at the narrow variant's own width (e.g.
-            // 390px) which would leave most desktop-resized browsers outside
-            // the mobile styles. Falls back to the variant's own width when no
-            // wider neighbour width is known.
-            if ( null !== $prevViewportWidth && $prevViewportWidth > (float) $viewportWidth ) {
-                $breakpointPx = (int) round(($prevViewportWidth + (float) $viewportWidth) / 2);
-            } else {
-                $breakpointPx = (int) round((float) $viewportWidth);
-            }
-
-            $blocks[] = '@media (max-width:' . $this->number((float) $breakpointPx) . 'px){'
-                . "\n" . implode("\n", $rules) . "\n}";
-
-            $prevViewportWidth = (float) $viewportWidth;
-        }
-
-        return $blocks;
-    }
-
-    /**
-     * Walk a variant frame and record each node's emitted class name and ordered
-     * style declarations, keyed by a deterministic structural path. The
-     * traversal mirrors {@see emitNode} (same child skipping and the same
-     * BOOLEAN_OPERATION vector short-circuit) so a node at a given position
-     * always resolves to the same key across breakpoint variants — that key is
-     * what lets base and narrower styles be diffed without re-deriving layout.
-     *
-     * @param array<string, mixed> $node
-     * @param array<string, mixed> $map  pathKey => array{class: string, styles: array<int, string>}
-     */
-    private function collectVariantNodeStyles(array $node, int $depth, ?array $parentNode, ?array $grandParentNode, string $pathKey, array &$map): void
-    {
-        if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) ) {
-            return;
-        }
-
-        $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
-        $name = (string) ($node['name'] ?? '');
-        $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
-        $className = 'figma-node-' . $this->slug($id . '-' . $name);
-        $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $this->styleDeclarations($node, $type, $parentNode, $grandParentNode));
-
-        $map[$pathKey] = array(
-            'class'           => $className,
-            'styles'          => $styles,
-            'contains_sticky' => $this->stickyLayoutCoordinator()->containsStickyPrimary($node),
-            'node'            => $node,
-        );
-
-        $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
-        if ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) {
-            return;
-        }
-
-        $childOrdinal = 0;
-        foreach ( $this->nodeList($node) as $child ) {
-            if ( ! is_array($child) || $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($child) || $this->isFullyClippedDecorativeChild($child, $node) ) {
-                continue;
-            }
-
-            $childKey = $pathKey . '/' . $this->breakpointChildKey($child, $childOrdinal);
-            $this->collectVariantNodeStyles($child, $depth + 1, $node, $parentNode, $childKey, $map);
-            ++$childOrdinal;
-        }
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function breakpointChildKey(array $node, int $ordinal): string
-    {
-        $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
-        foreach ( array('figma_component_source_id', 'source_id') as $key ) {
-            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== (string) $node[$key] ) {
-                return 'source:' . $this->slug($type . '-' . (string) $node[$key]);
-            }
-        }
-
-        return $ordinal . ':' . $type;
-    }
-
-    /**
-     * Diff a narrower variant's per-node styles against the base styles, keeping
-     * only declarations whose value changed (or that the base lacked). Rules are
-     * keyed on the BASE class name so the overrides land on the already-rendered
-     * elements, and are emitted in base-traversal order for deterministic output.
-     *
-     * @param array<string, array<string, mixed>> $baseStyles
-     * @param array<string, array<string, mixed>> $variantStyles
-     * @return array<int, string>
-     */
-    private function breakpointDiffRules(array $baseStyles, array $variantStyles): array
-    {
-        $rules = array();
-        foreach ( $baseStyles as $pathKey => $base ) {
-            if ( ! isset($variantStyles[$pathKey]) ) {
-                continue;
-            }
-
-            $baseMap = $this->styleDeclarationMap(is_array($base['styles'] ?? null) ? $base['styles'] : array());
-            $variantDeclarations = is_array($variantStyles[$pathKey]['styles'] ?? null) ? $variantStyles[$pathKey]['styles'] : array();
-
-            $changed = array();
-            $baseContainsSticky = true === ($base['contains_sticky'] ?? false);
-            $baseNode = is_array($base['node'] ?? null) ? $base['node'] : array();
-            $preservePaginationRow = ! empty($baseNode) && $this->isPaginationContainer($baseNode);
-            foreach ( $variantDeclarations as $declaration ) {
-                $parts = explode(':', (string) $declaration, 2);
-                if ( 2 !== count($parts) ) {
-                    continue;
-                }
-
-                $property = trim($parts[0]);
-                $value = trim($parts[1]);
-                if ( $baseContainsSticky && 'overflow' === $property ) {
-                    continue;
-                }
-                if ( $preservePaginationRow && in_array($property, array('height', 'flex-wrap', 'align-content'), true) ) {
-                    continue;
-                }
-                if ( ! array_key_exists($property, $baseMap) || $baseMap[$property] !== $value ) {
-                    $changed[] = $property . ':' . $value;
-                }
-            }
-
-            if ( empty($changed) ) {
-                continue;
-            }
-
-            $rules[] = '.' . (string) $base['class'] . '{' . implode(';', $changed) . '}';
-        }
-
-        return $rules;
-    }
-
-    /**
      * @param array<string, mixed> $node
      * @param array<int, string>                 $cssRules
      * @param array<int, array<string, mixed>>   $diagnostics
@@ -763,14 +576,24 @@ final class StaticHtmlEmitter
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
         $children = $this->nodeList($node);
         $content = $text;
+        $inputAccessoryControl = 'div' === $tag && $this->isInputLike($node) && $this->hasFormControlAccessoryChildren($node);
         $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
         $assetPath = $this->nodeAssetPath($node);
         $hasVectorAssetFallback = $this->isUnsupportedVectorType($type) && null !== $assetPath;
 
         if ( ! in_array($tag, array('input', 'textarea'), true) && ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) && ! $this->vectorSvgComposesChildren($vectorSvg) ) {
+            $insertedAccessoryInput = false;
             foreach ( $children as $child ) {
                 if ( is_array($child) ) {
                     if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
+                        continue;
+                    }
+                    if ( $inputAccessoryControl && $this->isFormControlPlaceholderChild($child) ) {
+                        if ( ! $insertedAccessoryInput ) {
+                            $content .= $this->syntheticInputControlMarkup($node, $className);
+                            $cssRules[] = '.' . $className . '__control{border:0;background:transparent;padding:0;margin:0;min-width:0;flex:1;font:inherit;color:inherit;outline:none}';
+                            $insertedAccessoryInput = true;
+                        }
                         continue;
                     }
                     if ( 'li' === $tag && $this->isListMarkerTextChild($child) ) {
@@ -778,6 +601,10 @@ final class StaticHtmlEmitter
                     }
                     $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node, $parentNode);
                 }
+            }
+            if ( $inputAccessoryControl && ! $insertedAccessoryInput ) {
+                $content .= $this->syntheticInputControlMarkup($node, $className);
+                $cssRules[] = '.' . $className . '__control{border:0;background:transparent;padding:0;margin:0;min-width:0;flex:1;font:inherit;color:inherit;outline:none}';
             }
         }
 
@@ -860,6 +687,18 @@ final class StaticHtmlEmitter
                 return 'span';
             }
 
+            if ( null !== $parentNode && $this->isNavigationLabelText($node, $parentNode) ) {
+                return 'span';
+            }
+
+            if ( null !== $parentNode && $this->isCompactControlTokenText($node, $parentNode) ) {
+                return 'span';
+            }
+
+            if ( null !== $parentNode && $this->isListItemOf($node, $parentNode) ) {
+                return 'li';
+            }
+
             if ( null !== $parentNode && $this->isSemanticListItemNode($parentNode) ) {
                 return 'p';
             }
@@ -884,6 +723,9 @@ final class StaticHtmlEmitter
         }
 
         if ( $this->isInputLike($node) ) {
+            if ( $this->hasFormControlAccessoryChildren($node) ) {
+                return 'div';
+            }
             return 'input';
         }
 
@@ -1020,7 +862,7 @@ final class StaticHtmlEmitter
             return 'footer';
         }
 
-        if ( str_contains($lowerName, 'nav') || str_contains($lowerName, 'menu') ) {
+        if ( (str_contains($lowerName, 'nav') || str_contains($lowerName, 'menu')) && ! $this->isMenuItemName($lowerName) ) {
             return 'nav';
         }
 
@@ -1149,6 +991,10 @@ final class StaticHtmlEmitter
             return null;
         }
 
+        if ( null !== $parentNode && $this->isNavigationLabelText($node, $parentNode) ) {
+            return null;
+        }
+
         $size = $this->textFontSize($node);
         if ( null !== $size ) {
             $key = $this->sizeKey($size);
@@ -1214,6 +1060,57 @@ final class StaticHtmlEmitter
         $nameHint = str_contains($name, 'button') || str_contains($name, 'btn') || str_contains($name, 'cta');
 
         return $nameHint || null !== $this->backgroundColor($node) || $this->cornerRadius($node) > 0.0;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isNavigationLabelText(array $node, array $parentNode): bool
+    {
+        if ( 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) ) {
+            return false;
+        }
+
+        $parentName = strtolower((string) ($parentNode['name'] ?? ''));
+        if ( $this->isMenuItemName($parentName) ) {
+            return true;
+        }
+
+        return (str_contains($parentName, 'nav') || str_contains($parentName, 'menu')) && ! $this->isMenuItemName($parentName);
+    }
+
+    private function isMenuItemName(string $lowerName): bool
+    {
+        return 1 === preg_match('/\b(menu|nav(?:igation)?)\s+item\b|\bitem\s+(menu|nav(?:igation)?)\b/', $lowerName);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isCompactControlTokenText(array $node, array $parentNode): bool
+    {
+        if ( 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) ) {
+            return false;
+        }
+
+        $token = trim($this->textContent($node));
+        if ( ! preg_match('/^(\d+|…|\.\.\.)$/', $token) ) {
+            return false;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? '') . ' ' . (string) ($parentNode['name'] ?? ''));
+        if ( str_contains($name, 'pagination') || str_contains($name, 'number') || str_contains($name, 'page') ) {
+            return true;
+        }
+
+        $box = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        return isset($box['width'], $box['height'])
+            && is_numeric($box['width'])
+            && is_numeric($box['height'])
+            && (float) $box['width'] <= 56.0
+            && (float) $box['height'] <= 56.0;
     }
 
     /**
@@ -1308,6 +1205,73 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
+    private function hasFormControlAccessoryChildren(array $node): bool
+    {
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) || $this->isFormControlPlaceholderChild($child) ) {
+                continue;
+            }
+
+            if ( $this->subtreeHasRenderableVector($child) || null !== $this->nodeAssetPath($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isFormControlPlaceholderChild(array $node): bool
+    {
+        if ( '' === trim($this->subtreePlainText($node)) ) {
+            return false;
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && ! $this->isFormControlPlaceholderChild($child) ) {
+                return false;
+            }
+        }
+
+        return ! $this->subtreeHasRenderableVector($node) && null === $this->nodeAssetPath($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function subtreeHasRenderableVector(array $node): bool
+    {
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        if ( in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
+            return true;
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && $this->subtreeHasRenderableVector($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function syntheticInputControlMarkup(array $node, string $className): string
+    {
+        return sprintf(
+            '<input class="%1$s__control" data-figma-synthetic-control="input"%2$s>' . "\n",
+            $this->sanitizeAttribute($className),
+            $this->formControlAttributes($node, 'input')
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
     private function hasStrokePaint(array $node): bool
     {
         foreach ( array('figma_paints', 'strokes', 'strokePaints') as $key ) {
@@ -1382,6 +1346,71 @@ final class StaticHtmlEmitter
 
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
         return 'flex' === ($layout['display'] ?? null) && 'row' === ($layout['flex_direction'] ?? null);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isFlexiblePaginationControl(array $node, array $parentNode): bool
+    {
+        if ( ! $this->isPaginationContainer($parentNode) ) {
+            return false;
+        }
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( ! isset($layout['grow']) || ! is_numeric($layout['grow']) || (float) $layout['grow'] <= 0.0 ) {
+            return false;
+        }
+
+        $text = strtolower(' ' . preg_replace('/\s+/', ' ', trim($this->subtreePlainText($node))) . ' ');
+        return str_contains($text, ' previous ') || str_contains($text, ' next ');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function freeformContainerShouldUseFlow(array $node): bool
+    {
+        if ( ! $this->isFreeformContainer($node) ) {
+            return false;
+        }
+        if ( ! empty($this->listItemIds($node)) ) {
+            return false;
+        }
+
+        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
+        if ( count($children) < 2 ) {
+            return false;
+        }
+
+        $contentChildren = array();
+        $originY = null;
+        foreach ( $children as $child ) {
+            if ( $this->subtreeIsDecorativeSeparator($child) || $this->isFullyClippedDecorativeChild($child, $node) ) {
+                continue;
+            }
+            if ( ! $this->subtreeHasText($child) ) {
+                continue;
+            }
+            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( 'absolute' === ($layout['positioning'] ?? null) ) {
+                return false;
+            }
+            $box = is_array($child['box'] ?? null) ? $child['box'] : array();
+            if ( ! isset($box['y']) || ! is_numeric($box['y']) ) {
+                return false;
+            }
+            $y = (float) $box['y'];
+            if ( null === $originY ) {
+                $originY = $y;
+            } elseif ( abs($originY - $y) > 0.5 ) {
+                return false;
+            }
+            $contentChildren[] = $child;
+        }
+
+        return count($contentChildren) >= 2;
     }
 
     /**
@@ -1527,6 +1556,9 @@ final class StaticHtmlEmitter
                 return array();
             }
         }
+        if ( str_contains($name, 'table of contents') || preg_match('/\btoc\b/', $name) ) {
+            return array();
+        }
 
         $children = array_values(array_filter($this->nodeList($container), 'is_array'));
         if ( 3 > count($children) ) {
@@ -1550,6 +1582,19 @@ final class StaticHtmlEmitter
             $height = $this->boxValue($child, 'height');
             if ( null !== $height ) {
                 $heights[] = $height;
+            }
+        }
+
+        // Direct text-only lists are usually compact nav/legal rows. A larger
+        // text region with several text nodes is content, not a list.
+        if ( 'TEXT' === $type ) {
+            $containerHeight = $this->boxValue($container, 'height');
+            if ( null === $containerHeight || empty($heights) ) {
+                return array();
+            }
+            $maxChildHeight = max($heights);
+            if ( $maxChildHeight > 0.0 && $containerHeight > ( $maxChildHeight * 2.0 ) ) {
+                return array();
             }
         }
 
@@ -3919,6 +3964,14 @@ final class StaticHtmlEmitter
         foreach ( array('width', 'height') as $dimension ) {
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
             $sizing = strtoupper((string) ($layout[$sizingKey] ?? ''));
+            if ( 'width' === $dimension && null !== $parentNode && $this->isFlexiblePaginationControl($node, $parentNode) ) {
+                $styles[] = 'width:auto';
+                continue;
+            }
+            if ( 'width' === $dimension && null !== $parentNode && $parentUsesFluidCanvasCoordinates && $this->isFluidStretchAbsoluteChild($box, $layout, $parentNode) ) {
+                $styles[] = 'width:auto';
+                continue;
+            }
             if ( 'width' === $dimension && $this->isFluidPageWidth($box, $layout, $parentNode) ) {
                 // Full-page roots and matching first-level bands should occupy the
                 // viewport. Explicit Kiwi/Figma max-width constraints still apply
@@ -3975,10 +4028,11 @@ final class StaticHtmlEmitter
         }
 
         $isDecorativeFlexUnderlay = null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode);
-        $willPositionAbsolute = (null !== $parentNode && $this->isFreeformContainer($parentNode)) || 'absolute' === ($layout['positioning'] ?? null) || $isDecorativeFlexUnderlay;
+        $parentFreeformUsesFlow = null !== $parentNode && $this->freeformContainerShouldUseFlow($parentNode);
+        $willPositionAbsolute = (null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow) || 'absolute' === ($layout['positioning'] ?? null) || $isDecorativeFlexUnderlay;
         $managesLocalStacking = $this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node);
         $needsLocalStackIsolation = $this->hasDecorativeFlexUnderlayChild($node) || $this->hasZIndexedChild($node);
-        if ( ! $willPositionAbsolute && $managesLocalStacking ) {
+        if ( ! $willPositionAbsolute && ($managesLocalStacking || ($parentFreeformUsesFlow && 'FRAME' === $type)) ) {
             $styles[] = 'position:relative';
         }
 
@@ -3993,7 +4047,7 @@ final class StaticHtmlEmitter
             }
             $styles[] = 'z-index:0';
             $styles[] = 'pointer-events:none';
-        } elseif ( null !== $parentNode && $this->isFreeformContainer($parentNode) ) {
+        } elseif ( null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow ) {
             $styles[] = 'position:absolute';
             foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $centerWithinParentFluidCanvas) as $style ) {
                 $styles[] = $style;
@@ -4344,10 +4398,6 @@ final class StaticHtmlEmitter
         }
 
         if ( 'INSTANCE' === $type ) {
-            if ( isset($node['componentId']) || isset($node['component_id']) || isset($node['figma_component_source_id']) || isset($node['source_id']) ) {
-                return false;
-            }
-
             return $this->isFreeformContainer($node);
         }
 
@@ -4374,6 +4424,34 @@ final class StaticHtmlEmitter
 
         $offset = isset($box['x']) && is_numeric($box['x']) ? abs((float) $box['x']) : 0.0;
         return $offset <= 1.0 && abs((float) $box['width'] - (float) $parentBox['width']) <= 1.0;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $layout
+     * @param array<string, mixed> $parentNode
+     */
+    private function isFluidStretchAbsoluteChild(array $box, array $layout, array $parentNode): bool
+    {
+        if ( 'absolute' !== ($layout['positioning'] ?? null) && ! $this->isFreeformContainer($parentNode) ) {
+            return false;
+        }
+        if ( 'FILL' !== strtoupper((string) ($layout['sizing_horizontal'] ?? '')) && (! isset($layout['grow']) || ! is_numeric($layout['grow']) || (float) $layout['grow'] <= 0.0) ) {
+            return false;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        foreach ( array('x', 'width') as $dimension ) {
+            if ( ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) ) {
+                return false;
+            }
+        }
+        if ( ! isset($parentBox['width']) || ! is_numeric($parentBox['width']) || (float) $parentBox['width'] < self::FLUID_ROOT_MIN_WIDTH ) {
+            return false;
+        }
+
+        $trailing = (float) $parentBox['width'] - (float) $box['x'] - (float) $box['width'];
+        return $trailing >= -0.5;
     }
 
     /**
@@ -4753,8 +4831,7 @@ final class StaticHtmlEmitter
             return false;
         }
 
-        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        return 'absolute' !== ($layout['positioning'] ?? null);
+        return true;
     }
 
     /**
@@ -5166,6 +5243,8 @@ final class StaticHtmlEmitter
         }
         if ( ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) && ! $this->shouldSplitParagraphs($node) ) {
             $styles[] = $this->textHasDerivedLineBreaks($node) && ! $this->textHasLineBreaks($node) ? 'white-space:pre' : 'white-space:pre-line';
+        } elseif ( $this->textIsAtomicSingleLineLabel($node, $text) ) {
+            $styles[] = 'white-space:nowrap';
         }
 
         return $styles;
@@ -5281,6 +5360,43 @@ final class StaticHtmlEmitter
         $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
         $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
         return isset($derivedLayout['baseline_count']) && is_numeric($derivedLayout['baseline_count']) && 1 < (int) $derivedLayout['baseline_count'];
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $text
+     */
+    private function textIsAtomicSingleLineLabel(array $node, array $text): bool
+    {
+        if ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) {
+            return false;
+        }
+
+        $characters = trim(strip_tags($this->textContent($node)));
+        if ( '' === $characters || ! str_contains($characters, ' ') || strlen($characters) > 48 ) {
+            return false;
+        }
+
+        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
+        if ( isset($derivedLayout['baseline_count']) && is_numeric($derivedLayout['baseline_count']) && 1 !== (int) $derivedLayout['baseline_count'] ) {
+            return false;
+        }
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        $sizing = strtoupper((string) ($layout['sizing_horizontal'] ?? ''));
+        $textAutoResize = strtoupper((string) ($text['auto_resize'] ?? $node['text_auto_resize'] ?? ''));
+        if ( ! in_array($sizing, array('HUG', ''), true) && ! in_array($textAutoResize, array('WIDTH_AND_HEIGHT', 'HEIGHT'), true) ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
+        $lineHeight = $this->textDerivedBaselineLineHeight($text);
+        if ( null === $height || null === $lineHeight || $lineHeight <= 0.0 ) {
+            return false;
+        }
+
+        return $height <= ( $lineHeight * 1.25 );
     }
 
     /**

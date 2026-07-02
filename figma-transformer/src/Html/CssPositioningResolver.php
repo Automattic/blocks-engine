@@ -29,6 +29,8 @@ final class CssPositioningResolver
     {
         $styles = array();
         $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        $parentIsFreeform = true === ($parentLayout['freeform'] ?? false);
         $left = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'x', $parentNode);
         $top = $this->layoutIntentClassifier->positionOffset($box, $parentBox, 'y', $parentNode);
         $centerInsetVisualChild = null !== $node && null !== $parentNode && $this->isInsetSingleVisualChild($node, $parentNode);
@@ -43,11 +45,14 @@ final class CssPositioningResolver
             $constraints['horizontal'] = 'CENTER';
             $constraints['vertical'] = 'CENTER';
         }
+        if ( null !== $node && $this->hasComponentCloneGeometry($node) && 'local' === ($box['coordinate_space'] ?? null) && 'absolute' !== ($layout['positioning'] ?? null) ) {
+            unset($constraints['horizontal'], $constraints['vertical']);
+        }
 
-        foreach ( $this->axisConstraintStyles('horizontal', is_scalar($constraints['horizontal'] ?? null) ? (string) $constraints['horizontal'] : null, $left, $parentBox, $box, $centerWithinFluidCanvas) as $style ) {
+        foreach ( $this->axisConstraintStyles('horizontal', is_scalar($constraints['horizontal'] ?? null) ? (string) $constraints['horizontal'] : null, $left, $parentBox, $box, $layout, $centerWithinFluidCanvas, $parentIsFreeform) as $style ) {
             $styles[] = $style;
         }
-        foreach ( $this->axisConstraintStyles('vertical', is_scalar($constraints['vertical'] ?? null) ? (string) $constraints['vertical'] : null, $top, $parentBox, $box) as $style ) {
+        foreach ( $this->axisConstraintStyles('vertical', is_scalar($constraints['vertical'] ?? null) ? (string) $constraints['vertical'] : null, $top, $parentBox, $box, $layout) as $style ) {
             $styles[] = $style;
         }
 
@@ -181,9 +186,10 @@ final class CssPositioningResolver
      *
      * @param array<string, mixed> $parentBox
      * @param array<string, mixed> $box
+     * @param array<string, mixed> $layout
      * @return array<int, string>
      */
-    private function axisConstraintStyles(string $axis, ?string $constraint, ?float $offset, array $parentBox, array $box, bool $centerWithinFluidCanvas = false): array
+    private function axisConstraintStyles(string $axis, ?string $constraint, ?float $offset, array $parentBox, array $box, array $layout, bool $centerWithinFluidCanvas = false, bool $parentIsFreeform = false): array
     {
         $isHorizontal = 'horizontal' === $axis;
         $startProp = $isHorizontal ? 'left' : 'top';
@@ -202,6 +208,15 @@ final class CssPositioningResolver
         if ( $farPin === $constraint && null !== $offset && null !== $parentSize && null !== $boxSize ) {
             $styles[] = $endProp . ':' . $this->number($parentSize - $offset - $boxSize) . 'px';
             return $styles;
+        }
+
+        if ( $isHorizontal && $parentIsFreeform && $centerWithinFluidCanvas && null !== $offset && null !== $parentSize && null !== $boxSize && $this->hasFluidStretchIntent($layout) ) {
+            $trailing = $parentSize - $offset - $boxSize;
+            if ( $trailing >= -0.5 ) {
+                $styles[] = $startProp . ':' . $this->number(max(0.0, $offset)) . 'px';
+                $styles[] = $endProp . ':' . $this->number(max(0.0, $trailing)) . 'px';
+                return $styles;
+            }
         }
 
         // Center pin: keep the child center at a constant offset from the parent
@@ -242,6 +257,14 @@ final class CssPositioningResolver
 
         $trailing = $parentSize - $offset - $boxSize;
         return abs($offset - $trailing) <= 1.0;
+    }
+
+    /**
+     * @param array<string, mixed> $layout
+     */
+    private function hasFluidStretchIntent(array $layout): bool
+    {
+        return isset($layout['grow']) && is_numeric($layout['grow']) && (float) $layout['grow'] > 0.0;
     }
 
     private function number(float $value): string

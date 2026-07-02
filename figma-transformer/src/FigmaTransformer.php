@@ -1639,10 +1639,57 @@ final class FigmaTransformer
         $statements = array();
         $buffer = '';
         $depth = 0;
+        $parenDepth = 0;
+        $quote = null;
+        $escaped = false;
+        $inComment = false;
         $length = strlen($css);
         for ( $i = 0; $i < $length; $i++ ) {
             $char = $css[$i];
             $buffer .= $char;
+
+            if ( $inComment ) {
+                if ( '*' === $char && '/' === ($css[$i + 1] ?? '') ) {
+                    $buffer .= '/';
+                    ++$i;
+                    $inComment = false;
+                }
+                continue;
+            }
+
+            if ( null !== $quote ) {
+                if ( $escaped ) {
+                    $escaped = false;
+                    continue;
+                }
+                if ( '\\' === $char ) {
+                    $escaped = true;
+                    continue;
+                }
+                if ( $quote === $char ) {
+                    $quote = null;
+                }
+                continue;
+            }
+
+            if ( '/' === $char && '*' === ($css[$i + 1] ?? '') ) {
+                $buffer .= '*';
+                ++$i;
+                $inComment = true;
+                continue;
+            }
+            if ( '"' === $char || "'" === $char ) {
+                $quote = $char;
+                continue;
+            }
+            if ( '(' === $char ) {
+                ++$parenDepth;
+                continue;
+            }
+            if ( ')' === $char ) {
+                $parenDepth = max(0, $parenDepth - 1);
+                continue;
+            }
             if ( '{' === $char ) {
                 ++$depth;
                 continue;
@@ -1655,7 +1702,7 @@ final class FigmaTransformer
                 }
                 continue;
             }
-            if ( ';' === $char && 0 === $depth ) {
+            if ( ';' === $char && 0 === $depth && 0 === $parenDepth ) {
                 // Top-level statement with no block body (e.g. `@import …;`).
                 $statements[] = trim($buffer);
                 $buffer = '';

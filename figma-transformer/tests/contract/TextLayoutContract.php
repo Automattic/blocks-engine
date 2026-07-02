@@ -715,6 +715,41 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     ));
     $startAlignedFlexLabelCss = $fileContent($startAlignedFlexLabelResult, 'style.css');
     $assert(str_contains($startAlignedFlexLabelCss, '.figma-node-text-start-flex-button-label-reply{width:39px;height:10px;font-size:14px;line-height:22px;overflow:visible;flex-shrink:0}'), 'non-centered-flex-label-keeps-measured-height');
+
+    $atomicMetadataResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Atomic Metadata Text Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'atomic:row',
+                'type'     => 'FRAME',
+                'name'     => 'Post metadata row',
+                'width'    => 376,
+                'height'   => 21,
+                'layout'   => array('display' => 'flex', 'flex_direction' => 'row'),
+                'children' => array(
+                    array(
+                        'id'                      => 'atomic:date',
+                        'type'                    => 'TEXT',
+                        'name'                    => 'Supporting text',
+                        'characters'              => 'Dec 9, 2023',
+                        'width'                   => 89,
+                        'height'                  => 21,
+                        'fontSize'                => 14,
+                        'fontWeight'              => 800,
+                        'lineHeightPx'            => 21,
+                        'layout'                  => array('sizing_horizontal' => 'HUG'),
+                        'derivedTextData'         => array(
+                            'layoutSize' => array('x' => 88.8125, 'y' => 21),
+                            'baselines'  => array(array('firstCharacter' => 0, 'endCharacter' => 11, 'lineHeight' => 21, 'position' => array('x' => 0, 'y' => 16))),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $atomicMetadataCss = $fileContent($atomicMetadataResult, 'style.css');
+    $assert(str_contains($atomicMetadataCss, '.figma-node-atomic-date-supporting-text{width:88.812px;height:21px;font-size:14px;font-weight:800;line-height:21px;white-space:nowrap'), 'atomic-single-line-metadata-nowrap');
+
 }
 
 function blocks_engine_figma_transformer_run_text_style_contract(callable $assert, callable $fileContent, callable $artifactQualitySignal, callable $artifactQualitySignalCodes): void

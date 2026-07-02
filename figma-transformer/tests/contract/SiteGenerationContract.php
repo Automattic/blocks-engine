@@ -1003,17 +1003,47 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
             'background' => $background,
         );
     };
+    $responsiveEmitCardFrame = static function (string $id, string $name, float $width, float $height, string $label): array {
+        return array(
+            'id'       => $id,
+            'type'     => 'FRAME',
+            'name'     => $name,
+            'box'      => array('width' => $width, 'height' => $height),
+            'layout'   => array('display' => 'flex', 'flex_direction' => 'column', 'item_spacing' => 12.0),
+            'children' => array(
+                array('id' => $id . ':image', 'type' => 'RECTANGLE', 'name' => 'Card image', 'box' => array('width' => max(1.0, $width - 32.0), 'height' => 180.0), 'background' => '#d2d3d4'),
+                array('id' => $id . ':copy', 'type' => 'TEXT', 'name' => 'Card copy', 'characters' => $label, 'box' => array('width' => max(1.0, $width - 32.0), 'height' => 24.0), 'fontSize' => 16),
+            ),
+        );
+    };
+    $responsiveEmitCardRow = static function (string $id, string $name, float $width, float $height, string $direction) use ($responsiveEmitCardFrame): array {
+        return array(
+            'id'       => $id,
+            'type'     => 'FRAME',
+            'name'     => $name,
+            'box'      => array('width' => $width, 'height' => $height),
+            'layout'   => array('display' => 'flex', 'flex_direction' => $direction, 'item_spacing' => 20.0),
+            'children' => array(
+                $responsiveEmitCardFrame($id . ':card-a', 'Article card', 'row' === $direction ? 360.0 : $width, 'row' === $direction ? 280.0 : 360.0, 'First responsive card'),
+                $responsiveEmitCardFrame($id . ':card-b', 'Article card', 'row' === $direction ? 360.0 : $width, 'row' === $direction ? 280.0 : 360.0, 'Second responsive card'),
+                array('id' => $id . ':decor', 'type' => 'RECTANGLE', 'name' => 'Absolute decorative rail', 'box' => array('x' => 0.0, 'y' => 0.0, 'width' => 24.0, 'height' => $height), 'layout' => array('positioning' => 'absolute'), 'background' => '#ffcf00'),
+            ),
+        );
+    };
     $responsiveEmitScenegraph = array(
         'name'  => 'Responsive Emission Site',
         'nodes' => array(
             $responsiveEmitFrame('frame:home-desktop', 'Home Desktop', 1440.0, 3000.0, array(
                 $responsiveEmitCard('card:desktop', 'Hero Card', 1200.0, 400.0, '#ff0000'),
+                $responsiveEmitCardRow('cards:desktop', 'Article cards', 760.0, 320.0, 'row'),
             )),
             $responsiveEmitFrame('frame:home-tablet', 'Home Tablet', 834.0, 3000.0, array(
                 $responsiveEmitCard('card:tablet', 'Hero Card', 700.0, 400.0, '#ff0000'),
+                $responsiveEmitCardRow('cards:tablet', 'Article cards', 700.0, 320.0, 'row'),
             )),
             $responsiveEmitFrame('frame:home-mobile', 'Home Mobile', 390.0, 3200.0, array(
                 $responsiveEmitCard('card:mobile', 'Hero Card', 350.0, 500.0, '#00ff00'),
+                $responsiveEmitCardRow('cards:mobile', 'Article cards', 350.0, 900.0, 'column'),
             )),
             $responsiveEmitFrame('frame:about', 'About', 1440.0, 2000.0, array(
                 $responsiveEmitCard('card:about', 'About Card', 1100.0, 300.0, '#0000ff'),
@@ -1074,10 +1104,17 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(strpos($responsiveEmitCss, '@media (max-width:1137px)') < strpos($responsiveEmitCss, '@media (max-width:612px)'), 'responsive-emit-cascade-widest-first');
     // Media blocks override on the BASE class names, carrying only changed props.
     $responsiveEmitTabletBlock = substr($responsiveEmitCss, strpos($responsiveEmitCss, '@media (max-width:1137px)'), strpos($responsiveEmitCss, '@media (max-width:612px)') - strpos($responsiveEmitCss, '@media (max-width:1137px)'));
-    $assert(str_contains($responsiveEmitTabletBlock, '.figma-node-card-desktop-hero-card{width:700px}'), 'responsive-emit-tablet-card-width-diff-only');
+    $assert(str_contains($responsiveEmitTabletBlock, '.figma-node-card-desktop-hero-card{width:calc(100% - 134px);max-width:1200px}'), 'responsive-emit-tablet-card-width-diff-only');
     $assert(! str_contains($responsiveEmitTabletBlock, 'background:'), 'responsive-emit-tablet-omits-unchanged-background');
     $responsiveEmitMobileBlock = substr($responsiveEmitCss, strpos($responsiveEmitCss, '@media (max-width:612px)'));
-    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-card-desktop-hero-card{width:350px;height:500px;background:#00ff00}'), 'responsive-emit-mobile-card-diffs-width-height-background');
+    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-frame-home-desktop-home-desktop{height:3200px}'), 'responsive-emit-mobile-root-keeps-fluid-width');
+    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-card-desktop-hero-card{width:calc(100% - 40px);max-width:1200px;height:500px;background:#00ff00}'), 'responsive-emit-mobile-card-diffs-width-height-background');
+    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-cards-desktop-article-cards{width:calc(100% - 40px);max-width:760px;height:auto;flex-direction:column}'), 'responsive-emit-mobile-row-container-fluid-auto-height');
+    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-cards-desktop-card-a-article-card{width:100%;height:auto}'), 'responsive-emit-mobile-card-frame-fluid-auto-height');
+    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-cards-desktop-card-a-image-card-image{width:calc(100% - 32px);max-width:328px}'), 'responsive-emit-mobile-card-image-fluid-width');
+    $assert(! preg_match('/\.figma-node-cards-desktop-card-a-image-card-image\{[^}]*height:auto/', $responsiveEmitMobileBlock), 'responsive-emit-mobile-leaf-image-keeps-fixed-height');
+    $assert(! preg_match('/\.figma-node-cards-desktop-decor-absolute-decorative-rail\{[^}]*height:auto/', $responsiveEmitMobileBlock), 'responsive-emit-mobile-absolute-decoration-keeps-fixed-height');
+    $assert(! str_contains($responsiveEmitMobileBlock, '.figma-node-frame-home-desktop-home-desktop{width:390px'), 'responsive-emit-mobile-root-does-not-pin-variant-width');
     // The single-variant About page contributes NO media override for its nodes.
     $assert(0 === preg_match('/@media[^@]*figma-node-card-about/s', $responsiveEmitCss), 'responsive-emit-single-variant-page-no-media');
 

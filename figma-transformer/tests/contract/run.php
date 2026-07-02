@@ -1994,6 +1994,37 @@ $assert(false === ($barlowVariantsCoverage['Barlow Condensed']['needs_operator_f
 $assert(false === ($barlowVariantsCoverage['Barlow Semi Condensed']['needs_operator_font'] ?? null), 'barlow-semi-condensed-no-operator-font-needed');
 $assert(array() === ($barlowVariantsFonts['missing_css'] ?? null), 'barlow-variants-all-resolved');
 
+$multiPageGoogleFontsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Multi Page Google Fonts Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'mpgf:home',
+            'type'     => 'FRAME',
+            'name'     => 'Home Desktop',
+            'width'    => 1200,
+            'height'   => 400,
+            'children' => array(
+                array('id' => 'mpgf:home-heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Home', 'fontName' => array('family' => 'Barlow Condensed', 'style' => 'Bold'), 'fontSize' => 48),
+                array('id' => 'mpgf:home-body', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Home body', 'fontName' => array('family' => 'Plus Jakarta Sans', 'style' => 'Medium'), 'fontSize' => 18),
+            ),
+        ),
+        array(
+            'id'       => 'mpgf:about',
+            'type'     => 'FRAME',
+            'name'     => 'About Desktop',
+            'width'    => 1200,
+            'height'   => 400,
+            'children' => array(
+                array('id' => 'mpgf:about-heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'About', 'fontName' => array('family' => 'Plus Jakarta Sans', 'style' => 'Bold'), 'fontSize' => 40),
+                array('id' => 'mpgf:about-body', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'About body', 'fontName' => array('family' => 'Plus Jakarta Sans', 'style' => 'Medium'), 'fontSize' => 18),
+            ),
+        ),
+    ),
+), array('multi_page' => true, 'frame_ids' => array('mpgf:home', 'mpgf:about'), 'entry_frame_id' => 'mpgf:home'));
+$multiPageGoogleFontsCss = $fileContent($multiPageGoogleFontsResult, 'style.css');
+$assert(str_contains($multiPageGoogleFontsCss, "@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700&family=Plus+Jakarta+Sans:wght@500;700&display=swap');"), 'multi-page-google-fonts-import-keeps-semicolon-weights');
+$assert(! str_contains($multiPageGoogleFontsCss, "family=Plus+Jakarta+Sans:wght@500\n700"), 'multi-page-google-fonts-import-not-split-at-weight-semicolon');
+
 // Syne: a Google Fonts family that resolves via CDN.
 // Cabinet Grotesk: a Fontshare-only font not present in the Google Fonts metadata
 // endpoint — it appears as unresolved (needs_operator_font: true) when no operator
@@ -5676,6 +5707,176 @@ $assert(! str_contains($semanticHtml, '<div class="figma-node-region-top-top-bar
 $assert(str_contains($semanticHtml, '<section class="figma-node-region-body-content"'), 'semantic-top-level-band-emits-section');
 $assert(1 === substr_count($semanticHtml, '<section'), 'semantic-page-has-single-section');
 
+$navMenuItemsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Navigation Menu Items Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'nav-menu:page',
+            'type'     => 'FRAME',
+            'name'     => 'Page',
+            'width'    => 900,
+            'height'   => 240,
+            'children' => array(
+                array(
+                    'id'       => 'nav-menu:nav',
+                    'type'     => 'FRAME',
+                    'name'     => 'Navigation',
+                    'width'    => 520,
+                    'height'   => 48,
+                    'children' => array(
+                        array('id' => 'nav-menu:item-1', 'type' => 'FRAME', 'name' => 'Menu Item', 'width' => 90, 'height' => 26, 'children' => array(
+                            array('id' => 'nav-menu:text-1', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'News', 'fontSize' => 24, 'fontWeight' => 700),
+                        )),
+                        array('id' => 'nav-menu:item-2', 'type' => 'FRAME', 'name' => 'Menu Item', 'width' => 110, 'height' => 26, 'children' => array(
+                            array('id' => 'nav-menu:text-2', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Reviews', 'fontSize' => 24, 'fontWeight' => 700),
+                        )),
+                    ),
+                ),
+                array('id' => 'nav-menu:title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Actual Page Heading', 'fontSize' => 48, 'fontWeight' => 700),
+                array('id' => 'nav-menu:copy', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Body copy establishes the page text scale.', 'fontSize' => 16),
+            ),
+        ),
+    ),
+));
+$navMenuItemsHtml = $fileContent($navMenuItemsResult, 'index.html');
+$assert(1 === substr_count($navMenuItemsHtml, '<nav class="figma-node-nav-menu-nav-navigation"'), 'semantic-nav-menu-items-single-nav-container');
+$assert(! str_contains($navMenuItemsHtml, '<nav class="figma-node-nav-menu-item-1-menu-item"'), 'semantic-nav-menu-item-not-nested-nav');
+$assert(str_contains($navMenuItemsHtml, '<div class="figma-node-nav-menu-item-1-menu-item"'), 'semantic-nav-menu-item-stays-structural');
+$assert(str_contains($navMenuItemsHtml, '<span class="figma-node-nav-menu-text-1-text'), 'semantic-nav-label-text-inline');
+$assert(! str_contains($navMenuItemsHtml, '<h2 class="figma-node-nav-menu-text-1-text"') && ! str_contains($navMenuItemsHtml, '<h3 class="figma-node-nav-menu-text-1-text"') && ! str_contains($navMenuItemsHtml, '<h4 class="figma-node-nav-menu-text-1-text"') && ! str_contains($navMenuItemsHtml, '<h5 class="figma-node-nav-menu-text-1-text"') && ! str_contains($navMenuItemsHtml, '<h6 class="figma-node-nav-menu-text-1-text"'), 'semantic-nav-label-text-not-heading');
+
+$directTextListResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Direct Text List Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'direct-list:root',
+            'type'     => 'FRAME',
+            'name'     => 'Footer Shell',
+            'width'    => 600,
+            'height'   => 120,
+            'children' => array(
+                array(
+                    'id'       => 'direct-list:links',
+                    'type'     => 'FRAME',
+                    'name'     => 'Frame 29',
+                    'width'    => 265,
+                    'height'   => 26,
+                    'children' => array(
+                        array('id' => 'direct-list:about', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'About', 'width' => 48, 'height' => 26, 'fontSize' => 16),
+                        array('id' => 'direct-list:contact', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Contact', 'width' => 64, 'height' => 26, 'fontSize' => 16),
+                        array('id' => 'direct-list:privacy', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Privacy Policy', 'width' => 105, 'height' => 26, 'fontSize' => 16),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$directTextListHtml = $fileContent($directTextListResult, 'index.html');
+$assert(str_contains($directTextListHtml, '<ul class="figma-node-direct-list-links-frame-29"'), 'semantic-direct-text-list-container');
+$assert(3 === substr_count($directTextListHtml, '<li class="figma-node-direct-list-'), 'semantic-direct-text-list-items');
+$assert(! preg_match('/<ul class="figma-node-direct-list-links-frame-29"[\s\S]*<(p|h[1-6]) class="figma-node-direct-list-/', $directTextListHtml), 'semantic-direct-text-list-avoids-block-text-children');
+
+$paginationControlResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Flexible Pagination Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'pager:row',
+            'type'     => 'FRAME',
+            'name'     => 'Pagination',
+            'width'    => 1216,
+            'height'   => 40,
+            'layoutMode'            => 'HORIZONTAL',
+            'primaryAxisAlignItems'  => 'SPACE_BETWEEN',
+            'counterAxisAlignItems'  => 'CENTER',
+            'children' => array(
+                array('id' => 'pager:prev', 'type' => 'FRAME', 'name' => 'Previous', 'width' => 462, 'height' => 20, 'layoutGrow' => 1, 'children' => array(
+                    array('id' => 'pager:prev-text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Previous', 'fontSize' => 16),
+                )),
+                array('id' => 'pager:numbers', 'type' => 'FRAME', 'name' => 'Pagination Numbers', 'width' => 292, 'height' => 40, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                    array('id' => 'pager:n1', 'type' => 'TEXT', 'name' => 'Number', 'characters' => '1', 'fontSize' => 16),
+                    array('id' => 'pager:n2', 'type' => 'TEXT', 'name' => 'Number', 'characters' => '2', 'fontSize' => 16),
+                    array('id' => 'pager:ellipsis', 'type' => 'TEXT', 'name' => 'Number', 'characters' => '...', 'fontSize' => 16),
+                )),
+                array('id' => 'pager:next', 'type' => 'FRAME', 'name' => 'Next', 'width' => 462, 'height' => 20, 'layoutGrow' => 1, 'children' => array(
+                    array('id' => 'pager:next-text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Next', 'fontSize' => 16),
+                )),
+            ),
+        ),
+    ),
+));
+$paginationControlHtml = $fileContent($paginationControlResult, 'index.html');
+$paginationControlCss = $fileContent($paginationControlResult, 'style.css');
+$assert(str_contains($paginationControlCss, 'width:auto;height:20px;flex-grow:1'), 'pagination-flex-control-width-auto');
+$assert(! str_contains($paginationControlCss, 'width:462px'), 'pagination-flex-control-drops-fixed-edge-widths');
+$assert(str_contains($paginationControlHtml, '<span class="figma-node-pager-ellipsis-number'), 'pagination-ellipsis-not-heading');
+
+$freeformFlowResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Content Freeform Flow Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'freeform-flow:root',
+            'type'     => 'FRAME',
+            'name'     => 'Featured Posts',
+            'width'    => 800,
+            'height'   => 360,
+            'layout'   => array('freeform' => true),
+            'children' => array(
+                array('id' => 'freeform-flow:heading', 'type' => 'FRAME', 'name' => 'Heading With Separator', 'x' => 0, 'y' => 0, 'width' => 800, 'height' => 48, 'children' => array(
+                    array('id' => 'freeform-flow:title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Trending', 'fontSize' => 36),
+                )),
+                array('id' => 'freeform-flow:content', 'type' => 'FRAME', 'name' => 'Post Cards', 'x' => 0, 'y' => 0, 'width' => 800, 'height' => 312, 'children' => array(
+                    array('id' => 'freeform-flow:card-title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Post title', 'fontSize' => 24),
+                )),
+            ),
+        ),
+    ),
+));
+$freeformFlowCss = $fileContent($freeformFlowResult, 'style.css');
+$assert(! preg_match('/\.figma-node-freeform-flow-heading-heading-with-separator\{[^}]*position:absolute/', $freeformFlowCss), 'content-freeform-heading-flows');
+$assert(! preg_match('/\.figma-node-freeform-flow-content-post-cards\{[^}]*position:absolute/', $freeformFlowCss), 'content-freeform-content-flows');
+
+$fluidClonedBandResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Fluid Cloned Band Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'fluid-band:page',
+            'type'     => 'FRAME',
+            'name'     => 'Page',
+            'width'    => 1440,
+            'height'   => 160,
+            'children' => array(
+                array(
+                    'id'        => 'fluid-band:header',
+                    'type'      => 'INSTANCE',
+                    'name'      => 'Header',
+                    'source_id' => 'component:header',
+                    'width'     => 1440,
+                    'height'    => 92,
+                    'layout'    => array('freeform' => true),
+                    'children'  => array(
+                        array(
+                            'id'       => 'fluid-band:nav-row',
+                            'type'     => 'FRAME',
+                            'name'     => 'Nav Row',
+                            'x'        => 404,
+                            'y'        => 24,
+                            'width'    => 924,
+                            'height'   => 44,
+                            'layout'   => array('display' => 'flex', 'flex_direction' => 'row', 'grow' => 1),
+                            'children' => array(
+                                array('id' => 'fluid-band:nav', 'type' => 'FRAME', 'name' => 'Navigation', 'width' => 559, 'height' => 26, 'layout' => array('display' => 'flex', 'flex_direction' => 'row')),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$fluidClonedBandCss = $fileContent($fluidClonedBandResult, 'style.css');
+$assert(str_contains($fluidClonedBandCss, '.figma-node-fluid-band-header-header{width:100%;height:92px;position:relative'), 'fluid-cloned-freeform-band-renders-full-width');
+$assert(str_contains($fluidClonedBandCss, '.figma-node-fluid-band-nav-row-nav-row{width:auto;height:44px;position:absolute;left:404px;right:112px'), 'fluid-absolute-grow-child-uses-left-right-gutters');
+
 // Section refinement (#247 / #288 follow-up): a page with a few genuine
 // top-level bands wrapped around many deeply-nested containers (rows, columns,
 // cards, wrappers) emits <section> only for the top-level bands. Nested
@@ -6577,6 +6778,36 @@ $assert(! preg_match('/<button[^>]*data-figma-node-id="pag:previous"[\s\S]*<butt
 $assert(! preg_match('/<button[^>]*data-figma-node-id="pag:next"[\s\S]*<button[^>]*data-figma-node-id="pag:next-base"/', $paginationSemanticsHtml), 'pagination-next-avoids-nested-button');
 $assert(str_contains($paginationSemanticsHtml, '<ul class="figma-node-pag-numbers-pagination-numbers"'), 'pagination-numbers-still-list');
 $assert(str_contains($paginationSemanticsCss, '.figma-node-pag-separator-frame-frame-27{') && str_contains($paginationSemanticsCss, 'align-self:center') && str_contains($paginationSemanticsCss, 'margin-top:-4.8px'), 'heading-separator-line-box-offset');
+
+$paginationActiveUnderlayResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emit(array(
+    'schema' => 'blocks-engine/figma-transformer/scenegraph/v1',
+    'nodes'  => array(
+        array(
+            'id' => 'active:content', 'type' => 'FRAME', 'name' => 'Content',
+            'box' => array('width' => 40, 'height' => 40, 'coordinate_space' => 'local'),
+            'layout' => array(
+                'display' => 'flex', 'flex_direction' => 'row', 'justify_content' => 'center', 'align_items' => 'center',
+            ),
+            'children' => array(
+                array(
+                    'id' => 'active:ellipse', 'type' => 'ELLIPSE', 'name' => 'Ellipse',
+                    'box' => array('x' => 2, 'y' => 2, 'width' => 36, 'height' => 36, 'coordinate_space' => 'local'),
+                    'layout' => array('positioning' => 'absolute'),
+                    'figma_paints' => array('fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1)))),
+                ),
+                array(
+                    'id' => 'active:number', 'type' => 'TEXT', 'name' => 'Number', 'characters' => '1',
+                    'box' => array('x' => 16.5, 'y' => 14, 'width' => 7, 'height' => 12, 'coordinate_space' => 'local'),
+                    'figma_text' => array('characters' => '1', 'style' => array('font_size' => 16, 'font_weight' => 700, 'color' => '#ffffff')),
+                ),
+            ),
+        ),
+    ),
+));
+$paginationActiveUnderlayCss = $fileContent($paginationActiveUnderlayResult, 'style.css');
+$assert('success' === ($paginationActiveUnderlayResult['status'] ?? null), 'pagination-active-underlay-transform-success');
+$assert(str_contains($paginationActiveUnderlayCss, '.figma-node-active-ellipse-ellipse{') && str_contains($paginationActiveUnderlayCss, 'z-index:0') && str_contains($paginationActiveUnderlayCss, 'pointer-events:none'), 'pagination-active-ellipse-underlay-z-index');
+$assert(str_contains($paginationActiveUnderlayCss, '.figma-node-active-number-number{') && str_contains($paginationActiveUnderlayCss, 'z-index:1'), 'pagination-active-number-above-underlay');
 
 $paginationResponsiveResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
     array(

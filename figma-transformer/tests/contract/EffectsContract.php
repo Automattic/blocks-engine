@@ -207,8 +207,9 @@ function blocks_engine_figma_transformer_run_effects_contract(callable $assert, 
                                 'type'                            => 'VECTOR',
                                 'name'                            => 'Clone glow vector',
                                 'box'                             => array('x' => 0, 'y' => 0, 'width' => 106, 'height' => 106, 'coordinate_space' => 'local'),
+                                'layout'                          => array('constraints' => array('horizontal' => 'CENTER')),
                                 'figma_paints'                    => array(array('type' => 'SOLID', 'color' => '#ffcf00', 'opacity' => 1)),
-                                'figma_vector_paths'              => array(array('data' => 'M53 0A53 53 0 1 1 52.99 0Z', 'windingRule' => 'NONZERO')),
+                                'figma_vector_paths'              => array(array('data' => 'M-5 -5L101 -5L101 101L-5 101Z', 'windingRule' => 'NONZERO')),
                                 'figma_effects'                   => array(array(
                                     'type'     => 'drop_shadow',
                                     'offset_x' => 0,
@@ -228,9 +229,11 @@ function blocks_engine_figma_transformer_run_effects_contract(callable $assert, 
         ),
     ));
     $componentCloneGlowCss = $fileContent($componentCloneGlowResult, 'style.css');
+    $componentCloneGlowHtml = $fileContent($componentCloneGlowResult, 'index.html');
     $assert(! str_contains($componentCloneGlowCss, '.figma-node-clone-clip-clone-clipped-glow-parent{width:96px;height:96px;overflow:hidden'), 'effects-component-clone-glow-parent-keeps-shadow-overflow-visible');
     $assert(str_contains($componentCloneGlowCss, '.figma-node-clone-glow-clone-glow-vector{width:106px;height:106px;position:absolute;left:0px;top:0px;') && str_contains($componentCloneGlowCss, 'filter:drop-shadow(0px 0px 16px '), 'effects-component-clone-local-glow-keeps-local-offset');
     $assert(! str_contains($componentCloneGlowCss, '.figma-node-clone-glow-clone-glow-vector{width:106px;height:106px;position:absolute;left:560px;top:0px'), 'effects-component-clone-local-glow-no-source-x-fallback');
+    $assert(str_contains($componentCloneGlowHtml, 'viewBox="0 0 106 106"') && str_contains($componentCloneGlowHtml, 'overflow="visible"'), 'effects-component-clone-local-negative-ink-preserves-viewbox-origin');
 }
 
 /**

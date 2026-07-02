@@ -240,15 +240,19 @@ final class LayoutIntentClassifier
     public function isDecorativeFlexUnderlay(array $node, array $parentNode): bool
     {
         $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
-        if ( ! $this->parentSupportsDecorativeFlexUnderlay($parentLayout) ) {
+        $isCompactControlUnderlay = $this->isCompactAbsoluteShapeUnderlay($node, $parentNode);
+        if ( ! $isCompactControlUnderlay && ! $this->parentSupportsDecorativeFlexUnderlay($parentLayout) ) {
             return false;
         }
 
-        if ( ! $this->hasDecorativeUnderlayForegroundEvidence($node, $parentNode) ) {
+        if ( ! $isCompactControlUnderlay && ! $this->hasDecorativeUnderlayForegroundEvidence($node, $parentNode) ) {
             return false;
         }
 
-        return $this->isOversizedAgainstParent($node, $parentNode) || $this->isAbsoluteBackgroundBleed($node, $parentNode, $parentLayout);
+        return $isCompactControlUnderlay
+            || $this->isOversizedAgainstParent($node, $parentNode)
+            || $this->isAbsoluteBackgroundBleed($node, $parentNode, $parentLayout)
+            || $this->isCompactAbsoluteShapeUnderlay($node, $parentNode);
     }
 
     /**
@@ -699,6 +703,39 @@ final class LayoutIntentClassifier
         $crossSize = (float) $box[$crossAxis];
         $parentCrossSize = (float) $parentBox[$crossAxis];
         return 1.0 <= ($crossSize / $parentCrossSize) || ($crossOffset <= 0.0 && $crossOffset + $crossSize >= $parentCrossSize);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isCompactAbsoluteShapeUnderlay(array $node, array $parentNode): bool
+    {
+        if ( 'absolute' !== ($node['layout']['positioning'] ?? null) ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        foreach ( array('width', 'height') as $dimension ) {
+            if ( ! isset($box[$dimension], $parentBox[$dimension]) || ! is_numeric($box[$dimension]) || ! is_numeric($parentBox[$dimension]) || 0.0 >= (float) $parentBox[$dimension] ) {
+                return false;
+            }
+        }
+
+        $parentArea = (float) $parentBox['width'] * (float) $parentBox['height'];
+        $nodeArea = (float) $box['width'] * (float) $box['height'];
+        if ( $parentArea > 9216.0 || ($nodeArea / $parentArea) < 0.45 ) {
+            return false;
+        }
+
+        foreach ( $this->nodeList($parentNode) as $sibling ) {
+            if ( is_array($sibling) && (string) ($sibling['id'] ?? '') !== (string) ($node['id'] ?? '') && $this->treeHasText($sibling) && $this->nodesOverlapInParent($node, $sibling, $parentNode) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

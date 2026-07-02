@@ -86,6 +86,39 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
                         ),
                     ),
                     array(
+                        'id'              => 'form:search-icon',
+                        'type'            => 'FRAME',
+                        'name'            => 'Search field with icon',
+                        'width'           => 220,
+                        'height'          => 46,
+                        'layoutMode'      => 'HORIZONTAL',
+                        'primaryAxisAlignItems' => 'CENTER',
+                        'counterAxisAlignItems' => 'CENTER',
+                        'paddingTop'      => 12,
+                        'paddingRight'    => 18,
+                        'paddingBottom'   => 12,
+                        'paddingLeft'     => 18,
+                        'cornerRadius'    => 4,
+                        'fills'           => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                        'children'        => array(
+                            array(
+                                'id'           => 'form:search-icon:icon',
+                                'type'         => 'ELLIPSE',
+                                'name'         => 'Search icon',
+                                'width'        => 16,
+                                'height'       => 16,
+                                'strokePaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                            ),
+                            array(
+                                'id'         => 'form:search-icon:text',
+                                'type'       => 'TEXT',
+                                'name'       => 'Search placeholder',
+                                'characters' => 'Search for...',
+                                'fontSize'   => 16,
+                            ),
+                        ),
+                    ),
+                    array(
                         'id'              => 'form:comment',
                         'type'            => 'FRAME',
                         'name'            => 'Comment textarea',
@@ -143,6 +176,11 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
     $assert(str_contains($html, '<input class="figma-node-form-search-search-field"'), 'form-control-search-emits-input-tag');
     $assert(str_contains($html, 'type="search"'), 'form-control-search-infers-search-type');
     $assert(str_contains($html, 'placeholder="Search this site"'), 'form-control-search-uses-placeholder');
+    $assert(str_contains($html, '<div class="figma-node-form-search-icon-search-field-with-icon"'), 'form-control-search-icon-keeps-visual-wrapper');
+    $assert(str_contains($html, 'data-figma-node-id="form:search-icon:icon"'), 'form-control-search-icon-preserves-icon-child');
+    $assert(str_contains($html, '<input class="figma-node-form-search-icon-search-field-with-icon__control" data-figma-synthetic-control="input" type="search" placeholder="Search for..."'), 'form-control-search-icon-emits-nested-input');
+    $assert(! str_contains($html, 'data-figma-node-id="form:search-icon:text"'), 'form-control-search-icon-suppresses-presentational-placeholder');
+    $assert(str_contains($css, '.figma-node-form-search-icon-search-field-with-icon__control{border:0;background:transparent;padding:0;margin:0;min-width:0;flex:1;font:inherit;color:inherit;outline:none}'), 'form-control-search-icon-input-reset-css');
     $assert(str_contains($html, '<textarea class="figma-node-form-comment-comment-textarea"'), 'form-control-comment-emits-textarea-tag');
     $assert(str_contains($html, 'placeholder="Leave a comment"'), 'form-control-comment-uses-placeholder');
     $assert(! str_contains($html, 'data-figma-node-id="form:comment:text"'), 'form-control-comment-suppresses-presentational-text-child');
