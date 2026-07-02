@@ -5708,7 +5708,8 @@ $assert(str_contains($semanticHtml, '<h2 class="figma-node-body-h2-subhead"'), '
 $assert(str_contains($semanticHtml, '<p class="figma-node-body-p1-intro'), 'semantic-body-copy-emits-paragraph');
 $assert(str_contains($semanticHtml, '<ul class="figma-node-body-cards-feature-cards"'), 'semantic-repeated-items-emit-list');
 $assert(str_contains($semanticHtml, '<li class="figma-node-card-1-card-one'), 'semantic-repeated-item-emits-list-item');
-$assert(str_contains($semanticCss, 'display:list-item'), 'semantic-repeated-item-preserves-list-marker-display');
+$assert(str_contains($semanticCss, 'position:relative') && ! str_contains($semanticCss, 'display:list-item'), 'semantic-repeated-item-preserves-positioning-context');
+$assert(str_contains($semanticCss, '.figma-node-card-1-card-one::before{content:"\2022"'), 'semantic-repeated-item-restores-marker-pseudo');
 $assert(str_contains($semanticHtml, '<button class="figma-node-body-cta-get-started"'), 'semantic-button-like-node-emits-button');
 $assert(! str_contains($semanticHtml, '<div class="figma-node-region-top-top-bar"'), 'semantic-header-not-generic-div');
 // The middle content band (not a header/nav/footer landmark) is the genuine
@@ -6817,6 +6818,10 @@ $assert('success' === ($paginationSemanticsResult['status'] ?? null), 'paginatio
 $assert(! preg_match('/<button[^>]*data-figma-node-id="pag:previous"[\s\S]*<button[^>]*data-figma-node-id="pag:previous-base"/', $paginationSemanticsHtml), 'pagination-previous-avoids-nested-button');
 $assert(! preg_match('/<button[^>]*data-figma-node-id="pag:next"[\s\S]*<button[^>]*data-figma-node-id="pag:next-base"/', $paginationSemanticsHtml), 'pagination-next-avoids-nested-button');
 $assert(str_contains($paginationSemanticsHtml, '<ul class="figma-node-pag-numbers-pagination-numbers"'), 'pagination-numbers-still-list');
+$paginationNumbersRule = blocks_engine_figma_transformer_contract_css_rule($paginationSemanticsCss, '.figma-node-pag-numbers-pagination-numbers');
+$paginationNumberBaseRule = blocks_engine_figma_transformer_contract_css_rule($paginationSemanticsCss, '.figma-node-pag-n1-pagination-number-base');
+$assert(! str_contains($paginationNumbersRule, 'list-style:disc') && ! str_contains($paginationNumbersRule, 'padding-left:1.5em'), 'pagination-numbers-avoid-content-list-marker-css');
+$assert(! str_contains($paginationNumberBaseRule, 'display:list-item') && ! str_contains($paginationSemanticsCss, '.figma-node-pag-n1-pagination-number-base::before'), 'pagination-number-base-avoids-content-list-marker-display');
 $assert(str_contains($paginationSemanticsCss, '.figma-node-pag-separator-frame-frame-27{') && str_contains($paginationSemanticsCss, 'align-self:center') && str_contains($paginationSemanticsCss, 'margin-top:-4.8px'), 'heading-separator-line-box-offset');
 
 $paginationActiveUnderlayResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emit(array(

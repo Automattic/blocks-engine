@@ -30,6 +30,9 @@ final class LayoutIntentClassifier
     /** @var array<int, string> */
     private const CHROME_NAME_HINTS = array('header', 'footer', 'nav', 'navigation', 'menu');
 
+    /** @var array<int, string> */
+    private const CONTROL_LIST_NAME_HINTS = array('pagination', 'page number');
+
     /**
      * @param array<string, array<string, mixed>> $assetsById
      */
@@ -149,7 +152,7 @@ final class LayoutIntentClassifier
                 continue;
             }
             $name = strtolower((string) ($candidate['name'] ?? ''));
-            foreach ( self::CHROME_NAME_HINTS as $hint ) {
+            foreach ( array_merge(self::CHROME_NAME_HINTS, self::CONTROL_LIST_NAME_HINTS) as $hint ) {
                 if ( str_contains($name, $hint) ) {
                     return true;
                 }

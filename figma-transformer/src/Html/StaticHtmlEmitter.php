@@ -658,10 +658,12 @@ final class StaticHtmlEmitter
             $this->nodeReadableNames[$className] = $this->sharedClassBaseName($name, $type);
         }
         if ( in_array($tag, array('ol', 'ul'), true) && ( null !== $sourceTextList || ! empty($this->listItemIds($node)) ) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
-            $cssRules[] = '.' . $className . '{list-style:' . ( 'ol' === $tag ? 'decimal' : 'disc' ) . ';padding-left:1.5em}';
+            $cssRules[] = '.' . $className . '{list-style:' . ( 'ol' === $tag ? 'decimal' : 'disc' ) . ';padding-left:1.5em' . ( 'ol' === $tag ? ';counter-reset:figma-list-item' : '' ) . '}';
         }
         if ( 'li' === $tag && null !== $parentNode && $this->isListItemOf($node, $parentNode) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
-            $cssRules[] = '.' . $className . '{display:list-item}';
+            $marker = $this->listLooksOrdered($parentNode) ? 'counter(figma-list-item) ". "' : '"\2022"';
+            $cssRules[] = '.' . $className . '{position:relative}';
+            $cssRules[] = '.' . $className . '::before{content:' . $marker . ';counter-increment:figma-list-item;display:inline-block;min-width:1.5em;margin-left:-1.5em;flex-shrink:0}';
         }
         $nodeStyleDiagnostics[] = $this->nodeStyleDiagnostic($node, $type, $className, $tag, $styles, $parentNode);
 
