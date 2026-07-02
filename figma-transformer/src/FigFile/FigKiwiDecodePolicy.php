@@ -36,19 +36,22 @@ final class FigKiwiDecodePolicy
             // Without these two names the per-character override data is dropped by
             // `skipField()` and every .fig text node emits flat, single-style text.
             'TextData' => array('characters', 'layoutSize', 'characterStyleIDs', 'styleOverrideTable', 'layoutVersion', 'lines', 'minContentHeight', 'truncationStartIndex', 'truncatedHeight', 'logicalIndexToCharacterOffsetMap', 'derivedLines'),
-            'DerivedTextData' => array('layoutSize', 'baselines', 'fontMetaData', 'truncationStartIndex', 'truncatedHeight', 'logicalIndexToCharacterOffsetMap', 'derivedLines'),
+            'DerivedTextData' => array('layoutSize', 'baselines', 'fontMetaData', 'truncationStartIndex', 'truncatedHeight', 'logicalIndexToCharacterOffsetMap', 'derivedLines', 'decorations', 'hyperlinkBoxes'),
             'TextLineData' => array('lineType', 'styleId', 'indentationLevel', 'sourceDirectionality', 'directionality', 'directionalityIntent', 'downgradeStyleId', 'consistencyStyleId', 'listStartOffset', 'isFirstLineOfList'),
             'DerivedTextLineData' => array('directionality'),
             'Baseline' => array('position', 'width', 'lineY', 'lineHeight', 'lineAscent', 'firstCharacter', 'endCharacter'),
             'Glyph' => array('position', 'fontSize', 'firstCharacter', 'endCharacter', 'advance', 'rotation', 'styleID'),
-            'FontMetaData' => array('key', 'fontLineHeight', 'fontStyle', 'fontWeight'),
+            'FontMetaData' => array('key', 'fontLineHeight', 'fontStyle', 'fontWeight', 'fontDigest'),
+            'Rect' => array('x', 'y', 'w', 'h', 'width', 'height'),
+            'Decoration' => array('rects', 'styleID'),
+            'HyperlinkBox' => array('bounds', 'url', 'guid', 'hyperlinkID', 'cmsTarget', 'openInNewTab'),
             'FontVariation' => array('axisTag', 'axisName', 'value'),
             'Number' => array('value', 'units'),
             'Paint' => array('type', 'color', 'opacity', 'visible', 'blendMode', 'stops', 'transform', 'imageTransform', 'cropTransform', 'cropRect', 'image', 'imageThumbnail', 'imageScaleMode', 'originalImageWidth', 'originalImageHeight', 'scale', 'rotation', 'imageShouldColorManage', 'thumbHash', 'animationFrame', 'altText', 'assetRef', 'sourceImage', 'publishID', 'sourceLibraryKey', 'libraryKey', 'exportSettings'),
             // Effect struct (#328). The Kiwi blur token is `FOREGROUND_BLUR`
             // (REST calls it `LAYER_BLUR`); the normalizer bridges both. `offset`
             // resolves to the whitelisted `Vector` struct and `color` to `Color`.
-            'Effect' => array('type', 'color', 'offset', 'radius', 'spread', 'visible', 'blendMode', 'showShadowBehindNode'),
+            'Effect' => array('type', 'color', 'offset', 'radius', 'spread', 'opacity', 'visible', 'blendMode', 'showShadowBehindNode'),
             'Image' => array('hash', 'name', 'width', 'height', 'thumbHash', 'assetRef', 'sourceImage', 'publishID', 'sourceLibraryKey', 'libraryKey'),
             'SourceImage' => array('hash', 'name', 'width', 'height', 'thumbHash', 'assetRef', 'publishID', 'sourceLibraryKey', 'libraryKey'),
             'AssetRef' => array('id', 'key', 'nodeID', 'fileKey', 'libraryKey', 'publishID', 'sourceLibraryKey', 'guid'),
@@ -62,10 +65,10 @@ final class FigKiwiDecodePolicy
             'Guide' => array('axis', 'offset', 'guid'),
             'LayoutGrid' => array('type', 'axis', 'visible', 'numSections', 'offset', 'sectionSize', 'gutterSize', 'color', 'pattern'),
             'Constraints' => array('horizontal', 'vertical'),
-            'SymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
-            'DerivedSymbolData' => array('symbolID', 'symbolOverrides', 'uniformScaleFactor'),
-            'SymbolOverride' => array('nodeId', 'node_id', 'id', 'guidPath', 'characters', 'text', 'name', 'textData', 'derivedTextData', 'fontName', 'fontFamily', 'fontPostScriptName', 'fontWeight', 'fontSize', 'lineHeight', 'lineHeightPx', 'lineHeightPercent', 'letterSpacing', 'listSpacing', 'styleIdForText', 'size', 'relativeTransform', 'absoluteTransform', 'transform', 'fillPaints', 'fills', 'strokes', 'strokePaints', 'strokeWeight', 'strokeAlign', 'dashPattern', 'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight', 'borderLeftWeight', 'borderRightWeight', 'effects', 'styleIdForFill', 'styleIdForStrokeFill', 'styleIdForStroke', 'styleIdForEffect', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd', 'arcData', 'cornerRadius', 'rectangleTopLeftCornerRadius', 'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius', 'rectangleBottomRightCornerRadius', 'stackMode', 'stackPrimarySizing', 'stackCounterSizing', 'stackPositioning', 'stackChildAlignSelf', 'stackChildPrimaryGrow', 'componentPropAssignments'),
-            'GUIDPath' => array('guids'),
+            'SymbolData' => array('symbolID', 'symbolOverrides', 'symbolOverride', 'overrides', 'uniformScaleFactor'),
+            'DerivedSymbolData' => array('symbolID', 'symbolOverrides', 'symbolOverride', 'overrides', 'uniformScaleFactor'),
+            'SymbolOverride' => array('nodeId', 'node_id', 'nodeID', 'id', 'guid', 'nodeGuid', 'guidPath', 'characters', 'text', 'name', 'textData', 'derivedTextData', 'fontName', 'fontFamily', 'fontPostScriptName', 'fontWeight', 'fontSize', 'lineHeight', 'lineHeightPx', 'lineHeightPercent', 'letterSpacing', 'listSpacing', 'styleIdForText', 'size', 'relativeTransform', 'absoluteTransform', 'transform', 'fillPaints', 'fills', 'strokes', 'strokePaints', 'strokeWeight', 'strokeAlign', 'dashPattern', 'borderStrokeWeightsIndependent', 'borderTopWeight', 'borderBottomWeight', 'borderLeftWeight', 'borderRightWeight', 'effects', 'styleIdForFill', 'styleIdForStrokeFill', 'styleIdForStroke', 'styleIdForEffect', 'fillGeometry', 'strokeGeometry', 'vectorPaths', 'paths', 'pathData', 'path', 'd', 'arcData', 'cornerRadius', 'rectangleTopLeftCornerRadius', 'rectangleTopRightCornerRadius', 'rectangleBottomLeftCornerRadius', 'rectangleBottomRightCornerRadius', 'stackWidth', 'stackHeight', 'stackMode', 'stackPrimarySizing', 'stackCounterSizing', 'stackSpacing', 'stackCounterSpacing', 'stackHorizontalGap', 'stackVerticalGap', 'stackWrap', 'stackReverseZIndex', 'stackPositioning', 'stackChildAlignSelf', 'stackChildPrimaryGrow', 'stackChildOrder', 'stackHorizontalPadding', 'stackVerticalPadding', 'stackPadding', 'stackPaddingLeft', 'stackPaddingRight', 'stackPaddingTop', 'stackPaddingBottom', 'stackPrimaryAlignItems', 'stackCounterAlignItems', 'layoutMode', 'primaryAxisSizingMode', 'counterAxisSizingMode', 'primaryAxisAlignItems', 'counterAxisAlignItems', 'itemSpacing', 'gap', 'counterAxisSpacing', 'counterAxisGap', 'layoutWrap', 'layoutGrow', 'layoutAlign', 'layoutOrder', 'layoutPositioning', 'layoutSizingHorizontal', 'layoutSizingVertical', 'horizontalSizing', 'verticalSizing', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'paddingHorizontal', 'paddingVertical', 'constraints', 'horizontalConstraint', 'verticalConstraint', 'minSize', 'maxSize', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight', 'componentPropAssignments'),
+            'GUIDPath' => array('guids', 'guid'),
             'StyleId' => array('guid'),
             'StateGroupPropertyValueOrder' => array('property', 'values'),
             'VariantPropSpec' => array('propDefId', 'value'),
@@ -388,6 +391,7 @@ final class FigKiwiDecodePolicy
     {
         return array(
             'stackWidth', 'stackHeight', 'stackPrimarySizing', 'stackMode', 'stackSpacing',
+            'stackHorizontalGap', 'stackVerticalGap', 'stackChildOrder', 'layoutOrder', 'gap', 'counterAxisGap',
             'stackHorizontalPadding', 'stackVerticalPadding', 'stackPadding', 'stackPaddingLeft',
             'stackPaddingRight', 'stackPaddingTop', 'stackPaddingBottom', 'stackPrimaryAlignItems',
             'stackCounterAlignItems', 'stackCounterSizing', 'stackWrap', 'stackCounterSpacing',

@@ -64,9 +64,9 @@ final class InstanceResolver
     private function collectRawOverrides(array $node): array
     {
         $rawOverrides = array();
-        foreach ( array('overrides', 'symbolOverrides') as $key ) {
+        foreach ( array('overrides', 'symbolOverrides', 'symbolOverride') as $key ) {
             if ( is_array($node[$key] ?? null) ) {
-                $rawOverrides = array_merge($rawOverrides, $node[$key]);
+                $rawOverrides = array_merge($rawOverrides, $this->normalizeRawOverrideList($node[$key]));
             }
         }
 
@@ -76,16 +76,18 @@ final class InstanceResolver
                 continue;
             }
 
-            if ( is_array($payload['symbolOverrides'] ?? null) ) {
-                $rawOverrides = array_merge($rawOverrides, $payload['symbolOverrides']);
-                continue;
+            foreach ( array('symbolOverrides', 'symbolOverride', 'overrides') as $overrideKey ) {
+                if ( is_array($payload[$overrideKey] ?? null) ) {
+                    $rawOverrides = array_merge($rawOverrides, $this->normalizeRawOverrideList($payload[$overrideKey]));
+                    continue 2;
+                }
             }
 
             // Older normalized fixtures stored DerivedSymbolData as the override
             // list itself. Keep accepting that shape while preferring the real
             // Kiwi struct shape above.
             if ( 'derivedSymbolData' === $key && array_is_list($payload) ) {
-                $rawOverrides = array_merge($rawOverrides, $payload);
+                $rawOverrides = array_merge($rawOverrides, $this->normalizeRawOverrideList($payload));
             }
         }
 
@@ -93,13 +95,46 @@ final class InstanceResolver
     }
 
     /**
+     * @param array<int|string, mixed> $raw
+     * @return array<int|string, mixed>
+     */
+    private function normalizeRawOverrideList(array $raw): array
+    {
+        if ( array_is_list($raw) ) {
+            return $raw;
+        }
+
+        $looksLikeSingleOverride = false;
+        foreach ( array('nodeId', 'node_id', 'nodeID', 'id', 'guid', 'guidPath', 'textData', 'characters', 'fillPaints', 'fills', 'componentPropAssignments') as $key ) {
+            if ( array_key_exists($key, $raw) ) {
+                $looksLikeSingleOverride = true;
+                break;
+            }
+        }
+
+        return $looksLikeSingleOverride ? array($raw) : $raw;
+    }
+
+    /**
      * @param array<string, mixed> $override
      */
     private function readOverrideGuidPathTarget(array $override): ?string
     {
+        $directGuid = $this->readGuidId($override['guid'] ?? $override['nodeID'] ?? $override['nodeGuid'] ?? null);
+        if ( null !== $directGuid ) {
+            return $directGuid;
+        }
+
         $guidPath = $override['guidPath'] ?? null;
         if ( ! is_array($guidPath) ) {
             return null;
+        }
+
+        if ( isset($guidPath['guid']) ) {
+            $pathGuid = $this->readGuidId($guidPath['guid']);
+            if ( null !== $pathGuid ) {
+                return $pathGuid;
+            }
         }
 
         $guids = is_array($guidPath['guids'] ?? null) ? $guidPath['guids'] : $guidPath;
@@ -116,6 +151,10 @@ final class InstanceResolver
 
     private function readGuidId(mixed $guid): ?string
     {
+        if ( is_array($guid) && isset($guid['guid']) ) {
+            return $this->readGuidId($guid['guid']);
+        }
+
         if ( is_array($guid) && isset($guid['sessionID'], $guid['localID']) ) {
             return (string) $guid['sessionID'] . ':' . (string) $guid['localID'];
         }

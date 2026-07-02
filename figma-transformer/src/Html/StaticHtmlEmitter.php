@@ -154,6 +154,22 @@ final class StaticHtmlEmitter
     private array $headingLevels = array();
 
     /**
+     * Per-page heading node id => stable DOM id, derived from heading text.
+     *
+     * @var array<string, string>
+     */
+    private array $headingAnchorIds = array();
+
+    /**
+     * Per-page normalized heading text => page-local hash href for TOC entries.
+     *
+     * @var array<string, string>
+     */
+    private array $tocHrefByText = array();
+
+    private string $currentPagePath = 'index.html';
+
+    /**
      * Memoized list-item id sets keyed by container node id, so list-container
      * (<ul>) and list-item (<li>) decisions stay consistent within a page.
      *
@@ -199,6 +215,7 @@ final class StaticHtmlEmitter
         $this->stickyLayoutCoordinator()->detectStickyGhostCandidates($nodes);
         $this->listItemIdCache = array();
         $this->prepareHeadingRanking($nodes);
+        $this->prepareHeadingAnchors($nodes, 'index.html');
         $diagnostics = array();
         $nodeStyleDiagnostics = array();
         $assetFiles = $this->normalizeAssets($scenegraph['assets'] ?? array(), $diagnostics);
@@ -383,6 +400,7 @@ final class StaticHtmlEmitter
 
             $this->listItemIdCache = array();
             $this->prepareHeadingRanking(array($frameNode));
+            $this->prepareHeadingAnchors(array($frameNode), $path);
             // A planned page is a single wrapping frame; its bands are its
             // direct children one level down.
             $this->sectionDepth = 1;
@@ -409,8 +427,12 @@ final class StaticHtmlEmitter
         }
 
         if ( empty($files) ) {
-            $this->sectionDepth = $this->sectionDepthFor($this->nodeList($scenegraph));
-            foreach ( $this->nodeList($scenegraph) as $node ) {
+            $this->currentPagePath = 'index.html';
+            $fallbackNodes = $this->nodeList($scenegraph);
+            $this->prepareHeadingRanking($fallbackNodes);
+            $this->prepareHeadingAnchors($fallbackNodes, 'index.html');
+            $this->sectionDepth = $this->sectionDepthFor($fallbackNodes);
+            foreach ( $fallbackNodes as $node ) {
                 if ( ! is_array($node) ) {
                     continue;
                 }
@@ -524,7 +546,7 @@ final class StaticHtmlEmitter
         }
 
         $baseStyles = array();
-        $this->collectVariantNodeStyles($baseNode, 0, null, 'r', $baseStyles);
+        $this->collectVariantNodeStyles($baseNode, 0, null, null, 'r', $baseStyles);
 
         // Derive the primary (base) viewport width from the variants list so we
         // can compute midpoint breakpoints between adjacent variant widths.
@@ -557,7 +579,7 @@ final class StaticHtmlEmitter
             }
 
             $variantStyles = array();
-            $this->collectVariantNodeStyles($nodeMap[$variantId], 0, null, 'r', $variantStyles);
+            $this->collectVariantNodeStyles($nodeMap[$variantId], 0, null, null, 'r', $variantStyles);
 
             $rules = $this->breakpointDiffRules($baseStyles, $variantStyles);
             if ( empty($rules) ) {
@@ -597,7 +619,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @param array<string, mixed> $map  pathKey => array{class: string, styles: array<int, string>}
      */
-    private function collectVariantNodeStyles(array $node, int $depth, ?array $parentNode, string $pathKey, array &$map): void
+    private function collectVariantNodeStyles(array $node, int $depth, ?array $parentNode, ?array $grandParentNode, string $pathKey, array &$map): void
     {
         if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) ) {
             return;
@@ -607,12 +629,13 @@ final class StaticHtmlEmitter
         $name = (string) ($node['name'] ?? '');
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
-        $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $this->styleDeclarations($node, $type, $parentNode));
+        $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $this->styleDeclarations($node, $type, $parentNode, $grandParentNode));
 
         $map[$pathKey] = array(
             'class'           => $className,
             'styles'          => $styles,
             'contains_sticky' => $this->stickyLayoutCoordinator()->containsStickyPrimary($node),
+            'node'            => $node,
         );
 
         $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
@@ -626,11 +649,25 @@ final class StaticHtmlEmitter
                 continue;
             }
 
-            $childType = strtoupper((string) ($child['type'] ?? 'FRAME'));
-            $childKey = $pathKey . '/' . $childOrdinal . ':' . $childType;
-            $this->collectVariantNodeStyles($child, $depth + 1, $node, $childKey, $map);
+            $childKey = $pathKey . '/' . $this->breakpointChildKey($child, $childOrdinal);
+            $this->collectVariantNodeStyles($child, $depth + 1, $node, $parentNode, $childKey, $map);
             ++$childOrdinal;
         }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function breakpointChildKey(array $node, int $ordinal): string
+    {
+        $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
+        foreach ( array('figma_component_source_id', 'source_id') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== (string) $node[$key] ) {
+                return 'source:' . $this->slug($type . '-' . (string) $node[$key]);
+            }
+        }
+
+        return $ordinal . ':' . $type;
     }
 
     /**
@@ -656,6 +693,8 @@ final class StaticHtmlEmitter
 
             $changed = array();
             $baseContainsSticky = true === ($base['contains_sticky'] ?? false);
+            $baseNode = is_array($base['node'] ?? null) ? $base['node'] : array();
+            $preservePaginationRow = ! empty($baseNode) && $this->isPaginationContainer($baseNode);
             foreach ( $variantDeclarations as $declaration ) {
                 $parts = explode(':', (string) $declaration, 2);
                 if ( 2 !== count($parts) ) {
@@ -665,6 +704,9 @@ final class StaticHtmlEmitter
                 $property = trim($parts[0]);
                 $value = trim($parts[1]);
                 if ( $baseContainsSticky && 'overflow' === $property ) {
+                    continue;
+                }
+                if ( $preservePaginationRow && in_array($property, array('height', 'flex-wrap', 'align-content'), true) ) {
                     continue;
                 }
                 if ( ! array_key_exists($property, $baseMap) || $baseMap[$property] !== $value ) {
@@ -687,7 +729,7 @@ final class StaticHtmlEmitter
      * @param array<int, string>                 $cssRules
      * @param array<int, array<string, mixed>>   $diagnostics
      */
-    private function emitNode(array $node, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics, int $depth, ?array $parentNode): string
+    private function emitNode(array $node, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics, int $depth, ?array $parentNode, ?array $grandParentNode = null): string
     {
         if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) ) {
             return '';
@@ -725,13 +767,16 @@ final class StaticHtmlEmitter
         $assetPath = $this->nodeAssetPath($node);
         $hasVectorAssetFallback = $this->isUnsupportedVectorType($type) && null !== $assetPath;
 
-        if ( 'input' !== $tag && ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) ) {
+        if ( ! in_array($tag, array('input', 'textarea'), true) && ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) && ! $this->vectorSvgComposesChildren($vectorSvg) ) {
             foreach ( $children as $child ) {
                 if ( is_array($child) ) {
                     if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
                         continue;
                     }
-                    $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node);
+                    if ( 'li' === $tag && $this->isListMarkerTextChild($child) ) {
+                        continue;
+                    }
+                    $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node, $parentNode);
                 }
             }
         }
@@ -751,7 +796,7 @@ final class StaticHtmlEmitter
             $content = '';
         }
 
-        $styles = $this->styleDeclarations($node, $type, $parentNode);
+        $styles = $this->styleDeclarations($node, $type, $parentNode, $grandParentNode);
         $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $styles);
         if ( ! empty($styles) ) {
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
@@ -767,8 +812,14 @@ final class StaticHtmlEmitter
         }
 
         $attributes = sprintf(' class="%1$s" data-figma-node-id="%2$s" data-figma-node-name="%3$s"', $className, $id, $attributeName);
-        if ( 'input' === $tag ) {
-            $attributes .= $this->inputControlAttributes($node);
+        $anchorId = $this->headingAnchorId($node, $tag);
+        if ( null !== $anchorId ) {
+            $attributes .= ' id="' . $this->sanitizeAttribute($anchorId) . '"';
+        }
+        if ( in_array($tag, array('input', 'textarea'), true) ) {
+            $attributes .= $this->formControlAttributes($node, $tag);
+        } elseif ( 'button' === $tag ) {
+            $attributes .= $this->buttonControlAttributes($node);
         }
         if ( 'RECTANGLE' === $type && '' === $content ) {
             $attributes .= ' aria-hidden="true"';
@@ -785,7 +836,7 @@ final class StaticHtmlEmitter
             $element = sprintf("<%1\$s%2\$s>%3\$s</%1\$s>\n", $tag, $attributes, $content);
         }
 
-        return $this->wrapWithLink($node, $element, $diagnostics, $this->isButtonLike($node));
+        return $this->wrapWithLink($node, $element, $diagnostics, $this->isButtonLike($node), $parentNode);
     }
 
     /**
@@ -809,7 +860,11 @@ final class StaticHtmlEmitter
                 return 'span';
             }
 
-            $heading = $this->headingLevel($node, $lowerName, $depth);
+            if ( null !== $parentNode && $this->isSemanticListItemNode($parentNode) ) {
+                return 'p';
+            }
+
+            $heading = $this->headingLevel($node, $lowerName, $depth, $parentNode);
             if ( null !== $heading ) {
                 return $heading;
             }
@@ -824,8 +879,18 @@ final class StaticHtmlEmitter
             return 'li';
         }
 
+        if ( $this->isTextareaLike($node) ) {
+            return 'textarea';
+        }
+
         if ( $this->isInputLike($node) ) {
             return 'input';
+        }
+
+        // Inner component chrome inside a larger button-like control is
+        // structural. Only the outer control should become interactive HTML.
+        if ( null !== $parentNode && $this->isButtonLike($parentNode) && $this->isButtonLike($node) ) {
+            return 'div';
         }
 
         // A standalone button-like control (no link) becomes a real <button>.
@@ -841,7 +906,7 @@ final class StaticHtmlEmitter
 
         // A container of repeated sibling items reads as an unordered list.
         if ( ! empty($this->listItemIds($node)) ) {
-            return 'ul';
+            return $this->listLooksOrdered($node) ? 'ol' : 'ul';
         }
 
         // A <section> is reserved for genuine top-level content regions — the
@@ -1078,8 +1143,12 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function headingLevel(array $node, string $lowerName, int $depth): ?string
+    private function headingLevel(array $node, string $lowerName, int $depth, ?array $parentNode = null): ?string
     {
+        if ( $this->isTocEntryText($node, $parentNode) ) {
+            return null;
+        }
+
         $size = $this->textFontSize($node);
         if ( null !== $size ) {
             $key = $this->sizeKey($size);
@@ -1122,7 +1191,7 @@ final class StaticHtmlEmitter
      */
     private function isButtonLike(array $node): bool
     {
-        if ( $this->isInputLike($node) ) {
+        if ( $this->isTextareaLike($node) || $this->isInputLike($node) ) {
             return false;
         }
         if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
@@ -1159,15 +1228,22 @@ final class StaticHtmlEmitter
             return false;
         }
 
+        if ( $this->isTextareaLike($node) ) {
+            return false;
+        }
+
         $name = strtolower((string) ($node['name'] ?? ''));
         if ( str_contains($name, 'button') || str_contains($name, 'btn') || str_contains($name, 'cta') ) {
             return false;
         }
 
+        $placeholder = strtolower(trim($this->subtreePlainText($node)));
+        $haystack = $name . ' ' . $placeholder;
         $hasInputName = str_contains($name, 'input')
             || str_contains($name, 'text field')
             || str_contains($name, 'textfield')
             || str_contains($name, 'form field')
+            || str_contains($haystack, 'search')
             || preg_match('/(^|[^a-z])field([^a-z]|$)/', $name);
         if ( ! $hasInputName ) {
             return false;
@@ -1181,6 +1257,48 @@ final class StaticHtmlEmitter
         $width = $this->boxValue($node, 'width');
         $height = $this->boxValue($node, 'height');
         if ( (null !== $width && $width > 640.0) || (null !== $height && $height > 120.0) ) {
+            return false;
+        }
+
+        return null !== $this->backgroundColor($node) || $this->cornerRadius($node) > 0.0 || $this->hasStrokePaint($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isTextareaLike(array $node): bool
+    {
+        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+            return false;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        if ( str_contains($name, 'button') || str_contains($name, 'btn') || str_contains($name, 'cta') ) {
+            return false;
+        }
+
+        $placeholder = strtolower(trim($this->subtreePlainText($node)));
+        $haystack = $name . ' ' . $placeholder;
+        $hasTextareaIntent = str_contains($haystack, 'textarea')
+            || str_contains($haystack, 'text area')
+            || str_contains($haystack, 'message')
+            || str_contains($haystack, 'comment')
+            || str_contains($haystack, 'reply');
+        if ( ! $hasTextareaIntent ) {
+            return false;
+        }
+
+        $textCount = $this->textDescendantCount($node);
+        if ( $textCount < 1 || $textCount > 3 ) {
+            return false;
+        }
+
+        $width = $this->boxValue($node, 'width');
+        $height = $this->boxValue($node, 'height');
+        if ( null !== $width && $width > 900.0 ) {
+            return false;
+        }
+        if ( null !== $height && $height < 72.0 ) {
             return false;
         }
 
@@ -1212,19 +1330,162 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
      */
-    private function inputControlAttributes(array $node): string
+    private function isHeadingSeparatorChild(array $node, array $parentNode): bool
+    {
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        if ( 'flex' !== ($parentLayout['display'] ?? null) || 'row' !== ($parentLayout['flex_direction'] ?? null) ) {
+            return false;
+        }
+
+        if ( ! $this->subtreeIsDecorativeSeparator($node) ) {
+            return false;
+        }
+
+        $textChildren = 0;
+        $separatorChildren = 0;
+        foreach ( $this->nodeList($parentNode) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            if ( 'TEXT' === strtoupper((string) ($child['type'] ?? '')) && '' !== trim($this->textContent($child)) ) {
+                ++$textChildren;
+            } elseif ( $this->subtreeIsDecorativeSeparator($child) ) {
+                ++$separatorChildren;
+            }
+        }
+
+        return 1 === $textChildren && $separatorChildren >= 1;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isPaginationContainer(array $node): bool
+    {
+        $text = strtolower(' ' . preg_replace('/\s+/', ' ', trim($this->subtreePlainText($node))) . ' ');
+        if ( ! str_contains($text, ' previous ') || ! str_contains($text, ' next ') ) {
+            return false;
+        }
+
+        $numberTokens = 0;
+        foreach ( preg_split('/\s+/', trim($text)) ?: array() as $token ) {
+            if ( preg_match('/^(\d+|…|\.\.\.)$/', $token) ) {
+                ++$numberTokens;
+            }
+        }
+
+        if ( $numberTokens < 3 ) {
+            return false;
+        }
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return 'flex' === ($layout['display'] ?? null) && 'row' === ($layout['flex_direction'] ?? null);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function subtreeIsDecorativeSeparator(array $node): bool
+    {
+        if ( $this->subtreeHasText($node) || null !== $this->nodeAssetPath($node) ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : null;
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
+        if ( null !== $width && null !== $height && $width >= 24.0 && $height <= 12.0 ) {
+            return true;
+        }
+
+        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
+        if ( empty($children) ) {
+            return in_array(strtoupper((string) ($node['type'] ?? '')), array('VECTOR', 'LINE', 'RECTANGLE'), true)
+                && null !== $width
+                && null !== $height
+                && $width >= 24.0
+                && $height <= 12.0;
+        }
+
+        foreach ( $children as $child ) {
+            if ( ! $this->subtreeIsDecorativeSeparator($child) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param array<string, mixed> $parentNode
+     */
+    private function headingSeparatorBaselineOffset(array $parentNode): ?float
+    {
+        foreach ( $this->nodeList($parentNode) as $child ) {
+            if ( ! is_array($child) || 'TEXT' !== strtoupper((string) ($child['type'] ?? '')) ) {
+                continue;
+            }
+
+            $text = is_array($child['figma_text'] ?? null) ? $child['figma_text'] : array();
+            $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+            $fontSize = isset($style['font_size']) && is_numeric($style['font_size']) ? (float) $style['font_size'] : null;
+            $lineHeight = null;
+            foreach ( array('line_height_px', 'line_height') as $key ) {
+                if ( isset($style[$key]) && is_numeric($style[$key]) ) {
+                    $lineHeight = (float) $style[$key];
+                    break;
+                }
+            }
+            if ( null === $fontSize || null === $lineHeight || $lineHeight <= $fontSize ) {
+                return null;
+            }
+
+            return -($lineHeight - $fontSize) / 2.0;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function formControlAttributes(array $node, string $tag): string
     {
         $placeholder = trim($this->subtreePlainText($node));
         $name = (string) ($node['name'] ?? '');
         $haystack = strtolower($name . ' ' . $placeholder);
-        $type = str_contains($haystack, 'email') || str_contains($haystack, 'e-mail') ? 'email' : 'text';
+        $type = 'text';
+        if ( str_contains($haystack, 'search') ) {
+            $type = 'search';
+        } elseif ( str_contains($haystack, 'email') || str_contains($haystack, 'e-mail') ) {
+            $type = 'email';
+        }
 
-        $attributes = ' type="' . $type . '"';
+        $attributes = 'input' === $tag ? ' type="' . $type . '"' : '';
         if ( '' !== $placeholder ) {
             $attributes .= ' placeholder="' . $this->sanitizeAttribute($placeholder) . '"';
             $attributes .= ' aria-label="' . $this->sanitizeAttribute($placeholder) . '"';
         } elseif ( '' !== $name ) {
+            $attributes .= ' aria-label="' . $this->sanitizeAttribute($name) . '"';
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function buttonControlAttributes(array $node): string
+    {
+        $label = trim($this->subtreePlainText($node));
+        $name = (string) ($node['name'] ?? '');
+        $haystack = strtolower($name . ' ' . $label);
+        $type = preg_match('/(^|[^a-z])(submit|send|post|search|sign up|subscribe)([^a-z]|$)/', $haystack) ? 'submit' : 'button';
+
+        $attributes = ' type="' . $type . '"';
+        if ( '' === $label && '' !== $name ) {
             $attributes .= ' aria-label="' . $this->sanitizeAttribute($name) . '"';
         }
 
@@ -1320,6 +1581,84 @@ final class StaticHtmlEmitter
         }
 
         return in_array($id, $this->listItemIds($parentNode), true);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isSemanticListItemNode(array $node): bool
+    {
+        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
+        if ( empty($children) ) {
+            return false;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        if ( str_contains($name, 'list item') ) {
+            return true;
+        }
+
+        foreach ( $children as $child ) {
+            if ( $this->isListMarkerTextChild($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $container
+     */
+    private function listLooksOrdered(array $container): bool
+    {
+        $itemIds = $this->listItemIds($container);
+        if ( empty($itemIds) ) {
+            return false;
+        }
+
+        $expected = 1;
+        foreach ( $this->nodeList($container) as $child ) {
+            if ( ! is_array($child) || ! in_array((string) ($child['id'] ?? ''), $itemIds, true) ) {
+                continue;
+            }
+
+            $children = array_values(array_filter($this->nodeList($child), 'is_array'));
+            $hasExpectedMarker = false;
+            foreach ( $children as $itemChild ) {
+                if ( $this->isListMarkerTextChild($itemChild, $expected) ) {
+                    $hasExpectedMarker = true;
+                    break;
+                }
+            }
+            if ( ! $hasExpectedMarker ) {
+                return false;
+            }
+            ++$expected;
+        }
+
+        return $expected > 2;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isListMarkerTextChild(array $node, ?int $expectedNumber = null): bool
+    {
+        if ( 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) ) {
+            return false;
+        }
+
+        $text = trim($this->subtreePlainText($node));
+        if ( '' === $text ) {
+            return false;
+        }
+
+        if ( null !== $expectedNumber ) {
+            return 1 === preg_match('/^' . preg_quote((string) $expectedNumber, '/') . '[.)]?$/', $text);
+        }
+
+        return 1 === preg_match('/^\d+[.)]?$/', $text);
     }
 
     /**
@@ -1514,6 +1853,90 @@ final class StaticHtmlEmitter
         }
 
         return '';
+    }
+
+    /**
+     * @param array<int, mixed> $nodes
+     */
+    private function prepareHeadingAnchors(array $nodes, string $pagePath): void
+    {
+        $this->headingAnchorIds = array();
+        $this->tocHrefByText = array();
+        $this->currentPagePath = $pagePath;
+
+        $used = array();
+        $this->collectHeadingAnchors($nodes, 0, null, false, $used);
+    }
+
+    /**
+     * @param array<int, mixed> $nodes
+     * @param array<string, int> $used
+     */
+    private function collectHeadingAnchors(array $nodes, int $depth, ?array $parentNode, bool $insideToc, array &$used): void
+    {
+        foreach ( $nodes as $node ) {
+            if ( ! is_array($node) ) {
+                continue;
+            }
+
+            $isToc = $insideToc || $this->isTocContainer($node);
+            if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) && ! $isToc ) {
+                $text = $this->normalizedAnchorText($this->nodePlainText($node));
+                $heading = $this->headingLevel($node, strtolower((string) ($node['name'] ?? '')), $depth, $parentNode);
+                $nodeId = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
+                if ( null !== $heading && '' !== $nodeId && '' !== $text ) {
+                    $base = $this->slug($text);
+                    $count = ($used[$base] ?? 0) + 1;
+                    $used[$base] = $count;
+                    $anchorId = 1 === $count ? $base : $base . '-' . $count;
+                    $this->headingAnchorIds[$nodeId] = $anchorId;
+                    $this->tocHrefByText[$text] ??= '#' . $anchorId;
+                }
+            }
+
+            $this->collectHeadingAnchors($this->nodeList($node), $depth + 1, $node, $isToc, $used);
+        }
+    }
+
+    private function headingAnchorId(array $node, string $tag): ?string
+    {
+        if ( ! preg_match('/^h[1-6]$/', $tag) ) {
+            return null;
+        }
+
+        $nodeId = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
+        return '' !== $nodeId && isset($this->headingAnchorIds[$nodeId]) ? $this->headingAnchorIds[$nodeId] : null;
+    }
+
+    private function implicitTocHref(array $node): ?string
+    {
+        $text = $this->normalizedAnchorText($this->nodePlainText($node));
+        return '' !== $text && isset($this->tocHrefByText[$text]) ? $this->tocHrefByText[$text] : null;
+    }
+
+    private function normalizedAnchorText(string $text): string
+    {
+        return strtolower(trim((string) preg_replace('/\s+/', ' ', $text)));
+    }
+
+    private function isTocContainer(array $node): bool
+    {
+        $name = strtolower((string) ($node['name'] ?? ''));
+        if ( str_contains($name, 'table of contents') || preg_match('/\btoc\b/', $name) ) {
+            return true;
+        }
+
+        return in_array($this->normalizedAnchorText($this->nodePlainText($node)), array('contents', 'table of contents'), true)
+            && 2 <= $this->textDescendantCount($node);
+    }
+
+    private function isTocEntryText(array $node, ?array $parentNode): bool
+    {
+        if ( null === $parentNode || ! $this->isTocContainer($parentNode) ) {
+            return false;
+        }
+
+        return ! in_array($this->normalizedAnchorText($this->nodePlainText($node)), array('contents', 'table of contents'), true);
     }
 
     /**
@@ -1902,6 +2325,7 @@ final class StaticHtmlEmitter
             'anchors_emitted'    => 0,
             'url_links'          => 0,
             'node_links'         => 0,
+            'toc_links'          => 0,
             'unresolved'         => 0,
             'unresolved_targets' => array(),
         );
@@ -1955,10 +2379,22 @@ final class StaticHtmlEmitter
      * @param array<string, mixed>             $node
      * @param array<int, array<string, mixed>> $diagnostics
      */
-    private function wrapWithLink(array $node, string $element, array &$diagnostics, bool $buttonLike = false): string
+    private function wrapWithLink(array $node, string $element, array &$diagnostics, bool $buttonLike = false, ?array $parentNode = null): string
     {
         $link = is_array($node['figma_link'] ?? null) ? $node['figma_link'] : array();
         if ( empty($link) ) {
+            $tocHref = $this->isTocEntryText($node, $parentNode) ? $this->implicitTocHref($node) : null;
+            if ( null !== $tocHref ) {
+                $this->linkCoverage['toc_links']++;
+                $this->linkCoverage['anchors_emitted']++;
+
+                return sprintf(
+                    "<a class=\"figma-link figma-toc-link\" href=\"%1\$s\" data-figma-link-type=\"toc\">%2\$s</a>\n",
+                    $this->sanitizeAttribute($tocHref),
+                    $element
+                );
+            }
+
             return $element;
         }
 
@@ -1977,6 +2413,12 @@ final class StaticHtmlEmitter
             $this->linkCoverage['node_links']++;
             if ( '' !== $targetNodeId && isset($this->linkTargetPaths[$targetNodeId]) ) {
                 $href = $this->linkTargetPaths[$targetNodeId];
+                if ( isset($this->headingAnchorIds[$targetNodeId]) ) {
+                    $href = $this->linkHrefWithHash($href, $this->headingAnchorIds[$targetNodeId]);
+                }
+                $resolved = true;
+            } elseif ( '' !== $targetNodeId && isset($this->headingAnchorIds[$targetNodeId]) ) {
+                $href = '#' . $this->headingAnchorIds[$targetNodeId];
                 $resolved = true;
             } else {
                 $href = '#';
@@ -2045,6 +2487,16 @@ final class StaticHtmlEmitter
         return $url;
     }
 
+    private function linkHrefWithHash(string $href, string $anchorId): string
+    {
+        $base = preg_replace('/#.*$/', '', $href) ?? $href;
+        if ( '' === $base || $base === $this->currentPagePath ) {
+            return '#' . $anchorId;
+        }
+
+        return $base . '#' . $anchorId;
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -2058,6 +2510,7 @@ final class StaticHtmlEmitter
             'anchors_emitted'    => (int) ($coverage['anchors_emitted'] ?? 0),
             'url_links'          => (int) ($coverage['url_links'] ?? 0),
             'node_links'         => (int) ($coverage['node_links'] ?? 0),
+            'toc_links'          => (int) ($coverage['toc_links'] ?? 0),
             'unresolved'         => (int) ($coverage['unresolved'] ?? 0),
             'unresolved_targets' => array_values(is_array($coverage['unresolved_targets'] ?? null) ? $coverage['unresolved_targets'] : array()),
         );
@@ -2573,7 +3026,7 @@ final class StaticHtmlEmitter
             }
             $type = (string) ($effect['type'] ?? 'unknown');
             $effects['by_type'][$type] = (int) ($effects['by_type'][$type] ?? 0) + 1;
-            foreach ( array('source_type', 'offset_x', 'offset_y', 'radius', 'spread', 'color', 'blend_mode', 'show_shadow_behind_node') as $field ) {
+            foreach ( array('source_type', 'offset_x', 'offset_y', 'radius', 'spread', 'color', 'opacity', 'visible', 'blend_mode', 'show_shadow_behind_node') as $field ) {
                 if ( array_key_exists($field, $effect) ) {
                     $effects['field_coverage'][$field] = (int) ($effects['field_coverage'][$field] ?? 0) + 1;
                 }
@@ -3355,11 +3808,7 @@ final class StaticHtmlEmitter
             }
         }
         if ( is_array($node['image'] ?? null) ) {
-            foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref') as $key ) {
-                if ( isset($node['image'][$key]) && is_scalar($node['image'][$key]) && '' !== (string) $node['image'][$key] ) {
-                    $references[] = (string) $node['image'][$key];
-                }
-            }
+            $references = array_merge($references, $this->imageAssetReferences($node['image']));
         }
 
         return array_values(array_unique($references));
@@ -3373,11 +3822,7 @@ final class StaticHtmlEmitter
     {
         $references = array();
         foreach ( $this->nodeImagePaints($node) as $paint ) {
-            foreach ( array('ref', 'imageRef', 'imageHash', 'asset_id', 'image_ref') as $key ) {
-                if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
-                    $references[] = (string) $paint[$key];
-                }
-            }
+            $references = array_merge($references, $this->paintAssetReferences($paint));
         }
 
         return array_values(array_unique($references));
@@ -3461,25 +3906,26 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @return array<int, string>
      */
-    private function styleDeclarations(array $node, string $type, ?array $parentNode): array
+    private function styleDeclarations(array $node, string $type, ?array $parentNode, ?array $grandParentNode): array
     {
         $styles = array();
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        $parentUsesFluidCanvasCoordinates = null !== $parentNode && $this->nodeUsesFluidCanvasCoordinates($parentNode, $grandParentNode);
+        $isAbsoluteFullWidthCanvasChild = null !== $parentNode && $parentUsesFluidCanvasCoordinates && $this->isAbsoluteFullWidthCanvasChild($box, $layout, $parentNode);
+        $centerWithinParentFluidCanvas = $parentUsesFluidCanvasCoordinates && ! $isAbsoluteFullWidthCanvasChild;
         $zeroHeightVectorFallbackHeight = $this->zeroHeightVectorFallbackHeight($node, $type);
         foreach ( array('width', 'height') as $dimension ) {
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
             $sizing = strtoupper((string) ($layout[$sizingKey] ?? ''));
-            if ( 'width' === $dimension && $this->isFluidRootWidth($box, $parentNode) ) {
-                // Page root: centered fluid container. width:100% lets it shrink
-                // below the design width without forcing horizontal scroll, while
-                // max-width pins the intrinsic frame width so rendering stays
-                // pixel-faithful at and above the native canvas size.
+            if ( 'width' === $dimension && $this->isFluidPageWidth($box, $layout, $parentNode) ) {
+                // Full-page roots and matching first-level bands should occupy the
+                // viewport. Explicit Kiwi/Figma max-width constraints still apply
+                // below; the intrinsic frame width is evidence, not a viewport cap.
                 $styles[] = 'width:100%';
-                $styles[] = 'max-width:' . $this->number((float) $box['width']) . 'px';
-                $styles[] = 'margin-left:auto';
-                $styles[] = 'margin-right:auto';
+            } elseif ( 'width' === $dimension && $isAbsoluteFullWidthCanvasChild ) {
+                $styles[] = 'width:100%';
             } elseif ( 'HUG' === $sizing ) {
                 $derivedTextSize = 'TEXT' === $type ? $this->derivedTextLayoutSize($node, $dimension) : null;
                 if ( null !== $derivedTextSize ) {
@@ -3530,25 +3976,31 @@ final class StaticHtmlEmitter
 
         $isDecorativeFlexUnderlay = null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode);
         $willPositionAbsolute = (null !== $parentNode && $this->isFreeformContainer($parentNode)) || 'absolute' === ($layout['positioning'] ?? null) || $isDecorativeFlexUnderlay;
-        if ( ! $willPositionAbsolute && ($this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node)) ) {
+        $managesLocalStacking = $this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node);
+        $needsLocalStackIsolation = $this->hasDecorativeFlexUnderlayChild($node) || $this->hasZIndexedChild($node);
+        if ( ! $willPositionAbsolute && $managesLocalStacking ) {
             $styles[] = 'position:relative';
+        }
+
+        if ( $needsLocalStackIsolation ) {
+            $styles[] = 'isolation:isolate';
         }
 
         if ( $isDecorativeFlexUnderlay ) {
             $styles[] = 'position:absolute';
-            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node) as $style ) {
+            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $centerWithinParentFluidCanvas) as $style ) {
                 $styles[] = $style;
             }
             $styles[] = 'z-index:0';
             $styles[] = 'pointer-events:none';
         } elseif ( null !== $parentNode && $this->isFreeformContainer($parentNode) ) {
             $styles[] = 'position:absolute';
-            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node) as $style ) {
+            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $centerWithinParentFluidCanvas) as $style ) {
                 $styles[] = $style;
             }
         } elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
             $styles[] = 'position:absolute';
-            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node) as $style ) {
+            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $centerWithinParentFluidCanvas) as $style ) {
                 $styles[] = $style;
             }
         }
@@ -3560,6 +4012,11 @@ final class StaticHtmlEmitter
 
         if ( isset($layout['z_index']) && is_numeric($layout['z_index']) && ! $this->stylesDeclareProperty($styles, 'z-index') ) {
             $styles[] = 'z-index:' . (string) (int) $layout['z_index'];
+        } elseif ( null !== $parentNode && ! $this->stylesDeclareProperty($styles, 'z-index') ) {
+            $overlapZIndex = $this->layoutIntentClassifier()->overlappingSiblingZIndex($node, $parentNode);
+            if ( null !== $overlapZIndex ) {
+                $styles[] = 'z-index:' . (string) $overlapZIndex;
+            }
         }
 
         if ( 'TEXT' !== $type && ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) ) {
@@ -3584,7 +4041,10 @@ final class StaticHtmlEmitter
         $transform = $this->isNearZeroHeightContainer($node, $type) || $this->hasAbsoluteVisualBounds($node) ? null : $this->transformStyle($box);
         if ( null !== $transform ) {
             $styles[] = 'transform:' . $transform;
-            if ( $this->hasExplicitTransformMatrix($box) ) {
+            $transformOrigin = $this->transformOriginStyle($box);
+            if ( null !== $transformOrigin ) {
+                $styles[] = 'transform-origin:' . $transformOrigin;
+            } elseif ( $this->hasExplicitTransformMatrix($box) ) {
                 $styles[] = 'transform-origin:0 0';
             }
         }
@@ -3648,6 +4108,14 @@ final class StaticHtmlEmitter
             }
         }
 
+        if ( null !== $parentNode && $this->isHeadingSeparatorChild($node, $parentNode) ) {
+            $styles[] = 'align-self:center';
+            $offset = $this->headingSeparatorBaselineOffset($parentNode);
+            if ( null !== $offset ) {
+                $styles[] = 'margin-top:' . $this->number($offset) . 'px';
+            }
+        }
+
         $justifyContent = (string) ($layout['justify_content'] ?? '');
         $usesDistributedMainAxis = in_array($justifyContent, array('space-between', 'space-around', 'space-evenly'), true);
         if ( ! $usesDistributedMainAxis && isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ) {
@@ -3671,7 +4139,7 @@ final class StaticHtmlEmitter
         }
 
         if ( ! $isDecorativeFlexUnderlay ) {
-            foreach ( $this->flexItemStyles($layout, $parentNode) as $style ) {
+            foreach ( $this->flexItemStyles($node, $layout, $parentNode) as $style ) {
                 $styles[] = $style;
             }
         }
@@ -3819,12 +4287,93 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $box
      */
-    private function isFluidRootWidth(array $box, ?array $parentNode): bool
+    private function isFluidPageWidth(array $box, array $layout, ?array $parentNode): bool
     {
-        return null === $parentNode
-            && isset($box['width'])
-            && is_numeric($box['width'])
-            && (float) $box['width'] >= self::FLUID_ROOT_MIN_WIDTH;
+        if ( ! isset($box['width']) || ! is_numeric($box['width']) ) {
+            return false;
+        }
+
+        $width = (float) $box['width'];
+        if ( null === $parentNode ) {
+            return $width >= self::FLUID_ROOT_MIN_WIDTH;
+        }
+
+        if ( 'absolute' === ($layout['positioning'] ?? null) ) {
+            return false;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        if ( ! isset($parentBox['width']) || ! is_numeric($parentBox['width']) || (float) $parentBox['width'] < self::FLUID_ROOT_MIN_WIDTH ) {
+            return false;
+        }
+
+        $offset = isset($box['x']) && is_numeric($box['x']) ? abs((float) $box['x']) : 0.0;
+        $parentWidth = (float) $parentBox['width'];
+        return $offset <= 1.0 && abs($width - $parentWidth) <= 1.0;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function nodeRendersFluidCanvas(array $node, ?array $parentNode): bool
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return $this->isFluidPageWidth($box, $layout, $parentNode);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function nodeUsesFluidCanvasCoordinates(array $node, ?array $parentNode): bool
+    {
+        if ( ! $this->nodeRendersFluidCanvas($node, $parentNode) ) {
+            return false;
+        }
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( 'FILL' === strtoupper((string) ($layout['sizing_horizontal'] ?? '')) ) {
+            return true;
+        }
+
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        if ( 'COMPONENT' === $type || null === $parentNode ) {
+            return false;
+        }
+
+        if ( 'INSTANCE' === $type ) {
+            if ( isset($node['componentId']) || isset($node['component_id']) || isset($node['figma_component_source_id']) || isset($node['source_id']) ) {
+                return false;
+            }
+
+            return $this->isFreeformContainer($node);
+        }
+
+        return $this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node);
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $layout
+     * @param array<string, mixed> $parentNode
+     */
+    private function isAbsoluteFullWidthCanvasChild(array $box, array $layout, array $parentNode): bool
+    {
+        if ( 'absolute' !== ($layout['positioning'] ?? null) && ! $this->isFreeformContainer($parentNode) ) {
+            return false;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        foreach ( array($box, $parentBox) as $candidateBox ) {
+            if ( ! isset($candidateBox['width']) || ! is_numeric($candidateBox['width']) ) {
+                return false;
+            }
+        }
+
+        $offset = isset($box['x']) && is_numeric($box['x']) ? abs((float) $box['x']) : 0.0;
+        return $offset <= 1.0 && abs((float) $box['width'] - (float) $parentBox['width']) <= 1.0;
     }
 
     /**
@@ -3970,6 +4519,21 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<string, mixed> $node
+     */
+    private function hasZIndexedChild(array $node): bool
+    {
+        foreach ( $this->nodeList($node) as $child ) {
+            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( isset($layout['z_index']) && is_numeric($layout['z_index']) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
      * @param array<string, mixed> $parentNode
      */
     private function isDecorativeFlexUnderlay(array $node, array $parentNode): bool
@@ -3994,6 +4558,19 @@ final class StaticHtmlEmitter
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     */
+    private function transformOriginStyle(array $box): ?string
+    {
+        $origin = is_array($box['transform_origin'] ?? null) ? $box['transform_origin'] : array();
+        if ( ! isset($origin['x'], $origin['y']) || ! is_numeric($origin['x']) || ! is_numeric($origin['y']) ) {
+            return null;
+        }
+
+        return $this->number((float) $origin['x']) . 'px ' . $this->number((float) $origin['y']) . 'px';
     }
 
     /**
@@ -4060,7 +4637,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $layout
      * @return array<int, string>
      */
-    private function flexItemStyles(array $layout, ?array $parentNode): array
+    private function flexItemStyles(array $node, array $layout, ?array $parentNode): array
     {
         $styles = array();
         $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
@@ -4078,8 +4655,106 @@ final class StaticHtmlEmitter
         if ( isset($layout['align']) && 'STRETCH' === $layout['align'] ) {
             $styles[] = 'align-self:stretch';
         }
+        if ( $isFlexChild && isset($layout['order']) && is_numeric($layout['order']) ) {
+            $styles[] = 'order:' . (string) (int) $layout['order'];
+        }
+
+        if ( $isFlexChild ) {
+            $sourceGapMargin = $this->sourceGeometryFlexGapMargin($node, $parentNode);
+            if ( null !== $sourceGapMargin ) {
+                $styles[] = $sourceGapMargin['property'] . ':' . $this->number($sourceGapMargin['value']) . 'px';
+            }
+        }
 
         return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @return array{property: string, value: float}|null
+     */
+    private function sourceGeometryFlexGapMargin(array $node, ?array $parentNode): ?array
+    {
+        if ( null === $parentNode || ! $this->normalFlexFlowChild($node, $parentNode) ) {
+            return null;
+        }
+
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        $direction = (string) ($parentLayout['flex_direction'] ?? '');
+        if ( ! in_array($direction, array('row', 'column'), true) ) {
+            return null;
+        }
+
+        $justifyContent = (string) ($parentLayout['justify_content'] ?? '');
+        if ( in_array($justifyContent, array('space-between', 'space-around', 'space-evenly'), true) ) {
+            return null;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $axis = 'column' === $direction ? 'y' : 'x';
+        $size = 'column' === $direction ? 'height' : 'width';
+        $property = 'column' === $direction ? 'margin-top' : 'margin-left';
+        if ( ! isset($box[$size]) || ! is_numeric($box[$size]) ) {
+            return null;
+        }
+
+        $offset = $this->positionOffset($box, $parentBox, $axis, $parentNode);
+        if ( null === $offset ) {
+            return null;
+        }
+
+        $previous = null;
+        foreach ( $this->nodeList($parentNode) as $sibling ) {
+            if ( ! is_array($sibling) || ! $this->normalFlexFlowChild($sibling, $parentNode) ) {
+                continue;
+            }
+            if ( (string) ($sibling['id'] ?? '') === (string) ($node['id'] ?? '') ) {
+                break;
+            }
+            $previous = $sibling;
+        }
+
+        if ( null === $previous ) {
+            return null;
+        }
+
+        $previousBox = is_array($previous['box'] ?? null) ? $previous['box'] : array();
+        if ( ! isset($previousBox[$size]) || ! is_numeric($previousBox[$size]) ) {
+            return null;
+        }
+
+        $previousOffset = $this->positionOffset($previousBox, $parentBox, $axis, $parentNode);
+        if ( null === $previousOffset ) {
+            return null;
+        }
+
+        $sourceGap = $offset - ($previousOffset + (float) $previousBox[$size]);
+        $cssGap = isset($parentLayout['item_spacing']) && is_numeric($parentLayout['item_spacing']) ? (float) $parentLayout['item_spacing'] : 0.0;
+        $residualGap = $sourceGap - $cssGap;
+        if ( $residualGap <= 0.5 ) {
+            return null;
+        }
+
+        return array('property' => $property, 'value' => $residualGap);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function normalFlexFlowChild(array $node, array $parentNode): bool
+    {
+        if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) || false === ($node['visible'] ?? null) ) {
+            return false;
+        }
+        if ( $this->isFullyClippedDecorativeChild($node, $parentNode) || $this->isDecorativeFlexUnderlay($node, $parentNode) ) {
+            return false;
+        }
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return 'absolute' !== ($layout['positioning'] ?? null);
     }
 
     /**
@@ -4490,7 +5165,7 @@ final class StaticHtmlEmitter
             $styles[] = 'line-height:' . $this->number($derivedLineHeight) . 'px';
         }
         if ( ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) && ! $this->shouldSplitParagraphs($node) ) {
-            $styles[] = 'white-space:pre-line';
+            $styles[] = $this->textHasDerivedLineBreaks($node) && ! $this->textHasLineBreaks($node) ? 'white-space:pre' : 'white-space:pre-line';
         }
 
         return $styles;
@@ -4715,8 +5390,24 @@ final class StaticHtmlEmitter
             return false;
         }
 
+        if ( $this->flexTextShouldUseCenteredLineBox($parentLayout) ) {
+            return false;
+        }
+
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         return isset($box['height']) && is_numeric($box['height']) && $this->textShouldAvoidTinyFixedHeight($node, (float) $box['height']);
+    }
+
+    /**
+     * A centered flex parent should center the text line box itself. Preserving
+     * Figma's smaller measured glyph box height makes the line box overflow and
+     * defeats the parent's cross-axis centering.
+     *
+     * @param array<string, mixed> $parentLayout
+     */
+    private function flexTextShouldUseCenteredLineBox(array $parentLayout): bool
+    {
+        return 'center' === ($parentLayout['align_items'] ?? null);
     }
 
     /**
@@ -4824,14 +5515,14 @@ final class StaticHtmlEmitter
 
         if ( isset($style['text_transform']) && is_scalar($style['text_transform']) ) {
             $transform = strtolower((string) $style['text_transform']);
-            if ( in_array($transform, array('uppercase', 'lowercase', 'capitalize'), true) ) {
+            if ( in_array($transform, array('uppercase', 'lowercase', 'capitalize', 'none'), true) ) {
                 $styles[] = 'text-transform:' . $transform;
             }
         }
 
         if ( isset($style['font_variant']) && is_scalar($style['font_variant']) ) {
             $variant = strtolower((string) $style['font_variant']);
-            if ( 'small-caps' === $variant ) {
+            if ( in_array($variant, array('small-caps', 'normal'), true) ) {
                 $styles[] = 'font-variant:' . $variant;
             }
         }
@@ -5060,8 +5751,8 @@ final class StaticHtmlEmitter
     private function nodeAssetPath(array $node): ?string
     {
         foreach ( $this->nodeAssetReferences($node) as $assetId ) {
-            if ( isset($this->assetsById[$assetId]) ) {
-                $path = (string) $this->assetsById[$assetId]['path'];
+            $path = $this->resolveAssetPath($assetId);
+            if ( null !== $path ) {
                 $this->usedAssetPaths[$path] = true;
                 return $path;
             }
@@ -5110,24 +5801,14 @@ final class StaticHtmlEmitter
                         continue;
                     }
 
-                    foreach ( array('ref', 'imageRef', 'imageHash', 'asset_id', 'image_ref') as $key ) {
-                        if ( ! isset($paint[$key]) || ! is_scalar($paint[$key]) || '' === (string) $paint[$key] ) {
+                    foreach ( $this->paintAssetReferences($paint) as $assetId ) {
+                        $path = $this->resolveAssetPath($assetId);
+                        if ( null === $path ) {
                             continue;
                         }
-                        $assetId = (string) $paint[$key];
-                        if ( isset($this->assetsById[$assetId]) ) {
-                            $p = (string) $this->assetsById[$assetId]['path'];
-                            $this->usedAssetPaths[$p] = true;
-                            $paths[] = $p;
-                            break;
-                        }
-                        $slugged = $this->slug($assetId);
-                        if ( isset($this->assetsById[$slugged]) ) {
-                            $p = (string) $this->assetsById[$slugged]['path'];
-                            $this->usedAssetPaths[$p] = true;
-                            $paths[] = $p;
-                            break;
-                        }
+                        $this->usedAssetPaths[$path] = true;
+                        $paths[] = $path;
+                        break;
                     }
                 }
             }
@@ -5237,7 +5918,21 @@ final class StaticHtmlEmitter
         foreach ( $this->nodeImagePaints($node) as $paint ) {
             $matrix = $this->imagePaintTransformMatrix($paint);
             if ( null === $matrix || $this->isIdentityImageTransform($matrix) ) {
-                continue;
+                $cropRect = $this->imagePaintCropRect($paint);
+                if ( null === $cropRect ) {
+                    continue;
+                }
+
+                $backgroundWidth = (float) $width / $cropRect['width'];
+                $backgroundHeight = (float) $height / $cropRect['height'];
+                $backgroundX = -1 * $cropRect['x'] * $backgroundWidth;
+                $backgroundY = -1 * $cropRect['y'] * $backgroundHeight;
+
+                return array(
+                    'background-size:' . $this->number($backgroundWidth) . 'px ' . $this->number($backgroundHeight) . 'px',
+                    'background-repeat:no-repeat',
+                    'background-position:' . $this->number($backgroundX) . 'px ' . $this->number($backgroundY) . 'px',
+                );
             }
 
             if ( 0.00001 < abs($matrix['m01']) || 0.00001 < abs($matrix['m10']) || 0 >= $matrix['m00'] || 0 >= $matrix['m11'] ) {
@@ -5257,6 +5952,33 @@ final class StaticHtmlEmitter
         }
 
         return array();
+    }
+
+    /**
+     * @param array<string, mixed> $paint
+     * @return array{x: float, y: float, width: float, height: float}|null
+     */
+    private function imagePaintCropRect(array $paint): ?array
+    {
+        $cropRect = $paint['cropRect'] ?? null;
+        if ( ! is_array($cropRect) ) {
+            return null;
+        }
+
+        $width = $cropRect['width'] ?? $cropRect['w'] ?? null;
+        $height = $cropRect['height'] ?? $cropRect['h'] ?? null;
+        $x = $cropRect['x'] ?? 0;
+        $y = $cropRect['y'] ?? 0;
+        if ( ! is_numeric($x) || ! is_numeric($y) || ! is_numeric($width) || ! is_numeric($height) || 0 >= (float) $width || 0 >= (float) $height ) {
+            return null;
+        }
+
+        return array(
+            'x'      => (float) $x,
+            'y'      => (float) $y,
+            'width'  => (float) $width,
+            'height' => (float) $height,
+        );
     }
 
     /**
@@ -5365,7 +6087,7 @@ final class StaticHtmlEmitter
     private function assetAliases(array $asset, string $id): array
     {
         $aliases = array($id);
-        foreach ( array('hash', 'imageRef', 'imageHash', 'asset_id', 'assetId', 'image_ref', 'source_id', 'node_id', 'nodeId', 'name', 'fileName', 'filename') as $key ) {
+        foreach ( array('hash', 'imageRef', 'imageHash', 'asset_id', 'assetId', 'image_ref', 'source_id', 'node_id', 'nodeId', 'name', 'fileName', 'filename', 'key', 'fileKey', 'libraryKey', 'publishID', 'sourceLibraryKey') as $key ) {
             if ( isset($asset[$key]) && is_scalar($asset[$key]) ) {
                 $aliases[] = (string) $asset[$key];
             }
@@ -5413,17 +6135,93 @@ final class StaticHtmlEmitter
                         continue;
                     }
 
-                    foreach ( array('ref', 'imageRef', 'imageHash', 'asset_id', 'image_ref') as $key ) {
-                        if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
-                            $references[] = (string) $paint[$key];
-                        }
-                    }
+                    $references = array_merge($references, $this->paintAssetReferences($paint));
                 }
             }
         }
 
         foreach ( $references as $reference ) {
             $references[] = $this->slug($reference);
+        }
+
+        return array_values(array_unique($references));
+    }
+
+    private function resolveAssetPath(string $assetId): ?string
+    {
+        if ( isset($this->assetsById[$assetId]) ) {
+            return (string) $this->assetsById[$assetId]['path'];
+        }
+
+        $slugged = $this->slug($assetId);
+        return isset($this->assetsById[$slugged]) ? (string) $this->assetsById[$slugged]['path'] : null;
+    }
+
+    /**
+     * @param array<string, mixed> $paint
+     * @return array<int, string>
+     */
+    private function paintAssetReferences(array $paint): array
+    {
+        $references = array();
+        foreach ( array('ref', 'imageRef', 'imageHash', 'asset_id', 'assetId', 'image_ref') as $key ) {
+            if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
+                $references[] = (string) $paint[$key];
+            }
+        }
+
+        if ( is_array($paint['assetRef'] ?? null) ) {
+            $references = array_merge($references, $this->assetRefReferences($paint['assetRef']));
+        }
+
+        foreach ( array('image', 'thumbnail', 'imageThumbnail', 'sourceImage') as $imageKey ) {
+            if ( is_array($paint[$imageKey] ?? null) ) {
+                $references = array_merge($references, $this->imageAssetReferences($paint[$imageKey]));
+            }
+        }
+
+        return array_values(array_unique($references));
+    }
+
+    /**
+     * @param array<string, mixed> $image
+     * @return array<int, string>
+     */
+    private function imageAssetReferences(array $image): array
+    {
+        $references = array();
+        foreach ( array('hash', 'imageRef', 'imageHash', 'asset_id', 'assetId', 'image_ref', 'ref', 'source_id', 'node_id', 'nodeId', 'name', 'fileName', 'filename') as $key ) {
+            if ( isset($image[$key]) && is_scalar($image[$key]) && '' !== (string) $image[$key] ) {
+                $references[] = (string) $image[$key];
+            }
+        }
+
+        if ( is_array($image['assetRef'] ?? null) ) {
+            $references = array_merge($references, $this->assetRefReferences($image['assetRef']));
+        }
+        if ( is_array($image['sourceImage'] ?? null) ) {
+            $references = array_merge($references, $this->imageAssetReferences($image['sourceImage']));
+        }
+
+        return array_values(array_unique($references));
+    }
+
+    /**
+     * @param array<string, mixed> $assetRef
+     * @return array<int, string>
+     */
+    private function assetRefReferences(array $assetRef): array
+    {
+        $references = array();
+        foreach ( array('id', 'key', 'nodeID', 'fileKey', 'libraryKey', 'publishID', 'sourceLibraryKey') as $key ) {
+            if ( isset($assetRef[$key]) && is_scalar($assetRef[$key]) && '' !== (string) $assetRef[$key] ) {
+                $references[] = (string) $assetRef[$key];
+            }
+        }
+        if ( is_array($assetRef['guid'] ?? null) && isset($assetRef['guid']['sessionID'], $assetRef['guid']['localID']) ) {
+            $references[] = (string) $assetRef['guid']['sessionID'] . ':' . (string) $assetRef['guid']['localID'];
+        } elseif ( isset($assetRef['guid']) && is_scalar($assetRef['guid']) && '' !== (string) $assetRef['guid'] ) {
+            $references[] = (string) $assetRef['guid'];
         }
 
         return array_values(array_unique($references));
@@ -5440,6 +6238,11 @@ final class StaticHtmlEmitter
     private function supportedVectorSvg(array $node, string $type, ?array $parentNode = null): ?string
     {
         return $this->vectorSvgRenderer()->supportedVectorSvg($node, $type, $parentNode);
+    }
+
+    private function vectorSvgComposesChildren(?string $vectorSvg): bool
+    {
+        return null !== $vectorSvg && (str_contains($vectorSvg, 'data-figma-vector-composition="group"') || str_contains($vectorSvg, 'data-figma-boolean-operation='));
     }
 
     /**

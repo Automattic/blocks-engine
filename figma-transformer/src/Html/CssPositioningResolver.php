@@ -25,7 +25,7 @@ final class CssPositioningResolver
      * @param array<string, mixed>|null $node
      * @return array<int, string>
      */
-    public function styles(array $box, array $layout, ?array $parentNode, ?array $node = null): array
+    public function styles(array $box, array $layout, ?array $parentNode, ?array $node = null, bool $centerWithinFluidCanvas = false): array
     {
         $styles = array();
         $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
@@ -44,7 +44,7 @@ final class CssPositioningResolver
             $constraints['vertical'] = 'CENTER';
         }
 
-        foreach ( $this->axisConstraintStyles('horizontal', is_scalar($constraints['horizontal'] ?? null) ? (string) $constraints['horizontal'] : null, $left, $parentBox, $box) as $style ) {
+        foreach ( $this->axisConstraintStyles('horizontal', is_scalar($constraints['horizontal'] ?? null) ? (string) $constraints['horizontal'] : null, $left, $parentBox, $box, $centerWithinFluidCanvas) as $style ) {
             $styles[] = $style;
         }
         foreach ( $this->axisConstraintStyles('vertical', is_scalar($constraints['vertical'] ?? null) ? (string) $constraints['vertical'] : null, $top, $parentBox, $box) as $style ) {
@@ -183,7 +183,7 @@ final class CssPositioningResolver
      * @param array<string, mixed> $box
      * @return array<int, string>
      */
-    private function axisConstraintStyles(string $axis, ?string $constraint, ?float $offset, array $parentBox, array $box): array
+    private function axisConstraintStyles(string $axis, ?string $constraint, ?float $offset, array $parentBox, array $box, bool $centerWithinFluidCanvas = false): array
     {
         $isHorizontal = 'horizontal' === $axis;
         $startProp = $isHorizontal ? 'left' : 'top';
@@ -215,6 +215,13 @@ final class CssPositioningResolver
             return $styles;
         }
 
+        if ( $isHorizontal && $centerWithinFluidCanvas && null !== $offset && null !== $parentSize && null !== $boxSize && $this->hasSymmetricFluidCanvasGutters($offset, $parentSize, $boxSize) && ! in_array($constraint, array($farPin, 'CENTER'), true) ) {
+            $leadingDelta = $offset - ( $parentSize / 2.0 );
+            $sign = $leadingDelta < 0 ? '-' : '+';
+            $styles[] = $startProp . ':calc(50% ' . $sign . ' ' . $this->number(abs($leadingDelta)) . 'px)';
+            return $styles;
+        }
+
         // Near-edge pin (LEFT/TOP/default, also SCALE fallback) plus an optional
         // far-edge pin for the both-side stretch constraint.
         if ( null !== $offset ) {
@@ -225,6 +232,16 @@ final class CssPositioningResolver
         }
 
         return $styles;
+    }
+
+    private function hasSymmetricFluidCanvasGutters(float $offset, float $parentSize, float $boxSize): bool
+    {
+        if ( $offset < -0.5 || $offset + $boxSize > $parentSize + 0.5 ) {
+            return false;
+        }
+
+        $trailing = $parentSize - $offset - $boxSize;
+        return abs($offset - $trailing) <= 1.0;
     }
 
     private function number(float $value): string

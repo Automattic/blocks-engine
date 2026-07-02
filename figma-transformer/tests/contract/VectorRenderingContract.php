@@ -58,7 +58,7 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $arcEllipseHtml = $fileContent($arcEllipseResult, 'index.html');
     $assert(str_contains($arcEllipseHtml, 'data-figma-node-id="ellipse:arc"') && str_contains($arcEllipseHtml, '<path d="M 20 10 A 10 10 0 0 1'), 'arc-ellipse-renders-path');
     $assert(! str_contains($arcEllipseHtml, '<ellipse cx="10" cy="10"'), 'arc-ellipse-does-not-render-full-ellipse');
-     
+
     $strokedInlineVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Stroked Inline Vector Fixture',
         'nodes' => array(
@@ -605,7 +605,49 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(2 === ($vectorNetworkDiagnostic['context']['affected_node_count'] ?? null), 'vector-network-diagnostic-affected-node-count');
     $assert(array('vector:data-malformed', 'vector:data-painted-fallback') === ($vectorNetworkDiagnostic['context']['sample_node_ids'] ?? null), 'vector-network-diagnostic-sample-nodes');
     $assert(array('1') === ($vectorNetworkDiagnostic['context']['sample_blob_refs'] ?? null), 'vector-network-diagnostic-sample-blob-refs');
-    
+
+    // Compact vectorNetwork blob: straight segments can be encoded as just
+    // start/end uint32 pairs. This is a generic .fig layout, not a named-icon
+    // signature, and should render deterministically with the region fill rule.
+    $compactNetworkBlob = pack('V3', 4, 4, 1);
+    foreach ( array(array(0.0, 0.0), array(12.0, 0.0), array(12.0, 8.0), array(0.0, 8.0)) as $point ) {
+        $compactNetworkBlob .= pack('V', 0) . pack('g', $point[0]) . pack('g', $point[1]) . pack('V2', 0, 0);
+    }
+    foreach ( array(array(0, 1), array(1, 2), array(2, 3), array(3, 0)) as $segment ) {
+        $compactNetworkBlob .= pack('V2', $segment[0], $segment[1]);
+    }
+    $compactNetworkBlob .= pack('V3', 4, 1, 0);
+    foreach ( array(array(0, 0), array(1, 0), array(2, 0), array(3, 0)) as $entry ) {
+        $compactNetworkBlob .= pack('V2', $entry[0], $entry[1]);
+    }
+
+    $compactNetworkResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Compact Vector Network Fixture',
+        'blobs' => array(array('bytes' => $compactNetworkBlob)),
+        'nodes' => array(
+            array(
+                'id'         => 'vector:compact-network',
+                'type'       => 'VECTOR',
+                'name'       => 'Compact Network',
+                'width'      => 12,
+                'height'     => 8,
+                'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.2, 'g' => 0.3, 'b' => 0.4))),
+                'vectorData' => array('vectorNetworkBlob' => 0),
+            ),
+        ),
+    ));
+    $compactNetworkHtml = $fileContent($compactNetworkResult, 'index.html');
+    $compactNetworkDiagnosticCodes = array_map(
+        static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+        $compactNetworkResult['diagnostics'] ?? array()
+    );
+    $compactNetworkVectors = $compactNetworkResult['source_reports']['figma']['html']['transform_diagnostics']['vectors'] ?? array();
+    $assert(str_contains($compactNetworkHtml, 'data-figma-node-id="vector:compact-network"') && str_contains($compactNetworkHtml, 'd="M0 0L12 0 12 8 0 8 0 0Z"'), 'compact-vector-network-renders-path');
+    $assert(str_contains($compactNetworkHtml, 'fill="#334d66"') && str_contains($compactNetworkHtml, 'fill-rule="evenodd"'), 'compact-vector-network-preserves-paint-and-fill-rule');
+    $assert(! str_contains($compactNetworkHtml, 'data-figma-unsupported-vector="true"'), 'compact-vector-network-not-placeholder');
+    $assert(! in_array('unsupported_vector_network_blob', $compactNetworkDiagnosticCodes, true), 'compact-vector-network-no-unsupported-diagnostic');
+    $assert(1 === (int) ($compactNetworkVectors['vector_network_decoded'] ?? 0), 'compact-vector-network-counted-decoded');
+
     // General vectorNetwork decode: 3 vertices, 3 segments (one carrying bezier
     // tangents), one NONZERO region. Stride is 24 bytes (tangent-bearing), so the
     // blob is rejected by the legacy exact-match decoders and handled by the new
@@ -732,7 +774,41 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(str_contains($booleanUnionWithParentPathHtml, 'd="M1 1L9 1 9 9 1 9Z"'), 'boolean-union-parent-path-includes-child-icon');
     $assert(str_contains($booleanUnionWithParentPathHtml, 'd="M12 4L26 4 26 10 12 10Z"'), 'boolean-union-parent-path-includes-child-wordmark');
     $assert(! str_contains($booleanUnionWithParentPathHtml, 'd="M0 0L30 0 30 20 0 20Z"'), 'boolean-union-parent-path-skips-collapsed-parent');
-    
+
+    $booleanUnionTransformOffsetResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Boolean Union Transform Offset Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'bool:union-transform-offset',
+                'type'     => 'BOOLEAN_OPERATION',
+                'name'     => 'Logo Composition',
+                'width'    => 40,
+                'height'   => 16,
+                'children' => array(
+                    array(
+                        'id'       => 'bool:transform-offset-icon',
+                        'type'     => 'VECTOR',
+                        'name'     => 'Icon',
+                        'width'    => 10,
+                        'height'   => 10,
+                        'pathData' => 'M0 0L10 0L10 10L0 10Z',
+                    ),
+                    array(
+                        'id'        => 'bool:transform-offset-wordmark',
+                        'type'      => 'VECTOR',
+                        'name'      => 'Wordmark',
+                        'width'     => 18,
+                        'height'    => 6,
+                        'transform' => array('m00' => 1, 'm01' => 0, 'm02' => 14, 'm10' => 0, 'm11' => 1, 'm12' => 5),
+                        'pathData'  => 'M0 0L18 0L18 6L0 6Z',
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $booleanUnionTransformOffsetHtml = $fileContent($booleanUnionTransformOffsetResult, 'index.html');
+    $assert(str_contains($booleanUnionTransformOffsetHtml, '<g transform="translate(14 5)"><path d="M0 0L18 0 18 6 0 6Z"'), 'boolean-union-transform-offset-preserves-child-position');
+
     // Boolean SUBTRACT over children sharing the operation origin approximates
     // hole-cutting with a single fill-rule:evenodd path.
     $booleanSubtractResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -961,4 +1037,74 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(! str_contains($vectorChildFallbackHtml, 'data-figma-unsupported-vector="true"'), 'vector-child-fallback-not-placeholder');
     $assert(in_array('unsupported_vector_network_blob', $vectorChildFallbackDiagnosticCodes, true), 'vector-child-fallback-network-diagnostic-kept');
     $assert(! in_array('unsupported_vector_node_placeholder', $vectorChildFallbackDiagnosticCodes, true), 'vector-child-fallback-no-placeholder-diagnostic');
+
+    $layeredLogoResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Layered Vector Logo Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'logo:group',
+                'type'     => 'GROUP',
+                'name'     => 'Newsletter Logo',
+                'x'        => 100,
+                'y'        => 50,
+                'width'    => 40,
+                'height'   => 24,
+                'children' => array(
+                    array(
+                        'id'                 => 'logo:back-leaf',
+                        'type'               => 'VECTOR',
+                        'name'               => 'Back Leaf',
+                        'x'                  => 102,
+                        'y'                  => 53,
+                        'width'              => 14,
+                        'height'             => 12,
+                        'fillPaints'         => array(array('type' => 'SOLID', 'color' => array('r' => 0.1176470588, 'g' => 0.4862745098, 'b' => 0.2352941176))),
+                        'figma_vector_paths' => array(array('data' => 'M0 0L14 0L14 12L0 12Z')),
+                    ),
+                    array(
+                        'id'       => 'logo:nested-mark',
+                        'type'     => 'GROUP',
+                        'name'     => 'Nested Mark',
+                        'x'        => 118,
+                        'y'        => 50,
+                        'width'    => 18,
+                        'height'   => 18,
+                        'children' => array(
+                            array(
+                                'id'                 => 'logo:front-leaf',
+                                'type'               => 'VECTOR',
+                                'name'               => 'Front Leaf',
+                                'x'                  => 118,
+                                'y'                  => 50,
+                                'width'              => 18,
+                                'height'             => 18,
+                                'strokeWeight'       => 2,
+                                'strokePaints'       => array(array('type' => 'SOLID', 'color' => array('r' => 0.0588235294, 'g' => 0.2823529412, 'b' => 0.137254902))),
+                                'figma_vector_paths' => array(array('data' => 'M1 17L17 1')),
+                            ),
+                            array(
+                                'id'                 => 'logo:hidden-leaf',
+                                'type'               => 'VECTOR',
+                                'name'               => 'Hidden Leaf',
+                                'visible'            => false,
+                                'x'                  => 120,
+                                'y'                  => 52,
+                                'width'              => 8,
+                                'height'             => 8,
+                                'figma_vector_paths' => array(array('data' => 'M0 0L8 8')),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $layeredLogoHtml = $fileContent($layeredLogoResult, 'index.html');
+    $layeredLogoCss = $fileContent($layeredLogoResult, 'style.css');
+    $assert(str_contains($layeredLogoHtml, 'data-figma-node-id="logo:group"') && str_contains($layeredLogoHtml, 'data-figma-vector-composition="group"'), 'layered-vector-logo-composes-container-svg');
+    $assert(str_contains($layeredLogoHtml, 'viewBox="0 0 40 24"'), 'layered-vector-logo-uses-container-viewbox');
+    $assert(str_contains($layeredLogoHtml, 'transform="translate(2 3)"') && str_contains($layeredLogoHtml, 'transform="translate(18 0)"'), 'layered-vector-logo-preserves-child-offsets');
+    $assert(str_contains($layeredLogoHtml, 'fill="#1e7c3c"') && str_contains($layeredLogoHtml, 'stroke="#0f4823"'), 'layered-vector-logo-preserves-child-paints');
+    $assert(! str_contains($layeredLogoHtml, 'data-figma-node-id="logo:back-leaf"') && ! str_contains($layeredLogoHtml, 'data-figma-node-id="logo:hidden-leaf"'), 'layered-vector-logo-does-not-duplicate-child-html');
+    $assert(! str_contains($layeredLogoCss, '.figma-node-logo-back-leaf-back-leaf'), 'layered-vector-logo-css-omits-child-layer-rules');
 }

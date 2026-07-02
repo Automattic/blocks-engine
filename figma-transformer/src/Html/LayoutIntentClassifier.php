@@ -160,6 +160,59 @@ final class LayoutIntentClassifier
 
     /**
      * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    public function overlappingSiblingZIndex(array $node, array $parentNode): ?int
+    {
+        if ( ! $this->isFreeformContainer($parentNode) && ! $this->hasAbsoluteChild($parentNode) ) {
+            return null;
+        }
+
+        $nodeId = (string) ($node['id'] ?? '');
+        if ( '' === $nodeId ) {
+            return null;
+        }
+
+        $siblings = array_values(array_filter($this->nodeList($parentNode), 'is_array'));
+        $stackedSiblings = array();
+        $nodeOverlapsSibling = false;
+        foreach ( $siblings as $index => $sibling ) {
+            $siblingId = (string) ($sibling['id'] ?? '');
+            if ( '' === $siblingId ) {
+                continue;
+            }
+
+            if ( $siblingId !== $nodeId && $this->nodesOverlapInParent($node, $sibling, $parentNode) ) {
+                $nodeOverlapsSibling = true;
+            }
+
+            $stackedSiblings[] = array(
+                'id'    => $siblingId,
+                'index' => $index,
+                'key'   => $this->nodePaintOrderKey($sibling, $index),
+            );
+        }
+
+        if ( ! $nodeOverlapsSibling ) {
+            return null;
+        }
+
+        usort(
+            $stackedSiblings,
+            static fn (array $left, array $right): int => $left['key'] <=> $right['key']
+        );
+
+        foreach ( $stackedSiblings as $rank => $sibling ) {
+            if ( $sibling['id'] === $nodeId ) {
+                return $rank + 1;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
      */
     public function isAbsoluteChild(array $node): bool
     {
@@ -505,6 +558,65 @@ final class LayoutIntentClassifier
         $nodeOrder = $this->nodeSourceOrder($node) ?? $nodeSiblingIndex;
         $siblingOrder = $this->nodeSourceOrder($sibling) ?? $siblingIndex;
         return null !== $nodeOrder && $nodeOrder < $siblingOrder;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array{0: int, 1: int|float|string, 2: int, 3: string}
+     */
+    private function nodePaintOrderKey(array $node, int $fallbackIndex): array
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( isset($layout['layer_order']) && is_scalar($layout['layer_order']) ) {
+            $layerOrder = (string) $layout['layer_order'];
+            return array(0, is_numeric($layerOrder) ? (float) $layerOrder : $layerOrder, $fallbackIndex, (string) ($node['id'] ?? ''));
+        }
+
+        $sourceOrder = $this->nodeSourceOrder($node);
+        return array(1, null === $sourceOrder ? $fallbackIndex : $sourceOrder, $fallbackIndex, (string) ($node['id'] ?? ''));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $sibling
+     * @param array<string, mixed> $parentNode
+     */
+    private function nodesOverlapInParent(array $node, array $sibling, array $parentNode): bool
+    {
+        $nodeRect = $this->nodeRectInParent($node, $parentNode);
+        $siblingRect = $this->nodeRectInParent($sibling, $parentNode);
+        if ( null === $nodeRect || null === $siblingRect ) {
+            return false;
+        }
+
+        return $nodeRect['x'] < $siblingRect['x'] + $siblingRect['width']
+            && $nodeRect['x'] + $nodeRect['width'] > $siblingRect['x']
+            && $nodeRect['y'] < $siblingRect['y'] + $siblingRect['height']
+            && $nodeRect['y'] + $nodeRect['height'] > $siblingRect['y'];
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     * @return array{x: float, y: float, width: float, height: float}|null
+     */
+    private function nodeRectInParent(array $node, array $parentNode): ?array
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        foreach ( array('width', 'height') as $dimension ) {
+            if ( ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) ) {
+                return null;
+            }
+        }
+
+        $x = $this->positionOffset($box, $parentBox, 'x', $parentNode);
+        $y = $this->positionOffset($box, $parentBox, 'y', $parentNode);
+        if ( null === $x || null === $y ) {
+            return null;
+        }
+
+        return array('x' => $x, 'y' => $y, 'width' => (float) $box['width'], 'height' => (float) $box['height']);
     }
 
     /**

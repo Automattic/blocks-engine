@@ -81,6 +81,21 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
                             'key'            => array('family' => 'Example Sans', 'style' => 'Regular'),
                             'fontLineHeight' => 1.2,
                             'fontWeight'     => 400,
+                            'fontDigest'     => 'example-font-digest',
+                        ),
+                    ),
+                    'decorations' => array(
+                        array(
+                            'rects'   => array(array('x' => 1, 'y' => 20, 'w' => 80, 'h' => 2)),
+                            'styleID' => 4,
+                        ),
+                    ),
+                    'hyperlinkBoxes' => array(
+                        array(
+                            'bounds'       => array('x' => 1, 'y' => 0, 'w' => 80, 'h' => 18),
+                            'url'          => 'https://example.com/text-link',
+                            'hyperlinkID'  => 9,
+                            'openInNewTab' => true,
                         ),
                     ),
                     'logicalIndexToCharacterOffsetMap' => range(0, 299),
@@ -116,6 +131,12 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert(true === ($derivedTextVisualNode['text']['derived_layout']['lines'][0]['is_first_line_of_list'] ?? null), 'visual-node-text-line-list-first');
     $assert(1 === ($derivedTextVisualNode['text']['derived_layout']['derived_line_count'] ?? null), 'visual-node-derived-text-line-count');
     $assert('RTL' === ($derivedTextVisualNode['text']['derived_layout']['derived_lines'][0]['directionality'] ?? null), 'visual-node-derived-text-line-directionality');
+    $assert('example-font-digest' === ($derivedTextVisualNode['text']['derived_layout']['fonts'][0]['font_digest'] ?? null), 'visual-node-derived-text-font-digest');
+    $assert(1 === ($derivedTextVisualNode['text']['derived_layout']['decoration_count'] ?? null), 'visual-node-derived-text-decoration-count');
+    $assert(80.0 === ($derivedTextVisualNode['text']['derived_layout']['decorations'][0]['rects'][0]['width'] ?? null), 'visual-node-derived-text-decoration-rect-width');
+    $assert(1 === ($derivedTextVisualNode['text']['derived_layout']['hyperlink_box_count'] ?? null), 'visual-node-derived-text-hyperlink-box-count');
+    $assert('https://example.com/text-link' === ($derivedTextVisualNode['text']['derived_layout']['hyperlink_boxes'][0]['url'] ?? null), 'visual-node-derived-text-hyperlink-box-url');
+    $assert(18.0 === ($derivedTextVisualNode['text']['derived_layout']['hyperlink_boxes'][0]['bounds']['height'] ?? null), 'visual-node-derived-text-hyperlink-box-height');
     $assert('ending' === ($derivedTextNormalizedNode['figma_text']['style']['text_truncation'] ?? null), 'normalized-text-style-truncation');
     $assert('balance' === ($derivedTextNormalizedNode['figma_text']['style']['text_wrap_style'] ?? null), 'normalized-text-style-wrap');
     $assert(true === ($derivedTextNormalizedNode['figma_text']['style']['hanging_list'] ?? null), 'normalized-text-style-hanging-list');
@@ -129,7 +150,33 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert(str_contains($derivedTextLayoutCss, '.figma-node-text-derived-layout-measured-text{') && str_contains($derivedTextLayoutCss, 'width:146.5px;height:32.25px') && str_contains($derivedTextLayoutCss, 'line-height:22px'), 'single-line-derived-baseline-line-height-css');
     $assert(false === ($derivedTextLayoutResult['source_reports']['figma']['html']['render_text_glyph_paths'] ?? null), 'derived-text-glyph-rendering-default-disabled');
     $assert(! str_contains($fileContent($derivedTextLayoutResult, 'index.html'), 'data-figma-text-glyphs="true"'), 'derived-text-default-avoids-glyph-svg');
-    
+
+    $derivedSoftWrapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Derived Soft Wrap Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'text:derived-soft-wrap',
+                'type'       => 'TEXT',
+                'name'       => 'Measured Soft Wrap Heading',
+                'characters' => 'We' . "\u{2019}" . 're all about Lego',
+                'width'      => 342,
+                'height'     => 100,
+                'fontSize'   => 56,
+                'derivedTextData' => array(
+                    'layoutSize' => array('x' => 342, 'y' => 100),
+                    'baselines'  => array(
+                        array('position' => array('x' => 0, 'y' => 50), 'width' => 210, 'lineY' => 0, 'lineHeight' => 50, 'firstCharacter' => 0, 'endCharacter' => 9),
+                        array('position' => array('x' => 0, 'y' => 100), 'width' => 300, 'lineY' => 50, 'lineHeight' => 50, 'firstCharacter' => 10, 'endCharacter' => 20),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $derivedSoftWrapCss = $fileContent($derivedSoftWrapResult, 'style.css');
+    $derivedSoftWrapHtml = $fileContent($derivedSoftWrapResult, 'index.html');
+    $assert(str_contains($derivedSoftWrapCss, '.figma-node-text-derived-soft-wrap-measured-soft-wrap-heading{width:342px;height:100px;font-size:56px;line-height:50px;white-space:pre}'), 'derived-soft-wrap-preserves-line-boxes-without-browser-rewrap');
+    $assert(str_contains($derivedSoftWrapHtml, "We\u{2019}re all\nabout Lego"), 'derived-soft-wrap-html-keeps-measured-line-break');
+
     $unsupportedGlyphScenegraph = array(
         'name'  => 'Unsupported Glyph Diagnostic Fixture',
         'blobs' => array(array('bytes' => chr(9))),
@@ -475,7 +522,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $derivedLineBreakHtml = $fileContent($derivedLineBreakResult, 'index.html');
     $derivedLineBreakCss = $fileContent($derivedLineBreakResult, 'style.css');
     $assert(str_contains($derivedLineBreakHtml, "First line\nSecond line"), 'derived-baselines-insert-line-breaks');
-    $assert(str_contains($derivedLineBreakCss, '.figma-node-text-derived-lines-measured-lines{width:120px;height:44px;line-height:22px;white-space:pre-line}'), 'derived-baselines-enable-pre-line');
+    $assert(str_contains($derivedLineBreakCss, '.figma-node-text-derived-lines-measured-lines{width:120px;height:44px;line-height:22px;white-space:pre}'), 'derived-baselines-enable-pre');
     $assert(! str_contains($derivedLineBreakCss, 'line-height:40px;line-height:22px'), 'derived-baselines-replace-source-line-height');
     
     $derivedHugTextHeightResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -554,7 +601,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
             $derivedMeasuredLineHeightDiagnostic = $styleDiagnostic;
         }
     }
-    $assert(str_contains($derivedMeasuredLineHeightCss, '.figma-node-text-derived-measured-line-height-measured-line-height{width:120px;height:40px;line-height:23px;white-space:pre-line}'), 'derived-baselines-prefer-position-delta-line-height');
+    $assert(str_contains($derivedMeasuredLineHeightCss, '.figma-node-text-derived-measured-line-height-measured-line-height{width:120px;height:40px;line-height:23px;white-space:pre}'), 'derived-baselines-prefer-position-delta-line-height');
     $assert('23px' === ($derivedMeasuredLineHeightDiagnostic['expected']['line_height'] ?? null), 'derived-baselines-measured-line-height-expected-diagnostic');
     $assert('23px' === ($derivedMeasuredLineHeightDiagnostic['emitted']['line_height'] ?? null), 'derived-baselines-measured-line-height-emitted-diagnostic');
     $assert(array() === ($derivedMeasuredLineHeightDiagnostic['mismatches'] ?? null), 'derived-baselines-measured-line-height-no-diagnostic-mismatch');
@@ -588,20 +635,21 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
         'name'  => 'Hug Button Label Fixture',
         'nodes' => array(
             array(
-                'id'              => 'text:hug-button',
-                'type'            => 'FRAME',
-                'name'            => 'Button',
-                'width'           => 73,
-                'height'          => 36,
-                'layoutMode'      => 'HORIZONTAL',
-                'paddingTop'      => 12,
-                'paddingRight'    => 16,
-                'paddingBottom'   => 12,
-                'paddingLeft'     => 16,
-                'itemSpacing'     => 8,
-                'cornerRadius'    => 999,
-                'fills'           => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
-                'children'        => array(
+                'id'                    => 'text:hug-button',
+                'type'                  => 'FRAME',
+                'name'                  => 'Button',
+                'width'                 => 73,
+                'height'                => 36,
+                'layoutMode'            => 'HORIZONTAL',
+                'counterAxisAlignItems' => 'CENTER',
+                'paddingTop'            => 12,
+                'paddingRight'          => 16,
+                'paddingBottom'         => 12,
+                'paddingLeft'           => 16,
+                'itemSpacing'           => 8,
+                'cornerRadius'          => 999,
+                'fills'                 => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                'children'              => array(
                     array(
                         'id'              => 'text:hug-button-label',
                         'type'            => 'TEXT',
@@ -625,8 +673,48 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
         ),
     ));
     $hugButtonLabelCss = $fileContent($hugButtonLabelResult, 'style.css');
-    $assert(str_contains($hugButtonLabelCss, '.figma-node-text-hug-button-button{width:73px;height:36px;'), 'hug-button-label-parent-keeps-figma-height');
-    $assert(str_contains($hugButtonLabelCss, '.figma-node-text-hug-button-label-reply{width:39px;height:10px;font-size:14px;line-height:22px;overflow:visible;flex-shrink:0}'), 'hug-button-label-flex-item-uses-measured-height');
+    $assert(str_contains($hugButtonLabelCss, '.figma-node-text-hug-button-button{width:73px;height:36px;') && str_contains($hugButtonLabelCss, 'align-items:center'), 'hug-button-label-parent-keeps-figma-height');
+    $assert(str_contains($hugButtonLabelCss, '.figma-node-text-hug-button-label-reply{width:39px;font-size:14px;line-height:22px;flex-shrink:0}'), 'centered-button-label-uses-line-box-height');
+    $assert(! str_contains($hugButtonLabelCss, '.figma-node-text-hug-button-label-reply{width:39px;height:10px'), 'centered-button-label-no-tiny-measured-height');
+
+    $startAlignedFlexLabelResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Start Aligned Flex Label Fixture',
+        'nodes' => array(
+            array(
+                'id'            => 'text:start-flex-button',
+                'type'          => 'FRAME',
+                'name'          => 'Button',
+                'width'         => 73,
+                'height'        => 36,
+                'layoutMode'    => 'HORIZONTAL',
+                'paddingTop'    => 12,
+                'paddingRight'  => 16,
+                'paddingBottom' => 12,
+                'paddingLeft'   => 16,
+                'itemSpacing'   => 8,
+                'children'      => array(
+                    array(
+                        'id'              => 'text:start-flex-button-label',
+                        'type'            => 'TEXT',
+                        'name'            => 'Reply',
+                        'characters'      => 'Reply',
+                        'width'           => 39,
+                        'height'          => 10,
+                        'fontSize'        => 14,
+                        'lineHeightPx'    => 22,
+                        'derivedTextData' => array(
+                            'layoutSize' => array('x' => 39, 'y' => 10),
+                            'baselines'  => array(
+                                array('firstCharacter' => 0, 'endCharacter' => 5, 'lineY' => -6.282, 'lineHeight' => 22, 'lineAscent' => 14, 'position' => array('x' => 0, 'y' => 10.43)),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $startAlignedFlexLabelCss = $fileContent($startAlignedFlexLabelResult, 'style.css');
+    $assert(str_contains($startAlignedFlexLabelCss, '.figma-node-text-start-flex-button-label-reply{width:39px;height:10px;font-size:14px;line-height:22px;overflow:visible;flex-shrink:0}'), 'non-centered-flex-label-keeps-measured-height');
 }
 
 function blocks_engine_figma_transformer_run_text_style_contract(callable $assert, callable $fileContent, callable $artifactQualitySignal, callable $artifactQualitySignalCodes): void
@@ -1223,7 +1311,210 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     // Kiwi mixed-weight: only "Bold" differs in font-weight — derived from the override
     // entry's bold `fontName` — and " plain text" stays unwrapped.
     $assert(str_contains($kiwiInlineTextStyleHtml, '<span style="font-weight:700">Bold</span> plain text'), 'kiwi-inline-style-mixed-weight-spans');
-    
+
+    // Kiwi derived rich text spans: production .fig payloads can put the character
+    // range IDs and NodeChange-shaped override table under `derivedTextData` while
+    // the root text node still carries stale uppercase/heading-sized styling from a
+    // component instance. The range overrides are authoritative for the rich text:
+    // each repeated item starts with a bold lead statement and then returns to normal
+    // sentence case/size. Repeated sibling item frames should still emit as a
+    // semantic unordered list.
+    $kiwiDerivedRichTextResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Kiwi Derived Rich Text List Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'krt:1',
+                'type'     => 'FRAME',
+                'name'     => 'What sets us apart',
+                'width'    => 1200,
+                'height'   => 600,
+                'children' => array(
+                    array(
+                        'id'       => 'krt:list',
+                        'type'     => 'FRAME',
+                        'name'     => 'Apart list',
+                        'width'    => 720,
+                        'height'   => 240,
+                        'children' => array(
+                            array(
+                                'id'       => 'krt:item-1',
+                                'type'     => 'FRAME',
+                                'name'     => 'List item 1',
+                                'width'    => 720,
+                                'height'   => 56,
+                                'children' => array(
+                                    array(
+                                        'id'              => 'krt:text-1',
+                                        'type'            => 'TEXT',
+                                        'name'            => 'Movement item',
+                                        'fontName'        => array('family' => 'Inter', 'style' => 'Bold'),
+                                        'fontSize'        => 32,
+                                        'textCase'        => 'UPPER',
+                                        'textData'        => array('characters' => 'Movement made gentle: Tips fit your day.'),
+                                        'derivedTextData' => array(
+                                            'characterStyleIDs' => array_merge(array_fill(0, 21, 1), array_fill(0, 19, 2)),
+                                            'styleOverrideTable' => array(
+                                                array(
+                                                    'styleID'  => 1,
+                                                    'fontName' => array('family' => 'Inter', 'style' => 'Bold'),
+                                                    'fontSize' => 16,
+                                                    'textCase' => 'ORIGINAL',
+                                                ),
+                                                array(
+                                                    'styleID'  => 2,
+                                                    'fontName' => array('family' => 'Inter', 'style' => 'Regular'),
+                                                    'fontSize' => 16,
+                                                    'textCase' => 'ORIGINAL',
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            array(
+                                'id'       => 'krt:item-2',
+                                'type'     => 'FRAME',
+                                'name'     => 'List item 2',
+                                'width'    => 720,
+                                'height'   => 56,
+                                'children' => array(
+                                    array(
+                                        'id'              => 'krt:text-2',
+                                        'type'            => 'TEXT',
+                                        'name'            => 'Recovery item',
+                                        'fontName'        => array('family' => 'Inter', 'style' => 'Bold'),
+                                        'fontSize'        => 32,
+                                        'textCase'        => 'UPPER',
+                                        'textData'        => array('characters' => 'Recovery that lasts: Build steady habits.'),
+                                        'derivedTextData' => array(
+                                            'characterStyleIDs' => array_merge(array_fill(0, 20, 1), array_fill(0, 21, 2)),
+                                            'styleOverrideTable' => array(
+                                                array('styleID' => 1, 'fontName' => array('family' => 'Inter', 'style' => 'Bold'), 'fontSize' => 16, 'textCase' => 'ORIGINAL'),
+                                                array('styleID' => 2, 'fontName' => array('family' => 'Inter', 'style' => 'Regular'), 'fontSize' => 16, 'textCase' => 'ORIGINAL'),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            array(
+                                'id'       => 'krt:item-3',
+                                'type'     => 'FRAME',
+                                'name'     => 'List item 3',
+                                'width'    => 720,
+                                'height'   => 56,
+                                'children' => array(
+                                    array(
+                                        'id'              => 'krt:text-3',
+                                        'type'            => 'TEXT',
+                                        'name'            => 'Support item',
+                                        'fontName'        => array('family' => 'Inter', 'style' => 'Bold'),
+                                        'fontSize'        => 32,
+                                        'textCase'        => 'UPPER',
+                                        'textData'        => array('characters' => 'Support between visits: Keep moving safely.'),
+                                        'derivedTextData' => array(
+                                            'characterStyleIDs' => array_merge(array_fill(0, 24, 1), array_fill(0, 20, 2)),
+                                            'styleOverrideTable' => array(
+                                                array('styleID' => 1, 'fontName' => array('family' => 'Inter', 'style' => 'Bold'), 'fontSize' => 16, 'textCase' => 'ORIGINAL'),
+                                                array('styleID' => 2, 'fontName' => array('family' => 'Inter', 'style' => 'Regular'), 'fontSize' => 16, 'textCase' => 'ORIGINAL'),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $kiwiDerivedRichTextHtml = $fileContent($kiwiDerivedRichTextResult, 'index.html');
+    $assert(str_contains($kiwiDerivedRichTextHtml, '<ul'), 'kiwi-derived-rich-text-list-container');
+    $assert(3 === substr_count($kiwiDerivedRichTextHtml, '<li '), 'kiwi-derived-rich-text-list-items');
+    $assert(str_contains($kiwiDerivedRichTextHtml, '<span style="font-size:16px;text-transform:none">Movement made gentle:</span><span style="font-size:16px;font-weight:400;text-transform:none"> Tips fit your day.</span>'), 'kiwi-derived-rich-text-bold-lead-and-normal-tip');
+    $assert(! str_contains($kiwiDerivedRichTextHtml, 'MOVEMENT MADE GENTLE'), 'kiwi-derived-rich-text-no-baked-uppercase');
+
+    // Visual ordered-list rows often split the marker ("1.") and rich text body
+    // into sibling text nodes. The marker should select <ol> semantics without
+    // being emitted as duplicate content, while the body keeps Kiwi inline spans.
+    $kiwiOrderedMarkerRichTextResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Kiwi Ordered Marker Rich Text Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'kom:1',
+                'type'     => 'FRAME',
+                'name'     => 'Ordered list frame',
+                'width'    => 1200,
+                'height'   => 600,
+                'children' => array(
+                    array(
+                        'id'       => 'kom:list',
+                        'type'     => 'FRAME',
+                        'name'     => 'Ordered apart list',
+                        'width'    => 720,
+                        'height'   => 240,
+                        'children' => array(
+                            array(
+                                'id'       => 'kom:item-1',
+                                'type'     => 'FRAME',
+                                'name'     => 'Numbered list item',
+                                'width'    => 720,
+                                'height'   => 56,
+                                'children' => array(
+                                    array('id' => 'kom:marker-1', 'type' => 'TEXT', 'name' => 'Marker', 'characters' => '1.', 'fontSize' => 32, 'fontWeight' => 700),
+                                    array(
+                                        'id'              => 'kom:text-1',
+                                        'type'            => 'TEXT',
+                                        'name'            => 'Body',
+                                        'fontName'        => array('family' => 'Inter', 'style' => 'Bold'),
+                                        'fontSize'        => 32,
+                                        'textCase'        => 'UPPER',
+                                        'textData'        => array('characters' => 'Movement made gentle: Tips fit your day.'),
+                                        'derivedTextData' => array(
+                                            'characterStyleIDs' => array_merge(array_fill(0, 21, 1), array_fill(0, 19, 2)),
+                                            'styleOverrideTable' => array(
+                                                array('styleID' => 1, 'fontName' => array('family' => 'Inter', 'style' => 'Bold'), 'fontSize' => 16, 'textCase' => 'ORIGINAL'),
+                                                array('styleID' => 2, 'fontName' => array('family' => 'Inter', 'style' => 'Regular'), 'fontSize' => 16, 'textCase' => 'ORIGINAL'),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            array(
+                                'id'       => 'kom:item-2',
+                                'type'     => 'FRAME',
+                                'name'     => 'Numbered list item',
+                                'width'    => 720,
+                                'height'   => 56,
+                                'children' => array(
+                                    array('id' => 'kom:marker-2', 'type' => 'TEXT', 'name' => 'Marker', 'characters' => '2.', 'fontSize' => 32, 'fontWeight' => 700),
+                                    array('id' => 'kom:text-2', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Recovery that lasts: Build steady habits.', 'fontSize' => 16),
+                                ),
+                            ),
+                            array(
+                                'id'       => 'kom:item-3',
+                                'type'     => 'FRAME',
+                                'name'     => 'Numbered list item',
+                                'width'    => 720,
+                                'height'   => 56,
+                                'children' => array(
+                                    array('id' => 'kom:marker-3', 'type' => 'TEXT', 'name' => 'Marker', 'characters' => '3.', 'fontSize' => 32, 'fontWeight' => 700),
+                                    array('id' => 'kom:text-3', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Support between visits: Keep moving safely.', 'fontSize' => 16),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $kiwiOrderedMarkerRichTextHtml = $fileContent($kiwiOrderedMarkerRichTextResult, 'index.html');
+    $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<ol'), 'kiwi-ordered-marker-rich-text-list-container');
+    $assert(3 === substr_count($kiwiOrderedMarkerRichTextHtml, '<li '), 'kiwi-ordered-marker-rich-text-list-items');
+    $assert(! str_contains($kiwiOrderedMarkerRichTextHtml, '>1.<'), 'kiwi-ordered-marker-rich-text-marker-suppressed');
+    $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<p class="figma-node-kom-text-1-body"'), 'kiwi-ordered-marker-rich-text-body-paragraph');
+    $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<span style="font-size:16px;text-transform:none">Movement made gentle:</span><span style="font-size:16px;font-weight:400;text-transform:none"> Tips fit your day.</span>'), 'kiwi-ordered-marker-rich-text-body-spans');
+    $assert(! str_contains($kiwiOrderedMarkerRichTextHtml, '<h3 class="figma-node-kom-text-1-body"'), 'kiwi-ordered-marker-rich-text-body-not-heading');
+     
     // Kiwi text style references: production .fig payloads can carry stale inline
     // `fontName` data on a text node while `styleIdForText` points at the canonical
     // text style and `derivedTextData.fontMetaData` matches that style. Prefer the

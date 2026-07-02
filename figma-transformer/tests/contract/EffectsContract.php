@@ -23,6 +23,7 @@ function blocks_engine_figma_transformer_run_effects_contract(callable $assert, 
                         'offset'               => array('x' => 0, 'y' => 6),
                         'radius'               => 6,
                         'spread'               => 2,
+                        'opacity'              => 0.5,
                         'blendMode'            => 'MULTIPLY',
                         'showShadowBehindNode' => true,
                         'color'                => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 0.16),
@@ -35,7 +36,7 @@ function blocks_engine_figma_transformer_run_effects_contract(callable $assert, 
                         'color'  => array('r' => 1, 'g' => 0, 'b' => 0, 'a' => 0.5),
                     ),
                     array('type' => 'LAYER_BLUR', 'radius' => 2),
-                    array('type' => 'BACKGROUND_BLUR', 'radius' => 5),
+                    array('type' => 'BACKGROUND_BLUR', 'radius' => 5, 'visible' => true, 'blendMode' => 'SCREEN'),
                 ),
                 'children' => array(
                     array(
@@ -62,12 +63,14 @@ function blocks_engine_figma_transformer_run_effects_contract(callable $assert, 
         static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
         $effectsResult['diagnostics'] ?? array()
     );
-    $assert(str_contains($effectsCss, 'box-shadow:0px 6px 6px 2px rgba(0,0,0,0.16),inset 1px 2px 3px 4px rgba(255,0,0,0.5)'), 'effects-box-shadow-css');
+    $assert(str_contains($effectsCss, 'box-shadow:0px 6px 6px 2px rgba(0,0,0,0.08),inset 1px 2px 3px 4px rgba(255,0,0,0.5)'), 'effects-box-shadow-css');
     $assert(str_contains($effectsCss, 'filter:blur(2px)'), 'effects-layer-blur-css');
     $assert(str_contains($effectsCss, 'backdrop-filter:blur(5px)'), 'effects-background-blur-css');
-    $assert(str_contains($effectsCss, 'text-shadow:1px 1px 2px 0px rgba(0,0,0,0.4)'), 'effects-text-shadow-css');
+    $assert(str_contains($effectsCss, 'text-shadow:1px 1px 2px rgba(0,0,0,0.4)'), 'effects-text-shadow-css');
     $assert(2 === ($effectsDiagnostics['effects']['source_effect_node_count'] ?? null), 'effects-diagnostics-source-node-count');
-    $assert(1 === ($effectsDiagnostics['effects']['field_coverage']['blend_mode'] ?? null), 'effects-diagnostics-blend-mode-coverage');
+    $assert(2 === ($effectsDiagnostics['effects']['field_coverage']['blend_mode'] ?? null), 'effects-diagnostics-blend-mode-coverage');
+    $assert(1 === ($effectsDiagnostics['effects']['field_coverage']['opacity'] ?? null), 'effects-diagnostics-opacity-coverage');
+    $assert(1 === ($effectsDiagnostics['effects']['field_coverage']['visible'] ?? null), 'effects-diagnostics-visible-coverage');
     $assert(1 === ($effectsDiagnostics['effects']['field_coverage']['show_shadow_behind_node'] ?? null), 'effects-diagnostics-show-shadow-behind-node-coverage');
     $assert(5 === ($effectsDiagnostics['effects']['field_coverage']['source_type'] ?? null), 'effects-diagnostics-source-type-coverage');
     $assert(array('background_blur', 'drop_shadow', 'inner_shadow', 'layer_blur') === array_keys($effectsDiagnostics['effects']['by_type'] ?? array()), 'effects-diagnostics-effect-type-inventory');

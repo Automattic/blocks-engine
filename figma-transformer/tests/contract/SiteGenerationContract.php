@@ -52,7 +52,128 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $qualitySignalCodes = $artifactQualitySignalCodes($qualityDiagnosticsResult);
     $assert(! in_array('fixed_root_width', $qualitySignalCodes, true), 'quality-diagnostics-fixed-root-width-retired');
     $qualityCss = $fileContent($qualityDiagnosticsResult, 'style.css');
-    $assert(str_contains($qualityCss, '.figma-node-quality-root-desktop-fixed-root{width:100%;max-width:1440px;margin-left:auto;margin-right:auto;'), 'quality-diagnostics-root-renders-fluid');
+    $assert(str_contains($qualityCss, '.figma-node-quality-root-desktop-fixed-root{width:100%;height:1200px;'), 'quality-diagnostics-root-renders-fluid-full-bleed');
+    $assert(! str_contains($qualityCss, '.figma-node-quality-root-desktop-fixed-root{width:100%;max-width:1440px;margin-left:auto;margin-right:auto;'), 'quality-diagnostics-root-avoids-letterbox-max-width');
+
+    $explicitMaxWidthResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Explicit Root Max Width Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'explicit-max:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop constrained root',
+                'width'    => 1440,
+                'height'   => 900,
+                'maxWidth' => 1200,
+            ),
+        ),
+    ));
+    $explicitMaxWidthCss = $fileContent($explicitMaxWidthResult, 'style.css');
+    $assert(str_contains($explicitMaxWidthCss, '.figma-node-explicit-max-root-desktop-constrained-root{width:100%;height:900px;max-width:1200px'), 'quality-diagnostics-root-honors-explicit-max-width');
+
+    $fullWidthBandResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Full Width Band Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'fluid-band:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 1440,
+                'height'   => 1200,
+                'layoutMode' => 'VERTICAL',
+                'layoutSizingHorizontal' => 'FILL',
+                'children' => array(
+                    array(
+                        'id'       => 'fluid-band:hero',
+                        'type'     => 'FRAME',
+                        'name'     => 'Hero band',
+                        'width'    => 1440,
+                        'height'   => 520,
+                        'layoutSizingHorizontal' => 'FILL',
+                        'children' => array(
+                            array('id' => 'fluid-band:bg', 'type' => 'RECTANGLE', 'name' => 'Full bleed background', 'x' => 0, 'y' => 0, 'width' => 1440, 'height' => 520),
+                            array('id' => 'fluid-band:content', 'type' => 'FRAME', 'name' => 'Centered content shell', 'x' => 112, 'y' => 80, 'width' => 1216, 'height' => 240),
+                            array('id' => 'fluid-band:title', 'type' => 'TEXT', 'name' => 'Hero title', 'characters' => 'Fluid hero', 'width' => 320, 'height' => 48, 'fontSize' => 36),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'fluid-band:card',
+                        'type'     => 'FRAME',
+                        'name'     => 'Narrow card',
+                        'width'    => 420,
+                        'height'   => 240,
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $fullWidthBandCss = $fileContent($fullWidthBandResult, 'style.css');
+    $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-hero-hero-band{width:100%;height:520px;'), 'quality-diagnostics-full-width-band-renders-fluid');
+    $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-bg-full-bleed-background{width:100%;height:520px;position:absolute;left:0px;top:0px'), 'quality-diagnostics-fluid-band-full-bleed-absolute-child-stays-full-width');
+    $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-content-centered-content-shell{width:1216px;height:240px;position:absolute;left:calc(50% - 608px);top:80px'), 'quality-diagnostics-fluid-band-absolute-child-centers-in-intrinsic-canvas');
+    $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-card-narrow-card{width:420px;height:240px;'), 'quality-diagnostics-narrow-band-keeps-intrinsic-width');
+
+    $fluidManagedStackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Fluid Managed Stack Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'fluid-stack:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 1440,
+                'height'   => 900,
+                'layoutMode' => 'VERTICAL',
+                'children' => array(
+                    array(
+                        'id'       => 'fluid-stack:footer',
+                        'type'     => 'FRAME',
+                        'name'     => 'Footer shell',
+                        'width'    => 1440,
+                        'height'   => 483,
+                        'children' => array(
+                            array('id' => 'fluid-stack:bg', 'type' => 'RECTANGLE', 'name' => 'Footer background', 'x' => 0, 'y' => -64, 'width' => 1440, 'height' => 195, 'layoutPositioning' => 'ABSOLUTE'),
+                            array('id' => 'fluid-stack:card', 'type' => 'FRAME', 'name' => 'Centered card', 'x' => 112, 'y' => 0, 'width' => 1216, 'height' => 352, 'layoutPositioning' => 'ABSOLUTE', 'constraints' => array('horizontal' => 'LEFT_RIGHT', 'vertical' => 'TOP')),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $fluidManagedStackCss = $fileContent($fluidManagedStackResult, 'style.css');
+    $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-footer-footer-shell{width:100%;height:483px;'), 'quality-diagnostics-fluid-managed-stack-renders-full-width');
+    $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-bg-footer-background{width:100%;height:195px;position:absolute;left:0px;top:-64px'), 'quality-diagnostics-fluid-managed-stack-full-bleed-child-stays-full-width');
+    $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-card-centered-card{width:1216px;height:352px;position:absolute;left:calc(50% - 608px);top:0px'), 'quality-diagnostics-fluid-managed-stack-centered-child-uses-canvas-center');
+
+    $fluidInstanceStackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Fluid Instance Managed Stack Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'fluid-instance:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 1440,
+                'height'   => 900,
+                'layoutMode' => 'VERTICAL',
+                'children' => array(
+                    array(
+                        'id'       => 'fluid-instance:footer',
+                        'type'     => 'INSTANCE',
+                        'name'     => 'Footer shell',
+                        'width'    => 1440,
+                        'height'   => 483,
+                        'children' => array(
+                            array('id' => 'fluid-instance:bg', 'type' => 'RECTANGLE', 'name' => 'Footer background', 'x' => 0, 'y' => -64, 'width' => 1440, 'height' => 195, 'layoutPositioning' => 'ABSOLUTE'),
+                            array('id' => 'fluid-instance:card', 'type' => 'INSTANCE', 'name' => 'Newsletter signup', 'x' => 112, 'y' => 0, 'width' => 1216, 'height' => 352, 'layoutPositioning' => 'ABSOLUTE', 'stackMode' => 'VERTICAL', 'stackCounterSizing' => 'RESIZE_TO_FIT_WITH_IMPLICIT_SIZE'),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $fluidInstanceStackCss = $fileContent($fluidInstanceStackResult, 'style.css');
+    $assert(str_contains($fluidInstanceStackCss, '.figma-node-fluid-instance-footer-footer-shell{width:100%;height:483px;'), 'quality-diagnostics-fluid-instance-stack-renders-full-width');
+    $assert(str_contains($fluidInstanceStackCss, '.figma-node-fluid-instance-card-newsletter-signup{width:1216px;height:352px;position:absolute;left:calc(50% - 608px);top:0px'), 'quality-diagnostics-fluid-instance-centered-child-uses-canvas-center');
+
     $assert(in_array('large_absolute_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-absolute-offsets');
     $assert(in_array('large_css_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-css-offsets');
     $assert(in_array('image_heavy_landmark_candidate', $qualitySignalCodes, true), 'quality-diagnostics-image-heavy-landmark');
@@ -176,6 +297,67 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($absoluteChildReserveCss, '.figma-node-reserve-newsletter-promoted-card{') && str_contains($absoluteChildReserveCss, 'width:416px;height:352px;position:absolute;left:112px;top:0px'), 'absolute-child-reserve-positioned-card-preserved');
     $assert(str_contains($absoluteChildReserveCss, '.figma-node-reserve-bottom-bottom-bar{') && str_contains($absoluteChildReserveCss, 'width:640px;height:131px;position:absolute;left:0px;top:352px'), 'absolute-child-reserve-positioned-bottom-preserved');
 
+    $overlappingFooterLayerResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Overlapping Footer Layer Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'footer-layer:root',
+                'type'     => 'FRAME',
+                'name'     => 'Page root',
+                'width'    => 640,
+                'height'   => 700,
+                'children' => array(
+                    array(
+                        'id'       => 'footer-layer:footer',
+                        'type'     => 'FRAME',
+                        'name'     => 'Footer shell',
+                        'x'        => 0,
+                        'y'        => 120,
+                        'width'    => 640,
+                        'height'   => 483,
+                        'children' => array(
+                            array('id' => 'footer-layer:bottom', 'type' => 'FRAME', 'name' => 'Yellow footer area', 'x' => 0, 'y' => 300, 'width' => 640, 'height' => 183, 'parentIndex' => array('position' => 'a'), 'children' => array(
+                                array('id' => 'footer-layer:bottom:text', 'type' => 'TEXT', 'name' => 'Bottom text', 'characters' => 'Footer links', 'width' => 120, 'height' => 24, 'fontSize' => 16),
+                            )),
+                            array('id' => 'footer-layer:newsletter', 'type' => 'FRAME', 'name' => 'Newsletter card', 'x' => 112, 'y' => 0, 'width' => 416, 'height' => 352, 'parentIndex' => array('position' => 'b'), 'children' => array(
+                                array('id' => 'footer-layer:newsletter:text', 'type' => 'TEXT', 'name' => 'Card heading', 'characters' => 'Get the newsletter', 'width' => 240, 'height' => 32, 'fontSize' => 24),
+                            )),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $overlappingFooterLayerCss = $fileContent($overlappingFooterLayerResult, 'style.css');
+    $assert(str_contains($overlappingFooterLayerCss, '.figma-node-footer-layer-newsletter-newsletter-card{') && str_contains($overlappingFooterLayerCss, 'position:absolute;left:112px;top:0px;z-index:2'), 'overlapping-footer-newsletter-layer-on-top');
+    $assert(str_contains($overlappingFooterLayerCss, '.figma-node-footer-layer-bottom-yellow-footer-area{') && str_contains($overlappingFooterLayerCss, 'position:absolute;left:0px;top:300px;z-index:1'), 'overlapping-footer-bottom-layer-under-newsletter');
+
+    $kiwiSourceGapReserveResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Kiwi Source Gap Reserve Fixture',
+        'nodes' => array(
+            array(
+                'id'           => 'kiwi-gap:root',
+                'type'         => 'FRAME',
+                'name'         => 'Article template',
+                'width'        => 960,
+                'height'       => 720,
+                'stackMode'    => 'VERTICAL',
+                'stackSpacing' => 24,
+                'children'     => array(
+                    array('id' => 'kiwi-gap:read-next', 'type' => 'FRAME', 'name' => 'Read next section', 'width' => 960, 'height' => 200, 'transform' => array('m02' => 0, 'm12' => 0), 'children' => array(
+                        array('id' => 'kiwi-gap:read-next:title', 'type' => 'TEXT', 'name' => 'Read next title', 'characters' => 'Read Next', 'width' => 160, 'height' => 32, 'fontSize' => 24),
+                    )),
+                    array('id' => 'kiwi-gap:footer', 'type' => 'FRAME', 'name' => 'Footer', 'width' => 960, 'height' => 120, 'transform' => array('m02' => 0, 'm12' => 280), 'children' => array(
+                        array('id' => 'kiwi-gap:footer:text', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Footer links', 'width' => 140, 'height' => 24, 'fontSize' => 16),
+                    )),
+                ),
+            ),
+        ),
+    ));
+    $kiwiSourceGapReserveCss = $fileContent($kiwiSourceGapReserveResult, 'style.css');
+    $assert(str_contains($kiwiSourceGapReserveCss, '.figma-node-kiwi-gap-root-article-template{') && str_contains($kiwiSourceGapReserveCss, 'display:flex;flex-direction:column;gap:24px'), 'kiwi-source-gap-reserve-parent-auto-layout-gap');
+    $assert(str_contains($kiwiSourceGapReserveCss, '.figma-node-kiwi-gap-footer-footer{') && str_contains($kiwiSourceGapReserveCss, 'margin-top:56px'), 'kiwi-source-gap-reserve-footer-residual-margin');
+
     $stickyGhostResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Sticky Ghost Fixture',
         'nodes' => array(
@@ -252,6 +434,10 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
                             )),
                             array('id' => 'sticky-real:article', 'type' => 'FRAME', 'name' => 'Article body', 'width' => 796, 'height' => 3000, 'clipsContent' => true, 'children' => array(
                                 array('id' => 'sticky-real:title', 'type' => 'TEXT', 'name' => 'Article title', 'characters' => 'Long article', 'width' => 420, 'height' => 56, 'fontSize' => 42),
+                                array('id' => 'sticky-real:unboxing', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Unboxing Experience', 'width' => 520, 'height' => 44, 'fontSize' => 28),
+                                array('id' => 'sticky-real:build', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'The Build Process', 'width' => 520, 'height' => 44, 'fontSize' => 28),
+                                array('id' => 'sticky-real:steps', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Step-By-Step Construction', 'width' => 480, 'height' => 32, 'fontSize' => 22),
+                                array('id' => 'sticky-real:conclusion', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Conclusion', 'width' => 520, 'height' => 44, 'fontSize' => 28),
                             )),
                             array('id' => '4210:12595', 'figma_component_source_id' => '4210:12595', 'type' => 'INSTANCE', 'name' => 'Table of Contents', 'x' => 0, 'y' => 3654, 'width' => 315, 'height' => 510, 'layoutPositioning' => 'ABSOLUTE', 'constraints' => array('horizontal' => 'LEFT', 'vertical' => 'BOTTOM'), 'opacity' => 0.1, 'children' => array(
                                 array('id' => '4210:12595/4198:8360', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Table of Contents', 'width' => 180, 'height' => 24, 'fontSize' => 18),
@@ -275,6 +461,10 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(! preg_match('/\.figma-node-sticky-real-root-blog-post-desktop\{[^}]*overflow:hidden/', $stickyGhostSourceMismatchCss), 'sticky-ghost-source-mismatch-root-no-overflow-hidden');
     $assert(! preg_match('/\.figma-node-4194-2157-frame-51076550\{[^}]*overflow:hidden/', $stickyGhostSourceMismatchCss), 'sticky-ghost-source-mismatch-row-no-overflow-hidden');
     $assert(1 === preg_match('/\.figma-node-sticky-real-article-article-body\{[^}]*overflow:hidden/', $stickyGhostSourceMismatchCss), 'sticky-ghost-source-mismatch-sibling-clipping-preserved');
+    $assert(1 === preg_match('/<a class="figma-link figma-toc-link" href="#the-unboxing-experience" data-figma-link-type="toc"><p class="[^"]*figma-node-4212-3087-4188-11209-heading[^"]*"/', $stickyGhostSourceMismatchHtml), 'toc-entry-links-to-matching-heading');
+    $assert(1 === preg_match('/<h2 class="[^"]*figma-node-sticky-real-unboxing-heading[^"]*"[^>]*id="the-unboxing-experience"[^>]*>The Unboxing Experience<\/h2>/', $stickyGhostSourceMismatchHtml), 'matching-heading-receives-text-anchor');
+    $assert(1 === preg_match('/<h3 class="[^"]*figma-node-sticky-real-steps-heading[^"]*"[^>]*id="step-by-step-construction"[^>]*>Step-By-Step Construction<\/h3>/', $stickyGhostSourceMismatchHtml), 'nested-heading-keeps-structural-level');
+    $assert(! str_contains($stickyGhostSourceMismatchHtml, '<h2 class="figma-node-4212-3087-4188-11209-heading"'), 'toc-entry-not-rendered-as-heading');
     $assert(1 === ($stickyGhostSourceMismatchLayout['sticky_ghosts']['count'] ?? null), 'sticky-ghost-source-mismatch-diagnostic-count');
     $assert('4212:3087' === ($stickyGhostSourceMismatchLayout['sticky_ghosts']['candidates'][0]['primary_id'] ?? null), 'sticky-ghost-source-mismatch-diagnostic-primary');
     $assert('4210:12595' === ($stickyGhostSourceMismatchLayout['sticky_ghosts']['candidates'][0]['ghost_id'] ?? null), 'sticky-ghost-source-mismatch-diagnostic-ghost');
@@ -624,8 +814,8 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert('success' === ($offsetPageResult['status'] ?? null), 'offset-page-transform-success');
     $assert(str_contains($offsetPageHtml, 'Selected page content'), 'offset-page-selected-content-rendered');
     $assert(! str_contains($offsetPageHtml, 'Off Canvas One') && ! str_contains($offsetPageHtml, 'Off Canvas Two'), 'offset-page-off-canvas-siblings-omitted');
-    $assert(str_contains($offsetPageCss, '.figma-root{position:relative;width:100%}'), 'offset-page-root-shell-is-fluid');
-    $assert(str_contains($offsetPageCss, '.figma-node-frame-selected-selected-website-page{width:100%;max-width:1440px;margin-left:auto;margin-right:auto;height:900px;position:relative}'), 'offset-page-root-renders-fluid-centered');
+    $assert(str_contains($offsetPageCss, '.figma-root{position:relative;width:100%;display:flex;flex-direction:column;align-items:center}'), 'offset-page-root-shell-is-fluid');
+    $assert(str_contains($offsetPageCss, '.figma-node-frame-selected-selected-website-page{width:100%;height:900px;position:relative}'), 'offset-page-root-renders-fluid-full-bleed');
     $assert(str_contains($offsetPageCss, '.figma-node-frame-selected-card-hero-card{width:320px;height:160px;position:absolute;left:40px;top:40px}'), 'offset-page-child-rebased-position');
     $assert(! str_contains($offsetPageCss, 'left:3497px') && ! str_contains($offsetPageCss, 'left:3537px') && ! str_contains($offsetPageCss, 'left:4680px'), 'offset-page-avoids-board-left-values');
 }
@@ -792,7 +982,8 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     // layout, then emits `@media (max-width: …)` blocks carrying ONLY the per-node
     // style declarations that differ at each narrower breakpoint. A single-variant
     // page emits no `@media` at all. Variant frames are matched onto the base frame
-    // by structural position so the overrides key on the base class names.
+    // by stable source identity where possible so reordered component children keep
+    // their geometry on the correct base class names.
     $responsiveEmitFrame = static function (string $id, string $name, float $width, float $height, array $children): array {
         return array(
             'id'         => $id,
@@ -889,7 +1080,49 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-card-desktop-hero-card{width:350px;height:500px;background:#00ff00}'), 'responsive-emit-mobile-card-diffs-width-height-background');
     // The single-variant About page contributes NO media override for its nodes.
     $assert(0 === preg_match('/@media[^@]*figma-node-card-about/s', $responsiveEmitCss), 'responsive-emit-single-variant-page-no-media');
-    
+
+    $responsiveIdentityScenegraph = array(
+        'name'  => 'Responsive Source Identity Site',
+        'nodes' => array(
+            $responsiveEmitFrame('identity:desktop', 'Identity Desktop', 1440.0, 300.0, array(
+                array('id' => 'identity:group:desktop', 'type' => 'FRAME', 'name' => 'Logo parts', 'box' => array('width' => 200.0, 'height' => 80.0), 'children' => array(
+                    array('id' => 'identity:a:desktop', 'type' => 'RECTANGLE', 'name' => 'Part A', 'source_id' => 'component:part-a', 'box' => array('width' => 96.0, 'height' => 96.0), 'background' => '#ffcf00'),
+                    array('id' => 'identity:b:desktop', 'type' => 'RECTANGLE', 'name' => 'Part B', 'source_id' => 'component:part-b', 'box' => array('width' => 32.0, 'height' => 12.0), 'background' => '#1f1f1f'),
+                )),
+            )),
+            $responsiveEmitFrame('identity:mobile', 'Identity Mobile', 390.0, 300.0, array(
+                array('id' => 'identity:group:mobile', 'type' => 'FRAME', 'name' => 'Logo parts', 'box' => array('width' => 72.0, 'height' => 72.0), 'children' => array(
+                    array('id' => 'identity:b:mobile', 'type' => 'RECTANGLE', 'name' => 'Part B', 'source_id' => 'component:part-b', 'box' => array('width' => 19.0, 'height' => 2.0), 'background' => '#1f1f1f'),
+                    array('id' => 'identity:a:mobile', 'type' => 'RECTANGLE', 'name' => 'Part A', 'source_id' => 'component:part-a', 'box' => array('width' => 72.0, 'height' => 72.0), 'background' => '#ffcf00'),
+                )),
+            )),
+        ),
+    );
+    $responsiveIdentityResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveIdentityScenegraph, array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'identity:desktop',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'responsive' => true,
+                'variants'   => array(
+                    array('frame_id' => 'identity:desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true),
+                    array('frame_id' => 'identity:mobile', 'device_hint' => 'mobile', 'viewport_width' => 390.0, 'primary' => false),
+                ),
+            ),
+        ),
+    ));
+    $responsiveIdentityCss = '';
+    foreach ( $responsiveIdentityResult['files'] ?? array() as $responsiveIdentityFile ) {
+        if ( is_array($responsiveIdentityFile) && 'style.css' === ($responsiveIdentityFile['path'] ?? null) ) {
+            $responsiveIdentityCss = (string) ($responsiveIdentityFile['content'] ?? '');
+        }
+    }
+    $assert(str_contains($responsiveIdentityCss, '.figma-node-identity-a-desktop-part-a{width:72px;height:72px}'), 'responsive-emit-source-identity-keeps-reordered-part-a-geometry');
+    $assert(str_contains($responsiveIdentityCss, '.figma-node-identity-b-desktop-part-b{width:19px;height:2px}'), 'responsive-emit-source-identity-keeps-reordered-part-b-geometry');
+    $assert(! str_contains($responsiveIdentityCss, '.figma-node-identity-a-desktop-part-a{width:19px;height:2px}'), 'responsive-emit-source-identity-avoids-ordinal-part-a-mismatch');
+    $assert(! str_contains($responsiveIdentityCss, '.figma-node-identity-b-desktop-part-b{width:72px;height:72px}'), 'responsive-emit-source-identity-avoids-ordinal-part-b-mismatch');
+
     // SINGLE-VARIANT PAGE PARITY: a page plan with only primary variants emits the
     // SAME CSS as today — zero `@media` queries.
     $singleVariantPagePlan = array(
@@ -1171,7 +1404,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
                         'children' => array(
                             array('id' => 'text:home', 'type' => 'TEXT', 'name' => 'Home title', 'characters' => 'Home Hero', 'fontName' => array('family' => 'Example Sans', 'style' => 'Regular'), 'fontSize' => 20),
                             array('id' => 'image:home', 'type' => 'RECTANGLE', 'name' => 'Home image', 'width' => 100, 'height' => 60, 'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'home-image'))),
-                            array('id' => 'button:home:one', 'type' => 'TEXT', 'name' => 'Button', 'characters' => 'Read more', 'width' => 80, 'height' => 24, 'fontSize' => 16, 'fontWeight' => 700),
+                            array('id' => 'button:home:one', 'type' => 'TEXT', 'name' => 'Button', 'characters' => 'Read more', 'width' => 80, 'height' => 24, 'fontSize' => 16, 'fontWeight' => 700, 'prototypeInteractions' => array(array('actions' => array(array('connectionType' => 'INTERNAL_NODE', 'transitionNodeID' => 'text:about', 'navigationType' => 'NAVIGATE'))))),
                             array('id' => 'button:home:two', 'type' => 'TEXT', 'name' => 'Button', 'characters' => 'Subscribe', 'width' => 80, 'height' => 24, 'fontSize' => 16, 'fontWeight' => 700),
                             array('id' => 'vector:home-large', 'type' => 'VECTOR', 'name' => 'Home Large Vector', 'width' => 10, 'height' => 10, 'figma_vector_paths' => array(array('data' => $externalizedVectorPath, 'source' => 'strokeGeometry'))),
                         ),
@@ -1223,6 +1456,8 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(str_contains($multiPageIndex, 'Home Hero'), 'multi-page-index-renders-entry-frame');
     $assert(! str_contains($multiPageIndex, 'About Hero'), 'multi-page-index-omits-other-frame');
     $assert(str_contains($multiPageAbout, 'About Hero'), 'multi-page-about-renders-second-frame');
+    $assert(1 === preg_match('/<a class="figma-link" href="about\.html" data-figma-link-type="node"><p class="[^"]*figma-node-button-home-one-button[^"]*"/', $multiPageIndex), 'multi-page-descendant-prototype-link-resolves-to-page');
+    $assert(! str_contains($multiPageIndex, 'href="#" data-figma-link-type="node"'), 'multi-page-prototype-link-not-placeholder');
     $assert(str_contains($multiPageIndex, '<style data-figma-transformer-css="true">') && str_contains($multiPageIndex, '.figma-node-frame-home-home'), 'multi-page-index-inlines-page-css');
     $assert(str_contains($multiPageStyle, '.figma-node-frame-home-home'), 'multi-page-shared-css-home');
     $assert(str_contains($multiPageStyle, '.figma-node-frame-about-about'), 'multi-page-shared-css-about');

@@ -625,7 +625,7 @@ final class VectorGeometryNormalizer
         }
 
         $segmentOffset = 12 + $vertexBytes;
-        foreach ( array(24, 16) as $stride ) {
+        foreach ( array(24, 16, 8) as $stride ) {
             $decoded = $this->decodeVectorNetworkWithSegmentStride($bytes, $vertices, $segmentOffset, $segmentCount, $regionCount, $stride);
             if ( null !== $decoded ) {
                 return $decoded;
@@ -655,6 +655,10 @@ final class VectorGeometryNormalizer
                 $tangentStart = $this->readFloatPair($bytes, $base + 4);
                 $end = $this->readUint32($bytes, $base + 12);
                 $tangentEnd = $this->readFloatPair($bytes, $base + 16);
+            } elseif ( 8 === $stride ) {
+                $end = $this->readUint32($bytes, $base + 4);
+                $tangentStart = array(0.0, 0.0);
+                $tangentEnd = array(0.0, 0.0);
             } else {
                 $tangentStart = array(0.0, 0.0);
                 $end = $this->readUint32($bytes, $base + 4);

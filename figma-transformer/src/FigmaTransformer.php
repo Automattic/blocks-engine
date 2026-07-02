@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\FigmaTransformer\Html\FontResolver;
 use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameInspector;
+use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphIndex;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphPagePlanner;
 
@@ -29,7 +30,8 @@ final class FigmaTransformer
         private readonly RenderStyleMismatchReportBuilder $renderStyleMismatchReportBuilder = new RenderStyleMismatchReportBuilder(),
         private readonly ScenegraphNormalizer $scenegraphNormalizer = new ScenegraphNormalizer(),
         private readonly ScenegraphFrameInspector $frameInspector = new ScenegraphFrameInspector(),
-        private readonly ScenegraphPagePlanner $pagePlanner = new ScenegraphPagePlanner()
+        private readonly ScenegraphPagePlanner $pagePlanner = new ScenegraphPagePlanner(),
+        private readonly ScenegraphIndex $scenegraphIndex = new ScenegraphIndex()
     ) {
     }
 
@@ -583,7 +585,7 @@ final class FigmaTransformer
         $nodeCount = 0;
         $textNodeCount = 0;
         $assetReferenceCount = 0;
-        $linkTargetPaths = $this->linkTargetPathsFromPages($pages);
+        $linkTargetPaths = $this->linkTargetPathsFromPages($pages, $scenegraph);
 
         foreach ( $pages as $page ) {
             if ( ! is_array($page) ) {
@@ -937,24 +939,85 @@ final class FigmaTransformer
      * @param array<int, mixed> $pages
      * @return array<string, string>
      */
-    private function linkTargetPathsFromPages(array $pages): array
+    private function linkTargetPathsFromPages(array $pages, array $scenegraph): array
     {
         $map = array();
+        $descendantRootPaths = array();
         foreach ( $pages as $page ) {
             if ( ! is_array($page) ) {
                 continue;
             }
 
             $frameId = isset($page['frame_id']) && is_scalar($page['frame_id']) ? (string) $page['frame_id'] : '';
-            $path = isset($page['path']) && is_scalar($page['path']) ? (string) $page['path'] : '';
+            $path = isset($page['path']) && is_scalar($page['path']) && '' !== (string) $page['path']
+                ? (string) $page['path']
+                : (true === ($page['entrypoint'] ?? false) ? 'index.html' : (string) ($page['slug'] ?? $frameId) . '.html');
             if ( '' === $frameId || '' === $path ) {
                 continue;
             }
 
             $map[$frameId] = $path;
+            $descendantRootPaths[$frameId] = $path;
+
+            foreach ( is_array($page['variants'] ?? null) ? $page['variants'] : array() as $variant ) {
+                if ( ! is_array($variant) || ! isset($variant['frame_id']) || ! is_scalar($variant['frame_id']) ) {
+                    continue;
+                }
+
+                $variantFrameId = (string) $variant['frame_id'];
+                if ( '' === $variantFrameId ) {
+                    continue;
+                }
+
+                $map[$variantFrameId] = $path;
+                $descendantRootPaths[$variantFrameId] = $path;
+            }
+        }
+
+        if ( empty($descendantRootPaths) ) {
+            return $map;
+        }
+
+        $index = $this->scenegraphIndex->build($scenegraph);
+        $childrenIndex = is_array($index['children_index'] ?? null) ? $index['children_index'] : array();
+        foreach ( $descendantRootPaths as $rootId => $path ) {
+            $this->mapDescendantLinkTargets((string) $rootId, (string) $path, $childrenIndex, $map);
         }
 
         return $map;
+    }
+
+    /**
+     * Map every node below a planned page frame to that page's generated path.
+     * Figma prototype links often target a section/text/control inside a frame
+     * instead of the page frame itself; static HTML can only navigate to the
+     * generated page path, so descendants inherit their containing page target.
+     *
+     * @param array<string, array<int, string>> $childrenIndex
+     * @param array<string, string>             $map
+     */
+    private function mapDescendantLinkTargets(string $rootId, string $path, array $childrenIndex, array &$map): void
+    {
+        $stack = is_array($childrenIndex[$rootId] ?? null) ? $childrenIndex[$rootId] : array();
+        $visited = array($rootId => true);
+        $guard = 0;
+
+        while ( array() !== $stack && $guard < 200000 ) {
+            ++$guard;
+            $nodeId = array_pop($stack);
+            if ( ! is_string($nodeId) || isset($visited[$nodeId]) ) {
+                continue;
+            }
+
+            $visited[$nodeId] = true;
+            $map[$nodeId] = $path;
+
+            foreach ( is_array($childrenIndex[$nodeId] ?? null) ? $childrenIndex[$nodeId] : array() as $childId ) {
+                if ( is_string($childId) && ! isset($visited[$childId]) ) {
+                    $stack[] = $childId;
+                }
+            }
+        }
     }
 
     /**
@@ -1017,6 +1080,15 @@ final class FigmaTransformer
         $fontMaterialized = false;
         $diagnosticCodes = array();
         $pages = array();
+        $links = array(
+            'schema'             => 'blocks-engine/figma-transformer/link-coverage/v1',
+            'sources_found'      => 0,
+            'anchors_emitted'    => 0,
+            'url_links'          => 0,
+            'node_links'         => 0,
+            'unresolved'         => 0,
+            'unresolved_targets' => array(),
+        );
 
         foreach ( $pageReports as $page ) {
             $diagnostics = is_array($page['transform_diagnostics'] ?? null) ? $page['transform_diagnostics'] : array();
@@ -1042,6 +1114,10 @@ final class FigmaTransformer
             $fontUsage = $this->mergeFontUsage($fontUsage, is_array($pageFonts['usage'] ?? null) ? $pageFonts['usage'] : array());
             $fontCssSupplied = $fontCssSupplied || true === ($pageFonts['css_supplied'] ?? false);
             $fontMaterialized = $fontMaterialized || true === ($pageFonts['materialized'] ?? false);
+
+            $pageLinks = is_array($diagnostics['links'] ?? null) ? $diagnostics['links'] : array();
+            DiagnosticAggregation::addIntegerCounts($links, $pageLinks, array('sources_found', 'anchors_emitted', 'url_links', 'node_links', 'unresolved'));
+            DiagnosticAggregation::appendContextSamples($links, 'unresolved_targets', $pageLinks, 'unresolved_targets', $pageContext);
 
             $pageLayout = is_array($diagnostics['layout'] ?? null) ? $diagnostics['layout'] : array();
             DiagnosticAggregation::addIntegerCounts($layout, $pageLayout, array('large_negative_left_count', 'large_css_offset_count', 'off_canvas_visual_node_count', 'large_absolute_offset_count', 'empty_visible_container_count', 'empty_visible_container_blocker_count'));
@@ -1133,6 +1209,7 @@ final class FigmaTransformer
         $layout['sticky_ghosts']['count'] = count($layout['sticky_ghosts']['candidates']);
         $layout['large_css_offset_nodes'] = array_values($layout['large_css_offset_nodes']);
         $layout['off_canvas_visual_nodes'] = array_values($layout['off_canvas_visual_nodes']);
+        $links['unresolved_targets'] = array_values($links['unresolved_targets']);
         $layout['empty_visible_containers'] = array_values($layout['empty_visible_containers']);
         ksort($layout['empty_visible_container_categories']);
         $layout['layout_mismatches'] = array_values($layout['layout_mismatches']);
@@ -1171,7 +1248,8 @@ final class FigmaTransformer
             'assets' => $assets,
             'generated_svg_assets' => $generatedSvgAssets,
             'layout' => $layout,
-            'artifact_quality' => $this->artifactQualityDiagnostics($images, $vectors, $fonts, $assets, $generatedSvgAssets, $layout),
+            'links' => $links,
+            'artifact_quality' => $this->artifactQualityDiagnostics($images, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links),
             'diagnostic_codes' => $diagnosticCodes,
         );
     }
@@ -1183,9 +1261,10 @@ final class FigmaTransformer
      * @param array<string, mixed> $assets
      * @param array<string, mixed> $generatedSvgAssets
      * @param array<string, mixed> $layout
+     * @param array<string, mixed> $links
      * @return array<string, mixed>
      */
-    private function artifactQualityDiagnostics(array $images, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout): array
+    private function artifactQualityDiagnostics(array $images, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array()): array
     {
         $signals = array();
 
@@ -1235,6 +1314,14 @@ final class FigmaTransformer
         }
         if ( ! empty($layout['render_style_mismatch_count']) ) {
             $signals[] = array('severity' => 'warning', 'code' => 'render_style_mismatch', 'count' => (int) $layout['render_style_mismatch_count']);
+        }
+        if ( ! empty($links['unresolved']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'link_target_unresolved',
+                'count' => (int) $links['unresolved'],
+                'sample_nodes' => array_slice(is_array($links['unresolved_targets'] ?? null) ? $links['unresolved_targets'] : array(), 0, 10),
+            );
         }
         $imageBlockCount = (int) ($images['image_block_count'] ?? 0);
         $totalNodeCount = max(0, (int) ($images['total_node_count'] ?? 0));
@@ -1293,6 +1380,9 @@ final class FigmaTransformer
                 'off_canvas_visual_node_count' => (int) ($layout['off_canvas_visual_node_count'] ?? 0),
                 'render_style_mismatch_count' => (int) ($layout['render_style_mismatch_count'] ?? 0),
                 'render_style_mismatch_status' => (string) ($layout['render_style_mismatch_status'] ?? 'not_run'),
+                'link_sources_found' => (int) ($links['sources_found'] ?? 0),
+                'anchors_emitted' => (int) ($links['anchors_emitted'] ?? 0),
+                'link_targets_unresolved' => (int) ($links['unresolved'] ?? 0),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
                 'empty_visible_container_count' => (int) ($layout['empty_visible_container_count'] ?? 0),
                 'empty_visible_container_blocker_count' => (int) ($layout['empty_visible_container_blocker_count'] ?? 0),

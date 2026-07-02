@@ -131,11 +131,73 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $assert(true === ($imageScaleFillVisualNode['image']['color_managed'] ?? null), 'visual-node-image-color-managed');
     $assert(200.0 === ($imageScaleFillVisualNode['image']['originalImageWidth'] ?? null), 'visual-node-image-original-width');
 
+    $assetRefResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'   => 'Asset Ref Fixture',
+        'assets' => array(
+            array('id' => 'asset-ref-image', 'key' => 'asset-ref-key', 'mime_type' => 'image/png', 'content' => 'asset ref image'),
+            array('id' => 'nested-ref-image', 'mime_type' => 'image/jpeg', 'content' => 'nested ref image'),
+            array('id' => 'source-hash-image', 'hash' => 'source-image-hash', 'mime_type' => 'image/webp', 'content' => 'source hash image'),
+        ),
+        'nodes'  => array(
+            array(
+                'id'         => 'assetref:paint',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Paint asset ref',
+                'width'      => 10,
+                'height'     => 10,
+                'fillPaints' => array(array('type' => 'IMAGE', 'assetRef' => array('key' => 'asset-ref-key'))),
+            ),
+            array(
+                'id'         => 'assetref:nested',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Nested asset ref',
+                'width'      => 10,
+                'height'     => 10,
+                'fillPaints' => array(array('type' => 'IMAGE', 'image' => array('assetRef' => array('id' => 'nested-ref-image')))),
+            ),
+            array(
+                'id'         => 'assetref:source',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Source hash image',
+                'width'      => 10,
+                'height'     => 10,
+                'fillPaints' => array(array('type' => 'IMAGE', 'sourceImage' => array('hash' => 'source-image-hash'))),
+            ),
+        ),
+    ));
+    $assetRefCss = $fileContent($assetRefResult, 'style.css');
+    $assetRefSourceRefs = $assetRefResult['source_reports']['figma']['scenegraph']['asset_references'] ?? array();
+    $assetRefSourceKeys = array_map(static fn (array $reference): string => (string) ($reference['source_key'] ?? ''), is_array($assetRefSourceRefs) ? $assetRefSourceRefs : array());
+    $assert(str_contains($assetRefCss, 'background-image:url("assets/asset-ref-image.png")'), 'paint-asset-ref-key-resolves-asset');
+    $assert(str_contains($assetRefCss, 'background-image:url("assets/nested-ref-image.jpg")'), 'nested-image-asset-ref-id-resolves-asset');
+    $assert(str_contains($assetRefCss, 'background-image:url("assets/source-hash-image.webp")'), 'source-image-hash-resolves-asset');
+    $assert(in_array('assetRef.key', $assetRefSourceKeys, true), 'scenegraph-reports-paint-asset-ref-key');
+    $assert(in_array('image.assetRef.id', $assetRefSourceKeys, true), 'scenegraph-reports-nested-image-asset-ref-id');
+    $assert(in_array('sourceImage.hash', $assetRefSourceKeys, true), 'scenegraph-reports-source-image-hash');
+
+    $missingAssetRefResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Missing Asset Ref Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'assetref:missing',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Missing asset ref',
+                'width'      => 10,
+                'height'     => 10,
+                'fillPaints' => array(array('type' => 'IMAGE', 'assetRef' => array('fileKey' => 'missing-file-key'))),
+            ),
+        ),
+    ));
+    $missingAssets = $missingAssetRefResult['source_reports']['figma']['html']['transform_diagnostics']['images']['missing_assets'] ?? array();
+    $missingRefs = is_array($missingAssets[0]['refs'] ?? null) ? $missingAssets[0]['refs'] : array();
+    $assert(in_array('missing-file-key', $missingRefs, true), 'missing-asset-ref-reports-reference');
+
     $imageTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'   => 'Image Transform Fixture',
         'assets' => array(
             'crop-image' => array('mime_type' => 'image/png', 'content' => 'crop image'),
             'fill-crop'  => array('mime_type' => 'image/png', 'content' => 'fill image'),
+            'crop-rect'  => array('mime_type' => 'image/png', 'content' => 'crop rect image'),
         ),
         'nodes'  => array(
             array(
@@ -174,11 +236,30 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
                     ),
                 ),
             ),
+            array(
+                'id'         => 'image:crop-rect',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Crop rect image',
+                'width'      => 100,
+                'height'     => 80,
+                'fillPaints' => array(
+                    array(
+                        'type'           => 'IMAGE',
+                        'imageRef'       => 'crop-rect',
+                        'imageScaleMode' => 'STRETCH',
+                        'cropRect'       => array('x' => 0.25, 'y' => 0.1, 'width' => 0.5, 'height' => 0.8),
+                    ),
+                ),
+            ),
         ),
     ));
     $imageTransformCss = $fileContent($imageTransformResult, 'style.css');
+    $cropRectVisualNode = blocks_engine_figma_transformer_contract_find_visual_node($imageTransformResult, 'image:crop-rect');
     $assert(str_contains($imageTransformCss, '.figma-node-image-crop-cropped-image{width:100px;height:80px;background-image:url("assets/crop-image.png");background-size:200px 100px;background-repeat:no-repeat;background-position:-50px -10px}'), 'image-stretch-transform-emits-crop-background');
     $assert(str_contains($imageTransformCss, '.figma-node-image-fill-crop-fill-crop-image{width:100px;height:80px;background-image:url("assets/fill-crop.png");background-size:cover;background-position:center}'), 'image-fill-transform-keeps-cover-background');
+    $assert(str_contains($imageTransformCss, '.figma-node-image-crop-rect-crop-rect-image{width:100px;height:80px;background-image:url("assets/crop-rect.png");background-size:200px 100px;background-repeat:no-repeat;background-position:-50px -10px}'), 'image-stretch-crop-rect-emits-crop-background');
+    $assert(true === ($cropRectVisualNode['image']['has_crop_rect'] ?? null), 'visual-node-image-crop-rect-flag');
+    $assert(0.5 === ($cropRectVisualNode['image']['crop_rect']['width'] ?? null), 'visual-node-image-crop-rect-width');
 
     $nestedImageOverrideResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Nested Image Override Fixture',

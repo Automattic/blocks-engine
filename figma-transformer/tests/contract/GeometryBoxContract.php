@@ -242,4 +242,62 @@ function blocks_engine_figma_transformer_run_geometry_box_contract(callable $ass
     $assert(GeometryBox::CLASSIFICATION_PAGE_LOCAL === GeometryBox::classifyNormalizedBox($documentAboutBox, true), 'geometry-box-document-mode-about-page-local-coordinate-space');
     $assert(0.0 === ($documentAboutBox['x'] ?? null) && 0.0 === ($documentAboutBox['y'] ?? null), 'geometry-box-document-mode-about-rebased-root-origin');
     $assert(15.0 === ($documentAboutChildBox['x'] ?? null) && 20.0 === ($documentAboutChildBox['y'] ?? null), 'geometry-box-document-mode-about-child-rebased-position');
+
+    $matrixResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Transform Matrix Geometry Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'geometry-matrix:parent',
+                'type'     => 'FRAME',
+                'name'     => 'Matrix parent',
+                'width'    => 200,
+                'height'   => 120,
+                'children' => array(
+                    array(
+                        'id'                => 'geometry-matrix:keyed',
+                        'type'              => 'RECTANGLE',
+                        'name'              => 'Keyed matrix child',
+                        'size'              => array('x' => 20, 'y' => 10),
+                        'relativeTransform' => array('m00' => 2, 'm01' => 0, 'm02' => 17, 'm10' => 0, 'm11' => 3, 'm12' => 19),
+                    ),
+                    array(
+                        'id'                => 'geometry-matrix:rows',
+                        'type'              => 'RECTANGLE',
+                        'name'              => 'Row matrix child',
+                        'size'              => array('x' => 20, 'y' => 10),
+                        'relativeTransform' => array(array(0, -1, 41), array(1, 0, 43)),
+                    ),
+                    array(
+                        'id'             => 'geometry-matrix:origin',
+                        'type'           => 'RECTANGLE',
+                        'name'           => 'Origin matrix child',
+                        'width'          => 20,
+                        'height'         => 10,
+                        'rotation'       => 45,
+                        'transformOrigin' => array('x' => 5, 'y' => 6),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $matrixCss = blocks_engine_figma_transformer_contract_file_content($matrixResult, 'style.css');
+    $matrixKeyedVisual = blocks_engine_figma_transformer_contract_find_visual_node($matrixResult, 'geometry-matrix:keyed');
+    $assert(str_contains($matrixCss, '.figma-node-geometry-matrix-keyed-keyed-matrix-child{width:20px;height:10px;position:absolute;left:17px;top:19px;transform:matrix(2,0,0,3,0,0);transform-origin:0 0}'), 'geometry-box-keyed-matrix-emits-linear-transform-and-layout-translation');
+    $assert(str_contains($matrixCss, '.figma-node-geometry-matrix-rows-row-matrix-child{width:20px;height:10px;position:absolute;transform:matrix(0,1,-1,0,41,43);transform-origin:0 0}'), 'geometry-box-row-matrix-preserves-css-translation');
+    $assert(str_contains($matrixCss, '.figma-node-geometry-matrix-origin-origin-matrix-child{width:20px;height:10px;position:absolute;transform:rotate(45deg);transform-origin:5px 6px}'), 'geometry-box-transform-origin-emits-css-origin');
+    $assert(17.0 === ($matrixKeyedVisual['rect']['x'] ?? null) && 19.0 === ($matrixKeyedVisual['rect']['y'] ?? null) && 40.0 === ($matrixKeyedVisual['rect']['width'] ?? null) && 30.0 === ($matrixKeyedVisual['rect']['height'] ?? null), 'geometry-box-keyed-matrix-visual-rect');
+
+    $nonPositiveDimensionResult = $normalizer->normalize(array(
+        'name'  => 'Non-positive Geometry Fixture',
+        'nodes' => array(
+            array('id' => 'geometry:zero-width', 'type' => 'RECTANGLE', 'name' => 'Zero width', 'width' => 0, 'height' => 10),
+            array('id' => 'geometry:negative-height', 'type' => 'RECTANGLE', 'name' => 'Negative height', 'width' => 10, 'height' => -5),
+        ),
+    ));
+    $nonPositiveCodes = array_map(
+        static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+        $nonPositiveDimensionResult['diagnostics'] ?? array()
+    );
+    $assert(in_array('figma_node_zero_dimension', $nonPositiveCodes, true), 'geometry-box-zero-dimension-diagnostic');
+    $assert(in_array('figma_node_negative_dimension', $nonPositiveCodes, true), 'geometry-box-negative-dimension-diagnostic');
 }

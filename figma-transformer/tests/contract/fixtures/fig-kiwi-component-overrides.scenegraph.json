@@ -1,0 +1,62 @@
+{
+  "name": "Fig Kiwi Component Override Gaps Fixture",
+  "nodes": [
+    {
+      "id": "60:1",
+      "type": "COMPONENT",
+      "name": "Card component",
+      "width": 180,
+      "height": 96,
+      "children": [
+        {
+          "id": "60:2",
+          "type": "TEXT",
+          "name": "Title",
+          "characters": "Default title",
+          "width": 160,
+          "height": 24
+        },
+        {
+          "id": "60:3",
+          "type": "RECTANGLE",
+          "name": "Media",
+          "x": 0,
+          "y": 40,
+          "width": 180,
+          "height": 56,
+          "fillPaints": [
+            {
+              "type": "SOLID",
+              "color": { "r": 0.8, "g": 0.8, "b": 0.8 },
+              "opacity": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "component-page",
+      "type": "FRAME",
+      "name": "Component page",
+      "width": 360,
+      "height": 240,
+      "children": [
+        {
+          "id": "instance:card",
+          "type": "INSTANCE",
+          "name": "Placed card",
+          "width": 180,
+          "height": 96,
+          "derivedSymbolData": {
+            "symbolID": { "guid": { "sessionID": 60, "localID": 1 } },
+            "symbolOverrides": {
+              "60:2": {
+                "textData": { "characters": "Mapped title" }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
