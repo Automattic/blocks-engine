@@ -774,7 +774,41 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(str_contains($booleanUnionWithParentPathHtml, 'd="M1 1L9 1 9 9 1 9Z"'), 'boolean-union-parent-path-includes-child-icon');
     $assert(str_contains($booleanUnionWithParentPathHtml, 'd="M12 4L26 4 26 10 12 10Z"'), 'boolean-union-parent-path-includes-child-wordmark');
     $assert(! str_contains($booleanUnionWithParentPathHtml, 'd="M0 0L30 0 30 20 0 20Z"'), 'boolean-union-parent-path-skips-collapsed-parent');
-    
+
+    $booleanUnionTransformOffsetResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Boolean Union Transform Offset Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'bool:union-transform-offset',
+                'type'     => 'BOOLEAN_OPERATION',
+                'name'     => 'Logo Composition',
+                'width'    => 40,
+                'height'   => 16,
+                'children' => array(
+                    array(
+                        'id'       => 'bool:transform-offset-icon',
+                        'type'     => 'VECTOR',
+                        'name'     => 'Icon',
+                        'width'    => 10,
+                        'height'   => 10,
+                        'pathData' => 'M0 0L10 0L10 10L0 10Z',
+                    ),
+                    array(
+                        'id'        => 'bool:transform-offset-wordmark',
+                        'type'      => 'VECTOR',
+                        'name'      => 'Wordmark',
+                        'width'     => 18,
+                        'height'    => 6,
+                        'transform' => array('m00' => 1, 'm01' => 0, 'm02' => 14, 'm10' => 0, 'm11' => 1, 'm12' => 5),
+                        'pathData'  => 'M0 0L18 0L18 6L0 6Z',
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $booleanUnionTransformOffsetHtml = $fileContent($booleanUnionTransformOffsetResult, 'index.html');
+    $assert(str_contains($booleanUnionTransformOffsetHtml, '<g transform="translate(14 5)"><path d="M0 0L18 0 18 6 0 6Z"'), 'boolean-union-transform-offset-preserves-child-position');
+
     // Boolean SUBTRACT over children sharing the operation origin approximates
     // hole-cutting with a single fill-rule:evenodd path.
     $booleanSubtractResult = blocks_engine_figma_transformer_transform_scenegraph(array(

@@ -136,8 +136,8 @@ final class VectorSvgRenderer
         }
 
         $originBox = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : $box;
-        $originX = isset($originBox['x']) && is_numeric($originBox['x']) ? (float) $originBox['x'] : 0.0;
-        $originY = isset($originBox['y']) && is_numeric($originBox['y']) ? (float) $originBox['y'] : 0.0;
+        $originX = $this->compositionBoxCoordinate($originBox, $box, 'x');
+        $originY = $this->compositionBoxCoordinate($originBox, $box, 'y');
         $body = $this->composedVectorGroupBody($children, $originX, $originY);
         if ( '' === $body ) {
             return null;
@@ -214,9 +214,10 @@ final class VectorSvgRenderer
                 continue;
             }
 
-            $box = is_array($child['figma_box'] ?? null) ? $child['figma_box'] : (is_array($child['box'] ?? null) ? $child['box'] : array());
-            $dx = isset($box['x']) && is_numeric($box['x']) ? (float) $box['x'] - $originX : 0.0;
-            $dy = isset($box['y']) && is_numeric($box['y']) ? (float) $box['y'] - $originY : 0.0;
+            $figmaBox = is_array($child['figma_box'] ?? null) ? $child['figma_box'] : array();
+            $box = is_array($child['box'] ?? null) ? $child['box'] : array();
+            $dx = $this->compositionBoxCoordinate($figmaBox, $box, 'x') - $originX;
+            $dy = $this->compositionBoxCoordinate($figmaBox, $box, 'y') - $originY;
             if ( abs($dx) >= 0.0001 || abs($dy) >= 0.0001 ) {
                 $body .= '<g transform="translate(' . $this->number($dx) . ' ' . $this->number($dy) . ')">' . $elements . '</g>';
             } else {
@@ -577,9 +578,10 @@ final class VectorSvgRenderer
      */
     private function booleanOperationChildVectors(array $node): array
     {
-        $originBox = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : (is_array($node['box'] ?? null) ? $node['box'] : array());
-        $originX = isset($originBox['x']) && is_numeric($originBox['x']) ? (float) $originBox['x'] : 0.0;
-        $originY = isset($originBox['y']) && is_numeric($originBox['y']) ? (float) $originBox['y'] : 0.0;
+        $figmaBox = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array();
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $originX = $this->compositionBoxCoordinate($figmaBox, $box, 'x');
+        $originY = $this->compositionBoxCoordinate($figmaBox, $box, 'y');
 
         $collected = array();
         foreach ( $this->nodeList($node) as $child ) {
@@ -599,9 +601,10 @@ final class VectorSvgRenderer
     {
         $paths = $this->nodeVectorPathData($node);
         if ( ! empty($paths) ) {
-            $box = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : (is_array($node['box'] ?? null) ? $node['box'] : array());
-            $dx = isset($box['x']) && is_numeric($box['x']) ? (float) $box['x'] - $originX : 0.0;
-            $dy = isset($box['y']) && is_numeric($box['y']) ? (float) $box['y'] - $originY : 0.0;
+            $figmaBox = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array();
+            $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+            $dx = $this->compositionBoxCoordinate($figmaBox, $box, 'x') - $originX;
+            $dy = $this->compositionBoxCoordinate($figmaBox, $box, 'y') - $originY;
             $collected[] = array(
                 'paths' => $paths,
                 'node'  => $node,
@@ -653,6 +656,28 @@ final class VectorSvgRenderer
         }
 
         return $body;
+    }
+
+    /**
+     * @param array<string, mixed> $figmaBox
+     * @param array<string, mixed> $box
+     */
+    private function compositionBoxCoordinate(array $figmaBox, array $box, string $axis): float
+    {
+        if ( isset($figmaBox[$axis]) && is_numeric($figmaBox[$axis]) ) {
+            return (float) $figmaBox[$axis];
+        }
+
+        $transformKey = 'x' === $axis ? 'm02' : 'm12';
+        if ( isset($figmaBox['transform']) && is_array($figmaBox['transform']) && isset($figmaBox['transform'][$transformKey]) && is_numeric($figmaBox['transform'][$transformKey]) ) {
+            return (float) $figmaBox['transform'][$transformKey];
+        }
+
+        if ( isset($box[$axis]) && is_numeric($box[$axis]) ) {
+            return (float) $box[$axis];
+        }
+
+        return 0.0;
     }
 
     /**
