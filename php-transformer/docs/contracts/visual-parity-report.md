@@ -61,9 +61,11 @@ Kind-specific fields are generic UI facts:
 
 `visual_diff` records optional image-diff metrics: mismatch percent, mismatch pixels, total pixels, SSIM, threshold, aggregate diff screenshot path, and per-viewport metrics. Omit metrics when a runner cannot produce them.
 
-`findings` is the reviewer-facing issue list. Findings carry severity, category, summary, viewport, component kind, selector evidence, style deltas, visual metrics, and linked recommendation IDs.
+`capture_diagnostics` records optional runner metadata such as runner/browser versions, capture timing, artifact paths, warnings, errors, and additional metadata. These fields describe how evidence was captured without encoding product persistence policy.
 
-`recommendations` contains product-neutral repair advice with priority, summary, rationale, selector evidence, and linked finding IDs. A downstream importer may translate recommendations into patches, comments, or acceptance gates at its own boundary.
+`findings` is the reviewer-facing issue list. Findings carry severity, category, summary, viewport, component kind, selector evidence, style deltas, visual metrics, and linked recommendation IDs. Findings may also carry product-neutral explanation fields: `reason_code`, `repair_bucket`, `pattern_family`, `confidence`, and `property_evidence`. These fields are generic clustering and evidence hints for downstream repair systems.
+
+`recommendations` contains product-neutral repair advice with priority, summary, rationale, selector evidence, property evidence, confidence, classification fields, and linked finding IDs. A downstream importer may translate recommendations into patches, comments, or acceptance gates at its own boundary.
 
 ## Fixture/Config Shape
 

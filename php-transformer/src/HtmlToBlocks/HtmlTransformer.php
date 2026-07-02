@@ -1505,11 +1505,6 @@ final class HtmlTransformer
                 $isDecorativeChrome = $this->isVisualLayerElement($element)
                     || 'none' === strtolower(trim($this->attr($element, 'preserveaspectratio')));
                 if ( ! $isDecorativeChrome && $this->svgHasDrawableContent($element) ) {
-                    $svgImageBlock = $this->inlineSvgImageBlockFromElement($element);
-                    if ( null !== $svgImageBlock ) {
-                        return $svgImageBlock;
-                    }
-
                     $svgBlock = $this->inlineSvgBlockFromElement($element);
                     if ( null !== $svgBlock ) {
                         return $svgBlock;
@@ -1519,11 +1514,6 @@ final class HtmlTransformer
                     return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
                 }
                 return null;
-            }
-
-            $svgImageBlock = $this->inlineSvgImageBlockFromElement($element);
-            if ( null !== $svgImageBlock ) {
-                return $svgImageBlock;
             }
 
             $svgBlock = $this->inlineSvgBlockFromElement($element);
@@ -4094,82 +4084,6 @@ final class HtmlTransformer
         // isSafeSvgContent), and the original outer SVG preserves
         // viewBox/role/aria-label/class.
         return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($html) ), array(), $element);
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function inlineSvgImageBlockFromElement(DOMElement $element): ?array
-    {
-        if ( ! $this->shouldPromoteSvgToImageBlock($element) ) {
-            return null;
-        }
-
-        $svg = $this->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element));
-        if ( '' === trim($svg) || ! $this->isSafeSvgContent($svg) ) {
-            return null;
-        }
-
-        $attrs = array_filter(array_merge(
-            $this->presentationAttributes($element),
-            array(
-                'url'    => 'data:image/svg+xml;charset=UTF-8,' . rawurlencode($svg),
-                'alt'    => $this->svgAltText($element),
-                'width'  => $this->numericSvgDimension($this->attr($element, 'width')),
-                'height' => $this->numericSvgDimension($this->attr($element, 'height')),
-            )
-        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
-
-        return $this->createBlock('core/image', $attrs, array(), $element);
-    }
-
-    private function shouldPromoteSvgToImageBlock(DOMElement $element): bool
-    {
-        $signals = array(
-            $this->attr($element, 'class'),
-            $this->attr($element, 'id'),
-            $this->attr($element, 'aria-label'),
-            $this->attr($element, 'role'),
-        );
-
-        for ( $current = $element->parentNode; $current instanceof DOMElement; $current = $current->parentNode ) {
-            $signals[] = $this->attr($current, 'class');
-            $signals[] = $this->attr($current, 'id');
-            $signals[] = $this->attr($current, 'aria-label');
-
-            if ( in_array(strtolower($current->tagName), array( 'main', 'body' ), true) ) {
-                break;
-            }
-        }
-
-        $haystack = strtolower(implode(' ', $signals));
-
-        return preg_match('/\b(?:album|cover|artwork|poster|hero-art|merch-visual|product-image|product-visual|visual-(?:tee|tote|vinyl|poster|cd))\b/', $haystack) === 1;
-    }
-
-    private function svgAltText(DOMElement $element): string
-    {
-        $label = trim($this->attr($element, 'aria-label'));
-        if ( '' !== $label ) {
-            return $label;
-        }
-
-        foreach ( $element->getElementsByTagName('title') as $title ) {
-            if ( $title instanceof DOMElement ) {
-                $text = trim(preg_replace('/\s+/', ' ', $title->textContent ?? '') ?? '');
-                if ( '' !== $text ) {
-                    return $text;
-                }
-            }
-        }
-
-        return '';
-    }
-
-    private function numericSvgDimension(string $value): string
-    {
-        $value = trim($value);
-        return preg_match('/^\d+(?:\.\d+)?$/', $value) ? $value : '';
     }
 
     /**

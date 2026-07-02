@@ -32,6 +32,9 @@ final class VisualParityReportContract
         self::assertList($report['matches'], 'visual parity report matches');
         self::assertList($report['findings'], 'visual parity report findings');
         self::assertList($report['recommendations'], 'visual parity report recommendations');
+        if ( array_key_exists('capture_diagnostics', $report) ) {
+            self::assertObject($report['capture_diagnostics'], 'visual parity report capture_diagnostics');
+        }
 
         foreach ( $report['viewports'] as $index => $viewport ) {
             self::assertObject($viewport, "visual parity report viewports.{$index}");
@@ -51,6 +54,27 @@ final class VisualParityReportContract
             self::assertObject($finding, "visual parity report findings.{$index}");
             self::requireKeys($finding, array('id', 'severity', 'category', 'summary'), "visual parity report findings.{$index}");
             self::assertSeverity($finding['severity'], "visual parity report findings.{$index}.severity");
+            self::assertOptionalStringFields($finding, array('reason_code', 'repair_bucket', 'pattern_family'), "visual parity report findings.{$index}");
+            if ( array_key_exists('confidence', $finding) ) {
+                self::assertConfidence($finding['confidence'], "visual parity report findings.{$index}.confidence");
+            }
+            if ( array_key_exists('selector_evidence', $finding) ) {
+                self::assertObject($finding['selector_evidence'], "visual parity report findings.{$index}.selector_evidence");
+            }
+            if ( array_key_exists('property_evidence', $finding) ) {
+                self::assertList($finding['property_evidence'], "visual parity report findings.{$index}.property_evidence");
+                foreach ( $finding['property_evidence'] as $evidenceIndex => $evidence ) {
+                    self::assertObject($evidence, "visual parity report findings.{$index}.property_evidence.{$evidenceIndex}");
+                }
+            }
+        }
+
+        foreach ( $report['recommendations'] as $index => $recommendation ) {
+            self::assertObject($recommendation, "visual parity report recommendations.{$index}");
+            self::assertOptionalStringFields($recommendation, array('reason_code', 'repair_bucket', 'pattern_family'), "visual parity report recommendations.{$index}");
+            if ( array_key_exists('confidence', $recommendation) ) {
+                self::assertConfidence($recommendation['confidence'], "visual parity report recommendations.{$index}.confidence");
+            }
         }
     }
 
@@ -113,6 +137,26 @@ final class VisualParityReportContract
     {
         if ( ! in_array($value, array('none', 'info', 'warning', 'error', 'critical'), true) ) {
             throw new InvalidArgumentException(sprintf('%s has an unsupported severity.', ucfirst($label)));
+        }
+    }
+
+    private static function assertConfidence(mixed $value, string $label): void
+    {
+        if ( ( ! is_int($value) && ! is_float($value) ) || $value < 0 || $value > 1 ) {
+            throw new InvalidArgumentException(sprintf('%s must be numeric between 0 and 1.', ucfirst($label)));
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $value
+     * @param array<int, string> $fields
+     */
+    private static function assertOptionalStringFields(array $value, array $fields, string $label): void
+    {
+        foreach ( $fields as $field ) {
+            if ( array_key_exists($field, $value) && ! is_string($value[$field]) ) {
+                throw new InvalidArgumentException(sprintf('%s.%s must be a string.', ucfirst($label), $field));
+            }
         }
     }
 
