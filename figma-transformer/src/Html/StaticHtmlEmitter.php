@@ -953,16 +953,24 @@ final class StaticHtmlEmitter
      */
     private function landmarkTag(array $node, string $lowerName, array $children, int $depth, ?array $parentNode): ?string
     {
+        if ( $depth <= 0 ) {
+            return null;
+        }
+
+        if ( str_contains($lowerName, 'header') && (str_contains($lowerName, 'menu') || str_contains($lowerName, 'nav')) && $this->isNavigationContainer($children) ) {
+            return 'nav';
+        }
+
         if ( str_contains($lowerName, 'header') ) {
-            return 'header';
+            return $this->isHeaderLandmarkCandidate($node, $children, $depth, $parentNode) ? 'header' : null;
         }
 
         if ( str_contains($lowerName, 'footer') ) {
-            return 'footer';
+            return $this->isFooterLandmarkCandidate($node, $depth, $parentNode) ? 'footer' : null;
         }
 
         if ( (str_contains($lowerName, 'nav') || str_contains($lowerName, 'menu')) && ! $this->isMenuItemName($lowerName) ) {
-            return 'nav';
+            return $this->isNavigationContainer($children) ? 'nav' : null;
         }
 
         if ( str_contains($lowerName, 'article') ) {
@@ -982,7 +990,7 @@ final class StaticHtmlEmitter
             if ( 'top' === $region && $this->hasLogoChild($children) && ( $linkCount >= 1 || count($children) >= 2 ) ) {
                 return 'header';
             }
-            if ( 'bottom' === $region && ( $linkCount >= 1 || $this->hasLegalText($node) ) ) {
+            if ( 'bottom' === $region && $this->hasLegalText($node) && $this->textDescendantCount($node) <= 12 ) {
                 return 'footer';
             }
         }
@@ -994,6 +1002,59 @@ final class StaticHtmlEmitter
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, array<string, mixed>> $children
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function isHeaderLandmarkCandidate(array $node, array $children, int $depth, ?array $parentNode): bool
+    {
+        if ( null === $parentNode ) {
+            return false;
+        }
+
+        $region = $this->verticalRegion($node, $parentNode);
+        return 'top' === $region && ($this->hasLogoChild($children) || $this->linkChildCount($children) >= 1 || $depth <= 1);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function isFooterLandmarkCandidate(array $node, int $depth, ?array $parentNode): bool
+    {
+        if ( null === $parentNode ) {
+            return false;
+        }
+
+        $region = $this->verticalRegion($node, $parentNode);
+        return 'bottom' === $region || $this->hasLegalText($node) || $depth <= 1;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function isNavigationContainer(array $children): bool
+    {
+        if ( empty($children) ) {
+            return false;
+        }
+
+        $linkCount = $this->linkChildCount($children);
+        if ( $linkCount >= 2 && $linkCount === count($children) ) {
+            return true;
+        }
+
+        $textCount = 0;
+        foreach ( $children as $child ) {
+            if ( 'TEXT' === strtoupper((string) ($child['type'] ?? '')) || $this->isMenuItemName(strtolower((string) ($child['name'] ?? ''))) ) {
+                $textCount++;
+            }
+        }
+
+        return $textCount >= 2 && $textCount === count($children);
     }
 
     /**
@@ -1181,7 +1242,7 @@ final class StaticHtmlEmitter
 
     private function isMenuItemName(string $lowerName): bool
     {
-        return 1 === preg_match('/\b(menu|nav(?:igation)?)\s+item\b|\bitem\s+(menu|nav(?:igation)?)\b/', $lowerName);
+        return 1 === preg_match('/\b(menu|nav(?:igation)?)\s*item\b|\bitem\s*(menu|nav(?:igation)?)\b/', $lowerName);
     }
 
     /**
@@ -4692,6 +4753,11 @@ final class StaticHtmlEmitter
                 // viewport. Explicit Kiwi/Figma max-width constraints still apply
                 // below; the intrinsic frame width is evidence, not a viewport cap.
                 $styles[] = 'width:100%';
+                if ( null === $parentNode && $this->rootShouldCenterPageCanvas($node) ) {
+                    $styles[] = 'max-width:' . $this->number((float) $box[$dimension]) . 'px';
+                    $styles[] = 'margin-left:auto';
+                    $styles[] = 'margin-right:auto';
+                }
             } elseif ( 'width' === $dimension && $isAbsoluteFullWidthCanvasChild ) {
                 $styles[] = 'width:100%';
             } elseif ( 'HUG' === $sizing ) {
@@ -5087,6 +5153,20 @@ final class StaticHtmlEmitter
         $offset = isset($box['x']) && is_numeric($box['x']) ? abs((float) $box['x']) : 0.0;
         $parentWidth = (float) $parentBox['width'];
         return $offset <= 1.0 && abs($width - $parentWidth) <= 1.0;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function rootShouldCenterPageCanvas(array $node): bool
+    {
+        $name = strtolower((string) ($node['name'] ?? ''));
+        if ( ! str_contains($name, 'page') && ! preg_match('/(?:^|[_\s-])\d{3,4}$/', $name) ) {
+            return false;
+        }
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return 'center' === ($layout['align_items'] ?? null) || 'CENTER' === ($layout['counter_axis_alignment'] ?? null);
     }
 
     /**

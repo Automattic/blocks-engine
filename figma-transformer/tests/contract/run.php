@@ -32,6 +32,7 @@ use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiDecoder;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\VisualAttributionReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameClassifier;
+use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameInspector;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphPagePlanner;
 
@@ -5803,6 +5804,101 @@ $fluidParagraphRule = blocks_engine_figma_transformer_contract_css_rule($fluidPa
 $assert(str_contains($fluidParagraphRule, 'width:100%') && str_contains($fluidParagraphRule, 'max-width:640px') && ! str_contains($fluidParagraphRule, 'height:116px') && ! str_contains($fluidParagraphRule, 'white-space:'), 'fluid-paragraph-uses-intrinsic-max-width');
 $assert(str_contains($fluidParagraphRule, 'flex-shrink:1') && str_contains($fluidParagraphRule, 'min-width:0'), 'fluid-paragraph-can-shrink-in-flex-flow');
 $assert(str_contains($fluidParagraphHtml, 'source words intact') && ! str_contains($fluidParagraphHtml, "source\nwords"), 'fluid-paragraph-avoids-derived-soft-wrap-content');
+
+$frameInspector = new ScenegraphFrameInspector();
+$assert('6-blog' === $frameInspector->normalizedPageName('6_Blog_1440') && '6-blog' === $frameInspector->normalizedPageName('6_Blog_375'), 'responsive-name-normalizes-underscore-width-suffixes');
+
+$centeredCanvasResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Centered Canvas Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'centered:root',
+            'type'     => 'FRAME',
+            'name'     => 'Landing Page 1440',
+            'width'    => 1440,
+            'height'   => 900,
+            'layoutMode' => 'VERTICAL',
+            'counterAxisAlignItems' => 'CENTER',
+            'children' => array(
+                array(
+                    'id'       => 'centered:band',
+                    'type'     => 'FRAME',
+                    'name'     => 'Hero Band',
+                    'width'    => 1440,
+                    'height'   => 480,
+                    'children' => array(
+                        array('id' => 'centered:heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Centered canvas', 'fontSize' => 56),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$centeredCanvasHtml = $fileContent($centeredCanvasResult, 'index.html');
+$centeredCanvasCss = $fileContent($centeredCanvasResult, 'style.css');
+$centeredCanvasRule = blocks_engine_figma_transformer_contract_css_rule($centeredCanvasCss, '.figma-node-centered-root-landing-page-1440');
+$assert(str_contains($centeredCanvasRule, 'width:100%') && str_contains($centeredCanvasRule, 'max-width:1440px') && str_contains($centeredCanvasRule, 'margin-left:auto') && str_contains($centeredCanvasRule, 'margin-right:auto'), 'centered-canvas-root-uses-max-width-auto-margins');
+$assert(! str_contains($centeredCanvasHtml, '<nav class="figma-node-centered-root-landing-page-1440"') && ! str_contains($centeredCanvasHtml, '<header class="figma-node-centered-root-landing-page-1440"') && ! str_contains($centeredCanvasHtml, '<footer class="figma-node-centered-root-landing-page-1440"'), 'centered-canvas-root-not-landmark');
+
+$landmarkGuardResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Landmark Guard Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'landmark:root',
+            'type'     => 'FRAME',
+            'name'     => 'Marketing Page',
+            'width'    => 1200,
+            'height'   => 900,
+            'children' => array(
+                array(
+                    'id'       => 'landmark:header',
+                    'type'     => 'FRAME',
+                    'name'     => 'Header',
+                    'x'        => 0,
+                    'y'        => 0,
+                    'width'    => 1200,
+                    'height'   => 96,
+                    'children' => array(
+                        array('id' => 'landmark:logo', 'type' => 'TEXT', 'name' => 'Logo', 'characters' => 'Agency', 'fontSize' => 24),
+                        array('id' => 'landmark:about', 'type' => 'TEXT', 'name' => 'Menu Item', 'characters' => 'About', 'fontSize' => 16, 'hyperlink' => array('type' => 'URL', 'url' => 'https://example.com/about')),
+                        array('id' => 'landmark:blog', 'type' => 'TEXT', 'name' => 'NewMenuItem', 'characters' => 'Blog', 'fontSize' => 16, 'hyperlink' => array('type' => 'URL', 'url' => 'https://example.com/blog')),
+                    ),
+                ),
+                array(
+                    'id'       => 'landmark:content-list',
+                    'type'     => 'FRAME',
+                    'name'     => 'Content List',
+                    'x'        => 150,
+                    'y'        => 220,
+                    'width'    => 900,
+                    'height'   => 300,
+                    'children' => array(
+                        array('id' => 'landmark:item-a', 'type' => 'TEXT', 'name' => 'List item one', 'characters' => 'Strategy', 'fontSize' => 24),
+                        array('id' => 'landmark:item-b', 'type' => 'TEXT', 'name' => 'List item two', 'characters' => 'Design', 'fontSize' => 24),
+                        array('id' => 'landmark:item-c', 'type' => 'TEXT', 'name' => 'List item three', 'characters' => 'Build', 'fontSize' => 24),
+                    ),
+                ),
+                array(
+                    'id'       => 'landmark:footer',
+                    'type'     => 'FRAME',
+                    'name'     => 'Footer Legal',
+                    'x'        => 0,
+                    'y'        => 780,
+                    'width'    => 1200,
+                    'height'   => 120,
+                    'children' => array(
+                        array('id' => 'landmark:legal', 'type' => 'TEXT', 'name' => 'Legal', 'characters' => 'All rights reserved.', 'fontSize' => 14),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$landmarkGuardHtml = $fileContent($landmarkGuardResult, 'index.html');
+$assert(str_contains($landmarkGuardHtml, '<header class="figma-node-landmark-header-header"'), 'landmark-explicit-header-still-header');
+$assert(str_contains($landmarkGuardHtml, '<footer class="figma-node-landmark-footer-footer-legal"'), 'landmark-explicit-bottom-footer-still-footer');
+$assert(! str_contains($landmarkGuardHtml, '<nav class="figma-node-landmark-about-menu-item"') && ! str_contains($landmarkGuardHtml, '<nav class="figma-node-landmark-blog-newmenuitem"'), 'landmark-menu-items-not-nav');
+$assert(! str_contains($landmarkGuardHtml, '<footer class="figma-node-landmark-content-list-content-list"'), 'landmark-content-list-not-footer');
 
 $linkedContentCardsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Linked Content Cards Fixture',
