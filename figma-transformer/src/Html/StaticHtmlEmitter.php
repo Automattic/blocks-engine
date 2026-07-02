@@ -561,7 +561,7 @@ final class StaticHtmlEmitter
      * @param array<int, string>                 $cssRules
      * @param array<int, array<string, mixed>>   $diagnostics
      */
-    private function emitNode(array $node, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics, int $depth, ?array $parentNode, ?array $grandParentNode = null, bool $insideForm = false): string
+    private function emitNode(array $node, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics, int $depth, ?array $parentNode, ?array $grandParentNode = null, bool $insideForm = false, bool $insideLink = false): string
     {
         if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) ) {
             return '';
@@ -598,6 +598,7 @@ final class StaticHtmlEmitter
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
         $children = $this->nodeList($node);
         $content = $text;
+        $nodeIntroducesLink = ! $insideLink && $this->nodeWouldWrapWithLink($node, $parentNode);
         $inputAccessoryControl = 'div' === $tag && $this->isInputLike($node) && $this->hasFormControlAccessoryChildren($node);
         $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
         $assetPath = $this->nodeAssetPath($node);
@@ -621,11 +622,11 @@ final class StaticHtmlEmitter
                     if ( 'li' === $tag && $this->isListMarkerTextChild($child) ) {
                         continue;
                     }
-                    $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node, $parentNode, $insideForm || 'form' === $tag);
+                    $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node, $parentNode, $insideForm || 'form' === $tag, $insideLink || $nodeIntroducesLink);
                 }
             }
             if ( $inputAccessoryControl && ! $insertedAccessoryInput ) {
-                $content .= $this->syntheticInputControlMarkup($node, $className);
+                $content .= $this->syntheticInputControlMarkup($node, $className, $parentNode);
                 $cssRules[] = '.' . $className . '__control{border:0;background:transparent;padding:0;margin:0;min-width:0;flex:1;font:inherit;color:inherit;outline:none}';
             }
         }
@@ -666,7 +667,7 @@ final class StaticHtmlEmitter
             $attributes .= ' id="' . $this->sanitizeAttribute($anchorId) . '"';
         }
         if ( in_array($tag, array('input', 'textarea'), true) ) {
-            $attributes .= $this->formControlAttributes($node, $tag);
+            $attributes .= $this->formControlAttributes($node, $tag, $parentNode);
         } elseif ( 'button' === $tag ) {
             $attributes .= $this->buttonControlAttributes($node);
         } elseif ( 'form' === $tag ) {
@@ -687,7 +688,7 @@ final class StaticHtmlEmitter
             $element = sprintf("<%1\$s%2\$s>%3\$s</%1\$s>\n", $tag, $attributes, $content);
         }
 
-        return $this->wrapWithLink($node, $element, $diagnostics, $this->isButtonLike($node), $parentNode);
+        return $this->wrapWithLink($node, $element, $diagnostics, $this->isButtonLike($node), $parentNode, $insideLink);
     }
 
     /**
@@ -757,6 +758,10 @@ final class StaticHtmlEmitter
             return 'form';
         }
 
+        if ( str_contains($lowerName, 'blockquote') || str_contains($lowerName, 'block quote') ) {
+            return 'blockquote';
+        }
+
         // Inner component chrome inside a larger button-like control is
         // structural. Only the outer control should become interactive HTML.
         if ( null !== $parentNode && $this->isButtonLike($parentNode) && $this->isButtonLike($node) ) {
@@ -779,6 +784,10 @@ final class StaticHtmlEmitter
             return $this->listLooksOrdered($node) ? 'ol' : 'ul';
         }
 
+        if ( $this->isArticleLikeContainer($node, $lowerName) ) {
+            return 'article';
+        }
+
         // A <section> is reserved for genuine top-level content regions — the
         // page bands a hand-author would wrap in <section>. Every other frame
         // (nested wrappers, rows, columns, cards, decorative groups) stays a
@@ -788,6 +797,22 @@ final class StaticHtmlEmitter
         }
 
         return 'div';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isArticleLikeContainer(array $node, string $lowerName): bool
+    {
+        if ( str_contains($lowerName, 'article') || str_contains($lowerName, 'comment') ) {
+            return $this->textDescendantCount($node) >= 2;
+        }
+
+        if ( preg_match('/(^|\s)(post|preview|card)(\s|$)/', $lowerName) ) {
+            return $this->textDescendantCount($node) >= 3;
+        }
+
+        return false;
     }
 
     /**
@@ -1214,7 +1239,7 @@ final class StaticHtmlEmitter
             || str_contains($name, 'comment')
             || str_contains($name, 'reply')
             || str_contains($name, 'form');
-        if ( ! $hasFormIntent ) {
+        if ( ! $hasFormIntent || ! $hasNamedFormIntent ) {
             return false;
         }
 
@@ -1243,10 +1268,6 @@ final class StaticHtmlEmitter
         if ( count($children) > 3 && $relevantChildren < count($children) - 1 ) {
             return false;
         }
-        if ( ! $hasNamedFormIntent && $relevantChildren < count($children) ) {
-            return false;
-        }
-
         return $hasField && ($hasSubmit || str_contains($haystack, 'search'));
     }
 
@@ -1393,12 +1414,12 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function syntheticInputControlMarkup(array $node, string $className): string
+    private function syntheticInputControlMarkup(array $node, string $className, ?array $parentNode = null): string
     {
         return sprintf(
             '<input class="%1$s__control" data-figma-synthetic-control="input"%2$s>' . "\n",
             $this->sanitizeAttribute($className),
-            $this->formControlAttributes($node, 'input')
+            $this->formControlAttributes($node, 'input', $parentNode)
         );
     }
 
@@ -1613,11 +1634,12 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function formControlAttributes(array $node, string $tag): string
+    private function formControlAttributes(array $node, string $tag, ?array $parentNode = null): string
     {
         $placeholder = trim($this->subtreePlainText($node));
+        $label = $this->nearbyFormControlLabel($node, $parentNode);
         $name = (string) ($node['name'] ?? '');
-        $haystack = strtolower($name . ' ' . $placeholder);
+        $haystack = strtolower($name . ' ' . $placeholder . ' ' . $label);
         $type = 'text';
         if ( str_contains($haystack, 'search') ) {
             $type = 'search';
@@ -1636,11 +1658,46 @@ final class StaticHtmlEmitter
         if ( '' !== $placeholder ) {
             $attributes .= ' placeholder="' . $this->sanitizeAttribute($placeholder) . '"';
             $attributes .= ' aria-label="' . $this->sanitizeAttribute($placeholder) . '"';
+        } elseif ( '' !== $label ) {
+            $attributes .= ' aria-label="' . $this->sanitizeAttribute($label) . '"';
         } elseif ( '' !== $name ) {
             $attributes .= ' aria-label="' . $this->sanitizeAttribute($name) . '"';
         }
 
         return $attributes;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function nearbyFormControlLabel(array $node, ?array $parentNode): string
+    {
+        if ( null === $parentNode ) {
+            return '';
+        }
+
+        $nodeId = (string) ($node['id'] ?? '');
+        foreach ( $this->nodeList($parentNode) as $child ) {
+            if ( ! is_array($child) || $nodeId === (string) ($child['id'] ?? '') ) {
+                continue;
+            }
+            if ( 'TEXT' !== strtoupper((string) ($child['type'] ?? '')) ) {
+                continue;
+            }
+
+            $name = strtolower((string) ($child['name'] ?? ''));
+            if ( ! str_contains($name, 'label') ) {
+                continue;
+            }
+
+            $text = trim($this->nodePlainText($child));
+            if ( '' !== $text ) {
+                return $text;
+            }
+        }
+
+        return '';
     }
 
     /**
@@ -2715,8 +2772,12 @@ final class StaticHtmlEmitter
      * @param array<string, mixed>             $node
      * @param array<int, array<string, mixed>> $diagnostics
      */
-    private function wrapWithLink(array $node, string $element, array &$diagnostics, bool $buttonLike = false, ?array $parentNode = null): string
+    private function wrapWithLink(array $node, string $element, array &$diagnostics, bool $buttonLike = false, ?array $parentNode = null, bool $insideLink = false): string
     {
+        if ( $insideLink ) {
+            return $element;
+        }
+
         $link = is_array($node['figma_link'] ?? null) ? $node['figma_link'] : array();
         if ( empty($link) ) {
             $tocHref = $this->isTocEntryText($node, $parentNode) ? $this->implicitTocHref($node) : null;
@@ -2724,23 +2785,14 @@ final class StaticHtmlEmitter
                 $this->linkCoverage['toc_links']++;
                 $this->linkCoverage['anchors_emitted']++;
 
-                return sprintf(
-                    "<a class=\"figma-link figma-toc-link\" href=\"%1\$s\" data-figma-link-type=\"toc\">%2\$s</a>\n",
-                    $this->sanitizeAttribute($tocHref),
-                    $element
-                );
+                return $this->linkedElementMarkup($element, $tocHref, 'toc', 'figma-link figma-toc-link', $buttonLike);
             }
 
             $implicitHref = $this->implicitRouteHref($node, $parentNode);
             if ( null !== $implicitHref ) {
                 $this->linkCoverage['anchors_emitted']++;
 
-                return sprintf(
-                    "<a class=\"%3\$s\" href=\"%1\$s\" data-figma-link-type=\"implicit-route\">%2\$s</a>\n",
-                    $this->sanitizeAttribute($implicitHref),
-                    $element,
-                    $buttonLike ? 'figma-link button' : 'figma-link'
-                );
+                return $this->linkedElementMarkup($element, $implicitHref, 'implicit-route', $buttonLike ? 'figma-link button' : 'figma-link', $buttonLike);
             }
 
             return $element;
@@ -2802,13 +2854,46 @@ final class StaticHtmlEmitter
 
         $this->linkCoverage['anchors_emitted']++;
 
-        return sprintf(
-            "<a class=\"%4\$s\" href=\"%1\$s\" data-figma-link-type=\"%2\$s\">%3\$s</a>\n",
+        return $this->linkedElementMarkup($element, $href, $type, $buttonLike ? 'figma-link button' : 'figma-link', $buttonLike);
+    }
+
+    /**
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function nodeWouldWrapWithLink(array $node, ?array $parentNode): bool
+    {
+        $link = is_array($node['figma_link'] ?? null) ? $node['figma_link'] : array();
+        if ( ! empty($link) ) {
+            $type = (string) ($link['type'] ?? '');
+            return 'url' === $type || 'node' === $type;
+        }
+
+        if ( $this->isTocEntryText($node, $parentNode) && null !== $this->implicitTocHref($node) ) {
+            return true;
+        }
+
+        return null !== $this->implicitRouteHref($node, $parentNode);
+    }
+
+    private function linkedElementMarkup(string $element, string $href, string $type, string $className, bool $buttonLike): string
+    {
+        $anchor = sprintf(
+            '<a class="%1$s" href="%2$s" data-figma-link-type="%3$s">',
+            $this->sanitizeAttribute($className),
             $this->sanitizeAttribute($href),
-            $this->sanitizeAttribute($type),
-            $element,
-            $buttonLike ? 'figma-link button' : 'figma-link'
+            $this->sanitizeAttribute($type)
         );
+
+        if ( 1 === preg_match('/^<li([^>]*)>(.*)<\/li>\n?$/s', $element, $matches) ) {
+            return '<li' . $matches[1] . '>' . $anchor . $matches[2] . "</a></li>\n";
+        }
+
+        if ( $buttonLike && 1 === preg_match('/^<button([^>]*)>(.*)<\/button>\n?$/s', $element, $matches) ) {
+            $attributes = preg_replace('/\s+type="[^"]*"/', '', $matches[1]) ?? $matches[1];
+            $element = '<div' . $attributes . '>' . $matches[2] . "</div>\n";
+        }
+
+        return $anchor . $element . "</a>\n";
     }
 
     /**
@@ -2823,17 +2908,17 @@ final class StaticHtmlEmitter
         }
 
         if ( null !== $parentNode && $this->isNavigationLabelText($node, $parentNode) ) {
-            return $this->routePathForLabel($this->subtreePlainText($node));
+            return $this->routePathForLabel($this->subtreePlainText($node)) ?? $this->currentPageAnchorHrefForLabel($this->subtreePlainText($node));
         }
 
         if ( $this->isMenuItemName($name) || str_contains($name, 'nav item') ) {
-            return $this->routePathForLabel($this->subtreePlainText($node));
+            return $this->routePathForLabel($this->subtreePlainText($node)) ?? $this->currentPageAnchorHrefForLabel($this->subtreePlainText($node));
         }
 
         if ( null !== $parentNode && $this->isPaginationContainer($parentNode) ) {
             $label = strtolower($this->subtreePlainText($node));
-            if ( str_contains($label, 'next') && isset($this->implicitRoutePaths['news']) && 'archive.html' !== $this->currentPagePath ) {
-                return $this->implicitRoutePaths['news'];
+            if ( str_contains($label, 'next') && isset($this->implicitRoutePaths['news']) ) {
+                return $this->routePathForLabel('news');
             }
         }
 
@@ -2855,11 +2940,21 @@ final class StaticHtmlEmitter
         }
 
         $path = $this->implicitRoutePaths[$key];
-        if ( $path === $this->currentPagePath && 'home' !== $key && 'homepage' !== $key && 'front-page' !== $key ) {
+        if ( $path === $this->currentPagePath ) {
             return null;
         }
 
         return $path;
+    }
+
+    private function currentPageAnchorHrefForLabel(string $label): ?string
+    {
+        $text = $this->normalizedAnchorText($label);
+        if ( '' === $text || ! isset($this->tocHrefByText[$text]) ) {
+            return null;
+        }
+
+        return $this->tocHrefByText[$text];
     }
 
     private function sanitizeLinkUrl(string $url): string
@@ -4217,7 +4312,7 @@ final class StaticHtmlEmitter
         if ( $this->nodeHasZeroArea($node) ) {
             return 'zero_area';
         }
-        if ( null !== $parentNode && $this->isFormControlPlaceholderChild($node) ) {
+        if ( null !== $parentNode && ($this->isInputLike($parentNode) || $this->isTextareaLike($parentNode)) && $this->isFormControlPlaceholderChild($node) ) {
             return 'converted_to_form_control';
         }
         if ( $this->isUnresolvedComponentPlaceholderText($node, $this->rawDecodedText($node)) ) {
@@ -7083,7 +7178,7 @@ final class StaticHtmlEmitter
 
     private function isGenericVectorName(string $name): bool
     {
-        return '' === $name || 1 === preg_match('/^(vector|union|ellipse|rectangle|line|polygon|star|regular polygon|group|shape)(\s+\d+)?$/i', $name);
+        return '' === $name || 1 === preg_match('/^(vector|union|ellipse|rectangle|line|polygon|star|regular polygon|group|shape|icon)(\s+\d+)?$/i', $name);
     }
 
     /**

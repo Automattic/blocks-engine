@@ -212,4 +212,45 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
     $nestedFormHtml = $fileContent($nestedFormResult, 'index.html');
     $assert(1 === substr_count($nestedFormHtml, '<form '), 'form-control-nested-form-guard-single-form');
     $assert(str_contains($nestedFormHtml, '<div class="figma-node-nested-form-row-signup-form-row"'), 'form-control-nested-form-guard-descendant-form-row-div');
+
+    $labeledResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Labeled Control Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'labeled:root',
+                'type'     => 'FRAME',
+                'name'     => 'Comment Form',
+                'children' => array(
+                    array(
+                        'id'       => 'labeled:name-field',
+                        'type'     => 'FRAME',
+                        'name'     => 'Input',
+                        'children' => array(
+                            array('id' => 'labeled:name-label', 'type' => 'TEXT', 'name' => 'Label', 'characters' => 'Name *', 'fontSize' => 14),
+                            array('id' => 'labeled:name-input', 'type' => 'FRAME', 'name' => 'Input', 'width' => 280, 'height' => 46, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                                array('id' => 'labeled:name-empty', 'type' => 'TEXT', 'name' => 'Text', 'characters' => '', 'fontSize' => 16),
+                            )),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'labeled:email-field',
+                        'type'     => 'FRAME',
+                        'name'     => 'Input',
+                        'children' => array(
+                            array('id' => 'labeled:email-label', 'type' => 'TEXT', 'name' => 'Label', 'characters' => 'Email *', 'fontSize' => 14),
+                            array('id' => 'labeled:email-input', 'type' => 'FRAME', 'name' => 'Input', 'width' => 280, 'height' => 46, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                                array('id' => 'labeled:email-empty', 'type' => 'TEXT', 'name' => 'Text', 'characters' => '', 'fontSize' => 16),
+                            )),
+                        ),
+                    ),
+                    array('id' => 'labeled:submit', 'type' => 'FRAME', 'name' => 'Submit button', 'width' => 140, 'height' => 46, 'cornerRadius' => 999, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))), 'children' => array(
+                        array('id' => 'labeled:submit-text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Post Comment', 'fontSize' => 16),
+                    )),
+                ),
+            ),
+        ),
+    ));
+    $labeledHtml = $fileContent($labeledResult, 'index.html');
+    $assert(str_contains($labeledHtml, 'data-figma-node-id="labeled:name-input"') && str_contains($labeledHtml, 'aria-label="Name *"'), 'form-control-nearby-label-names-text-input');
+    $assert(str_contains($labeledHtml, 'data-figma-node-id="labeled:email-input"') && str_contains($labeledHtml, 'type="email" name="email"') && str_contains($labeledHtml, 'aria-label="Email *"'), 'form-control-nearby-label-infers-email-input');
 }

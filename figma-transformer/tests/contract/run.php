@@ -11,6 +11,7 @@ require_once __DIR__ . '/EffectsContract.php';
 require_once __DIR__ . '/FixtureMatrixContract.php';
 require_once __DIR__ . '/FormControlContract.php';
 require_once __DIR__ . '/GeometryBoxContract.php';
+require_once __DIR__ . '/HtmlValidityContract.php';
 require_once __DIR__ . '/ImagePaintContract.php';
 require_once __DIR__ . '/KiwiSkippedFieldInventoryContract.php';
 require_once __DIR__ . '/KiwiParserContract.php';
@@ -19,6 +20,7 @@ require_once __DIR__ . '/NodeTraceContract.php';
 require_once __DIR__ . '/OriginInferenceContract.php';
 require_once __DIR__ . '/ParserParityContract.php';
 require_once __DIR__ . '/RenderStyleMismatchContract.php';
+require_once __DIR__ . '/SemanticAccessibilityContract.php';
 require_once __DIR__ . '/SiteGenerationContract.php';
 require_once __DIR__ . '/SyntheticFigKiwiFixtureBuilder.php';
 require_once __DIR__ . '/TextLayoutContract.php';
@@ -190,6 +192,10 @@ $assert(str_contains($css, '.figma-node-1-2-hero-title{font-size:48px;font-weigh
 blocks_engine_figma_transformer_run_image_paint_contract($assert, $result, $css, $fileContent);
 
 blocks_engine_figma_transformer_run_form_control_contract($assert, $fileContent);
+
+blocks_engine_figma_transformer_run_html_validity_contract($assert, $fileContent);
+
+blocks_engine_figma_transformer_run_semantic_accessibility_contract($assert, $fileContent);
 
 blocks_engine_figma_transformer_run_vector_command_blob_contract($assert, $oversizedCommandBlob, $longStrokeCommandBlob);
 
@@ -6947,6 +6953,60 @@ foreach ( $absoluteComponentResponsiveResult['files'] ?? array() as $absoluteCom
 }
 $assert('success' === ($absoluteComponentResponsiveResult['status'] ?? null), 'absolute-component-responsive-transform-success');
 $assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-abs-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:1216px[^}]*height:420px[^}]*left:24px/s', $absoluteComponentResponsiveCss) === 1, 'absolute-component-responsive-width-follows-breakpoint');
+
+$responsiveSafetyResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name' => 'Responsive Safety Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'safety:desktop', 'type' => 'FRAME', 'name' => 'Desktop', 'box' => array('width' => 1440, 'height' => 900),
+                'children' => array(
+                    array(
+                        'id' => 'safety:header', 'type' => 'FRAME', 'name' => 'Header', 'box' => array('width' => 1440, 'height' => 92),
+                        'children' => array(
+                            array('id' => 'safety:logo', 'type' => 'FRAME', 'name' => 'Logo', 'box' => array('x' => 112, 'y' => 28, 'width' => 228, 'height' => 35), 'layout' => array('positioning' => 'absolute')),
+                            array(
+                                'id' => 'safety:header-actions', 'type' => 'FRAME', 'name' => 'Frame 21', 'box' => array('x' => 404, 'y' => 24, 'width' => 924, 'height' => 44),
+                                'layout' => array('positioning' => 'absolute', 'display' => 'flex', 'flex_direction' => 'row', 'justify_content' => 'flex-end', 'align_items' => 'baseline', 'gap' => 48),
+                                'children' => array(
+                                    array('id' => 'safety:nav', 'type' => 'FRAME', 'name' => 'Navigation', 'box' => array('width' => 559, 'height' => 26), 'layout' => array('display' => 'flex', 'flex_direction' => 'row', 'justify_content' => 'flex-end', 'align_items' => 'center', 'gap' => 32)),
+                                ),
+                            ),
+                        ),
+                    ),
+                    array(
+                        'id' => 'safety:footer', 'type' => 'FRAME', 'name' => 'Footer', 'box' => array('width' => 1440, 'height' => 483),
+                        'children' => array(
+                            array('id' => 'safety:newsletter', 'type' => 'INSTANCE', 'name' => 'Newsletter signup', 'source_id' => 'component:newsletter-desktop', 'box' => array('x' => 112, 'y' => 0, 'width' => 1216, 'height' => 352), 'layout' => array('positioning' => 'absolute')),
+                            array('id' => 'safety:footer-row', 'type' => 'FRAME', 'name' => 'Frame 19', 'box' => array('x' => 0, 'y' => 352, 'width' => 1440, 'height' => 131), 'layout' => array('positioning' => 'absolute', 'display' => 'flex', 'flex_direction' => 'row', 'justify_content' => 'space-between', 'align_items' => 'center')),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id' => 'safety:mobile', 'type' => 'FRAME', 'name' => 'Mobile', 'box' => array('width' => 390, 'height' => 900),
+                'children' => array(
+                    array('id' => 'safety:mobile-shell', 'type' => 'FRAME', 'name' => 'Mobile-only shell', 'box' => array('width' => 342, 'height' => 900)),
+                ),
+            ),
+        ),
+    ),
+    array('pages' => array(array('frame_id' => 'safety:desktop', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true, 'variants' => array(
+        array('frame_id' => 'safety:desktop', 'viewport_width' => 1440.0, 'primary' => true),
+        array('frame_id' => 'safety:mobile', 'viewport_width' => 390.0, 'primary' => false),
+    ))))
+);
+$responsiveSafetyCss = '';
+foreach ( $responsiveSafetyResult['files'] ?? array() as $responsiveSafetyFile ) {
+    if ( is_array($responsiveSafetyFile) && 'style.css' === ($responsiveSafetyFile['path'] ?? null) ) {
+        $responsiveSafetyCss = (string) ($responsiveSafetyFile['content'] ?? '');
+    }
+}
+$assert('success' === ($responsiveSafetyResult['status'] ?? null), 'responsive-safety-transform-success');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-safety-header-actions-frame-21\{[^}]*width:100%[^}]*position:relative[^}]*left:auto[^}]*right:auto[^}]*top:auto[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-header-actions-defixed');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-safety-nav-navigation\{[^}]*width:100%[^}]*max-width:100%[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-navigation-wraps');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-safety-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:1216px[^}]*left:24px/s', $responsiveSafetyCss) === 1, 'responsive-safety-newsletter-defixed');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-safety-footer-row-frame-19\{[^}]*position:relative[^}]*left:auto[^}]*top:auto[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-footer-row-defixed');
 
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");

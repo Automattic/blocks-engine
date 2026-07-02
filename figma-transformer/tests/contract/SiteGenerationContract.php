@@ -1578,10 +1578,20 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
                         array('id' => 'semantic:nav:about', 'type' => 'FRAME', 'name' => 'Menu Item', 'width' => 80, 'height' => 32, 'children' => array(
                             array('id' => 'semantic:nav:about:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'About', 'fontSize' => 16),
                         )),
+                        array('id' => 'semantic:nav:reviews', 'type' => 'FRAME', 'name' => 'Menu Item', 'width' => 80, 'height' => 32, 'children' => array(
+                            array('id' => 'semantic:nav:reviews:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Reviews', 'fontSize' => 16),
+                        )),
                     )),
+                    array('id' => 'semantic:reviews-heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Reviews', 'fontSize' => 48),
                     array('id' => 'semantic:card-title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Review Title', 'fontSize' => 36),
-                    array('id' => 'semantic:pagination', 'type' => 'FRAME', 'name' => 'Pagination', 'width' => 240, 'height' => 48, 'children' => array(
-                        array('id' => 'semantic:pagination:next', 'type' => 'FRAME', 'name' => 'Button', 'width' => 96, 'height' => 40, 'children' => array(
+                    array('id' => 'semantic:pagination', 'type' => 'FRAME', 'name' => 'Pagination', 'width' => 360, 'height' => 48, 'layout' => array('display' => 'flex', 'flex_direction' => 'row'), 'children' => array(
+                        array('id' => 'semantic:pagination:previous', 'type' => 'FRAME', 'name' => 'Button', 'width' => 96, 'height' => 40, 'layout' => array('grow' => 1), 'children' => array(
+                            array('id' => 'semantic:pagination:previous:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Previous', 'fontSize' => 16),
+                        )),
+                        array('id' => 'semantic:pagination:one', 'type' => 'TEXT', 'name' => 'Page number', 'characters' => '1', 'fontSize' => 16),
+                        array('id' => 'semantic:pagination:two', 'type' => 'TEXT', 'name' => 'Page number', 'characters' => '2', 'fontSize' => 16),
+                        array('id' => 'semantic:pagination:three', 'type' => 'TEXT', 'name' => 'Page number', 'characters' => '3', 'fontSize' => 16),
+                        array('id' => 'semantic:pagination:next', 'type' => 'FRAME', 'name' => 'Button', 'width' => 96, 'height' => 40, 'layout' => array('grow' => 1), 'children' => array(
                             array('id' => 'semantic:pagination:next:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Next', 'fontSize' => 16),
                         )),
                     )),
@@ -1597,6 +1607,11 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
                         array('id' => 'semantic:newsletter-submit', 'type' => 'FRAME', 'name' => 'Button', 'width' => 128, 'height' => 44, 'cornerRadius' => 999, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))), 'children' => array(
                             array('id' => 'semantic:newsletter-submit:text', 'type' => 'TEXT', 'name' => 'Subscribe', 'characters' => 'Subscribe', 'fontSize' => 16),
                         )),
+                    )),
+                    array('id' => 'semantic:footer-links', 'type' => 'FRAME', 'name' => 'Frame 29', 'width' => 300, 'height' => 32, 'children' => array(
+                        array('id' => 'semantic:footer:about', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'About', 'fontSize' => 16, 'width' => 80, 'height' => 20),
+                        array('id' => 'semantic:footer:contact', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Contact', 'fontSize' => 16, 'width' => 80, 'height' => 20),
+                        array('id' => 'semantic:footer:privacy', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Privacy Policy', 'fontSize' => 16, 'width' => 120, 'height' => 20),
                     )),
                 ),
             ),
@@ -1636,11 +1651,19 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
         ),
     ));
     $semanticHome = $fileContent($semanticRoutesResult, 'index.html');
+    $semanticArchive = $fileContent($semanticRoutesResult, 'archive.html');
+    $semanticAbout = $fileContent($semanticRoutesResult, 'page.html');
     $assert(str_contains($semanticHome, '<a class="figma-link" href="index.html" data-figma-link-type="implicit-route"><div class="figma-node-semantic-logo-logo"'), 'semantic-route-logo-links-entrypoint');
     $assert(str_contains($semanticHome, 'href="archive.html" data-figma-link-type="implicit-route"') && str_contains($semanticHome, '>News</span>'), 'semantic-route-nav-news-links-archive');
     $assert(str_contains($semanticHome, 'href="page.html" data-figma-link-type="implicit-route"') && str_contains($semanticHome, '>About</span>'), 'semantic-route-nav-about-links-page-heading');
+    $assert(str_contains($semanticHome, 'href="#reviews" data-figma-link-type="implicit-route"') && str_contains($semanticHome, '>Reviews</span>'), 'semantic-route-nav-current-page-section-links-heading-anchor');
     $assert(str_contains($semanticHome, 'href="blog-post.html" data-figma-link-type="implicit-route"') && str_contains($semanticHome, '>Review Title</h'), 'semantic-route-card-heading-links-single-title');
     $assert(str_contains($semanticHome, 'href="archive.html" data-figma-link-type="implicit-route"') && str_contains($semanticHome, '>Next</span>'), 'semantic-route-pagination-next-links-archive');
+    $assert(! str_contains($semanticHome, '<a class="figma-link button" href="archive.html" data-figma-link-type="implicit-route"><button'), 'semantic-route-linked-pagination-button-does-not-wrap-button-element');
+    $assert(! preg_match('/<a\b[^>]*><div\b[^>]*><a\b/s', $semanticHome), 'semantic-route-menu-items-do-not-emit-nested-anchors');
+    $assert(! preg_match('/<a\b[^>]*><li\b/s', $semanticHome), 'semantic-route-list-items-keep-anchor-inside-li');
+    $assert(! str_contains($semanticArchive, 'href="archive.html" data-figma-link-type="implicit-route"><h1'), 'semantic-route-current-archive-title-not-self-linked');
+    $assert(! str_contains($semanticAbout, 'href="page.html" data-figma-link-type="implicit-route"><h1'), 'semantic-route-current-page-title-not-self-linked');
     $assert(str_contains($semanticHome, '<form') && str_contains($semanticHome, 'method="get" action="index.html" role="search"'), 'semantic-route-search-form-action');
     $assert(str_contains($semanticHome, '<form') && str_contains($semanticHome, 'method="post" action="index.html"'), 'semantic-route-newsletter-form-action');
     $assert(str_contains($semanticHome, 'type="search" name="s"'), 'semantic-route-search-input-name');

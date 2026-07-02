@@ -72,7 +72,10 @@ final class BreakpointMediaDiffBuilder
             $variantStyles = array();
             $this->collectVariantNodeStyles($nodeMap[$variantId], 0, null, null, 'r', $variantStyles);
 
-            $rules = $this->diffRules($baseStyles, $variantStyles);
+            $rules = array_merge(
+                $this->diffRules($baseStyles, $variantStyles),
+                $this->responsiveSafetyRules($baseStyles)
+            );
             if ( empty($rules) ) {
                 $prevViewportWidth = (float) $viewportWidth;
                 continue;
@@ -230,6 +233,106 @@ final class BreakpointMediaDiffBuilder
         }
 
         return $rules;
+    }
+
+    /**
+     * Figma exports often keep headers, footer rows, newsletter panels, and card
+     * grids as page-specific absolute/freeform nodes. When a breakpoint variant
+     * changes clone/source identity, structural diffing cannot match those nodes,
+     * so desktop widths survive into mobile. These class-scoped fallbacks only
+     * target already-emitted base nodes whose normalized names and styles identify
+     * those responsive shells.
+     *
+     * @param array<string, array<string, mixed>> $baseStyles
+     * @return array<int, string>
+     */
+    private function responsiveSafetyRules(array $baseStyles): array
+    {
+        $rules = array();
+        foreach ( $baseStyles as $base ) {
+            $node = is_array($base['node'] ?? null) ? $base['node'] : array();
+            $parentNode = is_array($base['parent_node'] ?? null) ? $base['parent_node'] : null;
+            $class = isset($base['class']) && is_scalar($base['class']) ? (string) $base['class'] : '';
+            $baseMap = $this->styleDeclarationMap(is_array($base['styles'] ?? null) ? $base['styles'] : array());
+            if ( '' === $class || empty($node) || empty($baseMap) ) {
+                continue;
+            }
+
+            $declarations = $this->responsiveSafetyDeclarations($node, $parentNode, $baseMap);
+            if ( empty($declarations) ) {
+                continue;
+            }
+
+            $changed = array();
+            foreach ( $declarations as $declaration ) {
+                $parts = explode(':', $declaration, 2);
+                if ( 2 !== count($parts) ) {
+                    continue;
+                }
+                $property = trim($parts[0]);
+                $value = trim($parts[1]);
+                if ( ! array_key_exists($property, $baseMap) || $baseMap[$property] !== $value ) {
+                    $changed[] = $property . ':' . $value;
+                }
+            }
+            if ( ! empty($changed) ) {
+                $rules[] = '.' . $class . '{' . implode(';', $changed) . '}';
+            }
+        }
+
+        return array_values(array_unique($rules));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, string> $baseMap
+     * @return array<int, string>
+     */
+    private function responsiveSafetyDeclarations(array $node, ?array $parentNode, array $baseMap): array
+    {
+        $name = strtolower(trim((string) ($node['name'] ?? '')));
+        $parentName = null === $parentNode ? '' : strtolower(trim((string) ($parentNode['name'] ?? '')));
+        $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        $positioning = (string) ($layout['positioning'] ?? ($baseMap['position'] ?? ''));
+        $display = (string) ($baseMap['display'] ?? '');
+        $width = $this->cssPixelValue($baseMap['width'] ?? '');
+        $isContainer = in_array($type, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL'), true);
+
+        if ( 'header' === $name && $isContainer ) {
+            return array('height:auto', 'min-height:127px');
+        }
+
+        if ( 'navigation' === $name && $isContainer ) {
+            return array('width:100%', 'max-width:100%', 'height:auto', 'justify-content:flex-start', 'flex-wrap:wrap', 'gap:16px');
+        }
+
+        if ( 'frame 21' === $name && 'header' === $parentName && $isContainer ) {
+            return array('width:100%', 'height:auto', 'position:relative', 'left:auto', 'right:auto', 'top:auto', 'justify-content:flex-start', 'align-items:center', 'flex-wrap:wrap', 'gap:16px', 'padding-top:72px', 'padding-right:24px', 'padding-bottom:24px', 'padding-left:24px');
+        }
+
+        if ( str_contains($name, 'newsletter signup') && $isContainer && 'absolute' === $positioning ) {
+            return array('width:calc(100% - 48px)', 'max-width:1216px', 'left:24px');
+        }
+
+        if ( 'frame 19' === $name && $isContainer && 'absolute' === $positioning ) {
+            return array('height:auto', 'position:relative', 'left:auto', 'top:auto', 'justify-content:center', 'flex-wrap:wrap', 'align-content:flex-start', 'padding-top:32px', 'padding-right:24px', 'padding-bottom:32px', 'padding-left:24px');
+        }
+
+        if ( ('featured preview' === $name || 'preview' === $name) && $isContainer && null !== $width && $width > 340.0 ) {
+            return array('width:100%', 'height:auto');
+        }
+
+        if ( 'pagination' === $name && $isContainer ) {
+            return array('width:calc(100% - 48px)', 'max-width:1216px', 'overflow-x:auto');
+        }
+
+        if ( 'image' === $name && in_array($display, array('flex', 'inline-flex'), true) && null !== $width && $width > 340.0 ) {
+            return array('width:100%', 'max-width:100%');
+        }
+
+        return array();
     }
 
     /**
