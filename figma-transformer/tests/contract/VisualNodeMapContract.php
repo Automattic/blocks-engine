@@ -72,9 +72,43 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
         ),
     ));
     $reverseZIndexCss = blocks_engine_figma_transformer_contract_file_content($reverseZIndexResult, 'style.css');
-    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-row-overlapping-reverse-z-row{width:180px;height:80px;display:flex;flex-direction:row;gap:-20px}'), 'visual-map-reverse-z-parent-layout-order-preserved');
+    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-row-overlapping-reverse-z-row{width:180px;height:80px;isolation:isolate;display:flex;flex-direction:row;gap:-20px}'), 'visual-map-reverse-z-parent-layout-order-preserved');
     $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-first-first-top-child{width:80px;height:80px;z-index:2;flex-shrink:0}'), 'visual-map-reverse-z-first-child-on-top');
     $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-second-second-lower-child{width:80px;height:80px;z-index:1;flex-shrink:0}'), 'visual-map-reverse-z-second-child-lower');
+
+    $isolatedStackResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Isolated Local Stack Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'isolated-stack:page',
+                'type'     => 'FRAME',
+                'name'     => 'Page',
+                'width'    => 320,
+                'height'   => 240,
+                'children' => array(
+                    array(
+                        'id'                 => 'isolated-stack:section',
+                        'type'               => 'FRAME',
+                        'name'               => 'Layered image section',
+                        'x'                  => 0,
+                        'y'                  => 0,
+                        'width'              => 320,
+                        'height'             => 180,
+                        'layoutMode'         => 'HORIZONTAL',
+                        'itemSpacing'        => -80,
+                        'stackReverseZIndex' => true,
+                        'children'           => array(
+                            array('id' => 'isolated-stack:image', 'type' => 'RECTANGLE', 'name' => 'Image', 'x' => 0, 'y' => 0, 'width' => 320, 'height' => 180),
+                            array('id' => 'isolated-stack:badge', 'type' => 'RECTANGLE', 'name' => 'Badge', 'x' => 24, 'y' => 24, 'width' => 80, 'height' => 40),
+                        ),
+                    ),
+                    array('id' => 'isolated-stack:footer', 'type' => 'RECTANGLE', 'name' => 'Footer band', 'x' => 0, 'y' => 180, 'width' => 320, 'height' => 60),
+                ),
+            ),
+        ),
+    ));
+    $isolatedStackCss = blocks_engine_figma_transformer_contract_file_content($isolatedStackResult, 'style.css');
+    $assert(str_contains($isolatedStackCss, '.figma-node-isolated-stack-section-layered-image-section{width:320px;height:180px;isolation:isolate;position:absolute;left:0px;top:0px;display:flex;flex-direction:row;gap:-80px}'), 'visual-map-local-stack-isolates-image-section-z-index');
 
     $componentCloneZIndexResult = blocks_engine_figma_transformer_contract_transform(
         array(

@@ -353,7 +353,7 @@ $decorativeUnderlayDiagnostics = $decorativeUnderlayResult['source_reports']['fi
 $decorativeUnderlayLayout = $decorativeUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
 $decorativeUnderlayArt = $findVisualNode($decorativeUnderlayResult, 'underlay:art');
 $decorativeUnderlayVector = $findVisualNode($decorativeUnderlayResult, 'underlay:vector');
-$assert(str_contains($decorativeUnderlayCss, '.figma-node-underlay-parent-flex-hero{width:1000px;height:600px;position:relative;display:flex;flex-direction:row}'), 'decorative-underlay-parent-relative');
+$assert(str_contains($decorativeUnderlayCss, '.figma-node-underlay-parent-flex-hero{width:1000px;height:600px;position:relative;isolation:isolate;display:flex;flex-direction:row}'), 'decorative-underlay-parent-relative');
 $assert(str_contains($decorativeUnderlayCss, '.figma-node-underlay-art-decorative-art{width:900px;height:700px;position:absolute;left:40px;top:-50px;z-index:0;pointer-events:none}'), 'decorative-underlay-absolute');
 $assert(str_contains($decorativeUnderlayCss, '.figma-node-underlay-copy-copy-stack{width:320px;height:120px;position:relative;z-index:1;flex-shrink:0}'), 'decorative-underlay-content-stacks-above');
 $assert(array('x' => 40.0, 'y' => -50.0, 'width' => 900.0, 'height' => 700.0) === ($decorativeUnderlayArt['rect'] ?? null), 'decorative-underlay-visual-map-includes-css-offset');
@@ -404,7 +404,7 @@ $absoluteDecorativeUnderlayResult = blocks_engine_figma_transformer_transform_sc
 ));
 $absoluteDecorativeUnderlayCss = $fileContent($absoluteDecorativeUnderlayResult, 'style.css');
 $absoluteDecorativeUnderlays = $absoluteDecorativeUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
-$assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-parent-footer-row{width:600px;height:120px;position:relative;display:flex;flex-direction:row}'), 'absolute-decorative-underlay-parent-relative');
+$assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-parent-footer-row{width:600px;height:120px;position:relative;isolation:isolate;display:flex;flex-direction:row}'), 'absolute-decorative-underlay-parent-relative');
 $assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-bg-background-plate{width:660px;height:180px;position:absolute;left:0px;top:0px;z-index:0;pointer-events:none;background:#050a14}'), 'absolute-decorative-underlay-gets-underlay-z-index');
 $assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-copy-footer-copy{position:relative;z-index:1;font-size:16px;flex-shrink:0}'), 'absolute-decorative-underlay-flow-text-stacks-above');
 $assert(1 === ($absoluteDecorativeUnderlays['count'] ?? null), 'absolute-decorative-underlay-diagnostic-count');
@@ -471,7 +471,7 @@ $fseFooterUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(
 ));
 $fseFooterUnderlayCss = $fileContent($fseFooterUnderlayResult, 'style.css');
 $fseFooterUnderlays = $fseFooterUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
-$assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-row-frame-19{width:100%;height:131px;position:relative;display:flex;flex-direction:row;justify-content:space-between;align-items:center;padding-top:48px;padding-right:112px;padding-bottom:48px;padding-left:112px}'), 'fse-footer-row-relative');
+$assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-row-frame-19{width:100%;height:131px;position:relative;isolation:isolate;display:flex;flex-direction:row;justify-content:space-between;align-items:center;padding-top:48px;padding-right:112px;padding-bottom:48px;padding-left:112px}'), 'fse-footer-row-relative');
 $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-bg-rectangle-3{width:1440px;height:195px;position:absolute;left:0px;top:-64px;bottom:0px;z-index:0;pointer-events:none;background:#d9d9d9}'), 'fse-footer-background-underlay-protected');
 $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-logo-logo{width:228px;height:35px;position:relative;z-index:1;flex-shrink:0}'), 'fse-footer-logo-stacks-above-underlay');
 $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-links-frame-29{width:265px;height:26px;position:relative;z-index:1;display:flex;flex-direction:row;flex-shrink:0}'), 'fse-footer-link-row-stacks-above-underlay');

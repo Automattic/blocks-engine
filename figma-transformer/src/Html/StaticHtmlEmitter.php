@@ -3759,8 +3759,14 @@ final class StaticHtmlEmitter
 
         $isDecorativeFlexUnderlay = null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode);
         $willPositionAbsolute = (null !== $parentNode && $this->isFreeformContainer($parentNode)) || 'absolute' === ($layout['positioning'] ?? null) || $isDecorativeFlexUnderlay;
-        if ( ! $willPositionAbsolute && ($this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node)) ) {
+        $managesLocalStacking = $this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node);
+        $needsLocalStackIsolation = $this->hasDecorativeFlexUnderlayChild($node) || $this->hasZIndexedChild($node);
+        if ( ! $willPositionAbsolute && $managesLocalStacking ) {
             $styles[] = 'position:relative';
+        }
+
+        if ( $needsLocalStackIsolation ) {
+            $styles[] = 'isolation:isolate';
         }
 
         if ( $isDecorativeFlexUnderlay ) {
@@ -4267,6 +4273,21 @@ final class StaticHtmlEmitter
     private function hasDecorativeFlexUnderlayChild(array $node): bool
     {
         return $this->layoutIntentClassifier()->hasDecorativeFlexUnderlayChild($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasZIndexedChild(array $node): bool
+    {
+        foreach ( $this->nodeList($node) as $child ) {
+            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( isset($layout['z_index']) && is_numeric($layout['z_index']) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
