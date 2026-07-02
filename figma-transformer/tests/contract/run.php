@@ -6869,6 +6869,85 @@ $assert(str_contains($paginationResponsiveCss, '.figma-node-preserve-pagination-
 $assert(! preg_match('/\.figma-node-preserve-pagination-pagination\{[^}]*height:36px/', $paginationResponsiveCss), 'pagination-responsive-does-not-override-height');
 $assert(! preg_match('/\.figma-node-preserve-pagination-pagination\{[^}]*flex-wrap:wrap/', $paginationResponsiveCss), 'pagination-responsive-does-not-wrap');
 
+$componentResponsiveStructureResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name' => 'Component Responsive Structure Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'struct:desktop', 'type' => 'FRAME', 'name' => 'Desktop', 'box' => array('width' => 1440, 'height' => 600),
+                'children' => array(
+                    array(
+                        'id' => 'struct:section', 'type' => 'INSTANCE', 'name' => 'Feature section', 'source_id' => 'component:desktop-section', 'box' => array('width' => 1216, 'height' => 400),
+                        'layout' => array('display' => 'flex', 'flex_direction' => 'row', 'gap' => 44),
+                        'children' => array(
+                            array('id' => 'struct:lead', 'type' => 'INSTANCE', 'name' => 'Lead card', 'source_id' => 'component:desktop-lead', 'box' => array('width' => 691, 'height' => 300)),
+                            array('id' => 'struct:list', 'type' => 'INSTANCE', 'name' => 'Card list', 'source_id' => 'component:desktop-list', 'box' => array('width' => 481, 'height' => 300)),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id' => 'struct:mobile', 'type' => 'FRAME', 'name' => 'Mobile', 'box' => array('width' => 390, 'height' => 900),
+                'children' => array(
+                    array(
+                        'id' => 'struct:section-mobile', 'type' => 'INSTANCE', 'name' => 'Feature section', 'source_id' => 'component:mobile-section', 'box' => array('width' => 342, 'height' => 820),
+                        'layout' => array('display' => 'flex', 'flex_direction' => 'column', 'gap' => 32),
+                        'children' => array(
+                            array('id' => 'struct:lead-mobile', 'type' => 'INSTANCE', 'name' => 'Lead card', 'source_id' => 'component:mobile-lead', 'box' => array('width' => 342, 'height' => 420)),
+                            array('id' => 'struct:list-mobile', 'type' => 'INSTANCE', 'name' => 'Card list', 'source_id' => 'component:mobile-list', 'box' => array('width' => 342, 'height' => 360)),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+    array('pages' => array(array('frame_id' => 'struct:desktop', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true, 'variants' => array(
+        array('frame_id' => 'struct:desktop', 'viewport_width' => 1440.0, 'primary' => true),
+        array('frame_id' => 'struct:mobile', 'viewport_width' => 390.0, 'primary' => false),
+    ))))
+);
+$componentResponsiveStructureCss = '';
+foreach ( $componentResponsiveStructureResult['files'] ?? array() as $componentResponsiveStructureFile ) {
+    if ( is_array($componentResponsiveStructureFile) && 'style.css' === ($componentResponsiveStructureFile['path'] ?? null) ) {
+        $componentResponsiveStructureCss = (string) ($componentResponsiveStructureFile['content'] ?? '');
+    }
+}
+$assert('success' === ($componentResponsiveStructureResult['status'] ?? null), 'component-responsive-structure-transform-success');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-struct-section-feature-section\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:1216px[^}]*height:auto[^}]*flex-direction:column[^}]*gap:32px/s', $componentResponsiveStructureCss) === 1, 'component-responsive-section-fluid-column');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-struct-lead-lead-card\{[^}]*width:100%[^}]*height:auto/s', $componentResponsiveStructureCss) === 1, 'component-responsive-structural-child-maps-across-source-ids');
+
+$absoluteComponentResponsiveResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name' => 'Absolute Component Responsive Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'abs:desktop', 'type' => 'FRAME', 'name' => 'Desktop', 'box' => array('width' => 1440, 'height' => 600),
+                'children' => array(
+                    array('id' => 'abs:newsletter', 'type' => 'INSTANCE', 'name' => 'Newsletter signup', 'source_id' => 'component:newsletter-desktop', 'box' => array('x' => 112, 'y' => 0, 'width' => 1216, 'height' => 352), 'layout' => array('positioning' => 'absolute')),
+                ),
+            ),
+            array(
+                'id' => 'abs:mobile', 'type' => 'FRAME', 'name' => 'Mobile', 'box' => array('width' => 390, 'height' => 600),
+                'children' => array(
+                    array('id' => 'abs:newsletter-mobile', 'type' => 'INSTANCE', 'name' => 'Newsletter signup', 'source_id' => 'component:newsletter-mobile', 'box' => array('x' => 24, 'y' => 0, 'width' => 342, 'height' => 420), 'layout' => array('positioning' => 'absolute')),
+                ),
+            ),
+        ),
+    ),
+    array('pages' => array(array('frame_id' => 'abs:desktop', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true, 'variants' => array(
+        array('frame_id' => 'abs:desktop', 'viewport_width' => 1440.0, 'primary' => true),
+        array('frame_id' => 'abs:mobile', 'viewport_width' => 390.0, 'primary' => false),
+    ))))
+);
+$absoluteComponentResponsiveCss = '';
+foreach ( $absoluteComponentResponsiveResult['files'] ?? array() as $absoluteComponentResponsiveFile ) {
+    if ( is_array($absoluteComponentResponsiveFile) && 'style.css' === ($absoluteComponentResponsiveFile['path'] ?? null) ) {
+        $absoluteComponentResponsiveCss = (string) ($absoluteComponentResponsiveFile['content'] ?? '');
+    }
+}
+$assert('success' === ($absoluteComponentResponsiveResult['status'] ?? null), 'absolute-component-responsive-transform-success');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-abs-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:1216px[^}]*height:420px[^}]*left:24px/s', $absoluteComponentResponsiveCss) === 1, 'absolute-component-responsive-width-follows-breakpoint');
+
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
     exit(1);

@@ -126,25 +126,35 @@ final class BreakpointMediaDiffBuilder
                 continue;
             }
 
-            $childKey = $pathKey . '/' . $this->breakpointChildKey($child, $childOrdinal);
-            $this->collectVariantNodeStyles($child, $depth + 1, $node, $parentNode, $childKey, $map);
+            foreach ( $this->breakpointChildKeys($child, $childOrdinal) as $childKeyPart ) {
+                $childKey = $pathKey . '/' . $childKeyPart;
+                $this->collectVariantNodeStyles($child, $depth + 1, $node, $parentNode, $childKey, $map);
+            }
             ++$childOrdinal;
         }
     }
 
     /**
      * @param array<string, mixed> $node
+     * @return array<int, string>
      */
-    private function breakpointChildKey(array $node, int $ordinal): string
+    private function breakpointChildKeys(array $node, int $ordinal): array
     {
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
-        foreach ( array('figma_component_source_id', 'source_id') as $key ) {
-            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== (string) $node[$key] ) {
-                return 'source:' . ($this->slug)($type . '-' . (string) $node[$key]);
-            }
+        $name = isset($node['name']) && is_scalar($node['name']) ? (string) $node['name'] : '';
+        $keys = array();
+
+        $sourceId = isset($node['figma_component_source_id']) && is_scalar($node['figma_component_source_id']) ? (string) $node['figma_component_source_id'] : '';
+        if ( '' === $sourceId && isset($node['source_id']) && is_scalar($node['source_id']) ) {
+            $sourceId = (string) $node['source_id'];
+        }
+        if ( '' !== $sourceId ) {
+            $keys[] = 'source:' . ($this->slug)($sourceId);
         }
 
-        return $ordinal . ':' . $type;
+        $keys[] = 'struct:' . $ordinal . ':' . $type . ':' . ($this->slug)($name);
+
+        return array_values(array_unique($keys));
     }
 
     /**
@@ -184,7 +194,7 @@ final class BreakpointMediaDiffBuilder
                 if ( $preservePaginationRow && in_array($property, array('height', 'flex-wrap', 'align-content'), true) ) {
                     continue;
                 }
-                if ( 'height' === $property && $this->shouldUseResponsiveAutoHeight($value, $baseMap, $baseNode, $variantNode) ) {
+                if ( 'height' === $property && $this->shouldUseResponsiveAutoHeight($value, $baseMap, $baseNode, $variantNode, $variantParentNode) ) {
                     if ( ! array_key_exists('height', $baseMap) || 'auto' !== $baseMap['height'] ) {
                         $changed[] = 'height:auto';
                     }
@@ -237,10 +247,13 @@ final class BreakpointMediaDiffBuilder
             return null;
         }
 
-        foreach ( array('figma_component_source_id', 'source_id', 'componentId', 'component_id') as $identityKey ) {
-            if ( isset($variantNode[$identityKey]) && is_scalar($variantNode[$identityKey]) && '' !== (string) $variantNode[$identityKey] ) {
-                return null;
-            }
+        $variantType = strtoupper((string) ($variantNode['type'] ?? 'FRAME'));
+        $variantSourceId = isset($variantNode['figma_component_source_id']) && is_scalar($variantNode['figma_component_source_id']) ? (string) $variantNode['figma_component_source_id'] : '';
+        if ( '' === $variantSourceId && isset($variantNode['source_id']) && is_scalar($variantNode['source_id']) ) {
+            $variantSourceId = (string) $variantNode['source_id'];
+        }
+        if ( '' !== $variantSourceId && ! in_array($variantType, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL'), true) ) {
+            return null;
         }
 
         if ( null === $variantParentNode ) {
@@ -297,7 +310,7 @@ final class BreakpointMediaDiffBuilder
      * @param array<string, mixed> $baseNode
      * @param array<string, mixed> $variantNode
      */
-    private function shouldUseResponsiveAutoHeight(string $value, array $baseMap, array $baseNode, array $variantNode): bool
+    private function shouldUseResponsiveAutoHeight(string $value, array $baseMap, array $baseNode, array $variantNode, ?array $variantParentNode): bool
     {
         if ( null === $this->cssPixelValue($value) || null === $this->cssPixelValue($baseMap['height'] ?? '') ) {
             return false;
@@ -315,6 +328,10 @@ final class BreakpointMediaDiffBuilder
         $layout = is_array($baseNode['layout'] ?? null) ? $baseNode['layout'] : array();
         if ( 'absolute' === ($layout['positioning'] ?? null) || 'absolute' === ($baseMap['position'] ?? null) ) {
             return false;
+        }
+
+        if ( in_array($type, array('INSTANCE', 'COMPONENT', 'SYMBOL'), true) && $this->variantFillsParentWidth($variantNode, $variantParentNode) ) {
+            return true;
         }
 
         $display = (string) ($layout['display'] ?? '');
@@ -344,6 +361,20 @@ final class BreakpointMediaDiffBuilder
         }
 
         return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function variantFillsParentWidth(array $node, ?array $parentNode): bool
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        if ( ! isset($box['width'], $parentBox['width']) || ! is_numeric($box['width']) || ! is_numeric($parentBox['width']) ) {
+            return false;
+        }
+
+        return abs((float) $box['width'] - (float) $parentBox['width']) <= 1.0;
     }
 
     /**

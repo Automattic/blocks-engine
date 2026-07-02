@@ -1107,4 +1107,49 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(str_contains($layeredLogoHtml, 'fill="#1e7c3c"') && str_contains($layeredLogoHtml, 'stroke="#0f4823"'), 'layered-vector-logo-preserves-child-paints');
     $assert(! str_contains($layeredLogoHtml, 'data-figma-node-id="logo:back-leaf"') && ! str_contains($layeredLogoHtml, 'data-figma-node-id="logo:hidden-leaf"'), 'layered-vector-logo-does-not-duplicate-child-html');
     $assert(! str_contains($layeredLogoCss, '.figma-node-logo-back-leaf-back-leaf'), 'layered-vector-logo-css-omits-child-layer-rules');
+
+    $decorativeA11yResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Vector Accessibility Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'a11y:root',
+                'type'     => 'FRAME',
+                'name'     => 'Frame',
+                'width'    => 320,
+                'height'   => 80,
+                'children' => array(
+                    array(
+                        'id'                 => 'a11y:decorative-vector',
+                        'type'               => 'VECTOR',
+                        'name'               => 'Vector 12',
+                        'width'              => 16,
+                        'height'             => 16,
+                        'figma_vector_paths' => array(array('data' => 'M0 0L16 16')),
+                        'strokePaints'       => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                    ),
+                    array(
+                        'id'       => 'a11y:logo',
+                        'type'     => 'GROUP',
+                        'name'     => 'Logo',
+                        'width'    => 32,
+                        'height'   => 16,
+                        'children' => array(
+                            array(
+                                'id'                 => 'a11y:logo-vector',
+                                'type'               => 'VECTOR',
+                                'name'               => 'Union',
+                                'width'              => 32,
+                                'height'             => 16,
+                                'figma_vector_paths' => array(array('data' => 'M0 0L32 0 32 16 0 16Z')),
+                                'fills'              => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $decorativeA11yHtml = $fileContent($decorativeA11yResult, 'index.html');
+    $assert(str_contains($decorativeA11yHtml, 'data-figma-node-id="a11y:decorative-vector"') && str_contains($decorativeA11yHtml, 'aria-hidden="true" focusable="false"') && ! str_contains($decorativeA11yHtml, 'aria-label="Vector 12"'), 'generic-decorative-vector-hidden-from-accessibility-tree');
+    $assert(str_contains($decorativeA11yHtml, 'data-figma-node-id="a11y:logo"') && str_contains($decorativeA11yHtml, 'role="img"') && str_contains($decorativeA11yHtml, 'aria-label="Logo"'), 'brand-vector-remains-accessible-image');
 }

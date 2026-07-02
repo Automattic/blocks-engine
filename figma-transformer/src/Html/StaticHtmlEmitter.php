@@ -155,6 +155,16 @@ final class StaticHtmlEmitter
     private array $linkTargetPaths = array();
 
     /**
+     * Page-label => page-path map used for semantic website chrome when Figma
+     * supplied no explicit prototype/hyperlink data.
+     *
+     * @var array<string, string>
+     */
+    private array $implicitRoutePaths = array();
+
+    private string $entrypointPath = 'index.html';
+
+    /**
      * Running link-coverage tallies populated while emitting nodes.
      *
      * @var array<string, mixed>
@@ -226,6 +236,8 @@ final class StaticHtmlEmitter
         $this->nodeReadableNames = array();
         $this->stickyLayoutCoordinator()->reset();
         $this->linkTargetPaths = $this->normalizeLinkTargetPaths($options);
+        $this->implicitRoutePaths = array();
+        $this->entrypointPath = 'index.html';
         $this->linkCoverage = $this->newLinkCoverage();
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $nodes = $this->nodeList($scenegraph);
@@ -274,7 +286,7 @@ final class StaticHtmlEmitter
                 'path'      => 'index.html',
                 'role'      => 'entrypoint',
                 'mime_type' => 'text/html',
-                'content'   => $this->htmlArtifactAssembler()->htmlDocument($title, 'style.css', $body),
+                'content'   => $this->htmlArtifactAssembler()->htmlDocument($title, 'style.css', $body, $this->headMetadata($options, (string) ($options['static_site_page_path'] ?? 'index.html'), html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'))),
             ),
             array(
                 'path'      => 'style.css',
@@ -288,7 +300,9 @@ final class StaticHtmlEmitter
             $files[] = $assetFile;
         }
 
-        $files = (new InlineCssFileInjector())->inject($files, $css);
+        if ( false !== ($options['inline_css'] ?? true) ) {
+            $files = (new InlineCssFileInjector())->inject($files, $css);
+        }
 
         $visualNodeMap = $this->visualNodeMap($nodes);
         $transformDiagnostics = $this->transformDiagnostics($nodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics, $body);
@@ -342,6 +356,9 @@ final class StaticHtmlEmitter
         $this->nodeReadableNames = array();
         $this->stickyLayoutCoordinator()->reset();
         $this->linkTargetPaths = $this->linkTargetPathsFromPagePlan($pagePlan, $options);
+        $implicitRoutePagePlan = is_array($options['implicit_route_page_plan'] ?? null) ? $options['implicit_route_page_plan'] : $pagePlan;
+        $this->entrypointPath = $this->entrypointPathFromPagePlan($implicitRoutePagePlan);
+        $this->implicitRoutePaths = $this->implicitRoutePathsFromPagePlan($implicitRoutePagePlan, $scenegraph);
         $this->linkCoverage = $this->newLinkCoverage();
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $diagnostics = array();
@@ -426,7 +443,7 @@ final class StaticHtmlEmitter
                 'path'      => $path,
                 'role'      => true === ($page['entrypoint'] ?? false) ? 'entrypoint' : 'document',
                 'mime_type' => 'text/html',
-                'content'   => $this->htmlArtifactAssembler()->htmlDocument($this->sanitizeText($pageName), $this->stylesheetHref($path), $body),
+                'content'   => $this->htmlArtifactAssembler()->htmlDocument($this->sanitizeText($pageName), $this->stylesheetHref($path), $body, $this->headMetadata($options, $path, $pageName)),
             );
             $renderedNodes[] = $frameNode;
 
@@ -458,7 +475,7 @@ final class StaticHtmlEmitter
                     'path'      => 'index.html',
                     'role'      => 'entrypoint',
                     'mime_type' => 'text/html',
-                    'content'   => $this->htmlArtifactAssembler()->htmlDocument($title, 'style.css', $body),
+                    'content'   => $this->htmlArtifactAssembler()->htmlDocument($title, 'style.css', $body, $this->headMetadata($options, 'index.html', html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'))),
                 );
                 $renderedNodes[] = $node;
             }
@@ -496,7 +513,9 @@ final class StaticHtmlEmitter
             $files[] = $assetFile;
         }
 
-        $files = (new InlineCssFileInjector())->inject($files, $css);
+        if ( true === ($options['inline_css'] ?? false) ) {
+            $files = (new InlineCssFileInjector())->inject($files, $css);
+        }
 
         $visualNodeMap = $this->visualNodeMap($renderedNodes);
         $transformDiagnostics = $this->transformDiagnostics($renderedNodes, $visualNodeMap, $assetFiles, $fontFamilies, $fontUsage, $fontResolution, $css, $diagnostics, $this->htmlArtifactAssembler()->htmlFilesContent($files));
@@ -542,7 +561,7 @@ final class StaticHtmlEmitter
      * @param array<int, string>                 $cssRules
      * @param array<int, array<string, mixed>>   $diagnostics
      */
-    private function emitNode(array $node, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics, int $depth, ?array $parentNode, ?array $grandParentNode = null): string
+    private function emitNode(array $node, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics, int $depth, ?array $parentNode, ?array $grandParentNode = null, bool $insideForm = false): string
     {
         if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) ) {
             return '';
@@ -573,6 +592,9 @@ final class StaticHtmlEmitter
             $text = $this->textContent($node);
         }
         $tag = $this->semanticTag($node, $type, $name, $depth, $parentNode);
+        if ( $insideForm && 'form' === $tag ) {
+            $tag = 'div';
+        }
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
         $children = $this->nodeList($node);
         $content = $text;
@@ -599,7 +621,7 @@ final class StaticHtmlEmitter
                     if ( 'li' === $tag && $this->isListMarkerTextChild($child) ) {
                         continue;
                     }
-                    $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node, $parentNode);
+                    $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node, $parentNode, $insideForm || 'form' === $tag);
                 }
             }
             if ( $inputAccessoryControl && ! $insertedAccessoryInput ) {
@@ -609,7 +631,7 @@ final class StaticHtmlEmitter
         }
 
         if ( null !== $vectorSvg ) {
-            $content = $this->vectorSvgMarkup($vectorSvg, $node, $type) . $content;
+            $content = $this->vectorSvgMarkup($vectorSvg, $node, $type, $parentNode) . $content;
         }
 
         $hasRenderableVectorFallback = '' !== trim($content);
@@ -647,6 +669,8 @@ final class StaticHtmlEmitter
             $attributes .= $this->formControlAttributes($node, $tag);
         } elseif ( 'button' === $tag ) {
             $attributes .= $this->buttonControlAttributes($node);
+        } elseif ( 'form' === $tag ) {
+            $attributes .= $this->formAttributes($node);
         }
         if ( 'RECTANGLE' === $type && '' === $content ) {
             $attributes .= ' aria-hidden="true"';
@@ -727,6 +751,10 @@ final class StaticHtmlEmitter
                 return 'div';
             }
             return 'input';
+        }
+
+        if ( $this->isFormLike($node, $parentNode) ) {
+            return 'form';
         }
 
         // Inner component chrome inside a larger button-like control is
@@ -1162,6 +1190,111 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function isFormLike(array $node, ?array $parentNode): bool
+    {
+        if ( null !== $parentNode && $this->isFormLike($parentNode, null) ) {
+            return false;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $text = strtolower($this->subtreePlainText($node));
+        $haystack = $name . ' ' . $text;
+        $hasFormIntent = str_contains($haystack, 'search')
+            || str_contains($haystack, 'newsletter')
+            || str_contains($haystack, 'subscribe')
+            || str_contains($haystack, 'sign up')
+            || str_contains($haystack, 'comment')
+            || str_contains($haystack, 'reply');
+        $hasNamedFormIntent = str_contains($name, 'search')
+            || str_contains($name, 'newsletter')
+            || str_contains($name, 'subscribe')
+            || str_contains($name, 'sign up')
+            || str_contains($name, 'comment')
+            || str_contains($name, 'reply')
+            || str_contains($name, 'form');
+        if ( ! $hasFormIntent ) {
+            return false;
+        }
+
+        $height = $this->boxValue($node, 'height');
+        if ( null !== $height && $height > 800.0 ) {
+            return false;
+        }
+
+        $hasField = false;
+        $hasSubmit = false;
+        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
+        $relevantChildren = 0;
+        foreach ( $children as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $childHasField = $this->subtreeHasInputLike($child) || $this->subtreeHasTextareaLike($child);
+            $childHasSubmit = $this->subtreeHasSubmitButtonLike($child);
+            if ( $childHasField || $childHasSubmit ) {
+                $relevantChildren++;
+            }
+            $hasField = $hasField || $childHasField;
+            $hasSubmit = $hasSubmit || $childHasSubmit;
+        }
+
+        if ( count($children) > 3 && $relevantChildren < count($children) - 1 ) {
+            return false;
+        }
+        if ( ! $hasNamedFormIntent && $relevantChildren < count($children) ) {
+            return false;
+        }
+
+        return $hasField && ($hasSubmit || str_contains($haystack, 'search'));
+    }
+
+    /** @param array<string, mixed> $node */
+    private function subtreeHasInputLike(array $node): bool
+    {
+        if ( $this->isInputLike($node) ) {
+            return true;
+        }
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && $this->subtreeHasInputLike($child) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function subtreeHasTextareaLike(array $node): bool
+    {
+        if ( $this->isTextareaLike($node) ) {
+            return true;
+        }
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && $this->subtreeHasTextareaLike($child) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function subtreeHasSubmitButtonLike(array $node): bool
+    {
+        if ( $this->isButtonLike($node) ) {
+            $text = strtolower($this->subtreePlainText($node));
+            return 1 === preg_match('/(^|[^a-z])(submit|send|post|search|sign up|subscribe)([^a-z]|$)/', $text);
+        }
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && $this->subtreeHasSubmitButtonLike($child) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
      */
     private function isTextareaLike(array $node): bool
     {
@@ -1493,6 +1626,13 @@ final class StaticHtmlEmitter
         }
 
         $attributes = 'input' === $tag ? ' type="' . $type . '"' : '';
+        if ( 'search' === $type ) {
+            $attributes .= ' name="s"';
+        } elseif ( 'email' === $type ) {
+            $attributes .= ' name="email"';
+        } elseif ( 'textarea' === $tag ) {
+            $attributes .= ' name="message"';
+        }
         if ( '' !== $placeholder ) {
             $attributes .= ' placeholder="' . $this->sanitizeAttribute($placeholder) . '"';
             $attributes .= ' aria-label="' . $this->sanitizeAttribute($placeholder) . '"';
@@ -1501,6 +1641,27 @@ final class StaticHtmlEmitter
         }
 
         return $attributes;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function formAttributes(array $node): string
+    {
+        $text = strtolower($this->subtreePlainText($node));
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $haystack = $name . ' ' . $text;
+
+        if ( str_contains($haystack, 'search') ) {
+            return ' method="get" action="' . $this->sanitizeAttribute($this->entrypointPath) . '" role="search"';
+        }
+
+        $action = $this->currentPagePath;
+        if ( str_contains($haystack, 'comment') || str_contains($haystack, 'reply') ) {
+            return ' method="post" action="' . $this->sanitizeAttribute($action) . '"';
+        }
+
+        return ' method="post" action="' . $this->sanitizeAttribute($action) . '"';
     }
 
     /**
@@ -2418,6 +2579,136 @@ final class StaticHtmlEmitter
         return $map;
     }
 
+    /** @param array<string, mixed> $pagePlan */
+    private function entrypointPathFromPagePlan(array $pagePlan): string
+    {
+        foreach ( $this->plannedPages($pagePlan) as $index => $page ) {
+            if ( ! is_array($page) ) {
+                continue;
+            }
+            $name = (string) ($page['name'] ?? 'Page');
+            $path = $this->pagePath($page, $name, is_int($index) ? $index : 0);
+            if ( true === ($page['entrypoint'] ?? false) ) {
+                return $path;
+            }
+        }
+
+        return 'index.html';
+    }
+
+    /**
+     * @param array<string, mixed> $pagePlan
+     * @param array<string, mixed> $scenegraph
+     * @return array<string, string>
+     */
+    private function implicitRoutePathsFromPagePlan(array $pagePlan, array $scenegraph): array
+    {
+        $routes = array();
+        $nodeMap = $this->nodeMap($scenegraph);
+
+        foreach ( $this->plannedPages($pagePlan) as $index => $page ) {
+            if ( ! is_array($page) ) {
+                continue;
+            }
+
+            $frameId = isset($page['frame_id']) && is_scalar($page['frame_id']) ? (string) $page['frame_id'] : '';
+            $frameNode = '' !== $frameId && isset($nodeMap[$frameId]) && is_array($nodeMap[$frameId]) ? $nodeMap[$frameId] : array();
+            $name = (string) ($page['name'] ?? ($frameNode['name'] ?? 'Page'));
+            $path = $this->pagePath($page, $name, is_int($index) ? $index : 0);
+            $pageType = (string) ($page['page_type'] ?? '');
+
+            foreach ( array($name, $this->stripDeviceSuffix($name), (string) ($page['slug'] ?? '')) as $label ) {
+                $this->addImplicitRoute($routes, $label, $path);
+            }
+
+            if ( true === ($page['entrypoint'] ?? false) || 'front_page' === $pageType ) {
+                foreach ( array('home', 'homepage', 'front page') as $label ) {
+                    $this->addImplicitRoute($routes, $label, $path);
+                }
+            }
+            if ( 'archive' === $pageType ) {
+                foreach ( array('archive', 'archives', 'blog', 'posts', 'news') as $label ) {
+                    $this->addImplicitRoute($routes, $label, $path);
+                }
+            }
+
+            if ( 'front_page' !== $pageType ) {
+                foreach ( $this->pageHeadingLabels($frameNode) as $label ) {
+                    $this->addImplicitRoute($routes, $label, $path);
+                    if ( 'page' === $pageType && str_ends_with($this->routeKey($label), '-us') ) {
+                        $this->addImplicitRoute($routes, preg_replace('/\s+us$/i', '', $label) ?? $label, $path);
+                    }
+                }
+            }
+        }
+
+        return $routes;
+    }
+
+    /** @param array<string, string> $routes */
+    private function addImplicitRoute(array &$routes, string $label, string $path): void
+    {
+        $key = $this->routeKey($label);
+        if ( '' !== $key && ! isset($routes[$key]) ) {
+            $routes[$key] = $path;
+        }
+    }
+
+    private function routeKey(string $label): string
+    {
+        return $this->slug($this->stripDeviceSuffix($label));
+    }
+
+    private function stripDeviceSuffix(string $label): string
+    {
+        return trim((string) preg_replace('/\s+[–-]\s*(desktop|mobile|tablet)\s*$/i', '', $label));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function pageHeadingLabels(array $node): array
+    {
+        $candidates = array();
+        $this->collectPageHeadingLabels($node, $candidates);
+        if ( empty($candidates) ) {
+            return array();
+        }
+
+        $maxSize = max(array_map(static fn (array $candidate): float => (float) ($candidate['font_size'] ?? 0), $candidates));
+        $labels = array();
+        foreach ( $candidates as $candidate ) {
+            if ( abs((float) ($candidate['font_size'] ?? 0) - $maxSize) < 0.5 ) {
+                $labels[] = (string) ($candidate['label'] ?? '');
+            }
+        }
+
+        return array_values(array_unique(array_filter($labels, static fn (string $label): bool => '' !== trim($label))));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, array{label:string,font_size:float}> $labels
+     */
+    private function collectPageHeadingLabels(array $node, array &$labels): void
+    {
+        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+            $name = strtolower((string) ($node['name'] ?? ''));
+            $text = trim($this->nodePlainText($node));
+            $fontSize = $this->textFontSize($node) ?? 0.0;
+            if ( '' !== $text && (str_contains($name, 'heading') || $fontSize >= 24.0) ) {
+                $labels[] = array('label' => $text, 'font_size' => $fontSize);
+            }
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) ) {
+                $this->collectPageHeadingLabels($child, $labels);
+            }
+        }
+    }
+
     /**
      * Wrap an emitted element in a real anchor when the node carries Figma link data.
      *
@@ -2437,6 +2728,18 @@ final class StaticHtmlEmitter
                     "<a class=\"figma-link figma-toc-link\" href=\"%1\$s\" data-figma-link-type=\"toc\">%2\$s</a>\n",
                     $this->sanitizeAttribute($tocHref),
                     $element
+                );
+            }
+
+            $implicitHref = $this->implicitRouteHref($node, $parentNode);
+            if ( null !== $implicitHref ) {
+                $this->linkCoverage['anchors_emitted']++;
+
+                return sprintf(
+                    "<a class=\"%3\$s\" href=\"%1\$s\" data-figma-link-type=\"implicit-route\">%2\$s</a>\n",
+                    $this->sanitizeAttribute($implicitHref),
+                    $element,
+                    $buttonLike ? 'figma-link button' : 'figma-link'
                 );
             }
 
@@ -2506,6 +2809,57 @@ final class StaticHtmlEmitter
             $element,
             $buttonLike ? 'figma-link button' : 'figma-link'
         );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function implicitRouteHref(array $node, ?array $parentNode): ?string
+    {
+        $name = strtolower((string) ($node['name'] ?? ''));
+        if ( str_contains($name, 'logo') ) {
+            return $this->entrypointPath;
+        }
+
+        if ( null !== $parentNode && $this->isNavigationLabelText($node, $parentNode) ) {
+            return $this->routePathForLabel($this->subtreePlainText($node));
+        }
+
+        if ( $this->isMenuItemName($name) || str_contains($name, 'nav item') ) {
+            return $this->routePathForLabel($this->subtreePlainText($node));
+        }
+
+        if ( null !== $parentNode && $this->isPaginationContainer($parentNode) ) {
+            $label = strtolower($this->subtreePlainText($node));
+            if ( str_contains($label, 'next') && isset($this->implicitRoutePaths['news']) && 'archive.html' !== $this->currentPagePath ) {
+                return $this->implicitRoutePaths['news'];
+            }
+        }
+
+        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+            $text = trim($this->nodePlainText($node));
+            if ( '' !== $text ) {
+                return $this->routePathForLabel($text);
+            }
+        }
+
+        return null;
+    }
+
+    private function routePathForLabel(string $label): ?string
+    {
+        $key = $this->routeKey($label);
+        if ( '' === $key || ! isset($this->implicitRoutePaths[$key]) ) {
+            return null;
+        }
+
+        $path = $this->implicitRoutePaths[$key];
+        if ( $path === $this->currentPagePath && 'home' !== $key && 'homepage' !== $key && 'front-page' !== $key ) {
+            return null;
+        }
+
+        return $path;
     }
 
     private function sanitizeLinkUrl(string $url): string
@@ -4441,12 +4795,13 @@ final class StaticHtmlEmitter
 
         $justifyContent = (string) ($layout['justify_content'] ?? '');
         $usesDistributedMainAxis = in_array($justifyContent, array('space-between', 'space-around', 'space-evenly'), true);
-        if ( ! $usesDistributedMainAxis && isset($layout['item_spacing']) && is_numeric($layout['item_spacing']) ) {
-            $mainGap = $this->number((float) $layout['item_spacing']);
+        $itemSpacing = $layout['item_spacing'] ?? ($layout['gap'] ?? null);
+        if ( ! $usesDistributedMainAxis && is_numeric($itemSpacing) ) {
+            $mainGap = $this->number((float) $itemSpacing);
             if ( 'wrap' === ($layout['flex_wrap'] ?? null)
                 && isset($layout['counter_axis_spacing'])
                 && is_numeric($layout['counter_axis_spacing'])
-                && (float) $layout['counter_axis_spacing'] !== (float) $layout['item_spacing'] ) {
+                && (float) $layout['counter_axis_spacing'] !== (float) $itemSpacing ) {
                 // CSS `gap` shorthand is `row-gap column-gap`. In a wrapping flex
                 // row the main-axis item spacing is the column gap while the
                 // counter-axis spacing (the gap between wrapped rows) is the row
@@ -6633,8 +6988,15 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function vectorSvgMarkup(string $svg, array $node, string $type): string
+    private function vectorSvgMarkup(string $svg, array $node, string $type, ?array $parentNode = null): string
     {
+        $decorative = $this->vectorIsDecorativeForAccessibility($node, $type, $parentNode);
+        if ( $decorative ) {
+            $svg = $this->decorativeVectorSvgMarkup($svg);
+        } else {
+            $svg = $this->labeledVectorSvgMarkup($svg, $this->vectorAccessibleLabel($node, $type, $parentNode));
+        }
+
         $hash = hash('sha256', $svg);
         if ( strlen($svg) <= self::EXTERNAL_VECTOR_SVG_BYTES && ! isset($this->generatedVectorSvgPathsByHash[$hash]) ) {
             return $svg;
@@ -6653,8 +7015,75 @@ final class StaticHtmlEmitter
             );
         }
 
-        $label = (string) ($node['name'] ?? $type);
-        return '<img class="figma-vector-asset" src="' . $this->sanitizeAttribute($path) . '" alt="' . $this->sanitizeAttribute($label) . '" data-figma-vector="true">';
+        $label = $decorative ? '' : $this->vectorAccessibleLabel($node, $type, $parentNode);
+        $decorativeAttributes = $decorative ? ' aria-hidden="true"' : '';
+        $width = $this->nodeDimension($node, 'width');
+        $height = $this->nodeDimension($node, 'height');
+        $dimensionAttributes = '';
+        if ( null !== $width && null !== $height ) {
+            $dimensionAttributes = ' width="' . $this->sanitizeAttribute($this->number($width)) . '" height="' . $this->sanitizeAttribute($this->number($height)) . '"';
+        }
+
+        return '<img class="figma-vector-asset" src="' . $this->sanitizeAttribute($path) . '" alt="' . $this->sanitizeAttribute($label) . '"' . $dimensionAttributes . ' decoding="async" data-figma-vector="true"' . $decorativeAttributes . '>';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function vectorIsDecorativeForAccessibility(array $node, string $type, ?array $parentNode = null): bool
+    {
+        $name = trim((string) ($node['name'] ?? ''));
+        $parentName = null !== $parentNode ? trim((string) ($parentNode['name'] ?? '')) : '';
+        if ( $this->isBrandLikeNodeName($name) || $this->isBrandLikeNodeName($parentName) ) {
+            return false;
+        }
+
+        if ( ! $this->isGenericVectorName($name) ) {
+            return false;
+        }
+
+        if ( $this->subtreeIsDecorativeSeparator($node) ) {
+            return true;
+        }
+
+        return in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true);
+    }
+
+    private function decorativeVectorSvgMarkup(string $svg): string
+    {
+        $svg = preg_replace('/\srole="img"\saria-label="[^"]*"/', ' aria-hidden="true" focusable="false"', $svg, 1);
+        return is_string($svg) ? $svg : '';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function vectorAccessibleLabel(array $node, string $type, ?array $parentNode = null): string
+    {
+        $name = trim((string) ($node['name'] ?? ''));
+        $parentName = null !== $parentNode ? trim((string) ($parentNode['name'] ?? '')) : '';
+        if ( $this->isBrandLikeNodeName($parentName) && $this->isGenericVectorName($name) ) {
+            return $parentName;
+        }
+
+        return '' !== $name ? $name : $type;
+    }
+
+    private function labeledVectorSvgMarkup(string $svg, string $label): string
+    {
+        $svg = preg_replace('/\saria-label="[^"]*"/', ' aria-label="' . $this->sanitizeAttribute($label) . '"', $svg, 1);
+        return is_string($svg) ? $svg : '';
+    }
+
+    private function isBrandLikeNodeName(string $name): bool
+    {
+        $lower = strtolower($name);
+        return str_contains($lower, 'logo') || str_contains($lower, 'brand');
+    }
+
+    private function isGenericVectorName(string $name): bool
+    {
+        return '' === $name || 1 === preg_match('/^(vector|union|ellipse|rectangle|line|polygon|star|regular polygon|group|shape)(\s+\d+)?$/i', $name);
     }
 
     /**
@@ -7138,6 +7567,72 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * Build deterministic production head metadata from explicit transform inputs.
+     * No descriptions or social text are inferred from visual copy.
+     *
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function headMetadata(array $options, string $pagePath, string $title): array
+    {
+        $global = is_array($options['site_metadata'] ?? null) ? $options['site_metadata'] : array();
+        $pages = is_array($options['page_metadata'] ?? null) ? $options['page_metadata'] : array();
+        $page = is_array($pages[$pagePath] ?? null) ? $pages[$pagePath] : array();
+        $metadata = array_merge($global, $page);
+
+        $canonicalUrl = $this->metadataString($metadata, 'canonical_url');
+        if ( null === $canonicalUrl ) {
+            $siteUrl = $this->metadataString($options, 'site_url');
+            if ( null !== $siteUrl ) {
+                $canonicalUrl = $this->canonicalUrlForPage($siteUrl, $pagePath);
+            }
+        }
+
+        $description = $this->metadataString($metadata, 'description');
+        $ogTitle = $this->metadataString($metadata, 'og_title');
+        $twitterTitle = $this->metadataString($metadata, 'twitter_title');
+        $ogDescription = $this->metadataString($metadata, 'og_description');
+        $twitterDescription = $this->metadataString($metadata, 'twitter_description');
+
+        return array_filter(array(
+            'description' => $description,
+            'canonical_url' => $canonicalUrl,
+            'favicon_href' => $this->metadataString($metadata, 'favicon_href'),
+            'og_title' => $ogTitle,
+            'og_description' => $ogDescription,
+            'og_image' => $this->metadataString($metadata, 'og_image'),
+            'twitter_card' => $this->metadataString($metadata, 'twitter_card'),
+            'twitter_title' => $twitterTitle,
+            'twitter_description' => $twitterDescription,
+            'twitter_image' => $this->metadataString($metadata, 'twitter_image'),
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+    }
+
+    private function canonicalUrlForPage(string $siteUrl, string $pagePath): string
+    {
+        $base = rtrim($siteUrl, '/');
+        $path = trim(str_replace('\\', '/', $pagePath), '/');
+        if ( '' === $path || 'index.html' === $path ) {
+            return $base . '/';
+        }
+
+        return $base . '/' . $path;
+    }
+
+    /**
+     * @param array<string, mixed> $values
+     */
+    private function metadataString(array $values, string $key): ?string
+    {
+        if ( ! isset($values[$key]) || ! is_scalar($values[$key]) ) {
+            return null;
+        }
+
+        $value = trim((string) $values[$key]);
+        return '' === $value ? null : $value;
+    }
+
+    /**
      * @param array<int, mixed> $nodes
      */
     private function countNodes(array $nodes): int
@@ -7291,6 +7786,22 @@ final class StaticHtmlEmitter
     private function number(float $value): string
     {
         return rtrim(rtrim(sprintf('%.3F', $value), '0'), '.');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodeDimension(array $node, string $key): ?float
+    {
+        if ( isset($node[$key]) && is_numeric($node[$key]) && (float) $node[$key] > 0 ) {
+            return (float) $node[$key];
+        }
+
+        if ( is_array($node['absoluteRenderBounds'] ?? null) && isset($node['absoluteRenderBounds'][$key]) && is_numeric($node['absoluteRenderBounds'][$key]) && (float) $node['absoluteRenderBounds'][$key] > 0 ) {
+            return (float) $node['absoluteRenderBounds'][$key];
+        }
+
+        return null;
     }
 
     private function cssString(string $value): string

@@ -604,6 +604,9 @@ final class FigmaTransformer
             $pageOptions['layout_mismatch_options']['page_path'] = $path;
             $pageOptions['render_style_mismatch_options'] = is_array($pageOptions['render_style_mismatch_options'] ?? null) ? $pageOptions['render_style_mismatch_options'] : array();
             $pageOptions['render_style_mismatch_options']['page_path'] = $path;
+            $pageOptions['static_site_page_path'] = $path;
+            $pageOptions['implicit_route_page_plan'] = $pagePlan;
+            $pageOptions['inline_css'] = false;
             unset($pageOptions['multi_page'], $pageOptions['include_all_pages'], $pageOptions['frame_ids'], $pageOptions['entry_frame_id'], $pageOptions['max_pages'], $pageOptions['frame_slug_map'], $pageOptions['responsive_variants'], $pageOptions['page_name']);
             $pageOptions['link_target_paths'] = $linkTargetPaths;
 

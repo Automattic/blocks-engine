@@ -178,7 +178,7 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
     $assert(str_contains($html, 'placeholder="Search this site"'), 'form-control-search-uses-placeholder');
     $assert(str_contains($html, '<div class="figma-node-form-search-icon-search-field-with-icon"'), 'form-control-search-icon-keeps-visual-wrapper');
     $assert(str_contains($html, 'data-figma-node-id="form:search-icon:icon"'), 'form-control-search-icon-preserves-icon-child');
-    $assert(str_contains($html, '<input class="figma-node-form-search-icon-search-field-with-icon__control" data-figma-synthetic-control="input" type="search" placeholder="Search for..."'), 'form-control-search-icon-emits-nested-input');
+    $assert(str_contains($html, '<input class="figma-node-form-search-icon-search-field-with-icon__control" data-figma-synthetic-control="input" type="search" name="s" placeholder="Search for..."'), 'form-control-search-icon-emits-nested-input');
     $assert(! str_contains($html, 'data-figma-node-id="form:search-icon:text"'), 'form-control-search-icon-suppresses-presentational-placeholder');
     $assert(str_contains($css, '.figma-node-form-search-icon-search-field-with-icon__control{border:0;background:transparent;padding:0;margin:0;min-width:0;flex:1;font:inherit;color:inherit;outline:none}'), 'form-control-search-icon-input-reset-css');
     $assert(str_contains($html, '<textarea class="figma-node-form-comment-comment-textarea"'), 'form-control-comment-emits-textarea-tag');
@@ -188,4 +188,28 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
     $assert(str_contains($html, 'type="submit"'), 'form-control-submit-infers-submit-type');
     $assert(str_contains($css, '.figma-node-form-input-input{width:280px;height:46px;'), 'form-control-input-preserves-visual-css');
     $assert(str_contains($css, '.figma-node-form-comment-comment-textarea{width:420px;height:128px;'), 'form-control-textarea-preserves-visual-css');
+
+    $nestedFormResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Nested Form Guard Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'nested-form:newsletter',
+                'type'     => 'FRAME',
+                'name'     => 'Newsletter Signup',
+                'children' => array(
+                    array('id' => 'nested-form:input', 'type' => 'FRAME', 'name' => 'Input', 'width' => 240, 'height' => 44, 'layoutMode' => 'HORIZONTAL', 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                        array('id' => 'nested-form:input:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Your email address'),
+                    )),
+                    array('id' => 'nested-form:row', 'type' => 'FRAME', 'name' => 'Signup form row', 'width' => 360, 'height' => 44, 'children' => array(
+                        array('id' => 'nested-form:button', 'type' => 'FRAME', 'name' => 'Submit button', 'width' => 100, 'height' => 44, 'children' => array(
+                            array('id' => 'nested-form:button:text', 'type' => 'TEXT', 'name' => 'Subscribe', 'characters' => 'Subscribe'),
+                        )),
+                    )),
+                ),
+            ),
+        ),
+    ));
+    $nestedFormHtml = $fileContent($nestedFormResult, 'index.html');
+    $assert(1 === substr_count($nestedFormHtml, '<form '), 'form-control-nested-form-guard-single-form');
+    $assert(str_contains($nestedFormHtml, '<div class="figma-node-nested-form-row-signup-form-row"'), 'form-control-nested-form-guard-descendant-form-row-div');
 }

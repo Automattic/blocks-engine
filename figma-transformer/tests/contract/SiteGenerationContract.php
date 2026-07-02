@@ -1466,6 +1466,16 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
         'multi_page' => true,
         'frame_ids' => array('frame:home', 'frame:about'),
         'entry_frame_id' => 'frame:home',
+        'site_url' => 'https://example.com/site',
+        'site_metadata' => array(
+            'favicon_href' => '/favicon.svg',
+            'og_image' => 'https://example.com/social.png',
+            'twitter_card' => 'summary_large_image',
+        ),
+        'page_metadata' => array(
+            'index.html' => array('description' => 'Explicit home description from source metadata.', 'og_title' => 'Explicit Home Social Title'),
+            'about.html' => array('description' => 'Explicit about description from source metadata.'),
+        ),
         'font_css' => '@font-face{font-family:"Example Sans";src:url("assets/example-sans.woff2") format("woff2")}',
         'generated_render_evidence' => array(
             'schema' => 'homeboy/static-artifact-render-evidence/v1',
@@ -1495,7 +1505,15 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(str_contains($multiPageAbout, 'About Hero'), 'multi-page-about-renders-second-frame');
     $assert(1 === preg_match('/<a class="figma-link" href="about\.html" data-figma-link-type="node"><p class="[^"]*figma-node-button-home-one-button[^"]*"/', $multiPageIndex), 'multi-page-descendant-prototype-link-resolves-to-page');
     $assert(! str_contains($multiPageIndex, 'href="#" data-figma-link-type="node"'), 'multi-page-prototype-link-not-placeholder');
-    $assert(str_contains($multiPageIndex, '<style data-figma-transformer-css="true">') && str_contains($multiPageIndex, '.figma-node-frame-home-home'), 'multi-page-index-inlines-page-css');
+    $assert(str_contains($multiPageIndex, '<meta name="description" content="Explicit home description from source metadata.">'), 'multi-page-index-description-from-explicit-metadata');
+    $assert(str_contains($multiPageIndex, '<link rel="canonical" href="https://example.com/site/">'), 'multi-page-index-canonical-from-site-url');
+    $assert(str_contains($multiPageAbout, '<link rel="canonical" href="https://example.com/site/about.html">'), 'multi-page-about-canonical-from-site-url');
+    $assert(str_contains($multiPageIndex, '<link rel="icon" href="/favicon.svg">'), 'multi-page-index-favicon-from-explicit-metadata');
+    $assert(str_contains($multiPageIndex, '<meta property="og:title" content="Explicit Home Social Title">'), 'multi-page-index-social-title-from-explicit-metadata');
+    $assert(str_contains($multiPageIndex, '<meta property="og:image" content="https://example.com/social.png">'), 'multi-page-index-social-image-from-explicit-metadata');
+    $assert(str_contains($multiPageIndex, '<meta name="twitter:card" content="summary_large_image">'), 'multi-page-index-twitter-card-from-explicit-metadata');
+    $assert(! str_contains($multiPageIndex, '<style data-figma-transformer-css="true">'), 'multi-page-index-links-shared-css-without-inline-duplication');
+    $assert(str_contains($multiPageIndex, '<img class="figma-vector-asset"') && str_contains($multiPageIndex, ' width="10" height="10" decoding="async" data-figma-vector="true"'), 'multi-page-external-vector-image-has-dimensions');
     $assert(str_contains($multiPageStyle, '.figma-node-frame-home-home'), 'multi-page-shared-css-home');
     $assert(str_contains($multiPageStyle, '.figma-node-frame-about-about'), 'multi-page-shared-css-about');
     preg_match_all('/\.button-[0-9a-f]{8}\{/', $multiPageStyle, $multiPageButtonSharedClasses);
@@ -1536,6 +1554,97 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(1 === ($multiPageTransformDiagnostics['layout']['render_style']['summary']['font_mismatch_count'] ?? null), 'multi-page-render-style-font-count-aggregated');
     $assert(in_array('render_style_mismatch', array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), $multiPageTransformDiagnostics['artifact_quality']['signals'] ?? array()), true), 'multi-page-render-style-artifact-quality-signal');
     $assert('warn' === ($multiPageTransformDiagnostics['artifact_quality']['quality_status'] ?? null), 'multi-page-transform-diagnostics-quality-status-warn');
+
+    $semanticRoutesResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(array(
+        'name'  => 'Semantic Route Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'semantic:canvas',
+                'type'     => 'CANVAS',
+                'name'     => 'Site',
+                'children' => array(
+            array(
+                'id'       => 'semantic:home',
+                'type'     => 'FRAME',
+                'name'     => 'Home Page - Desktop',
+                'width'    => 1440,
+                'height'   => 1200,
+                'children' => array(
+                    array('id' => 'semantic:logo', 'type' => 'FRAME', 'name' => 'Logo', 'width' => 160, 'height' => 40),
+                    array('id' => 'semantic:nav', 'type' => 'FRAME', 'name' => 'Navigation', 'width' => 360, 'height' => 40, 'children' => array(
+                        array('id' => 'semantic:nav:news', 'type' => 'FRAME', 'name' => 'Menu Item', 'width' => 80, 'height' => 32, 'children' => array(
+                            array('id' => 'semantic:nav:news:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'News', 'fontSize' => 16),
+                        )),
+                        array('id' => 'semantic:nav:about', 'type' => 'FRAME', 'name' => 'Menu Item', 'width' => 80, 'height' => 32, 'children' => array(
+                            array('id' => 'semantic:nav:about:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'About', 'fontSize' => 16),
+                        )),
+                    )),
+                    array('id' => 'semantic:card-title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Review Title', 'fontSize' => 36),
+                    array('id' => 'semantic:pagination', 'type' => 'FRAME', 'name' => 'Pagination', 'width' => 240, 'height' => 48, 'children' => array(
+                        array('id' => 'semantic:pagination:next', 'type' => 'FRAME', 'name' => 'Button', 'width' => 96, 'height' => 40, 'children' => array(
+                            array('id' => 'semantic:pagination:next:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Next', 'fontSize' => 16),
+                        )),
+                    )),
+                    array('id' => 'semantic:search-form', 'type' => 'FRAME', 'name' => 'Search form', 'width' => 320, 'height' => 56, 'children' => array(
+                        array('id' => 'semantic:search-field', 'type' => 'FRAME', 'name' => 'Search field', 'width' => 240, 'height' => 44, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                            array('id' => 'semantic:search-placeholder', 'type' => 'TEXT', 'name' => 'Placeholder', 'characters' => 'Search for...', 'fontSize' => 16),
+                        )),
+                    )),
+                    array('id' => 'semantic:newsletter-form', 'type' => 'FRAME', 'name' => 'Newsletter form', 'width' => 420, 'height' => 56, 'children' => array(
+                        array('id' => 'semantic:email-field', 'type' => 'FRAME', 'name' => 'Email input', 'width' => 240, 'height' => 44, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                            array('id' => 'semantic:email-placeholder', 'type' => 'TEXT', 'name' => 'Placeholder', 'characters' => 'Email address', 'fontSize' => 16),
+                        )),
+                        array('id' => 'semantic:newsletter-submit', 'type' => 'FRAME', 'name' => 'Button', 'width' => 128, 'height' => 44, 'cornerRadius' => 999, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))), 'children' => array(
+                            array('id' => 'semantic:newsletter-submit:text', 'type' => 'TEXT', 'name' => 'Subscribe', 'characters' => 'Subscribe', 'fontSize' => 16),
+                        )),
+                    )),
+                ),
+            ),
+            array(
+                'id'       => 'semantic:archive',
+                'type'     => 'FRAME',
+                'name'     => 'Archive - Desktop',
+                'width'    => 1440,
+                'height'   => 1000,
+                'children' => array(array('id' => 'semantic:archive:title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'News', 'fontSize' => 96)),
+            ),
+            array(
+                'id'       => 'semantic:about',
+                'type'     => 'FRAME',
+                'name'     => 'Page - Desktop',
+                'width'    => 1440,
+                'height'   => 1000,
+                'children' => array(array('id' => 'semantic:about:title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'About Us', 'fontSize' => 96)),
+            ),
+            array(
+                'id'       => 'semantic:single',
+                'type'     => 'FRAME',
+                'name'     => 'Blog Post - Desktop',
+                'width'    => 1440,
+                'height'   => 1000,
+                'children' => array(array('id' => 'semantic:single:title', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Review Title', 'fontSize' => 96)),
+            ),
+                ),
+            ),
+        ),
+    ), array(
+        'pages' => array(
+            array('frame_id' => 'semantic:home', 'name' => 'Home Page - Desktop', 'path' => 'index.html', 'entrypoint' => true, 'page_type' => 'front_page'),
+            array('frame_id' => 'semantic:archive', 'name' => 'Archive - Desktop', 'path' => 'archive.html', 'entrypoint' => false, 'page_type' => 'archive'),
+            array('frame_id' => 'semantic:about', 'name' => 'Page - Desktop', 'path' => 'page.html', 'entrypoint' => false, 'page_type' => 'page'),
+            array('frame_id' => 'semantic:single', 'name' => 'Blog Post - Desktop', 'path' => 'blog-post.html', 'entrypoint' => false, 'page_type' => 'single'),
+        ),
+    ));
+    $semanticHome = $fileContent($semanticRoutesResult, 'index.html');
+    $assert(str_contains($semanticHome, '<a class="figma-link" href="index.html" data-figma-link-type="implicit-route"><div class="figma-node-semantic-logo-logo"'), 'semantic-route-logo-links-entrypoint');
+    $assert(str_contains($semanticHome, 'href="archive.html" data-figma-link-type="implicit-route"') && str_contains($semanticHome, '>News</span>'), 'semantic-route-nav-news-links-archive');
+    $assert(str_contains($semanticHome, 'href="page.html" data-figma-link-type="implicit-route"') && str_contains($semanticHome, '>About</span>'), 'semantic-route-nav-about-links-page-heading');
+    $assert(str_contains($semanticHome, 'href="blog-post.html" data-figma-link-type="implicit-route"') && str_contains($semanticHome, '>Review Title</h'), 'semantic-route-card-heading-links-single-title');
+    $assert(str_contains($semanticHome, 'href="archive.html" data-figma-link-type="implicit-route"') && str_contains($semanticHome, '>Next</span>'), 'semantic-route-pagination-next-links-archive');
+    $assert(str_contains($semanticHome, '<form') && str_contains($semanticHome, 'method="get" action="index.html" role="search"'), 'semantic-route-search-form-action');
+    $assert(str_contains($semanticHome, '<form') && str_contains($semanticHome, 'method="post" action="index.html"'), 'semantic-route-newsletter-form-action');
+    $assert(str_contains($semanticHome, 'type="search" name="s"'), 'semantic-route-search-input-name');
+    $assert(str_contains($semanticHome, 'type="email" name="email"'), 'semantic-route-email-input-name');
     
     // RESPONSIVE PAGE ASSEMBLY — LIVE WIRING (#247): a source whose section holds
     // "Home – Desktop" + "Home – Mobile" sibling frames must (1) PAIR into ONE
