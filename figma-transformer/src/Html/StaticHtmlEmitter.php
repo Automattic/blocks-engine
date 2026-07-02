@@ -648,11 +648,25 @@ final class StaticHtmlEmitter
                 continue;
             }
 
-            $childType = strtoupper((string) ($child['type'] ?? 'FRAME'));
-            $childKey = $pathKey . '/' . $childOrdinal . ':' . $childType;
+            $childKey = $pathKey . '/' . $this->breakpointChildKey($child, $childOrdinal);
             $this->collectVariantNodeStyles($child, $depth + 1, $node, $childKey, $map);
             ++$childOrdinal;
         }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function breakpointChildKey(array $node, int $ordinal): string
+    {
+        $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
+        foreach ( array('figma_component_source_id', 'source_id') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== (string) $node[$key] ) {
+                return 'source:' . $this->slug($type . '-' . (string) $node[$key]);
+            }
+        }
+
+        return $ordinal . ':' . $type;
     }
 
     /**

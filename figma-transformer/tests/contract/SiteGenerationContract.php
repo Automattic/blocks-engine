@@ -914,7 +914,8 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     // layout, then emits `@media (max-width: …)` blocks carrying ONLY the per-node
     // style declarations that differ at each narrower breakpoint. A single-variant
     // page emits no `@media` at all. Variant frames are matched onto the base frame
-    // by structural position so the overrides key on the base class names.
+    // by stable source identity where possible so reordered component children keep
+    // their geometry on the correct base class names.
     $responsiveEmitFrame = static function (string $id, string $name, float $width, float $height, array $children): array {
         return array(
             'id'         => $id,
@@ -1011,7 +1012,49 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-card-desktop-hero-card{width:350px;height:500px;background:#00ff00}'), 'responsive-emit-mobile-card-diffs-width-height-background');
     // The single-variant About page contributes NO media override for its nodes.
     $assert(0 === preg_match('/@media[^@]*figma-node-card-about/s', $responsiveEmitCss), 'responsive-emit-single-variant-page-no-media');
-    
+
+    $responsiveIdentityScenegraph = array(
+        'name'  => 'Responsive Source Identity Site',
+        'nodes' => array(
+            $responsiveEmitFrame('identity:desktop', 'Identity Desktop', 1440.0, 300.0, array(
+                array('id' => 'identity:group:desktop', 'type' => 'FRAME', 'name' => 'Logo parts', 'box' => array('width' => 200.0, 'height' => 80.0), 'children' => array(
+                    array('id' => 'identity:a:desktop', 'type' => 'RECTANGLE', 'name' => 'Part A', 'source_id' => 'component:part-a', 'box' => array('width' => 96.0, 'height' => 96.0), 'background' => '#ffcf00'),
+                    array('id' => 'identity:b:desktop', 'type' => 'RECTANGLE', 'name' => 'Part B', 'source_id' => 'component:part-b', 'box' => array('width' => 32.0, 'height' => 12.0), 'background' => '#1f1f1f'),
+                )),
+            )),
+            $responsiveEmitFrame('identity:mobile', 'Identity Mobile', 390.0, 300.0, array(
+                array('id' => 'identity:group:mobile', 'type' => 'FRAME', 'name' => 'Logo parts', 'box' => array('width' => 72.0, 'height' => 72.0), 'children' => array(
+                    array('id' => 'identity:b:mobile', 'type' => 'RECTANGLE', 'name' => 'Part B', 'source_id' => 'component:part-b', 'box' => array('width' => 19.0, 'height' => 2.0), 'background' => '#1f1f1f'),
+                    array('id' => 'identity:a:mobile', 'type' => 'RECTANGLE', 'name' => 'Part A', 'source_id' => 'component:part-a', 'box' => array('width' => 72.0, 'height' => 72.0), 'background' => '#ffcf00'),
+                )),
+            )),
+        ),
+    );
+    $responsiveIdentityResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveIdentityScenegraph, array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'identity:desktop',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'responsive' => true,
+                'variants'   => array(
+                    array('frame_id' => 'identity:desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true),
+                    array('frame_id' => 'identity:mobile', 'device_hint' => 'mobile', 'viewport_width' => 390.0, 'primary' => false),
+                ),
+            ),
+        ),
+    ));
+    $responsiveIdentityCss = '';
+    foreach ( $responsiveIdentityResult['files'] ?? array() as $responsiveIdentityFile ) {
+        if ( is_array($responsiveIdentityFile) && 'style.css' === ($responsiveIdentityFile['path'] ?? null) ) {
+            $responsiveIdentityCss = (string) ($responsiveIdentityFile['content'] ?? '');
+        }
+    }
+    $assert(str_contains($responsiveIdentityCss, '.figma-node-identity-a-desktop-part-a{width:72px;height:72px}'), 'responsive-emit-source-identity-keeps-reordered-part-a-geometry');
+    $assert(str_contains($responsiveIdentityCss, '.figma-node-identity-b-desktop-part-b{width:19px;height:2px}'), 'responsive-emit-source-identity-keeps-reordered-part-b-geometry');
+    $assert(! str_contains($responsiveIdentityCss, '.figma-node-identity-a-desktop-part-a{width:19px;height:2px}'), 'responsive-emit-source-identity-avoids-ordinal-part-a-mismatch');
+    $assert(! str_contains($responsiveIdentityCss, '.figma-node-identity-b-desktop-part-b{width:72px;height:72px}'), 'responsive-emit-source-identity-avoids-ordinal-part-b-mismatch');
+
     // SINGLE-VARIANT PAGE PARITY: a page plan with only primary variants emits the
     // SAME CSS as today — zero `@media` queries.
     $singleVariantPagePlan = array(
