@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-inline-svg-artwork-preserved",
-  "description": "Preserves a full inline SVG illustration (rect/circle/path/g/polygon/text plus a comment) as a core/image data SVG when the source identifies it as artwork. Unsafe parts carried on the same SVG (an inline <script> and an event-handler attribute) are stripped while the artwork survives, so the graphic never collapses to an empty block.",
+  "description": "Preserves a full inline SVG illustration (rect/circle/path/g/polygon/text plus a comment) as sanitized inline core/html when the source identifies it as artwork. Unsafe parts carried on the same SVG (an inline <script> and an event-handler attribute) are stripped while the artwork survives, so the graphic never collapses to an empty block.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-inline-svg-artwork-preserved.json",
-    "notes": "Product-neutral fixture for inline decorative/illustrative SVG artwork image promotion with in-place sanitization."
+    "notes": "Product-neutral fixture for inline decorative/illustrative SVG artwork preservation with in-place sanitization."
   },
   "legacy_comparison": {
     "skip": true,
@@ -16,19 +16,25 @@
     "content": "<main><section class=\"album-art\"><svg viewBox=\"0 0 600 600\" role=\"img\" aria-label=\"Mara Vale cover\"><!-- Background --><rect width=\"600\" height=\"600\" fill=\"#1a1a2e\"></rect><circle cx=\"300\" cy=\"240\" r=\"160\" fill=\"#e94560\"></circle><path d=\"M100 400 L300 300 L500 400 Z\" fill=\"#0f3460\"></path><g opacity=\"0.8\"><polygon points=\"50,50 100,50 75,90\" fill=\"#fff\"></polygon></g><text x=\"300\" y=\"520\" text-anchor=\"middle\" fill=\"#fff\" onclick=\"steal()\">Between the Fog and the Fire</text><script>track()</script></svg></section></main>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/image" }
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "album-art" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/html" }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "data:image/svg+xml;charset=UTF-8," },
-    { "path": "blocks.0.innerBlocks.0.attrs.alt", "assert": "equals", "value": "Mara Vale cover" },
-    { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "Between%20the%20Fog%20and%20the%20Fire" },
-    { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "not_contains", "value": "%3Cscript" },
-    { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "not_contains", "value": "onclick" },
-    { "path": "blocks.0.innerBlocks.0.attrs.url", "assert": "not_contains", "value": "track%28%29" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<svg viewBox=\"0 0 600 600\" role=\"img\" aria-label=\"Mara Vale cover\">" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<!-- Background -->" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<rect width=\"600\" height=\"600\" fill=\"#1a1a2e\"></rect>" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<circle cx=\"300\" cy=\"240\" r=\"160\" fill=\"#e94560\"></circle>" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<path d=\"M100 400 L300 300 L500 400 Z\" fill=\"#0f3460\"></path>" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "<polygon points=\"50,50 100,50 75,90\" fill=\"#fff\"></polygon>" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "Between the Fog and the Fire" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "not_contains", "value": "data:image/svg+xml" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "not_contains", "value": "<script" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "not_contains", "value": "onclick" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "not_contains", "value": "track()" },
     { "path": "assets", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
