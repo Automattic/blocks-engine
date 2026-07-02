@@ -3115,9 +3115,15 @@ final class StaticHtmlEmitter
     private function componentCloneCoverageSample(array $node): array
     {
         $sourceId = isset($node['figma_component_source_id']) && is_scalar($node['figma_component_source_id']) ? (string) $node['figma_component_source_id'] : '';
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? max(0.0, (float) $box['width']) : null;
+        $height = isset($box['height']) && is_numeric($box['height']) ? max(0.0, (float) $box['height']) : null;
         return array_filter($this->nodeCoverageSample($node) + array(
             'source_node_id' => $sourceId,
             'component_clone_geometry' => $this->hasComponentCloneGeometry($node),
+            'width' => null === $width ? null : $this->reportNumericValue($width),
+            'height' => null === $height ? null : $this->reportNumericValue($height),
+            'visible_area_px' => null === $width || null === $height ? null : $this->reportNumericValue($width * $height),
         ), static fn (mixed $value): bool => null !== $value && '' !== $value);
     }
 
@@ -3142,6 +3148,9 @@ final class StaticHtmlEmitter
         }
         if ( null !== $parentNode && $this->isFullyClippedDecorativeChild($node, $parentNode) ) {
             return 'masked/clipped';
+        }
+        if ( null !== $parentNode && $this->isComposedVectorChild($node, $parentNode) ) {
+            return 'composed-into-parent';
         }
 
         $emptyContainer = $this->emptyVisibleContainerDiagnostic($node, $parentNode);
@@ -3260,6 +3269,20 @@ final class StaticHtmlEmitter
         $sample = $this->nodeCoverageSample($node);
         $sample['vector_child_count'] = count($vectorChildren);
         $vectors['child_composition']['sample_nodes'][] = $sample;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isComposedVectorChild(array $node, array $parentNode): bool
+    {
+        if ( ! $this->isUnsupportedVectorType(strtoupper((string) ($node['type'] ?? ''))) ) {
+            return false;
+        }
+
+        $parentType = strtoupper((string) ($parentNode['type'] ?? ''));
+        return $this->isUnsupportedVectorType($parentType) && null !== $this->supportedVectorSvg($parentNode, $parentType, null);
     }
 
     /**

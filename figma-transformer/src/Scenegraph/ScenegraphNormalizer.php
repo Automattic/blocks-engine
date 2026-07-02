@@ -3207,20 +3207,21 @@ final class ScenegraphNormalizer
 		}
 
 		$box = $child['box'];
-		$shouldPreserveSourcePosition = false;
+		$preservedDimensions = array();
 		foreach ( array('x', 'y') as $dimension ) {
 			if ( ! isset($sourceChildBox[$dimension], $box[$dimension]) || ! is_numeric($sourceChildBox[$dimension]) || ! is_numeric($box[$dimension]) ) {
 				continue;
 			}
 
-			if ( abs((float) $box[$dimension] - (float) $sourceChildBox[$dimension]) >= 100.0 ) {
-				$shouldPreserveSourcePosition = true;
-				break;
+			$sourceCoordinate = (float) $sourceChildBox[$dimension];
+			$overrideCoordinate = (float) $box[$dimension];
+			if ( abs($overrideCoordinate - $sourceCoordinate) >= 100.0 || (abs($overrideCoordinate) < 0.001 && abs($sourceCoordinate) >= 0.001) ) {
+				$preservedDimensions[] = $dimension;
 			}
 		}
 
-		if ( $shouldPreserveSourcePosition ) {
-			foreach ( array('x', 'y') as $dimension ) {
+		if ( ! empty($preservedDimensions) ) {
+			foreach ( $preservedDimensions as $dimension ) {
 				if ( ! isset($sourceChildBox[$dimension]) || ! is_numeric($sourceChildBox[$dimension]) ) {
 					continue;
 				}
