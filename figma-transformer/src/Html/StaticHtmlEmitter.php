@@ -5061,12 +5061,24 @@ final class StaticHtmlEmitter
             return false;
         }
 
-        if ( 'center' === ($parentLayout['align_items'] ?? null) ) {
+        if ( $this->flexTextShouldUseCenteredLineBox($parentLayout) ) {
             return false;
         }
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         return isset($box['height']) && is_numeric($box['height']) && $this->textShouldAvoidTinyFixedHeight($node, (float) $box['height']);
+    }
+
+    /**
+     * A centered flex parent should center the text line box itself. Preserving
+     * Figma's smaller measured glyph box height makes the line box overflow and
+     * defeats the parent's cross-axis centering.
+     *
+     * @param array<string, mixed> $parentLayout
+     */
+    private function flexTextShouldUseCenteredLineBox(array $parentLayout): bool
+    {
+        return 'center' === ($parentLayout['align_items'] ?? null);
     }
 
     /**
