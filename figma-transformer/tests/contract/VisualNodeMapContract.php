@@ -438,7 +438,7 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $transitionAbsolute = blocks_engine_figma_transformer_contract_find_visual_node($freeformTransitionResult, 'layout-transition:absolute');
     $transitionFlowB = blocks_engine_figma_transformer_contract_find_visual_node($freeformTransitionResult, 'layout-transition:flow-b');
     $transitionLocalCard = blocks_engine_figma_transformer_contract_find_visual_node($freeformTransitionResult, 'layout-transition:local-card');
-    $assert(str_contains($transitionCss, '.figma-node-layout-transition-flex-auto-layout-shell{width:360px;height:180px;position:relative;display:flex;flex-direction:row;gap:12px}'), 'visual-map-layout-transition-flex-css');
+    $assert(str_contains($transitionCss, '.figma-node-layout-transition-flex-auto-layout-shell{width:360px;height:180px;position:relative;isolation:isolate;display:flex;flex-direction:row;gap:12px}'), 'visual-map-layout-transition-flex-css');
     $assert(str_contains($transitionCss, '.figma-node-layout-transition-freeform-freeform-board{width:360px;height:180px;position:relative}'), 'visual-map-layout-transition-freeform-css');
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $transitionFlowA, array('x' => 0.0, 'y' => 0.0, 'width' => 80.0, 'height' => 40.0), 'visual-map-layout-transition-flow-first-position');
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $transitionFlowB, array('x' => 92.0, 'y' => 0.0, 'width' => 60.0, 'height' => 40.0), 'visual-map-layout-transition-flow-skips-absolute-position');

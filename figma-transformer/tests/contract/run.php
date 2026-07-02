@@ -2367,7 +2367,7 @@ $layoutFidelityFrameVisual = $findVisualNode($layoutFidelityResult, '5:1');
 $layoutFidelityFillVisual = $findVisualNode($layoutFidelityResult, '5:4');
 $layoutFidelityAbsoluteVisual = $findVisualNode($layoutFidelityResult, '5:5');
 
-$assert(str_contains($layoutFidelityCss, '.figma-node-5-1-layout-frame{width:500px;height:300px;overflow:hidden;position:relative;display:flex;flex-direction:row;justify-content:flex-start;align-items:stretch}'), 'layout-frame-clips-and-positions-absolute-children');
+$assert(str_contains($layoutFidelityCss, '.figma-node-5-1-layout-frame{width:500px;height:300px;overflow:hidden;position:relative;isolation:isolate;display:flex;flex-direction:row;justify-content:flex-start;align-items:stretch}'), 'layout-frame-clips-and-positions-absolute-children');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-2-fixed-card{width:100px;height:80px;opacity:0.6;transform:rotate(15deg);flex-shrink:0}'), 'layout-fixed-sizing-and-rotation');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-3-hug-label{width:fit-content;height:fit-content;font-size:12px;flex-shrink:0}'), 'layout-hug-sizing');
 $assert(str_contains($layoutFidelityCss, '.figma-node-5-4-fill-panel{width:100%;height:100%;flex-grow:1;flex-shrink:1;align-self:stretch}'), 'layout-fill-sizing-without-source-order');
@@ -5696,6 +5696,7 @@ $semanticElementsResult = blocks_engine_figma_transformer_transform_scenegraph(a
     ),
 ));
 $semanticHtml = $fileContent($semanticElementsResult, 'index.html');
+$semanticCss = $fileContent($semanticElementsResult, 'style.css');
 $assert('success' === ($semanticElementsResult['status'] ?? null), 'semantic-elements-transform-success');
 // The page shell already provides <main>; assert it wraps the rendered body.
 $assert(str_contains($semanticHtml, '<main class="figma-root" data-figma-root="true">'), 'semantic-main-landmark');
@@ -5706,7 +5707,8 @@ $assert(str_contains($semanticHtml, '<h1 class="figma-node-body-h1-hero"'), 'sem
 $assert(str_contains($semanticHtml, '<h2 class="figma-node-body-h2-subhead"'), 'semantic-second-text-emits-h2');
 $assert(str_contains($semanticHtml, '<p class="figma-node-body-p1-intro'), 'semantic-body-copy-emits-paragraph');
 $assert(str_contains($semanticHtml, '<ul class="figma-node-body-cards-feature-cards"'), 'semantic-repeated-items-emit-list');
-$assert(str_contains($semanticHtml, '<li class="figma-node-card-1-card-one"'), 'semantic-repeated-item-emits-list-item');
+$assert(str_contains($semanticHtml, '<li class="figma-node-card-1-card-one'), 'semantic-repeated-item-emits-list-item');
+$assert(str_contains($semanticCss, 'display:list-item'), 'semantic-repeated-item-preserves-list-marker-display');
 $assert(str_contains($semanticHtml, '<button class="figma-node-body-cta-get-started"'), 'semantic-button-like-node-emits-button');
 $assert(! str_contains($semanticHtml, '<div class="figma-node-region-top-top-bar"'), 'semantic-header-not-generic-div');
 // The middle content band (not a header/nav/footer landmark) is the genuine

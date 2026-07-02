@@ -592,6 +592,11 @@ final class StaticHtmlEmitter
             $text = $this->textContent($node);
         }
         $tag = $this->semanticTag($node, $type, $name, $depth, $parentNode, $grandParentNode);
+        $sourceTextList = 'TEXT' === $type ? $this->sourceTextListMarkup($node) : null;
+        if ( null !== $sourceTextList ) {
+            $tag = $sourceTextList['tag'];
+            $text = $sourceTextList['content'];
+        }
         if ( $insideForm && 'form' === $tag ) {
             $tag = 'div';
         }
@@ -652,6 +657,12 @@ final class StaticHtmlEmitter
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
             $this->nodeReadableNames[$className] = $this->sharedClassBaseName($name, $type);
         }
+        if ( in_array($tag, array('ol', 'ul'), true) && ( null !== $sourceTextList || ! empty($this->listItemIds($node)) ) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
+            $cssRules[] = '.' . $className . '{list-style:' . ( 'ol' === $tag ? 'decimal' : 'disc' ) . ';padding-left:1.5em}';
+        }
+        if ( 'li' === $tag && null !== $parentNode && $this->isListItemOf($node, $parentNode) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
+            $cssRules[] = '.' . $className . '{display:list-item}';
+        }
         $nodeStyleDiagnostics[] = $this->nodeStyleDiagnostic($node, $type, $className, $tag, $styles, $parentNode);
 
         if ( 'TEXT' === $type ) {
@@ -668,6 +679,8 @@ final class StaticHtmlEmitter
         }
         if ( in_array($tag, array('input', 'textarea'), true) ) {
             $attributes .= $this->formControlAttributes($node, $tag, $parentNode);
+        } elseif ( 'ol' === $tag && null !== $sourceTextList && isset($sourceTextList['start']) ) {
+            $attributes .= ' start="' . $this->sanitizeAttribute((string) $sourceTextList['start']) . '"';
         } elseif ( 'button' === $tag ) {
             $attributes .= $this->buttonControlAttributes($node);
         } elseif ( 'form' === $tag ) {
@@ -812,6 +825,23 @@ final class StaticHtmlEmitter
             $name = strtolower((string) ($ancestor['name'] ?? ''));
             if ( str_contains($name, 'footer') ) {
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isChromeListContext(array $node, ?array $parentNode, ?array $grandParentNode): bool
+    {
+        foreach ( array($node, $parentNode, $grandParentNode) as $candidate ) {
+            if ( ! is_array($candidate) ) {
+                continue;
+            }
+            $name = strtolower((string) ($candidate['name'] ?? ''));
+            foreach ( array('header', 'footer', 'nav', 'navigation', 'menu') as $hint ) {
+                if ( str_contains($name, $hint) ) {
+                    return true;
+                }
             }
         }
 
@@ -4777,7 +4807,7 @@ final class StaticHtmlEmitter
         $overlapZIndex = null !== $parentNode ? $this->layoutIntentClassifier()->overlappingSiblingZIndex($node, $parentNode) : null;
         $hasOverlappingStackedChild = $this->hasOverlappingStackedChild($node);
         $managesLocalStacking = $this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node) || $hasOverlappingStackedChild;
-        $needsLocalStackIsolation = $this->hasDecorativeFlexUnderlayChild($node) || $this->hasZIndexedChild($node) || $hasOverlappingStackedChild;
+        $needsLocalStackIsolation = $this->hasDecorativeFlexUnderlayChild($node) || $this->hasMixedPositioningChildren($node) || $this->hasZIndexedChild($node) || $hasOverlappingStackedChild;
         if ( ! $willPositionAbsolute && ($managesLocalStacking || ($parentFreeformUsesFlow && 'FRAME' === $type)) ) {
             $styles[] = 'position:relative';
         }
@@ -5340,6 +5370,33 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
+    private function hasMixedPositioningChildren(array $node): bool
+    {
+        $hasAbsolute = false;
+        $hasFlow = false;
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( 'absolute' === ($layout['positioning'] ?? null) ) {
+                $hasAbsolute = true;
+            } else {
+                $hasFlow = true;
+            }
+
+            if ( $hasAbsolute && $hasFlow ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
     private function hasDecorativeFlexUnderlayChild(array $node): bool
     {
         return $this->layoutIntentClassifier()->hasDecorativeFlexUnderlayChild($node);
@@ -5634,6 +5691,121 @@ final class StaticHtmlEmitter
         }
 
         return $this->sanitizeText($characters);
+    }
+
+    /**
+     * Render source-backed Figma text lists as semantic HTML lists.
+     *
+     * Figma can encode an ordered/bulleted list as one TEXT node whose visible
+     * characters are only the item bodies; marker data lives in TextLineData.
+     * Plain text rendering drops those generated markers, so use the source line
+     * metadata when every rendered line maps to a list item.
+     *
+     * @param array<string, mixed> $node
+     * @return array{tag: string, content: string, start?: int}|null
+     */
+    private function sourceTextListMarkup(array $node): ?array
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
+        if ( $this->renderTextGlyphPaths && ! empty($derivedLayout['glyph_paths']) && $this->textAllowsGlyphRendering((string) ($text['characters'] ?? ''), $text) ) {
+            return null;
+        }
+
+        $lines = is_array($derivedLayout['lines'] ?? null) ? array_values(array_filter($derivedLayout['lines'], 'is_array')) : array();
+        if ( empty($lines) ) {
+            return null;
+        }
+
+        $listKinds = array();
+        foreach ( $lines as $line ) {
+            $kind = $this->sourceTextLineListKind($line);
+            if ( null === $kind ) {
+                return null;
+            }
+            $listKinds[] = $kind;
+        }
+
+        if ( count(array_unique($listKinds)) !== 1 ) {
+            return null;
+        }
+
+        $characters = isset($text['characters']) && is_scalar($text['characters'])
+            ? (string) $text['characters']
+            : (string) ($node['characters'] ?? $node['text'] ?? '');
+        if ( '' === trim($characters) || $this->isUnresolvedComponentPlaceholderText($node, $characters) ) {
+            return null;
+        }
+
+        $lineTexts = preg_split('/\R/u', $this->derivedLineBreakText($characters, $text));
+        if ( ! is_array($lineTexts) || count($lineTexts) !== count($lines) ) {
+            return null;
+        }
+
+        $items = array();
+        foreach ( $lineTexts as $lineText ) {
+            $item = $this->sourceTextListItemText((string) $lineText);
+            if ( '' === $item ) {
+                return null;
+            }
+            $items[] = '<li>' . $this->sanitizeText($item) . '</li>';
+        }
+
+        $tag = 'ordered' === $listKinds[0] ? 'ol' : 'ul';
+        $result = array(
+            'tag'     => $tag,
+            'content' => implode('', $items),
+        );
+
+        if ( 'ol' === $tag ) {
+            $start = $this->sourceTextListStart($lines[0]);
+            if ( null !== $start && 1 !== $start ) {
+                $result['start'] = $start;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $line
+     */
+    private function sourceTextLineListKind(array $line): ?string
+    {
+        $lineType = strtoupper((string) ($line['line_type'] ?? ''));
+        if ( '' === $lineType ) {
+            return null;
+        }
+
+        if ( str_contains($lineType, 'BULLET') || str_contains($lineType, 'UNORDERED') ) {
+            return 'unordered';
+        }
+
+        if ( str_contains($lineType, 'ORDER') || str_contains($lineType, 'NUMBER') ) {
+            return 'ordered';
+        }
+
+        return null;
+    }
+
+    private function sourceTextListItemText(string $lineText): string
+    {
+        $lineText = trim($lineText);
+        $lineText = preg_replace('/^\s*(?:[\x{2022}\x{2023}\x{25E6}\x{2043}\x{2219}\-*+]|\d+[.)])\s+/u', '', $lineText);
+
+        return null === $lineText ? '' : trim($lineText);
+    }
+
+    /**
+     * @param array<string, mixed> $line
+     */
+    private function sourceTextListStart(array $line): ?int
+    {
+        if ( ! isset($line['list_start_offset']) || ! is_numeric($line['list_start_offset']) ) {
+            return null;
+        }
+
+        return max(1, (int) $line['list_start_offset']);
     }
 
     /**

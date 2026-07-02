@@ -151,6 +151,51 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert(false === ($derivedTextLayoutResult['source_reports']['figma']['html']['render_text_glyph_paths'] ?? null), 'derived-text-glyph-rendering-default-disabled');
     $assert(! str_contains($fileContent($derivedTextLayoutResult, 'index.html'), 'data-figma-text-glyphs="true"'), 'derived-text-default-avoids-glyph-svg');
 
+    $orderedTextListResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Ordered Text List Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'text:ordered-list',
+                'type'       => 'TEXT',
+                'name'       => 'Coverage List',
+                'characters' => "Comprehensive News Coverage\nIn-Depth Reviews\nHelpful Guides and Tutorials\nCommunity Engagement",
+                'fontSize'   => 16,
+                'textData'   => array(
+                    'lines' => array(
+                        array('lineType' => 'ORDERED', 'listStartOffset' => 3, 'isFirstLineOfList' => true),
+                        array('lineType' => 'ORDERED', 'listStartOffset' => 4, 'isFirstLineOfList' => true),
+                        array('lineType' => 'ORDERED', 'listStartOffset' => 5, 'isFirstLineOfList' => true),
+                        array('lineType' => 'ORDERED', 'listStartOffset' => 6, 'isFirstLineOfList' => true),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $orderedTextListHtml = $fileContent($orderedTextListResult, 'index.html');
+    $assert(str_contains($orderedTextListHtml, '<ol class="figma-node-text-ordered-list-coverage-list" data-figma-node-id="text:ordered-list" data-figma-node-name="Coverage List" start="3">'), 'source-text-ordered-list-emits-ol-start');
+    $assert(str_contains($orderedTextListHtml, '<li>Comprehensive News Coverage</li><li>In-Depth Reviews</li><li>Helpful Guides and Tutorials</li><li>Community Engagement</li>'), 'source-text-ordered-list-emits-list-items');
+
+    $bulletTextListResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Bullet Text List Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'text:bullet-list',
+                'type'       => 'TEXT',
+                'name'       => 'Bullet Coverage List',
+                'characters' => "• Comprehensive News Coverage\n• In-Depth Reviews",
+                'fontSize'   => 16,
+                'textData'   => array(
+                    'lines' => array(
+                        array('lineType' => 'BULLET', 'isFirstLineOfList' => true),
+                        array('lineType' => 'BULLET', 'isFirstLineOfList' => true),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $bulletTextListHtml = $fileContent($bulletTextListResult, 'index.html');
+    $assert(str_contains($bulletTextListHtml, '<ul class="figma-node-text-bullet-list-bullet-coverage-list" data-figma-node-id="text:bullet-list" data-figma-node-name="Bullet Coverage List"><li>Comprehensive News Coverage</li><li>In-Depth Reviews</li></ul>'), 'source-text-bullet-list-strips-embedded-marker-glyphs');
+
     $derivedSoftWrapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Derived Soft Wrap Fixture',
         'nodes' => array(
@@ -1050,6 +1095,18 @@ function blocks_engine_figma_transformer_run_text_style_contract(callable $asser
                             'paragraphSpacing'  => 24,
                         ),
                     ),
+                    array(
+                        'id'                              => 'tc:8',
+                        'type'                            => 'TEXT',
+                        'name'                            => 'Mixed case instance override text',
+                        'characters'                      => 'Comprehensive News Coverage',
+                        '_figma_instance_override_applied' => true,
+                        'style'                           => array(
+                            'fontFamily' => 'Example Sans',
+                            'fontSize'   => 18,
+                            'textCase'   => 'UPPER',
+                        ),
+                    ),
                 ),
             ),
         ),
@@ -1096,6 +1153,7 @@ function blocks_engine_figma_transformer_run_text_style_contract(callable $asser
     $assert(str_contains($textCaseCss, 'text-transform:lowercase'), 'text-case-lower-text-transform');
     $assert(str_contains($textCaseCss, 'text-transform:capitalize'), 'text-case-title-text-transform');
     $assert(str_contains($textCaseCss, '.figma-node-tc-5-small-caps-forced-text{position:absolute;font-family:"Example Sans", sans-serif;font-size:18px;text-transform:uppercase;font-variant:small-caps}'), 'text-case-small-caps-forced');
+    $assert(1 !== preg_match('/\.figma-node-tc-8-mixed-case-instance-override-text\{[^}]*text-transform:uppercase/s', $textCaseCss), 'text-case-mixed-case-instance-override-drops-inherited-uppercase');
     // ORIGINAL text case emits no text-transform. With paragraphSpacing now applied
     // by splitting (no white-space:pre-line), tc:7's box style matches tc:6's, so the
     // emitter dedupes them into one shared rule — assert on the un-transformed
@@ -1493,10 +1551,12 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
         ),
     ));
     $kiwiDerivedRichTextHtml = $fileContent($kiwiDerivedRichTextResult, 'index.html');
+    $kiwiDerivedRichTextCss = $fileContent($kiwiDerivedRichTextResult, 'style.css');
     $assert(str_contains($kiwiDerivedRichTextHtml, '<ul'), 'kiwi-derived-rich-text-list-container');
     $assert(3 === substr_count($kiwiDerivedRichTextHtml, '<li '), 'kiwi-derived-rich-text-list-items');
     $assert(str_contains($kiwiDerivedRichTextHtml, '<span style="font-size:16px;text-transform:none">Movement made gentle:</span><span style="font-size:16px;font-weight:400;text-transform:none"> Tips fit your day.</span>'), 'kiwi-derived-rich-text-bold-lead-and-normal-tip');
     $assert(! str_contains($kiwiDerivedRichTextHtml, 'MOVEMENT MADE GENTLE'), 'kiwi-derived-rich-text-no-baked-uppercase');
+    $assert(1 !== preg_match('/\.figma-node-krt-text-1-movement-item\{[^}]*text-transform:uppercase/s', $kiwiDerivedRichTextCss), 'kiwi-derived-rich-text-root-uppercase-not-emitted');
 
     // Visual ordered-list rows often split the marker ("1.") and rich text body
     // into sibling text nodes. The marker should select <ol> semantics without
@@ -1573,8 +1633,10 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
         ),
     ));
     $kiwiOrderedMarkerRichTextHtml = $fileContent($kiwiOrderedMarkerRichTextResult, 'index.html');
+    $kiwiOrderedMarkerRichTextCss = $fileContent($kiwiOrderedMarkerRichTextResult, 'style.css');
     $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<ol'), 'kiwi-ordered-marker-rich-text-list-container');
     $assert(3 === substr_count($kiwiOrderedMarkerRichTextHtml, '<li '), 'kiwi-ordered-marker-rich-text-list-items');
+    $assert(str_contains($kiwiOrderedMarkerRichTextCss, '.figma-node-kom-list-ordered-apart-list{list-style:decimal;padding-left:1.5em}'), 'kiwi-ordered-marker-rich-text-list-markers-preserved');
     $assert(! str_contains($kiwiOrderedMarkerRichTextHtml, '>1.<'), 'kiwi-ordered-marker-rich-text-marker-suppressed');
     $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<p class="figma-node-kom-text-1-body"'), 'kiwi-ordered-marker-rich-text-body-paragraph');
     $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<span style="font-size:16px;text-transform:none">Movement made gentle:</span><span style="font-size:16px;font-weight:400;text-transform:none"> Tips fit your day.</span>'), 'kiwi-ordered-marker-rich-text-body-spans');
@@ -1601,6 +1663,7 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
                         'name'      => 'Desktop/Headings/H2',
                         'fontName'  => array('family' => 'Barlow Condensed', 'style' => 'Bold'),
                         'fontSize'  => 48,
+                        'textCase'  => 'UPPER',
                         'lineHeight' => array('units' => 'PERCENT', 'value' => 120),
                         'textData'  => array('characters' => 'Rag 123'),
                     ),
@@ -1612,6 +1675,7 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
                         'height'         => 48,
                         'fontName'       => array('family' => 'Helvetica Neue', 'style' => 'Bold', 'postscript' => 'HelveticaNeue-Bold'),
                         'fontSize'       => 24,
+                        'textCase'       => 'ORIGINAL',
                         'styleIdForText' => array('guid' => array('sessionID' => 4166, 'localID' => 11869)),
                         'textData'       => array('characters' => 'Get the newsletter!'),
                     ),
@@ -1624,6 +1688,7 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     $assert(str_contains($kiwiTextStyleReferenceCss, 'font-family:"Barlow Condensed", sans-serif'), 'kiwi-text-style-reference-font-family');
     $assert(str_contains($kiwiTextStyleReferenceCss, 'font-size:48px'), 'kiwi-text-style-reference-font-size');
     $assert(str_contains($kiwiTextStyleReferenceCss, 'font-weight:700'), 'kiwi-text-style-reference-font-weight');
+    $assert(str_contains($kiwiTextStyleReferenceCss, 'text-transform:none'), 'kiwi-text-style-reference-original-cancels-uppercase-style-ref');
     $assert(! str_contains($kiwiTextStyleReferenceCss, 'font-family:"Helvetica Neue", Helvetica, Arial, sans-serif'), 'kiwi-text-style-reference-stale-inline-font-not-emitted');
     
     // Kiwi text can carry the rendered font through derivedTextData.fontMetaData.

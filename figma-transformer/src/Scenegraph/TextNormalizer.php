@@ -58,6 +58,8 @@ final class TextNormalizer
                 $style[$key] = $value;
             }
         }
+        $this->applyExplicitOriginalTextCaseOverride($node, $style, $style);
+        $style = $this->removeInheritedUppercaseForMixedCaseOverrideText($node, $style, (string) ($text['characters'] ?? ''));
 
         if ( ! isset($style['color']) ) {
             $fillColor = $this->styleFillColor($node['styleIdForFill'] ?? null, $paintStyles);
@@ -89,10 +91,76 @@ final class TextNormalizer
 
         $segments = $this->normalizeStyledTextSegments($node, $paintStyles);
         if ( ! empty($segments) ) {
+            $style = $this->removeTextCaseOverriddenBySegments($style, $segments);
+            if ( empty($style) ) {
+                unset($text['style']);
+            } else {
+                $text['style'] = $style;
+            }
             $text['segments'] = $segments;
         }
 
         return $text;
+    }
+
+    /**
+     * @param array<string, mixed> $style
+     * @param array<int, array<string, mixed>> $segments
+     * @return array<string, mixed>
+     */
+    private function removeTextCaseOverriddenBySegments(array $style, array $segments): array
+    {
+        if ( isset($style['text_transform']) && $this->segmentsExplicitlyResetTextStyle($segments, 'text_transform', 'none') ) {
+            unset($style['text_transform']);
+        }
+
+        if ( isset($style['font_variant']) && $this->segmentsExplicitlyResetTextStyle($segments, 'font_variant', 'normal') ) {
+            unset($style['font_variant']);
+        }
+
+        return $style;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $style
+     * @return array<string, mixed>
+     */
+    private function removeInheritedUppercaseForMixedCaseOverrideText(array $node, array $style, string $characters): array
+    {
+        if ( 'uppercase' !== strtolower((string) ($style['text_transform'] ?? '')) ) {
+            return $style;
+        }
+        if ( true !== ($node['_figma_instance_override_applied'] ?? null) ) {
+            return $style;
+        }
+        if ( 1 !== preg_match('/\p{Ll}/u', $characters) ) {
+            return $style;
+        }
+
+        unset($style['text_transform']);
+        return $style;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $segments
+     */
+    private function segmentsExplicitlyResetTextStyle(array $segments, string $key, string $resetValue): bool
+    {
+        $hasText = false;
+        foreach ( $segments as $segment ) {
+            if ( ! isset($segment['characters']) || ! is_scalar($segment['characters']) || '' === (string) $segment['characters'] ) {
+                continue;
+            }
+
+            $hasText = true;
+            $segmentStyle = is_array($segment['style'] ?? null) ? $segment['style'] : array();
+            if ( strtolower((string) ($segmentStyle[$key] ?? '')) !== $resetValue ) {
+                return false;
+            }
+        }
+
+        return $hasText;
     }
 
     /**
@@ -1072,11 +1140,7 @@ final class TextNormalizer
      */
     private function applyExplicitOriginalTextCaseOverride(array $rawOverride, array $baseStyle, array &$overrideStyle): void
     {
-        if ( ! isset($rawOverride['textCase']) || ! is_scalar($rawOverride['textCase']) ) {
-            return;
-        }
-
-        if ( 'ORIGINAL' !== strtoupper((string) $rawOverride['textCase']) ) {
+        if ( ! $this->hasExplicitOriginalTextCase($rawOverride) ) {
             return;
         }
 
@@ -1086,6 +1150,18 @@ final class TextNormalizer
         if ( isset($baseStyle['font_variant']) ) {
             $overrideStyle['font_variant'] = 'normal';
         }
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     */
+    private function hasExplicitOriginalTextCase(array $source): bool
+    {
+        if ( isset($source['textCase']) && is_scalar($source['textCase']) && 'ORIGINAL' === strtoupper((string) $source['textCase']) ) {
+            return true;
+        }
+
+        return is_array($source['style'] ?? null) && $this->hasExplicitOriginalTextCase($source['style']);
     }
 
     /**
