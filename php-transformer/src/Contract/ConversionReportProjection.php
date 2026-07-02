@@ -145,6 +145,7 @@ final class ConversionReportProjection
                     'pattern_family'       => $fallback['pattern_family'] ?? '',
                     'pattern_family_detail' => $fallback['pattern_family_detail'] ?? '',
                     'materialization_hint' => $fallback['materialization_hint'] ?? '',
+                    'runtime_evidence'     => $fallback['runtime_evidence'] ?? array(),
                     'source_format'   => $fallback['source_format'] ?? '',
                     'source'          => $fallback['source'] ?? '',
                     'scope'           => $fallback['scope'] ?? '',

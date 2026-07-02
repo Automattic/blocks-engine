@@ -1573,6 +1573,7 @@ final class HtmlTransformer
                 'form'            => $this->formMetadata($element),
                 'controls'        => $controls,
                 'control_count'   => count($controls),
+                'runtime_evidence' => $this->formRuntimeEvidence($element),
                 'events'          => $this->eventMetadata($element),
                 'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
                 'required_scripts' => $this->requiredScriptsForElement($element),
@@ -4398,6 +4399,55 @@ final class HtmlTransformer
     }
 
     /**
+     * @return array<int, string>
+     */
+    private function formRuntimeEvidence(DOMElement $form): array
+    {
+        $evidence = array();
+
+        if ( '' !== trim($this->attr($form, 'action')) ) {
+            $evidence[] = 'form_action';
+        }
+
+        $method = strtolower(trim($this->attr($form, 'method')));
+        if ( '' !== $method ) {
+            $evidence[] = 'form_method_' . $method;
+        }
+
+        if ( $this->formHasDataEntryControls($form) ) {
+            $evidence[] = 'data_entry_controls';
+        }
+
+        foreach ( $this->formControlElements($form) as $control ) {
+            if ( $this->isSubmitLikeControl($control) ) {
+                $evidence[] = 'submit_control';
+                break;
+            }
+        }
+
+        if ( 0 < $form->getElementsByTagName('script')->length ) {
+            $evidence[] = 'inline_script';
+        }
+
+        foreach ( array_merge(array( $form ), $this->formControlElements($form)) as $element ) {
+            foreach ( $this->eventMetadata($element) as $event ) {
+                $attribute = strtolower((string) ($event['attribute'] ?? ''));
+                if ( '' !== $attribute ) {
+                    $evidence[] = $attribute;
+                }
+            }
+
+            foreach ( array_keys($this->safeDataAttributes($element)) as $dataName ) {
+                if ( preg_match('/^data-(?:action|on|event|toggle)$/i', (string) $dataName) ) {
+                    $evidence[] = strtolower((string) $dataName);
+                }
+            }
+        }
+
+        return array_values(array_unique($evidence));
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     private function searchBlockFromForm(DOMElement $form): ?array
@@ -4752,6 +4802,7 @@ final class HtmlTransformer
             'selector'        => $this->elementSelector($element),
             'attributes'      => $this->htmlAttributes($element),
             'form'            => $this->formMetadata($element),
+            'runtime_evidence' => $this->formRuntimeEvidence($element),
             'context'         => $this->sourceContext($element),
             'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
             'events'          => $this->eventMetadata($element),
