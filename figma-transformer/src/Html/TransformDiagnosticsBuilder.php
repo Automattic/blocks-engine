@@ -32,6 +32,7 @@ final class TransformDiagnosticsBuilder
                 'severity' => 'warning',
                 'code' => 'missing_render_assets',
                 'count' => count($image['missing_assets']),
+                'sample_nodes' => array_slice(is_array($image['missing_assets'] ?? null) ? $image['missing_assets'] : array(), 0, 10),
             );
         }
         if ( ! empty($vectors['placeholders']) ) {
@@ -154,6 +155,7 @@ final class TransformDiagnosticsBuilder
                 'severity' => 'warning',
                 'code' => 'component_clone_not_emitted',
                 'count' => (int) $components['missing_emitted_clone_node_count'],
+                'omission_reason_counts' => is_array($components['omission_reason_counts'] ?? null) ? $components['omission_reason_counts'] : array(),
                 'sample_nodes' => array_slice(is_array($components['missing_emitted_clone_nodes'] ?? null) ? $components['missing_emitted_clone_nodes'] : array(), 0, 10),
             );
         }
@@ -190,6 +192,8 @@ final class TransformDiagnosticsBuilder
                 'missing_font_css' => count($fonts['missing_css'] ?? array()),
                 'emitted_asset_files' => (int) ($assets['emitted_files'] ?? 0),
                 'image_block_count' => $imageBlockCount,
+                'asset_node_refs' => (int) ($image['node_refs'] ?? 0),
+                'asset_node_reason_categories' => is_array($image['asset_node_reason_categories'] ?? null) ? $image['asset_node_reason_categories'] : array(),
                 'image_node_density' => round($imageNodeDensity, 3),
                 'total_node_count' => $totalNodeCount,
                 'vector_image_fallbacks' => (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
@@ -222,6 +226,7 @@ final class TransformDiagnosticsBuilder
                 'link_targets_unresolved' => (int) ($links['unresolved'] ?? 0),
                 'component_clone_source_nodes' => (int) ($components['clone_source_node_count'] ?? 0),
                 'component_clone_nodes_emitted' => (int) ($components['emitted_clone_node_count'] ?? 0),
+                'component_clone_omission_reason_counts' => is_array($components['omission_reason_counts'] ?? null) ? $components['omission_reason_counts'] : array(),
                 'component_override_candidates' => (int) ($components['override_candidate_node_count'] ?? 0),
                 'component_overrides_applied' => (int) ($components['override_applied_node_count'] ?? 0),
                 'effect_source_nodes' => (int) ($effects['source_effect_node_count'] ?? 0),

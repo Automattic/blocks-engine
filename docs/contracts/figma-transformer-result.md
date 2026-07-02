@@ -41,6 +41,27 @@ Required parity fields:
 - `diff_summary`: optional compact diff summary such as changed pixels, threshold, or ratio
 - `metrics`: optional runner metrics
 
+## Transform Diagnostics
+
+`source_reports.figma.html.transform_diagnostics` uses schema `blocks-engine/figma-transformer/transform-diagnostics/v1`. It is a development/parity diagnostics envelope, not a rendering contract. It explains source nodes that were decoded but not materially emitted so visual gaps can be triaged without papering over output.
+
+Text coverage lives at `transform_diagnostics.text` with schema `blocks-engine/figma-transformer/text-coverage/v1`:
+
+- `decoded_text_node_count`: non-empty decoded text nodes considered for emission.
+- `emitted_text_node_count`: decoded text nodes whose `data-figma-node-id` appears in generated HTML.
+- `missing_emitted_text_node_count`: decoded non-empty text nodes not found in generated HTML.
+- `missing_emitted_text_reason_categories`: stable counts by reason.
+- `missing_emitted_text_nodes[]`: sample nodes with `node_id`, `name`, `type`, `class`, `page_id`, `page_name`, `character_count`, and `reason`.
+
+Asset coverage lives at `transform_diagnostics.images`:
+
+- `node_refs`: raw nodes carrying an explicit asset reference or image paint.
+- `asset_nodes[]`: sample nodes with `node_id`, `name`, `type`, `class`, `emitted`, `reason`, optional `path`, and `refs`.
+- `asset_node_reason_categories`: stable counts by reason.
+- `missing_assets[]`: asset-bearing node samples with no resolved archive asset path.
+
+Initial omission reasons include `hidden`, `zero_area`, `parent_omitted`, `decorative`, `no_archive_asset`, `no_archive_asset_hash`, `clipped_masked`, `converted_to_background`, `converted_to_form_control`, and `not_emitted`.
+
 Status meanings:
 
 - `not_run`: no parity runner has executed for this transform.

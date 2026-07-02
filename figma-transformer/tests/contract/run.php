@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../figma-transformer.php';
 require_once __DIR__ . '/../../scripts/figma-fixture-selection.php';
 require_once __DIR__ . '/ContractHelpers.php';
+require_once __DIR__ . '/ComponentCloneEmissionContract.php';
 require_once __DIR__ . '/DiagnosticsEvidenceContract.php';
 require_once __DIR__ . '/EffectsContract.php';
 require_once __DIR__ . '/FixtureMatrixContract.php';
@@ -2400,6 +2401,7 @@ $hugOverflowCss = $fileContent($hugOverflowResult, 'style.css');
 $assert(str_contains($hugOverflowCss, '.figma-node-hug-overflow-button-hug-overflow-button{width:max-content;height:40px;display:flex;flex-direction:row;justify-content:flex-end;align-items:center;padding-right:6px;padding-left:6px;gap:8px}'), 'layout-hug-flex-main-axis-expands-to-intrinsic-span');
 
 blocks_engine_figma_transformer_run_visual_node_map_contract($assert);
+blocks_engine_figma_transformer_run_component_clone_emission_contract($assert);
 blocks_engine_figma_transformer_run_diagnostics_evidence_contract($assert);
 
 $kiwiStackLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(

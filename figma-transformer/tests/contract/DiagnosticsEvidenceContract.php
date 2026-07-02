@@ -97,6 +97,50 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('Empty Text Page' === ($emptyTextDiagnostics['text']['empty_decoded_text_nodes'][0]['page_name'] ?? null), 'diagnostics-evidence-empty-text-page-context');
     $assert(in_array('decoded_text_empty', $emptyTextSignalCodes, true), 'diagnostics-evidence-empty-text-signal');
 
+    $omittedTextResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Omitted Text Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'diag:omitted-text-page',
+                'type'     => 'FRAME',
+                'name'     => 'Omitted Text Page',
+                'width'    => 240,
+                'height'   => 120,
+                'children' => array(
+                    array('id' => 'diag:hidden-text', 'type' => 'TEXT', 'name' => 'Hidden Text', 'text' => 'Hidden copy', 'visible' => false, 'width' => 80, 'height' => 20),
+                ),
+            ),
+        ),
+    ));
+    $omittedTextDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($omittedTextResult);
+    $omittedTextReasons = $omittedTextDiagnostics['text']['missing_emitted_text_reason_categories'] ?? array();
+    $assert(1 === ($omittedTextDiagnostics['text']['missing_emitted_text_node_count'] ?? null), 'diagnostics-evidence-omitted-text-count');
+    $assert(1 === ($omittedTextReasons['hidden'] ?? null), 'diagnostics-evidence-omitted-text-hidden-reason');
+    $assert('hidden' === ($omittedTextDiagnostics['text']['missing_emitted_text_nodes'][0]['reason'] ?? null), 'diagnostics-evidence-omitted-text-sample-reason');
+
+    $assetOmissionResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Asset Omission Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'diag:asset-page',
+                'type'     => 'FRAME',
+                'name'     => 'Asset Page',
+                'width'    => 240,
+                'height'   => 120,
+                'children' => array(
+                    array('id' => 'diag:missing-asset', 'type' => 'RECTANGLE', 'name' => 'Missing Asset', 'asset_id' => 'archive-missing', 'width' => 80, 'height' => 60),
+                ),
+            ),
+        ),
+    ));
+    $assetOmissionDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($assetOmissionResult);
+    $assetReasons = $assetOmissionDiagnostics['images']['asset_node_reason_categories'] ?? array();
+    $assetSignal = blocks_engine_figma_transformer_contract_artifact_quality_signal($assetOmissionResult, 'missing_render_assets');
+    $assert(1 === ($assetOmissionDiagnostics['images']['node_refs'] ?? null), 'diagnostics-evidence-asset-node-ref-count');
+    $assert(1 === ($assetReasons['no_archive_asset'] ?? null), 'diagnostics-evidence-asset-no-archive-reason');
+    $assert('no_archive_asset' === ($assetOmissionDiagnostics['images']['asset_nodes'][0]['reason'] ?? null), 'diagnostics-evidence-asset-node-reason');
+    $assert('no_archive_asset' === ($assetSignal['sample_nodes'][0]['reason'] ?? null), 'diagnostics-evidence-asset-signal-sample-reason');
+
     $maskMetadataResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Mask Metadata Fixture',
         'nodes' => array(

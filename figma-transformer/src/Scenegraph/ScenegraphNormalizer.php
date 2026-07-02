@@ -3530,6 +3530,10 @@ final class ScenegraphNormalizer
             $uniformRadius = (float) $node['cornerRadius'];
         }
 
+        if ( array_key_exists('rectangleCornerRadiiIndependent', $node) ) {
+            $box['corner_radii_independent'] = (bool) $node['rectangleCornerRadiiIndependent'];
+        }
+
         // Per-corner radii arrive under REST API names (`topLeftRadius`) from
         // remote scenegraphs and under Kiwi names (`rectangleTopLeftCornerRadius`)
         // from decoded `.fig` archives. Read the REST name first and fall back to

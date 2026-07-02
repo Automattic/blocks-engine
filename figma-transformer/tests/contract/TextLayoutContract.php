@@ -962,6 +962,7 @@ function blocks_engine_figma_transformer_run_text_style_contract(callable $asser
                         'height'                           => 90,
                         // Uniform value is intentionally wrong; per-corner must override it.
                         'cornerRadius'                     => 99,
+                        'rectangleCornerRadiiIndependent'  => true,
                         'rectangleTopLeftCornerRadius'     => 8,
                         'rectangleTopRightCornerRadius'    => 8,
                         'rectangleBottomRightCornerRadius' => 0,
@@ -1056,6 +1057,35 @@ function blocks_engine_figma_transformer_run_text_style_contract(callable $asser
     $kiwiRadiusCss = $fileContent($kiwiRadiusResult, 'style.css');
     $assert(str_contains($kiwiRadiusCss, '.figma-node-5-2-kiwi-corner-radius{width:160px;height:90px;border-top-left-radius:8px;border-top-right-radius:8px;border-bottom-right-radius:0px;border-bottom-left-radius:0px}'), 'kiwi-per-corner-radius-style');
     $assert(! str_contains($kiwiRadiusCss, 'border-radius:99px'), 'kiwi-per-corner-radius-overrides-uniform');
+    $kiwiRadiusNormalized = ( new Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer() )->normalize(array(
+        'name'  => 'Kiwi radius normalization',
+        'nodes' => array(
+            array(
+                'id'                              => '5:2',
+                'type'                            => 'RECTANGLE',
+                'name'                            => 'Kiwi corner radius',
+                'rectangleCornerRadiiIndependent' => true,
+                'rectangleTopLeftCornerRadius'    => 8,
+            ),
+        ),
+    ));
+    $kiwiRadiusBox = $kiwiRadiusNormalized['nodes'][0]['figma_box'] ?? array();
+    $assert(true === ($kiwiRadiusBox['corner_radii_independent'] ?? null), 'kiwi-corner-radii-independent-normalizes');
+    $kiwiRadiusOverrideResolver = new Automattic\BlocksEngine\FigmaTransformer\Scenegraph\InstanceResolver();
+    $kiwiRadiusOverrideDiagnostics = array();
+    $kiwiRadiusOverrides = $kiwiRadiusOverrideResolver->normalizeInstanceOverrides(array(
+        'id'         => '5:instance',
+        'symbolData' => array(
+            'symbolOverrides' => array(
+                array(
+                    'nodeId'                          => '5:2',
+                    'rectangleCornerRadiiIndependent' => true,
+                    'rectangleTopLeftCornerRadius'    => 8,
+                ),
+            ),
+        ),
+    ), '5:instance', $kiwiRadiusOverrideDiagnostics);
+    $assert(true === ($kiwiRadiusOverrides['5:2']['rectangleCornerRadiiIndependent'] ?? null), 'kiwi-corner-radii-independent-override-preserved');
     
     $textCaseCss = $fileContent($textCaseResult, 'style.css');
     $textCaseDiagnosticCodes = array_map(

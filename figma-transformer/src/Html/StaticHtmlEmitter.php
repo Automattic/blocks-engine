@@ -2592,6 +2592,8 @@ final class StaticHtmlEmitter
             'total_node_count' => 0,
             'image_block_nodes' => array(),
             'missing_assets'  => array(),
+            'asset_nodes'     => array(),
+            'asset_node_reason_categories' => array(),
         );
         $vectors = array(
             'nodes'                       => 0,
@@ -2656,6 +2658,7 @@ final class StaticHtmlEmitter
             'override_applied_node_count' => 0,
             'override_candidate_node_count' => 0,
             'missing_emitted_clone_node_count' => 0,
+            'omission_reason_counts' => array(),
             'clone_nodes' => array(),
             'override_nodes' => array(),
             'missing_emitted_clone_nodes' => array(),
@@ -2687,8 +2690,12 @@ final class StaticHtmlEmitter
             }
         }
 
+        $this->collectComponentCloneEmissionDiagnostics($nodes, $components, $html);
+
         $image['missing_assets'] = array_values($image['missing_assets']);
         $image['image_block_nodes'] = array_values($image['image_block_nodes']);
+        $image['asset_nodes'] = array_slice(array_values($image['asset_nodes']), 0, 50);
+        ksort($image['asset_node_reason_categories']);
         $vectors['placeholder_nodes'] = array_values($vectors['placeholder_nodes']);
         $vectors['decode_coverage'] = $this->transformDiagnosticsBuilder()->vectorDecodeCoverage($vectors);
         $layout['decorative_underlays']['nodes'] = array_values($layout['decorative_underlays']['nodes']);
@@ -2706,6 +2713,7 @@ final class StaticHtmlEmitter
         $components['clone_nodes'] = array_slice($components['clone_nodes'], 0, 25);
         $components['override_nodes'] = array_slice($components['override_nodes'], 0, 25);
         $components['missing_emitted_clone_nodes'] = array_slice($components['missing_emitted_clone_nodes'], 0, 25);
+        ksort($components['omission_reason_counts']);
         ksort($effects['field_coverage']);
         $effects['effect_nodes'] = array_slice($effects['effect_nodes'], 0, 25);
         $effects['missing_emitted_effect_nodes'] = array_slice($effects['missing_emitted_effect_nodes'], 0, 25);
@@ -2960,21 +2968,25 @@ final class StaticHtmlEmitter
         $hasAssetExpectation = ! empty($assetReferences) || ! empty($imagePaints);
         if ( $hasAssetExpectation ) {
             ++$image['node_refs'];
-            if ( null !== $this->nodeAssetPath($node) ) {
+            $assetPath = $this->nodeAssetPath($node);
+            $emitted = $this->htmlContainsNodeId($html, (string) ($node['id'] ?? ''));
+            $reason = $this->assetNodeEmissionReason($node, $assetPath, $emitted, $parentNode);
+            $assetNode = $this->assetCoverageNodeSample($node, $assetReferences, $this->imagePaintReferences($node), $assetPath, $emitted, $reason);
+            $image['asset_nodes'][] = $assetNode;
+            $image['asset_node_reason_categories'][$reason] = (int) ($image['asset_node_reason_categories'][$reason] ?? 0) + 1;
+
+            if ( null !== $assetPath ) {
                 ++$image['resolved_assets'];
                 ++$image['image_block_count'];
                 $image['image_block_nodes'][] = array(
                     'node_id' => (string) ($node['id'] ?? ''),
                     'name'    => (string) ($node['name'] ?? ''),
                     'type'    => strtoupper((string) ($node['type'] ?? '')),
+                    'path'    => $assetPath,
+                    'reason'  => $reason,
                 );
             } else {
-                $image['missing_assets'][] = array(
-                    'node_id' => (string) ($node['id'] ?? ''),
-                    'name'    => (string) ($node['name'] ?? ''),
-                    'type'    => strtoupper((string) ($node['type'] ?? '')),
-                    'refs'    => array_values(array_unique(array_merge($assetReferences, $this->imagePaintReferences($node)))),
-                );
+                $image['missing_assets'][] = $assetNode;
             }
         }
 
@@ -3014,6 +3026,7 @@ final class StaticHtmlEmitter
         foreach ( $this->nodeList($node) as $child ) {
             if ( is_array($child) ) {
                 if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
+                    $this->collectClippedChildOmissionDiagnostics($child, $image, $html, $node);
                     continue;
                 }
                 $this->collectTransformDiagnostics($child, $image, $vectors, $layout, $components, $effects, $maskEffectClipping, $html, $css, $node);
@@ -3027,20 +3040,7 @@ final class StaticHtmlEmitter
      */
     private function collectComponentCoverageDiagnostics(array $node, array &$components, string $html): void
     {
-        $sourceId = isset($node['figma_component_source_id']) && is_scalar($node['figma_component_source_id']) ? (string) $node['figma_component_source_id'] : '';
         $hasOverride = true === ($node['_figma_instance_override_applied'] ?? false);
-        if ( '' !== $sourceId ) {
-            ++$components['clone_source_node_count'];
-            $sample = $this->nodeCoverageSample($node);
-            $sample['source_node_id'] = $sourceId;
-            $components['clone_nodes'][] = $sample;
-            if ( $this->htmlContainsNodeId($html, (string) ($node['id'] ?? '')) ) {
-                ++$components['emitted_clone_node_count'];
-            } else {
-                ++$components['missing_emitted_clone_node_count'];
-                $components['missing_emitted_clone_nodes'][] = $sample;
-            }
-        }
 
         if ( $hasOverride || is_array($node['overrides'] ?? null) ) {
             ++$components['override_candidate_node_count'];
@@ -3049,6 +3049,112 @@ final class StaticHtmlEmitter
             ++$components['override_applied_node_count'];
             $components['override_nodes'][] = $this->nodeCoverageSample($node);
         }
+    }
+
+    /**
+     * Account for every component-source clone node, including subtrees that the
+     * emitter intentionally skips before recursive diagnostics can reach them.
+     *
+     * @param array<int, array<string, mixed>> $nodes
+     * @param array<string, mixed> $components
+     */
+    private function collectComponentCloneEmissionDiagnostics(array $nodes, array &$components, string $html): void
+    {
+        foreach ( $nodes as $node ) {
+            if ( is_array($node) ) {
+                $this->collectComponentCloneEmissionNode($node, $components, $html, null, null);
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $components
+     */
+    private function collectComponentCloneEmissionNode(array $node, array &$components, string $html, ?array $parentNode, ?string $parentOmissionReason): void
+    {
+        $ownOmissionReason = $this->componentCloneOmissionReason($node, $parentNode, $parentOmissionReason);
+
+        if ( $this->isComponentCloneSourceNode($node) ) {
+            ++$components['clone_source_node_count'];
+            $sample = $this->componentCloneCoverageSample($node);
+            $components['clone_nodes'][] = $sample;
+
+            if ( $this->htmlContainsNodeId($html, (string) ($node['id'] ?? '')) ) {
+                ++$components['emitted_clone_node_count'];
+            } else {
+                $reason = $ownOmissionReason ?? 'unsupported';
+                ++$components['missing_emitted_clone_node_count'];
+                $components['omission_reason_counts'][$reason] = (int) ($components['omission_reason_counts'][$reason] ?? 0) + 1;
+                $sample['omission_reason'] = $reason;
+                $components['missing_emitted_clone_nodes'][] = $sample;
+            }
+        }
+
+        $childParentOmissionReason = null !== $ownOmissionReason ? 'parent-omitted' : null;
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) ) {
+                $this->collectComponentCloneEmissionNode($child, $components, $html, $node, $childParentOmissionReason);
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isComponentCloneSourceNode(array $node): bool
+    {
+        $sourceId = isset($node['figma_component_source_id']) && is_scalar($node['figma_component_source_id']) ? (string) $node['figma_component_source_id'] : '';
+        return '' !== $sourceId || $this->hasComponentCloneGeometry($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function componentCloneCoverageSample(array $node): array
+    {
+        $sourceId = isset($node['figma_component_source_id']) && is_scalar($node['figma_component_source_id']) ? (string) $node['figma_component_source_id'] : '';
+        return array_filter($this->nodeCoverageSample($node) + array(
+            'source_node_id' => $sourceId,
+            'component_clone_geometry' => $this->hasComponentCloneGeometry($node),
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function componentCloneOmissionReason(array $node, ?array $parentNode, ?string $parentOmissionReason): ?string
+    {
+        if ( null !== $parentOmissionReason ) {
+            return $parentOmissionReason;
+        }
+        if ( false === ($node['visible'] ?? null) ) {
+            return 'hidden';
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : null;
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
+        if ( null !== $width && null !== $height && ($width <= 0.0 || $height <= 0.0) ) {
+            return 'zero-area';
+        }
+        if ( null !== $parentNode && $this->isFullyClippedDecorativeChild($node, $parentNode) ) {
+            return 'masked/clipped';
+        }
+
+        $emptyContainer = $this->emptyVisibleContainerDiagnostic($node, $parentNode);
+        if ( null !== $emptyContainer && false === ($emptyContainer['blocks_parity'] ?? true) ) {
+            return 'decorative-collapsed';
+        }
+
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        if ( 'COMPONENT' === $type ) {
+            return 'component-root-suppressed';
+        }
+
+        return null;
     }
 
     /**
@@ -3198,6 +3304,85 @@ final class StaticHtmlEmitter
             'type' => strtoupper((string) ($node['type'] ?? '')),
             'class' => $this->nodeDiagnosticClass($node),
         ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, string> $assetReferences
+     * @param array<int, string> $paintReferences
+     * @return array<string, mixed>
+     */
+    private function assetCoverageNodeSample(array $node, array $assetReferences, array $paintReferences, ?string $assetPath, bool $emitted, string $reason): array
+    {
+        return array_filter(array(
+            'node_id' => (string) ($node['id'] ?? ''),
+            'name' => (string) ($node['name'] ?? ''),
+            'type' => strtoupper((string) ($node['type'] ?? '')),
+            'class' => $this->nodeDiagnosticClass($node),
+            'emitted' => $emitted,
+            'reason' => $reason,
+            'path' => $assetPath,
+            'refs' => array_values(array_unique(array_merge($assetReferences, $paintReferences))),
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function assetNodeEmissionReason(array $node, ?string $assetPath, bool $emitted, ?array $parentNode = null): string
+    {
+        if ( false === ($node['visible'] ?? true) ) {
+            return 'hidden';
+        }
+        if ( null !== $parentNode && $this->isFullyClippedDecorativeChild($node, $parentNode) ) {
+            return 'clipped_masked';
+        }
+        if ( $this->nodeHasZeroArea($node) ) {
+            return 'zero_area';
+        }
+        if ( null === $assetPath ) {
+            return empty(array_merge($this->explicitNodeAssetReferences($node), $this->imagePaintReferences($node))) ? 'no_archive_asset_hash' : 'no_archive_asset';
+        }
+        if ( $emitted ) {
+            return 'converted_to_background';
+        }
+
+        return null !== $parentNode ? 'parent_omitted' : 'not_emitted';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $image
+     * @param array<string, mixed> $parentNode
+     */
+    private function collectClippedChildOmissionDiagnostics(array $node, array &$image, string $html, array $parentNode): void
+    {
+        $imagePaints = $this->nodeImagePaints($node);
+        $assetReferences = $this->explicitNodeAssetReferences($node);
+        if ( ! empty($assetReferences) || ! empty($imagePaints) ) {
+            ++$image['node_refs'];
+            $assetPath = $this->nodeAssetPath($node);
+            $reason = $this->assetNodeEmissionReason($node, $assetPath, $this->htmlContainsNodeId($html, (string) ($node['id'] ?? '')), $parentNode);
+            $assetNode = $this->assetCoverageNodeSample($node, $assetReferences, $this->imagePaintReferences($node), $assetPath, false, $reason);
+            $image['asset_nodes'][] = $assetNode;
+            $image['asset_node_reason_categories'][$reason] = (int) ($image['asset_node_reason_categories'][$reason] ?? 0) + 1;
+            if ( null === $assetPath ) {
+                $image['missing_assets'][] = $assetNode;
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodeHasZeroArea(array $node): bool
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : null;
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
+
+        return null !== $width && null !== $height && ($width <= 0.0 || $height <= 0.0);
     }
 
     /**
@@ -3554,6 +3739,7 @@ final class StaticHtmlEmitter
             'emitted_text_node_count' => 0,
             'empty_decoded_text_node_count' => 0,
             'missing_emitted_text_node_count' => 0,
+            'missing_emitted_text_reason_categories' => array(),
             'empty_decoded_text_nodes' => array(),
             'missing_emitted_text_nodes' => array(),
         );
@@ -3564,12 +3750,13 @@ final class StaticHtmlEmitter
                     'page_id' => (string) ($node['id'] ?? ''),
                     'page_name' => (string) ($node['name'] ?? ''),
                 );
-                $this->appendTextCoverageDiagnostics($node, $html, $coverage, $page, true);
+                $this->appendTextCoverageDiagnostics($node, $html, $coverage, $page, true, null, null);
             }
         }
 
         $coverage['empty_decoded_text_nodes'] = array_slice($coverage['empty_decoded_text_nodes'], 0, 25);
         $coverage['missing_emitted_text_nodes'] = array_slice($coverage['missing_emitted_text_nodes'], 0, 25);
+        ksort($coverage['missing_emitted_text_reason_categories']);
 
         return $coverage;
     }
@@ -3579,12 +3766,8 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $coverage
      * @param array{page_id: string, page_name: string} $page
      */
-    private function appendTextCoverageDiagnostics(array $node, string $html, array &$coverage, array $page, bool $isRoot): void
+    private function appendTextCoverageDiagnostics(array $node, string $html, array &$coverage, array $page, bool $isRoot, ?array $parentNode, ?string $ancestorOmissionReason): void
     {
-        if ( ! $isRoot && false === ($node['visible'] ?? null) ) {
-            return;
-        }
-
         if ( $this->isInputLike($node) && $this->htmlContainsNodeId($html, (string) ($node['id'] ?? '')) ) {
             return;
         }
@@ -3599,17 +3782,80 @@ final class StaticHtmlEmitter
                 if ( $this->htmlContainsNodeId($html, (string) ($node['id'] ?? '')) ) {
                     ++$coverage['emitted_text_node_count'];
                 } else {
+                    $reason = $this->textOmissionReason($node, $isRoot, $parentNode, $ancestorOmissionReason);
                     ++$coverage['missing_emitted_text_node_count'];
-                    $coverage['missing_emitted_text_nodes'][] = $this->textCoverageNodeSample($node, $page, mb_strlen($rawText));
+                    $coverage['missing_emitted_text_reason_categories'][$reason] = (int) ($coverage['missing_emitted_text_reason_categories'][$reason] ?? 0) + 1;
+                    $sample = $this->textCoverageNodeSample($node, $page, mb_strlen($rawText));
+                    $sample['reason'] = $reason;
+                    $coverage['missing_emitted_text_nodes'][] = $sample;
                 }
             }
         }
 
+        $childAncestorOmissionReason = $this->textSubtreeOmissionReason($node, $isRoot, $parentNode, $ancestorOmissionReason);
         foreach ( $this->nodeList($node) as $child ) {
             if ( is_array($child) ) {
-                $this->appendTextCoverageDiagnostics($child, $html, $coverage, $page, false);
+                $this->appendTextCoverageDiagnostics($child, $html, $coverage, $page, false, $node, $childAncestorOmissionReason);
             }
         }
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function textSubtreeOmissionReason(array $node, bool $isRoot, ?array $parentNode, ?string $ancestorOmissionReason): ?string
+    {
+        if ( null !== $ancestorOmissionReason ) {
+            return 'parent_omitted';
+        }
+        if ( ! $isRoot && false === ($node['visible'] ?? null) ) {
+            return 'hidden';
+        }
+        if ( null !== $parentNode && $this->isFullyClippedDecorativeChild($node, $parentNode) ) {
+            return 'clipped_masked';
+        }
+        if ( $this->isDecorativeTextContainer($node) ) {
+            return 'decorative';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function textOmissionReason(array $node, bool $isRoot, ?array $parentNode, ?string $ancestorOmissionReason): string
+    {
+        if ( null !== $ancestorOmissionReason ) {
+            return $ancestorOmissionReason;
+        }
+        if ( ! $isRoot && false === ($node['visible'] ?? null) ) {
+            return 'hidden';
+        }
+        if ( null !== $parentNode && $this->isFullyClippedDecorativeChild($node, $parentNode) ) {
+            return 'clipped_masked';
+        }
+        if ( $this->nodeHasZeroArea($node) ) {
+            return 'zero_area';
+        }
+        if ( null !== $parentNode && $this->isFormControlPlaceholderChild($node) ) {
+            return 'converted_to_form_control';
+        }
+        if ( $this->isUnresolvedComponentPlaceholderText($node, $this->rawDecodedText($node)) ) {
+            return 'decorative';
+        }
+
+        return null !== $parentNode ? 'parent_omitted' : 'not_emitted';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isDecorativeTextContainer(array $node): bool
+    {
+        return 'TEXT' === strtoupper((string) ($node['type'] ?? '')) && $this->isUnresolvedComponentPlaceholderText($node, $this->rawDecodedText($node));
     }
 
     /**
