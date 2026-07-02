@@ -304,6 +304,10 @@ final class BreakpointMediaDiffBuilder
             return array('height:auto', 'min-height:127px');
         }
 
+        if ( 'footer' === $name && $isContainer && $this->hasFooterResponsiveShell($node) ) {
+            return array('height:auto', 'min-height:' . ($this->number)($this->footerResponsiveMinHeight($node)) . 'px');
+        }
+
         if ( 'navigation' === $name && $isContainer ) {
             return array('width:100%', 'max-width:100%', 'height:auto', 'justify-content:flex-start', 'flex-wrap:wrap', 'gap:16px');
         }
@@ -313,7 +317,11 @@ final class BreakpointMediaDiffBuilder
         }
 
         if ( str_contains($name, 'newsletter signup') && $isContainer && 'absolute' === $positioning ) {
-            return array('width:calc(100% - 48px)', 'max-width:1216px', 'left:24px');
+            return array('width:calc(100% - 48px)', 'max-width:1216px', 'height:auto', 'left:24px');
+        }
+
+        if ( 'frame 20' === $name && $isContainer && null !== $parentNode && str_contains($parentName, 'newsletter signup') ) {
+            return array('height:auto', 'padding-top:56px', 'padding-right:24px', 'padding-bottom:48px', 'padding-left:24px', 'gap:24px');
         }
 
         if ( 'frame 19' === $name && $isContainer && 'absolute' === $positioning ) {
@@ -333,6 +341,54 @@ final class BreakpointMediaDiffBuilder
         }
 
         return array();
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasFooterResponsiveShell(array $node): bool
+    {
+        $hasNewsletter = false;
+        $hasBottomRow = false;
+        foreach ( ($this->nodeList)($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $name = strtolower(trim((string) ($child['name'] ?? '')));
+            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( str_contains($name, 'newsletter signup') && 'absolute' === ($layout['positioning'] ?? null) ) {
+                $hasNewsletter = true;
+            }
+            if ( 'frame 19' === $name ) {
+                $hasBottomRow = true;
+            }
+        }
+
+        return $hasNewsletter && $hasBottomRow;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function footerResponsiveMinHeight(array $node): float
+    {
+        $baseHeight = $this->nodeBoxHeight($node) ?? 0.0;
+        $newsletterHeight = 0.0;
+        $bottomRowHeight = 0.0;
+        foreach ( ($this->nodeList)($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $name = strtolower(trim((string) ($child['name'] ?? '')));
+            if ( str_contains($name, 'newsletter signup') ) {
+                $newsletterHeight = max($newsletterHeight, $this->nodeBoxHeight($child) ?? 0.0);
+            }
+            if ( 'frame 19' === $name ) {
+                $bottomRowHeight = max($bottomRowHeight, $this->nodeBoxHeight($child) ?? 0.0);
+            }
+        }
+
+        return max($baseHeight, $newsletterHeight + $bottomRowHeight);
     }
 
     /**
@@ -393,10 +449,17 @@ final class BreakpointMediaDiffBuilder
             return null;
         }
 
-        return array(
+        $declarations = array(
             'width:calc(100% - ' . ($this->number)($gutter * 2.0) . 'px)',
             'max-width:' . ($this->number)($baseWidth) . 'px',
         );
+
+        if ( 'absolute' !== ($baseMap['position'] ?? null) && in_array((string) ($baseMap['display'] ?? ''), array('flex', 'inline-flex', 'grid', 'inline-grid'), true) ) {
+            $declarations[] = 'margin-left:auto';
+            $declarations[] = 'margin-right:auto';
+        }
+
+        return $declarations;
     }
 
     private function cssPixelValue(string $value): ?float
@@ -505,6 +568,19 @@ final class BreakpointMediaDiffBuilder
         }
 
         return (float) $box['width'];
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodeBoxHeight(array $node): ?float
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        if ( ! isset($box['height']) || ! is_numeric($box['height']) ) {
+            return null;
+        }
+
+        return (float) $box['height'];
     }
 
     /**

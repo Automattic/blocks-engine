@@ -90,8 +90,10 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $imageScaleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'   => 'Image Scale Fixture',
         'assets' => array(
-            'fill-image'    => array('mime_type' => 'image/png', 'content' => 'fill image'),
-            'stretch-image' => array('mime_type' => 'image/png', 'content' => 'stretch image'),
+            'fill-image'           => array('mime_type' => 'image/png', 'content' => 'fill image'),
+            'stretch-image'        => array('mime_type' => 'image/png', 'content' => 'stretch image'),
+            'featured-crop-image'  => array('mime_type' => 'image/png', 'content' => 'featured crop image'),
+            'featured-crop-rect'   => array('mime_type' => 'image/png', 'content' => 'featured crop rect image'),
         ),
         'nodes'  => array(
             array(
@@ -114,11 +116,46 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
                     array('type' => 'IMAGE', 'imageRef' => 'stretch-image', 'imageScaleMode' => 'STRETCH'),
                 ),
             ),
+            array(
+                'id'         => 'scale:featured-crop',
+                'type'       => 'FRAME',
+                'name'       => 'Featured image wrapper',
+                'width'      => 691,
+                'height'     => 345.5,
+                'fillPaints' => array(
+                    array(
+                        'type'           => 'IMAGE',
+                        'imageRef'       => 'featured-crop-image',
+                        'imageScaleMode' => 'FILL',
+                        'imageTransform' => array(
+                            array(0.5, 0, 0.25),
+                            array(0, 0.8, 0.1),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id'         => 'scale:featured-crop-rect',
+                'type'       => 'FRAME',
+                'name'       => 'Featured image crop rect wrapper',
+                'width'      => 376,
+                'height'     => 282,
+                'fillPaints' => array(
+                    array(
+                        'type'           => 'IMAGE',
+                        'imageRef'       => 'featured-crop-rect',
+                        'imageScaleMode' => 'FILL',
+                        'cropRect'       => array('x' => 0.1, 'y' => 0.2, 'width' => 0.8, 'height' => 0.5),
+                    ),
+                ),
+            ),
         ),
     ));
     $imageScaleCss = $fileContent($imageScaleResult, 'style.css');
     $assert(str_contains($imageScaleCss, '.figma-node-scale-fill-fill-image{width:100px;height:80px;background-image:url("assets/fill-image.png");background-size:cover;background-position:center}'), 'image-fill-emits-cover-background');
     $assert(str_contains($imageScaleCss, '.figma-node-scale-stretch-stretch-image{width:100px;height:80px;background-image:url("assets/stretch-image.png");background-size:100% 100%;background-repeat:no-repeat;background-position:center}'), 'image-stretch-emits-stretch-background');
+    $assert(str_contains($imageScaleCss, '.figma-node-scale-featured-crop-featured-image-wrapper{width:691px;height:345.5px;background-image:url("assets/featured-crop-image.png");background-size:1382px 431.875px;background-repeat:no-repeat;background-position:-345.5px -43.188px}'), 'image-fill-transform-emits-featured-background-crop');
+    $assert(str_contains($imageScaleCss, '.figma-node-scale-featured-crop-rect-featured-image-crop-rect-wrapper{width:376px;height:282px;background-image:url("assets/featured-crop-rect.png");background-size:470px 564px;background-repeat:no-repeat;background-position:-47px -112.8px}'), 'image-fill-crop-rect-emits-featured-background-crop');
     $imageScaleVisualNodes = $imageScaleResult['source_reports']['figma']['html']['visual_node_map'] ?? array();
     $imageScaleFillVisualNode = null;
     foreach ( is_array($imageScaleVisualNodes) ? $imageScaleVisualNodes : array() as $visualNode ) {
@@ -256,7 +293,7 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $imageTransformCss = $fileContent($imageTransformResult, 'style.css');
     $cropRectVisualNode = blocks_engine_figma_transformer_contract_find_visual_node($imageTransformResult, 'image:crop-rect');
     $assert(str_contains($imageTransformCss, '.figma-node-image-crop-cropped-image{width:100px;height:80px;background-image:url("assets/crop-image.png");background-size:200px 100px;background-repeat:no-repeat;background-position:-50px -10px}'), 'image-stretch-transform-emits-crop-background');
-    $assert(str_contains($imageTransformCss, '.figma-node-image-fill-crop-fill-crop-image{width:100px;height:80px;background-image:url("assets/fill-crop.png");background-size:cover;background-position:center}'), 'image-fill-transform-keeps-cover-background');
+    $assert(str_contains($imageTransformCss, '.figma-node-image-fill-crop-fill-crop-image{width:100px;height:80px;background-image:url("assets/fill-crop.png");background-size:200px 100px;background-repeat:no-repeat;background-position:-50px -10px}'), 'image-fill-transform-emits-crop-background');
     $assert(str_contains($imageTransformCss, '.figma-node-image-crop-rect-crop-rect-image{width:100px;height:80px;background-image:url("assets/crop-rect.png");background-size:200px 100px;background-repeat:no-repeat;background-position:-50px -10px}'), 'image-stretch-crop-rect-emits-crop-background');
     $assert(true === ($cropRectVisualNode['image']['has_crop_rect'] ?? null), 'visual-node-image-crop-rect-flag');
     $assert(0.5 === ($cropRectVisualNode['image']['crop_rect']['width'] ?? null), 'visual-node-image-crop-rect-width');

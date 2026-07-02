@@ -591,7 +591,7 @@ final class StaticHtmlEmitter
         } else {
             $text = $this->textContent($node);
         }
-        $tag = $this->semanticTag($node, $type, $name, $depth, $parentNode);
+        $tag = $this->semanticTag($node, $type, $name, $depth, $parentNode, $grandParentNode);
         if ( $insideForm && 'form' === $tag ) {
             $tag = 'div';
         }
@@ -702,7 +702,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @param array<string, mixed>|null $parentNode
      */
-    private function semanticTag(array $node, string $type, string $name, int $depth, ?array $parentNode): string
+    private function semanticTag(array $node, string $type, string $name, int $depth, ?array $parentNode, ?array $grandParentNode = null): string
     {
         $lowerName = strtolower($name);
 
@@ -725,6 +725,10 @@ final class StaticHtmlEmitter
             }
 
             if ( null !== $parentNode && $this->isSemanticListItemNode($parentNode) ) {
+                return 'p';
+            }
+
+            if ( $this->isFooterTextContext($parentNode, $grandParentNode) && ! $this->hasExplicitHeadingIntent($lowerName) ) {
                 return 'p';
             }
 
@@ -797,6 +801,28 @@ final class StaticHtmlEmitter
         }
 
         return 'div';
+    }
+
+    private function isFooterTextContext(?array $parentNode, ?array $grandParentNode): bool
+    {
+        foreach ( array($parentNode, $grandParentNode) as $ancestor ) {
+            if ( ! is_array($ancestor) ) {
+                continue;
+            }
+            $name = strtolower((string) ($ancestor['name'] ?? ''));
+            if ( str_contains($name, 'footer') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasExplicitHeadingIntent(string $lowerName): bool
+    {
+        return str_contains($lowerName, 'title')
+            || str_contains($lowerName, 'heading')
+            || str_contains($lowerName, 'headline');
     }
 
     /**
@@ -4748,8 +4774,10 @@ final class StaticHtmlEmitter
         $isDecorativeFlexUnderlay = null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode);
         $parentFreeformUsesFlow = null !== $parentNode && $this->freeformContainerShouldUseFlow($parentNode);
         $willPositionAbsolute = (null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow) || 'absolute' === ($layout['positioning'] ?? null) || $isDecorativeFlexUnderlay;
-        $managesLocalStacking = $this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node);
-        $needsLocalStackIsolation = $this->hasDecorativeFlexUnderlayChild($node) || $this->hasZIndexedChild($node);
+        $overlapZIndex = null !== $parentNode ? $this->layoutIntentClassifier()->overlappingSiblingZIndex($node, $parentNode) : null;
+        $hasOverlappingStackedChild = $this->hasOverlappingStackedChild($node);
+        $managesLocalStacking = $this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node) || $hasOverlappingStackedChild;
+        $needsLocalStackIsolation = $this->hasDecorativeFlexUnderlayChild($node) || $this->hasZIndexedChild($node) || $hasOverlappingStackedChild;
         if ( ! $willPositionAbsolute && ($managesLocalStacking || ($parentFreeformUsesFlow && 'FRAME' === $type)) ) {
             $styles[] = 'position:relative';
         }
@@ -4782,10 +4810,13 @@ final class StaticHtmlEmitter
             $styles[] = 'z-index:1';
         }
 
+        if ( null !== $overlapZIndex && ! $willPositionAbsolute && ! $this->stylesDeclareProperty($styles, 'position') ) {
+            $styles[] = 'position:relative';
+        }
+
         if ( isset($layout['z_index']) && is_numeric($layout['z_index']) && ! $this->stylesDeclareProperty($styles, 'z-index') ) {
             $styles[] = 'z-index:' . (string) (int) $layout['z_index'];
         } elseif ( null !== $parentNode && ! $this->stylesDeclareProperty($styles, 'z-index') ) {
-            $overlapZIndex = $this->layoutIntentClassifier()->overlappingSiblingZIndex($node, $parentNode);
             if ( null !== $overlapZIndex ) {
                 $styles[] = 'z-index:' . (string) $overlapZIndex;
             }
@@ -5312,6 +5343,14 @@ final class StaticHtmlEmitter
     private function hasDecorativeFlexUnderlayChild(array $node): bool
     {
         return $this->layoutIntentClassifier()->hasDecorativeFlexUnderlayChild($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasOverlappingStackedChild(array $node): bool
+    {
+        return $this->layoutIntentClassifier()->hasOverlappingStackedChild($node);
     }
 
     /**
@@ -6739,7 +6778,7 @@ final class StaticHtmlEmitter
      */
     private function imagePaintTransformStyles(array $node, string $scaleMode): array
     {
-        if ( 'STRETCH' !== $scaleMode ) {
+        if ( 'TILE' === $scaleMode ) {
             return array();
         }
 

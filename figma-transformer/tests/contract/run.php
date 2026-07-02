@@ -2682,7 +2682,7 @@ $nestedMissingOriginCss = $fileContent($nestedMissingOriginResult, 'style.css');
 $nestedMissingOriginLabel = $findVisualNode($nestedMissingOriginResult, 'missing-origin:label');
 $nestedMissingOriginIcon = $findVisualNode($nestedMissingOriginResult, 'missing-origin:icon');
 $nestedMissingOriginRounded = $findVisualNode($nestedMissingOriginResult, 'missing-origin:rounded');
-$assert(str_contains($nestedMissingOriginCss, '.figma-node-missing-origin-button-shell-button-shell{width:220px;height:64px;position:relative}'), 'nested-missing-origin-parent-becomes-freeform');
+$assert(str_contains($nestedMissingOriginCss, '.figma-node-missing-origin-button-shell-button-shell{width:220px;height:64px;position:relative;isolation:isolate}'), 'nested-missing-origin-parent-becomes-freeform');
 $assert(str_contains($nestedMissingOriginCss, '.figma-node-missing-origin-label-button-label{width:96px;height:22px;position:absolute;left:34px;top:21px'), 'nested-missing-origin-text-keeps-authored-x');
 $assert(str_contains($nestedMissingOriginCss, '.figma-node-missing-origin-icon-button-icon{width:16px;height:16px;position:absolute;left:34px;top:8px'), 'nested-missing-origin-icon-keeps-authored-x');
 $assert(str_contains($nestedMissingOriginCss, '.figma-node-missing-origin-rounded-decorative-rounded-plate{width:220px;height:64px;position:absolute;left:0px;top:-80px'), 'nested-missing-origin-rounded-keeps-negative-y');
@@ -6919,7 +6919,7 @@ foreach ( $componentResponsiveStructureResult['files'] ?? array() as $componentR
     }
 }
 $assert('success' === ($componentResponsiveStructureResult['status'] ?? null), 'component-responsive-structure-transform-success');
-$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-struct-section-feature-section\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:1216px[^}]*height:auto[^}]*flex-direction:column[^}]*gap:32px/s', $componentResponsiveStructureCss) === 1, 'component-responsive-section-fluid-column');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-struct-section-feature-section\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:1216px[^}]*margin-left:auto[^}]*margin-right:auto[^}]*height:auto[^}]*flex-direction:column[^}]*gap:32px/s', $componentResponsiveStructureCss) === 1, 'component-responsive-section-fluid-column-centered');
 $assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-struct-lead-lead-card\{[^}]*width:100%[^}]*height:auto/s', $componentResponsiveStructureCss) === 1, 'component-responsive-structural-child-maps-across-source-ids');
 
 $absoluteComponentResponsiveResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(

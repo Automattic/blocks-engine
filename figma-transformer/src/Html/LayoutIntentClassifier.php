@@ -164,10 +164,6 @@ final class LayoutIntentClassifier
      */
     public function overlappingSiblingZIndex(array $node, array $parentNode): ?int
     {
-        if ( ! $this->isFreeformContainer($parentNode) && ! $this->hasAbsoluteChild($parentNode) ) {
-            return null;
-        }
-
         $nodeId = (string) ($node['id'] ?? '');
         if ( '' === $nodeId ) {
             return null;
@@ -209,6 +205,28 @@ final class LayoutIntentClassifier
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    public function hasOverlappingStackedChild(array $node): bool
+    {
+        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
+        $count = count($children);
+        if ( $count < 2 ) {
+            return false;
+        }
+
+        for ( $left = 0; $left < $count; $left++ ) {
+            for ( $right = $left + 1; $right < $count; $right++ ) {
+                if ( $this->nodesOverlapInParent($children[$left], $children[$right], $node) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

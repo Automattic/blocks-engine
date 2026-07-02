@@ -174,6 +174,61 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($fluidInstanceStackCss, '.figma-node-fluid-instance-footer-footer-shell{width:100%;height:483px;'), 'quality-diagnostics-fluid-instance-stack-renders-full-width');
     $assert(str_contains($fluidInstanceStackCss, '.figma-node-fluid-instance-card-newsletter-signup{width:1216px;height:352px;position:absolute;left:calc(50% - 608px);top:0px'), 'quality-diagnostics-fluid-instance-centered-child-uses-canvas-center');
 
+    $sharedFooterComponent = array(
+        'id'       => 'shared-footer:component',
+        'type'     => 'COMPONENT',
+        'name'     => 'Footer',
+        'width'    => 1440,
+        'height'   => 483,
+        'children' => array(
+            array('id' => 'shared-footer:newsletter', 'type' => 'FRAME', 'name' => 'Newsletter Signup', 'x' => 112, 'y' => 0, 'width' => 1216, 'height' => 352, 'layoutPositioning' => 'ABSOLUTE'),
+            array('id' => 'shared-footer:bottom', 'type' => 'FRAME', 'name' => 'Frame 19', 'x' => 0, 'y' => 352, 'width' => 1440, 'height' => 131, 'layoutPositioning' => 'ABSOLUTE', 'children' => array(
+                array('id' => 'shared-footer:legal', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Proudly powered by WordPress.com', 'width' => 281, 'height' => 26, 'fontSize' => 16),
+            )),
+        ),
+    );
+    $sharedFooterSemanticResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Shared Footer Semantic Fixture',
+        'nodes' => array(
+            $sharedFooterComponent,
+            array('id' => 'shared-footer:page-a', 'type' => 'FRAME', 'name' => 'Article Page Desktop', 'width' => 1440, 'height' => 900, 'layoutMode' => 'VERTICAL', 'children' => array(
+                array('id' => 'shared-footer:a-copy', 'type' => 'TEXT', 'name' => 'Body copy', 'characters' => 'Small body copy', 'width' => 320, 'height' => 20, 'fontSize' => 14),
+                array('id' => 'shared-footer:a-footer', 'type' => 'INSTANCE', 'name' => 'Footer', 'componentId' => 'shared-footer:component', 'width' => 1440, 'height' => 483),
+            )),
+            array('id' => 'shared-footer:page-b', 'type' => 'FRAME', 'name' => 'Archive Page Desktop', 'width' => 1440, 'height' => 900, 'layoutMode' => 'VERTICAL', 'children' => array(
+                array('id' => 'shared-footer:b-copy', 'type' => 'TEXT', 'name' => 'Body copy', 'characters' => 'Regular body copy', 'width' => 320, 'height' => 24, 'fontSize' => 16),
+                array('id' => 'shared-footer:b-footer', 'type' => 'INSTANCE', 'name' => 'Footer', 'componentId' => 'shared-footer:component', 'width' => 1440, 'height' => 483),
+            )),
+        ),
+    ), array('multi_page' => true, 'frame_ids' => array('shared-footer:page-a', 'shared-footer:page-b')));
+    $sharedFooterHtml = $fileContent($sharedFooterSemanticResult, 'index.html') . $fileContent($sharedFooterSemanticResult, 'archive-page-desktop.html');
+    $assert(str_contains($sharedFooterHtml, '<p class="figma-node-shared-footer-a-footer-shared-footer-legal-footer-text'), 'shared-footer-legal-copy-page-a-stays-paragraph');
+    $assert(str_contains($sharedFooterHtml, '<p class="figma-node-shared-footer-b-footer-shared-footer-legal-footer-text'), 'shared-footer-legal-copy-page-b-stays-paragraph');
+    $assert(! str_contains($sharedFooterHtml, '<h6 class="figma-node-shared-footer-a-footer-shared-footer-legal-footer-text"') && ! str_contains($sharedFooterHtml, '<h6 class="figma-node-shared-footer-b-footer-shared-footer-legal-footer-text"'), 'shared-footer-legal-copy-not-page-relative-heading');
+
+    $responsiveFooterResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Responsive Footer Shell Fixture',
+        'nodes' => array(
+            $sharedFooterComponent,
+            array('id' => 'responsive-footer:desktop', 'type' => 'FRAME', 'name' => 'Landing Page Desktop', 'width' => 1440, 'height' => 900, 'children' => array(
+                array('id' => 'responsive-footer:desktop-footer', 'type' => 'INSTANCE', 'name' => 'Footer', 'componentId' => 'shared-footer:component', 'width' => 1440, 'height' => 483),
+            )),
+            array('id' => 'responsive-footer:mobile', 'type' => 'FRAME', 'name' => 'Landing Page Mobile', 'width' => 390, 'height' => 900, 'children' => array(
+                array('id' => 'responsive-footer:mobile-footer', 'type' => 'INSTANCE', 'name' => 'Footer', 'componentId' => 'shared-footer:component', 'width' => 390, 'height' => 483),
+            )),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'responsive-footer:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'responsive-footer:mobile', 'viewport_width' => 390),
+        ),
+        'page_name' => 'Landing Page',
+    ));
+    $responsiveFooterCss = $fileContent($responsiveFooterResult, 'style.css');
+    $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-footer{height:auto}'), 'responsive-footer-shell-safety-uses-component-structure');
+    $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-shared-footer-newsletter-newsletter-signup{width:calc(100% - 48px);max-width:1216px;height:auto;left:24px}'), 'responsive-footer-newsletter-safety-uses-source-clone');
+    $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-shared-footer-bottom-frame-19{height:auto;position:relative;left:auto;top:auto;justify-content:center;flex-wrap:wrap'), 'responsive-footer-bottom-row-safety-uses-source-clone');
+
     $assert(in_array('large_absolute_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-absolute-offsets');
     $assert(in_array('large_css_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-css-offsets');
     $assert(in_array('image_heavy_landmark_candidate', $qualitySignalCodes, true), 'quality-diagnostics-image-heavy-landmark');
@@ -1109,7 +1164,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $responsiveEmitMobileBlock = substr($responsiveEmitCss, strpos($responsiveEmitCss, '@media (max-width:612px)'));
     $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-frame-home-desktop-home-desktop{height:3200px}'), 'responsive-emit-mobile-root-keeps-fluid-width');
     $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-card-desktop-hero-card{width:calc(100% - 40px);max-width:1200px;height:500px;background:#00ff00}'), 'responsive-emit-mobile-card-diffs-width-height-background');
-    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-cards-desktop-article-cards{width:calc(100% - 40px);max-width:760px;height:auto;flex-direction:column}'), 'responsive-emit-mobile-row-container-fluid-auto-height');
+    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-cards-desktop-article-cards{width:calc(100% - 40px);max-width:760px;margin-left:auto;margin-right:auto;height:auto;flex-direction:column}'), 'responsive-emit-mobile-row-container-fluid-auto-height-centered');
     $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-cards-desktop-card-a-article-card{width:100%;height:auto}'), 'responsive-emit-mobile-card-frame-fluid-auto-height');
     $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-cards-desktop-card-a-image-card-image{width:calc(100% - 32px);max-width:328px}'), 'responsive-emit-mobile-card-image-fluid-width');
     $assert(! preg_match('/\.figma-node-cards-desktop-card-a-image-card-image\{[^}]*height:auto/', $responsiveEmitMobileBlock), 'responsive-emit-mobile-leaf-image-keeps-fixed-height');

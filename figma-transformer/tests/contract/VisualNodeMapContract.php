@@ -110,6 +110,49 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $isolatedStackCss = blocks_engine_figma_transformer_contract_file_content($isolatedStackResult, 'style.css');
     $assert(str_contains($isolatedStackCss, '.figma-node-isolated-stack-section-layered-image-section{width:320px;height:180px;isolation:isolate;position:absolute;left:0px;top:0px;display:flex;flex-direction:row;gap:-80px}'), 'visual-map-local-stack-isolates-image-section-z-index');
 
+    $mixedLayerStackResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Mixed Layer Stack Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'mixed-layer:section',
+                'type'       => 'FRAME',
+                'name'       => 'Feature image section',
+                'width'      => 400,
+                'height'     => 240,
+                'layoutMode' => 'VERTICAL',
+                'children'   => array(
+                    array(
+                        'id'                => 'mixed-layer:image',
+                        'type'              => 'RECTANGLE',
+                        'name'              => 'Featured image background',
+                        'x'                 => 0,
+                        'y'                 => 0,
+                        'width'             => 400,
+                        'height'            => 160,
+                        'layoutPositioning' => 'ABSOLUTE',
+                        'fill'              => array('r' => 1, 'g' => 0.85, 'b' => 0),
+                    ),
+                    array(
+                        'id'         => 'mixed-layer:title',
+                        'type'       => 'TEXT',
+                        'name'       => 'Headline over image',
+                        'x'          => 24,
+                        'y'          => 24,
+                        'width'      => 240,
+                        'height'     => 48,
+                        'characters' => 'Layered headline',
+                        'fontSize'   => 32,
+                        'fontWeight' => 700,
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $mixedLayerStackCss = blocks_engine_figma_transformer_contract_file_content($mixedLayerStackResult, 'style.css');
+    $assert(str_contains($mixedLayerStackCss, '.figma-node-mixed-layer-section-feature-image-section{width:400px;height:240px;position:relative;isolation:isolate;display:flex;flex-direction:column}'), 'visual-map-mixed-layer-parent-isolated');
+    $assert(str_contains($mixedLayerStackCss, '.figma-node-mixed-layer-image-featured-image-background{width:400px;height:160px;position:absolute;left:0px;top:0px;z-index:0;pointer-events:none;background:#ffd900'), 'visual-map-mixed-layer-image-behind');
+    $assert(str_contains($mixedLayerStackCss, '.figma-node-mixed-layer-title-headline-over-image{width:240px;height:48px;position:relative;z-index:1;font-size:32px;font-weight:700'), 'visual-map-mixed-layer-title-above');
+
     $componentCloneZIndexResult = blocks_engine_figma_transformer_contract_transform(
         array(
             'name'  => 'Component Clone Z Index Fixture',
