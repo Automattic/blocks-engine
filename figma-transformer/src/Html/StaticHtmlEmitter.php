@@ -767,6 +767,9 @@ final class StaticHtmlEmitter
                     if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
                         continue;
                     }
+                    if ( 'li' === $tag && $this->isListMarkerTextChild($child) ) {
+                        continue;
+                    }
                     $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node, $parentNode);
                 }
             }
@@ -851,6 +854,10 @@ final class StaticHtmlEmitter
                 return 'span';
             }
 
+            if ( null !== $parentNode && $this->isSemanticListItemNode($parentNode) ) {
+                return 'p';
+            }
+
             $heading = $this->headingLevel($node, $lowerName, $depth, $parentNode);
             if ( null !== $heading ) {
                 return $heading;
@@ -887,7 +894,7 @@ final class StaticHtmlEmitter
 
         // A container of repeated sibling items reads as an unordered list.
         if ( ! empty($this->listItemIds($node)) ) {
-            return 'ul';
+            return $this->listLooksOrdered($node) ? 'ol' : 'ul';
         }
 
         // A <section> is reserved for genuine top-level content regions — the
@@ -1442,6 +1449,84 @@ final class StaticHtmlEmitter
         }
 
         return in_array($id, $this->listItemIds($parentNode), true);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isSemanticListItemNode(array $node): bool
+    {
+        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
+        if ( empty($children) ) {
+            return false;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        if ( str_contains($name, 'list item') ) {
+            return true;
+        }
+
+        foreach ( $children as $child ) {
+            if ( $this->isListMarkerTextChild($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $container
+     */
+    private function listLooksOrdered(array $container): bool
+    {
+        $itemIds = $this->listItemIds($container);
+        if ( empty($itemIds) ) {
+            return false;
+        }
+
+        $expected = 1;
+        foreach ( $this->nodeList($container) as $child ) {
+            if ( ! is_array($child) || ! in_array((string) ($child['id'] ?? ''), $itemIds, true) ) {
+                continue;
+            }
+
+            $children = array_values(array_filter($this->nodeList($child), 'is_array'));
+            $hasExpectedMarker = false;
+            foreach ( $children as $itemChild ) {
+                if ( $this->isListMarkerTextChild($itemChild, $expected) ) {
+                    $hasExpectedMarker = true;
+                    break;
+                }
+            }
+            if ( ! $hasExpectedMarker ) {
+                return false;
+            }
+            ++$expected;
+        }
+
+        return $expected > 2;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isListMarkerTextChild(array $node, ?int $expectedNumber = null): bool
+    {
+        if ( 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) ) {
+            return false;
+        }
+
+        $text = trim($this->subtreePlainText($node));
+        if ( '' === $text ) {
+            return false;
+        }
+
+        if ( null !== $expectedNumber ) {
+            return 1 === preg_match('/^' . preg_quote((string) $expectedNumber, '/') . '[.)]?$/', $text);
+        }
+
+        return 1 === preg_match('/^\d+[.)]?$/', $text);
     }
 
     /**

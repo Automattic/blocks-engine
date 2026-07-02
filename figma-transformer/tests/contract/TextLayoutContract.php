@@ -1406,7 +1406,89 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     $assert(3 === substr_count($kiwiDerivedRichTextHtml, '<li '), 'kiwi-derived-rich-text-list-items');
     $assert(str_contains($kiwiDerivedRichTextHtml, '<span style="font-size:16px;text-transform:none">Movement made gentle:</span><span style="font-size:16px;font-weight:400;text-transform:none"> Tips fit your day.</span>'), 'kiwi-derived-rich-text-bold-lead-and-normal-tip');
     $assert(! str_contains($kiwiDerivedRichTextHtml, 'MOVEMENT MADE GENTLE'), 'kiwi-derived-rich-text-no-baked-uppercase');
-    
+
+    // Visual ordered-list rows often split the marker ("1.") and rich text body
+    // into sibling text nodes. The marker should select <ol> semantics without
+    // being emitted as duplicate content, while the body keeps Kiwi inline spans.
+    $kiwiOrderedMarkerRichTextResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Kiwi Ordered Marker Rich Text Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'kom:1',
+                'type'     => 'FRAME',
+                'name'     => 'Ordered list frame',
+                'width'    => 1200,
+                'height'   => 600,
+                'children' => array(
+                    array(
+                        'id'       => 'kom:list',
+                        'type'     => 'FRAME',
+                        'name'     => 'Ordered apart list',
+                        'width'    => 720,
+                        'height'   => 240,
+                        'children' => array(
+                            array(
+                                'id'       => 'kom:item-1',
+                                'type'     => 'FRAME',
+                                'name'     => 'Numbered list item',
+                                'width'    => 720,
+                                'height'   => 56,
+                                'children' => array(
+                                    array('id' => 'kom:marker-1', 'type' => 'TEXT', 'name' => 'Marker', 'characters' => '1.', 'fontSize' => 32, 'fontWeight' => 700),
+                                    array(
+                                        'id'              => 'kom:text-1',
+                                        'type'            => 'TEXT',
+                                        'name'            => 'Body',
+                                        'fontName'        => array('family' => 'Inter', 'style' => 'Bold'),
+                                        'fontSize'        => 32,
+                                        'textCase'        => 'UPPER',
+                                        'textData'        => array('characters' => 'Movement made gentle: Tips fit your day.'),
+                                        'derivedTextData' => array(
+                                            'characterStyleIDs' => array_merge(array_fill(0, 21, 1), array_fill(0, 19, 2)),
+                                            'styleOverrideTable' => array(
+                                                array('styleID' => 1, 'fontName' => array('family' => 'Inter', 'style' => 'Bold'), 'fontSize' => 16, 'textCase' => 'ORIGINAL'),
+                                                array('styleID' => 2, 'fontName' => array('family' => 'Inter', 'style' => 'Regular'), 'fontSize' => 16, 'textCase' => 'ORIGINAL'),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            array(
+                                'id'       => 'kom:item-2',
+                                'type'     => 'FRAME',
+                                'name'     => 'Numbered list item',
+                                'width'    => 720,
+                                'height'   => 56,
+                                'children' => array(
+                                    array('id' => 'kom:marker-2', 'type' => 'TEXT', 'name' => 'Marker', 'characters' => '2.', 'fontSize' => 32, 'fontWeight' => 700),
+                                    array('id' => 'kom:text-2', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Recovery that lasts: Build steady habits.', 'fontSize' => 16),
+                                ),
+                            ),
+                            array(
+                                'id'       => 'kom:item-3',
+                                'type'     => 'FRAME',
+                                'name'     => 'Numbered list item',
+                                'width'    => 720,
+                                'height'   => 56,
+                                'children' => array(
+                                    array('id' => 'kom:marker-3', 'type' => 'TEXT', 'name' => 'Marker', 'characters' => '3.', 'fontSize' => 32, 'fontWeight' => 700),
+                                    array('id' => 'kom:text-3', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Support between visits: Keep moving safely.', 'fontSize' => 16),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $kiwiOrderedMarkerRichTextHtml = $fileContent($kiwiOrderedMarkerRichTextResult, 'index.html');
+    $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<ol'), 'kiwi-ordered-marker-rich-text-list-container');
+    $assert(3 === substr_count($kiwiOrderedMarkerRichTextHtml, '<li '), 'kiwi-ordered-marker-rich-text-list-items');
+    $assert(! str_contains($kiwiOrderedMarkerRichTextHtml, '>1.<'), 'kiwi-ordered-marker-rich-text-marker-suppressed');
+    $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<p class="figma-node-kom-text-1-body"'), 'kiwi-ordered-marker-rich-text-body-paragraph');
+    $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<span style="font-size:16px;text-transform:none">Movement made gentle:</span><span style="font-size:16px;font-weight:400;text-transform:none"> Tips fit your day.</span>'), 'kiwi-ordered-marker-rich-text-body-spans');
+    $assert(! str_contains($kiwiOrderedMarkerRichTextHtml, '<h3 class="figma-node-kom-text-1-body"'), 'kiwi-ordered-marker-rich-text-body-not-heading');
+     
     // Kiwi text style references: production .fig payloads can carry stale inline
     // `fontName` data on a text node while `styleIdForText` points at the canonical
     // text style and `derivedTextData.fontMetaData` matches that style. Prefer the
