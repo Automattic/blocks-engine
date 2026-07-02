@@ -5837,7 +5837,7 @@ $centeredCanvasResult = blocks_engine_figma_transformer_transform_scenegraph(arr
 $centeredCanvasHtml = $fileContent($centeredCanvasResult, 'index.html');
 $centeredCanvasCss = $fileContent($centeredCanvasResult, 'style.css');
 $centeredCanvasRule = blocks_engine_figma_transformer_contract_css_rule($centeredCanvasCss, '.figma-node-centered-root-landing-page-1440');
-$assert(str_contains($centeredCanvasRule, 'width:100%') && str_contains($centeredCanvasRule, 'max-width:1440px') && str_contains($centeredCanvasRule, 'margin-left:auto') && str_contains($centeredCanvasRule, 'margin-right:auto'), 'centered-canvas-root-uses-max-width-auto-margins');
+$assert(str_contains($centeredCanvasRule, 'width:100%') && ! str_contains($centeredCanvasRule, 'max-width:1440px') && ! str_contains($centeredCanvasRule, 'margin-left:auto') && ! str_contains($centeredCanvasRule, 'margin-right:auto'), 'centered-canvas-root-stays-fluid-not-letterboxed');
 $assert(! str_contains($centeredCanvasHtml, '<nav class="figma-node-centered-root-landing-page-1440"') && ! str_contains($centeredCanvasHtml, '<header class="figma-node-centered-root-landing-page-1440"') && ! str_contains($centeredCanvasHtml, '<footer class="figma-node-centered-root-landing-page-1440"'), 'centered-canvas-root-not-landmark');
 
 $landmarkGuardResult = blocks_engine_figma_transformer_transform_scenegraph(array(

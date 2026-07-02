@@ -4753,11 +4753,6 @@ final class StaticHtmlEmitter
                 // viewport. Explicit Kiwi/Figma max-width constraints still apply
                 // below; the intrinsic frame width is evidence, not a viewport cap.
                 $styles[] = 'width:100%';
-                if ( null === $parentNode && $this->rootShouldCenterPageCanvas($node) ) {
-                    $styles[] = 'max-width:' . $this->number((float) $box[$dimension]) . 'px';
-                    $styles[] = 'margin-left:auto';
-                    $styles[] = 'margin-right:auto';
-                }
             } elseif ( 'width' === $dimension && $isAbsoluteFullWidthCanvasChild ) {
                 $styles[] = 'width:100%';
             } elseif ( 'HUG' === $sizing ) {
@@ -5153,20 +5148,6 @@ final class StaticHtmlEmitter
         $offset = isset($box['x']) && is_numeric($box['x']) ? abs((float) $box['x']) : 0.0;
         $parentWidth = (float) $parentBox['width'];
         return $offset <= 1.0 && abs($width - $parentWidth) <= 1.0;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function rootShouldCenterPageCanvas(array $node): bool
-    {
-        $name = strtolower((string) ($node['name'] ?? ''));
-        if ( ! str_contains($name, 'page') && ! preg_match('/(?:^|[_\s-])\d{3,4}$/', $name) ) {
-            return false;
-        }
-
-        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        return 'center' === ($layout['align_items'] ?? null) || 'CENTER' === ($layout['counter_axis_alignment'] ?? null);
     }
 
     /**
