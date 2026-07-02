@@ -586,10 +586,10 @@ final class StaticHtmlEmitter
                 // Multi-paragraph text splits into per-paragraph boxes so
                 // `paragraphSpacing` lands as a margin; otherwise render the node
                 // as a single element.
-                $text = $this->multiParagraphTextContent($node) ?? $this->textContent($node);
+                $text = $this->multiParagraphTextContent($node) ?? $this->textContent($node, $parentNode);
             }
         } else {
-            $text = $this->textContent($node);
+            $text = $this->textContent($node, $parentNode);
         }
         $tag = $this->semanticTag($node, $type, $name, $depth, $parentNode, $grandParentNode);
         $sourceTextList = 'TEXT' === $type ? $this->sourceTextListMarkup($node) : null;
@@ -657,10 +657,10 @@ final class StaticHtmlEmitter
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
             $this->nodeReadableNames[$className] = $this->sharedClassBaseName($name, $type);
         }
-        if ( in_array($tag, array('ol', 'ul'), true) && ( null !== $sourceTextList || ! empty($this->listItemIds($node)) ) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
+        if ( in_array($tag, array('ol', 'ul'), true) && $this->listShouldRenderMarkers($node, null !== $sourceTextList) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
             $cssRules[] = '.' . $className . '{list-style:' . ( 'ol' === $tag ? 'decimal' : 'disc' ) . ';padding-left:1.5em' . ( 'ol' === $tag ? ';counter-reset:figma-list-item' : '' ) . '}';
         }
-        if ( 'li' === $tag && null !== $parentNode && $this->isListItemOf($node, $parentNode) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
+        if ( 'li' === $tag && null !== $parentNode && $this->isListItemOf($node, $parentNode) && $this->listShouldRenderMarkers($parentNode, false) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
             $marker = $this->listLooksOrdered($parentNode) ? 'counter(figma-list-item) ". "' : '"\2022"';
             $cssRules[] = '.' . $className . '{position:relative}';
             $cssRules[] = '.' . $className . '::before{content:' . $marker . ';counter-increment:figma-list-item;display:inline-block;min-width:1.5em;margin-left:-1.5em;flex-shrink:0}';
@@ -1829,6 +1829,36 @@ final class StaticHtmlEmitter
         }
 
         return in_array($id, $this->listItemIds($parentNode), true);
+    }
+
+    /**
+     * @param array<string, mixed> $container
+     */
+    private function listShouldRenderMarkers(array $container, bool $sourceTextList): bool
+    {
+        if ( $sourceTextList ) {
+            return true;
+        }
+
+        foreach ( $this->listItemIds($container) as $index => $itemId ) {
+            foreach ( $this->nodeList($container) as $child ) {
+                if ( ! is_array($child) || (string) ($child['id'] ?? '') !== $itemId ) {
+                    continue;
+                }
+                if ( $this->isSemanticListItemNode($child) ) {
+                    continue 2;
+                }
+                foreach ( $this->nodeList($child) as $itemChild ) {
+                    if ( is_array($itemChild) && $this->isListMarkerTextChild($itemChild, $index + 1) ) {
+                        continue 3;
+                    }
+                }
+
+                return false;
+            }
+        }
+
+        return ! empty($this->listItemIds($container));
     }
 
     /**
@@ -4646,6 +4676,13 @@ final class StaticHtmlEmitter
                 $styles[] = 'width:auto';
                 continue;
             }
+            if ( 'TEXT' === $type && $this->textShouldUseFluidFlowBox($node, $parentNode) ) {
+                if ( 'width' === $dimension && isset($box['width']) && is_numeric($box['width']) ) {
+                    $styles[] = 'width:100%';
+                    $styles[] = 'max-width:' . $this->number((float) $box['width']) . 'px';
+                }
+                continue;
+            }
             if ( 'width' === $dimension && null !== $parentNode && $parentUsesFluidCanvasCoordinates && $this->isFluidStretchAbsoluteChild($box, $layout, $parentNode) ) {
                 $styles[] = 'width:auto';
                 continue;
@@ -4810,6 +4847,9 @@ final class StaticHtmlEmitter
 
         if ( 'TEXT' === $type ) {
             foreach ( $this->textStyles($node) as $style ) {
+                if ( $this->textShouldUseFluidFlowBox($node, $parentNode) && str_starts_with($style, 'white-space:') ) {
+                    continue;
+                }
                 $styles[] = $style;
             }
             if ( $this->textShouldUseMeasuredFlexHeight($node, $parentNode) ) {
@@ -5392,6 +5432,9 @@ final class StaticHtmlEmitter
         if ( $this->layoutIntentClassifier()->fillsParentFlexMainAxis($layout, $parentNode) ) {
             $styles[] = 'flex-grow:1';
             $styles[] = 'flex-shrink:1';
+        } elseif ( $this->textShouldUseFluidFlowBox($node, $parentNode) ) {
+            $styles[] = 'flex-shrink:1';
+            $styles[] = 'min-width:0';
         } elseif ( isset($layout['grow']) && is_numeric($layout['grow']) ) {
             $styles[] = 'flex-grow:' . $this->number((float) $layout['grow']);
         } elseif ( $isFlexChild ) {
@@ -5413,6 +5456,30 @@ final class StaticHtmlEmitter
         }
 
         return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function textShouldUseFluidFlowBox(array $node, ?array $parentNode): bool
+    {
+        if ( 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) || null === $parentNode ) {
+            return false;
+        }
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( 'absolute' === ($layout['positioning'] ?? null) || ($this->isFreeformContainer($parentNode) && ! $this->freeformContainerShouldUseFlow($parentNode)) ) {
+            return false;
+        }
+
+        $name = strtolower((string) ($node['name'] ?? ''));
+        if ( ! str_contains($name, 'paragraph') && ! str_contains($name, 'body') && ! str_contains($name, 'copy') && ! str_contains($name, 'lede') && ! str_contains($name, 'supporting text') ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        return isset($box['width']) && is_numeric($box['width']) && (float) $box['width'] >= 280.0;
     }
 
     /**
@@ -5505,7 +5572,7 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function textContent(array $node): string
+    private function textContent(array $node, ?array $parentNode = null): string
     {
         $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
         $segments = is_array($text['segments'] ?? null) ? $text['segments'] : array();
@@ -5535,7 +5602,7 @@ final class StaticHtmlEmitter
                 return '';
             }
 
-            return $this->sanitizeText($this->derivedLineBreakText($characters, $text));
+            return $this->sanitizeText($this->textShouldUseFluidFlowBox($node, $parentNode) ? $characters : $this->derivedLineBreakText($characters, $text));
         }
 
         $characters = (string) ($node['characters'] ?? $node['text'] ?? '');

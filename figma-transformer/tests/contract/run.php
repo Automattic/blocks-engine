@@ -484,6 +484,51 @@ $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-logo-logo{wi
 $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-links-frame-29{width:265px;height:26px;position:relative;z-index:1;display:flex;flex-direction:row;flex-shrink:0}'), 'fse-footer-link-row-stacks-above-underlay');
 $assert(1 === ($fseFooterUnderlays['count'] ?? null), 'fse-footer-underlay-diagnostic-count');
 
+$newsletterFooterStackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Newsletter Footer Stack Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'newsletter-stack:footer',
+            'type'     => 'FRAME',
+            'name'     => 'Footer',
+            'width'    => 1440,
+            'height'   => 483,
+            'children' => array(
+                array(
+                    'id'       => 'newsletter-stack:card',
+                    'type'     => 'FRAME',
+                    'name'     => 'Newsletter Signup',
+                    'x'        => 112,
+                    'y'        => 0,
+                    'width'    => 1216,
+                    'height'   => 352,
+                    'children' => array(
+                        array('id' => 'newsletter-stack:headline', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Join the dispatch', 'fontSize' => 40),
+                    ),
+                ),
+                array(
+                    'id'         => 'newsletter-stack:row',
+                    'type'       => 'FRAME',
+                    'name'       => 'Footer Links',
+                    'x'          => 0,
+                    'y'          => 352,
+                    'width'      => 1440,
+                    'height'     => 131,
+                    'layoutMode' => 'HORIZONTAL',
+                    'children'   => array(
+                        array('id' => 'newsletter-stack:bg', 'type' => 'RECTANGLE', 'name' => 'Rectangle 3', 'x' => 0, 'y' => -64, 'width' => 1440, 'height' => 195, 'layoutPositioning' => 'ABSOLUTE', 'fill' => array('r' => 1, 'g' => 0.811764717, 'b' => 0)),
+                        array('id' => 'newsletter-stack:legal', 'type' => 'TEXT', 'name' => 'Footer text', 'characters' => 'Footer links', 'fontSize' => 16),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$newsletterFooterStackCss = $fileContent($newsletterFooterStackResult, 'style.css');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $newsletterFooterStackCss, '.figma-node-newsletter-stack-card-newsletter-signup', array('position:absolute', 'z-index:2'), 'newsletter-footer-card-stacks-above-protruding-underlay');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $newsletterFooterStackCss, '.figma-node-newsletter-stack-row-footer-links', array('position:absolute', 'z-index:1'), 'newsletter-footer-row-underlay-stack-contained');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $newsletterFooterStackCss, '.figma-node-newsletter-stack-bg-rectangle-3', array('top:-64px', 'z-index:0', 'pointer-events:none'), 'newsletter-footer-protruding-underlay-protected');
+
 $yellowForegroundOverlapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Yellow Foreground Overlap Fixture',
     'nodes' => array(
@@ -5709,7 +5754,7 @@ $assert(str_contains($semanticHtml, '<p class="figma-node-body-p1-intro'), 'sema
 $assert(str_contains($semanticHtml, '<ul class="figma-node-body-cards-feature-cards"'), 'semantic-repeated-items-emit-list');
 $assert(str_contains($semanticHtml, '<li class="figma-node-card-1-card-one'), 'semantic-repeated-item-emits-list-item');
 $assert(str_contains($semanticCss, 'position:relative') && ! str_contains($semanticCss, 'display:list-item'), 'semantic-repeated-item-preserves-positioning-context');
-$assert(str_contains($semanticCss, '.figma-node-card-1-card-one::before{content:"\2022"'), 'semantic-repeated-item-restores-marker-pseudo');
+$assert(! str_contains($semanticCss, '.figma-node-card-1-card-one::before'), 'semantic-repeated-card-list-avoids-implicit-marker-pseudo');
 $assert(str_contains($semanticHtml, '<button class="figma-node-body-cta-get-started"'), 'semantic-button-like-node-emits-button');
 $assert(! str_contains($semanticHtml, '<div class="figma-node-region-top-top-bar"'), 'semantic-header-not-generic-div');
 // The middle content band (not a header/nav/footer landmark) is the genuine
@@ -5717,6 +5762,47 @@ $assert(! str_contains($semanticHtml, '<div class="figma-node-region-top-top-bar
 // card/cta frames inside it do NOT each become their own <section>.
 $assert(str_contains($semanticHtml, '<section class="figma-node-region-body-content"'), 'semantic-top-level-band-emits-section');
 $assert(1 === substr_count($semanticHtml, '<section'), 'semantic-page-has-single-section');
+
+$fluidParagraphResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Fluid Paragraph Fixture',
+    'nodes' => array(
+        array(
+            'id'         => 'fluid-copy:page',
+            'type'       => 'FRAME',
+            'name'       => 'Article Page',
+            'width'      => 1200,
+            'height'     => 600,
+            'layoutMode' => 'VERTICAL',
+            'children'   => array(
+                array(
+                    'id'       => 'fluid-copy:paragraph',
+                    'type'     => 'TEXT',
+                    'name'     => 'Paragraph',
+                    'width'    => 640,
+                    'height'   => 116,
+                    'fontSize' => 18,
+                    'characters' => 'Responsive prose should keep source words intact and wrap in CSS instead of baking desktop soft line breaks.',
+                    'figma_text' => array(
+                        'characters'     => 'Responsive prose should keep source words intact and wrap in CSS instead of baking desktop soft line breaks.',
+                        'derived_layout' => array(
+                            'lines' => array(
+                                array('start' => 0, 'end' => 27),
+                                array('start' => 27, 'end' => 59),
+                                array('start' => 59, 'end' => 101),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$fluidParagraphHtml = $fileContent($fluidParagraphResult, 'index.html');
+$fluidParagraphCss = $fileContent($fluidParagraphResult, 'style.css');
+$fluidParagraphRule = blocks_engine_figma_transformer_contract_css_rule($fluidParagraphCss, '.figma-node-fluid-copy-paragraph-paragraph');
+$assert(str_contains($fluidParagraphRule, 'width:100%') && str_contains($fluidParagraphRule, 'max-width:640px') && ! str_contains($fluidParagraphRule, 'height:116px') && ! str_contains($fluidParagraphRule, 'white-space:'), 'fluid-paragraph-uses-intrinsic-max-width');
+$assert(str_contains($fluidParagraphRule, 'flex-shrink:1') && str_contains($fluidParagraphRule, 'min-width:0'), 'fluid-paragraph-can-shrink-in-flex-flow');
+$assert(str_contains($fluidParagraphHtml, 'source words intact') && ! str_contains($fluidParagraphHtml, "source\nwords"), 'fluid-paragraph-avoids-derived-soft-wrap-content');
 
 $linkedContentCardsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Linked Content Cards Fixture',

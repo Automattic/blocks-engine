@@ -482,7 +482,7 @@ final class LayoutIntentClassifier
             $stackedSiblings[] = array(
                 'id'    => $siblingId,
                 'index' => $index,
-                'key'   => $this->nodePaintOrderKey($sibling, $index),
+                'key'   => $this->nodeSiblingStackKey($sibling, $parentNode, $index),
             );
         }
 
@@ -963,13 +963,53 @@ final class LayoutIntentClassifier
 
     /**
      * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     * @return array<int, int|float|string>
+     */
+    private function nodeSiblingStackKey(array $node, array $parentNode, int $fallbackIndex): array
+    {
+        return array_merge(
+            array($this->hasProtrudingDecorativeUnderlay($node, $parentNode) ? 0 : 1),
+            $this->nodePaintOrderKey($node, $fallbackIndex)
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function hasProtrudingDecorativeUnderlay(array $node, array $parentNode): bool
+    {
+        $nodeRect = $this->nodeRectInParent($node, $parentNode);
+        if ( null === $nodeRect ) {
+            return false;
+        }
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) || ! $this->isDecorativeFlexUnderlay($child, $node) ) {
+                continue;
+            }
+            $childRect = $this->nodeRectInParent($child, $node);
+            if ( null === $childRect ) {
+                continue;
+            }
+            if ( $childRect['x'] < -0.5 || $childRect['y'] < -0.5 || $childRect['x'] + $childRect['width'] > $nodeRect['width'] + 0.5 || $childRect['y'] + $childRect['height'] > $nodeRect['height'] + 0.5 ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
      * @param array<string, mixed> $sibling
      * @param array<string, mixed> $parentNode
      */
     private function nodesOverlapInParent(array $node, array $sibling, array $parentNode): bool
     {
-        $nodeRect = $this->nodeRectInParent($node, $parentNode);
-        $siblingRect = $this->nodeRectInParent($sibling, $parentNode);
+        $nodeRect = $this->nodeVisualRectInParent($node, $parentNode);
+        $siblingRect = $this->nodeVisualRectInParent($sibling, $parentNode);
         if ( null === $nodeRect || null === $siblingRect ) {
             return false;
         }
@@ -1002,6 +1042,53 @@ final class LayoutIntentClassifier
         }
 
         return array('x' => $x, 'y' => $y, 'width' => (float) $box['width'], 'height' => (float) $box['height']);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     * @return array{x: float, y: float, width: float, height: float}|null
+     */
+    private function nodeVisualRectInParent(array $node, array $parentNode): ?array
+    {
+        $rect = $this->nodeRectInParent($node, $parentNode);
+        if ( null === $rect ) {
+            return null;
+        }
+        $baseRect = $rect;
+
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $childRect = $this->nodeVisualRectInParent($child, $node);
+            if ( null === $childRect ) {
+                continue;
+            }
+            $rect = $this->unionRects($rect, array(
+                'x'      => $baseRect['x'] + $childRect['x'],
+                'y'      => $baseRect['y'] + $childRect['y'],
+                'width'  => $childRect['width'],
+                'height' => $childRect['height'],
+            ));
+        }
+
+        return $rect;
+    }
+
+    /**
+     * @param array{x: float, y: float, width: float, height: float} $left
+     * @param array{x: float, y: float, width: float, height: float} $right
+     * @return array{x: float, y: float, width: float, height: float}
+     */
+    private function unionRects(array $left, array $right): array
+    {
+        $x1 = min($left['x'], $right['x']);
+        $y1 = min($left['y'], $right['y']);
+        $x2 = max($left['x'] + $left['width'], $right['x'] + $right['width']);
+        $y2 = max($left['y'] + $left['height'], $right['y'] + $right['height']);
+
+        return array('x' => $x1, 'y' => $y1, 'width' => $x2 - $x1, 'height' => $y2 - $y1);
     }
 
     /**
