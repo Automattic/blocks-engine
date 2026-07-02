@@ -112,6 +112,38 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-bg-full-bleed-background{width:100%;height:520px;position:absolute;left:0px;top:0px'), 'quality-diagnostics-fluid-band-full-bleed-absolute-child-stays-full-width');
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-content-centered-content-shell{width:1216px;height:240px;position:absolute;left:calc(50% - 608px);top:80px'), 'quality-diagnostics-fluid-band-absolute-child-centers-in-intrinsic-canvas');
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-card-narrow-card{width:420px;height:240px;'), 'quality-diagnostics-narrow-band-keeps-intrinsic-width');
+
+    $fluidManagedStackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Fluid Managed Stack Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'fluid-stack:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 1440,
+                'height'   => 900,
+                'layoutMode' => 'VERTICAL',
+                'children' => array(
+                    array(
+                        'id'       => 'fluid-stack:footer',
+                        'type'     => 'FRAME',
+                        'name'     => 'Footer shell',
+                        'width'    => 1440,
+                        'height'   => 483,
+                        'children' => array(
+                            array('id' => 'fluid-stack:bg', 'type' => 'RECTANGLE', 'name' => 'Footer background', 'x' => 0, 'y' => -64, 'width' => 1440, 'height' => 195, 'layoutPositioning' => 'ABSOLUTE'),
+                            array('id' => 'fluid-stack:card', 'type' => 'FRAME', 'name' => 'Centered card', 'x' => 112, 'y' => 0, 'width' => 1216, 'height' => 352, 'layoutPositioning' => 'ABSOLUTE'),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $fluidManagedStackCss = $fileContent($fluidManagedStackResult, 'style.css');
+    $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-footer-footer-shell{width:100%;height:483px;'), 'quality-diagnostics-fluid-managed-stack-renders-full-width');
+    $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-bg-footer-background{width:100%;height:195px;position:absolute;left:0px;top:-64px'), 'quality-diagnostics-fluid-managed-stack-full-bleed-child-stays-full-width');
+    $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-card-centered-card{width:1216px;height:352px;position:absolute;left:calc(50% - 608px);top:0px'), 'quality-diagnostics-fluid-managed-stack-centered-child-uses-canvas-center');
+
     $assert(in_array('large_absolute_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-absolute-offsets');
     $assert(in_array('large_css_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-css-offsets');
     $assert(in_array('image_heavy_landmark_candidate', $qualitySignalCodes, true), 'quality-diagnostics-image-heavy-landmark');

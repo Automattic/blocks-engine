@@ -4194,7 +4194,12 @@ final class StaticHtmlEmitter
         }
 
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        return 'FILL' === strtoupper((string) ($layout['sizing_horizontal'] ?? ''));
+        if ( 'FILL' === strtoupper((string) ($layout['sizing_horizontal'] ?? '')) ) {
+            return true;
+        }
+
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        return null !== $parentNode && ! in_array($type, array('COMPONENT', 'INSTANCE'), true) && ($this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node));
     }
 
     /**
