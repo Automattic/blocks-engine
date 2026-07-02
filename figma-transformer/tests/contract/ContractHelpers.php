@@ -196,3 +196,50 @@ function blocks_engine_figma_transformer_contract_assert_node_rect(callable $ass
 {
     $assert($expectedRect === ($node['rect'] ?? null), $message);
 }
+
+function blocks_engine_figma_transformer_contract_css_rule(string $css, string $selector): string
+{
+    if ( 1 > preg_match_all('/' . preg_quote($selector, '/') . '\{([^}]*)\}/', $css, $matches) ) {
+        return '';
+    }
+
+    return implode(';', array_map('strval', $matches[1]));
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ * @param array<int, string> $declarations
+ */
+function blocks_engine_figma_transformer_contract_assert_css_rule_contains(callable $assert, string $css, string $selector, array $declarations, string $messagePrefix): void
+{
+    $rule = blocks_engine_figma_transformer_contract_css_rule($css, $selector);
+    $assert('' !== $rule, $messagePrefix . '-rule-exists');
+    foreach ( $declarations as $declaration ) {
+        $assert(str_contains($rule, $declaration), $messagePrefix . '-' . str_replace(array(':', ';'), '-', $declaration));
+    }
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ * @param array<int, string> $declarations
+ */
+function blocks_engine_figma_transformer_contract_assert_css_rule_omits(callable $assert, string $css, string $selector, array $declarations, string $messagePrefix): void
+{
+    $rule = blocks_engine_figma_transformer_contract_css_rule($css, $selector);
+    foreach ( $declarations as $declaration ) {
+        $assert(! str_contains($rule, $declaration), $messagePrefix . '-omits-' . str_replace(array(':', ';'), '-', $declaration));
+    }
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ */
+function blocks_engine_figma_transformer_contract_assert_tag_count(callable $assert, string $html, string $tag, int $expected, string $message): void
+{
+    $dom = new DOMDocument();
+    libxml_use_internal_errors(true);
+    $dom->loadHTML($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+    libxml_clear_errors();
+
+    $assert($expected === $dom->getElementsByTagName($tag)->length, $message);
+}

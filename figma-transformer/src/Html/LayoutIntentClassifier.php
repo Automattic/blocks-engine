@@ -27,6 +27,9 @@ final class LayoutIntentClassifier
     /** @var array<int, string> */
     private const PAINT_COLLECTION_KEYS = array('fills', 'strokes', 'background');
 
+    /** @var array<int, string> */
+    private const CHROME_NAME_HINTS = array('header', 'footer', 'nav', 'navigation', 'menu');
+
     /**
      * @param array<string, array<string, mixed>> $assetsById
      */
@@ -61,11 +64,302 @@ final class LayoutIntentClassifier
     }
 
     /**
+     * Returns the ids of a container's children when they form a semantic content
+     * list: repeated, structurally-similar, text-bearing siblings rather than a
+     * compact navigation/chrome cluster.
+     *
+     * @param array<string, mixed> $container
+     * @return array<int, string>
+     */
+    public function semanticListItemIds(array $container): array
+    {
+        $name = strtolower((string) ($container['name'] ?? ''));
+        foreach ( array_merge(self::CHROME_NAME_HINTS, array('article')) as $hint ) {
+            if ( str_contains($name, $hint) ) {
+                return array();
+            }
+        }
+        if ( str_contains($name, 'table of contents') || preg_match('/\btoc\b/', $name) ) {
+            return array();
+        }
+
+        $children = array_values(array_filter($this->nodeList($container), 'is_array'));
+        if ( 3 > count($children) ) {
+            return array();
+        }
+
+        $linkChildCount = $this->linkChildCount($children);
+        if ( $linkChildCount >= count($children) && ! $this->hasRichRepeatedContent($children) ) {
+            return array();
+        }
+
+        $type = strtoupper((string) ($children[0]['type'] ?? ''));
+        $heights = array();
+        foreach ( $children as $child ) {
+            if ( strtoupper((string) ($child['type'] ?? '')) !== $type ) {
+                return array();
+            }
+            if ( ! $this->subtreeHasText($child) ) {
+                return array();
+            }
+            $height = $this->boxValue($child, 'height');
+            if ( null !== $height ) {
+                $heights[] = $height;
+            }
+        }
+
+        // Direct text-only lists are usually compact nav/legal rows. A larger
+        // text region with several text nodes is content, not a list.
+        if ( 'TEXT' === $type ) {
+            $containerHeight = $this->boxValue($container, 'height');
+            if ( null === $containerHeight || empty($heights) ) {
+                return array();
+            }
+            $maxChildHeight = max($heights);
+            if ( $maxChildHeight > 0.0 && $containerHeight > ( $maxChildHeight * 2.0 ) ) {
+                return array();
+            }
+        }
+
+        if ( count($heights) >= 2 ) {
+            $min = min($heights);
+            $max = max($heights);
+            if ( $min > 0.0 && ( $max / $min ) > 1.5 ) {
+                return array();
+            }
+        }
+
+        $ids = array();
+        foreach ( $children as $child ) {
+            $ids[] = (string) ($child['id'] ?? '');
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, mixed>|null $grandParentNode
+     */
+    public function isChromeListContext(array $node, ?array $parentNode, ?array $grandParentNode): bool
+    {
+        foreach ( array($node, $parentNode, $grandParentNode) as $candidate ) {
+            if ( ! is_array($candidate) ) {
+                continue;
+            }
+            $name = strtolower((string) ($candidate['name'] ?? ''));
+            foreach ( self::CHROME_NAME_HINTS as $hint ) {
+                if ( str_contains($name, $hint) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $container
+     */
+    public function semanticListLooksOrdered(array $container): bool
+    {
+        $itemIds = $this->semanticListItemIds($container);
+        if ( empty($itemIds) ) {
+            return false;
+        }
+
+        $expected = 1;
+        foreach ( $this->nodeList($container) as $child ) {
+            if ( ! is_array($child) || ! in_array((string) ($child['id'] ?? ''), $itemIds, true) ) {
+                continue;
+            }
+
+            $children = array_values(array_filter($this->nodeList($child), 'is_array'));
+            $hasExpectedMarker = false;
+            foreach ( $children as $itemChild ) {
+                if ( $this->isListMarkerTextChild($itemChild, $expected) ) {
+                    $hasExpectedMarker = true;
+                    break;
+                }
+            }
+            if ( ! $hasExpectedMarker ) {
+                return false;
+            }
+            ++$expected;
+        }
+
+        return $expected > 2;
+    }
+
+    /**
      * @param array<string, mixed> $node
      */
     private function hasNoDeclaredDisplay(array $node): bool
     {
         return empty($node['layout']['display'] ?? null);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function hasRichRepeatedContent(array $children): bool
+    {
+        foreach ( $children as $child ) {
+            if ( $this->textDescendantCount($child) >= 2 ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function linkChildCount(array $children): int
+    {
+        $count = 0;
+        foreach ( $children as $child ) {
+            if ( $this->subtreeHasLink($child) ) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function subtreeHasLink(array $node): bool
+    {
+        if ( ! empty($node['figma_link']) ) {
+            return true;
+        }
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && $this->subtreeHasLink($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function subtreeHasText(array $node): bool
+    {
+        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+            return true;
+        }
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && $this->subtreeHasText($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function textDescendantCount(array $node): int
+    {
+        $count = 0;
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            if ( 'TEXT' === strtoupper((string) ($child['type'] ?? '')) ) {
+                $count++;
+            }
+            $count += $this->textDescendantCount($child);
+        }
+
+        return $count;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isListMarkerTextChild(array $node, ?int $expectedNumber = null): bool
+    {
+        if ( 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) ) {
+            return false;
+        }
+
+        $text = trim($this->subtreePlainText($node));
+        if ( '' === $text ) {
+            return false;
+        }
+
+        if ( null !== $expectedNumber ) {
+            return 1 === preg_match('/^' . preg_quote((string) $expectedNumber, '/') . '[.)]?$/', $text);
+        }
+
+        return 1 === preg_match('/^\d+[.)]?$/', $text);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function subtreePlainText(array $node): string
+    {
+        $parts = array();
+        $text = $this->nodePlainText($node);
+        if ( '' !== $text ) {
+            $parts[] = $text;
+        }
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) ) {
+                $childText = $this->subtreePlainText($child);
+                if ( '' !== $childText ) {
+                    $parts[] = $childText;
+                }
+            }
+        }
+
+        return trim(implode(' ', $parts));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function nodePlainText(array $node): string
+    {
+        foreach ( array('characters', 'text', 'content') as $key ) {
+            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
+                return trim((string) $node[$key]);
+            }
+        }
+        if ( isset($node['textData']['characters']) && is_scalar($node['textData']['characters']) ) {
+            return trim((string) $node['textData']['characters']);
+        }
+        if ( isset($node['figma_text']['characters']) && is_scalar($node['figma_text']['characters']) ) {
+            return trim((string) $node['figma_text']['characters']);
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function boxValue(array $node, string $key): ?float
+    {
+        if ( isset($node[$key]) && is_numeric($node[$key]) ) {
+            return (float) $node[$key];
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        if ( isset($box[$key]) && is_numeric($box[$key]) ) {
+            return (float) $box[$key];
+        }
+
+        return null;
     }
 
     /**
@@ -232,9 +526,75 @@ final class LayoutIntentClassifier
     /**
      * @param array<string, mixed> $node
      */
+    public function managesLocalStacking(array $node): bool
+    {
+        return $this->hasAbsoluteChild($node)
+            || $this->hasDecorativeFlexUnderlayChild($node)
+            || $this->isFreeformContainer($node)
+            || $this->hasOverlappingStackedChild($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    public function needsLocalStackIsolation(array $node): bool
+    {
+        return $this->hasDecorativeFlexUnderlayChild($node)
+            || $this->hasMixedPositioningChildren($node)
+            || $this->hasZIndexedChild($node)
+            || $this->hasOverlappingStackedChild($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
     public function isAbsoluteChild(array $node): bool
     {
         return 'absolute' === ($node['layout']['positioning'] ?? null);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasMixedPositioningChildren(array $node): bool
+    {
+        $hasAbsolute = false;
+        $hasFlow = false;
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            if ( $this->isAbsoluteChild($child) ) {
+                $hasAbsolute = true;
+            } else {
+                $hasFlow = true;
+            }
+
+            if ( $hasAbsolute && $hasFlow ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasZIndexedChild(array $node): bool
+    {
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            if ( null !== $this->nodeZIndex($child) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -3173,12 +3173,11 @@ final class ScenegraphNormalizer
         }
         unset($child['figma_vector_scale']);
 
+		$child['_figma_instance_override_applied'] = true;
 		$child = $this->normalizeNode($child, $diagnostics, $blobs, $paintStyles, $textStyles, $options);
 		if ( $hasTransformGeometryOverride && is_array($sourceChildBox) ) {
 			$child = $this->preserveLocalSourceBoxForFarAbsoluteOverride($child, $sourceChildBox);
 		}
-		$child['_figma_instance_override_applied'] = true;
-		$child = $this->removeInheritedUppercaseFromMixedCaseTextOverride($child);
         unset($child[GeometryBox::PROVENANCE_KEY]);
         if ( $hasVectorGeometryOverride && ! $hasExplicitSizeOverride ) {
             $bounds = $this->vectorGeometryNormalizer->normalizedVectorPathBounds(is_array($child['figma_vector_paths'] ?? null) ? $child['figma_vector_paths'] : array());
@@ -3192,33 +3191,6 @@ final class ScenegraphNormalizer
                 }
             }
         }
-
-		return $child;
-	}
-
-	/**
-	 * @param array<string, mixed> $child
-	 * @return array<string, mixed>
-	 */
-	private function removeInheritedUppercaseFromMixedCaseTextOverride(array $child): array
-	{
-		if ( 'TEXT' !== strtoupper((string) ($child['type'] ?? '')) || ! is_array($child['figma_text'] ?? null) ) {
-			return $child;
-		}
-
-		$characters = isset($child['figma_text']['characters']) && is_scalar($child['figma_text']['characters'])
-			? (string) $child['figma_text']['characters']
-			: '';
-		if ( '' === $characters || 1 !== preg_match('/\p{Ll}/u', $characters) ) {
-			return $child;
-		}
-
-		if ( 'uppercase' === strtolower((string) ($child['figma_text']['style']['text_transform'] ?? '')) ) {
-			unset($child['figma_text']['style']['text_transform']);
-			if ( empty($child['figma_text']['style']) ) {
-				unset($child['figma_text']['style']);
-			}
-		}
 
 		return $child;
 	}

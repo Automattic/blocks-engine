@@ -149,9 +149,17 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
         ),
     ));
     $mixedLayerStackCss = blocks_engine_figma_transformer_contract_file_content($mixedLayerStackResult, 'style.css');
-    $assert(str_contains($mixedLayerStackCss, '.figma-node-mixed-layer-section-feature-image-section{width:400px;height:240px;position:relative;isolation:isolate;display:flex;flex-direction:column}'), 'visual-map-mixed-layer-parent-isolated');
-    $assert(str_contains($mixedLayerStackCss, '.figma-node-mixed-layer-image-featured-image-background{width:400px;height:160px;position:absolute;left:0px;top:0px;z-index:0;pointer-events:none;background:#ffd900'), 'visual-map-mixed-layer-image-behind');
-    $assert(str_contains($mixedLayerStackCss, '.figma-node-mixed-layer-title-headline-over-image{width:240px;height:48px;position:relative;z-index:1;font-size:32px;font-weight:700'), 'visual-map-mixed-layer-title-above');
+    $mixedLayerStackDiagnostics = $mixedLayerStackResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $mixedLayerStackingOrder = $mixedLayerStackDiagnostics['layout']['stacking_order'] ?? array();
+    $mixedLayerArtifactSummary = $mixedLayerStackDiagnostics['artifact_quality']['summary'] ?? array();
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $mixedLayerStackCss, '.figma-node-mixed-layer-section-feature-image-section', array('position:relative', 'isolation:isolate', 'display:flex', 'flex-direction:column'), 'visual-map-mixed-layer-parent-isolated');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $mixedLayerStackCss, '.figma-node-mixed-layer-image-featured-image-background', array('position:absolute', 'left:0px', 'top:0px', 'z-index:0', 'pointer-events:none', 'background:#ffd900'), 'visual-map-mixed-layer-image-behind');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $mixedLayerStackCss, '.figma-node-mixed-layer-title-headline-over-image', array('position:relative', 'z-index:1', 'font-size:32px', 'font-weight:700'), 'visual-map-mixed-layer-title-above');
+    $assert(1 === ($mixedLayerStackingOrder['mixed_positioning_parent_count'] ?? null), 'visual-map-mixed-layer-diagnostics-mixed-position-parent-count');
+    $assert(1 === ($mixedLayerStackingOrder['absolute_child_count'] ?? null), 'visual-map-mixed-layer-diagnostics-absolute-child-count');
+    $assert(1 === ($mixedLayerStackingOrder['flow_child_count'] ?? null), 'visual-map-mixed-layer-diagnostics-flow-child-count');
+    $assert('mixed-layer:section' === ($mixedLayerStackingOrder['sample_nodes'][0]['node_id'] ?? null), 'visual-map-mixed-layer-diagnostics-sample-node');
+    $assert(1 === ($mixedLayerArtifactSummary['mixed_positioning_parent_count'] ?? null), 'visual-map-mixed-layer-artifact-summary-mixed-position-parent-count');
 
     $componentCloneZIndexResult = blocks_engine_figma_transformer_contract_transform(
         array(

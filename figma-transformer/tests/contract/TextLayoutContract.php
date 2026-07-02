@@ -172,8 +172,12 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
         ),
     ));
     $orderedTextListHtml = $fileContent($orderedTextListResult, 'index.html');
+    $orderedTextListCss = $fileContent($orderedTextListResult, 'style.css');
     $assert(str_contains($orderedTextListHtml, '<ol class="figma-node-text-ordered-list-coverage-list" data-figma-node-id="text:ordered-list" data-figma-node-name="Coverage List" start="3">'), 'source-text-ordered-list-emits-ol-start');
     $assert(str_contains($orderedTextListHtml, '<li>Comprehensive News Coverage</li><li>In-Depth Reviews</li><li>Helpful Guides and Tutorials</li><li>Community Engagement</li>'), 'source-text-ordered-list-emits-list-items');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $orderedTextListHtml, 'ol', 1, 'source-text-ordered-list-single-ol');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $orderedTextListHtml, 'li', 4, 'source-text-ordered-list-li-count');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $orderedTextListCss, '.figma-node-text-ordered-list-coverage-list', array('list-style:decimal', 'padding-left:1.5em'), 'source-text-ordered-list-restores-marker-css');
 
     $bulletTextListResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Bullet Text List Fixture',
@@ -194,7 +198,11 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
         ),
     ));
     $bulletTextListHtml = $fileContent($bulletTextListResult, 'index.html');
+    $bulletTextListCss = $fileContent($bulletTextListResult, 'style.css');
     $assert(str_contains($bulletTextListHtml, '<ul class="figma-node-text-bullet-list-bullet-coverage-list" data-figma-node-id="text:bullet-list" data-figma-node-name="Bullet Coverage List"><li>Comprehensive News Coverage</li><li>In-Depth Reviews</li></ul>'), 'source-text-bullet-list-strips-embedded-marker-glyphs');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $bulletTextListHtml, 'ul', 1, 'source-text-bullet-list-single-ul');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $bulletTextListHtml, 'li', 2, 'source-text-bullet-list-li-count');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $bulletTextListCss, '.figma-node-text-bullet-list-bullet-coverage-list', array('list-style:disc', 'padding-left:1.5em'), 'source-text-bullet-list-restores-marker-css');
 
     $derivedSoftWrapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Derived Soft Wrap Fixture',
@@ -370,6 +378,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert(str_contains($derivedTextGlyphHtml, 'data-figma-text-glyphs="true"'), 'derived-text-glyph-svg-emitted');
     $assert(str_contains($derivedTextGlyphHtml, 'aria-label="A B"'), 'derived-text-glyph-svg-label');
     $assert(str_contains($derivedTextGlyphHtml, 'd="M 0 0 Q 4 8 8 0 Z"'), 'derived-text-glyph-svg-path');
+    $assert(2 === substr_count($derivedTextGlyphHtml, 'd="M 0 0 Q 4 8 8 0 Z"'), 'derived-text-glyph-svg-preserves-drawable-path-count');
     $assert(str_contains($derivedTextGlyphHtml, 'transform="translate(2 3) scale(10 -10)"'), 'derived-text-glyph-svg-position');
     $assert(str_contains($derivedTextGlyphHtml, 'transform="translate(10 20) scale(10 -10)"'), 'derived-text-glyph-svg-advance-through-space');
     $assert(! str_contains($derivedTextGlyphHtml, 'transform="translate(5 20) scale(10 -10)"'), 'derived-text-glyph-svg-skips-space-path');
@@ -1179,6 +1188,57 @@ function blocks_engine_figma_transformer_run_text_style_contract(callable $asser
     $textCaseHtml = $fileContent($textCaseResult, 'index.html');
     $assert(str_contains($textCaseHtml, '<span style="display:block;margin-bottom:24px">First paragraph.</span><span style="display:block">Second paragraph.</span>'), 'paragraph-spacing-split-into-margin-boxes');
     $assert(! str_contains($textCaseCss, 'white-space:pre-line'), 'paragraph-spacing-split-drops-pre-line');
+
+    $textCaseInstanceOverrideResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Text Case Instance Override Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'tcio:page',
+                'type'     => 'FRAME',
+                'name'     => 'Page',
+                'children' => array(
+                    array(
+                        'id'         => 'tcio:instance',
+                        'type'       => 'INSTANCE',
+                        'name'       => 'Text instance',
+                        'componentId' => 'tcio:component',
+                        'symbolData' => array(
+                            'symbolOverrides' => array(
+                                array(
+                                    'nodeId'     => 'tcio:source-text',
+                                    'characters' => 'Mixed Case Override',
+                                    'textCase'   => 'ORIGINAL',
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id'          => 'tcio:component',
+                'type'        => 'COMPONENT',
+                'name'        => 'Text component',
+                'componentId' => 'tcio:component',
+                'children'    => array(
+                    array(
+                        'id'         => 'tcio:source-text',
+                        'type'       => 'TEXT',
+                        'name'       => 'Source text',
+                        'characters' => 'SOURCE TEXT',
+                        'style'      => array(
+                            'fontFamily' => 'Example Sans',
+                            'fontSize'   => 18,
+                            'textCase'   => 'UPPER',
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ), array('frame_id' => 'tcio:page'));
+    $textCaseInstanceOverrideCss = $fileContent($textCaseInstanceOverrideResult, 'style.css');
+    $assert(str_contains($textCaseInstanceOverrideCss, '.figma-node-tcio-instance-tcio-source-text-source-text{'), 'text-case-instance-override-rule-emitted');
+    $assert(str_contains($textCaseInstanceOverrideCss, 'text-transform:none'), 'text-case-instance-original-cancels-component-uppercase');
+    $assert(1 !== preg_match('/\.figma-node-tcio-instance-tcio-source-text-source-text\{[^}]*text-transform:uppercase/s', $textCaseInstanceOverrideCss), 'text-case-instance-original-no-stale-uppercase');
 }
 
 function blocks_engine_figma_transformer_run_inline_text_style_contract(callable $assert, callable $fileContent): void
@@ -1554,6 +1614,8 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     $kiwiDerivedRichTextCss = $fileContent($kiwiDerivedRichTextResult, 'style.css');
     $assert(str_contains($kiwiDerivedRichTextHtml, '<ul'), 'kiwi-derived-rich-text-list-container');
     $assert(3 === substr_count($kiwiDerivedRichTextHtml, '<li '), 'kiwi-derived-rich-text-list-items');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $kiwiDerivedRichTextHtml, 'ul', 1, 'kiwi-derived-rich-text-single-semantic-list');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $kiwiDerivedRichTextCss, '.figma-node-krt-list-apart-list', array('list-style:disc', 'padding-left:1.5em'), 'kiwi-derived-rich-text-list-restores-marker-css');
     $assert(str_contains($kiwiDerivedRichTextHtml, '<span style="font-size:16px;text-transform:none">Movement made gentle:</span><span style="font-size:16px;font-weight:400;text-transform:none"> Tips fit your day.</span>'), 'kiwi-derived-rich-text-bold-lead-and-normal-tip');
     $assert(! str_contains($kiwiDerivedRichTextHtml, 'MOVEMENT MADE GENTLE'), 'kiwi-derived-rich-text-no-baked-uppercase');
     $assert(1 !== preg_match('/\.figma-node-krt-text-1-movement-item\{[^}]*text-transform:uppercase/s', $kiwiDerivedRichTextCss), 'kiwi-derived-rich-text-root-uppercase-not-emitted');
@@ -1636,7 +1698,8 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     $kiwiOrderedMarkerRichTextCss = $fileContent($kiwiOrderedMarkerRichTextResult, 'style.css');
     $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<ol'), 'kiwi-ordered-marker-rich-text-list-container');
     $assert(3 === substr_count($kiwiOrderedMarkerRichTextHtml, '<li '), 'kiwi-ordered-marker-rich-text-list-items');
-    $assert(str_contains($kiwiOrderedMarkerRichTextCss, '.figma-node-kom-list-ordered-apart-list{list-style:decimal;padding-left:1.5em}'), 'kiwi-ordered-marker-rich-text-list-markers-preserved');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $kiwiOrderedMarkerRichTextHtml, 'ol', 1, 'kiwi-ordered-marker-rich-text-single-semantic-list');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $kiwiOrderedMarkerRichTextCss, '.figma-node-kom-list-ordered-apart-list', array('list-style:decimal', 'padding-left:1.5em'), 'kiwi-ordered-marker-rich-text-list-markers-preserved');
     $assert(! str_contains($kiwiOrderedMarkerRichTextHtml, '>1.<'), 'kiwi-ordered-marker-rich-text-marker-suppressed');
     $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<p class="figma-node-kom-text-1-body"'), 'kiwi-ordered-marker-rich-text-body-paragraph');
     $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<span style="font-size:16px;text-transform:none">Movement made gentle:</span><span style="font-size:16px;font-weight:400;text-transform:none"> Tips fit your day.</span>'), 'kiwi-ordered-marker-rich-text-body-spans');

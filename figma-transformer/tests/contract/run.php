@@ -5717,6 +5717,36 @@ $assert(! str_contains($semanticHtml, '<div class="figma-node-region-top-top-bar
 $assert(str_contains($semanticHtml, '<section class="figma-node-region-body-content"'), 'semantic-top-level-band-emits-section');
 $assert(1 === substr_count($semanticHtml, '<section'), 'semantic-page-has-single-section');
 
+$linkedContentCardsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Linked Content Cards Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'linked-cards:root',
+            'type'     => 'FRAME',
+            'name'     => 'Featured Content',
+            'width'    => 1200,
+            'height'   => 360,
+            'children' => array(
+                array('id' => 'linked-cards:item-1', 'type' => 'FRAME', 'name' => 'Story Preview', 'width' => 360, 'height' => 180, 'hyperlink' => array('type' => 'URL', 'url' => 'https://example.com/one'), 'children' => array(
+                    array('id' => 'linked-cards:title-1', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'First story', 'fontSize' => 24),
+                    array('id' => 'linked-cards:excerpt-1', 'type' => 'TEXT', 'name' => 'Excerpt', 'characters' => 'A short summary for the first story.', 'fontSize' => 16),
+                )),
+                array('id' => 'linked-cards:item-2', 'type' => 'FRAME', 'name' => 'Story Preview', 'width' => 360, 'height' => 180, 'hyperlink' => array('type' => 'URL', 'url' => 'https://example.com/two'), 'children' => array(
+                    array('id' => 'linked-cards:title-2', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Second story', 'fontSize' => 24),
+                    array('id' => 'linked-cards:excerpt-2', 'type' => 'TEXT', 'name' => 'Excerpt', 'characters' => 'A short summary for the second story.', 'fontSize' => 16),
+                )),
+                array('id' => 'linked-cards:item-3', 'type' => 'FRAME', 'name' => 'Story Preview', 'width' => 360, 'height' => 180, 'hyperlink' => array('type' => 'URL', 'url' => 'https://example.com/three'), 'children' => array(
+                    array('id' => 'linked-cards:title-3', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Third story', 'fontSize' => 24),
+                    array('id' => 'linked-cards:excerpt-3', 'type' => 'TEXT', 'name' => 'Excerpt', 'characters' => 'A short summary for the third story.', 'fontSize' => 16),
+                )),
+            ),
+        ),
+    ),
+));
+$linkedContentCardsHtml = $fileContent($linkedContentCardsResult, 'index.html');
+$assert(str_contains($linkedContentCardsHtml, '<ul class="figma-node-linked-cards-root-featured-content"'), 'semantic-linked-content-cards-emit-list');
+$assert(3 === substr_count($linkedContentCardsHtml, '<li class="figma-node-linked-cards-item-'), 'semantic-linked-content-card-items');
+
 $navMenuItemsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Navigation Menu Items Fixture',
     'nodes' => array(
@@ -6923,6 +6953,53 @@ foreach ( $componentResponsiveStructureResult['files'] ?? array() as $componentR
 $assert('success' === ($componentResponsiveStructureResult['status'] ?? null), 'component-responsive-structure-transform-success');
 $assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-struct-section-feature-section\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:1216px[^}]*margin-left:auto[^}]*margin-right:auto[^}]*height:auto[^}]*flex-direction:column[^}]*gap:32px/s', $componentResponsiveStructureCss) === 1, 'component-responsive-section-fluid-column-centered');
 $assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-struct-lead-lead-card\{[^}]*width:100%[^}]*height:auto/s', $componentResponsiveStructureCss) === 1, 'component-responsive-structural-child-maps-across-source-ids');
+
+$reorderedResponsiveStructureResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name' => 'Reordered Component Responsive Structure Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'reorder:desktop', 'type' => 'FRAME', 'name' => 'Desktop', 'box' => array('width' => 1440, 'height' => 600),
+                'children' => array(
+                    array(
+                        'id' => 'reorder:section', 'type' => 'INSTANCE', 'name' => 'Feature section', 'source_id' => 'component:desktop-section', 'box' => array('width' => 1216, 'height' => 400),
+                        'layout' => array('display' => 'flex', 'flex_direction' => 'row', 'gap' => 44),
+                        'children' => array(
+                            array('id' => 'reorder:lead', 'type' => 'INSTANCE', 'name' => 'Lead card', 'source_id' => 'component:desktop-lead', 'box' => array('width' => 691, 'height' => 300)),
+                            array('id' => 'reorder:list', 'type' => 'INSTANCE', 'name' => 'Card list', 'source_id' => 'component:desktop-list', 'box' => array('width' => 481, 'height' => 300)),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id' => 'reorder:mobile', 'type' => 'FRAME', 'name' => 'Mobile', 'box' => array('width' => 390, 'height' => 900),
+                'children' => array(
+                    array(
+                        'id' => 'reorder:section-mobile', 'type' => 'INSTANCE', 'name' => 'Feature section', 'source_id' => 'component:mobile-section', 'box' => array('width' => 342, 'height' => 820),
+                        'layout' => array('display' => 'flex', 'flex_direction' => 'column', 'gap' => 32),
+                        'children' => array(
+                            array('id' => 'reorder:list-mobile', 'type' => 'INSTANCE', 'name' => 'Card list', 'source_id' => 'component:mobile-list', 'box' => array('width' => 342, 'height' => 360)),
+                            array('id' => 'reorder:lead-mobile', 'type' => 'INSTANCE', 'name' => 'Lead card', 'source_id' => 'component:mobile-lead', 'box' => array('width' => 342, 'height' => 420)),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+    array('pages' => array(array('frame_id' => 'reorder:desktop', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true, 'variants' => array(
+        array('frame_id' => 'reorder:desktop', 'viewport_width' => 1440.0, 'primary' => true),
+        array('frame_id' => 'reorder:mobile', 'viewport_width' => 390.0, 'primary' => false),
+    ))))
+);
+$reorderedResponsiveStructureCss = '';
+foreach ( $reorderedResponsiveStructureResult['files'] ?? array() as $reorderedResponsiveStructureFile ) {
+    if ( is_array($reorderedResponsiveStructureFile) && 'style.css' === ($reorderedResponsiveStructureFile['path'] ?? null) ) {
+        $reorderedResponsiveStructureCss = (string) ($reorderedResponsiveStructureFile['content'] ?? '');
+    }
+}
+$assert('success' === ($reorderedResponsiveStructureResult['status'] ?? null), 'reordered-responsive-structure-transform-success');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-reorder-lead-lead-card\{[^}]*width:100%[^}]*height:auto/s', $reorderedResponsiveStructureCss) === 1, 'reordered-responsive-unique-structural-child-maps-across-source-ids');
+$assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-reorder-lead-lead-card\{[^}]*height:360px/s', $reorderedResponsiveStructureCss), 'reordered-responsive-unique-structural-child-avoids-ordinal-mismatch');
 
 $absoluteComponentResponsiveResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
     array(

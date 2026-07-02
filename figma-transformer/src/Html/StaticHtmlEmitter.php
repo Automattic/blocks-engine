@@ -791,14 +791,14 @@ final class StaticHtmlEmitter
             return 'button';
         }
 
-        $landmark = $this->landmarkTag($node, $lowerName, $children, $depth, $parentNode);
-        if ( null !== $landmark ) {
-            return $landmark;
-        }
-
         // A container of repeated sibling items reads as an unordered list.
         if ( ! empty($this->listItemIds($node)) ) {
             return $this->listLooksOrdered($node) ? 'ol' : 'ul';
+        }
+
+        $landmark = $this->landmarkTag($node, $lowerName, $children, $depth, $parentNode);
+        if ( null !== $landmark ) {
+            return $landmark;
         }
 
         if ( $this->isArticleLikeContainer($node, $lowerName) ) {
@@ -833,19 +833,7 @@ final class StaticHtmlEmitter
 
     private function isChromeListContext(array $node, ?array $parentNode, ?array $grandParentNode): bool
     {
-        foreach ( array($node, $parentNode, $grandParentNode) as $candidate ) {
-            if ( ! is_array($candidate) ) {
-                continue;
-            }
-            $name = strtolower((string) ($candidate['name'] ?? ''));
-            foreach ( array('header', 'footer', 'nav', 'navigation', 'menu') as $hint ) {
-                if ( str_contains($name, $hint) ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
+        return $this->layoutIntentClassifier()->isChromeListContext($node, $parentNode, $grandParentNode);
     }
 
     private function hasExplicitHeadingIntent(string $lowerName): bool
@@ -1824,68 +1812,7 @@ final class StaticHtmlEmitter
      */
     private function computeListItemIds(array $container): array
     {
-        $name = strtolower((string) ($container['name'] ?? ''));
-        foreach ( array('header', 'footer', 'nav', 'menu', 'article') as $hint ) {
-            if ( str_contains($name, $hint) ) {
-                return array();
-            }
-        }
-        if ( str_contains($name, 'table of contents') || preg_match('/\btoc\b/', $name) ) {
-            return array();
-        }
-
-        $children = array_values(array_filter($this->nodeList($container), 'is_array'));
-        if ( 3 > count($children) ) {
-            return array();
-        }
-
-        // Link-saturated clusters read as navigation, not generic content lists.
-        if ( $this->linkChildCount($children) >= count($children) ) {
-            return array();
-        }
-
-        $type = strtoupper((string) ($children[0]['type'] ?? ''));
-        $heights = array();
-        foreach ( $children as $child ) {
-            if ( strtoupper((string) ($child['type'] ?? '')) !== $type ) {
-                return array();
-            }
-            if ( ! $this->subtreeHasText($child) ) {
-                return array();
-            }
-            $height = $this->boxValue($child, 'height');
-            if ( null !== $height ) {
-                $heights[] = $height;
-            }
-        }
-
-        // Direct text-only lists are usually compact nav/legal rows. A larger
-        // text region with several text nodes is content, not a list.
-        if ( 'TEXT' === $type ) {
-            $containerHeight = $this->boxValue($container, 'height');
-            if ( null === $containerHeight || empty($heights) ) {
-                return array();
-            }
-            $maxChildHeight = max($heights);
-            if ( $maxChildHeight > 0.0 && $containerHeight > ( $maxChildHeight * 2.0 ) ) {
-                return array();
-            }
-        }
-
-        if ( count($heights) >= 2 ) {
-            $min = min($heights);
-            $max = max($heights);
-            if ( $min > 0.0 && ( $max / $min ) > 1.5 ) {
-                return array();
-            }
-        }
-
-        $ids = array();
-        foreach ( $children as $child ) {
-            $ids[] = (string) ($child['id'] ?? '');
-        }
-
-        return $ids;
+        return $this->layoutIntentClassifier()->semanticListItemIds($container);
     }
 
     /**
@@ -1931,32 +1858,7 @@ final class StaticHtmlEmitter
      */
     private function listLooksOrdered(array $container): bool
     {
-        $itemIds = $this->listItemIds($container);
-        if ( empty($itemIds) ) {
-            return false;
-        }
-
-        $expected = 1;
-        foreach ( $this->nodeList($container) as $child ) {
-            if ( ! is_array($child) || ! in_array((string) ($child['id'] ?? ''), $itemIds, true) ) {
-                continue;
-            }
-
-            $children = array_values(array_filter($this->nodeList($child), 'is_array'));
-            $hasExpectedMarker = false;
-            foreach ( $children as $itemChild ) {
-                if ( $this->isListMarkerTextChild($itemChild, $expected) ) {
-                    $hasExpectedMarker = true;
-                    break;
-                }
-            }
-            if ( ! $hasExpectedMarker ) {
-                return false;
-            }
-            ++$expected;
-        }
-
-        return $expected > 2;
+        return $this->layoutIntentClassifier()->semanticListLooksOrdered($container);
     }
 
     /**
@@ -4805,9 +4707,8 @@ final class StaticHtmlEmitter
         $parentFreeformUsesFlow = null !== $parentNode && $this->freeformContainerShouldUseFlow($parentNode);
         $willPositionAbsolute = (null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow) || 'absolute' === ($layout['positioning'] ?? null) || $isDecorativeFlexUnderlay;
         $overlapZIndex = null !== $parentNode ? $this->layoutIntentClassifier()->overlappingSiblingZIndex($node, $parentNode) : null;
-        $hasOverlappingStackedChild = $this->hasOverlappingStackedChild($node);
-        $managesLocalStacking = $this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node) || $hasOverlappingStackedChild;
-        $needsLocalStackIsolation = $this->hasDecorativeFlexUnderlayChild($node) || $this->hasMixedPositioningChildren($node) || $this->hasZIndexedChild($node) || $hasOverlappingStackedChild;
+        $managesLocalStacking = $this->layoutIntentClassifier()->managesLocalStacking($node);
+        $needsLocalStackIsolation = $this->layoutIntentClassifier()->needsLocalStackIsolation($node);
         if ( ! $willPositionAbsolute && ($managesLocalStacking || ($parentFreeformUsesFlow && 'FRAME' === $type)) ) {
             $styles[] = 'position:relative';
         }
@@ -5370,59 +5271,9 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function hasMixedPositioningChildren(array $node): bool
-    {
-        $hasAbsolute = false;
-        $hasFlow = false;
-        foreach ( $this->nodeList($node) as $child ) {
-            if ( ! is_array($child) ) {
-                continue;
-            }
-
-            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
-            if ( 'absolute' === ($layout['positioning'] ?? null) ) {
-                $hasAbsolute = true;
-            } else {
-                $hasFlow = true;
-            }
-
-            if ( $hasAbsolute && $hasFlow ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
     private function hasDecorativeFlexUnderlayChild(array $node): bool
     {
         return $this->layoutIntentClassifier()->hasDecorativeFlexUnderlayChild($node);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function hasOverlappingStackedChild(array $node): bool
-    {
-        return $this->layoutIntentClassifier()->hasOverlappingStackedChild($node);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function hasZIndexedChild(array $node): bool
-    {
-        foreach ( $this->nodeList($node) as $child ) {
-            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
-            if ( isset($layout['z_index']) && is_numeric($layout['z_index']) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**

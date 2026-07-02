@@ -9,6 +9,8 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class BreakpointMediaDiffBuilder
 {
+    private readonly ResponsiveNodeMatcher $responsiveNodeMatcher;
+
     /**
      * @param callable(array<string, mixed>): array<int, mixed> $nodeList
      * @param callable(array<string, mixed>, string, array<string, mixed>|null, array<string, mixed>|null): array<int, string> $styleDeclarations
@@ -29,7 +31,9 @@ final class BreakpointMediaDiffBuilder
         private readonly mixed $sanitizeAttribute,
         private readonly mixed $slug,
         private readonly mixed $number,
+        ?ResponsiveNodeMatcher $responsiveNodeMatcher = null,
     ) {
+        $this->responsiveNodeMatcher = $responsiveNodeMatcher ?? new ResponsiveNodeMatcher($this->slug);
     }
 
     /**
@@ -123,41 +127,24 @@ final class BreakpointMediaDiffBuilder
             return;
         }
 
-        $childOrdinal = 0;
+        $children = array();
         foreach ( ($this->nodeList)($node) as $child ) {
             if ( ! is_array($child) || $this->stickyLayoutCoordinator->isSuppressedStickyGhost($child) || ($this->isFullyClippedDecorativeChild)($child, $node) ) {
                 continue;
             }
 
-            foreach ( $this->breakpointChildKeys($child, $childOrdinal) as $childKeyPart ) {
+            $children[] = $child;
+        }
+
+        $childOrdinal = 0;
+        $siblingSignatureCounts = $this->responsiveNodeMatcher->siblingSignatureCounts($children);
+        foreach ( $children as $child ) {
+            foreach ( $this->responsiveNodeMatcher->childKeys($child, $childOrdinal, $siblingSignatureCounts) as $childKeyPart ) {
                 $childKey = $pathKey . '/' . $childKeyPart;
                 $this->collectVariantNodeStyles($child, $depth + 1, $node, $parentNode, $childKey, $map);
             }
             ++$childOrdinal;
         }
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @return array<int, string>
-     */
-    private function breakpointChildKeys(array $node, int $ordinal): array
-    {
-        $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
-        $name = isset($node['name']) && is_scalar($node['name']) ? (string) $node['name'] : '';
-        $keys = array();
-
-        $sourceId = isset($node['figma_component_source_id']) && is_scalar($node['figma_component_source_id']) ? (string) $node['figma_component_source_id'] : '';
-        if ( '' === $sourceId && isset($node['source_id']) && is_scalar($node['source_id']) ) {
-            $sourceId = (string) $node['source_id'];
-        }
-        if ( '' !== $sourceId ) {
-            $keys[] = 'source:' . ($this->slug)($sourceId);
-        }
-
-        $keys[] = 'struct:' . $ordinal . ':' . $type . ':' . ($this->slug)($name);
-
-        return array_values(array_unique($keys));
     }
 
     /**
@@ -232,7 +219,7 @@ final class BreakpointMediaDiffBuilder
             $rules[] = '.' . (string) $base['class'] . '{' . implode(';', $changed) . '}';
         }
 
-        return $rules;
+        return array_values(array_unique($rules));
     }
 
     /**
