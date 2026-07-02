@@ -405,7 +405,9 @@ $assert(1 === count($formFallback['fallbacks'] ?? array()), 'data-entry runtime 
 $assert('html_form_fallback' === ($formFallbackDiagnostic['diagnostic_code'] ?? ''), 'data-entry runtime form fallback carries the form diagnostic code');
 $assert('email' === ($formFallbackDiagnostic['controls'][0]['name'] ?? ''), 'data-entry runtime form fallback carries generic control metadata');
 $assert('/contact' === ($formFallbackDiagnostic['form']['action'] ?? ''), 'data-entry runtime form fallback carries form action metadata');
+$assert(array( 'form_action', 'form_method_post', 'data_entry_controls', 'submit_control', 'data-action' ) === ($formFallbackDiagnostic['runtime_evidence'] ?? array()), 'data-entry runtime form fallback exposes deterministic runtime evidence');
 $assertNormalizedFallbackDiagnostic($formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array(), 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
+$assert(array( 'form_action', 'form_method_post', 'data_entry_controls', 'submit_control', 'data-action' ) === ($formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0]['runtime_evidence'] ?? array()), 'conversion report projects form runtime evidence');
 $assert('core/html' === ($formFallback['blocks'][0]['blockName'] ?? ''), 'data-entry form materializes as preserved form HTML');
 $assert(str_contains((string) ($formFallback['serialized_blocks'] ?? ''), '<form action="/contact" method="post"'), 'data-entry form serialized markup keeps the form element');
 $assert(str_contains((string) ($formFallback['serialized_blocks'] ?? ''), '<input id="email"'), 'data-entry form serialized markup keeps input controls');
@@ -446,6 +448,7 @@ $assert(! str_contains($outlineButtonMarkup, '<span>Tickets</span>'), 'button la
 $scriptOnlyFormFallback = ( new HtmlTransformer() )->transform('<main><form action="/contact" method="post"><script>window.submitContact()</script></form></main>')->toArray();
 $scriptOnlyFormDiagnostic = $scriptOnlyFormFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
 $assertNormalizedFallbackDiagnostic($scriptOnlyFormDiagnostic, 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
+$assert(array( 'form_action', 'form_method_post', 'inline_script' ) === ($scriptOnlyFormDiagnostic['runtime_evidence'] ?? array()), 'script-owned form fallback exposes inline script runtime evidence');
 $assert('interactive_form' === ($scriptOnlyFormDiagnostic['pattern_family'] ?? ''), 'conversion report exposes form fallback pattern family');
 $assert('inside_main' === ($scriptOnlyFormDiagnostic['parent_reason'] ?? ''), 'conversion report exposes fallback parent reason');
 $assert('0,2,2' === ($scriptOnlyFormDiagnostic['source_selector_specificity']['score'] ?? ''), 'conversion report exposes fallback selector specificity');
