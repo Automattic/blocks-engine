@@ -132,7 +132,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
                         'height'   => 483,
                         'children' => array(
                             array('id' => 'fluid-stack:bg', 'type' => 'RECTANGLE', 'name' => 'Footer background', 'x' => 0, 'y' => -64, 'width' => 1440, 'height' => 195, 'layoutPositioning' => 'ABSOLUTE'),
-                            array('id' => 'fluid-stack:card', 'type' => 'FRAME', 'name' => 'Centered card', 'x' => 112, 'y' => 0, 'width' => 1216, 'height' => 352, 'layoutPositioning' => 'ABSOLUTE'),
+                            array('id' => 'fluid-stack:card', 'type' => 'FRAME', 'name' => 'Centered card', 'x' => 112, 'y' => 0, 'width' => 1216, 'height' => 352, 'layoutPositioning' => 'ABSOLUTE', 'constraints' => array('horizontal' => 'LEFT_RIGHT', 'vertical' => 'TOP')),
                         ),
                     ),
                 ),
