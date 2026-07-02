@@ -344,6 +344,17 @@ $assert(array() === ($runtimeCanvasResult['fallbacks'] ?? array()), 'runtime-tar
 $assert('core/html' === ($runtimeCanvasResult['blocks'][0]['blockName'] ?? null), 'runtime-targeted canvas is materialized as bounded raw HTML');
 $assert(str_contains((string) ($runtimeCanvasResult['serialized_blocks'] ?? ''), 'id="fixture-canvas"'), 'runtime-targeted canvas remains addressable in serialized blocks');
 
+$inlineSemanticRuntime = ( new HtmlTransformer() )->transform(
+    '<span class="qty-display" aria-live="polite">1</span>',
+    array('runtime_dom_selectors' => array('.qty-display'))
+)->toArray();
+$inlineSemanticIsland = $inlineSemanticRuntime['source_reports']['runtime_islands'][0] ?? array();
+$assert('core/html' === ($inlineSemanticRuntime['blocks'][0]['blockName'] ?? null), 'runtime-targeted inline semantic HTML remains a bounded core/html island to preserve attributes');
+$assert(str_contains((string) ($inlineSemanticRuntime['serialized_blocks'] ?? ''), 'aria-live="polite"'), 'runtime-targeted inline semantic HTML preserves aria-live in serialized markup');
+$assert('inline_semantic_html' === ($inlineSemanticIsland['pattern_family'] ?? ''), 'runtime-targeted inline semantic HTML reports a specific fallback pattern family');
+$assert('preserve_runtime_island' === ($inlineSemanticIsland['suggested_generic_repair_class'] ?? ''), 'runtime-targeted inline semantic HTML is classified as an attribute-preserving runtime island, not a generic unsupported span');
+$assert('preserved_runtime_island' === ($inlineSemanticIsland['reason_code'] ?? ''), 'runtime-targeted inline semantic HTML keeps the runtime-island reason code');
+
 $invalidStatus = $result;
 $invalidStatus['status'] = 'ok';
 $assertInvalidCanonicalEnvelope($invalidStatus, 'unsupported status', 'canonical validation rejects unsupported status values');

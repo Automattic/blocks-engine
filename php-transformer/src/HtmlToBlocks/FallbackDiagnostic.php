@@ -215,6 +215,10 @@ final class FallbackDiagnostic
         $tag = (string) ($fields['tag'] ?? '');
         $kind = (string) ($fields['kind'] ?? '');
 
+        if ( 'preserved_runtime_island' === $code && self::isInlineSemanticHtmlRuntimeIsland($fields) ) {
+            return 'inline_semantic_html';
+        }
+
         return match ( $code ) {
             'html_form_fallback' => 'interactive_form',
             'html_product_grid_fallback' => 'commerce_product_grid',
@@ -305,7 +309,7 @@ final class FallbackDiagnostic
             return (string) $fields['suggested_repair_class'];
         }
 
-        if ( str_starts_with($patternFamily, 'runtime_') || in_array($patternFamily, array('interactive_form', 'external_embed'), true) ) {
+        if ( str_starts_with($patternFamily, 'runtime_') || in_array($patternFamily, array('interactive_form', 'external_embed', 'inline_semantic_html'), true) ) {
             return 'preserve_runtime_island';
         }
 
@@ -318,5 +322,34 @@ final class FallbackDiagnostic
         }
 
         return 'review_generic_mapping';
+    }
+
+    /**
+     * Inline elements with semantic/ARIA/class hooks cannot be represented as
+     * editable RichText without risking attribute loss, so preserved runtime
+     * islands should cluster separately from generic raw-HTML fallbacks.
+     *
+     * @param array<string, mixed> $fields
+     */
+    private static function isInlineSemanticHtmlRuntimeIsland(array $fields): bool
+    {
+        if ( 'dom' !== (string) ($fields['kind'] ?? '') ) {
+            return false;
+        }
+
+        $tag = strtolower((string) ($fields['tag'] ?? ''));
+        if ( ! in_array($tag, array('a', 'abbr', 'b', 'cite', 'code', 'data', 'em', 'i', 'kbd', 'label', 'mark', 'q', 's', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u', 'var'), true) ) {
+            return false;
+        }
+
+        $attributes = is_array($fields['attributes'] ?? null) ? $fields['attributes'] : array();
+        foreach ( array_keys($attributes) as $name ) {
+            $attributeName = strtolower((string) $name);
+            if ( 'class' === $attributeName || 'id' === $attributeName || 'role' === $attributeName || str_starts_with($attributeName, 'aria-') || str_starts_with($attributeName, 'data-') ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
