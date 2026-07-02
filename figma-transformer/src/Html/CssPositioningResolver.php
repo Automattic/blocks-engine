@@ -215,7 +215,7 @@ final class CssPositioningResolver
             return $styles;
         }
 
-        if ( $isHorizontal && $centerWithinFluidCanvas && null !== $offset && null !== $parentSize && null !== $boxSize && $offset >= -0.5 && $offset + $boxSize <= $parentSize + 0.5 && ! in_array($constraint, array($farPin, 'CENTER'), true) ) {
+        if ( $isHorizontal && $centerWithinFluidCanvas && null !== $offset && null !== $parentSize && null !== $boxSize && $this->hasSymmetricFluidCanvasGutters($offset, $parentSize, $boxSize) && ! in_array($constraint, array($farPin, 'CENTER'), true) ) {
             $leadingDelta = $offset - ( $parentSize / 2.0 );
             $sign = $leadingDelta < 0 ? '-' : '+';
             $styles[] = $startProp . ':calc(50% ' . $sign . ' ' . $this->number(abs($leadingDelta)) . 'px)';
@@ -232,6 +232,16 @@ final class CssPositioningResolver
         }
 
         return $styles;
+    }
+
+    private function hasSymmetricFluidCanvasGutters(float $offset, float $parentSize, float $boxSize): bool
+    {
+        if ( $offset < -0.5 || $offset + $boxSize > $parentSize + 0.5 ) {
+            return false;
+        }
+
+        $trailing = $parentSize - $offset - $boxSize;
+        return abs($offset - $trailing) <= 1.0;
     }
 
     private function number(float $value): string

@@ -150,7 +150,33 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $assert(str_contains($derivedTextLayoutCss, '.figma-node-text-derived-layout-measured-text{') && str_contains($derivedTextLayoutCss, 'width:146.5px;height:32.25px') && str_contains($derivedTextLayoutCss, 'line-height:22px'), 'single-line-derived-baseline-line-height-css');
     $assert(false === ($derivedTextLayoutResult['source_reports']['figma']['html']['render_text_glyph_paths'] ?? null), 'derived-text-glyph-rendering-default-disabled');
     $assert(! str_contains($fileContent($derivedTextLayoutResult, 'index.html'), 'data-figma-text-glyphs="true"'), 'derived-text-default-avoids-glyph-svg');
-    
+
+    $derivedSoftWrapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Derived Soft Wrap Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'text:derived-soft-wrap',
+                'type'       => 'TEXT',
+                'name'       => 'Measured Soft Wrap Heading',
+                'characters' => 'We' . "\u{2019}" . 're all about Lego',
+                'width'      => 342,
+                'height'     => 100,
+                'fontSize'   => 56,
+                'derivedTextData' => array(
+                    'layoutSize' => array('x' => 342, 'y' => 100),
+                    'baselines'  => array(
+                        array('position' => array('x' => 0, 'y' => 50), 'width' => 210, 'lineY' => 0, 'lineHeight' => 50, 'firstCharacter' => 0, 'endCharacter' => 9),
+                        array('position' => array('x' => 0, 'y' => 100), 'width' => 300, 'lineY' => 50, 'lineHeight' => 50, 'firstCharacter' => 10, 'endCharacter' => 20),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $derivedSoftWrapCss = $fileContent($derivedSoftWrapResult, 'style.css');
+    $derivedSoftWrapHtml = $fileContent($derivedSoftWrapResult, 'index.html');
+    $assert(str_contains($derivedSoftWrapCss, '.figma-node-text-derived-soft-wrap-measured-soft-wrap-heading{width:342px;height:100px;font-size:56px;line-height:50px;white-space:pre}'), 'derived-soft-wrap-preserves-line-boxes-without-browser-rewrap');
+    $assert(str_contains($derivedSoftWrapHtml, "We\u{2019}re all\nabout Lego"), 'derived-soft-wrap-html-keeps-measured-line-break');
+
     $unsupportedGlyphScenegraph = array(
         'name'  => 'Unsupported Glyph Diagnostic Fixture',
         'blobs' => array(array('bytes' => chr(9))),
@@ -496,7 +522,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     $derivedLineBreakHtml = $fileContent($derivedLineBreakResult, 'index.html');
     $derivedLineBreakCss = $fileContent($derivedLineBreakResult, 'style.css');
     $assert(str_contains($derivedLineBreakHtml, "First line\nSecond line"), 'derived-baselines-insert-line-breaks');
-    $assert(str_contains($derivedLineBreakCss, '.figma-node-text-derived-lines-measured-lines{width:120px;height:44px;line-height:22px;white-space:pre-line}'), 'derived-baselines-enable-pre-line');
+    $assert(str_contains($derivedLineBreakCss, '.figma-node-text-derived-lines-measured-lines{width:120px;height:44px;line-height:22px;white-space:pre}'), 'derived-baselines-enable-pre');
     $assert(! str_contains($derivedLineBreakCss, 'line-height:40px;line-height:22px'), 'derived-baselines-replace-source-line-height');
     
     $derivedHugTextHeightResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -575,7 +601,7 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
             $derivedMeasuredLineHeightDiagnostic = $styleDiagnostic;
         }
     }
-    $assert(str_contains($derivedMeasuredLineHeightCss, '.figma-node-text-derived-measured-line-height-measured-line-height{width:120px;height:40px;line-height:23px;white-space:pre-line}'), 'derived-baselines-prefer-position-delta-line-height');
+    $assert(str_contains($derivedMeasuredLineHeightCss, '.figma-node-text-derived-measured-line-height-measured-line-height{width:120px;height:40px;line-height:23px;white-space:pre}'), 'derived-baselines-prefer-position-delta-line-height');
     $assert('23px' === ($derivedMeasuredLineHeightDiagnostic['expected']['line_height'] ?? null), 'derived-baselines-measured-line-height-expected-diagnostic');
     $assert('23px' === ($derivedMeasuredLineHeightDiagnostic['emitted']['line_height'] ?? null), 'derived-baselines-measured-line-height-emitted-diagnostic');
     $assert(array() === ($derivedMeasuredLineHeightDiagnostic['mismatches'] ?? null), 'derived-baselines-measured-line-height-no-diagnostic-mismatch');

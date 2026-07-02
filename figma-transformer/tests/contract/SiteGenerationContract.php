@@ -144,6 +144,36 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-bg-footer-background{width:100%;height:195px;position:absolute;left:0px;top:-64px'), 'quality-diagnostics-fluid-managed-stack-full-bleed-child-stays-full-width');
     $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-card-centered-card{width:1216px;height:352px;position:absolute;left:calc(50% - 608px);top:0px'), 'quality-diagnostics-fluid-managed-stack-centered-child-uses-canvas-center');
 
+    $fluidInstanceStackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Fluid Instance Managed Stack Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'fluid-instance:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 1440,
+                'height'   => 900,
+                'layoutMode' => 'VERTICAL',
+                'children' => array(
+                    array(
+                        'id'       => 'fluid-instance:footer',
+                        'type'     => 'INSTANCE',
+                        'name'     => 'Footer shell',
+                        'width'    => 1440,
+                        'height'   => 483,
+                        'children' => array(
+                            array('id' => 'fluid-instance:bg', 'type' => 'RECTANGLE', 'name' => 'Footer background', 'x' => 0, 'y' => -64, 'width' => 1440, 'height' => 195, 'layoutPositioning' => 'ABSOLUTE'),
+                            array('id' => 'fluid-instance:card', 'type' => 'INSTANCE', 'name' => 'Newsletter signup', 'x' => 112, 'y' => 0, 'width' => 1216, 'height' => 352, 'layoutPositioning' => 'ABSOLUTE', 'stackMode' => 'VERTICAL', 'stackCounterSizing' => 'RESIZE_TO_FIT_WITH_IMPLICIT_SIZE'),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $fluidInstanceStackCss = $fileContent($fluidInstanceStackResult, 'style.css');
+    $assert(str_contains($fluidInstanceStackCss, '.figma-node-fluid-instance-footer-footer-shell{width:100%;height:483px;'), 'quality-diagnostics-fluid-instance-stack-renders-full-width');
+    $assert(str_contains($fluidInstanceStackCss, '.figma-node-fluid-instance-card-newsletter-signup{width:1216px;height:352px;position:absolute;left:calc(50% - 608px);top:0px'), 'quality-diagnostics-fluid-instance-centered-child-uses-canvas-center');
+
     $assert(in_array('large_absolute_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-absolute-offsets');
     $assert(in_array('large_css_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-css-offsets');
     $assert(in_array('image_heavy_landmark_candidate', $qualitySignalCodes, true), 'quality-diagnostics-image-heavy-landmark');

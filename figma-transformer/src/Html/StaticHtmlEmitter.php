@@ -4199,7 +4199,19 @@ final class StaticHtmlEmitter
         }
 
         $type = strtoupper((string) ($node['type'] ?? ''));
-        return null !== $parentNode && ! in_array($type, array('COMPONENT', 'INSTANCE'), true) && ($this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node));
+        if ( 'COMPONENT' === $type || null === $parentNode ) {
+            return false;
+        }
+
+        if ( 'INSTANCE' === $type ) {
+            if ( isset($node['componentId']) || isset($node['component_id']) || isset($node['figma_component_source_id']) || isset($node['source_id']) ) {
+                return false;
+            }
+
+            return $this->isFreeformContainer($node);
+        }
+
+        return $this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node);
     }
 
     /**
@@ -5013,7 +5025,7 @@ final class StaticHtmlEmitter
             $styles[] = 'line-height:' . $this->number($derivedLineHeight) . 'px';
         }
         if ( ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) && ! $this->shouldSplitParagraphs($node) ) {
-            $styles[] = 'white-space:pre-line';
+            $styles[] = $this->textHasDerivedLineBreaks($node) && ! $this->textHasLineBreaks($node) ? 'white-space:pre' : 'white-space:pre-line';
         }
 
         return $styles;
