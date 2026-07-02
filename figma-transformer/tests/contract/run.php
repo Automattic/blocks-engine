@@ -6507,6 +6507,135 @@ $assert(str_contains($midpointBreakpointCss, '@media (max-width:915px){'), 'midp
 // The narrow variant's own width (390) must NOT be the breakpoint.
 $assert(! str_contains($midpointBreakpointCss, '@media (max-width:390px){'), 'midpoint-breakpoint-not-variant-own-width');
 
+$paginationSemanticsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Pagination Semantics Fixture',
+    'nodes' => array(
+        array(
+            'id' => 'pag:root', 'type' => 'FRAME', 'name' => 'Root', 'width' => 1200, 'height' => 220,
+            'layoutMode' => 'VERTICAL', 'itemSpacing' => 32,
+            'children' => array(
+                array(
+                    'id' => 'pag:heading-row', 'type' => 'FRAME', 'name' => 'Heading with Separator', 'width' => 1200, 'height' => 48,
+                    'layoutMode' => 'HORIZONTAL', 'counterAxisAlignItems' => 'CENTER', 'itemSpacing' => 24,
+                    'children' => array(
+                        array('id' => 'pag:heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Trending', 'width' => 169, 'height' => 48, 'fontSize' => 48, 'fontWeight' => 700, 'lineHeightPx' => 57.6),
+                        array(
+                            'id' => 'pag:separator-frame', 'type' => 'FRAME', 'name' => 'Frame 27', 'width' => 943, 'height' => 4,
+                            'layoutMode' => 'HORIZONTAL', 'counterAxisAlignItems' => 'CENTER', 'paddingTop' => 4, 'paddingBottom' => 4,
+                            'children' => array(
+                                array('id' => 'pag:separator-vector', 'type' => 'VECTOR', 'name' => 'Vector 10', 'width' => 943, 'height' => 1),
+                            ),
+                        ),
+                    ),
+                ),
+                array(
+                    'id' => 'pag:controls', 'type' => 'FRAME', 'name' => 'Pagination', 'width' => 1216, 'height' => 40,
+                    'layoutMode' => 'HORIZONTAL', 'primaryAxisAlignItems' => 'SPACE_BETWEEN', 'counterAxisAlignItems' => 'CENTER',
+                    'children' => array(
+                        array(
+                            'id' => 'pag:previous', 'type' => 'FRAME', 'name' => 'Button', 'width' => 462, 'height' => 20,
+                            'layoutMode' => 'HORIZONTAL',
+                            'children' => array(
+                                array(
+                                    'id' => 'pag:previous-base', 'type' => 'FRAME', 'name' => '_Button base', 'width' => 100, 'height' => 20,
+                                    'layoutMode' => 'HORIZONTAL', 'counterAxisAlignItems' => 'CENTER', 'primaryAxisAlignItems' => 'CENTER', 'itemSpacing' => 12,
+                                    'children' => array(array('id' => 'pag:previous-text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Previous', 'width' => 68, 'height' => 26, 'fontSize' => 16)),
+                                ),
+                            ),
+                        ),
+                        array(
+                            'id' => 'pag:numbers', 'type' => 'FRAME', 'name' => 'Pagination numbers', 'width' => 292, 'height' => 40,
+                            'layoutMode' => 'HORIZONTAL', 'itemSpacing' => 2,
+                            'children' => array(
+                                array('id' => 'pag:n1', 'type' => 'FRAME', 'name' => '_Pagination number base', 'width' => 40, 'height' => 40, 'children' => array(array('id' => 'pag:t1', 'type' => 'TEXT', 'name' => 'Number', 'characters' => '1'))),
+                                array('id' => 'pag:n2', 'type' => 'FRAME', 'name' => '_Pagination number base', 'width' => 40, 'height' => 40, 'children' => array(array('id' => 'pag:t2', 'type' => 'TEXT', 'name' => 'Number', 'characters' => '2'))),
+                                array('id' => 'pag:n3', 'type' => 'FRAME', 'name' => '_Pagination number base', 'width' => 40, 'height' => 40, 'children' => array(array('id' => 'pag:t3', 'type' => 'TEXT', 'name' => 'Number', 'characters' => '3'))),
+                                array('id' => 'pag:n4', 'type' => 'FRAME', 'name' => '_Pagination number base', 'width' => 40, 'height' => 40, 'children' => array(array('id' => 'pag:t4', 'type' => 'TEXT', 'name' => 'Number', 'characters' => '...'))),
+                            ),
+                        ),
+                        array(
+                            'id' => 'pag:next', 'type' => 'FRAME', 'name' => 'Button', 'width' => 462, 'height' => 20,
+                            'layoutMode' => 'HORIZONTAL', 'primaryAxisAlignItems' => 'MAX',
+                            'children' => array(
+                                array(
+                                    'id' => 'pag:next-base', 'type' => 'FRAME', 'name' => '_Button base', 'width' => 70, 'height' => 20,
+                                    'layoutMode' => 'HORIZONTAL', 'counterAxisAlignItems' => 'CENTER', 'primaryAxisAlignItems' => 'CENTER', 'itemSpacing' => 12,
+                                    'children' => array(array('id' => 'pag:next-text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Next', 'width' => 38, 'height' => 26, 'fontSize' => 16)),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$paginationSemanticsHtml = $fileContent($paginationSemanticsResult, 'index.html');
+$paginationSemanticsCss = $fileContent($paginationSemanticsResult, 'style.css');
+$assert('success' === ($paginationSemanticsResult['status'] ?? null), 'pagination-semantics-transform-success');
+$assert(! preg_match('/<button[^>]*data-figma-node-id="pag:previous"[\s\S]*<button[^>]*data-figma-node-id="pag:previous-base"/', $paginationSemanticsHtml), 'pagination-previous-avoids-nested-button');
+$assert(! preg_match('/<button[^>]*data-figma-node-id="pag:next"[\s\S]*<button[^>]*data-figma-node-id="pag:next-base"/', $paginationSemanticsHtml), 'pagination-next-avoids-nested-button');
+$assert(str_contains($paginationSemanticsHtml, '<ul class="figma-node-pag-numbers-pagination-numbers"'), 'pagination-numbers-still-list');
+$assert(str_contains($paginationSemanticsCss, '.figma-node-pag-separator-frame-frame-27{') && str_contains($paginationSemanticsCss, 'align-self:center') && str_contains($paginationSemanticsCss, 'margin-top:-4.8px'), 'heading-separator-line-box-offset');
+
+$paginationResponsiveResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name' => 'Pagination Responsive Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'preserve:desktop', 'type' => 'FRAME', 'name' => 'Desktop', 'box' => array('width' => 1440, 'height' => 120),
+                'children' => array(
+                    array(
+                        'id' => 'preserve:pagination', 'type' => 'FRAME', 'name' => 'Pagination', 'box' => array('width' => 1216, 'height' => 40),
+                        'layout' => array('display' => 'flex', 'flex_direction' => 'row', 'justify_content' => 'space-between', 'align_items' => 'center'),
+                        'children' => array(
+                            array('id' => 'preserve:prev', 'type' => 'TEXT', 'name' => 'Previous', 'box' => array('width' => 68, 'height' => 26), 'figma_text' => array('characters' => 'Previous')),
+                            array('id' => 'preserve:pages', 'type' => 'FRAME', 'name' => 'Pagination numbers', 'box' => array('width' => 292, 'height' => 40), 'layout' => array('display' => 'flex', 'flex_direction' => 'row'), 'children' => array(
+                                array('id' => 'preserve:one', 'type' => 'TEXT', 'name' => 'Number', 'figma_text' => array('characters' => '1')),
+                                array('id' => 'preserve:two', 'type' => 'TEXT', 'name' => 'Number', 'figma_text' => array('characters' => '2')),
+                                array('id' => 'preserve:dots', 'type' => 'TEXT', 'name' => 'Number', 'figma_text' => array('characters' => '...')),
+                            )),
+                            array('id' => 'preserve:next', 'type' => 'TEXT', 'name' => 'Next', 'box' => array('width' => 38, 'height' => 26), 'figma_text' => array('characters' => 'Next')),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id' => 'preserve:mobile', 'type' => 'FRAME', 'name' => 'Mobile', 'box' => array('width' => 390, 'height' => 120),
+                'children' => array(
+                    array(
+                        'id' => 'preserve:pagination-mobile', 'type' => 'FRAME', 'name' => 'Pagination', 'box' => array('width' => 342, 'height' => 36),
+                        'layout' => array('display' => 'flex', 'flex_direction' => 'row', 'justify_content' => 'space-between', 'align_items' => 'center', 'flex_wrap' => 'wrap'),
+                        'children' => array(
+                            array('id' => 'preserve:prev-mobile', 'type' => 'TEXT', 'name' => 'Previous', 'box' => array('width' => 68, 'height' => 26), 'figma_text' => array('characters' => 'Previous')),
+                            array('id' => 'preserve:pages-mobile', 'type' => 'FRAME', 'name' => 'Pagination numbers', 'box' => array('width' => 292, 'height' => 40), 'layout' => array('display' => 'flex', 'flex_direction' => 'row'), 'children' => array(
+                                array('id' => 'preserve:one-mobile', 'type' => 'TEXT', 'name' => 'Number', 'figma_text' => array('characters' => '1')),
+                                array('id' => 'preserve:two-mobile', 'type' => 'TEXT', 'name' => 'Number', 'figma_text' => array('characters' => '2')),
+                                array('id' => 'preserve:dots-mobile', 'type' => 'TEXT', 'name' => 'Number', 'figma_text' => array('characters' => '...')),
+                            )),
+                            array('id' => 'preserve:next-mobile', 'type' => 'TEXT', 'name' => 'Next', 'box' => array('width' => 38, 'height' => 26), 'figma_text' => array('characters' => 'Next')),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+    array('pages' => array(array('frame_id' => 'preserve:desktop', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true, 'variants' => array(
+        array('frame_id' => 'preserve:desktop', 'viewport_width' => 1440.0, 'primary' => true),
+        array('frame_id' => 'preserve:mobile', 'viewport_width' => 390.0, 'primary' => false),
+    ))))
+);
+$paginationResponsiveCss = '';
+foreach ( $paginationResponsiveResult['files'] ?? array() as $paginationResponsiveFile ) {
+    if ( is_array($paginationResponsiveFile) && 'style.css' === ($paginationResponsiveFile['path'] ?? null) ) {
+        $paginationResponsiveCss = (string) ($paginationResponsiveFile['content'] ?? '');
+    }
+}
+$assert('success' === ($paginationResponsiveResult['status'] ?? null), 'pagination-responsive-transform-success');
+$assert(str_contains($paginationResponsiveCss, '.figma-node-preserve-pagination-pagination{width:1216px;height:40px'), 'pagination-responsive-base-row-preserved');
+$assert(! preg_match('/\.figma-node-preserve-pagination-pagination\{[^}]*height:36px/', $paginationResponsiveCss), 'pagination-responsive-does-not-override-height');
+$assert(! preg_match('/\.figma-node-preserve-pagination-pagination\{[^}]*flex-wrap:wrap/', $paginationResponsiveCss), 'pagination-responsive-does-not-wrap');
+
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");
     exit(1);

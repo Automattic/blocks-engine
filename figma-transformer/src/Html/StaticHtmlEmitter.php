@@ -635,6 +635,7 @@ final class StaticHtmlEmitter
             'class'           => $className,
             'styles'          => $styles,
             'contains_sticky' => $this->stickyLayoutCoordinator()->containsStickyPrimary($node),
+            'node'            => $node,
         );
 
         $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
@@ -692,6 +693,8 @@ final class StaticHtmlEmitter
 
             $changed = array();
             $baseContainsSticky = true === ($base['contains_sticky'] ?? false);
+            $baseNode = is_array($base['node'] ?? null) ? $base['node'] : array();
+            $preservePaginationRow = ! empty($baseNode) && $this->isPaginationContainer($baseNode);
             foreach ( $variantDeclarations as $declaration ) {
                 $parts = explode(':', (string) $declaration, 2);
                 if ( 2 !== count($parts) ) {
@@ -701,6 +704,9 @@ final class StaticHtmlEmitter
                 $property = trim($parts[0]);
                 $value = trim($parts[1]);
                 if ( $baseContainsSticky && 'overflow' === $property ) {
+                    continue;
+                }
+                if ( $preservePaginationRow && in_array($property, array('height', 'flex-wrap', 'align-content'), true) ) {
                     continue;
                 }
                 if ( ! array_key_exists($property, $baseMap) || $baseMap[$property] !== $value ) {
@@ -879,6 +885,12 @@ final class StaticHtmlEmitter
 
         if ( $this->isInputLike($node) ) {
             return 'input';
+        }
+
+        // Inner component chrome inside a larger button-like control is
+        // structural. Only the outer control should become interactive HTML.
+        if ( null !== $parentNode && $this->isButtonLike($parentNode) && $this->isButtonLike($node) ) {
+            return 'div';
         }
 
         // A standalone button-like control (no link) becomes a real <button>.
@@ -1314,6 +1326,126 @@ final class StaticHtmlEmitter
         }
 
         return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isHeadingSeparatorChild(array $node, array $parentNode): bool
+    {
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        if ( 'flex' !== ($parentLayout['display'] ?? null) || 'row' !== ($parentLayout['flex_direction'] ?? null) ) {
+            return false;
+        }
+
+        if ( ! $this->subtreeIsDecorativeSeparator($node) ) {
+            return false;
+        }
+
+        $textChildren = 0;
+        $separatorChildren = 0;
+        foreach ( $this->nodeList($parentNode) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            if ( 'TEXT' === strtoupper((string) ($child['type'] ?? '')) && '' !== trim($this->textContent($child)) ) {
+                ++$textChildren;
+            } elseif ( $this->subtreeIsDecorativeSeparator($child) ) {
+                ++$separatorChildren;
+            }
+        }
+
+        return 1 === $textChildren && $separatorChildren >= 1;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isPaginationContainer(array $node): bool
+    {
+        $text = strtolower(' ' . preg_replace('/\s+/', ' ', trim($this->subtreePlainText($node))) . ' ');
+        if ( ! str_contains($text, ' previous ') || ! str_contains($text, ' next ') ) {
+            return false;
+        }
+
+        $numberTokens = 0;
+        foreach ( preg_split('/\s+/', trim($text)) ?: array() as $token ) {
+            if ( preg_match('/^(\d+|…|\.\.\.)$/', $token) ) {
+                ++$numberTokens;
+            }
+        }
+
+        if ( $numberTokens < 3 ) {
+            return false;
+        }
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return 'flex' === ($layout['display'] ?? null) && 'row' === ($layout['flex_direction'] ?? null);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function subtreeIsDecorativeSeparator(array $node): bool
+    {
+        if ( $this->subtreeHasText($node) || null !== $this->nodeAssetPath($node) ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : null;
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
+        if ( null !== $width && null !== $height && $width >= 24.0 && $height <= 12.0 ) {
+            return true;
+        }
+
+        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
+        if ( empty($children) ) {
+            return in_array(strtoupper((string) ($node['type'] ?? '')), array('VECTOR', 'LINE', 'RECTANGLE'), true)
+                && null !== $width
+                && null !== $height
+                && $width >= 24.0
+                && $height <= 12.0;
+        }
+
+        foreach ( $children as $child ) {
+            if ( ! $this->subtreeIsDecorativeSeparator($child) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param array<string, mixed> $parentNode
+     */
+    private function headingSeparatorBaselineOffset(array $parentNode): ?float
+    {
+        foreach ( $this->nodeList($parentNode) as $child ) {
+            if ( ! is_array($child) || 'TEXT' !== strtoupper((string) ($child['type'] ?? '')) ) {
+                continue;
+            }
+
+            $text = is_array($child['figma_text'] ?? null) ? $child['figma_text'] : array();
+            $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+            $fontSize = isset($style['font_size']) && is_numeric($style['font_size']) ? (float) $style['font_size'] : null;
+            $lineHeight = null;
+            foreach ( array('line_height_px', 'line_height') as $key ) {
+                if ( isset($style[$key]) && is_numeric($style[$key]) ) {
+                    $lineHeight = (float) $style[$key];
+                    break;
+                }
+            }
+            if ( null === $fontSize || null === $lineHeight || $lineHeight <= $fontSize ) {
+                return null;
+            }
+
+            return -($lineHeight - $fontSize) / 2.0;
+        }
+
+        return null;
     }
 
     /**
@@ -3973,6 +4105,14 @@ final class StaticHtmlEmitter
                 if ( isset($layout['padding'][$edge]) && is_numeric($layout['padding'][$edge]) ) {
                     $styles[] = 'padding-' . $edge . ':' . $this->number($this->cssPaddingValue($node, $edge)) . 'px';
                 }
+            }
+        }
+
+        if ( null !== $parentNode && $this->isHeadingSeparatorChild($node, $parentNode) ) {
+            $styles[] = 'align-self:center';
+            $offset = $this->headingSeparatorBaselineOffset($parentNode);
+            if ( null !== $offset ) {
+                $styles[] = 'margin-top:' . $this->number($offset) . 'px';
             }
         }
 
