@@ -176,11 +176,25 @@ $visualParityReport = array(
         array('viewport_id' => 'desktop', 'source_selector' => '.hero .button', 'target_selector' => '.wp-block-button__link', 'property' => 'border-radius', 'source_value' => '999px', 'target_value' => '4px', 'delta' => 'rounded-to-square', 'severity' => 'warning'),
     ),
     'visual_diff'           => array('available' => true, 'mismatch_percent' => 0.42, 'mismatch_pixels' => 420, 'total_pixels' => 100000, 'ssim' => 0.98, 'threshold' => 0.5, 'diff_screenshot_path' => 'screens/diff-desktop.png'),
+    'capture_diagnostics'   => array('runner' => 'visual-parity-fixture-runner', 'browser' => 'chromium', 'timing_ms' => 123.4, 'artifact_paths' => array('screens/source-desktop.png', 'screens/target-desktop.png'), 'warnings' => array()),
     'findings'              => array(
-        array('id' => 'style-button-radius', 'severity' => 'warning', 'category' => 'style', 'summary' => 'Button radius changed.', 'kind' => 'button', 'recommendation_ids' => array('rec-button-radius')),
+        array(
+            'id'                 => 'style-button-radius',
+            'severity'           => 'warning',
+            'category'           => 'style',
+            'summary'            => 'Button radius changed.',
+            'reason_code'        => 'button_radius_changed',
+            'repair_bucket'      => 'style_token_alignment',
+            'pattern_family'     => 'button_shape',
+            'confidence'         => 0.91,
+            'kind'               => 'button',
+            'selector_evidence'  => array('source_selector' => '.hero .button', 'target_selector' => '.wp-block-button__link', 'source_text' => 'Book now', 'target_text' => 'Book now'),
+            'property_evidence'  => array(array('property' => 'border-radius', 'source_value' => '999px', 'target_value' => '4px', 'delta' => 'rounded-to-square')),
+            'recommendation_ids' => array('rec-button-radius'),
+        ),
     ),
     'recommendations'       => array(
-        array('id' => 'rec-button-radius', 'priority' => 'medium', 'summary' => 'Align target button radius with the source button treatment.', 'finding_ids' => array('style-button-radius')),
+        array('id' => 'rec-button-radius', 'priority' => 'medium', 'summary' => 'Align target button radius with the source button treatment.', 'repair_bucket' => 'style_token_alignment', 'pattern_family' => 'button_shape', 'confidence' => 0.86, 'finding_ids' => array('style-button-radius')),
     ),
 );
 VisualParityReportContract::assertReport($visualParityReport);
@@ -192,6 +206,15 @@ try {
     $assert(false, 'visual parity report rejects product-specific match kinds');
 } catch ( \InvalidArgumentException $exception ) {
     $assert(str_contains($exception->getMessage(), 'unsupported component kind'), 'visual parity report rejects product-specific match kinds', $exception->getMessage());
+}
+
+$invalidVisualParityReport = $visualParityReport;
+$invalidVisualParityReport['findings'][0]['confidence'] = 1.5;
+try {
+    VisualParityReportContract::assertReport($invalidVisualParityReport);
+    $assert(false, 'visual parity report rejects out-of-range finding confidence');
+} catch ( \InvalidArgumentException $exception ) {
+    $assert(str_contains($exception->getMessage(), 'numeric between 0 and 1'), 'visual parity report rejects out-of-range finding confidence', $exception->getMessage());
 }
 
 // Typography visual probe comparator emits reports through the shared
@@ -407,10 +430,21 @@ $inlineSvgArtwork = ( new HtmlTransformer() )->transform(
     '<main><svg class="album-art" viewBox="0 0 100 100" role="img" aria-label="Album art"><rect width="100" height="100" fill="#111"/><circle cx="50" cy="50" r="30" fill="#c4581a"/></svg></main>'
 )->toArray();
 $inlineSvgMarkup = (string) ($inlineSvgArtwork['serialized_blocks'] ?? '');
-$assert('core/image' === ($inlineSvgArtwork['blocks'][0]['blockName'] ?? ''), 'meaningful inline SVG artwork materializes as an image block');
-$assert(str_contains($inlineSvgMarkup, '<!-- wp:image'), 'meaningful inline SVG artwork serializes as core/image');
-$assert(str_contains($inlineSvgMarkup, 'data:image/svg+xml'), 'meaningful inline SVG artwork uses a safe data image URL');
-$assert(str_contains($inlineSvgMarkup, 'alt="Album art"'), 'meaningful inline SVG artwork preserves accessible label as image alt text');
+$assert('core/html' === ($inlineSvgArtwork['blocks'][0]['blockName'] ?? ''), 'meaningful inline SVG artwork materializes as sanitized inline HTML');
+$assert(str_contains($inlineSvgMarkup, '<!-- wp:html'), 'meaningful inline SVG artwork serializes as core/html');
+$assert(str_contains($inlineSvgMarkup, '<svg class="album-art"'), 'meaningful inline SVG artwork preserves the SVG element and class');
+$assert(str_contains($inlineSvgMarkup, 'aria-label="Album art"'), 'meaningful inline SVG artwork preserves accessible label');
+$assert(! str_contains($inlineSvgMarkup, 'data:image/svg+xml'), 'meaningful inline SVG artwork avoids unreliable data image URLs');
+
+$classOwnedGrid = ( new HtmlTransformer() )->transform('<style>.hero-inner{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(260px,.9fr);gap:4rem}</style><main><div class="hero-inner"><div>Text</div><div>Art</div></div></main>')->toArray();
+$classOwnedGridMarkup = (string) ($classOwnedGrid['serialized_blocks'] ?? '');
+$assert(str_contains($classOwnedGridMarkup, 'hero-inner'), 'class-owned CSS grid keeps the source class');
+$assert(! str_contains($classOwnedGridMarkup, 'is-layout-grid'), 'class-owned CSS grid avoids WP layout classes that override exact source tracks');
+
+$classOwnedFlex = ( new HtmlTransformer() )->transform('<style>.hero{display:flex;align-items:center;min-height:100vh}</style><main><section class="hero"><div>Text</div></section></main>')->toArray();
+$classOwnedFlexMarkup = (string) ($classOwnedFlex['serialized_blocks'] ?? '');
+$assert(str_contains($classOwnedFlexMarkup, 'hero'), 'class-owned CSS flex keeps the source class');
+$assert(! str_contains($classOwnedFlexMarkup, 'is-layout-flex'), 'class-owned CSS flex avoids WP layout classes that override exact source layout');
 
 $outlineButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;background:transparent;color:#eee;text-transform:uppercase" href="/tickets"><span>Tickets</span></a></main>'
@@ -494,6 +528,14 @@ $assert(str_contains((string) ($buttonBlocks[1]['innerBlocks'][0]['attrs']['text
 $assert(! str_contains((string) $buttonResult['serialized_blocks'], '\\u003c'), 'button serialization avoids escaped nested HTML attrs');
 $assert(! str_contains((string) $buttonResult['serialized_blocks'], '<h3>Reserve now</h3>'), 'button serialization avoids block-level markup inside link text');
 $assert('pass' === ($buttonResult['source_reports']['wp_block_validity']['status'] ?? ''), 'HTML transform exposes passing WordPress block validity report for generated buttons');
+
+$buttonCustomFontSizeResult = ( new HtmlTransformer() )->transform(
+    '<main><a class="artist-button" href="/music" style="font-size:1rem;color:#fdf0d5;border:1px solid #fdf0d5">Listen now</a></main>'
+)->toArray();
+$buttonCustomFontSizeMarkup = (string) ($buttonCustomFontSizeResult['serialized_blocks'] ?? '');
+$assert(str_contains($buttonCustomFontSizeMarkup, 'has-custom-font-size'), 'button custom font-size emits the WordPress support class required by core/button save markup');
+$assert(str_contains($buttonCustomFontSizeMarkup, 'font-size:1rem'), 'button custom font-size preserves the inline style declaration');
+$assert('pass' === ($buttonCustomFontSizeResult['source_reports']['wp_block_validity']['status'] ?? ''), 'button custom font-size serialization passes generated WordPress block validity checks');
 
 $rubyResult = ( new HtmlTransformer() )->transform(
     '<main><blockquote><ruby>翻訳<rt>ほんやく</rt></ruby> keeps pronunciation visible.</blockquote></main>'
