@@ -260,7 +260,7 @@ $assert(str_contains((string) file_get_contents($cliOutputRoot . '/artifact/styl
 $assert(str_contains($html, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"'), 'html-vector-blob-svg');
 $assert(str_contains($html, 'd="M0 0L10 0 10 10Z"'), 'html-vector-blob-path');
 $assert(str_contains($css, 'body{margin:0}'), 'css-static-page-body-shell');
-$assert(str_contains($css, '.figma-root{position:relative;width:100%}'), 'css-static-page-root-shell');
+$assert(str_contains($css, '.figma-root{position:relative;width:100%;display:flex;flex-direction:column;align-items:center}'), 'css-static-page-root-shell');
 $assert(! str_contains($css, 'width:max-content'), 'css-static-page-root-shell-not-fixed-canvas');
 $assert(str_contains($css, '.figma-node-1-1-hero-section{width:100%;height:600px;'), 'css-page-root-frame-is-fluid-full-bleed');
 $assert(! str_contains($css, 'overflow-x:hidden'), 'css-preserves-horizontal-scroll');

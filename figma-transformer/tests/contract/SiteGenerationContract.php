@@ -81,6 +81,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
                 'width'    => 1440,
                 'height'   => 1200,
                 'layoutMode' => 'VERTICAL',
+                'layoutSizingHorizontal' => 'FILL',
                 'children' => array(
                     array(
                         'id'       => 'fluid-band:hero',
@@ -88,7 +89,10 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
                         'name'     => 'Hero band',
                         'width'    => 1440,
                         'height'   => 520,
+                        'layoutSizingHorizontal' => 'FILL',
                         'children' => array(
+                            array('id' => 'fluid-band:bg', 'type' => 'RECTANGLE', 'name' => 'Full bleed background', 'x' => 0, 'y' => 0, 'width' => 1440, 'height' => 520),
+                            array('id' => 'fluid-band:content', 'type' => 'FRAME', 'name' => 'Centered content shell', 'x' => 112, 'y' => 80, 'width' => 1216, 'height' => 240),
                             array('id' => 'fluid-band:title', 'type' => 'TEXT', 'name' => 'Hero title', 'characters' => 'Fluid hero', 'width' => 320, 'height' => 48, 'fontSize' => 36),
                         ),
                     ),
@@ -105,6 +109,8 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     ));
     $fullWidthBandCss = $fileContent($fullWidthBandResult, 'style.css');
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-hero-hero-band{width:100%;height:520px;'), 'quality-diagnostics-full-width-band-renders-fluid');
+    $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-bg-full-bleed-background{width:100%;height:520px;position:absolute;left:0px;top:0px'), 'quality-diagnostics-fluid-band-full-bleed-absolute-child-stays-full-width');
+    $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-content-centered-content-shell{width:1216px;height:240px;position:absolute;left:calc(50% - 608px);top:80px'), 'quality-diagnostics-fluid-band-absolute-child-centers-in-intrinsic-canvas');
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-card-narrow-card{width:420px;height:240px;'), 'quality-diagnostics-narrow-band-keeps-intrinsic-width');
     $assert(in_array('large_absolute_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-absolute-offsets');
     $assert(in_array('large_css_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-css-offsets');
@@ -746,7 +752,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert('success' === ($offsetPageResult['status'] ?? null), 'offset-page-transform-success');
     $assert(str_contains($offsetPageHtml, 'Selected page content'), 'offset-page-selected-content-rendered');
     $assert(! str_contains($offsetPageHtml, 'Off Canvas One') && ! str_contains($offsetPageHtml, 'Off Canvas Two'), 'offset-page-off-canvas-siblings-omitted');
-    $assert(str_contains($offsetPageCss, '.figma-root{position:relative;width:100%}'), 'offset-page-root-shell-is-fluid');
+    $assert(str_contains($offsetPageCss, '.figma-root{position:relative;width:100%;display:flex;flex-direction:column;align-items:center}'), 'offset-page-root-shell-is-fluid');
     $assert(str_contains($offsetPageCss, '.figma-node-frame-selected-selected-website-page{width:100%;height:900px;position:relative}'), 'offset-page-root-renders-fluid-full-bleed');
     $assert(str_contains($offsetPageCss, '.figma-node-frame-selected-card-hero-card{width:320px;height:160px;position:absolute;left:40px;top:40px}'), 'offset-page-child-rebased-position');
     $assert(! str_contains($offsetPageCss, 'left:3497px') && ! str_contains($offsetPageCss, 'left:3537px') && ! str_contains($offsetPageCss, 'left:4680px'), 'offset-page-avoids-board-left-values');

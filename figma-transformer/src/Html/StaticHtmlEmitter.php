@@ -546,7 +546,7 @@ final class StaticHtmlEmitter
         }
 
         $baseStyles = array();
-        $this->collectVariantNodeStyles($baseNode, 0, null, 'r', $baseStyles);
+        $this->collectVariantNodeStyles($baseNode, 0, null, null, 'r', $baseStyles);
 
         // Derive the primary (base) viewport width from the variants list so we
         // can compute midpoint breakpoints between adjacent variant widths.
@@ -579,7 +579,7 @@ final class StaticHtmlEmitter
             }
 
             $variantStyles = array();
-            $this->collectVariantNodeStyles($nodeMap[$variantId], 0, null, 'r', $variantStyles);
+            $this->collectVariantNodeStyles($nodeMap[$variantId], 0, null, null, 'r', $variantStyles);
 
             $rules = $this->breakpointDiffRules($baseStyles, $variantStyles);
             if ( empty($rules) ) {
@@ -619,7 +619,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @param array<string, mixed> $map  pathKey => array{class: string, styles: array<int, string>}
      */
-    private function collectVariantNodeStyles(array $node, int $depth, ?array $parentNode, string $pathKey, array &$map): void
+    private function collectVariantNodeStyles(array $node, int $depth, ?array $parentNode, ?array $grandParentNode, string $pathKey, array &$map): void
     {
         if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) ) {
             return;
@@ -629,7 +629,7 @@ final class StaticHtmlEmitter
         $name = (string) ($node['name'] ?? '');
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
         $className = 'figma-node-' . $this->slug($id . '-' . $name);
-        $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $this->styleDeclarations($node, $type, $parentNode));
+        $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $this->styleDeclarations($node, $type, $parentNode, $grandParentNode));
 
         $map[$pathKey] = array(
             'class'           => $className,
@@ -649,7 +649,7 @@ final class StaticHtmlEmitter
             }
 
             $childKey = $pathKey . '/' . $this->breakpointChildKey($child, $childOrdinal);
-            $this->collectVariantNodeStyles($child, $depth + 1, $node, $childKey, $map);
+            $this->collectVariantNodeStyles($child, $depth + 1, $node, $parentNode, $childKey, $map);
             ++$childOrdinal;
         }
     }
@@ -723,7 +723,7 @@ final class StaticHtmlEmitter
      * @param array<int, string>                 $cssRules
      * @param array<int, array<string, mixed>>   $diagnostics
      */
-    private function emitNode(array $node, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics, int $depth, ?array $parentNode): string
+    private function emitNode(array $node, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics, int $depth, ?array $parentNode, ?array $grandParentNode = null): string
     {
         if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) ) {
             return '';
@@ -767,7 +767,7 @@ final class StaticHtmlEmitter
                     if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
                         continue;
                     }
-                    $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node);
+                    $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node, $parentNode);
                 }
             }
         }
@@ -787,7 +787,7 @@ final class StaticHtmlEmitter
             $content = '';
         }
 
-        $styles = $this->styleDeclarations($node, $type, $parentNode);
+        $styles = $this->styleDeclarations($node, $type, $parentNode, $grandParentNode);
         $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $styles);
         if ( ! empty($styles) ) {
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
@@ -3689,12 +3689,15 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @return array<int, string>
      */
-    private function styleDeclarations(array $node, string $type, ?array $parentNode): array
+    private function styleDeclarations(array $node, string $type, ?array $parentNode, ?array $grandParentNode): array
     {
         $styles = array();
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        $parentUsesFluidCanvasCoordinates = null !== $parentNode && $this->nodeUsesFluidCanvasCoordinates($parentNode, $grandParentNode);
+        $isAbsoluteFullWidthCanvasChild = null !== $parentNode && $parentUsesFluidCanvasCoordinates && $this->isAbsoluteFullWidthCanvasChild($box, $layout, $parentNode);
+        $centerWithinParentFluidCanvas = $parentUsesFluidCanvasCoordinates && ! $isAbsoluteFullWidthCanvasChild;
         $zeroHeightVectorFallbackHeight = $this->zeroHeightVectorFallbackHeight($node, $type);
         foreach ( array('width', 'height') as $dimension ) {
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
@@ -3703,6 +3706,8 @@ final class StaticHtmlEmitter
                 // Full-page roots and matching first-level bands should occupy the
                 // viewport. Explicit Kiwi/Figma max-width constraints still apply
                 // below; the intrinsic frame width is evidence, not a viewport cap.
+                $styles[] = 'width:100%';
+            } elseif ( 'width' === $dimension && $isAbsoluteFullWidthCanvasChild ) {
                 $styles[] = 'width:100%';
             } elseif ( 'HUG' === $sizing ) {
                 $derivedTextSize = 'TEXT' === $type ? $this->derivedTextLayoutSize($node, $dimension) : null;
@@ -3760,19 +3765,19 @@ final class StaticHtmlEmitter
 
         if ( $isDecorativeFlexUnderlay ) {
             $styles[] = 'position:absolute';
-            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node) as $style ) {
+            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $centerWithinParentFluidCanvas) as $style ) {
                 $styles[] = $style;
             }
             $styles[] = 'z-index:0';
             $styles[] = 'pointer-events:none';
         } elseif ( null !== $parentNode && $this->isFreeformContainer($parentNode) ) {
             $styles[] = 'position:absolute';
-            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node) as $style ) {
+            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $centerWithinParentFluidCanvas) as $style ) {
                 $styles[] = $style;
             }
         } elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
             $styles[] = 'position:absolute';
-            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node) as $style ) {
+            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $centerWithinParentFluidCanvas) as $style ) {
                 $styles[] = $style;
             }
         }
@@ -4074,6 +4079,53 @@ final class StaticHtmlEmitter
         $offset = isset($box['x']) && is_numeric($box['x']) ? abs((float) $box['x']) : 0.0;
         $parentWidth = (float) $parentBox['width'];
         return $offset <= 1.0 && abs($width - $parentWidth) <= 1.0;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function nodeRendersFluidCanvas(array $node, ?array $parentNode): bool
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return $this->isFluidPageWidth($box, $layout, $parentNode);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function nodeUsesFluidCanvasCoordinates(array $node, ?array $parentNode): bool
+    {
+        if ( ! $this->nodeRendersFluidCanvas($node, $parentNode) ) {
+            return false;
+        }
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return 'FILL' === strtoupper((string) ($layout['sizing_horizontal'] ?? ''));
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $layout
+     * @param array<string, mixed> $parentNode
+     */
+    private function isAbsoluteFullWidthCanvasChild(array $box, array $layout, array $parentNode): bool
+    {
+        if ( 'absolute' !== ($layout['positioning'] ?? null) && ! $this->isFreeformContainer($parentNode) ) {
+            return false;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        foreach ( array($box, $parentBox) as $candidateBox ) {
+            if ( ! isset($candidateBox['width']) || ! is_numeric($candidateBox['width']) ) {
+                return false;
+            }
+        }
+
+        $offset = isset($box['x']) && is_numeric($box['x']) ? abs((float) $box['x']) : 0.0;
+        return $offset <= 1.0 && abs((float) $box['width'] - (float) $parentBox['width']) <= 1.0;
     }
 
     /**
