@@ -922,7 +922,7 @@ final class StaticHtmlEmitter
         if ( $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode) && $this->textContainsLowercase($this->rawDecodedText($node)) && ! $this->hasExplicitUppercaseTextCase($node) ) {
             $parentClassName = 'figma-node-' . $this->slug((string) ($parentNode['id'] ?? '') . '-' . (string) ($parentNode['name'] ?? 'Node'));
             $cssRules[] = '.' . $parentClassName . '>.' . $className . '{text-transform:none}';
-        } elseif ( 'p' === $tag && $this->hasBodyTextNameIntent(strtolower($name)) && $this->textContainsLowercase($this->rawDecodedText($node)) && ! $this->hasExplicitUppercaseTextCase($node) ) {
+        } elseif ( 'p' === $tag && $this->hasBodyTextNameIntent(strtolower($name)) && ! $this->hasExplicitUppercaseTextCase($node) ) {
             $cssRules[] = 'ol .' . $className . ',ul .' . $className . '{text-transform:none}';
         }
         if ( in_array($tag, array('ol', 'ul'), true) && $this->listShouldRenderMarkers($node, null !== $sourceTextList) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
