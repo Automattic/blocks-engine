@@ -8037,6 +8037,9 @@ final class StaticHtmlEmitter
         if ( ! empty($diagnostic['source_fields'] ?? array()) ) {
             return false;
         }
+        if ( 'missing_dimensions' === ($diagnostic['reason'] ?? null) ) {
+            return true;
+        }
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : 0.0;
