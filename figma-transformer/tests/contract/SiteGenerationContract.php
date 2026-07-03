@@ -394,9 +394,54 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
         'page_name' => 'Landing Page',
     ));
     $responsiveHeaderChromeCss = $fileContent($responsiveHeaderChromeResult, 'style.css');
-    $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-header-site-header{max-width:100%;height:auto;min-height:160px}'), 'responsive-header-shell-safety-matches-semantic-header-name');
+    $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-header-site-header{max-width:100%;height:auto;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;min-height:160px}'), 'responsive-header-shell-safety-matches-semantic-header-name');
     $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-row-header-row{width:100%;max-width:100%;height:auto;position:relative;left:auto;right:auto;top:auto;justify-content:flex-start;align-items:center;flex-wrap:wrap;gap:16px;padding-top:24px;padding-right:24px;padding-bottom:24px;padding-left:24px'), 'responsive-header-inner-safety-is-generic-not-frame-name');
     $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-nav-primary-nav{width:100%;max-width:100%;height:auto;justify-content:flex-start;flex-wrap:wrap;gap:16px'), 'responsive-navigation-shell-safety-matches-nav-name');
+
+    $responsiveMixedHeaderResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Responsive Mixed Header Chrome Fixture',
+        'nodes' => array(
+            array('id' => 'mixed-header:desktop', 'type' => 'FRAME', 'name' => 'Clinic Desktop', 'width' => 1440, 'height' => 900, 'children' => array(
+                array('id' => 'mixed-header:desktop-header', 'type' => 'FRAME', 'name' => 'Site Header', 'x' => 0, 'y' => 0, 'width' => 1440, 'height' => 112, 'children' => array(
+                    array('id' => 'mixed-header:desktop-logo', 'type' => 'TEXT', 'name' => 'Logo', 'characters' => 'Dr Aarti', 'x' => 112, 'y' => 32, 'width' => 120, 'height' => 24, 'fontSize' => 20),
+                    array('id' => 'mixed-header:desktop-nav', 'type' => 'FRAME', 'name' => 'Primary Navigation', 'x' => 760, 'y' => 32, 'width' => 420, 'height' => 24, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                        array('id' => 'mixed-header:desktop-nav-home', 'type' => 'TEXT', 'name' => 'Home link', 'characters' => 'Home', 'width' => 48, 'height' => 20, 'fontSize' => 16),
+                        array('id' => 'mixed-header:desktop-nav-services', 'type' => 'TEXT', 'name' => 'Services link', 'characters' => 'Services', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                    )),
+                    array('id' => 'mixed-header:desktop-cta', 'type' => 'FRAME', 'name' => 'Book CTA', 'x' => 1210, 'y' => 22, 'width' => 118, 'height' => 44, 'children' => array(
+                        array('id' => 'mixed-header:desktop-cta-label', 'type' => 'TEXT', 'name' => 'CTA Label', 'characters' => 'Book now', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                    )),
+                )),
+            )),
+            array('id' => 'mixed-header:mobile', 'type' => 'FRAME', 'name' => 'Clinic Mobile', 'width' => 390, 'height' => 900, 'children' => array(
+                array('id' => 'mixed-header:mobile-header', 'type' => 'FRAME', 'name' => 'Site Header', 'x' => 0, 'y' => 0, 'width' => 390, 'height' => 196, 'children' => array(
+                    array('id' => 'mixed-header:mobile-logo', 'type' => 'TEXT', 'name' => 'Logo', 'characters' => 'Dr Aarti', 'x' => 24, 'y' => 24, 'width' => 120, 'height' => 24, 'fontSize' => 20),
+                    array('id' => 'mixed-header:mobile-nav', 'type' => 'FRAME', 'name' => 'Primary Navigation', 'x' => 24, 'y' => 72, 'width' => 342, 'height' => 48, 'layoutMode' => 'HORIZONTAL', 'children' => array(
+                        array('id' => 'mixed-header:mobile-nav-home', 'type' => 'TEXT', 'name' => 'Home link', 'characters' => 'Home', 'width' => 48, 'height' => 20, 'fontSize' => 16),
+                        array('id' => 'mixed-header:mobile-nav-services', 'type' => 'TEXT', 'name' => 'Services link', 'characters' => 'Services', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                    )),
+                    array('id' => 'mixed-header:mobile-cta', 'type' => 'FRAME', 'name' => 'Book CTA', 'x' => 24, 'y' => 144, 'width' => 118, 'height' => 44, 'children' => array(
+                        array('id' => 'mixed-header:mobile-cta-label', 'type' => 'TEXT', 'name' => 'CTA Label', 'characters' => 'Book now', 'width' => 72, 'height' => 20, 'fontSize' => 16),
+                    )),
+                )),
+            )),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'mixed-header:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'mixed-header:mobile', 'viewport_width' => 390),
+        ),
+        'page_name' => 'Clinic Page',
+    ));
+    $responsiveMixedHeaderCss = $fileContent($responsiveMixedHeaderResult, 'style.css');
+    $responsiveMixedHeaderMobileBlock = substr($responsiveMixedHeaderCss, strpos($responsiveMixedHeaderCss, '@media'));
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $responsiveMixedHeaderMobileBlock, '.figma-node-mixed-header-desktop-header-site-header', array('height:auto', 'display:flex', 'flex-direction:column', 'align-items:stretch', 'justify-content:flex-start', 'min-height:196px'), 'responsive-header-mixed-absolute-flow-parent-becomes-flow-shell');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $responsiveMixedHeaderMobileBlock, '.figma-node-mixed-header-desktop-logo-logo', array('position:relative', 'left:auto', 'right:auto', 'top:auto', 'max-width:100%'), 'responsive-header-mixed-logo-enters-flow');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $responsiveMixedHeaderMobileBlock, '.figma-node-mixed-header-desktop-nav-primary-navigation', array('width:100%', 'max-width:100%', 'height:auto', 'position:relative', 'left:auto', 'right:auto', 'top:auto', 'justify-content:flex-start', 'align-items:center', 'flex-wrap:wrap', 'gap:16px'), 'responsive-header-mixed-nav-enters-flow-with-wrap');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $responsiveMixedHeaderMobileBlock, '.figma-node-mixed-header-desktop-cta-book-cta', array('width:100%', 'max-width:100%', 'height:auto', 'position:relative', 'left:auto', 'right:auto', 'top:auto', 'justify-content:flex-start', 'align-items:center', 'flex-wrap:wrap', 'gap:16px'), 'responsive-header-mixed-cta-enters-flow-with-wrap');
+    $mixedHeaderNavMobileRule = blocks_engine_figma_transformer_contract_css_rule($responsiveMixedHeaderMobileBlock, '.figma-node-mixed-header-desktop-nav-primary-navigation');
+    $mixedHeaderCtaMobileRule = blocks_engine_figma_transformer_contract_css_rule($responsiveMixedHeaderMobileBlock, '.figma-node-mixed-header-desktop-cta-book-cta');
+    $assert(! str_contains($mixedHeaderNavMobileRule, 'left:760px') && ! str_contains($mixedHeaderCtaMobileRule, 'left:1210px'), 'responsive-header-mixed-no-desktop-left-overflow-at-mobile');
 
     $rootAbsoluteChromeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Root Absolute Chrome Fixture',
@@ -1553,7 +1598,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
         }
     }
     $responsiveChromeMobileBlock = substr($responsiveChromeCss, strpos($responsiveChromeCss, '@media'));
-    $assert(str_contains($responsiveChromeMobileBlock, '.figma-node-chrome-desktop-header-header{max-width:100%;height:auto;min-height:156px}'), 'responsive-emit-mobile-top-chrome-header-keeps-source-height-floor');
+    $assert(str_contains($responsiveChromeMobileBlock, '.figma-node-chrome-desktop-header-header{max-width:100%;height:auto;flex-direction:column;align-items:stretch;justify-content:flex-start;min-height:156px}'), 'responsive-emit-mobile-top-chrome-header-keeps-source-height-floor');
     $assert(preg_match('/\.figma-node-chrome-desktop-header-row-primary-chrome-row\{[^}]*height:auto[^}]*position:relative[^}]*left:auto[^}]*right:auto[^}]*top:auto[^}]*justify-content:flex-start[^}]*flex-wrap:wrap[^}]*gap:16px[^}]*padding-top:24px[^}]*padding-right:24px[^}]*padding-bottom:24px[^}]*padding-left:24px/s', $responsiveChromeMobileBlock) === 1, 'responsive-emit-mobile-top-chrome-inner-row-wraps-with-normal-gutters');
     $assert(str_contains($responsiveChromeMobileBlock, '.figma-node-chrome-desktop-navigation-primary-navigation{width:100%;max-width:100%;height:auto;justify-content:flex-start;flex-wrap:wrap;gap:16px}'), 'responsive-emit-mobile-top-chrome-navigation-wraps');
     $assert(! str_contains($responsiveChromeMobileBlock, 'padding-top:72px'), 'responsive-emit-mobile-top-chrome-no-instance-specific-header-offset');

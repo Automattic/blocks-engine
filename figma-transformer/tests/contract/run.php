@@ -6961,7 +6961,7 @@ $assert(
     'breakpoint-dimension-policy-root-fill-decision-evidence'
 );
 $assert(
-    array('width:100%', 'max-width:100%', 'height:auto', 'min-height:96px') === $breakpointDimensionPolicy->headerChromeDeclarations(96.0),
+    array('width:100%', 'max-width:100%', 'height:auto', 'display:flex', 'flex-direction:column', 'align-items:stretch', 'justify-content:flex-start', 'min-height:96px') === $breakpointDimensionPolicy->headerChromeDeclarations(96.0),
     'breakpoint-dimension-policy-header-fluid-min-height-pairing'
 );
 $assert(

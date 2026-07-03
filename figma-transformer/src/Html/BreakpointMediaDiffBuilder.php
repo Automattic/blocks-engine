@@ -349,6 +349,16 @@ final class BreakpointMediaDiffBuilder
             return array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $this->breakpointDimensionPolicy->headerChromeDeclarations($minHeight));
         }
 
+        if ( LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $parentChromeRole || $this->isHeaderChromeShellName($parentName) ) {
+            $headerChildDeclarations = array('position:relative', 'left:auto', 'right:auto', 'top:auto', 'max-width:100%');
+            if ( $isContainer ) {
+                array_unshift($headerChildDeclarations, 'width:100%', 'max-width:100%', 'height:auto');
+                array_push($headerChildDeclarations, 'justify-content:flex-start', 'align-items:center', 'flex-wrap:wrap', 'gap:16px', 'padding-top:24px', 'padding-right:24px', 'padding-bottom:24px', 'padding-left:24px');
+            }
+
+            return array('reason_code' => 'responsive_header_child_chrome_safety', 'declarations' => array_values(array_unique($headerChildDeclarations)));
+        }
+
         if ( $this->isNavigationShellName($name) && $isContainer ) {
             return array('reason_code' => 'responsive_navigation_shell_safety', 'declarations' => array('width:100%', 'max-width:100%', 'height:auto', 'justify-content:flex-start', 'flex-wrap:wrap', 'gap:16px'));
         }
@@ -359,10 +369,6 @@ final class BreakpointMediaDiffBuilder
 
         if ( (LayoutIntentClassifier::CHROME_GROUP_ROLE_NAVIGATION === $chromeRole || 'navigation' === $name) && $isContainer ) {
             return array('reason_code' => 'responsive_navigation_chrome_safety', 'declarations' => array('width:100%', 'max-width:100%', 'height:auto', 'justify-content:flex-start', 'flex-wrap:wrap', 'gap:16px'));
-        }
-
-        if ( (LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $parentChromeRole || $this->isHeaderChromeShellName($parentName)) && $isContainer ) {
-            return array('reason_code' => 'responsive_header_child_chrome_safety', 'declarations' => array('width:100%', 'max-width:100%', 'height:auto', 'position:relative', 'left:auto', 'right:auto', 'top:auto', 'justify-content:flex-start', 'align-items:center', 'flex-wrap:wrap', 'gap:16px', 'padding-top:24px', 'padding-right:24px', 'padding-bottom:24px', 'padding-left:24px'));
         }
 
         if ( str_contains($name, 'newsletter signup') && $isContainer && 'absolute' === $positioning ) {

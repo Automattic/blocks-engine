@@ -140,7 +140,7 @@ final class BreakpointDimensionPolicy
      */
     public function headerChromeDeclarations(?float $sourceHeight): array
     {
-        $declarations = array('width:100%', 'max-width:100%', 'height:auto');
+        $declarations = array('width:100%', 'max-width:100%', 'height:auto', 'display:flex', 'flex-direction:column', 'align-items:stretch', 'justify-content:flex-start');
         if ( null !== $sourceHeight && $sourceHeight > 0.0 ) {
             $declarations[] = 'min-height:' . ($this->number)($sourceHeight) . 'px';
         }
