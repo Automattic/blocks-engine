@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Automattic\BlocksEngine\FigmaTransformer\Html\CanvasShellResolver;
 use Automattic\BlocksEngine\FigmaTransformer\Html\LayoutFrameRoleClassifier;
 
 /**
@@ -58,4 +59,34 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
 
     $nonFluidParentShell = $classifier->canvasChildRole($contentShellBox, $contentShellLayout, $band, false, true);
     $assert(LayoutFrameRoleClassifier::ROLE_INTRINSIC === $nonFluidParentShell, 'layout-frame-role-centered-shell-requires-fluid-parent');
+
+    $resolver = new CanvasShellResolver(
+        $classifier,
+        static fn (array $node): bool => true === (($node['layout']['freeform'] ?? false)),
+        static fn (array $node): bool => true === (($node['layout']['freeform_uses_flow'] ?? false)),
+        static function (array $node): bool {
+            foreach ( is_array($node['children'] ?? null) ? $node['children'] : array() as $child ) {
+                if ( is_array($child) && 'absolute' === (($child['layout']['positioning'] ?? null)) ) {
+                    return true;
+                }
+            }
+            return false;
+        },
+        static fn (array $node): bool => true === (($node['layout']['has_decorative_underlay'] ?? false)),
+    );
+    $freeformBand = $band;
+    $freeformBand['layout']['freeform'] = true;
+    $freeformBand['layout']['sizing_horizontal'] = 'FILL';
+    $backgroundNode = array('id' => 'roles:bg', 'type' => 'FRAME', 'box' => $backgroundBox, 'layout' => $backgroundLayout);
+    $backgroundDecision = $resolver->resolve($backgroundNode, $freeformBand, $root);
+    $assert($backgroundDecision->parentUsesFluidCanvasCoordinates, 'canvas-shell-decision-parent-uses-fluid-coordinates');
+    $assert($backgroundDecision->fullBleedCanvasChild, 'canvas-shell-decision-full-bleed-child');
+    $assert(array('left:50%', 'margin-left:-50vw') === $resolver->fullBleedViewportBreakoutStyles($backgroundDecision), 'canvas-shell-decision-breakout-styles');
+
+    $flowBand = $band;
+    $flowBand['layout']['freeform_uses_flow'] = true;
+    $contentShellNode = array('id' => 'roles:shell', 'type' => 'FRAME', 'box' => $contentShellBox, 'layout' => array());
+    $contentShellDecision = $resolver->resolve($contentShellNode, $flowBand, $root);
+    $assert($contentShellDecision->responsiveCenteredFlowShell, 'canvas-shell-decision-responsive-centered-flow-shell');
+    $assert($contentShellDecision->responsiveCenteredFlowWidth, 'canvas-shell-decision-responsive-centered-flow-width');
 }

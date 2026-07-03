@@ -66,6 +66,8 @@ final class StaticHtmlEmitter
 
     private ?CssPositioningResolver $cssPositioningResolver = null;
 
+    private ?CanvasShellResolver $canvasShellResolver = null;
+
     private ?StickyLayoutCoordinator $stickyLayoutCoordinator = null;
 
     private ?HtmlArtifactAssembler $htmlArtifactAssembler = null;
@@ -121,6 +123,17 @@ final class StaticHtmlEmitter
         return $this->cssPositioningResolver ??= new CssPositioningResolver(
             $this->layoutIntentClassifier(),
             fn (float $value): string => $this->number($value),
+        );
+    }
+
+    private function canvasShellResolver(): CanvasShellResolver
+    {
+        return $this->canvasShellResolver ??= new CanvasShellResolver(
+            $this->layoutFrameRoleClassifier(),
+            fn (array $node): bool => $this->isFreeformContainer($node),
+            fn (array $node): bool => $this->freeformContainerShouldUseFlow($node),
+            fn (array $node): bool => $this->hasAbsoluteChild($node),
+            fn (array $node): bool => $this->hasDecorativeFlexUnderlayChild($node),
         );
     }
 
@@ -5311,25 +5324,12 @@ final class StaticHtmlEmitter
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        $parentRendersFluidCanvas = null !== $parentNode && $this->nodeRendersFluidCanvas($parentNode, $grandParentNode);
-        $parentUsesFluidCanvasCoordinates = null !== $parentNode && $this->nodeUsesFluidCanvasCoordinates($parentNode, $grandParentNode);
-        $frameWidthRole = $this->layoutFrameRoleClassifier()->frameWidthRole($box, $layout, $parentNode);
-        $canvasChildRole = null !== $parentNode
-            ? $this->layoutFrameRoleClassifier()->canvasChildRole($box, $layout, $parentNode, $parentUsesFluidCanvasCoordinates, $this->isFreeformContainer($parentNode))
-            : LayoutFrameRoleClassifier::ROLE_INTRINSIC;
-        $isAbsoluteFullWidthCanvasChild = LayoutFrameRoleClassifier::ROLE_FULL_BLEED_CANVAS_CHILD === $canvasChildRole;
-        $centerWithinParentFluidCanvas = LayoutFrameRoleClassifier::ROLE_CENTERED_SHELL === $canvasChildRole;
-        $responsiveCenteredFlowShell = $centerWithinParentFluidCanvas || (
-            $parentRendersFluidCanvas
-            && null !== $parentNode
-            && $this->centeredShellShouldUseResponsiveFlowWidth($layout, $parentNode)
-            && $this->layoutFrameRoleClassifier()->isCenteredCanvasShell($box, $parentNode)
-        );
+        $canvasShell = $this->canvasShellResolver()->resolve($node, $parentNode, $grandParentNode);
         $zeroHeightVectorFallbackHeight = $this->zeroHeightVectorFallbackHeight($node, $type);
         foreach ( array('width', 'height') as $dimension ) {
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
             $sizing = strtoupper((string) ($layout[$sizingKey] ?? ''));
-            if ( 'height' === $dimension && isset($box['height']) && is_numeric($box['height']) && $this->nodeShouldUseFlowHeight($type, $layout, $frameWidthRole, $canvasChildRole) ) {
+            if ( 'height' === $dimension && isset($box['height']) && is_numeric($box['height']) && $this->canvasShellResolver()->nodeShouldUseFlowHeight($type, $layout, $canvasShell) ) {
                 $styles[] = 'min-height:' . $this->number((float) $box['height']) . 'px';
                 continue;
             }
@@ -5344,7 +5344,7 @@ final class StaticHtmlEmitter
                 }
                 continue;
             }
-            if ( 'width' === $dimension && $isAbsoluteFullWidthCanvasChild ) {
+            if ( 'width' === $dimension && $canvasShell->fullBleedCanvasChild ) {
                 $styles[] = 'width:100vw';
             } elseif ( 'width' === $dimension && $this->isFluidPageWidth($box, $layout, $parentNode) ) {
                 // Full-page roots and matching first-level bands should occupy the
@@ -5352,9 +5352,9 @@ final class StaticHtmlEmitter
                 // constraints, but their intrinsic canvas width is not a viewport
                 // cap; capping it clips full-bleed breakout children on wide screens.
                 $styles[] = 'width:100%';
-            } elseif ( 'width' === $dimension && null !== $parentNode && $parentUsesFluidCanvasCoordinates && $this->isFluidStretchAbsoluteChild($box, $layout, $parentNode) ) {
+            } elseif ( 'width' === $dimension && $canvasShell->fluidStretchCanvasChild ) {
                 $styles[] = 'width:auto';
-            } elseif ( 'width' === $dimension && $responsiveCenteredFlowShell && $this->centeredShellShouldUseResponsiveFlowWidth($layout, $parentNode) && isset($box['width']) && is_numeric($box['width']) ) {
+            } elseif ( 'width' === $dimension && $canvasShell->responsiveCenteredFlowShell && $canvasShell->responsiveCenteredFlowWidth && isset($box['width']) && is_numeric($box['width']) ) {
                 $styles[] = 'width:100%';
                 $styles[] = 'max-width:' . $this->number((float) $box['width']) . 'px';
             } elseif ( 'HUG' === $sizing ) {
@@ -5415,7 +5415,7 @@ final class StaticHtmlEmitter
         $overlapZIndex = null !== $parentNode ? $this->layoutIntentClassifier()->overlappingSiblingZIndex($node, $parentNode) : null;
         $managesLocalStacking = $this->layoutIntentClassifier()->managesLocalStacking($node);
         $needsLocalStackIsolation = $this->layoutIntentClassifier()->needsLocalStackIsolation($node);
-        if ( $responsiveCenteredFlowShell && ! $willPositionAbsolute ) {
+        if ( $canvasShell->responsiveCenteredFlowShell && ! $willPositionAbsolute ) {
             $styles[] = 'margin-left:auto';
             $styles[] = 'margin-right:auto';
         }
@@ -5429,25 +5429,25 @@ final class StaticHtmlEmitter
 
         if ( $isDecorativeFlexUnderlay ) {
             $styles[] = 'position:absolute';
-            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $centerWithinParentFluidCanvas) as $style ) {
+            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
                 $styles[] = $style;
             }
             $styles[] = 'z-index:0';
             $styles[] = 'pointer-events:none';
         } elseif ( null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow ) {
             $styles[] = 'position:absolute';
-            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $centerWithinParentFluidCanvas) as $style ) {
+            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
                 $styles[] = $style;
             }
-            foreach ( $this->fullBleedViewportBreakoutStyles($isAbsoluteFullWidthCanvasChild) as $style ) {
+            foreach ( $this->canvasShellResolver()->fullBleedViewportBreakoutStyles($canvasShell) as $style ) {
                 $styles[] = $style;
             }
         } elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
             $styles[] = 'position:absolute';
-            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $centerWithinParentFluidCanvas) as $style ) {
+            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
                 $styles[] = $style;
             }
-            foreach ( $this->fullBleedViewportBreakoutStyles($isAbsoluteFullWidthCanvasChild) as $style ) {
+            foreach ( $this->canvasShellResolver()->fullBleedViewportBreakoutStyles($canvasShell) as $style ) {
                 $styles[] = $style;
             }
         }
@@ -5598,34 +5598,6 @@ final class StaticHtmlEmitter
         }
 
         return $this->mergeBoxShadowDeclarations(array_values(array_unique($styles)));
-    }
-
-    /**
-     * @param array<string, mixed> $layout
-     * @param array<string, mixed>|null $parentNode
-     */
-    private function centeredShellShouldUseResponsiveFlowWidth(array $layout, ?array $parentNode): bool
-    {
-        if ( null === $parentNode || 'absolute' === ($layout['positioning'] ?? null) ) {
-            return false;
-        }
-
-        return ! $this->isFreeformContainer($parentNode) || $this->freeformContainerShouldUseFlow($parentNode);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function fullBleedViewportBreakoutStyles(bool $isAbsoluteFullWidthCanvasChild): array
-    {
-        if ( ! $isAbsoluteFullWidthCanvasChild ) {
-            return array();
-        }
-
-        return array(
-            'left:50%',
-            'margin-left:-50vw',
-        );
     }
 
     /**
@@ -5810,80 +5782,6 @@ final class StaticHtmlEmitter
     private function isFluidPageWidth(array $box, array $layout, ?array $parentNode): bool
     {
         return $this->layoutFrameRoleClassifier()->isFluidPageWidth($box, $layout, $parentNode);
-    }
-
-    /**
-     * @param array<string, mixed> $layout
-     */
-    private function nodeShouldUseFlowHeight(string $type, array $layout, string $frameWidthRole, string $canvasChildRole): bool
-    {
-        if ( ! in_array($type, array('FRAME', 'COMPONENT', 'INSTANCE', 'SECTION'), true) ) {
-            return false;
-        }
-
-        if ( $this->layoutFrameRoleClassifier()->roleUsesFlowHeight($frameWidthRole, $layout) ) {
-            return true;
-        }
-
-        return $this->layoutFrameRoleClassifier()->roleUsesFlowHeight($canvasChildRole, $layout);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @param array<string, mixed>|null $parentNode
-     */
-    private function nodeRendersFluidCanvas(array $node, ?array $parentNode): bool
-    {
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        return $this->isFluidPageWidth($box, $layout, $parentNode);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @param array<string, mixed>|null $parentNode
-     */
-    private function nodeUsesFluidCanvasCoordinates(array $node, ?array $parentNode): bool
-    {
-        if ( ! $this->nodeRendersFluidCanvas($node, $parentNode) ) {
-            return false;
-        }
-
-        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        if ( 'FILL' === strtoupper((string) ($layout['sizing_horizontal'] ?? '')) ) {
-            return true;
-        }
-
-        $type = strtoupper((string) ($node['type'] ?? ''));
-        if ( 'COMPONENT' === $type || null === $parentNode ) {
-            return false;
-        }
-
-        if ( 'INSTANCE' === $type ) {
-            return $this->isFreeformContainer($node);
-        }
-
-        return $this->hasAbsoluteChild($node) || $this->hasDecorativeFlexUnderlayChild($node) || $this->isFreeformContainer($node);
-    }
-
-    /**
-     * @param array<string, mixed> $box
-     * @param array<string, mixed> $layout
-     * @param array<string, mixed> $parentNode
-     */
-    private function isAbsoluteFullWidthCanvasChild(array $box, array $layout, array $parentNode): bool
-    {
-        return $this->layoutFrameRoleClassifier()->isAbsoluteFullWidthCanvasChild($box, $layout, $parentNode, $this->isFreeformContainer($parentNode));
-    }
-
-    /**
-     * @param array<string, mixed> $box
-     * @param array<string, mixed> $layout
-     * @param array<string, mixed> $parentNode
-     */
-    private function isFluidStretchAbsoluteChild(array $box, array $layout, array $parentNode): bool
-    {
-        return $this->layoutFrameRoleClassifier()->isFluidStretchAbsoluteChild($box, $layout, $parentNode, $this->isFreeformContainer($parentNode));
     }
 
     /**
