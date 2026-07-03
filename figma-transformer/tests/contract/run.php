@@ -5944,7 +5944,7 @@ $semanticHtml = $fileContent($semanticElementsResult, 'index.html');
 $semanticCss = $fileContent($semanticElementsResult, 'style.css');
 $assert('success' === ($semanticElementsResult['status'] ?? null), 'semantic-elements-transform-success');
 // The page shell already provides <main>; assert it wraps the rendered body.
-$assert(str_contains($semanticHtml, '<main class="figma-root" data-figma-root="true">'), 'semantic-main-landmark');
+$assert(1 === preg_match('/<main\b[^>]*class="figma-root"[^>]*data-figma-root="true"/', $semanticHtml), 'semantic-main-landmark');
 $assert(str_contains($semanticHtml, '<header class="figma-node-region-top-top-bar"'), 'semantic-top-region-emits-header');
 $assert(str_contains($semanticHtml, '<nav class="figma-node-top-menu-primary-links"'), 'semantic-link-cluster-emits-nav');
 $assert(str_contains($semanticHtml, '<footer class="figma-node-region-bottom-bottom-bar"'), 'semantic-bottom-region-emits-footer');

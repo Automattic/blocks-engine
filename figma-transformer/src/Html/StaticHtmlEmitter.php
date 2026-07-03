@@ -9610,6 +9610,7 @@ final class StaticHtmlEmitter
         $twitterDescription = $this->metadataString($metadata, 'twitter_description');
 
         return array_filter(array(
+            'page_path' => $pagePath,
             'description' => $description,
             'canonical_url' => $canonicalUrl,
             'favicon_href' => $this->metadataString($metadata, 'favicon_href'),

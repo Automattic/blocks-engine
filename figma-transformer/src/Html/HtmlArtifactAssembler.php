@@ -105,7 +105,19 @@ final class HtmlArtifactAssembler
 
         $head[] = '<link rel="stylesheet" href="' . $this->sanitizeAttribute($stylesheetHref) . '">';
 
-        return "<!doctype html>\n<html lang=\"en\">\n<head>\n" . implode("\n", $head) . "\n</head>\n<body>\n<main class=\"figma-root\" data-figma-root=\"true\">\n" . $body . "</main>\n</body>\n</html>\n";
+        $mainAttributes = array(
+            'class="figma-root"',
+            'data-figma-root="true"',
+            'data-page-title="' . $this->sanitizeAttribute(html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8')) . '"',
+            'aria-label="' . $this->sanitizeAttribute(html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8')) . '"',
+        );
+
+        $pagePath = $this->metadataValue($metadata, 'page_path');
+        if ( null !== $pagePath ) {
+            $mainAttributes[] = 'data-page-path="' . $this->sanitizeAttribute($pagePath) . '"';
+        }
+
+        return "<!doctype html>\n<html lang=\"en\">\n<head>\n" . implode("\n", $head) . "\n</head>\n<body>\n<main " . implode(' ', $mainAttributes) . ">\n" . $body . "</main>\n</body>\n</html>\n";
     }
 
     /**
