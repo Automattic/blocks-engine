@@ -5556,6 +5556,54 @@ $assert(in_array('frame:palette', $contentShapeCoverage['excluded_design_system_
 $assert(ScenegraphFrameClassifier::PAGE_TYPE_ARCHIVE === ($contentShapeByFrame['frame:list']['page_type'] ?? null), 'classification-content-card-list-archive');
 $assert(in_array('content:card_list', $contentShapeByFrame['frame:list']['classification_signals'] ?? array(), true), 'classification-content-card-list-signal');
 
+$internalOnlySource = array(
+    'nodes' => array(
+        array(
+            'id'       => 'canvas:public',
+            'type'     => 'CANVAS',
+            'name'     => 'Design',
+            'children' => array(
+                array(
+                    'id'       => 'frame:public-home',
+                    'type'     => 'FRAME',
+                    'name'     => 'Home',
+                    'width'    => 1440,
+                    'height'   => 1600,
+                    'children' => array(array('id' => 'home:text', 'type' => 'TEXT', 'name' => 'Hero', 'characters' => 'Welcome')),
+                ),
+            ),
+        ),
+        array(
+            'id'       => 'canvas:internal',
+            'type'     => 'CANVAS',
+            'name'     => 'Internal Only Canvas',
+            'children' => array(
+                array(
+                    'id'       => 'frame:internal-button',
+                    'type'     => 'FRAME',
+                    'name'     => 'Button',
+                    'width'    => 918,
+                    'height'   => 2507,
+                    'children' => array(array('id' => 'button:text', 'type' => 'TEXT', 'name' => 'Spec', 'characters' => 'Button state notes')),
+                ),
+            ),
+        ),
+    ),
+);
+$internalOnlyPlan = ( new ScenegraphPagePlanner() )->plan($internalOnlySource, array('include_all_pages' => true));
+$internalOnlyFrameIds = array_map(
+    static fn (array $page): string => (string) ($page['frame_id'] ?? ''),
+    is_array($internalOnlyPlan['pages'] ?? null) ? $internalOnlyPlan['pages'] : array()
+);
+$assert(in_array('frame:public-home', $internalOnlyFrameIds, true), 'page-plan-internal-only-keeps-public-page');
+$assert(! in_array('frame:internal-button', $internalOnlyFrameIds, true), 'page-plan-internal-only-canvas-filtered');
+$internalOnlyFiltered = array_values(array_filter(
+    is_array($internalOnlyPlan['source_frame_evidence']['filtered_candidates'] ?? null) ? $internalOnlyPlan['source_frame_evidence']['filtered_candidates'] : array(),
+    static fn (array $evidence): bool => 'frame:internal-button' === ($evidence['frame_id'] ?? null)
+));
+$assert('internal_only_scope' === ($internalOnlyFiltered[0]['reason'] ?? null), 'page-plan-internal-only-source-frame-evidence-reason');
+$assert('Internal Only Canvas' === ($internalOnlyFiltered[0]['scope_name'] ?? null), 'page-plan-internal-only-source-frame-evidence-scope');
+
 // MULTI-PAGE SELECTION (#280/#242 FSE Pilot acceptance): `--multi-page` (no
 // `frame_ids`) selects the TOP-LEVEL page frames on a canvas, groups each
 // page's desktop+mobile variants into ONE responsive page, excludes the

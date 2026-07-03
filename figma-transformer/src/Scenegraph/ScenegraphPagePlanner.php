@@ -193,11 +193,19 @@ final class ScenegraphPagePlanner
         // THIS pool so noise frames never become pages and never get pulled into a
         // real page's responsive group. The full `$candidates` set is retained for
         // candidate_count and classification coverage. If dimension filtering
-        // empties the pool (unusual designs), fall back to all non-design-system
-        // candidates so a plan is still produced and single-page never yields zero.
+        // empties the pool (unusual designs), fall back to all non-design-system,
+        // non-internal candidates so ordinary single-page transforms still produce
+        // output without reviving hidden/internal scaffolds.
         $pageCandidates = array();
         $filteredCandidateEvidence = array();
+        $internalOnlyIds = array();
         foreach ( $candidates as $candidateId => $candidate ) {
+            $internalScope = $this->internalOnlyCandidateScope((string) $candidateId, $nodes, $parentIndex);
+            if ( null !== $internalScope ) {
+                $internalOnlyIds[(string) $candidateId] = true;
+                $filteredCandidateEvidence[] = $this->candidateEvidenceRecord((string) $candidateId, $candidate, 'internal_only_scope', $classifications[$candidateId] ?? null, $internalScope);
+                continue;
+            }
             if ( isset($designSystemIds[$candidateId]) ) {
                 $filteredCandidateEvidence[] = $this->candidateEvidenceRecord((string) $candidateId, $candidate, 'design_system_role', $classifications[$candidateId] ?? null);
                 continue;
@@ -212,10 +220,10 @@ final class ScenegraphPagePlanner
             $pageCandidates[$candidateId] = $candidate;
         }
         if ( array() === $pageCandidates ) {
-            $pageCandidates = array_diff_key($candidates, $designSystemIds);
+            $pageCandidates = array_diff_key($candidates, $designSystemIds, $internalOnlyIds);
             $filteredCandidateEvidence = array_values(array_filter(
                 $filteredCandidateEvidence,
-                static fn (array $evidence): bool => 'design_system_role' === ($evidence['reason'] ?? null)
+                static fn (array $evidence): bool => in_array(($evidence['reason'] ?? null), array('design_system_role', 'internal_only_scope'), true)
             ));
         }
 
@@ -1821,6 +1829,33 @@ final class ScenegraphPagePlanner
                     'name' => (string) ($nodes[$parent]['name'] ?? ''),
                     'type' => $type,
                 );
+            }
+            $parent = $parentIndex[$parent] ?? null;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $nodes
+     * @param array<string, string|null>         $parentIndex
+     * @return array<string, string>|null
+     */
+    private function internalOnlyCandidateScope(string $id, array $nodes, array $parentIndex): ?array
+    {
+        $parent = $parentIndex[$id] ?? null;
+        while ( is_string($parent) && isset($nodes[$parent]) && is_array($nodes[$parent]) ) {
+            $ancestor = $nodes[$parent];
+            $type = strtoupper((string) ($ancestor['type'] ?? ''));
+            if ( 'CANVAS' === $type || 'SECTION' === $type ) {
+                $name = trim((string) ($ancestor['name'] ?? ''));
+                if ( true === ($ancestor['internalOnly'] ?? false) || 1 === preg_match('/\binternal\s+only\b/i', $name) ) {
+                    return array(
+                        'scope_id'   => $parent,
+                        'scope_name' => $name,
+                        'scope_type' => $type,
+                    );
+                }
             }
             $parent = $parentIndex[$parent] ?? null;
         }
