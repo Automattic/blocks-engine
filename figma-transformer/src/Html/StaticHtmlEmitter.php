@@ -8033,10 +8033,6 @@ final class StaticHtmlEmitter
         if ( ! $this->isUnsupportedVectorType($type) || null !== $vectorSvg || $hasVectorAssetFallback || $hasRenderableVectorFallback ) {
             return false;
         }
-        if ( ! empty($this->nodeList($node)) ) {
-            return false;
-        }
-
         $diagnostic = $this->vectorPlaceholderDiagnostic($node, $type);
         if ( ! empty($diagnostic['source_fields'] ?? array()) ) {
             return false;
