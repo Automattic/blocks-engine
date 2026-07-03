@@ -5598,13 +5598,17 @@ final class HtmlTransformer
             return $children;
         }
 
+        if ( $this->looksLikeLabelValueRow($element, $first, $second) ) {
+            return $children;
+        }
+
         return null;
     }
 
     private function isInlineCommerceRowChild(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a', 'span', 'strong', 'em', 'small' ), true) ) {
+        if ( in_array($tagName, array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a', 'span', 'strong', 'em', 'small', 'time' ), true) ) {
             return ! $this->hasBlockContentChildren($element);
         }
 
@@ -5629,6 +5633,38 @@ final class HtmlTransformer
 
         return ( $this->isDayElement($first) && $this->isTimeValueElement($second) )
             || ( $this->isDayElement($second) && $this->isTimeValueElement($first) );
+    }
+
+    private function looksLikeLabelValueRow(DOMElement $row, DOMElement $first, DOMElement $second): bool
+    {
+        if ( ! $this->hasCommerceToken($row, array( 'row', 'item', 'pair', 'line', 'entry', 'schedule', 'session', 'meta', 'detail' )) ) {
+            return false;
+        }
+
+        $firstIsLabel = $this->isLabelValueLabelElement($first);
+        $secondIsLabel = $this->isLabelValueLabelElement($second);
+        $firstIsValue = $this->isLabelValueValueElement($first);
+        $secondIsValue = $this->isLabelValueValueElement($second);
+
+        return ( $firstIsLabel && $secondIsValue ) || ( $secondIsLabel && $firstIsValue );
+    }
+
+    private function isLabelValueLabelElement(DOMElement $element): bool
+    {
+        return $this->hasCommerceToken($element, array( 'label', 'term', 'key', 'day', 'date', 'time', 'hour', 'hours', 'duration' ))
+            || 'time' === strtolower($element->tagName)
+            || $this->looksLikeDateOrTimeText($element->textContent ?? '');
+    }
+
+    private function isLabelValueValueElement(DOMElement $element): bool
+    {
+        return $this->hasCommerceToken($element, array( 'value', 'detail', 'title', 'name', 'content', 'description', 'desc', 'meta', 'session', 'event', 'location', 'venue' ))
+            || preg_match('/^h[1-6]$/', strtolower($element->tagName));
+    }
+
+    private function looksLikeDateOrTimeText(string $text): bool
+    {
+        return (bool) preg_match('/\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:min|mins|minutes|hr|hrs|hours)|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|day\s+\d+)\b/i', trim($text));
     }
 
     private function isDayElement(DOMElement $element): bool
