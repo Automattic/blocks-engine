@@ -48,6 +48,18 @@ final class HtmlTransformer
     private const RUNTIME_TAG_SELECTORS = array( 'button', 'input', 'select', 'textarea', 'ul', 'ol', 'li', 'span', 'menu', 'menuitem' );
 
     /**
+     * Generic class/id tokens that usually mark a JS-owned application surface
+     * rather than editorial content. Used only with runtime selector evidence.
+     *
+     * @var array<int, string>
+     */
+    private const RUNTIME_APP_ROOT_TOKENS = array(
+        'app', 'application', 'board', 'canvas', 'dashboard', 'desktop', 'editor',
+        'explorer', 'instrument', 'lab', 'playground', 'rack', 'scene', 'shell',
+        'simulator', 'stage', 'studio', 'terminal', 'viewport', 'workspace', 'world',
+    );
+
+    /**
      * Blocks that manage their own link destination and must never receive a
      * propagated card-link wrapper href (core/button owns its `url`,
      * core/navigation-link owns its `url`, core/html is opaque markup, …).
@@ -1668,6 +1680,19 @@ final class HtmlTransformer
         }
 
         if ( in_array($tagName, array( 'article', 'aside', 'body', 'center', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+            if ( $this->shouldPreserveRuntimeAppShell($element) ) {
+                $targets = $this->runtimeTargetsInSubtree($element, 8);
+                $this->recordRuntimeIsland($element, 'app_shell', 'runtime_app_shell', 'client_script_execution', array(
+                    'events'          => $this->eventMetadata($element),
+                    'target_count'    => count($targets),
+                    'targets'         => $targets,
+                    'app_shell_signals' => $this->runtimeAppShellSignals($element),
+                    'required_scripts' => $this->requiredScriptsForElement($element),
+                ));
+
+                return $this->htmlPreservationBlock($element);
+            }
+
             // Div-based pseudo-form (issue #315 follow-up): some signup/contact
             // widgets pair data-entry controls with a submit-like control inside a
             // plain container and never wrap them in a <form>. Without a <form>
@@ -4329,6 +4354,137 @@ final class HtmlTransformer
         }
 
         return false;
+    }
+
+    private function shouldPreserveRuntimeAppShell(DOMElement $element): bool
+    {
+        if ( array() === $this->runtimeDomSelectors && array() === $this->runtimeCanvasSelectors ) {
+            return false;
+        }
+
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'header', 'footer', 'nav' ), true) ) {
+            return false;
+        }
+
+        $targets = $this->runtimeTargetsInSubtree($element, 4);
+        if ( count($targets) < 2 ) {
+            return false;
+        }
+
+        $signals = $this->runtimeAppShellSignals($element);
+        if ( in_array($tagName, array( 'body', 'main' ), true) && ! in_array('app_root_token', $signals, true) ) {
+            return false;
+        }
+
+        return in_array('app_root_token', $signals, true) || in_array('workspace_surface', $signals, true);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function runtimeTargetsInSubtree(DOMElement $element, int $limit): array
+    {
+        $targets = array();
+        foreach ( $this->descendantElements($element) as $descendant ) {
+            if ( $this->isRuntimeDomTarget($descendant) || $this->isRuntimeCanvasTarget($descendant) ) {
+                $targets[] = array_filter(array(
+                    'selector'   => $this->runtimeIslandSelector($descendant),
+                    'tag'        => strtolower($descendant->tagName),
+                    'attributes' => $this->boundedRuntimeTargetAttributes($descendant),
+                ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
+            }
+
+            if ( count($targets) >= $limit ) {
+                break;
+            }
+        }
+
+        return $targets;
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function descendantElements(DOMElement $element): array
+    {
+        $descendants = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $descendants[] = $child;
+            foreach ( $this->descendantElements($child) as $grandchild ) {
+                $descendants[] = $grandchild;
+            }
+        }
+
+        return $descendants;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function runtimeAppShellSignals(DOMElement $element): array
+    {
+        $signals = array();
+        if ( $this->hasRuntimeAppRootToken($element) ) {
+            $signals[] = 'app_root_token';
+        }
+        if ( $this->hasWorkspaceSurface($element) ) {
+            $signals[] = 'workspace_surface';
+        }
+
+        return array_values(array_unique($signals));
+    }
+
+    private function hasRuntimeAppRootToken(DOMElement $element): bool
+    {
+        $tokens = preg_split('/[^A-Za-z0-9]+/', strtolower(trim($this->attr($element, 'id') . ' ' . $this->attr($element, 'class')))) ?: array();
+        foreach ( $tokens as $token ) {
+            if ( in_array($token, self::RUNTIME_APP_ROOT_TOKENS, true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasWorkspaceSurface(DOMElement $element): bool
+    {
+        foreach ( $this->descendantElements($element) as $descendant ) {
+            $tagName = strtolower($descendant->tagName);
+            if ( in_array($tagName, array( 'canvas', 'iframe', 'svg', 'template', 'textarea' ), true) ) {
+                return true;
+            }
+            if ( '' !== trim($this->attr($descendant, 'contenteditable')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function boundedRuntimeTargetAttributes(DOMElement $element): array
+    {
+        $attributes = array();
+        foreach ( array( 'id', 'class', 'role', 'aria-label', 'type', 'name' ) as $name ) {
+            $value = trim($this->attr($element, $name));
+            if ( '' !== $value ) {
+                $attributes[$name] = substr($value, 0, 160);
+            }
+        }
+
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            if ( str_starts_with(strtolower($attribute->name), 'data-') ) {
+                $attributes[$attribute->name] = substr((string) $attribute->value, 0, 160);
+            }
+        }
+
+        return $attributes;
     }
 
     private function shouldPreserveDataAttributeRuntimeTarget(DOMElement $element): bool

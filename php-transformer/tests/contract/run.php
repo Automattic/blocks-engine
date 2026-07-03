@@ -409,6 +409,21 @@ $assert(array() === ($runtimeCanvasResult['fallbacks'] ?? array()), 'runtime-tar
 $assert('core/html' === ($runtimeCanvasResult['blocks'][0]['blockName'] ?? null), 'runtime-targeted canvas is materialized as bounded raw HTML');
 $assert(str_contains((string) ($runtimeCanvasResult['serialized_blocks'] ?? ''), 'id="fixture-canvas"'), 'runtime-targeted canvas remains addressable in serialized blocks');
 
+$runtimeAppShell = ( new HtmlTransformer() )->transform(
+    '<main class="app-shell"><section id="stage"><canvas id="scene"></canvas><button id="run">Run</button><div id="log"></div></section></main>',
+    array(
+        'runtime_canvas_selectors' => array('#scene'),
+        'runtime_dom_selectors'    => array('#scene', '#run', '#log'),
+    )
+)->toArray();
+$runtimeAppShellIsland = $runtimeAppShell['source_reports']['runtime_islands'][0] ?? array();
+$assert('core/html' === ($runtimeAppShell['blocks'][0]['blockName'] ?? null), 'runtime app shell is preserved as one bounded raw HTML island');
+$assert('app_shell' === ($runtimeAppShellIsland['kind'] ?? ''), 'runtime app shell reports a dedicated island kind');
+$assert('runtime_app_shell' === ($runtimeAppShellIsland['preservation_reason'] ?? ''), 'runtime app shell reports the app-shell preservation reason');
+$assert(3 === ($runtimeAppShellIsland['target_count'] ?? null), 'runtime app shell reports bounded descendant runtime target count');
+$assert(in_array('app_root_token', $runtimeAppShellIsland['app_shell_signals'] ?? array(), true), 'runtime app shell reports app-root token evidence');
+$assert(str_contains((string) ($runtimeAppShell['serialized_blocks'] ?? ''), '<main class="app-shell">'), 'runtime app shell preserves the source root markup');
+
 $inlineSemanticRuntime = ( new HtmlTransformer() )->transform(
     '<span class="qty-display" aria-live="polite">1</span>',
     array('runtime_dom_selectors' => array('.qty-display'))
