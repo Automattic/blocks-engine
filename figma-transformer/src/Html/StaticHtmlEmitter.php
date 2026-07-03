@@ -7974,6 +7974,9 @@ final class StaticHtmlEmitter
     {
         $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
         $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        if ( $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode) && $this->textStyleHasUnprovenUppercaseTransform($node, $style) ) {
+            unset($style['text_transform']);
+        }
         if ( ! isset($style['color']) ) {
             $paints = is_array($node['figma_paints']['fills'] ?? null) ? $node['figma_paints']['fills'] : array();
             $color = $this->firstSolidPaint($paints);
@@ -8000,6 +8003,60 @@ final class StaticHtmlEmitter
         }
 
         return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, mixed>|null $grandParentNode
+     */
+    private function isSemanticListItemBodyText(array $node, ?array $parentNode, ?array $grandParentNode): bool
+    {
+        if ( 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) || null === $parentNode || null === $grandParentNode ) {
+            return false;
+        }
+
+        return $this->isListItemOf($parentNode, $grandParentNode) && ! $this->isListMarkerTextChild($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $style
+     */
+    private function textStyleHasUnprovenUppercaseTransform(array $node, array $style): bool
+    {
+        if ( 'uppercase' !== strtolower((string) ($style['text_transform'] ?? '')) ) {
+            return false;
+        }
+
+        if ( ! $this->textContainsLowercase($this->rawDecodedText($node)) ) {
+            return false;
+        }
+
+        return ! $this->hasExplicitUppercaseTextCase($node);
+    }
+
+    /** @param array<string, mixed> $source */
+    private function hasExplicitUppercaseTextCase(array $source): bool
+    {
+        foreach ( array('textCase', 'text_case') as $key ) {
+            if ( isset($source[$key]) && is_scalar($source[$key]) && 'UPPER' === strtoupper((string) $source[$key]) ) {
+                return true;
+            }
+        }
+
+        foreach ( array('style', 'textData', 'derivedTextData') as $key ) {
+            if ( is_array($source[$key] ?? null) && $this->hasExplicitUppercaseTextCase($source[$key]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function textContainsLowercase(string $text): bool
+    {
+        return 1 === preg_match('/\p{Ll}/u', $text);
     }
 
     /**

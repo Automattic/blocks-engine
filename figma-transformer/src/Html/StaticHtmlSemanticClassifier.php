@@ -109,7 +109,10 @@ final class StaticHtmlSemanticClassifier
                 return 'li';
             }
 
-            if ( null !== $parentNode && $this->isSemanticListItemNode($parentNode) ) {
+            if (
+                null !== $parentNode
+                && ( $this->isSemanticListItemNode($parentNode) || ( null !== $grandParentNode && $this->isListItemOf($parentNode, $grandParentNode) ) )
+            ) {
                 return 'p';
             }
 

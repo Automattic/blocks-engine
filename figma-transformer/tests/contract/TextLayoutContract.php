@@ -2016,7 +2016,88 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<p class="figma-node-kom-text-1-body"'), 'kiwi-ordered-marker-rich-text-body-paragraph');
     $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<span style="font-size:16px;text-transform:none">Movement made gentle:</span><span style="font-size:16px;font-weight:400;text-transform:none"> Tips fit your day.</span>'), 'kiwi-ordered-marker-rich-text-body-spans');
     $assert(! str_contains($kiwiOrderedMarkerRichTextHtml, '<h3 class="figma-node-kom-text-1-body"'), 'kiwi-ordered-marker-rich-text-body-not-heading');
-     
+
+    $semanticListBodyTypographyResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emit(array(
+        'name'  => 'Semantic List Body Typography Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'slt:page',
+                'type'     => 'FRAME',
+                'name'     => 'Page',
+                'width'    => 1200,
+                'height'   => 600,
+                'children' => array(
+                    array(
+                        'id'       => 'slt:list',
+                        'type'     => 'FRAME',
+                        'name'     => 'Numbered benefits list',
+                        'width'    => 720,
+                        'height'   => 360,
+                        'children' => array(
+                            array(
+                                'id'       => 'slt:item-1',
+                                'type'     => 'FRAME',
+                                'name'     => 'Numbered List Item',
+                                'width'    => 720,
+                                'height'   => 80,
+                                'children' => array(
+                                    array('id' => 'slt:marker-1', 'type' => 'TEXT', 'name' => 'Marker', 'characters' => '1.', 'fontSize' => 32),
+                                    array(
+                                        'id'         => 'slt:text-1',
+                                        'type'       => 'TEXT',
+                                        'name'       => 'Paragraph',
+                                        'figma_text' => array(
+                                            'characters' => 'Comprehensive News Coverage: Stay in the know with the latest updates and events.',
+                                            'style'      => array('font_family' => 'Plus Jakarta Sans', 'font_size' => 40, 'font_weight' => 500, 'text_transform' => 'uppercase'),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                            array(
+                                'id'       => 'slt:item-2',
+                                'type'     => 'FRAME',
+                                'name'     => 'Numbered List Item',
+                                'width'    => 720,
+                                'height'   => 80,
+                                'children' => array(
+                                    array('id' => 'slt:marker-2', 'type' => 'TEXT', 'name' => 'Marker', 'characters' => '2.', 'fontSize' => 32),
+                                    array('id' => 'slt:text-2', 'type' => 'TEXT', 'name' => 'Paragraph', 'characters' => 'In-depth reviews help readers make informed decisions.', 'fontSize' => 16),
+                                ),
+                            ),
+                            array(
+                                'id'       => 'slt:item-3',
+                                'type'     => 'FRAME',
+                                'name'     => 'Numbered List Item',
+                                'width'    => 720,
+                                'height'   => 80,
+                                'children' => array(
+                                    array('id' => 'slt:marker-3', 'type' => 'TEXT', 'name' => 'Marker', 'characters' => '3.', 'fontSize' => 32),
+                                    array(
+                                        'id'         => 'slt:text-3',
+                                        'type'       => 'TEXT',
+                                        'name'       => 'Explicit Upper Paragraph',
+                                        'textCase'   => 'UPPER',
+                                        'figma_text' => array(
+                                            'characters' => 'Helpful guides support every skill level.',
+                                            'style'      => array('font_size' => 16, 'text_transform' => 'uppercase'),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $semanticListBodyTypographyHtml = $fileContent($semanticListBodyTypographyResult, 'index.html');
+    $semanticListBodyTypographyCss = $fileContent($semanticListBodyTypographyResult, 'style.css');
+    $assert(str_contains($semanticListBodyTypographyHtml, '<p class="figma-node-slt-text-1-paragraph"'), 'semantic-list-body-heading-sized-text-stays-paragraph');
+    $assert(1 !== preg_match('/<h[1-6] class="figma-node-slt-text-1-paragraph"/', $semanticListBodyTypographyHtml), 'semantic-list-body-no-heading-tag');
+    $assert(1 !== preg_match('/\.figma-node-slt-text-1-paragraph\{[^}]*text-transform:uppercase/s', $semanticListBodyTypographyCss), 'semantic-list-body-drops-unproven-uppercase');
+    $assert(1 === preg_match('/\.figma-node-slt-text-3-explicit-upper-paragraph\{[^}]*text-transform:uppercase/s', $semanticListBodyTypographyCss), 'semantic-list-body-keeps-explicit-uppercase');
+    $assert(str_contains($semanticListBodyTypographyCss, 'font-size:40px'), 'semantic-list-body-keeps-source-font-size');
+
     // Kiwi text style references: production .fig payloads can carry stale inline
     // `fontName` data on a text node while `styleIdForText` points at the canonical
     // text style and `derivedTextData.fontMetaData` matches that style. Prefer the
