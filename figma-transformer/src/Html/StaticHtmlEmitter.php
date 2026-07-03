@@ -281,7 +281,7 @@ final class StaticHtmlEmitter
     private array $emittedNodeMetadata = array();
 
     /**
-     * @var array<string, bool>
+     * @var array<string, string>
      */
     private array $suppressedVisualNodeIds = array();
 
@@ -741,7 +741,7 @@ final class StaticHtmlEmitter
                     }
                     if ( $suppressRootOffCanvasChildren && $this->isFullyOffCanvasRootChild($child, $node) ) {
                         if ( '' !== $childId ) {
-                            $this->suppressedVisualNodeIds[$childId] = true;
+                            $this->suppressedVisualNodeIds[$childId] = 'root_off_canvas_child_suppressed';
                         }
                         $this->recordDecisionTrace('layout_suppression', 'root_off_canvas_child_suppressed', $child, 'skip_child', $node, array('depth' => $depth + 1));
                         continue;
@@ -3483,6 +3483,9 @@ final class StaticHtmlEmitter
             'clipped_visual_nodes' => is_array($visualClipDiagnostics['clipped_visual_nodes'] ?? null) ? $visualClipDiagnostics['clipped_visual_nodes'] : array(),
             'large_absolute_offset_count' => 0,
             'large_absolute_offset_nodes' => array(),
+            'suppressed_large_absolute_offset_count' => 0,
+            'suppressed_large_absolute_offset_reason_counts' => array(),
+            'suppressed_large_absolute_offset_nodes' => array(),
             'empty_visible_container_count' => 0,
             'empty_visible_container_blocker_count' => 0,
             'empty_visible_container_categories' => array(),
@@ -3562,6 +3565,8 @@ final class StaticHtmlEmitter
         $layout['decorative_underlays']['nodes'] = array_values($layout['decorative_underlays']['nodes']);
         $layout['decorative_underlays']['count'] = count($layout['decorative_underlays']['nodes']);
         $layout['large_absolute_offset_nodes'] = array_values($layout['large_absolute_offset_nodes']);
+        $layout['suppressed_large_absolute_offset_nodes'] = array_values($layout['suppressed_large_absolute_offset_nodes']);
+        ksort($layout['suppressed_large_absolute_offset_reason_counts']);
         $layout['empty_visible_containers'] = array_values($layout['empty_visible_containers']);
         $layout['empty_visible_container_count'] = count($layout['empty_visible_containers']);
         $layout['empty_visible_container_blocker_count'] = count(array_filter(
@@ -3953,7 +3958,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $effects
      * @param array<string, mixed> $maskEffectClipping
      */
-    private function collectTransformDiagnostics(array $node, array &$image, array &$vectors, array &$layout, array &$components, array &$effects, array &$maskEffectClipping, string $html, string $css, ?array $parentNode = null): void
+    private function collectTransformDiagnostics(array $node, array &$image, array &$vectors, array &$layout, array &$components, array &$effects, array &$maskEffectClipping, string $html, string $css, ?array $parentNode = null, ?string $parentSuppressionReason = null): void
     {
         if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) ) {
             return;
@@ -3963,11 +3968,20 @@ final class StaticHtmlEmitter
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
 
+        $suppressionReason = $this->suppressedLayoutDiagnosticReason($node, $parentSuppressionReason);
+
         if ( null !== $parentNode ) {
             $offset = $this->largeAbsoluteOffsetDiagnostic($node, $parentNode);
             if ( null !== $offset ) {
-                ++$layout['large_absolute_offset_count'];
-                $layout['large_absolute_offset_nodes'][] = $offset;
+                if ( null !== $suppressionReason ) {
+                    $offset['suppression_reason'] = $suppressionReason;
+                    ++$layout['suppressed_large_absolute_offset_count'];
+                    $layout['suppressed_large_absolute_offset_reason_counts'][$suppressionReason] = (int) ($layout['suppressed_large_absolute_offset_reason_counts'][$suppressionReason] ?? 0) + 1;
+                    $layout['suppressed_large_absolute_offset_nodes'][] = $offset;
+                } else {
+                    ++$layout['large_absolute_offset_count'];
+                    $layout['large_absolute_offset_nodes'][] = $offset;
+                }
             }
         }
 
@@ -4077,9 +4091,23 @@ final class StaticHtmlEmitter
                     $this->collectClippedChildOmissionDiagnostics($child, $image, $html, $node);
                     continue;
                 }
-                $this->collectTransformDiagnostics($child, $image, $vectors, $layout, $components, $effects, $maskEffectClipping, $html, $css, $node);
+                $this->collectTransformDiagnostics($child, $image, $vectors, $layout, $components, $effects, $maskEffectClipping, $html, $css, $node, $suppressionReason);
             }
         }
+    }
+
+    private function suppressedLayoutDiagnosticReason(array $node, ?string $parentSuppressionReason): ?string
+    {
+        if ( null !== $parentSuppressionReason ) {
+            return $parentSuppressionReason;
+        }
+
+        $id = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
+        if ( '' !== $id && isset($this->suppressedVisualNodeIds[$id]) ) {
+            return $this->suppressedVisualNodeIds[$id];
+        }
+
+        return null;
     }
 
     /**

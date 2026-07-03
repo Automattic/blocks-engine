@@ -251,6 +251,8 @@ final class TransformDiagnosticsBuilder
                 'clipped_visual_node_count' => (int) ($layout['clipped_visual_node_count'] ?? 0),
                 'clipped_visual_area_ratio' => (float) ($layout['clipped_visual_area_ratio'] ?? 0.0),
                 'large_absolute_offset_count' => (int) ($layout['large_absolute_offset_count'] ?? 0),
+                'suppressed_large_absolute_offset_count' => (int) ($layout['suppressed_large_absolute_offset_count'] ?? 0),
+                'suppressed_large_absolute_offset_reason_counts' => is_array($layout['suppressed_large_absolute_offset_reason_counts'] ?? null) ? $layout['suppressed_large_absolute_offset_reason_counts'] : array(),
                 'empty_visible_container_count' => (int) ($layout['empty_visible_container_count'] ?? 0),
                 'empty_visible_container_blocker_count' => (int) ($layout['empty_visible_container_blocker_count'] ?? 0),
                 'decoded_text_nodes' => (int) ($text['decoded_text_node_count'] ?? 0),

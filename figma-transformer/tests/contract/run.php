@@ -838,6 +838,11 @@ $assert(! str_contains($rootOffCanvasHtml, 'Alternate hero') && ! str_contains($
 $assert(str_contains($rootOffCanvasHtml, 'Visible hero'), 'root-off-canvas-visible-child-emitted');
 $assert(2 === ($rootOffCanvasDiagnostics['decision_traces']['reason_counts']['root_off_canvas_child_suppressed'] ?? null), 'root-off-canvas-decision-trace-count');
 $assert(0 === ($rootOffCanvasDiagnostics['layout']['off_canvas_visual_node_count'] ?? null), 'root-off-canvas-suppressed-not-visual-warning');
+$assert(0 === ($rootOffCanvasDiagnostics['layout']['large_absolute_offset_count'] ?? null), 'root-off-canvas-suppressed-not-large-offset-warning');
+$assert(2 === ($rootOffCanvasDiagnostics['layout']['suppressed_large_absolute_offset_count'] ?? null), 'root-off-canvas-suppressed-large-offset-count');
+$assert(2 === ($rootOffCanvasDiagnostics['layout']['suppressed_large_absolute_offset_reason_counts']['root_off_canvas_child_suppressed'] ?? null), 'root-off-canvas-suppressed-large-offset-reason-count');
+$assert('root_off_canvas_child_suppressed' === ($rootOffCanvasDiagnostics['layout']['suppressed_large_absolute_offset_nodes'][0]['suppression_reason'] ?? null), 'root-off-canvas-suppressed-large-offset-sample-reason');
+$assert(! in_array('large_absolute_offsets', $artifactQualitySignalCodes($rootOffCanvasResult), true), 'root-off-canvas-suppressed-no-large-offset-quality-signal');
 
 $gamesControlLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Games Control Layout Guard Fixture',
