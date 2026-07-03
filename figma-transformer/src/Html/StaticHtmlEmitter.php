@@ -3660,6 +3660,7 @@ final class StaticHtmlEmitter
         $text = $this->textCoverageDiagnostics($nodes, $html);
         $links = $this->linkDiagnostics();
         $cssDiagnostics = $this->cssDiagnostics($css);
+        $htmlArtifactDiagnostics = $this->htmlArtifactDiagnostics($html, $css);
         $decisionTraces = $this->decisionTraceDiagnostics($this->breakpointMediaDiffBuilder()->decisionTraces());
         $layout['positional_parity'] = $this->positionalParityDiagnostics($layout, $css, $decisionTraces);
 
@@ -3680,7 +3681,8 @@ final class StaticHtmlEmitter
             'decision_traces' => $decisionTraces,
             'links' => $links,
             'css' => $cssDiagnostics,
-            'artifact_quality' => $this->transformDiagnosticsBuilder()->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text, $components, $effects, $maskEffectClipping, $cssDiagnostics),
+            'html_artifact' => $htmlArtifactDiagnostics,
+            'artifact_quality' => $this->transformDiagnosticsBuilder()->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text, $components, $effects, $maskEffectClipping, $cssDiagnostics, $htmlArtifactDiagnostics),
             'diagnostic_codes' => $this->diagnosticCodeCounts($diagnostics),
         );
     }
@@ -3988,6 +3990,260 @@ final class StaticHtmlEmitter
             'invalid_numeric_token_count' => count($tokens),
             'invalid_numeric_tokens' => array_slice($tokens, 0, 25),
         );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function htmlArtifactDiagnostics(string $html, string $css): array
+    {
+        $elementCount = preg_match_all('/<([a-z][a-z0-9:-]*)(?:\s|>|\/)/i', $html, $tagMatches) ?: 0;
+        $tags = is_array($tagMatches[1] ?? null) ? array_map('strtolower', $tagMatches[1]) : array();
+        $svgDrawingTags = array(
+            'circle' => true,
+            'clippath' => true,
+            'defs' => true,
+            'ellipse' => true,
+            'g' => true,
+            'line' => true,
+            'lineargradient' => true,
+            'mask' => true,
+            'path' => true,
+            'polygon' => true,
+            'polyline' => true,
+            'radialgradient' => true,
+            'rect' => true,
+            'stop' => true,
+            'svg' => true,
+            'use' => true,
+        );
+        $structuralTags = array_values(array_filter($tags, static fn (string $tag): bool => ! isset($svgDrawingTags[$tag])));
+        $structuralElementCount = count($structuralTags);
+        $divCount = count(array_filter($tags, static fn (string $tag): bool => 'div' === $tag));
+        $semanticTags = array(
+            'a' => true,
+            'article' => true,
+            'aside' => true,
+            'button' => true,
+            'figcaption' => true,
+            'figure' => true,
+            'footer' => true,
+            'form' => true,
+            'h1' => true,
+            'h2' => true,
+            'h3' => true,
+            'h4' => true,
+            'h5' => true,
+            'h6' => true,
+            'header' => true,
+            'img' => true,
+            'input' => true,
+            'li' => true,
+            'main' => true,
+            'nav' => true,
+            'ol' => true,
+            'p' => true,
+            'picture' => true,
+            'section' => true,
+            'ul' => true,
+        );
+        $semanticElementCount = count(array_filter($structuralTags, static fn (string $tag): bool => isset($semanticTags[$tag])));
+        $htmlBytes = strlen($html);
+        $inlineSvgBytes = 0;
+        $inlineSvgCount = preg_match_all('/<svg\b[^>]*>.*?<\/svg>/is', $html, $svgMatches) ?: 0;
+        foreach ( is_array($svgMatches[0] ?? null) ? $svgMatches[0] : array() as $svg ) {
+            $inlineSvgBytes += strlen((string) $svg);
+        }
+
+        $divRatio = $structuralElementCount > 0 ? round($divCount / $structuralElementCount, 3) : 0.0;
+        $semanticDensity = $structuralElementCount > 0 ? round($semanticElementCount / $structuralElementCount, 3) : 0.0;
+        $inlineSvgRatio = $htmlBytes > 0 ? round($inlineSvgBytes / $htmlBytes, 3) : 0.0;
+        $breakpointLeaks = $this->breakpointOverrideLeaks($css);
+        $absoluteToFlowConversions = $this->absoluteToFlowConversions($css);
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/html-artifact-diagnostics/v1',
+            'html_bytes' => $htmlBytes,
+            'element_count' => $elementCount,
+            'structural_element_count' => $structuralElementCount,
+            'div_count' => $divCount,
+            'div_ratio' => $divRatio,
+            'semantic_element_count' => $semanticElementCount,
+            'semantic_density' => $semanticDensity,
+            'canvas_like_dom' => $structuralElementCount >= 80 && $divRatio >= 0.75 && $semanticDensity <= 0.15,
+            'semantic_sparsity' => $structuralElementCount >= 40 && $semanticDensity <= 0.08,
+            'inline_svg_count' => $inlineSvgCount,
+            'inline_svg_bytes' => $inlineSvgBytes,
+            'inline_svg_byte_ratio' => $inlineSvgRatio,
+            'overlarge_inline_svg_ratio' => $htmlBytes >= 2048 && $inlineSvgBytes >= 32768 && $inlineSvgRatio >= 0.35,
+            'breakpoint_override_leak_count' => count($breakpointLeaks),
+            'breakpoint_override_leaks' => array_slice($breakpointLeaks, 0, 25),
+            'absolute_to_flow_conversion_count' => count($absoluteToFlowConversions),
+            'absolute_to_flow_conversions' => array_slice($absoluteToFlowConversions, 0, 25),
+        );
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function breakpointOverrideLeaks(string $css): array
+    {
+        $leaks = array();
+        foreach ( $this->mediaBlocksFromCss($css) as $mediaBlock ) {
+            $breakpoint = (float) ($mediaBlock['breakpoint'] ?? 0.0);
+            if ( $breakpoint <= 0.0 || $breakpoint > 600.0 ) {
+                continue;
+            }
+
+            $body = (string) ($mediaBlock['body'] ?? '');
+            if ( 0 === (preg_match_all('/\.([a-z0-9_-]+)\{([^{}]*)\}/i', $body, $ruleMatches, PREG_SET_ORDER) ?: 0) ) {
+                continue;
+            }
+
+            foreach ( $ruleMatches as $ruleMatch ) {
+                $class = (string) ($ruleMatch[1] ?? '');
+                $declarations = (string) ($ruleMatch[2] ?? '');
+                $declarationSamples = $this->desktopSizedResponsiveDeclarations($declarations);
+                if ( empty($declarationSamples) ) {
+                    continue;
+                }
+
+                $leaks[] = array(
+                    'breakpoint_px' => $breakpoint,
+                    'class' => $class,
+                    'declarations' => $declarationSamples,
+                );
+                if ( count($leaks) >= 25 ) {
+                    return $leaks;
+                }
+            }
+        }
+
+        return $leaks;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function absoluteToFlowConversions(string $css): array
+    {
+        $baseAbsoluteClasses = array();
+        if ( 0 < (preg_match_all('/\.([a-z0-9_-]+)\{([^{}]*)\}/i', preg_replace('/@media[^{}]*\{.*?\}/is', '', $css) ?? $css, $baseMatches, PREG_SET_ORDER) ?: 0) ) {
+            foreach ( $baseMatches as $baseMatch ) {
+                if ( str_contains((string) ($baseMatch[2] ?? ''), 'position:absolute') ) {
+                    $baseAbsoluteClasses[(string) ($baseMatch[1] ?? '')] = true;
+                }
+            }
+        }
+
+        $conversions = array();
+        foreach ( $this->mediaBlocksFromCss($css) as $mediaBlock ) {
+            $body = (string) ($mediaBlock['body'] ?? '');
+            if ( 0 === (preg_match_all('/\.([a-z0-9_-]+)\{([^{}]*)\}/i', $body, $ruleMatches, PREG_SET_ORDER) ?: 0) ) {
+                continue;
+            }
+
+            foreach ( $ruleMatches as $ruleMatch ) {
+                $class = (string) ($ruleMatch[1] ?? '');
+                $declarations = (string) ($ruleMatch[2] ?? '');
+                if ( ! isset($baseAbsoluteClasses[$class]) ) {
+                    continue;
+                }
+                if ( ! str_contains($declarations, 'position:relative') || ! str_contains($declarations, 'left:auto') || ! str_contains($declarations, 'top:auto') ) {
+                    continue;
+                }
+
+                $conversions[] = array(
+                    'breakpoint_px' => (float) ($mediaBlock['breakpoint'] ?? 0.0),
+                    'class' => $class,
+                    'declarations' => $this->compactCssDeclarations($declarations),
+                );
+                if ( count($conversions) >= 25 ) {
+                    return $conversions;
+                }
+            }
+        }
+
+        return $conversions;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function mediaBlocksFromCss(string $css): array
+    {
+        $blocks = array();
+        if ( 0 === (preg_match_all('/@media\s*\([^{}]*max-width\s*:\s*([0-9.]+)px[^{}]*\)\{/i', $css, $matches, PREG_OFFSET_CAPTURE) ?: 0) ) {
+            return $blocks;
+        }
+
+        $matchCount = count($matches[0]);
+        for ( $i = 0; $i < $matchCount; $i++ ) {
+            $start = (int) $matches[0][$i][1];
+            $bodyStart = $start + strlen((string) $matches[0][$i][0]);
+            $end = $i + 1 < $matchCount ? (int) $matches[0][$i + 1][1] : strlen($css);
+            $blocks[] = array(
+                'breakpoint' => (float) $matches[1][$i][0],
+                'body' => substr($css, $bodyStart, max(0, $end - $bodyStart)),
+            );
+        }
+
+        return $blocks;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function desktopSizedResponsiveDeclarations(string $declarations): array
+    {
+        $samples = array();
+        if ( 0 === (preg_match_all('/(?:^|;)(width|min-width|max-width|left|right):([^;{}]+)/i', $declarations, $matches, PREG_SET_ORDER) ?: 0) ) {
+            return $samples;
+        }
+
+        foreach ( $matches as $match ) {
+            $property = strtolower(trim((string) ($match[1] ?? '')));
+            $value = trim((string) ($match[2] ?? ''));
+            $numeric = $this->largestCssPixelValue($value);
+            if ( null === $numeric ) {
+                continue;
+            }
+
+            $threshold = in_array($property, array('left', 'right'), true) ? 700.0 : 900.0;
+            if ( 'max-width' === $property ) {
+                $threshold = 1200.0;
+            }
+            if ( $numeric < $threshold ) {
+                continue;
+            }
+
+            $samples[] = $property . ':' . $value;
+        }
+
+        return array_values(array_unique($samples));
+    }
+
+    private function largestCssPixelValue(string $value): ?float
+    {
+        if ( 0 === (preg_match_all('/-?[0-9.]+px/', $value, $matches) ?: 0) ) {
+            return null;
+        }
+
+        $largest = null;
+        foreach ( $matches[0] as $token ) {
+            $number = abs((float) str_replace('px', '', (string) $token));
+            $largest = null === $largest ? $number : max($largest, $number);
+        }
+
+        return $largest;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function compactCssDeclarations(string $declarations): array
+    {
+        return array_values(array_filter(array_map('trim', explode(';', $declarations)), static fn (string $declaration): bool => '' !== $declaration));
     }
 
     /**

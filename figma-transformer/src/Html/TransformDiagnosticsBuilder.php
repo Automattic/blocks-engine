@@ -22,9 +22,10 @@ final class TransformDiagnosticsBuilder
      * @param array<string, mixed> $effects
      * @param array<string, mixed> $maskEffectClipping
      * @param array<string, mixed> $css
+     * @param array<string, mixed> $htmlArtifact
      * @return array<string, mixed>
      */
-    public function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $text = array(), array $components = array(), array $effects = array(), array $maskEffectClipping = array(), array $css = array()): array
+    public function artifactQualityDiagnostics(array $image, array $vectors, array $fonts, array $assets, array $generatedSvgAssets, array $layout, array $links = array(), array $text = array(), array $components = array(), array $effects = array(), array $maskEffectClipping = array(), array $css = array(), array $htmlArtifact = array()): array
     {
         $signals = array();
 
@@ -192,6 +193,50 @@ final class TransformDiagnosticsBuilder
                 'sample_tokens' => array_slice(is_array($css['invalid_numeric_tokens'] ?? null) ? $css['invalid_numeric_tokens'] : array(), 0, 10),
             );
         }
+        if ( ! empty($htmlArtifact['canvas_like_dom']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'canvas_like_dom',
+                'element_count' => (int) ($htmlArtifact['element_count'] ?? 0),
+                'div_ratio' => (float) ($htmlArtifact['div_ratio'] ?? 0.0),
+                'semantic_density' => (float) ($htmlArtifact['semantic_density'] ?? 0.0),
+            );
+        }
+        if ( ! empty($htmlArtifact['semantic_sparsity']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'semantic_sparsity',
+                'element_count' => (int) ($htmlArtifact['element_count'] ?? 0),
+                'semantic_element_count' => (int) ($htmlArtifact['semantic_element_count'] ?? 0),
+                'semantic_density' => (float) ($htmlArtifact['semantic_density'] ?? 0.0),
+            );
+        }
+        if ( ! empty($htmlArtifact['overlarge_inline_svg_ratio']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'overlarge_inline_svg_ratio',
+                'inline_svg_bytes' => (int) ($htmlArtifact['inline_svg_bytes'] ?? 0),
+                'html_bytes' => (int) ($htmlArtifact['html_bytes'] ?? 0),
+                'inline_svg_byte_ratio' => (float) ($htmlArtifact['inline_svg_byte_ratio'] ?? 0.0),
+                'inline_svg_count' => (int) ($htmlArtifact['inline_svg_count'] ?? 0),
+            );
+        }
+        if ( ! empty($htmlArtifact['breakpoint_override_leak_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'breakpoint_override_leak',
+                'count' => (int) $htmlArtifact['breakpoint_override_leak_count'],
+                'sample_rules' => array_slice(is_array($htmlArtifact['breakpoint_override_leaks'] ?? null) ? $htmlArtifact['breakpoint_override_leaks'] : array(), 0, 10),
+            );
+        }
+        if ( ! empty($htmlArtifact['absolute_to_flow_conversion_count']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'suspicious_absolute_to_flow_conversion',
+                'count' => (int) $htmlArtifact['absolute_to_flow_conversion_count'],
+                'sample_rules' => array_slice(is_array($htmlArtifact['absolute_to_flow_conversions'] ?? null) ? $htmlArtifact['absolute_to_flow_conversions'] : array(), 0, 10),
+            );
+        }
 
         $sourceLossCoverage = $this->sourceLossCoverage($image, $vectors, $text, $components, $effects, $maskEffectClipping);
         if ( ! empty($sourceLossCoverage['not_emitted_source_nodes']) ) {
@@ -284,6 +329,7 @@ final class TransformDiagnosticsBuilder
                 'mixed_positioning_parent_count' => (int) ($layout['stacking_order']['mixed_positioning_parent_count'] ?? 0),
                 'uncomposed_vector_child_nodes' => (int) ($vectors['child_composition']['uncomposed_vector_child_node_count'] ?? 0),
                 'invalid_css_numeric_tokens' => (int) ($css['invalid_numeric_token_count'] ?? 0),
+                'html_artifact' => $htmlArtifact,
                 'source_loss_coverage' => $sourceLossCoverage,
             ),
         );

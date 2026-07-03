@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier;
+use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
+use Automattic\BlocksEngine\FigmaTransformer\Html\TransformDiagnosticsBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphPagePlanner;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 
@@ -713,6 +715,23 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert('figma-node-quality-offcanvas-off-canvas-promo' === ($visualOffsetSignal['sample_nodes'][0]['class'] ?? null), 'quality-diagnostics-off-canvas-visual-sample-class');
     $assert('needs_review' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['status'] ?? null), 'quality-diagnostics-status-needs-review');
     $assert('warn' === ($qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['quality_status'] ?? null), 'quality-diagnostics-quality-status-warn');
+    $artifactAnalyzer = new ReflectionMethod(StaticHtmlEmitter::class, 'htmlArtifactDiagnostics');
+    $sparseCanvasHtml = '<!doctype html><html><body>' . str_repeat('<div class="figma-node-layer"></div>', 90) . '<svg viewBox="0 0 1 1">' . str_repeat('<path d="M0 0L1 1"/>', 3000) . '</svg></body></html>';
+    $responsiveLeakCss = '.figma-node-card{position:absolute;left:1200px;top:0px;width:1440px}@media (max-width:390px){.figma-node-card{position:relative;left:auto;top:auto;width:1440px}.figma-node-shell{max-width:1440px}}';
+    $htmlArtifactDiagnostics = $artifactAnalyzer->invoke(new StaticHtmlEmitter(), $sparseCanvasHtml, $responsiveLeakCss);
+    $assert(true === ($htmlArtifactDiagnostics['canvas_like_dom'] ?? null), 'quality-diagnostics-html-canvas-like-dom');
+    $assert(true === ($htmlArtifactDiagnostics['semantic_sparsity'] ?? null), 'quality-diagnostics-html-semantic-sparsity');
+    $assert(true === ($htmlArtifactDiagnostics['overlarge_inline_svg_ratio'] ?? null), 'quality-diagnostics-html-overlarge-inline-svg-ratio');
+    $assert(2 === ($htmlArtifactDiagnostics['breakpoint_override_leak_count'] ?? null), 'quality-diagnostics-html-breakpoint-override-leaks');
+    $assert(1 === ($htmlArtifactDiagnostics['absolute_to_flow_conversion_count'] ?? null), 'quality-diagnostics-html-absolute-to-flow-conversion');
+    $htmlArtifactQuality = (new TransformDiagnosticsBuilder())->artifactQualityDiagnostics(array(), array(), array(), array(), array(), array(), array(), array(), array(), array(), array(), array(), $htmlArtifactDiagnostics);
+    $htmlArtifactSignalCodes = array_values(array_map(static fn (array $signal): string => (string) ($signal['code'] ?? ''), $htmlArtifactQuality['signals'] ?? array()));
+    $assert(in_array('canvas_like_dom', $htmlArtifactSignalCodes, true), 'quality-diagnostics-html-canvas-like-signal');
+    $assert(in_array('semantic_sparsity', $htmlArtifactSignalCodes, true), 'quality-diagnostics-html-semantic-sparsity-signal');
+    $assert(in_array('overlarge_inline_svg_ratio', $htmlArtifactSignalCodes, true), 'quality-diagnostics-html-inline-svg-ratio-signal');
+    $assert(in_array('breakpoint_override_leak', $htmlArtifactSignalCodes, true), 'quality-diagnostics-html-breakpoint-leak-signal');
+    $assert(in_array('suspicious_absolute_to_flow_conversion', $htmlArtifactSignalCodes, true), 'quality-diagnostics-html-absolute-to-flow-signal');
+    $assert('warn' === ($htmlArtifactQuality['quality_status'] ?? null), 'quality-diagnostics-html-quality-status-warn');
     $qualitySignals = $qualityDiagnosticsResult['source_reports']['figma']['html']['transform_diagnostics']['artifact_quality']['signals'] ?? array();
     $excessiveImageSignal = null;
     foreach ( is_array($qualitySignals) ? $qualitySignals : array() as $signal ) {
