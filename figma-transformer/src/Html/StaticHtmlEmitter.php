@@ -3032,7 +3032,16 @@ final class StaticHtmlEmitter
         }
 
         $key = $this->routeKey($label);
-        if ( '' !== $key && ! isset($routes[$key]) ) {
+        if ( '' === $key ) {
+            return;
+        }
+
+        $existing = is_array($this->implicitRouteTargets[$key] ?? null) ? $this->implicitRouteTargets[$key] : null;
+        if ( null !== $existing && $this->implicitRouteEvidencePriority((string) ($existing['evidence'] ?? '')) >= $this->implicitRouteEvidencePriority($evidence) ) {
+            return;
+        }
+
+        if ( null === $existing || $this->implicitRouteEvidencePriority((string) ($existing['evidence'] ?? '')) < $this->implicitRouteEvidencePriority($evidence) ) {
             $routes[$key] = $path;
             $this->implicitRouteTargets[$key] = array(
                 'label'      => $label,
@@ -3041,6 +3050,17 @@ final class StaticHtmlEmitter
                 'evidence'   => $evidence,
             );
         }
+    }
+
+    private function implicitRouteEvidencePriority(string $evidence): int
+    {
+        return match ( $evidence ) {
+            'planned_page_identity' => 40,
+            'front_page_alias' => 30,
+            'page_heading', 'page_heading_alias' => 20,
+            'archive_page_type_alias' => 10,
+            default => 0,
+        };
     }
 
     private function routeKey(string $label): string
