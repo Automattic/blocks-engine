@@ -332,6 +332,56 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $chromeOverHeroLayerCss, '.figma-node-layer-role-hero-hero-background-panel', array('position:relative', 'z-index:1'), 'visual-map-layer-role-hero-content-below-chrome');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $chromeOverHeroLayerCss, '.figma-node-layer-role-header-site-header-navigation', array('position:relative', 'z-index:2'), 'visual-map-layer-role-header-chrome-above-hero');
 
+    $flippedChromeStripResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Flipped Chrome Strip Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'chrome-strip:page',
+                'type'     => 'FRAME',
+                'name'     => 'Chrome strip page',
+                'width'    => 1440,
+                'height'   => 640,
+                'children' => array(
+                    array(
+                        'id'       => 'chrome-strip:footer',
+                        'type'     => 'FRAME',
+                        'name'     => 'Footer chrome',
+                        'x'        => 0,
+                        'y'        => 320,
+                        'width'    => 1440,
+                        'height'   => 251,
+                        'children' => array(
+                            array('id' => 'chrome-strip:footer/background', 'type' => 'RECTANGLE', 'name' => 'Footer background', 'x' => 0, 'y' => 0, 'width' => 1440, 'height' => 251, 'fill' => array('r' => 0.1, 'g' => 0.5, 'b' => 0.6)),
+                            array(
+                                'id'        => 'chrome-strip:footer/bottom-strip',
+                                'type'      => 'RECTANGLE',
+                                'name'      => 'Bottom info strip',
+                                'x'         => 0,
+                                'y'         => 251,
+                                'width'     => 1440,
+                                'height'    => 53,
+                                'transform' => array(
+                                    'm00' => 1,
+                                    'm01' => 0,
+                                    'm02' => 0,
+                                    'm10' => 0,
+                                    'm11' => -1,
+                                    'm12' => 0,
+                                ),
+                                'fill'      => array('r' => 0.5, 'g' => 0.85, 'b' => 0.92),
+                            ),
+                            array('id' => 'chrome-strip:footer/copy', 'type' => 'TEXT', 'name' => 'Footer copy', 'characters' => 'Open: M-F 9am-5pm', 'x' => 440, 'y' => 217, 'width' => 500, 'height' => 14),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $flippedChromeStripCss = blocks_engine_figma_transformer_contract_file_content($flippedChromeStripResult, 'style.css');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $flippedChromeStripCss, '.figma-node-chrome-strip-footer-footer-chrome', array('height:251px', 'min-height:251px'), 'visual-map-flipped-chrome-strip-reserves-rendered-height');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $flippedChromeStripCss, '.figma-node-chrome-strip-footer-bottom-strip-bottom-info-strip', array('height:53px', 'top:251px', 'transform:matrix(1,0,0,-1,0,0)', 'transform-origin:0 0'), 'visual-map-flipped-chrome-strip-keeps-source-transform');
+    $assert(! str_contains($flippedChromeStripCss, '.figma-node-chrome-strip-footer-footer-chrome{width:100%;height:251px;min-height:304px'), 'visual-map-flipped-chrome-strip-no-untransformed-reserve-height');
+
     $invalidCssSanitizationResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Invalid CSS Sanitization Fixture',
         'nodes' => array(

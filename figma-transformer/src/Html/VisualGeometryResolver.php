@@ -90,6 +90,16 @@ final class VisualGeometryResolver
 
     /**
      * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     * @return array{x: float, y: float, width: float, height: float}|array{}|null
+     */
+    public function childVisualBoundsInParent(array $node, array $parentNode): ?array
+    {
+        return $this->childVisualRectInParent($node, $parentNode);
+    }
+
+    /**
+     * @param array<string, mixed> $node
      */
     public function isHorizontallyReflected(array $node): bool
     {

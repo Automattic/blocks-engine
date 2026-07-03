@@ -6228,7 +6228,16 @@ final class StaticHtmlEmitter
                 return null;
             }
 
-            $bottom = $top + (float) $childBox['height'];
+            $visualBounds = $this->visualGeometryResolver()->childVisualBoundsInParent($child, $node);
+            if ( is_array($visualBounds) && isset($visualBounds['y'], $visualBounds['height']) && is_numeric($visualBounds['y']) && is_numeric($visualBounds['height']) ) {
+                $top = (float) $visualBounds['y'];
+                $bottom = $top + (float) $visualBounds['height'];
+            } else {
+                $bottom = $top + (float) $childBox['height'];
+            }
+            if ( $top < -0.5 ) {
+                return null;
+            }
             if ( null !== $parentHeight && $bottom > $parentHeight + 0.5 && ! $this->isFooterChromeNode($node, null, 1) ) {
                 return null;
             }
