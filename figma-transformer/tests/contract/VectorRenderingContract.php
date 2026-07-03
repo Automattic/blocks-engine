@@ -79,6 +79,69 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(str_contains($strokedInlineVectorHtml, 'stroke="#1f1f1f"') && str_contains($strokedInlineVectorHtml, 'stroke-width="2"'), 'stroked-inline-vector-svg-carries-stroke');
     $assert(! str_contains($strokedInlineVectorCss, 'border:2px solid #1f1f1f'), 'stroked-inline-vector-wrapper-no-css-border');
 
+    $zeroHeightVectorSeparatorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Zero Height Vector Separator Fixture',
+        'nodes' => array(
+            array(
+                'id'             => 'vector:zero-height-solid-separator',
+                'type'           => 'VECTOR',
+                'name'           => 'Vector 1',
+                'width'          => 120,
+                'height'         => 0,
+                'strokeWeight'   => 2,
+                'strokePaints'   => array(array('type' => 'SOLID', 'color' => array('r' => 0.1490196078, 'g' => 0.4901960784, 'b' => 1, 'a' => 1))),
+                'strokeGeometry' => array(array('path' => 'M 0 1 L 120 1', 'styleID' => 'separator-local-stroke')),
+            ),
+            array(
+                'id'           => 'vector:zero-height-gradient-stroke',
+                'type'         => 'VECTOR',
+                'name'         => 'Vector 12',
+                'width'        => 120,
+                'height'       => 0,
+                'strokeWeight' => 1,
+                'strokePaints' => array(array(
+                    'type'          => 'GRADIENT_LINEAR',
+                    'gradientStops' => array(
+                        array('position' => 0, 'color' => array('r' => 0.1490196078, 'g' => 0.4901960784, 'b' => 1, 'a' => 1)),
+                        array('position' => 1, 'color' => array('r' => 0.8549019608, 'g' => 0.3490196078, 'b' => 0.3333333333, 'a' => 1)),
+                    ),
+                )),
+                'figma_vector_paths' => array(array('data' => 'M 0 0 L 120 0', 'source' => 'strokeGeometry')),
+            ),
+            array(
+                'id'         => 'vector:zero-height-gradient-fill',
+                'type'       => 'VECTOR',
+                'name'       => 'Vector 11',
+                'width'      => 120,
+                'height'     => 0,
+                'figma_paints' => array(
+                    'fills' => array(array(
+                        'type'          => 'GRADIENT_LINEAR',
+                        'gradientStops' => array(
+                            array('position' => 0, 'color' => array('r' => 0.1490196078, 'g' => 0.4901960784, 'b' => 1, 'a' => 1)),
+                            array('position' => 1, 'color' => array('r' => 0.8549019608, 'g' => 0.3490196078, 'b' => 0.3333333333, 'a' => 1)),
+                        ),
+                    )),
+                ),
+                'fills'      => array(array(
+                    'type'          => 'GRADIENT_LINEAR',
+                    'gradientStops' => array(
+                        array('position' => 0, 'color' => array('r' => 0.1490196078, 'g' => 0.4901960784, 'b' => 1, 'a' => 1)),
+                        array('position' => 1, 'color' => array('r' => 0.8549019608, 'g' => 0.3490196078, 'b' => 0.3333333333, 'a' => 1)),
+                    ),
+                )),
+                'fillGeometry' => array(array('path' => 'M 0 0 L 120 0')),
+            ),
+        ),
+    ));
+    $zeroHeightVectorSeparatorHtml = $fileContent($zeroHeightVectorSeparatorResult, 'index.html');
+    $zeroHeightVectorSeparatorCss = $fileContent($zeroHeightVectorSeparatorResult, 'style.css');
+    $assert(! str_contains($zeroHeightVectorSeparatorHtml, 'data-figma-unsupported-vector="true"'), 'zero-height-vector-separators-no-placeholder');
+    $assert(str_contains($zeroHeightVectorSeparatorHtml, 'data-figma-node-id="vector:zero-height-solid-separator"') && str_contains($zeroHeightVectorSeparatorHtml, 'stroke="#267dff"'), 'zero-height-solid-stroke-renders-line-primitive');
+    $assert(str_contains($zeroHeightVectorSeparatorHtml, '<line x1="0" y1="0.5" x2="120" y2="0.5"'), 'zero-height-gradient-stroke-renders-line-primitive');
+    $assert(str_contains($zeroHeightVectorSeparatorCss, '.figma-node-vector-zero-height-gradient-stroke-vector-12{width:120px;height:1px') && str_contains($zeroHeightVectorSeparatorCss, 'border-image:linear-gradient(180deg,#267dff 0%,#da5955 100%) 1'), 'zero-height-gradient-stroke-preserves-local-gradient-css');
+    $assert(str_contains($zeroHeightVectorSeparatorCss, '.figma-node-vector-zero-height-gradient-fill-vector-11{width:120px;height:1px;background:linear-gradient(180deg,#267dff 0%,#da5955 100%)'), 'zero-height-gradient-fill-preserves-local-gradient-css');
+
     $strokedGeometryStyleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Stroked Geometry Style Fixture',
         'nodes' => array(

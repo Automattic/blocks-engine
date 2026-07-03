@@ -74,9 +74,12 @@ final class VectorSvgRenderer
             return null;
         }
 
-        $elements = $this->vectorPathElements($node);
-        if ( empty($elements) && $height <= 0.0 ) {
+        $elements = array();
+        if ( $height <= 0.0 ) {
             $elements = $this->zeroHeightVectorElements($node, $type, $width, $renderHeight);
+        }
+        if ( empty($elements) ) {
+            $elements = $this->vectorPathElements($node);
         }
         if ( empty($elements) ) {
             $elements = $this->primitiveVectorElements($node, $type, $width, $renderHeight, $parentNode);
@@ -262,9 +265,12 @@ final class VectorSvgRenderer
         $height = $box['height'];
         $renderHeight = $box['render_height'];
 
-        $elements = $this->vectorPathElements($node);
-        if ( empty($elements) && $height <= 0.0 ) {
+        $elements = array();
+        if ( $height <= 0.0 ) {
             $elements = $this->zeroHeightVectorElements($node, $type, $width, $renderHeight);
+        }
+        if ( empty($elements) ) {
+            $elements = $this->vectorPathElements($node);
         }
         if ( empty($elements) ) {
             $elements = $this->primitiveVectorElements($node, $type, $width, $renderHeight);
@@ -352,7 +358,7 @@ final class VectorSvgRenderer
         }
 
         $paint = $this->svgPaintAttributes($node);
-        if ( 'LINE' === $type || $this->hasSvgStroke($paint) || $this->hasSvgFill($paint) ) {
+        if ( 'LINE' === $type || $this->hasSvgStroke($paint) || $this->hasSvgFill($paint) || $this->hasVisibleCssVectorPaint($node) ) {
             return max(1.0, $this->strokeWeight($node));
         }
 
@@ -817,11 +823,11 @@ final class VectorSvgRenderer
             return array('<line x1="0" y1="' . $this->number($height / 2) . '" x2="' . $this->number($width) . '" y2="' . $this->number($height / 2) . '" ' . implode(' ', $paint) . '/>');
         }
 
-        if ( 'LINE' === $type ) {
+        if ( 'LINE' === $type || $this->hasVisibleCssVectorPaint($node, 'strokes') ) {
             return array('<line x1="0" y1="' . $this->number($height / 2) . '" x2="' . $this->number($width) . '" y2="' . $this->number($height / 2) . '" fill="none" stroke="currentColor" stroke-width="' . $this->number($height) . '"/>');
         }
 
-        if ( $this->hasSvgFill($paint) ) {
+        if ( $this->hasSvgFill($paint) || $this->hasVisibleCssVectorPaint($node, 'fills') ) {
             return array('<rect x="0" y="0" width="' . $this->number($width) . '" height="' . $this->number($height) . '" ' . implode(' ', $paint) . '/>');
         }
 
@@ -986,15 +992,19 @@ final class VectorSvgRenderer
     private function rawVectorPathSources(array $node): array
     {
         $rawPaths = array();
-        foreach ( array('figma_vector_paths', 'vectorPaths', 'paths') as $key ) {
+        foreach ( array('figma_vector_paths', 'vectorPaths', 'paths', 'fillGeometry', 'strokeGeometry') as $key ) {
             if ( ! is_array($node[$key] ?? null) ) {
                 continue;
             }
             foreach ( $node[$key] as $rawPath ) {
+                $value = is_array($rawPath) ? $rawPath : array('data' => $rawPath);
+                if ( in_array($key, array('fillGeometry', 'strokeGeometry'), true) && ! isset($value['source']) ) {
+                    $value['source'] = $key;
+                }
                 $rawPaths[] = array(
                     'field' => $key,
-                    'value' => $rawPath,
-                    'data' => $this->rawVectorPathData($rawPath),
+                    'value' => $value,
+                    'data' => $this->rawVectorPathData($value),
                 );
             }
         }
@@ -1341,6 +1351,30 @@ final class VectorSvgRenderer
         foreach ( $attributes as $attribute ) {
             if ( str_starts_with($attribute, 'fill=') && 'fill="none"' !== $attribute ) {
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasVisibleCssVectorPaint(array $node, ?string $collection = null): bool
+    {
+        $collections = null === $collection ? array('fills', 'strokes') : array($collection);
+        foreach ( $collections as $paintKey ) {
+            $paints = is_array($node['figma_paints'][$paintKey] ?? null) ? $node['figma_paints'][$paintKey] : array();
+            foreach ( $paints as $paint ) {
+                if ( ! is_array($paint) || false === ($paint['visible'] ?? true) ) {
+                    continue;
+                }
+                if ( isset($paint['opacity']) && is_numeric($paint['opacity']) && (float) $paint['opacity'] <= 0.0 ) {
+                    continue;
+                }
+                if ( in_array(($paint['type'] ?? null), array('SOLID', 'GRADIENT_LINEAR', 'GRADIENT_RADIAL', 'GRADIENT_ANGULAR'), true) ) {
+                    return true;
+                }
             }
         }
 

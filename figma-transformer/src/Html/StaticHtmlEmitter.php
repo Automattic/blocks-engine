@@ -5392,7 +5392,7 @@ final class StaticHtmlEmitter
         }
         $fullBleedBreakoutDecision = $this->canvasShellResolver()->fullBleedViewportBreakoutDecision($canvasShell);
 
-        if ( 'TEXT' !== $type && ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) ) {
+        if ( 'TEXT' !== $type && ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) || null !== $zeroHeightVectorFallbackHeight ) ) {
             $background = $this->backgroundColor($node);
             if ( null !== $background ) {
                 $styles[] = 'background:' . $background;
@@ -7408,8 +7408,15 @@ final class StaticHtmlEmitter
             return false;
         }
 
-        if ( empty($this->strokeStyles($node)) ) {
+        $strokeStyles = $this->strokeStyles($node);
+        if ( empty($strokeStyles) ) {
             return false;
+        }
+
+        foreach ( $strokeStyles as $style ) {
+            if ( str_starts_with($style, 'border-image:') ) {
+                return false;
+            }
         }
 
         return null !== $this->supportedVectorSvg($node, $type, $parentNode);
