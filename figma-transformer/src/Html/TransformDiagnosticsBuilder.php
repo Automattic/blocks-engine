@@ -174,6 +174,7 @@ final class TransformDiagnosticsBuilder
                 'severity' => 'warning',
                 'code' => 'effect_node_not_emitted',
                 'count' => (int) $effects['missing_emitted_effect_node_count'],
+                'omission_reason_counts' => is_array($effects['omission_reason_counts'] ?? null) ? $effects['omission_reason_counts'] : array(),
                 'sample_nodes' => array_slice(is_array($effects['missing_emitted_effect_nodes'] ?? null) ? $effects['missing_emitted_effect_nodes'] : array(), 0, 10),
             );
         }
@@ -302,6 +303,8 @@ final class TransformDiagnosticsBuilder
                 'empty_visible_container_blocker_count' => (int) ($layout['empty_visible_container_blocker_count'] ?? 0),
                 'decoded_text_nodes' => (int) ($text['decoded_text_node_count'] ?? 0),
                 'emitted_text_nodes' => (int) ($text['emitted_text_node_count'] ?? 0),
+                'intentionally_suppressed_text_nodes' => (int) ($text['intentionally_suppressed_text_node_count'] ?? 0),
+                'text_intentional_suppression_reason_counts' => is_array($text['intentional_suppression_reason_counts'] ?? null) ? $text['intentional_suppression_reason_counts'] : array(),
                 'empty_decoded_text_nodes' => (int) ($text['empty_decoded_text_node_count'] ?? 0),
                 'missing_emitted_text_nodes' => (int) ($text['missing_emitted_text_node_count'] ?? 0),
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
@@ -319,6 +322,8 @@ final class TransformDiagnosticsBuilder
                 'component_overrides_applied' => (int) ($components['override_applied_node_count'] ?? 0),
                 'effect_source_nodes' => (int) ($effects['source_effect_node_count'] ?? 0),
                 'effect_nodes_emitted' => (int) ($effects['emitted_effect_node_count'] ?? 0),
+                'effect_intentionally_suppressed_nodes' => (int) ($effects['intentionally_suppressed_effect_node_count'] ?? 0),
+                'effect_intentional_suppression_reason_counts' => is_array($effects['intentional_suppression_reason_counts'] ?? null) ? $effects['intentional_suppression_reason_counts'] : array(),
                 'effect_field_coverage' => is_array($effects['field_coverage'] ?? null) ? $effects['field_coverage'] : array(),
                 'mask_nodes' => (int) ($maskEffectClipping['mask_node_count'] ?? 0),
                 'mask_metadata_nodes' => (int) ($maskEffectClipping['mask_metadata_node_count'] ?? 0),
@@ -360,17 +365,20 @@ final class TransformDiagnosticsBuilder
             'text' => $this->sourceLossDomain(
                 (int) ($text['decoded_text_node_count'] ?? 0),
                 (int) ($text['emitted_text_node_count'] ?? 0),
-                (int) ($text['missing_emitted_text_node_count'] ?? 0)
+                (int) ($text['missing_emitted_text_node_count'] ?? 0),
+                (int) ($text['intentionally_suppressed_text_node_count'] ?? 0)
             ),
             'components' => $this->sourceLossDomain(
                 (int) ($components['clone_source_node_count'] ?? 0),
-                (int) ($components['emitted_clone_node_count'] ?? 0) + (int) ($components['intentionally_suppressed_clone_node_count'] ?? 0),
-                (int) ($components['missing_emitted_clone_node_count'] ?? 0)
+                (int) ($components['emitted_clone_node_count'] ?? 0),
+                (int) ($components['missing_emitted_clone_node_count'] ?? 0),
+                (int) ($components['intentionally_suppressed_clone_node_count'] ?? 0)
             ),
             'effects' => $this->sourceLossDomain(
                 (int) ($effects['source_effect_node_count'] ?? 0),
                 (int) ($effects['emitted_effect_node_count'] ?? 0),
-                (int) ($effects['missing_emitted_effect_node_count'] ?? 0)
+                (int) ($effects['missing_emitted_effect_node_count'] ?? 0),
+                (int) ($effects['intentionally_suppressed_effect_node_count'] ?? 0)
             ),
             'masks' => $this->sourceLossDomain(
                 (int) ($maskEffectClipping['mask_node_count'] ?? 0),
@@ -401,12 +409,18 @@ final class TransformDiagnosticsBuilder
     /**
      * @return array<string, mixed>
      */
-    private function sourceLossDomain(int $decoded, int $emitted, int $notEmitted): array
+    private function sourceLossDomain(int $decoded, int $emitted, int $notEmitted, int $intentionallySuppressed = 0): array
     {
+        $decoded = max(0, $decoded);
+        $emitted = max(0, $emitted);
+        $notEmitted = max(0, $notEmitted);
+        $intentionallySuppressed = max(0, $intentionallySuppressed);
+
         return array(
-            'decoded_source_nodes' => max(0, $decoded),
-            'emitted_source_nodes' => max(0, $emitted),
-            'not_emitted_source_nodes' => max(0, $notEmitted),
+            'decoded_source_nodes' => $decoded,
+            'emitted_source_nodes' => min($decoded, $emitted + $intentionallySuppressed),
+            'intentionally_suppressed_source_nodes' => min($decoded, $intentionallySuppressed),
+            'not_emitted_source_nodes' => $notEmitted,
         );
     }
 

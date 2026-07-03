@@ -337,13 +337,56 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     ));
     $omittedTextDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($omittedTextResult);
     $omittedTextReasons = $omittedTextDiagnostics['text']['missing_emitted_text_reason_categories'] ?? array();
-    $assert(1 === ($omittedTextDiagnostics['text']['missing_emitted_text_node_count'] ?? null), 'diagnostics-evidence-omitted-text-count');
-    $assert(1 === ($omittedTextReasons['hidden'] ?? null), 'diagnostics-evidence-omitted-text-hidden-reason');
-    $assert('hidden' === ($omittedTextDiagnostics['text']['missing_emitted_text_nodes'][0]['reason'] ?? null), 'diagnostics-evidence-omitted-text-sample-reason');
+    $intentionalTextReasons = $omittedTextDiagnostics['text']['intentional_suppression_reason_counts'] ?? array();
+    $assert(0 === ($omittedTextDiagnostics['text']['missing_emitted_text_node_count'] ?? null), 'diagnostics-evidence-omitted-text-count');
+    $assert(array() === $omittedTextReasons, 'diagnostics-evidence-omitted-text-no-missing-reasons');
+    $assert(1 === ($omittedTextDiagnostics['text']['intentionally_suppressed_text_node_count'] ?? null), 'diagnostics-evidence-omitted-text-intentional-count');
+    $assert(1 === ($intentionalTextReasons['hidden'] ?? null), 'diagnostics-evidence-omitted-text-hidden-reason');
+    $assert('hidden' === ($omittedTextDiagnostics['text']['intentionally_suppressed_text_nodes'][0]['reason'] ?? null), 'diagnostics-evidence-omitted-text-sample-reason');
     $assert(1 === ($omittedTextDiagnostics['decision_traces']['reason_counts']['hidden_descendant_suppressed'] ?? null), 'diagnostics-evidence-omitted-text-decision-trace-reason');
-    $assert(1 === ($omittedTextDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['text']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-source-loss-text-domain-count');
-    $assert(in_array('source_loss_coverage_gap', blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($omittedTextResult), true), 'diagnostics-evidence-source-loss-text-quality-signal');
-    $assert('source_loss_coverage_gap' === (blocks_engine_figma_transformer_contract_artifact_quality_signal($omittedTextResult, 'source_loss_coverage_gap')['reason_code'] ?? null), 'diagnostics-evidence-source-loss-quality-reason-code');
+    $assert(0 === ($omittedTextDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['text']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-source-loss-text-domain-count');
+    $assert(1 === ($omittedTextDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['text']['intentionally_suppressed_source_nodes'] ?? null), 'diagnostics-evidence-source-loss-text-intentional-domain-count');
+    blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $omittedTextResult, 'source_loss_coverage_gap', 'diagnostics-evidence-hidden-text-no-source-loss-signal');
+
+    $suppressedEffectResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Suppressed Effect Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'diag:suppressed-effect-page',
+                'type'     => 'FRAME',
+                'name'     => 'Suppressed Effect Page',
+                'width'    => 240,
+                'height'   => 120,
+                'children' => array(
+                    array(
+                        'id'            => 'diag:hidden-effect',
+                        'type'          => 'RECTANGLE',
+                        'name'          => 'Hidden Effect Chrome',
+                        'visible'       => false,
+                        'width'         => 80,
+                        'height'        => 20,
+                        'figma_effects' => array(array('type' => 'DROP_SHADOW', 'visible' => true, 'radius' => 8)),
+                    ),
+                    array(
+                        'id'            => 'diag:zero-effect',
+                        'type'          => 'RECTANGLE',
+                        'name'          => 'Zero Area Effect Chrome',
+                        'width'         => 0,
+                        'height'        => 20,
+                        'figma_effects' => array(array('type' => 'DROP_SHADOW', 'visible' => true, 'radius' => 8)),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $suppressedEffectDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($suppressedEffectResult);
+    $effectCoverage = $suppressedEffectDiagnostics['effects'] ?? array();
+    $assert(2 === ($effectCoverage['source_effect_node_count'] ?? null), 'diagnostics-evidence-effect-source-count');
+    $assert(0 === ($effectCoverage['missing_emitted_effect_node_count'] ?? null), 'diagnostics-evidence-effect-no-missing-count');
+    $assert(2 === ($effectCoverage['intentionally_suppressed_effect_node_count'] ?? null), 'diagnostics-evidence-effect-intentional-count');
+    $assert(array('hidden' => 1, 'zero_area' => 1) === ($effectCoverage['intentional_suppression_reason_counts'] ?? null), 'diagnostics-evidence-effect-intentional-reasons');
+    $assert(0 === ($suppressedEffectDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['effects']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-effect-source-loss-no-gap');
+    blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $suppressedEffectResult, 'effect_node_not_emitted', 'diagnostics-evidence-suppressed-effect-no-quality-signal');
 
     $assetOmissionResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Asset Omission Fixture',

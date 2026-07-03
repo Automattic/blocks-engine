@@ -3596,10 +3596,14 @@ final class StaticHtmlEmitter
             'source_effect_node_count' => 0,
             'emitted_effect_node_count' => 0,
             'missing_emitted_effect_node_count' => 0,
+            'intentionally_suppressed_effect_node_count' => 0,
             'by_type' => array(),
             'field_coverage' => array(),
+            'omission_reason_counts' => array(),
+            'intentional_suppression_reason_counts' => array(),
             'effect_nodes' => array(),
             'missing_emitted_effect_nodes' => array(),
+            'intentionally_suppressed_effect_nodes' => array(),
         );
         $maskEffectClipping = array(
             'schema' => 'blocks-engine/figma-transformer/mask-effect-clipping/v1',
@@ -3653,7 +3657,10 @@ final class StaticHtmlEmitter
         ksort($effects['field_coverage']);
         $effects['effect_nodes'] = array_slice($effects['effect_nodes'], 0, 25);
         $effects['missing_emitted_effect_nodes'] = array_slice($effects['missing_emitted_effect_nodes'], 0, 25);
+        $effects['intentionally_suppressed_effect_nodes'] = array_slice($effects['intentionally_suppressed_effect_nodes'], 0, 25);
         ksort($effects['by_type']);
+        ksort($effects['omission_reason_counts']);
+        ksort($effects['intentional_suppression_reason_counts']);
         ksort($maskEffectClipping['by_mask_type']);
         $maskEffectClipping['sample_nodes'] = array_slice($maskEffectClipping['sample_nodes'], 0, 25);
         $maskEffectClipping['emitted_mask_source_nodes'] = array_slice($maskEffectClipping['emitted_mask_source_nodes'], 0, 25);
@@ -4657,6 +4664,15 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<string, mixed> $node
+     */
+    private function isComponentSourceDuplicateNode(array $node): bool
+    {
+        $sourceId = isset($node['figma_component_source_id']) && is_scalar($node['figma_component_source_id']) ? (string) $node['figma_component_source_id'] : '';
+        return '' !== $sourceId && ! $this->hasComponentCloneGeometry($node);
+    }
+
+    /**
+     * @param array<string, mixed> $node
      * @return array<string, mixed>
      */
     private function componentCloneCoverageSample(array $node): array
@@ -4708,6 +4724,9 @@ final class StaticHtmlEmitter
         if ( null !== $parentNode && $this->isComposedVectorChild($node, $parentNode) ) {
             return 'composed-into-parent';
         }
+        if ( $this->isComponentSourceDuplicateNode($node) ) {
+            return 'component_source_duplicate';
+        }
 
         $emptyContainer = $this->emptyVisibleContainerDiagnostic($node, $parentNode);
         if ( null !== $emptyContainer && false === ($emptyContainer['blocks_parity'] ?? true) ) {
@@ -4724,7 +4743,7 @@ final class StaticHtmlEmitter
 
     private function isIntentionalComponentCloneSuppression(string $reason): bool
     {
-        return in_array($reason, array('mask-source', 'composed-into-parent', 'non-rendering-vector-layer', 'invisible-zero-area-scaffold'), true);
+        return in_array($reason, array('hidden', 'zero-area', 'mask-source', 'composed-into-parent', 'non-rendering-vector-layer', 'invisible-zero-area-scaffold', 'component_source_duplicate'), true);
     }
 
     /**
@@ -4856,8 +4875,44 @@ final class StaticHtmlEmitter
             return;
         }
 
+        $reason = $this->effectOmissionReason($node);
+        $sample['reason'] = $reason;
+        if ( $this->isIntentionalEffectSuppression($reason) ) {
+            ++$effects['intentionally_suppressed_effect_node_count'];
+            $effects['intentional_suppression_reason_counts'][$reason] = (int) ($effects['intentional_suppression_reason_counts'][$reason] ?? 0) + 1;
+            $effects['intentionally_suppressed_effect_nodes'][] = $sample;
+            return;
+        }
+
         ++$effects['missing_emitted_effect_node_count'];
-        $effects['missing_emitted_effect_nodes'][] = $this->nodeCoverageSample($node);
+        $effects['omission_reason_counts'][$reason] = (int) ($effects['omission_reason_counts'][$reason] ?? 0) + 1;
+        $effects['missing_emitted_effect_nodes'][] = $sample;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function effectOmissionReason(array $node): string
+    {
+        if ( false === ($node['visible'] ?? null) ) {
+            return 'hidden';
+        }
+        if ( $this->nodeHasZeroArea($node) ) {
+            return 'zero_area';
+        }
+        if ( $this->isMaskOperatorNode($node) ) {
+            return 'mask-source';
+        }
+        if ( $this->isComponentSourceDuplicateNode($node) ) {
+            return 'component_source_duplicate';
+        }
+
+        return 'not_emitted';
+    }
+
+    private function isIntentionalEffectSuppression(string $reason): bool
+    {
+        return in_array($reason, array('hidden', 'zero_area', 'mask-source', 'component_source_duplicate'), true);
     }
 
     /**
@@ -5584,11 +5639,14 @@ final class StaticHtmlEmitter
             'schema' => 'blocks-engine/figma-transformer/text-coverage/v1',
             'decoded_text_node_count' => 0,
             'emitted_text_node_count' => 0,
+            'intentionally_suppressed_text_node_count' => 0,
             'empty_decoded_text_node_count' => 0,
             'missing_emitted_text_node_count' => 0,
             'missing_emitted_text_reason_categories' => array(),
+            'intentional_suppression_reason_counts' => array(),
             'empty_decoded_text_nodes' => array(),
             'missing_emitted_text_nodes' => array(),
+            'intentionally_suppressed_text_nodes' => array(),
         );
 
         foreach ( $nodes as $node ) {
@@ -5603,7 +5661,9 @@ final class StaticHtmlEmitter
 
         $coverage['empty_decoded_text_nodes'] = array_slice($coverage['empty_decoded_text_nodes'], 0, 25);
         $coverage['missing_emitted_text_nodes'] = array_slice($coverage['missing_emitted_text_nodes'], 0, 25);
+        $coverage['intentionally_suppressed_text_nodes'] = array_slice($coverage['intentionally_suppressed_text_nodes'], 0, 25);
         ksort($coverage['missing_emitted_text_reason_categories']);
+        ksort($coverage['intentional_suppression_reason_counts']);
 
         return $coverage;
     }
@@ -5630,11 +5690,17 @@ final class StaticHtmlEmitter
                     ++$coverage['emitted_text_node_count'];
                 } else {
                     $reason = $this->textOmissionReason($node, $isRoot, $parentNode, $ancestorOmissionReason);
-                    ++$coverage['missing_emitted_text_node_count'];
-                    $coverage['missing_emitted_text_reason_categories'][$reason] = (int) ($coverage['missing_emitted_text_reason_categories'][$reason] ?? 0) + 1;
                     $sample = $this->textCoverageNodeSample($node, $page, mb_strlen($rawText));
                     $sample['reason'] = $reason;
-                    $coverage['missing_emitted_text_nodes'][] = $sample;
+                    if ( $this->isIntentionalTextOmissionReason($reason) ) {
+                        ++$coverage['intentionally_suppressed_text_node_count'];
+                        $coverage['intentional_suppression_reason_counts'][$reason] = (int) ($coverage['intentional_suppression_reason_counts'][$reason] ?? 0) + 1;
+                        $coverage['intentionally_suppressed_text_nodes'][] = $sample;
+                    } else {
+                        ++$coverage['missing_emitted_text_node_count'];
+                        $coverage['missing_emitted_text_reason_categories'][$reason] = (int) ($coverage['missing_emitted_text_reason_categories'][$reason] ?? 0) + 1;
+                        $coverage['missing_emitted_text_nodes'][] = $sample;
+                    }
                 }
             }
         }
@@ -5654,7 +5720,7 @@ final class StaticHtmlEmitter
     private function textSubtreeOmissionReason(array $node, bool $isRoot, ?array $parentNode, ?string $ancestorOmissionReason): ?string
     {
         if ( null !== $ancestorOmissionReason ) {
-            return 'parent_omitted';
+            return $ancestorOmissionReason;
         }
         if ( ! $isRoot && false === ($node['visible'] ?? null) ) {
             return 'hidden';
@@ -5664,6 +5730,9 @@ final class StaticHtmlEmitter
         }
         if ( $this->isDecorativeTextContainer($node) ) {
             return 'decorative';
+        }
+        if ( $this->isComponentSourceDuplicateNode($node) ) {
+            return 'component_source_duplicate';
         }
 
         return null;
@@ -5690,11 +5759,25 @@ final class StaticHtmlEmitter
         if ( null !== $parentNode && ($this->isInputLike($parentNode) || $this->isTextareaLike($parentNode)) && $this->isFormControlPlaceholderChild($node) ) {
             return 'converted_to_form_control';
         }
+        if ( null !== $parentNode && $this->isSpatialFormControlLabel($node, $parentNode) ) {
+            return 'converted_to_form_control';
+        }
+        if ( null !== $parentNode && $this->isListMarkerTextChild($node) ) {
+            return 'list_marker';
+        }
+        if ( $this->isComponentSourceDuplicateNode($node) ) {
+            return 'component_source_duplicate';
+        }
         if ( $this->isUnresolvedComponentPlaceholderText($node, $this->rawDecodedText($node)) ) {
             return 'decorative';
         }
 
         return null !== $parentNode ? 'parent_omitted' : 'not_emitted';
+    }
+
+    private function isIntentionalTextOmissionReason(string $reason): bool
+    {
+        return in_array($reason, array('hidden', 'clipped_masked', 'zero_area', 'converted_to_form_control', 'decorative', 'list_marker', 'component_source_duplicate'), true);
     }
 
     /**
