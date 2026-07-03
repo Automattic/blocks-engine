@@ -134,4 +134,59 @@ function blocks_engine_figma_transformer_run_html_validity_contract(callable $as
     $assert(0 === $xpath->query('//a[.//a]')->length, 'html-validity-no-nested-anchors');
     $assert(0 === $xpath->query('//a[.//button]')->length, 'html-validity-no-anchor-wrapped-buttons');
     $assert(0 === $xpath->query('//ul/*[not(self::li)]')->length, 'html-validity-ul-direct-children-are-li');
+
+    $entrypointFallbackResult = (new StaticHtmlEmitter())->emitSite(array(
+        'name'  => 'Implicit Entrypoint Fallback Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'entryfallback:home',
+                'type'     => 'FRAME',
+                'name'     => 'Welcome',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(
+                    array('id' => 'entryfallback:logo', 'type' => 'FRAME', 'name' => 'Logo', 'width' => 120, 'height' => 40),
+                    array('id' => 'entryfallback:nav', 'type' => 'FRAME', 'name' => 'Navigation', 'width' => 240, 'height' => 40, 'children' => array(
+                        array('id' => 'entryfallback:nav:welcome', 'type' => 'FRAME', 'name' => 'Menu Item', 'width' => 100, 'height' => 32, 'children' => array(
+                            array('id' => 'entryfallback:nav:welcome:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Welcome', 'fontSize' => 16),
+                        )),
+                        array('id' => 'entryfallback:nav:home', 'type' => 'FRAME', 'name' => 'Menu Item', 'width' => 80, 'height' => 32, 'children' => array(
+                            array('id' => 'entryfallback:nav:home:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Home', 'fontSize' => 16),
+                        )),
+                    )),
+                ),
+            ),
+            array(
+                'id'       => 'entryfallback:about',
+                'type'     => 'FRAME',
+                'name'     => 'About',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(
+                    array('id' => 'entryfallback:about:nav', 'type' => 'FRAME', 'name' => 'Navigation', 'width' => 240, 'height' => 40, 'children' => array(
+                        array('id' => 'entryfallback:about:nav:welcome', 'type' => 'FRAME', 'name' => 'Menu Item', 'width' => 100, 'height' => 32, 'children' => array(
+                            array('id' => 'entryfallback:about:nav:welcome:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Welcome', 'fontSize' => 16),
+                        )),
+                        array('id' => 'entryfallback:about:nav:home', 'type' => 'FRAME', 'name' => 'Menu Item', 'width' => 80, 'height' => 32, 'children' => array(
+                            array('id' => 'entryfallback:about:nav:home:text', 'type' => 'TEXT', 'name' => 'Text', 'characters' => 'Home', 'fontSize' => 16),
+                        )),
+                    )),
+                ),
+            ),
+        ),
+    ), array(
+        'pages' => array(
+            array('frame_id' => 'entryfallback:home', 'name' => 'Welcome', 'path' => 'index.html', 'entrypoint' => true, 'page_type' => 'front_page'),
+            array('frame_id' => 'entryfallback:about', 'name' => 'About', 'path' => 'about.html', 'page_type' => 'page'),
+        ),
+    ));
+    $entrypointFallbackHtml = $fileContent($entrypointFallbackResult, 'index.html');
+    $entrypointFallbackAboutHtml = $fileContent($entrypointFallbackResult, 'about.html');
+    $entrypointFallbackLinks = $entrypointFallbackResult['source_report']['transform_diagnostics']['links'] ?? array();
+    $assert(str_contains($entrypointFallbackHtml, '<a class="figma-link" href="index.html" data-figma-link-type="implicit-route"><div class="figma-node-entryfallback-logo-logo"'), 'html-validity-logo-can-link-entrypoint');
+    $assert(str_contains($entrypointFallbackAboutHtml, '<a class="figma-link" href="index.html" data-figma-link-type="implicit-route"><div class="figma-node-entryfallback-about-nav-home-menu-item"'), 'html-validity-home-label-can-link-entrypoint');
+    $assert(! str_contains($entrypointFallbackHtml, '<a class="figma-link" href="index.html" data-figma-link-type="implicit-route"><div class="figma-node-entryfallback-nav-welcome-menu-item"'), 'html-validity-non-home-entrypoint-label-not-linked');
+    $assert(($entrypointFallbackLinks['implicit_route_unresolved'] ?? 0) >= 1, 'html-validity-blocked-entrypoint-label-counted-unresolved');
+    $assert('entrypoint_label_not_home' === ($entrypointFallbackLinks['implicit_route_unresolved_targets'][0]['reason'] ?? null), 'html-validity-blocked-entrypoint-label-records-reason');
+    $assert('planned_page_identity' === ($entrypointFallbackLinks['implicit_route_unresolved_targets'][0]['route_evidence'] ?? null), 'html-validity-blocked-entrypoint-label-records-route-evidence');
 }

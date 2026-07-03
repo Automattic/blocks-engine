@@ -2808,7 +2808,10 @@ final class StaticHtmlEmitter
             'toc_links'          => 0,
             'implicit_route_links' => 0,
             'implicit_route_self_suppressed' => 0,
+            'implicit_route_unresolved' => 0,
             'unresolved'         => 0,
+            'implicit_route_unresolved_targets' => array(),
+            'implicit_route_self_suppressed_targets' => array(),
             'unresolved_targets' => array(),
         );
     }
@@ -3019,7 +3022,7 @@ final class StaticHtmlEmitter
                 return $this->linkedElementMarkup($element, $tocHref, 'toc', 'figma-link figma-toc-link', $buttonLike);
             }
 
-            $implicitHref = $this->implicitRouteHref($node, $parentNode);
+            $implicitHref = $this->implicitRouteHref($node, $parentNode, true);
             if ( null !== $implicitHref ) {
                 $this->linkCoverage['implicit_route_links']++;
                 $this->linkCoverage['anchors_emitted']++;
@@ -3104,7 +3107,7 @@ final class StaticHtmlEmitter
             return true;
         }
 
-        return null !== $this->implicitRouteHref($node, $parentNode);
+        return null !== $this->implicitRouteHref($node, $parentNode, false);
     }
 
     private function linkedElementMarkup(string $element, string $href, string $type, string $className, bool $buttonLike): string
@@ -3132,7 +3135,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @param array<string, mixed>|null $parentNode
      */
-    private function implicitRouteHref(array $node, ?array $parentNode): ?string
+    private function implicitRouteHref(array $node, ?array $parentNode, bool $recordUnresolved = false): ?string
     {
         $name = strtolower((string) ($node['name'] ?? ''));
         if ( str_contains($name, 'logo') ) {
@@ -3140,11 +3143,17 @@ final class StaticHtmlEmitter
         }
 
         if ( null !== $parentNode && $this->isNavigationLabelText($node, $parentNode) ) {
-            return $this->routePathForLabel($this->subtreePlainText($node)) ?? $this->currentPageAnchorHrefForLabel($this->subtreePlainText($node));
+            $label = $this->subtreePlainText($node);
+            return $this->routePathForLabel($label, $node, $parentNode, $recordUnresolved)
+                ?? $this->currentPageAnchorHrefForLabel($label)
+                ?? $this->recordImplicitRouteUnresolved($label, $node, 'navigation_label_unresolved', $recordUnresolved && ! $this->hasImplicitRouteForLabel($label));
         }
 
         if ( $this->isMenuItemName($name) || str_contains($name, 'nav item') ) {
-            return $this->routePathForLabel($this->subtreePlainText($node)) ?? $this->currentPageAnchorHrefForLabel($this->subtreePlainText($node));
+            $label = $this->subtreePlainText($node);
+            return $this->routePathForLabel($label, $node, $parentNode, $recordUnresolved)
+                ?? $this->currentPageAnchorHrefForLabel($label)
+                ?? $this->recordImplicitRouteUnresolved($label, $node, 'menu_item_unresolved', $recordUnresolved && ! $this->hasImplicitRouteForLabel($label));
         }
 
         if ( null !== $parentNode && $this->isPaginationContainer($parentNode) ) {
@@ -3157,14 +3166,14 @@ final class StaticHtmlEmitter
         if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
             $text = trim($this->nodePlainText($node));
             if ( '' !== $text ) {
-                return $this->routePathForLabel($text);
+                return $this->routePathForLabel($text, $node, $parentNode, $recordUnresolved);
             }
         }
 
         return null;
     }
 
-    private function routePathForLabel(string $label): ?string
+    private function routePathForLabel(string $label, ?array $node = null, ?array $parentNode = null, bool $recordUnresolved = false): ?string
     {
         $key = $this->routeKey($label);
         if ( '' === $key || ! isset($this->implicitRoutePaths[$key]) ) {
@@ -3172,12 +3181,68 @@ final class StaticHtmlEmitter
         }
 
         $path = $this->implicitRoutePaths[$key];
+        if ( $path === $this->entrypointPath && ! $this->isHomeRouteKey($key) && ! $this->isLogoNode($node) ) {
+            $this->recordImplicitRouteUnresolved($label, $node ?? array(), 'entrypoint_label_not_home', $recordUnresolved, $this->implicitRouteTargets[$key] ?? array());
+            return null;
+        }
+
         if ( $path === $this->currentPagePath ) {
             $this->linkCoverage['implicit_route_self_suppressed']++;
+            if ( $recordUnresolved && count($this->linkCoverage['implicit_route_self_suppressed_targets']) < 50 ) {
+                $this->linkCoverage['implicit_route_self_suppressed_targets'][] = array_filter(array(
+                    'node_id' => is_array($node) ? (string) ($node['id'] ?? '') : '',
+                    'label'   => trim($label),
+                    'path'    => $path,
+                    'route_confidence' => (string) (($this->implicitRouteTargets[$key] ?? array())['confidence'] ?? ''),
+                    'route_evidence'   => (string) (($this->implicitRouteTargets[$key] ?? array())['evidence'] ?? ''),
+                ), static fn (mixed $value): bool => '' !== $value);
+            }
             return null;
         }
 
         return $path;
+    }
+
+    private function hasImplicitRouteForLabel(string $label): bool
+    {
+        $key = $this->routeKey($label);
+        return '' !== $key && isset($this->implicitRoutePaths[$key]);
+    }
+
+    private function isHomeRouteKey(string $key): bool
+    {
+        return in_array($key, array('home', 'homepage', 'front-page', 'home-page', 'frontpage'), true);
+    }
+
+    /** @param array<string, mixed>|null $node */
+    private function isLogoNode(?array $node): bool
+    {
+        return null !== $node && str_contains(strtolower((string) ($node['name'] ?? '')), 'logo');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $routeTarget
+     */
+    private function recordImplicitRouteUnresolved(string $label, array $node, string $reason, bool $record, array $routeTarget = array()): ?string
+    {
+        if ( ! $record || '' === trim($label) ) {
+            return null;
+        }
+
+        $this->linkCoverage['implicit_route_unresolved']++;
+        if ( count($this->linkCoverage['implicit_route_unresolved_targets']) < 50 ) {
+            $this->linkCoverage['implicit_route_unresolved_targets'][] = array_filter(array(
+                'node_id' => (string) ($node['id'] ?? ''),
+                'label'   => trim($label),
+                'reason'  => $reason,
+                'route_path' => (string) ($routeTarget['path'] ?? ''),
+                'route_confidence' => (string) ($routeTarget['confidence'] ?? ''),
+                'route_evidence' => (string) ($routeTarget['evidence'] ?? ''),
+            ), static fn (mixed $value): bool => '' !== $value);
+        }
+
+        return null;
     }
 
     private function currentPageAnchorHrefForLabel(string $label): ?string
@@ -3240,7 +3305,10 @@ final class StaticHtmlEmitter
             'toc_links'          => (int) ($coverage['toc_links'] ?? 0),
             'implicit_route_links' => (int) ($coverage['implicit_route_links'] ?? 0),
             'implicit_route_self_suppressed' => (int) ($coverage['implicit_route_self_suppressed'] ?? 0),
+            'implicit_route_unresolved' => (int) ($coverage['implicit_route_unresolved'] ?? 0),
             'route_targets'      => array_values($this->implicitRouteTargets),
+            'implicit_route_unresolved_targets' => array_values(is_array($coverage['implicit_route_unresolved_targets'] ?? null) ? $coverage['implicit_route_unresolved_targets'] : array()),
+            'implicit_route_self_suppressed_targets' => array_values(is_array($coverage['implicit_route_self_suppressed_targets'] ?? null) ? $coverage['implicit_route_self_suppressed_targets'] : array()),
             'unresolved'         => (int) ($coverage['unresolved'] ?? 0),
             'unresolved_targets' => array_values(is_array($coverage['unresolved_targets'] ?? null) ? $coverage['unresolved_targets'] : array()),
         );
