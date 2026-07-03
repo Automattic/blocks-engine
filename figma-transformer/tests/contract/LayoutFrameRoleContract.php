@@ -231,6 +231,15 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
     $assert(true === ($clonedHeaderPlan['overlaps_sibling'] ?? null), 'layout-intent-top-header-instance-overlaps-hero');
     $assert(2 === ($clonedHeaderPlan['z_index'] ?? null), 'layout-intent-top-header-instance-ranks-above-hero');
 
+    $headerUnderWedgeRoot = $clonedHeaderRoot;
+    $headerUnderWedgeRoot['children'] = array(
+        array('id' => 'chrome:ordered-header', 'type' => 'INSTANCE', 'name' => 'Header', 'box' => array('x' => 0, 'y' => 0, 'width' => 1440, 'height' => 145)),
+        array('id' => 'chrome:ordered-wedge', 'type' => 'RECTANGLE', 'name' => 'Rectangle', 'box' => array('x' => 0, 'y' => 0, 'width' => 1440, 'height' => 148)),
+    );
+    $headerUnderWedgePlan = $intent->siblingLayerStackPlan($headerUnderWedgeRoot['children'][0], $headerUnderWedgeRoot);
+    $assert(LayoutIntentClassifier::LAYER_ROLE_CHROME === ($headerUnderWedgePlan['role'] ?? null), 'layout-intent-top-header-instance-remains-chrome-before-wedge');
+    $assert(1 === ($headerUnderWedgePlan['z_index'] ?? null), 'layout-intent-top-header-instance-preserves-source-order-before-wedge');
+
     $nav = array(
         'id'       => 'chrome:nav',
         'type'     => 'FRAME',

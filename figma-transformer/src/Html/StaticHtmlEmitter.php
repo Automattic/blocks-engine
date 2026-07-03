@@ -3225,6 +3225,10 @@ final class StaticHtmlEmitter
             return null;
         }
 
+        if ( $this->isMeasuredTextRun($node) ) {
+            return null;
+        }
+
         $parts = preg_split('/(\s{2,})/', $text, -1, PREG_SPLIT_DELIM_CAPTURE);
         if ( false === $parts || count($parts) < 3 ) {
             return null;
@@ -3260,6 +3264,20 @@ final class StaticHtmlEmitter
         }
 
         return $routeLabelCount >= 2 && $anchorCount >= 1 ? $markup : null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isMeasuredTextRun(array $node): bool
+    {
+        foreach ( array('width', 'height', 'box', 'absoluteBoundingBox', 'absoluteRenderBounds') as $key ) {
+            if ( ! empty($node[$key]) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

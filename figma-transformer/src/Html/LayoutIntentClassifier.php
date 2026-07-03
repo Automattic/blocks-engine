@@ -1222,18 +1222,53 @@ final class LayoutIntentClassifier
     private function nodeSiblingStackKey(array $node, array $parentNode, int $fallbackIndex): array
     {
         return array_merge(
-            array($this->siblingLayerRoleRank($this->siblingLayerRole($node, $parentNode))),
+            array($this->siblingLayerRoleRank($node, $parentNode)),
             $this->nodePaintOrderKey($node, $fallbackIndex)
         );
     }
 
-    private function siblingLayerRoleRank(string $role): int
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function siblingLayerRoleRank(array $node, array $parentNode): int
     {
+        $role = $this->siblingLayerRole($node, $parentNode);
+        if ( self::LAYER_ROLE_CONTENT === $role && $this->isTopChromePrimitiveVisual($node, $parentNode) ) {
+            return 2;
+        }
+
         return match ( $role ) {
             self::LAYER_ROLE_UNDERLAY => 0,
             self::LAYER_ROLE_CHROME => 2,
             default => 1,
         };
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isTopChromePrimitiveVisual(array $node, array $parentNode): bool
+    {
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        if ( ! in_array($type, self::PRIMITIVE_VECTOR_SHAPE_TYPES, true) ) {
+            return false;
+        }
+
+        $rect = $this->nodeRectInParent($node, $parentNode);
+        if ( null === $rect || $rect['y'] < -0.5 ) {
+            return false;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        $parentHeight = isset($parentBox['height']) && is_numeric($parentBox['height']) ? (float) $parentBox['height'] : null;
+        $topChromeLimit = null === $parentHeight ? 48.0 : max(48.0, min(160.0, $parentHeight * 0.05));
+        if ( $rect['y'] > $topChromeLimit ) {
+            return false;
+        }
+
+        return $rect['height'] <= max(160.0, null === $parentHeight ? 0.0 : $parentHeight * 0.25);
     }
 
     /**
