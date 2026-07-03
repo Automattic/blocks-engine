@@ -1243,7 +1243,8 @@ final class LayoutIntentClassifier
     private function isTopChromeLayer(array $node, array $parentNode): bool
     {
         $role = $this->chromeGroupRole($node, $parentNode, 1);
-        if ( ! in_array($role, array(self::CHROME_GROUP_ROLE_HEADER, self::CHROME_GROUP_ROLE_NAVIGATION), true) ) {
+        $name = strtolower(trim((string) ($node['name'] ?? '')));
+        if ( ! in_array($role, array(self::CHROME_GROUP_ROLE_HEADER, self::CHROME_GROUP_ROLE_NAVIGATION), true) && ! str_contains($name, 'header') ) {
             return false;
         }
 

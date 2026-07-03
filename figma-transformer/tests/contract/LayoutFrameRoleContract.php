@@ -216,6 +216,21 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
     $assert(LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER === $intent->chromeGroupRole($chromeRoot['children'][2], $chromeRoot, 1), 'layout-intent-bottom-legal-region-classifies-footer');
     $assert(LayoutIntentClassifier::LAYER_ROLE_CHROME === $intent->siblingLayerRole($chromeRoot['children'][0], $chromeRoot), 'layout-intent-top-header-layer-is-chrome');
 
+    $clonedHeaderRoot = array(
+        'id'       => 'chrome:clone-root',
+        'type'     => 'FRAME',
+        'name'     => 'Home',
+        'box'      => array('x' => 0, 'y' => 0, 'width' => 1440, 'height' => 3200),
+        'children' => array(
+            array('id' => 'chrome:clone-hero', 'type' => 'FRAME', 'name' => 'Hero', 'box' => array('x' => 0, 'y' => 61, 'width' => 1440, 'height' => 758)),
+            array('id' => 'chrome:clone-header', 'type' => 'INSTANCE', 'name' => 'Header', 'box' => array('x' => 0, 'y' => 0, 'width' => 1440, 'height' => 145)),
+        ),
+    );
+    $clonedHeaderPlan = $intent->siblingLayerStackPlan($clonedHeaderRoot['children'][1], $clonedHeaderRoot);
+    $assert(LayoutIntentClassifier::LAYER_ROLE_CHROME === ($clonedHeaderPlan['role'] ?? null), 'layout-intent-top-header-instance-layer-is-chrome');
+    $assert(true === ($clonedHeaderPlan['overlaps_sibling'] ?? null), 'layout-intent-top-header-instance-overlaps-hero');
+    $assert(2 === ($clonedHeaderPlan['z_index'] ?? null), 'layout-intent-top-header-instance-ranks-above-hero');
+
     $nav = array(
         'id'       => 'chrome:nav',
         'type'     => 'FRAME',
