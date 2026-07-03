@@ -6099,6 +6099,65 @@ $assert(str_contains($landmarkGuardHtml, '<footer class="figma-node-landmark-foo
 $assert(! str_contains($landmarkGuardHtml, '<nav class="figma-node-landmark-about-menu-item"') && ! str_contains($landmarkGuardHtml, '<nav class="figma-node-landmark-blog-newmenuitem"'), 'landmark-menu-items-not-nav');
 $assert(! str_contains($landmarkGuardHtml, '<footer class="figma-node-landmark-content-list-content-list"'), 'landmark-content-list-not-footer');
 
+$lateHeaderResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Late Header Landmark Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'late-header:root',
+            'type'     => 'FRAME',
+            'name'     => 'Home Page',
+            'width'    => 1200,
+            'height'   => 1600,
+            'children' => array(
+                array(
+                    'id'       => 'late-header:decorative-bleed',
+                    'type'     => 'FRAME',
+                    'name'     => 'Hero Bleed',
+                    'x'        => 0,
+                    'y'        => -24,
+                    'width'    => 1200,
+                    'height'   => 220,
+                    'children' => array(
+                        array('id' => 'late-header:decorative-fill', 'type' => 'RECTANGLE', 'name' => 'Rectangle', 'width' => 1200, 'height' => 220),
+                    ),
+                ),
+                array(
+                    'id'       => 'late-header:header',
+                    'type'     => 'FRAME',
+                    'name'     => 'Header',
+                    'x'        => 0,
+                    'y'        => 0,
+                    'width'    => 1200,
+                    'height'   => 144,
+                    'children' => array(
+                        array('id' => 'late-header:logo', 'type' => 'TEXT', 'name' => 'Client Logo or Text', 'characters' => 'Treating The Whole Child', 'fontSize' => 28),
+                        array('id' => 'late-header:nav-run', 'type' => 'TEXT', 'name' => 'Main Nav Link', 'characters' => 'News Handouts About Services Reviews FAQ Contact', 'fontSize' => 16),
+                        array('id' => 'late-header:cta', 'type' => 'FRAME', 'name' => 'Button One', 'width' => 190, 'height' => 48, 'children' => array(
+                            array('id' => 'late-header:cta-label', 'type' => 'TEXT', 'name' => 'Button One', 'characters' => 'Book an Appointment', 'fontSize' => 16),
+                        )),
+                    ),
+                ),
+                array(
+                    'id'       => 'late-header:body',
+                    'type'     => 'FRAME',
+                    'name'     => 'Content',
+                    'x'        => 0,
+                    'y'        => 220,
+                    'width'    => 1200,
+                    'height'   => 1100,
+                    'children' => array(
+                        array('id' => 'late-header:heading', 'type' => 'TEXT', 'name' => 'Heading', 'characters' => 'Welcome', 'fontSize' => 48),
+                        array('id' => 'late-header:copy', 'type' => 'TEXT', 'name' => 'Copy', 'characters' => 'A content band starts below the site chrome.', 'fontSize' => 18),
+                    ),
+                ),
+            ),
+        ),
+    ),
+));
+$lateHeaderHtml = $fileContent($lateHeaderResult, 'index.html');
+$assert(str_contains($lateHeaderHtml, '<header class="figma-node-late-header-header-header"'), 'semantic-top-anchored-explicit-header-emits-header');
+$assert(! str_contains($lateHeaderHtml, '<div class="figma-node-late-header-header-header"'), 'semantic-top-anchored-explicit-header-not-div');
+
 $linkedContentCardsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Linked Content Cards Fixture',
     'nodes' => array(

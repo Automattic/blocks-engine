@@ -1348,8 +1348,34 @@ final class LayoutIntentClassifier
             return false;
         }
 
+        $name = strtolower((string) ($node['name'] ?? ''));
+        if ( str_contains($name, 'header') && ($this->hasLogoChild($children) || $this->linkChildCount($children) >= 1 || $this->hasNavigationTextRun(strtolower($this->subtreePlainText($node))) || $this->hasCtaChild($children)) ) {
+            $rect = $this->nodeRectInParent($node, $parentNode);
+            if ( null !== $rect ) {
+                $parentHeight = $this->boxValue($parentNode, 'height');
+                $topChromeLimit = null === $parentHeight ? 160.0 : max(160.0, $parentHeight * 0.05);
+                if ( $rect['y'] >= -0.5 && $rect['y'] <= $topChromeLimit && $rect['height'] <= max(240.0, null === $parentHeight ? 0.0 : $parentHeight * 0.25) ) {
+                    return true;
+                }
+            }
+        }
+
         return 'top' === $this->verticalRegion($node, $parentNode)
             && ($this->hasLogoChild($children) || $this->linkChildCount($children) >= 1 || $depth <= 1);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $children
+     */
+    private function hasCtaChild(array $children): bool
+    {
+        foreach ( $children as $child ) {
+            if ( $this->isCtaGroup($child, array_values(array_filter($this->nodeList($child), 'is_array'))) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
