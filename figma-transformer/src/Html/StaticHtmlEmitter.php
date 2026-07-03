@@ -919,7 +919,7 @@ final class StaticHtmlEmitter
             }
             $this->nodeReadableNames[$className] = $this->sharedClassBaseName($name, $type);
         }
-        if ( $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode) && $this->textStyleHasUnprovenUppercaseTransform($node, is_array(($node['figma_text'] ?? array())['style'] ?? null) ? ($node['figma_text'] ?? array())['style'] : array()) ) {
+        if ( $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode) && $this->textContainsLowercase($this->rawDecodedText($node)) && ! $this->hasExplicitUppercaseTextCase($node) ) {
             $parentClassName = 'figma-node-' . $this->slug((string) ($parentNode['id'] ?? '') . '-' . (string) ($parentNode['name'] ?? 'Node'));
             $cssRules[] = '.' . $parentClassName . '>.' . $className . '{text-transform:none}';
         }
