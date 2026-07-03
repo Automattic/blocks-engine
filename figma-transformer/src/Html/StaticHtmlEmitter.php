@@ -3598,6 +3598,7 @@ final class StaticHtmlEmitter
         $links = $this->linkDiagnostics();
         $cssDiagnostics = $this->cssDiagnostics($css);
         $decisionTraces = $this->decisionTraceDiagnostics($this->breakpointMediaDiffBuilder()->decisionTraces());
+        $layout['positional_parity'] = $this->positionalParityDiagnostics($layout, $css, $decisionTraces);
 
         return array(
             'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
@@ -3645,6 +3646,112 @@ final class StaticHtmlEmitter
         }
 
         return DecisionTraceBuilder::summary($this->decisionTraces);
+    }
+
+    /**
+     * Summarize positional decisions that are visually risky across arbitrary Figma files.
+     *
+     * @param array<string, mixed> $layout
+     * @param array<string, mixed> $decisionTraces
+     * @return array<string, mixed>
+     */
+    private function positionalParityDiagnostics(array $layout, string $css, array $decisionTraces): array
+    {
+        $decorativeUnderlays = is_array($layout['decorative_underlays']['nodes'] ?? null) ? $layout['decorative_underlays']['nodes'] : array();
+        $fixedOverRootWidthUnderlays = array_values(array_filter(
+            $decorativeUnderlays,
+            static function (array $node): bool {
+                return isset($node['width'], $node['parent_width'])
+                    && is_numeric($node['width'])
+                    && is_numeric($node['parent_width'])
+                    && (float) $node['width'] > (float) $node['parent_width'] + 1.0;
+            }
+        ));
+
+        $offCanvasNodes = is_array($layout['off_canvas_visual_nodes'] ?? null) ? $layout['off_canvas_visual_nodes'] : array();
+        $chromeOverflowNodes = array_values(array_filter(
+            $offCanvasNodes,
+            static function (array $node): bool {
+                $parentName = strtolower((string) ($node['parent_name'] ?? ''));
+                $name = strtolower((string) ($node['name'] ?? ''));
+                $class = strtolower((string) ($node['class'] ?? ''));
+
+                return str_contains($parentName, 'header')
+                    || str_contains($parentName, 'footer')
+                    || str_contains($name, 'header')
+                    || str_contains($name, 'footer')
+                    || str_contains($class, 'header')
+                    || str_contains($class, 'footer');
+            }
+        ));
+
+        $reasonCounts = is_array($decisionTraces['reason_counts'] ?? null) ? $decisionTraces['reason_counts'] : array();
+        $domainCounts = is_array($decisionTraces['domain_counts'] ?? null) ? $decisionTraces['domain_counts'] : array();
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/positional-parity/v1',
+            'full_bleed_viewport_width_count' => $this->cssDeclarationCount($css, 'width', '100vw'),
+            'full_bleed_breakout_count' => $this->cssFullBleedBreakoutCount($css),
+            'mirrored_transform_count' => $this->cssMirroredTransformCount($css),
+            'reflected_full_bleed_count' => $this->cssReflectedFullBleedCount($css),
+            'fixed_over_root_width_underlay_count' => count($fixedOverRootWidthUnderlays),
+            'fixed_over_root_width_underlays' => array_slice(array_map(fn (array $node): array => $this->positionalParityNodeSample($node), $fixedOverRootWidthUnderlays), 0, 25),
+            'chrome_overflow_count' => count($chromeOverflowNodes),
+            'chrome_overflow_nodes' => array_slice(array_map(fn (array $node): array => $this->positionalParityNodeSample($node), $chromeOverflowNodes), 0, 25),
+            'root_stacking_trace_count' => (int) ($domainCounts['stacking_context'] ?? 0),
+            'root_stacking_reason_counts' => array_filter($reasonCounts, static fn (mixed $count, string $reason): bool => str_contains($reason, 'stack') || str_contains($reason, 'z_index') || str_contains($reason, 'overlap'), ARRAY_FILTER_USE_BOTH),
+        );
+    }
+
+    private function cssDeclarationCount(string $css, string $property, string $value): int
+    {
+        $pattern = '/' . preg_quote($property, '/') . '\s*:\s*' . preg_quote($value, '/') . '(?:[;}])/i';
+        $count = preg_match_all($pattern, $css);
+
+        return false === $count ? 0 : $count;
+    }
+
+    private function cssFullBleedBreakoutCount(string $css): int
+    {
+        $count = preg_match_all('/left\s*:\s*50%[^}]*margin-left\s*:\s*-?50vw/i', $css);
+
+        return false === $count ? 0 : $count;
+    }
+
+    private function cssReflectedFullBleedCount(string $css): int
+    {
+        $count = preg_match_all('/margin-left\s*:\s*50vw[^}]*transform\s*:\s*matrix\s*\(\s*-1\s*,/i', $css);
+
+        return false === $count ? 0 : $count;
+    }
+
+    private function cssMirroredTransformCount(string $css): int
+    {
+        $count = preg_match_all('/transform\s*:\s*matrix\s*\(\s*(?:-[0-9.]+\s*,[^)]*|[^,]+,[^,]+,[^,]+,\s*-[0-9.]+)/i', $css);
+
+        return false === $count ? 0 : $count;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function positionalParityNodeSample(array $node): array
+    {
+        return array_filter(array(
+            'frame_id' => isset($node['frame_id']) && is_scalar($node['frame_id']) ? (string) $node['frame_id'] : null,
+            'page_path' => isset($node['page_path']) && is_scalar($node['page_path']) ? (string) $node['page_path'] : null,
+            'node_id' => isset($node['node_id']) && is_scalar($node['node_id']) ? (string) $node['node_id'] : null,
+            'name' => isset($node['name']) && is_scalar($node['name']) ? (string) $node['name'] : null,
+            'class' => isset($node['class']) && is_scalar($node['class']) ? (string) $node['class'] : null,
+            'parent_id' => isset($node['parent_id']) && is_scalar($node['parent_id']) ? (string) $node['parent_id'] : null,
+            'parent_name' => isset($node['parent_name']) && is_scalar($node['parent_name']) ? (string) $node['parent_name'] : null,
+            'width' => isset($node['width']) && is_numeric($node['width']) ? $this->reportNumericValue((float) $node['width']) : null,
+            'height' => isset($node['height']) && is_numeric($node['height']) ? $this->reportNumericValue((float) $node['height']) : null,
+            'parent_width' => isset($node['parent_width']) && is_numeric($node['parent_width']) ? $this->reportNumericValue((float) $node['parent_width']) : null,
+            'left' => isset($node['left']) && is_numeric($node['left']) ? $this->reportNumericValue((float) $node['left']) : null,
+            'top' => isset($node['top']) && is_numeric($node['top']) ? $this->reportNumericValue((float) $node['top']) : null,
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value);
     }
 
     /**

@@ -64,6 +64,19 @@ Asset coverage lives at `transform_diagnostics.images`:
 
 Initial omission reasons include `hidden`, `zero_area`, `parent_omitted`, `decorative`, `no_archive_asset`, `no_archive_asset_hash`, `clipped_masked`, `converted_to_background`, `converted_to_form_control`, and `not_emitted`.
 
+Positional parity coverage lives at `transform_diagnostics.layout.positional_parity` with schema `blocks-engine/figma-transformer/positional-parity/v1`. It summarizes emitted CSS and layout evidence that can affect arbitrary `.fig` visual parity without changing runtime behavior:
+
+- `full_bleed_viewport_width_count`: emitted `width:100vw` declarations.
+- `full_bleed_breakout_count`: emitted viewport breakout declarations using `left:50%` plus `margin-left:±50vw`.
+- `mirrored_transform_count`: emitted CSS matrix transforms with a negative horizontal or vertical scale component.
+- `reflected_full_bleed_count`: emitted full-bleed reflected nodes using `margin-left:50vw` plus a mirrored matrix.
+- `fixed_over_root_width_underlay_count`: decorative underlay samples whose fixed source width exceeds parent/root width.
+- `fixed_over_root_width_underlays[]`: bounded samples with page, node, parent, geometry, and class evidence.
+- `chrome_overflow_count`: off-canvas visual nodes associated with header/footer chrome.
+- `chrome_overflow_nodes[]`: bounded samples with page, node, parent, geometry, and class evidence.
+- `root_stacking_trace_count`: count of recorded stacking-context decision traces.
+- `root_stacking_reason_counts`: stable stacking/z-index/overlap decision reason counts when present.
+
 Status meanings:
 
 - `not_run`: no parity runner has executed for this transform.
