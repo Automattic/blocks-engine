@@ -144,7 +144,7 @@ function blocks_engine_figma_transformer_run_semantic_accessibility_contract(cal
                         'height'   => 96,
                         'children' => array(
                             array('id' => 'chrome:brand', 'type' => 'TEXT', 'name' => 'Brand Logo', 'characters' => 'Brand', 'fontSize' => 20),
-                            array('id' => 'chrome:home', 'type' => 'TEXT', 'name' => 'Menu Item', 'characters' => 'Home', 'fontSize' => 16, 'figma_link' => array('url' => '/')),
+                            array('id' => 'chrome:home', 'type' => 'TEXT', 'name' => 'Menu Item', 'characters' => 'Home', 'fontSize' => 16, 'hyperlink' => '/'),
                         ),
                     ),
                     array(
@@ -156,8 +156,8 @@ function blocks_engine_figma_transformer_run_semantic_accessibility_contract(cal
                         'width'    => 120,
                         'height'   => 32,
                         'children' => array(
-                            array('id' => 'chrome:facebook', 'type' => 'VECTOR', 'name' => 'Facebook', 'width' => 24, 'height' => 24, 'pathData' => 'M0 0H24V24H0Z', 'figma_link' => array('url' => 'https://facebook.example')),
-                            array('id' => 'chrome:instagram', 'type' => 'VECTOR', 'name' => 'Instagram', 'width' => 24, 'height' => 24, 'pathData' => 'M0 0H24V24H0Z', 'figma_link' => array('url' => 'https://instagram.example')),
+                            array('id' => 'chrome:facebook', 'type' => 'VECTOR', 'name' => 'Facebook', 'width' => 24, 'height' => 24, 'pathData' => 'M0 0H24V24H0Z', 'hyperlink' => 'https://facebook.example'),
+                            array('id' => 'chrome:instagram', 'type' => 'VECTOR', 'name' => 'Instagram', 'width' => 24, 'height' => 24, 'pathData' => 'M0 0H24V24H0Z', 'hyperlink' => 'https://instagram.example'),
                         ),
                     ),
                     array(
@@ -188,6 +188,8 @@ function blocks_engine_figma_transformer_run_semantic_accessibility_contract(cal
     $chromeHtml = $fileContent($chromeResult, 'index.html');
     $assert(str_contains($chromeHtml, '<header class="figma-node-chrome-top-top-bar"'), 'semantic-accessibility-generic-top-chrome-emits-header');
     $assert(str_contains($chromeHtml, '<nav class="figma-node-chrome-social-social-links"'), 'semantic-accessibility-social-cluster-emits-nav');
+    $assert(str_contains($chromeHtml, '<a class="figma-link" href="https://facebook.example" data-figma-link-type="url">') && str_contains($chromeHtml, '<a class="figma-link" href="https://instagram.example" data-figma-link-type="url">'), 'semantic-accessibility-social-icons-with-real-urls-emit-anchors');
+    $assert(! str_contains($chromeHtml, 'href="#" data-figma-link-type="url"'), 'semantic-accessibility-social-icons-do-not-emit-placeholder-anchors');
     $assert(str_contains($chromeHtml, '<div class="figma-node-chrome-cta-call-to-action"'), 'semantic-accessibility-cta-group-stays-structural');
     $assert(str_contains($chromeHtml, '<footer class="figma-node-chrome-bottom-bottom-bar"'), 'semantic-accessibility-generic-bottom-chrome-emits-footer');
 

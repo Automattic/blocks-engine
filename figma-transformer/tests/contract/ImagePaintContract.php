@@ -75,6 +75,34 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $assert(0 === ($imageBackedVectorDiagnostics['vectors']['placeholders'] ?? null), 'image-backed-vector-not-counted-as-placeholder');
     $assert(1 === ($imageBackedVectorDiagnostics['images']['paint_refs'] ?? null), 'image-backed-vector-image-paint-evidence-counted');
 
+    $imageMaskOverlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'   => 'Image Mask Overlay Fixture',
+        'assets' => array(
+            'social-mask' => array('mime_type' => 'image/svg+xml', 'content' => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0h24v24H0z"/></svg>'),
+        ),
+        'nodes'  => array(
+            array(
+                'id'       => 'imagemask:root',
+                'type'     => 'FRAME',
+                'name'     => 'Social Icon Composition',
+                'width'    => 24,
+                'height'   => 24,
+                'children' => array(
+                    array('id' => 'imagemask:asset', 'type' => 'RECTANGLE', 'name' => 'Instagram asset layer', 'width' => 24, 'height' => 24, 'asset_id' => 'social-mask'),
+                    array('id' => 'imagemask:overlay', 'type' => 'RECTANGLE', 'name' => 'Instagram overlay', 'width' => 24, 'height' => 24, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0.2, 'b' => 0.4, 'a' => 1)))),
+                ),
+            ),
+        ),
+    ));
+    $imageMaskOverlayHtml = $fileContent($imageMaskOverlayResult, 'index.html');
+    $imageMaskOverlayCss = $fileContent($imageMaskOverlayResult, 'style.css');
+    $imageMaskOverlayDiagnostics = $imageMaskOverlayResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $assert(str_contains($imageMaskOverlayCss, '.figma-node-imagemask-asset-instagram-asset-layer{') && str_contains($imageMaskOverlayCss, 'background-image:url("assets/social-mask.svg")'), 'image-mask-social-asset-layer-emits-background-image');
+    $assert(str_contains($imageMaskOverlayCss, '.figma-node-imagemask-overlay-instagram-overlay{width:24px;height:24px;-webkit-mask-image:url("assets/social-mask.svg");mask-image:url("assets/social-mask.svg")'), 'image-mask-social-overlay-emits-css-mask');
+    $assert(! str_contains($imageMaskOverlayHtml, 'data-figma-node-id="imagemask:asset" data-figma-node-name="Instagram asset layer"><svg') && ! str_contains($imageMaskOverlayHtml, 'data-figma-node-id="imagemask:overlay" data-figma-node-name="Instagram overlay"><svg'), 'image-mask-social-composition-does-not-emit-duplicate-svg-children');
+    $assert(! str_contains($imageMaskOverlayHtml, 'data-figma-unsupported-vector="true"'), 'image-mask-social-composition-has-no-placeholder-svg');
+    $assert(0 === ($imageMaskOverlayDiagnostics['vectors']['placeholders'] ?? null), 'image-mask-social-composition-not-counted-as-vector-placeholder');
+
     $unusedAssetResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'   => 'Unused Asset Fixture',
         'assets' => array(

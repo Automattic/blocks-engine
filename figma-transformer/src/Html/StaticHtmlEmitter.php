@@ -715,6 +715,9 @@ final class StaticHtmlEmitter
         $inputAccessoryControl = 'div' === $tag && $this->isInputLike($node) && $this->hasFormControlAccessoryChildren($node);
         $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
         $assetPath = $this->nodeAssetPath($node);
+        if ( null !== $assetPath || (isset($node['_figma_css_mask_image_path']) && is_scalar($node['_figma_css_mask_image_path']) && '' !== (string) $node['_figma_css_mask_image_path']) ) {
+            $vectorSvg = null;
+        }
         $hasVectorAssetFallback = $this->isUnsupportedVectorType($type) && null !== $assetPath;
 
         if ( ! in_array($tag, array('input', 'textarea'), true) && ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) && ! $this->vectorSvgComposesChildren($vectorSvg) ) {
@@ -3131,7 +3134,7 @@ final class StaticHtmlEmitter
             $diagnostics[] = array(
                 'severity' => 'info',
                 'code'     => 'link_target_unresolved',
-                'message'  => 'Figma link target could not be resolved to a generated page and was emitted as a placeholder anchor.',
+                'message'  => 'Figma link target could not be resolved to a generated page, so no anchor was emitted.',
                 'context'  => array(
                     'node_id'        => $nodeId,
                     'link_type'      => $type,
@@ -3139,6 +3142,8 @@ final class StaticHtmlEmitter
                     'source'         => (string) ($link['source'] ?? ''),
                 ),
             );
+
+            return $element;
         }
 
         $this->linkCoverage['anchors_emitted']++;

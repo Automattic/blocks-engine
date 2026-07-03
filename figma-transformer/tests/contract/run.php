@@ -4785,7 +4785,7 @@ $descendantTargetLinks = $descendantTargetResult['source_reports']['figma']['htm
 $assert(str_contains($descendantTargetHomeHtml, '<a class="figma-link" href="about.html#about-us" data-figma-link-type="node">'), 'descendant-prototype-target-resolves-to-containing-page');
 $assert(0 === ($descendantTargetLinks['unresolved'] ?? null) && ($descendantTargetLinks['node_links'] ?? 0) >= 1, 'descendant-prototype-target-link-coverage-resolved');
 
-// Real anchor tags: an unresolved NODE link is counted in the diagnostic and emitted as a placeholder anchor.
+// Real anchor tags: an unresolved NODE link is counted in the diagnostic without inventing href="#".
 $unresolvedResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Unresolved Link Fixture',
     'nodes' => array(
@@ -4814,8 +4814,9 @@ $unresolvedDiagnosticCodes = array_map(
     static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
     $unresolvedResult['diagnostics'] ?? array()
 );
-$assert(str_contains($unresolvedHtml, '<a class="figma-link" href="#" data-figma-link-type="node">'), 'unresolved-node-link-emits-placeholder-anchor');
-$assert(1 === ($unresolvedLinks['unresolved'] ?? null) && 1 === ($unresolvedLinks['node_links'] ?? null), 'unresolved-link-counted-in-coverage');
+$assert(! str_contains($unresolvedHtml, 'href="#" data-figma-link-type="node"'), 'unresolved-node-link-does-not-emit-placeholder-anchor');
+$assert(str_contains($unresolvedHtml, 'data-figma-node-id="dead:2"'), 'unresolved-node-link-preserves-source-element');
+$assert(1 === ($unresolvedLinks['unresolved'] ?? null) && 1 === ($unresolvedLinks['node_links'] ?? null) && 0 === ($unresolvedLinks['anchors_emitted'] ?? null), 'unresolved-link-counted-in-coverage-without-anchor');
 $assert('does:not:exist' === ($unresolvedLinks['unresolved_targets'][0]['target_node_id'] ?? null), 'unresolved-link-records-target-node-id');
 $assert(in_array('link_target_unresolved', $unresolvedSignalCodes, true), 'unresolved-link-artifact-quality-signal');
 $assert(in_array('link_target_unresolved', $unresolvedDiagnosticCodes, true), 'unresolved-link-diagnostic-code');
