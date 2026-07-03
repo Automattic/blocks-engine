@@ -1493,10 +1493,10 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(in_array('device_hint_diversity', $responsiveGroupDiagnostic['reasons'] ?? array(), true), 'page-plan-responsive-group-rationale-device-diversity');
     $assert('frame:home-desktop' === ($responsiveGroupDiagnostic['primary_frame_id'] ?? null), 'page-plan-responsive-group-rationale-primary');
     
-    // (a) FALSE-POSITIVE GUARD: four same-name, same-device-hint (desktop),
-    // same-width (1440) frames differing only in height are duplicate/iteration
-    // drafts (the real "For Hosts" data finding), NOT responsive breakpoints. They
-    // must stay as separate pages and surface a duplicate_draft_frames diagnostic.
+    // (a) FALSE-POSITIVE GUARD: same-name, same-device-hint (desktop),
+    // same-size frames are duplicate/iteration drafts, NOT responsive
+    // breakpoints. Site generation emits only the canonical route and surfaces
+    // a duplicate_draft_frames diagnostic for the rejected draft.
     $duplicateDraftSource = array(
         'nodes' => array(
             array(
@@ -1527,22 +1527,6 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
                                 'height'   => 8613,
                                 'children' => array(array('id' => 'text:hosts-b', 'type' => 'TEXT', 'name' => 'Headline', 'characters' => 'For Hosts')),
                             ),
-                            array(
-                                'id'       => 'frame:hosts-c',
-                                'type'     => 'FRAME',
-                                'name'     => 'For Hosts',
-                                'width'    => 1440,
-                                'height'   => 9188,
-                                'children' => array(array('id' => 'text:hosts-c', 'type' => 'TEXT', 'name' => 'Headline', 'characters' => 'For Hosts')),
-                            ),
-                            array(
-                                'id'       => 'frame:hosts-d',
-                                'type'     => 'FRAME',
-                                'name'     => 'For Hosts',
-                                'width'    => 1440,
-                                'height'   => 9000,
-                                'children' => array(array('id' => 'text:hosts-d', 'type' => 'TEXT', 'name' => 'Headline', 'characters' => 'For Hosts')),
-                            ),
                         ),
                     ),
                 ),
@@ -1550,7 +1534,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
         ),
     );
     $duplicateDraftPlan = ( new ScenegraphPagePlanner() )->plan($duplicateDraftSource, array('include_all_pages' => true));
-    $assert(4 === ($duplicateDraftPlan['page_count'] ?? null), 'page-plan-duplicate-drafts-stay-separate-pages');
+    $assert(1 === ($duplicateDraftPlan['page_count'] ?? null), 'page-plan-duplicate-drafts-emit-canonical-page-only');
     $duplicateDraftResponsive = false;
     foreach ( $duplicateDraftPlan['pages'] ?? array() as $duplicatePage ) {
         if ( is_array($duplicatePage) && true === ($duplicatePage['responsive'] ?? null) ) {
@@ -1561,8 +1545,73 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $duplicateDraftDiagnostic = $planDiagnosticByCode($duplicateDraftPlan, 'duplicate_draft_frames');
     $assert(null !== $duplicateDraftDiagnostic, 'page-plan-duplicate-drafts-diagnostic-emitted');
     $assert('desktop' === ($duplicateDraftDiagnostic['device_hint'] ?? null), 'page-plan-duplicate-drafts-diagnostic-device-hint');
-    $assert(4 === count($duplicateDraftDiagnostic['frame_ids'] ?? array()), 'page-plan-duplicate-drafts-diagnostic-frame-count');
+    $assert(2 === count($duplicateDraftDiagnostic['frame_ids'] ?? array()), 'page-plan-duplicate-drafts-diagnostic-frame-count');
+    $assert(array('frame:hosts-b') === ($duplicateDraftDiagnostic['draft_frame_ids'] ?? null), 'page-plan-duplicate-drafts-diagnostic-draft-ids');
     $assert(null === $planDiagnosticByCode($duplicateDraftPlan, 'responsive_group_formed'), 'page-plan-duplicate-drafts-not-grouped');
+
+    $utilityFrameSource = array(
+        'nodes' => array(
+            array(
+                'id'       => 'page:site',
+                'type'     => 'CANVAS',
+                'name'     => 'Site',
+                'children' => array(
+                    array(
+                        'id'       => 'section:web',
+                        'type'     => 'SECTION',
+                        'name'     => 'Responsive Pages',
+                        'children' => array(
+                            array(
+                                'id'       => 'frame:home-desktop',
+                                'type'     => 'FRAME',
+                                'name'     => 'Home',
+                                'width'    => 1440,
+                                'height'   => 1800,
+                                'children' => array(array('id' => 'text:home-desktop', 'type' => 'TEXT', 'name' => 'Home', 'characters' => 'Home')),
+                            ),
+                            array(
+                                'id'       => 'frame:home-mobile',
+                                'type'     => 'FRAME',
+                                'name'     => 'Home',
+                                'width'    => 390,
+                                'height'   => 1800,
+                                'children' => array(array('id' => 'text:home-mobile', 'type' => 'TEXT', 'name' => 'Home', 'characters' => 'Home')),
+                            ),
+                            array(
+                                'id'       => 'frame:desktop-mockup',
+                                'type'     => 'FRAME',
+                                'name'     => 'Desktop - 1440px',
+                                'width'    => 1440,
+                                'height'   => 1400,
+                                'children' => array(array('id' => 'text:desktop-mockup', 'type' => 'TEXT', 'name' => 'Label', 'characters' => 'Desktop')),
+                            ),
+                            array(
+                                'id'       => 'frame:mobile-mockup',
+                                'type'     => 'FRAME',
+                                'name'     => 'Mobile - 375px',
+                                'width'    => 375,
+                                'height'   => 812,
+                                'children' => array(array('id' => 'text:mobile-mockup', 'type' => 'TEXT', 'name' => 'Label', 'characters' => 'Mobile')),
+                            ),
+                            array(
+                                'id'       => 'frame:presentation-cover',
+                                'type'     => 'FRAME',
+                                'name'     => 'Presentation Cover',
+                                'width'    => 1440,
+                                'height'   => 1024,
+                                'children' => array(array('id' => 'text:presentation-cover', 'type' => 'TEXT', 'name' => 'Label', 'characters' => 'Cover')),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    );
+    $utilityFramePlan = ( new ScenegraphPagePlanner() )->plan($utilityFrameSource, array('include_all_pages' => true));
+    $assert(1 === ($utilityFramePlan['page_count'] ?? null), 'page-plan-utility-route-frames-filtered');
+    $assert('frame:home-desktop' === ($utilityFramePlan['pages'][0]['frame_id'] ?? null), 'page-plan-utility-route-keeps-responsive-page');
+    $utilityFilterDiagnostic = $planDiagnosticByCode($utilityFramePlan, 'low_confidence_route_frame_filtered');
+    $assert(null !== $utilityFilterDiagnostic, 'page-plan-utility-route-filter-diagnostic-emitted');
     
     // (c) FRAME-CANDIDATE BOUND: detection now scales with the number of FRAME
     // candidates, not total node count. The `responsive_detection_bounded`

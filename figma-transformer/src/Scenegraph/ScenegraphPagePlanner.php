@@ -300,6 +300,30 @@ final class ScenegraphPagePlanner
             $diagnostics[] = $groupDiagnostic;
         }
 
+        if ( ! $explicitSelected ) {
+            $duplicateDraftRejectIds = $this->duplicateDraftRejectIds($grouping['diagnostics']);
+            if ( array() !== $duplicateDraftRejectIds ) {
+                $selectedIds = array_values(array_filter(
+                    $selectedIds,
+                    static fn (string $id): bool => ! isset($duplicateDraftRejectIds[$id])
+                ));
+            }
+
+            $duplicateRouteResult = $this->filterDuplicateRouteDraftFrames($selectedIds, $pageCandidates);
+            $selectedIds = $duplicateRouteResult['ids'];
+            foreach ( $duplicateRouteResult['diagnostics'] as $diagnostic ) {
+                $diagnostics[] = $diagnostic;
+            }
+
+            if ( ! empty($responsiveGroups) ) {
+                $utilityResult = $this->filterLowConfidenceUtilityRouteFrames($selectedIds, $pageCandidates, $classifications);
+                $selectedIds = $utilityResult['ids'];
+                foreach ( $utilityResult['diagnostics'] as $diagnostic ) {
+                    $diagnostics[] = $diagnostic;
+                }
+            }
+        }
+
         // Orphan mobile menu/component-demo exclusion: when the file has at
         // least one real responsive desktop+mobile pair, lone mobile-width
         // frames that never grouped with a desktop sibling AND carry a
@@ -1077,6 +1101,155 @@ final class ScenegraphPagePlanner
         }
 
         return array('groups' => $groups, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @return array<string, true>
+     */
+    private function duplicateDraftRejectIds(array $diagnostics): array
+    {
+        $rejectIds = array();
+        foreach ( $diagnostics as $diagnostic ) {
+            if ( ! is_array($diagnostic) || 'duplicate_draft_frames' !== ($diagnostic['code'] ?? null) ) {
+                continue;
+            }
+
+            foreach ( is_array($diagnostic['draft_frame_ids'] ?? null) ? $diagnostic['draft_frame_ids'] : array() as $draftId ) {
+                if ( is_string($draftId) && '' !== $draftId ) {
+                    $rejectIds[$draftId] = true;
+                }
+            }
+        }
+
+        return $rejectIds;
+    }
+
+    /**
+     * @param array<int, string>                  $selectedIds
+     * @param array<string, array<string, mixed>> $pageCandidates
+     * @return array{ids: array<int, string>, diagnostics: array<int, array<string, mixed>>}
+     */
+    private function filterDuplicateRouteDraftFrames(array $selectedIds, array $pageCandidates): array
+    {
+        $buckets = array();
+        foreach ( $selectedIds as $id ) {
+            if ( ! isset($pageCandidates[$id]) ) {
+                continue;
+            }
+            $candidate = $pageCandidates[$id];
+            $name = (string) ($candidate['node']['name'] ?? '');
+            $identity = $this->routeIdentity($name);
+            $width = (int) round((float) ($candidate['dimensions']['width'] ?? 0));
+            $height = (int) round((float) ($candidate['dimensions']['height'] ?? 0));
+            $buckets[$identity . ':' . $width . 'x' . $height][] = $id;
+        }
+
+        $rejectIds = array();
+        $diagnostics = array();
+        foreach ( $buckets as $members ) {
+            if ( count($members) < 2 ) {
+                continue;
+            }
+
+            $canonicalId = $this->canonicalDraftId($members, $pageCandidates);
+            $draftIds = array_values(array_filter($members, static fn (string $id): bool => $id !== $canonicalId));
+            foreach ( $draftIds as $draftId ) {
+                $rejectIds[$draftId] = true;
+            }
+
+            $diagnostics[] = array(
+                'severity'           => 'warning',
+                'code'               => 'duplicate_route_draft_frames',
+                'message'            => 'Frames resolve to the same route identity and dimensions; only the canonical draft is emitted as a page.',
+                'canonical_frame_id' => $canonicalId,
+                'draft_frame_ids'    => $draftIds,
+                'frame_ids'          => $members,
+                'route_identity'     => $this->routeIdentity((string) ($pageCandidates[$canonicalId]['node']['name'] ?? '')),
+                'width'              => (float) ($pageCandidates[$canonicalId]['dimensions']['width'] ?? 0),
+                'height'             => (float) ($pageCandidates[$canonicalId]['dimensions']['height'] ?? 0),
+            );
+        }
+
+        if ( array() === $rejectIds ) {
+            return array('ids' => array_values($selectedIds), 'diagnostics' => $diagnostics);
+        }
+
+        return array(
+            'ids' => array_values(array_filter(
+                $selectedIds,
+                static fn (string $id): bool => ! isset($rejectIds[$id])
+            )),
+            'diagnostics' => $diagnostics,
+        );
+    }
+
+    /**
+     * @param array<int, string>                  $selectedIds
+     * @param array<string, array<string, mixed>> $pageCandidates
+     * @param array<string, array<string, mixed>> $classifications
+     * @return array{ids: array<int, string>, diagnostics: array<int, array<string, mixed>>}
+     */
+    private function filterLowConfidenceUtilityRouteFrames(array $selectedIds, array $pageCandidates, array $classifications): array
+    {
+        $kept = array();
+        $diagnostics = array();
+        foreach ( $selectedIds as $id ) {
+            $candidate = $pageCandidates[$id] ?? null;
+            if ( ! is_array($candidate) ) {
+                $kept[] = $id;
+                continue;
+            }
+
+            $name = (string) ($candidate['node']['name'] ?? '');
+            $width = (float) ($candidate['dimensions']['width'] ?? 0);
+            $height = (float) ($candidate['dimensions']['height'] ?? 0);
+            if ( ! $this->isLowConfidenceUtilityRouteName($name, $width, $height) ) {
+                $kept[] = $id;
+                continue;
+            }
+
+            $diagnostics[] = array(
+                'severity'               => 'info',
+                'code'                   => 'low_confidence_route_frame_filtered',
+                'message'                => 'Filtered a device mockup or presentation/template frame from page route emission.',
+                'frame_id'               => $id,
+                'name'                   => $name,
+                'width'                  => $width,
+                'height'                 => $height,
+                'route_identity'         => $this->routeIdentity($name),
+                'page_type'              => $classifications[$id]['page_type'] ?? ScenegraphFrameClassifier::PAGE_TYPE_UNKNOWN,
+                'classification_signals' => $classifications[$id]['signals'] ?? array(),
+            );
+        }
+
+        return array('ids' => array() === $kept ? array_values($selectedIds) : array_values($kept), 'diagnostics' => $diagnostics);
+    }
+
+    private function isLowConfidenceUtilityRouteName(string $name, float $width, float $height): bool
+    {
+        $normalized = strtolower(trim(preg_replace('/\s+/', ' ', $name) ?? $name));
+        if ( 1 === preg_match('/\b(iphone|ipad|android|phone|mobile|desktop|tablet)\b.*\b(\d{3,4}px|black|white|mockup|frame)\b/i', $name) ) {
+            return true;
+        }
+        if ( 1 === preg_match('/^(presentation cover|section intro|intro|summary|page)$/i', $normalized) ) {
+            return 1440.0 === round($width) && 1024.0 === round($height);
+        }
+
+        return false;
+    }
+
+    private function routeIdentity(string $name): string
+    {
+        $tokens = array_values(array_filter(preg_split('/[^a-z0-9]+/', strtolower($name)) ?: array()));
+        $semanticTokens = array('home', 'about', 'services', 'reviews', 'faq', 'contact', 'news', 'handouts', 'blog', 'pricing', 'shop', 'products', 'product', 'portfolio', 'work', 'team', 'careers');
+        foreach ( array_reverse($tokens) as $token ) {
+            if ( in_array($token, $semanticTokens, true) ) {
+                return $token;
+            }
+        }
+
+        return $this->slugify($name);
     }
 
     /**
