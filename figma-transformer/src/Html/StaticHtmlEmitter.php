@@ -5576,6 +5576,8 @@ final class StaticHtmlEmitter
             $transformOrigin = $this->transformOriginStyle($box);
             if ( null !== $transformOrigin ) {
                 $styles[] = 'transform-origin:' . $transformOrigin;
+            } elseif ( $canvasShell->fullBleedCanvasChildReflected ) {
+                $styles[] = 'transform-origin:50% 50%';
             } elseif ( $this->hasExplicitTransformMatrix($box) ) {
                 $styles[] = 'transform-origin:0 0';
             }

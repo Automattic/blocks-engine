@@ -69,7 +69,7 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
         false,
         true,
     ));
-    $assert(in_array('margin-left:50vw', $reflectedBreakoutDecision['declarations'], true), 'layout-frame-role-reflected-full-bleed-breakout-anchors-end-edge');
+    $assert(in_array('margin-left:-50vw', $reflectedBreakoutDecision['declarations'], true), 'layout-frame-role-reflected-full-bleed-breakout-anchors-viewport-start');
 
     $contentShellBox = array('x' => 112, 'y' => 80, 'width' => 1216, 'height' => 240);
     $contentShellLayout = array('positioning' => 'absolute');
@@ -115,7 +115,7 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
     $reflectedBackgroundDecision = $resolver->resolve($reflectedBackgroundNode, $freeformBand, $root);
     $assert($reflectedBackgroundDecision->fullBleedCanvasChild, 'canvas-shell-decision-reflected-visual-full-bleed-child');
     $assert($reflectedBackgroundDecision->fullBleedCanvasChildReflected, 'canvas-shell-decision-reflected-full-bleed-child-reflection-flag');
-    $assert(array('left:50%', 'margin-left:50vw') === $resolver->fullBleedViewportBreakoutStyles($reflectedBackgroundDecision), 'canvas-shell-decision-reflected-breakout-styles');
+    $assert(array('left:50%', 'margin-left:-50vw') === $resolver->fullBleedViewportBreakoutStyles($reflectedBackgroundDecision), 'canvas-shell-decision-reflected-breakout-styles');
 
     $absoluteChromeRoot = $root;
     $absoluteChromeRoot['children'] = array($backgroundNode);

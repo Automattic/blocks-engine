@@ -128,7 +128,7 @@ final class BreakpointDimensionPolicy
 
         return array(
             'reason_code'  => 'full_bleed_canvas_child_viewport_breakout',
-            'declarations' => array('left:50%', 'margin-left:' . ($canvasShell->fullBleedCanvasChildReflected ? '50vw' : '-50vw')),
+            'declarations' => array('left:50%', 'margin-left:-50vw'),
         );
     }
 
