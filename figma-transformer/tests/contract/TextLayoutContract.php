@@ -2084,6 +2084,25 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
                                     ),
                                 ),
                             ),
+                            array(
+                                'id'       => 'slt:item-4',
+                                'type'     => 'FRAME',
+                                'name'     => 'Numbered List Item',
+                                'width'    => 720,
+                                'height'   => 80,
+                                'children' => array(
+                                    array('id' => 'slt:marker-4', 'type' => 'TEXT', 'name' => 'Marker', 'characters' => '4.', 'fontSize' => 32),
+                                    array(
+                                        'id'         => 'slt:text-wrapper',
+                                        'type'       => 'INSTANCE',
+                                        'name'       => 'Paragraph',
+                                        'figma_text' => array(
+                                            'characters' => 'Wrapped body text should keep sentence casing.',
+                                            'style'      => array('font_family' => 'Plus Jakarta Sans', 'font_size' => 18, 'font_weight' => 500, 'text_transform' => 'uppercase'),
+                                        ),
+                                    ),
+                                ),
+                            ),
                         ),
                     ),
                 ),
@@ -2095,6 +2114,7 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     $assert(str_contains($semanticListBodyTypographyHtml, '<p class="figma-node-slt-text-1-paragraph"'), 'semantic-list-body-heading-sized-text-stays-paragraph');
     $assert(1 !== preg_match('/<h[1-6] class="figma-node-slt-text-1-paragraph"/', $semanticListBodyTypographyHtml), 'semantic-list-body-no-heading-tag');
     $assert(1 !== preg_match('/\.figma-node-slt-text-1-paragraph\{[^}]*text-transform:uppercase/s', $semanticListBodyTypographyCss), 'semantic-list-body-drops-unproven-uppercase');
+    $assert(1 !== preg_match('/\.figma-node-slt-text-wrapper-paragraph\{[^}]*text-transform:uppercase/s', $semanticListBodyTypographyCss), 'semantic-list-body-wrapper-drops-unproven-uppercase');
     $assert(1 === preg_match('/\.figma-node-slt-text-3-explicit-upper-paragraph\{[^}]*text-transform:uppercase/s', $semanticListBodyTypographyCss), 'semantic-list-body-keeps-explicit-uppercase');
     $assert(str_contains($semanticListBodyTypographyCss, 'font-size:40px'), 'semantic-list-body-keeps-source-font-size');
 

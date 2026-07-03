@@ -8095,11 +8095,25 @@ final class StaticHtmlEmitter
      */
     private function isSemanticListItemBodyText(array $node, ?array $parentNode, ?array $grandParentNode): bool
     {
-        if ( 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) || null === $parentNode || null === $grandParentNode ) {
+        if ( null === $parentNode || null === $grandParentNode || ! $this->nodeHasTextContent($node) ) {
             return false;
         }
 
         return $this->isListItemOf($parentNode, $grandParentNode) && ! $this->isListMarkerTextChild($node);
+    }
+
+    /** @param array<string, mixed> $node */
+    private function nodeHasTextContent(array $node): bool
+    {
+        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
+            return true;
+        }
+
+        if ( is_array($node['figma_text'] ?? null) && '' !== trim($this->rawDecodedText($node)) ) {
+            return true;
+        }
+
+        return isset($node['characters']) && is_scalar($node['characters']) && '' !== trim((string) $node['characters']);
     }
 
     /**
