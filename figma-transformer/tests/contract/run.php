@@ -23,6 +23,7 @@ require_once __DIR__ . '/ParserParityContract.php';
 require_once __DIR__ . '/RenderStyleMismatchContract.php';
 require_once __DIR__ . '/SemanticAccessibilityContract.php';
 require_once __DIR__ . '/SiteGenerationContract.php';
+require_once __DIR__ . '/StackingContextPolicyContract.php';
 require_once __DIR__ . '/SyntheticFigKiwiFixtureBuilder.php';
 require_once __DIR__ . '/TextLayoutContract.php';
 require_once __DIR__ . '/VectorCommandBlobContract.php';
@@ -201,6 +202,8 @@ blocks_engine_figma_transformer_run_form_control_contract($assert, $fileContent)
 blocks_engine_figma_transformer_run_html_validity_contract($assert, $fileContent);
 
 blocks_engine_figma_transformer_run_semantic_accessibility_contract($assert, $fileContent);
+
+blocks_engine_figma_transformer_run_stacking_context_policy_contract($assert);
 
 blocks_engine_figma_transformer_run_vector_command_blob_contract($assert, $oversizedCommandBlob, $longStrokeCommandBlob);
 

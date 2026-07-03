@@ -9,18 +9,18 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class LayoutIntentClassifier
 {
-    public const STACK_REASON_ABSOLUTE_CHILD = 'local_absolute_child';
-    public const STACK_REASON_DECORATIVE_UNDERLAY = 'local_decorative_underlay';
-    public const STACK_REASON_FREEFORM_CONTAINER = 'local_freeform_container';
-    public const STACK_REASON_MIXED_POSITIONING_CHILDREN = 'local_mixed_positioning_children';
-    public const STACK_REASON_OVERLAPPING_STACKED_CHILD = 'local_overlapping_stacked_child';
-    public const STACK_REASON_SOURCE_Z_INDEX = 'source_z_index';
-    public const STACK_REASON_SIBLING_LAYER_RANK = 'overlapping_sibling_layer_rank';
-    public const STACK_REASON_Z_INDEXED_CHILD = 'local_z_indexed_child';
+    public const STACK_REASON_ABSOLUTE_CHILD = StackingContextPolicy::STACK_REASON_ABSOLUTE_CHILD;
+    public const STACK_REASON_DECORATIVE_UNDERLAY = StackingContextPolicy::STACK_REASON_DECORATIVE_UNDERLAY;
+    public const STACK_REASON_FREEFORM_CONTAINER = StackingContextPolicy::STACK_REASON_FREEFORM_CONTAINER;
+    public const STACK_REASON_MIXED_POSITIONING_CHILDREN = StackingContextPolicy::STACK_REASON_MIXED_POSITIONING_CHILDREN;
+    public const STACK_REASON_OVERLAPPING_STACKED_CHILD = StackingContextPolicy::STACK_REASON_OVERLAPPING_STACKED_CHILD;
+    public const STACK_REASON_SOURCE_Z_INDEX = StackingContextPolicy::STACK_REASON_SOURCE_Z_INDEX;
+    public const STACK_REASON_SIBLING_LAYER_RANK = StackingContextPolicy::STACK_REASON_SIBLING_LAYER_RANK;
+    public const STACK_REASON_Z_INDEXED_CHILD = StackingContextPolicy::STACK_REASON_Z_INDEXED_CHILD;
 
-    public const LAYER_ROLE_UNDERLAY = 'underlay';
-    public const LAYER_ROLE_CONTENT = 'content';
-    public const LAYER_ROLE_CHROME = 'chrome';
+    public const LAYER_ROLE_UNDERLAY = StackingContextPolicy::LAYER_ROLE_UNDERLAY;
+    public const LAYER_ROLE_CONTENT = StackingContextPolicy::LAYER_ROLE_CONTENT;
+    public const LAYER_ROLE_CHROME = StackingContextPolicy::LAYER_ROLE_CHROME;
 
     public const CHROME_GROUP_ROLE_HEADER = 'header';
     public const CHROME_GROUP_ROLE_FOOTER = 'footer';
@@ -51,6 +51,8 @@ final class LayoutIntentClassifier
 
     /** @var array<int, string> */
     private const CONTROL_LIST_NAME_HINTS = array('pagination', 'page number');
+
+    private ?StackingContextPolicy $stackingContextPolicy = null;
 
     /**
      * @param array<string, array<string, mixed>> $assetsById
@@ -616,23 +618,13 @@ final class LayoutIntentClassifier
         $isolationReasons = $this->localStackIsolationReasons($node);
         $siblingStackPlan = null !== $parentNode ? $this->siblingLayerStackPlan($node, $parentNode) : array('role' => null, 'overlaps_sibling' => false, 'z_index' => null);
         $isDecorativeUnderlay = null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode);
-        $sourceZIndex = $this->nodeZIndex($node);
-        $siblingZIndex = isset($siblingStackPlan['z_index']) && is_int($siblingStackPlan['z_index']) ? $siblingStackPlan['z_index'] : null;
 
-        $zIndex = $sourceZIndex ?? $siblingZIndex;
-        if ( $isDecorativeUnderlay ) {
-            $zIndex = $siblingZIndex ?? 0;
-        }
+        return $this->stackingContextPolicy()->plan($localReasons, $isolationReasons, $siblingStackPlan, $isDecorativeUnderlay, $this->nodeZIndex($node));
+    }
 
-        return array(
-            'manages_local_stacking' => ! empty($localReasons),
-            'needs_isolation' => ! empty($isolationReasons),
-            'local_reasons' => array_values(array_unique(array_merge($localReasons, $isolationReasons))),
-            'sibling_role' => is_string($siblingStackPlan['role'] ?? null) ? $siblingStackPlan['role'] : null,
-            'overlaps_sibling' => true === ($siblingStackPlan['overlaps_sibling'] ?? false),
-            'z_index' => $zIndex,
-            'z_index_reason' => $isDecorativeUnderlay ? (null !== $siblingZIndex ? self::STACK_REASON_SIBLING_LAYER_RANK : self::STACK_REASON_DECORATIVE_UNDERLAY) : (null !== $sourceZIndex ? self::STACK_REASON_SOURCE_Z_INDEX : (null !== $siblingZIndex ? self::STACK_REASON_SIBLING_LAYER_RANK : null)),
-        );
+    private function stackingContextPolicy(): StackingContextPolicy
+    {
+        return $this->stackingContextPolicy ??= new StackingContextPolicy();
     }
 
     /**
