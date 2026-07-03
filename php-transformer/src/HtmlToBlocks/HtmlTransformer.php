@@ -40,6 +40,35 @@ final class HtmlTransformer
     private const MAX_INTERACTION_CANDIDATES = 100;
 
     /**
+     * Blocks that manage their own link destination and must never receive a
+     * propagated card-link wrapper href (core/button owns its `url`,
+     * core/navigation-link owns its `url`, core/html is opaque markup, …).
+     *
+     * @var array<int, string>
+     */
+    private const LINK_SELF_MANAGING_BLOCKS = array(
+        'core/button',
+        'core/buttons',
+        'core/file',
+        'core/html',
+        'core/navigation',
+        'core/navigation-link',
+        'core/navigation-submenu',
+    );
+
+    /**
+     * RichText content blocks whose stored `content` can carry an inline `<a>`
+     * when a whole-element link wrapper is propagated onto them (#260).
+     *
+     * @var array<int, string>
+     */
+    private const LINK_BEARING_TEXT_BLOCKS = array(
+        'core/heading',
+        'core/paragraph',
+        'core/list-item',
+    );
+
+    /**
      * @var array<int, string>
      */
     private const SUPPORTED_BLOCKS = array(
@@ -139,9 +168,10 @@ final class HtmlTransformer
 
     /**
      * Whole-element link wrappers (an <a> wrapping block-level content) whose
-     * link was dropped because the resulting core/group has no native link
-     * attribute (#260). Surfaced for diagnostics so navigation loss is
-     * detectable rather than emitted as an unsupported attribute.
+     * link could not be propagated onto any native link-bearing inner block, so
+     * the resulting content is no longer navigable (#260). Surfaced for
+     * diagnostics so the navigation loss is detectable and a downstream repair
+     * loop can act on it, rather than emitted as an unsupported attribute.
      *
      * @var array<int, array<string, mixed>>
      */
@@ -1451,15 +1481,9 @@ final class HtmlTransformer
             }
 
             if ( $this->hasBlockContentChildren($element) ) {
-                $children = $this->convertChildren($element, $fallbacks, true);
-                if ( array() !== $children ) {
-                    // core/group has no native link attribute, so the wrapping
-                    // anchor's href/target/rel cannot live on the group without
-                    // becoming an unsupported attribute WordPress silently drops
-                    // (#260). Preserve the children as a valid group and surface
-                    // the dropped link wrapper for diagnostics instead.
-                    $this->recordDroppedLinkWrapper($element);
-                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                $linkWrapper = $this->convertLinkWrapperGroup($element, $fallbacks);
+                if ( null !== $linkWrapper ) {
+                    return $linkWrapper;
                 }
             }
 
@@ -5737,10 +5761,12 @@ final class HtmlTransformer
     }
 
     /**
-     * Record a content-wrapping anchor whose link was dropped because the
-     * resulting core/group exposes no native link attribute (#260). The link
-     * details are captured for diagnostics so the navigation loss is detectable
-     * rather than silently emitted as an unsupported attribute on the group.
+     * Record a content-wrapping anchor whose link could not be preserved on any
+     * native link-bearing inner block, because the resulting core/group exposes
+     * no native link attribute of its own (#260). The link details (selector +
+     * href) are captured for diagnostics so the navigation loss is detectable
+     * and a downstream repair loop can act on it, rather than the link being
+     * silently dropped.
      */
     private function recordDroppedLinkWrapper(DOMElement $anchor): void
     {
@@ -5751,11 +5777,235 @@ final class HtmlTransformer
 
         $this->droppedLinkWrapperFindings[] = array_merge(
             array(
+                'kind'     => 'source link wrapper dropped / content no longer navigable',
                 'tag'      => strtolower($anchor->tagName),
                 'selector' => $this->elementSelector($anchor),
             ),
             $link
         );
+    }
+
+    /**
+     * Convert a whole-element link wrapper (an `<a href>` wrapping block-level
+     * content) into a core/group whose layout/className is preserved while the
+     * anchor's href is propagated onto native link-bearing inner blocks, so the
+     * card content stays navigable instead of carrying a dead href on the group
+     * (#260).
+     *
+     * Mapping is chosen deterministically from the wrapped content:
+     *  - Button-like anchors (carrying a button signal) are routed to
+     *    core/button/core/buttons upstream of this method, so they never arrive
+     *    here.
+     *  - Otherwise (card/tile with heading, image, text) the link is propagated
+     *    onto core/image (native link attributes) and core/heading /
+     *    core/paragraph / core/list-item (inline `<a>` around the text content),
+     *    recursing through layout containers (group/columns/column/…). The
+     *    container never carries a bogus href.
+     *
+     * When the link cannot be preserved on any inner block (e.g. the card holds
+     * only non-link-bearing content), a structured finding is emitted instead.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function convertLinkWrapperGroup(DOMElement $anchor, array &$fallbacks): ?array
+    {
+        $children = $this->convertChildren($anchor, $fallbacks, true);
+        if ( array() === $children ) {
+            return null;
+        }
+
+        $linkAttrs = $this->linkPropagationAttributes($anchor);
+        if ( array() !== $linkAttrs && ! $this->propagateLinkWrapper($children, $linkAttrs) ) {
+            $this->recordDroppedLinkWrapper($anchor);
+        }
+
+        return $this->createBlock('core/group', $this->presentationAttributes($anchor), $children, $anchor);
+    }
+
+    /**
+     * The subset of a card-link wrapper's attributes used to propagate the link
+     * onto inner blocks: href (sanitized), target, and rel. The wrapper's own
+     * class/aria-label stay on the container group, not on each inner block.
+     *
+     * @return array<string, string>
+     */
+    private function linkPropagationAttributes(DOMElement $anchor): array
+    {
+        $href = $this->safeLinkUrl($this->attr($anchor, 'href'));
+        if ( '' === $href ) {
+            return array();
+        }
+
+        return array_filter(array(
+            'href'   => $href,
+            'target' => $this->attr($anchor, 'target'),
+            'rel'    => $this->attr($anchor, 'rel'),
+        ), static fn (string $value): bool => '' !== trim($value));
+    }
+
+    /**
+     * Walk the converted inner blocks of a link wrapper and propagate the
+     * anchor's link onto every native link-bearing descendant so the content
+     * remains navigable. core/image receives native link attributes;
+     * {@see self::LINK_BEARING_TEXT_BLOCKS} get an inline `<a>` around their text
+     * content. Layout containers (group/columns/column/…) are recursed into so a
+     * card whose heading/image/text lives behind wrapper `<div>`s is still
+     * covered. Blocks that manage their own link
+     * ({@see self::LINK_SELF_MANAGING_BLOCKS}) are skipped.
+     *
+     * Returns true when the link was carried onto at least one inner block.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<string, string> $linkAttrs
+     */
+    private function propagateLinkWrapper(array &$blocks, array $linkAttrs): bool
+    {
+        $preserved = false;
+        foreach ( $blocks as $index => $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            $name = (string) ($block['blockName'] ?? '');
+
+            if ( in_array($name, self::LINK_SELF_MANAGING_BLOCKS, true) ) {
+                continue;
+            }
+
+            if ( 'core/image' === $name ) {
+                if ( $this->propagateLinkOntoImage($blocks[$index], $linkAttrs) ) {
+                    $preserved = true;
+                }
+                continue;
+            }
+
+            if ( in_array($name, self::LINK_BEARING_TEXT_BLOCKS, true) ) {
+                if ( $this->propagateInlineLink($blocks[$index], $linkAttrs) ) {
+                    $preserved = true;
+                }
+                continue;
+            }
+
+            if ( isset($blocks[$index]['innerBlocks']) && is_array($blocks[$index]['innerBlocks']) ) {
+                if ( $this->propagateLinkWrapper($blocks[$index]['innerBlocks'], $linkAttrs) ) {
+                    $preserved = true;
+                }
+            }
+        }
+
+        return $preserved;
+    }
+
+    /**
+     * Propagate a card-link wrapper's href onto a core/image block via its
+     * native link attributes (href/linkDestination/linkTarget/rel). An image
+     * that already carries its own link is left untouched.
+     *
+     * @param array<string, mixed> $block
+     * @param array<string, string> $linkAttrs
+     */
+    private function propagateLinkOntoImage(array &$block, array $linkAttrs): bool
+    {
+        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+        if ( '' !== (string) ($attrs['href'] ?? '') ) {
+            return false;
+        }
+
+        $href = (string) ($linkAttrs['href'] ?? '');
+        if ( '' === $href ) {
+            return false;
+        }
+
+        $imageLink = array_filter(array(
+            'href'            => $href,
+            'linkDestination' => 'custom',
+            'linkTarget'      => (string) ($linkAttrs['target'] ?? ''),
+            'rel'             => (string) ($linkAttrs['rel'] ?? ''),
+        ), static fn (string $value): bool => '' !== trim($value));
+
+        $block = $this->rebuildBlock($block, array_merge($attrs, $imageLink));
+        return true;
+    }
+
+    /**
+     * Propagate a card-link wrapper's href onto a RichText content block
+     * (heading/paragraph/list-item) by wrapping its text content in an inline
+     * `<a>`. Content that is empty or already carries a link is left untouched.
+     *
+     * @param array<string, mixed> $block
+     * @param array<string, string> $linkAttrs
+     */
+    private function propagateInlineLink(array &$block, array $linkAttrs): bool
+    {
+        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+        $content = (string) ($attrs['content'] ?? '');
+        if ( '' === trim($content) ) {
+            return false;
+        }
+
+        $href = (string) ($linkAttrs['href'] ?? '');
+        if ( '' === $href ) {
+            return false;
+        }
+
+        if ( preg_match('/<a\b/i', $content) ) {
+            return false;
+        }
+
+        $wrapped = $this->wrapInlineLink($content, $linkAttrs);
+        if ( $wrapped === $content ) {
+            return false;
+        }
+
+        $block = $this->rebuildBlock($block, array_merge($attrs, array( 'content' => $wrapped )));
+        return true;
+    }
+
+    /**
+     * Wrap a RichText content string in an inline `<a>` carrying the propagated
+     * href/target/rel.
+     *
+     * @param array<string, string> $linkAttrs
+     */
+    private function wrapInlineLink(string $content, array $linkAttrs): string
+    {
+        $href = (string) ($linkAttrs['href'] ?? '');
+        if ( '' === $href || '' === trim($content) ) {
+            return $content;
+        }
+
+        $attributes = ' href="' . htmlspecialchars($href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        if ( '' !== trim((string) ($linkAttrs['target'] ?? '')) ) {
+            $attributes .= ' target="' . htmlspecialchars($linkAttrs['target'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        if ( '' !== trim((string) ($linkAttrs['rel'] ?? '')) ) {
+            $attributes .= ' rel="' . htmlspecialchars($linkAttrs['rel'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+
+        return '<a' . $attributes . '>' . $content . '</a>';
+    }
+
+    /**
+     * Rebuild a converted block with updated attributes so its innerHTML and
+     * innerContent stay consistent with the stored attrs after an in-place edit
+     * (e.g. a propagated link). Source-provenance linkage is preserved; no new
+     * provenance is recorded for the rebuild.
+     *
+     * @param array<string, mixed> $block
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function rebuildBlock(array $block, array $attrs): array
+    {
+        $name = (string) ($block['blockName'] ?? '');
+        $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+        $rebuilt = $this->blockFactory->create($name, $attrs, $innerBlocks);
+        if ( isset($block['_source_provenance_id']) ) {
+            $rebuilt['_source_provenance_id'] = $block['_source_provenance_id'];
+        }
+
+        return $rebuilt;
     }
 
     /**

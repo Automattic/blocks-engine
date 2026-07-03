@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-linked-overlay-category-card",
-  "description": "Whole-card overlay/category anchors wrapping background and content regions become valid core/group blocks with children preserved and no unsupported href attribute on the group (#260).",
+  "description": "Whole-card overlay/category anchors wrapping background and content regions become valid core/group blocks with the link propagated onto inner image/heading/paragraph blocks so the card stays navigable. The group itself never carries an unsupported href attribute (#260).",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-linked-overlay-category-card.json",
-    "notes": "Generic coverage for overlay cards with card__bg and category-card content."
+    "notes": "Generic coverage for overlay cards with card__bg and category-card content. The wrapping anchor's href is propagated to the inner core/image (native link attrs) and to the heading/paragraph (inline <a>), never onto the group."
   },
   "legacy_comparison": {
     "skip": true,
@@ -32,8 +32,9 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "Sharp Visual Systems" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Production Workflows" },
     { "path": "serialized_blocks", "assert": "contains", "value": "card__bg" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"href\":\"/category/design\"" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"href\":\"/category/build\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/category/design\">Sharp Visual Systems</a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/category/build\">Production Workflows</a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/category/design\"><img" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "\"ariaLabel\"" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }

@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-whole-element-link-group-no-href",
-  "description": "A whole-element link (an <a> wrapping block-level content) converts to a valid core/group with its children preserved and no unsupported href/target/rel/ariaLabel attribute on the group (#260).",
+  "description": "A whole-element link (an <a> wrapping block-level content) converts to a valid core/group whose layout/className is preserved while the href is propagated onto native link-bearing inner blocks (inline <a> around heading/paragraph text). The group itself never carries a dead href/target/rel/ariaLabel attribute (#260).",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-whole-element-link-group-no-href.json",
-    "notes": "Generic structural coverage: any anchor wrapping block-level content. core/group has no native link attribute, so the link wrapper's href/target/rel are not emitted on the group; the children are kept as valid, editable blocks."
+    "notes": "Generic structural coverage: any anchor wrapping block-level content. core/group has no native link attribute, so the link wrapper's href/target/rel are propagated onto the inner heading/paragraph as inline <a> instead of being dropped or emitted as an unsupported group attribute."
   },
   "legacy_comparison": {
     "skip": true,
@@ -17,20 +17,21 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "panel-link" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Quarterly Review", "level": 2 } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "A summary of the latest reporting period." } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "<a href=\"https://example.com/details/\" target=\"_blank\" rel=\"noopener\">Quarterly Review</a>", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph" }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.0.attrs.href", "assert": "equals", "value": null },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"https://example.com/details/\" target=\"_blank\" rel=\"noopener\">Quarterly Review</a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"https://example.com/details/\" target=\"_blank\" rel=\"noopener\">A summary of the latest reporting period.</a>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Quarterly Review" },
     { "path": "serialized_blocks", "assert": "contains", "value": "A summary of the latest reporting period." },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"href\"" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"target\"" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"rel\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"href\":\"https://example.com/details/\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "\"ariaLabel\"" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }

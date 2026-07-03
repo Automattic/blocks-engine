@@ -21,7 +21,7 @@
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "article-card featured" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "article-thumb" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "article-card-body" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1", "name": "core/heading", "attrs": { "className": "article-headline", "content": "City Hall Rewrites the Map", "level": 3 } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1", "name": "core/heading", "attrs": { "className": "article-headline", "content": "<a href=\"/story-one\">City Hall Rewrites the Map</a>", "level": 3 } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "article-card" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/buttons", "attrs": { "className": "link-row" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/button", "attrs": { "text": "Start", "url": "/start" } },
