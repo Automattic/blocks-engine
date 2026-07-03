@@ -86,6 +86,8 @@ final class StaticHtmlEmitter
 
     private ?LocalBorderShellClusterResolver $localBorderShellClusterResolver = null;
 
+    private ?StaticHtmlCssRuleSet $staticHtmlCssRuleSet = null;
+
     public function __construct(?LayoutGapResolver $layoutGapResolver = null)
     {
         $this->layoutGapResolver = $layoutGapResolver ?? new LayoutGapResolver();
@@ -120,6 +122,11 @@ final class StaticHtmlEmitter
             fn (array $paints): ?array => $this->firstCssPaint($paints),
             fn (mixed $value, mixed $opacity = null): ?string => $this->color($value, $opacity),
         );
+    }
+
+    private function staticHtmlCssRuleSet(): StaticHtmlCssRuleSet
+    {
+        return $this->staticHtmlCssRuleSet ??= new StaticHtmlCssRuleSet();
     }
 
     private function paintStackResolver(): PaintStackResolver
@@ -344,15 +351,6 @@ final class StaticHtmlEmitter
     private int $sectionDepth = 0;
 
     /**
-     * Maps each per-node CSS class (the `figma-node-*` hook) to a human-readable
-     * base name derived from the node's name/role. Used to mint shared,
-     * authored-looking class names when several nodes share identical styles.
-     *
-     * @var array<string, string>
-     */
-    private array $nodeReadableNames = array();
-
-    /**
      * Source node id => emitted DOM metadata used to connect result JSON back to
      * the emitted HTML/CSS artifact.
      *
@@ -384,7 +382,7 @@ final class StaticHtmlEmitter
         $this->usedAssetPaths = array();
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
-        $this->nodeReadableNames = array();
+        $this->staticHtmlCssRuleSet()->resetReadableNames();
         $this->emittedNodeMetadata = array();
         $this->suppressedVisualNodeIds = array();
         $this->decisionTraces = array();
@@ -424,9 +422,9 @@ final class StaticHtmlEmitter
 
         $assetFiles = array_merge($this->referencedAssetFiles($assetFiles), array_values($this->generatedAssetFiles));
 
-        $shared   = $this->applySharedStyleClasses($cssRules);
+        $shared   = $this->staticHtmlCssRuleSet()->applySharedStyleClasses($cssRules);
         $cssRules = $shared['rules'];
-        $body     = $this->applySharedClassMapToHtml($body, $shared['class_map']);
+        $body     = $this->staticHtmlCssRuleSet()->applySharedClassMapToHtml($body, $shared['class_map']);
 
         $cssWithoutFontCss = $this->htmlArtifactAssembler()->stylesheet('', (string) $designSystem['css'], $cssRules);
         $fontUsage = $this->fontUsage($nodeStyleDiagnostics, $cssWithoutFontCss, $body);
@@ -513,7 +511,7 @@ final class StaticHtmlEmitter
         $this->usedAssetPaths = array();
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
-        $this->nodeReadableNames = array();
+        $this->staticHtmlCssRuleSet()->resetReadableNames();
         $this->emittedNodeMetadata = array();
         $this->suppressedVisualNodeIds = array();
         $this->decisionTraces = array();
@@ -649,12 +647,12 @@ final class StaticHtmlEmitter
 
         $assetFiles = array_merge($this->referencedAssetFiles($assetFiles), array_values($this->generatedAssetFiles));
 
-        $shared   = $this->applySharedStyleClasses($cssRules, true);
+        $shared   = $this->staticHtmlCssRuleSet()->applySharedStyleClasses($cssRules, true);
         $cssRules = $shared['rules'];
         if ( ! empty($shared['class_map']) ) {
             foreach ( $files as $fileIndex => $file ) {
                 if ( 'text/html' === ($file['mime_type'] ?? '') && isset($file['content']) ) {
-                    $files[$fileIndex]['content'] = $this->applySharedClassMapToHtml((string) $file['content'], $shared['class_map']);
+                    $files[$fileIndex]['content'] = $this->staticHtmlCssRuleSet()->applySharedClassMapToHtml((string) $file['content'], $shared['class_map']);
                 }
             }
         }
@@ -917,10 +915,10 @@ final class StaticHtmlEmitter
         }
         if ( ! empty($styles) ) {
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
-            foreach ( $this->negativeAutoLayoutSpacingRules($className, $node) as $rule ) {
+            foreach ( $this->staticHtmlCssRuleSet()->negativeAutoLayoutSpacingRules($className, $node) as $rule ) {
                 $cssRules[] = $rule;
             }
-            $this->nodeReadableNames[$className] = $this->sharedClassBaseName($name, $type);
+            $this->staticHtmlCssRuleSet()->rememberNodeReadableName($className, $name, $type);
         }
         if ( $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode) && $this->textContainsLowercase($this->rawDecodedText($node)) && ! $this->hasExplicitUppercaseTextCase($node) ) {
             $parentClassName = 'figma-node-' . $this->slug((string) ($parentNode['id'] ?? '') . '-' . (string) ($parentNode['name'] ?? 'Node'));
@@ -2634,15 +2632,7 @@ final class StaticHtmlEmitter
      */
     private function styleDeclarationMap(array $styles): array
     {
-        $map = array();
-        foreach ( $styles as $style ) {
-            $parts = explode(':', $style, 2);
-            if ( 2 === count($parts) ) {
-                $map[trim($parts[0])] = trim($parts[1]);
-            }
-        }
-
-        return $map;
+        return $this->staticHtmlCssRuleSet()->styleDeclarationMap($styles);
     }
 
     private function expectedCssLength(mixed $value): ?string
@@ -6870,13 +6860,7 @@ final class StaticHtmlEmitter
      */
     private function stylesDeclareProperty(array $styles, string $property): bool
     {
-        foreach ( $styles as $style ) {
-            if ( is_string($style) && str_starts_with($style, $property . ':') ) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->staticHtmlCssRuleSet()->stylesDeclareProperty($styles, $property);
     }
 
     /**
@@ -9866,150 +9850,6 @@ final class StaticHtmlEmitter
         $slug = trim($slug, '-');
 
         return '' === $slug ? 'node' : $slug;
-    }
-
-    /**
-     * Derive a readable, authored-looking base class name from a node's name,
-     * falling back to its role/type when the node is unnamed. Never embeds raw
-     * Figma node ids, so shared classes read like `.hero-section` or `.card`.
-     */
-    private function sharedClassBaseName(string $name, string $type): string
-    {
-        $base = $this->slug($name);
-        if ( 'node' === $base || '' === $base ) {
-            $base = $this->slug($type);
-            if ( 'node' === $base || '' === $base ) {
-                $base = 'style';
-            }
-        }
-
-        if ( 1 !== preg_match('/^[a-z_]/', $base) ) {
-            $base = 'style-' . $base;
-        }
-
-        return $base;
-    }
-
-    /**
-     * Collapse repeated per-node style rules into shared, readably-named CSS
-     * classes — the way a hand-authored stylesheet reuses `.card` or `.button`.
-     *
-     * Per-node rules (`.figma-node-*{...}`) whose declaration body is identical
-     * across two or more nodes are replaced by a single shared rule named after
-     * the first such node (deterministically, in stylesheet order). The original
-     * `figma-node-*` hooks remain on the elements for diagnostics; the shared
-     * class is appended so computed styles are byte-for-byte identical.
-     *
-     * @param array<int, string> $cssRules
-     * @return array{rules: array<int, string>, class_map: array<string, string>}
-     */
-    private function applySharedStyleClasses(array $cssRules, bool $hashReadableNames = false): array
-    {
-        $pattern = '/^\.(figma-node-[A-Za-z0-9_-]+)\{(.*)\}$/s';
-
-        // Group per-node rules by declaration body, preserving first-seen order.
-        $bodyToSelectors = array();
-        $bodyFirstIndex  = array();
-        foreach ( $cssRules as $index => $rule ) {
-            if ( 1 === preg_match($pattern, $rule, $matches) ) {
-                $body = $matches[2];
-                $bodyToSelectors[$body][] = $matches[1];
-                if ( ! isset($bodyFirstIndex[$body]) ) {
-                    $bodyFirstIndex[$body] = $index;
-                }
-            }
-        }
-
-        // Mint a deterministic shared class name for every body used 2+ times.
-        $sharedOrder = array();
-        foreach ( $bodyToSelectors as $body => $selectors ) {
-            if ( count($selectors) >= 2 ) {
-                $sharedOrder[$body] = $bodyFirstIndex[$body];
-            }
-        }
-        asort($sharedOrder);
-
-        $reserved = array(
-            'figma-root'         => true,
-            'figma-link'         => true,
-            'figma-text-glyphs'  => true,
-            'figma-vector-asset' => true,
-        );
-        $usedNames        = array();
-        $bodyToSharedClass = array();
-        foreach ( array_keys($sharedOrder) as $body ) {
-            $firstSelector = $bodyToSelectors[$body][0];
-            $base = $this->nodeReadableNames[$firstSelector] ?? 'style';
-            if ( $hashReadableNames ) {
-                $base .= '-' . substr(sha1($body), 0, 8);
-            }
-            $name = $base;
-            $suffix = 2;
-            while ( isset($usedNames[$name]) || isset($reserved[$name]) ) {
-                $name = $base . '-' . $suffix;
-                ++$suffix;
-            }
-            $usedNames[$name]        = true;
-            $bodyToSharedClass[$body] = $name;
-        }
-
-        // Rewrite the stylesheet: emit each shared rule once (in place of the
-        // first per-node rule that produced it) and drop the duplicates.
-        $rules        = array();
-        $emittedShared = array();
-        $classMap     = array();
-        foreach ( $cssRules as $rule ) {
-            if ( 1 === preg_match($pattern, $rule, $matches) ) {
-                $selector = $matches[1];
-                $body     = $matches[2];
-                if ( isset($bodyToSharedClass[$body]) ) {
-                    $shared            = $bodyToSharedClass[$body];
-                    $classMap[$selector] = $shared;
-                    if ( ! isset($emittedShared[$shared]) ) {
-                        $rules[]              = '.' . $shared . '{' . $body . '}';
-                        $emittedShared[$shared] = true;
-                    }
-                    continue;
-                }
-            }
-            $rules[] = $rule;
-        }
-
-        return array('rules' => $rules, 'class_map' => $classMap);
-    }
-
-    /**
-     * Append shared class names to the `figma-node-*` hooks already present in
-     * an emitted HTML fragment.
-     *
-     * @param array<string, string> $classMap
-     */
-    private function applySharedClassMapToHtml(string $html, array $classMap): string
-    {
-        foreach ( $classMap as $selector => $shared ) {
-            $html = str_replace(
-                'class="' . $selector . '"',
-                'class="' . $selector . ' ' . $shared . '"',
-                $html
-            );
-        }
-
-        return $html;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @return array<int, string>
-     */
-    private function negativeAutoLayoutSpacingRules(string $className, array $node): array
-    {
-        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        if ( 'flex' !== ($layout['display'] ?? null) || ! $this->isFiniteNumeric($layout['item_spacing'] ?? null) || (float) $layout['item_spacing'] >= 0.0 ) {
-            return array();
-        }
-
-        $property = 'column' === ($layout['flex_direction'] ?? null) ? 'margin-top' : 'margin-left';
-        return array('.' . $className . '>*+*{' . $property . ':' . $this->number((float) $layout['item_spacing']) . 'px}');
     }
 
     /**
