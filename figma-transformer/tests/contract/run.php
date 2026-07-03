@@ -7255,6 +7255,7 @@ $midpointBreakpointResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\
                 'id' => 'bp:desktop', 'type' => 'FRAME', 'name' => 'Home Desktop',
                 'box' => array('width' => 1440, 'height' => 900),
                 'children' => array(
+                    array('id' => 'bp:band', 'type' => 'RECTANGLE', 'name' => 'Band', 'box' => array('x' => -2, 'y' => 0, 'width' => 1444, 'height' => 120), 'layout' => array('positioning' => 'absolute'), 'background' => '#00ff00'),
                     array('id' => 'bp:card', 'type' => 'RECTANGLE', 'name' => 'Card', 'box' => array('width' => 1200, 'height' => 400), 'background' => '#ff0000'),
                 ),
             ),
@@ -7262,6 +7263,7 @@ $midpointBreakpointResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\
                 'id' => 'bp:mobile', 'type' => 'FRAME', 'name' => 'Home Mobile',
                 'box' => array('width' => 390, 'height' => 900),
                 'children' => array(
+                    array('id' => 'bp:band-m', 'type' => 'RECTANGLE', 'name' => 'Band', 'box' => array('x' => -2, 'y' => 0, 'width' => 394, 'height' => 96), 'layout' => array('positioning' => 'absolute'), 'background' => '#00ff00'),
                     array('id' => 'bp:card-m', 'type' => 'RECTANGLE', 'name' => 'Card', 'box' => array('width' => 350, 'height' => 400), 'background' => '#ff0000'),
                 ),
             ),
@@ -7293,6 +7295,8 @@ $assert('success' === ($midpointBreakpointResult['status'] ?? null), 'midpoint-b
 $assert(str_contains($midpointBreakpointCss, '@media (max-width:915px){'), 'midpoint-breakpoint-keyed-at-midpoint');
 // The narrow variant's own width (390) must NOT be the breakpoint.
 $assert(! str_contains($midpointBreakpointCss, '@media (max-width:390px){'), 'midpoint-breakpoint-not-variant-own-width');
+$assert(str_contains($midpointBreakpointCss, '.figma-node-bp-band-band{width:100vw;height:120px;position:absolute;top:0px;left:50%;margin-left:-50vw'), 'responsive-full-bleed-base-uses-viewport-breakout');
+$assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-bp-band-band\{[^}]*\b(?:width:100%|left:0px|margin-left:0px)/', $midpointBreakpointCss), 'responsive-full-bleed-media-preserves-viewport-breakout');
 
 $paginationSemanticsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Pagination Semantics Fixture',

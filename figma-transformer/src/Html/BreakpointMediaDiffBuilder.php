@@ -201,6 +201,7 @@ final class BreakpointMediaDiffBuilder
 
             $changed = array();
             $baseContainsSticky = true === ($base['contains_sticky'] ?? false);
+            $preserveFullBleedBreakout = $this->usesFullBleedViewportBreakout($baseMap);
             $baseNode = is_array($base['node'] ?? null) ? $base['node'] : array();
             $variantNode = is_array($variantStyles[$pathKey]['node'] ?? null) ? $variantStyles[$pathKey]['node'] : array();
             $baseParentNode = is_array($base['parent_node'] ?? null) ? $base['parent_node'] : null;
@@ -219,6 +220,9 @@ final class BreakpointMediaDiffBuilder
                     continue;
                 }
                 if ( $preservePaginationRow && in_array($property, array('height', 'flex-wrap', 'align-content'), true) ) {
+                    continue;
+                }
+                if ( $preserveFullBleedBreakout && in_array($property, array('width', 'left', 'right', 'margin-left'), true) ) {
                     continue;
                 }
                 if ( 'height' === $property && $this->shouldUseResponsiveAutoHeight($value, $baseMap, $baseNode, $variantNode, $variantParentNode) ) {
@@ -261,6 +265,16 @@ final class BreakpointMediaDiffBuilder
         }
 
         return array_values(array_unique($rules));
+    }
+
+    /**
+     * @param array<string, string> $baseMap
+     */
+    private function usesFullBleedViewportBreakout(array $baseMap): bool
+    {
+        return '100vw' === ($baseMap['width'] ?? null)
+            && '50%' === ($baseMap['left'] ?? null)
+            && '-50vw' === ($baseMap['margin-left'] ?? null);
     }
 
     /**
