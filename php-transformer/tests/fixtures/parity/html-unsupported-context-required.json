@@ -18,7 +18,8 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Supported sibling", "level": 2 } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/html" }
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "email" } }
   ],
   "expected_fallbacks": [
     { "type": "unsupported_element", "reason": "unsupported_element", "tag": "custom-card", "selector": "main:nth-of-type(1) > custom-card:nth-of-type(1)", "child_count": 1 },
@@ -31,8 +32,9 @@
     { "path": "fallbacks.1.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
     { "path": "fallbacks.1.controls.0.name", "assert": "equals", "value": "email" },
     { "path": "diagnostics.1.selector", "assert": "equals", "value": "main:nth-of-type(1) > custom-card:nth-of-type(1)" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<form>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<input name=\"email\">" },
+    { "path": "fallbacks.1.readable_blocks.0.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "email" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<form>" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 2 }
   ]
 }

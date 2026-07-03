@@ -16,7 +16,6 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $failures = 0;
@@ -68,10 +67,10 @@ $result = $roundTrip($html);
 $assert('pass' === $result['status'], '2: synthesized select option echoes are not flagged', implode(' | ', $result['texts']));
 
 // ---------------------------------------------------------------------------
-// 3. Data-entry forms preserve the real controls now, so placeholder values stay
-//    inside attributes instead of becoming synthesized prose in the block output.
-//    The round-trip reporter no longer needs an ignore set to hide placeholder
-//    echoes for this path.
+// 3. Static data-entry forms become readable editable blocks, so placeholder
+//    values can appear as synthesized prose in the block output. The transformer
+//    must pass those generated labels/details through the echo ignore set while
+//    still emitting the readable approximation.
 // ---------------------------------------------------------------------------
 $html = '<form><label for="e2">Email</label><input id="e2" placeholder="you@example.com" required></form>';
 $arr = $transformer->transform($html, array())->toArray();
@@ -79,11 +78,8 @@ $serialized = (string) ($arr['serialized_blocks'] ?? '');
 
 $result = $roundTrip($html);
 $assert('pass' === $result['status'], '3: placeholder echo suppressed in the wired transform', implode(' | ', $result['texts']));
-
-$unsuppressed = ( new ContentRoundTripReporter() )->report($serialized, $html);
-$assert('pass' === ($unsuppressed['status'] ?? ''), '3b: preserved form controls do not synthesize placeholder prose without the ignore set');
-$unsuppressedText = strtolower(implode(' | ', array_map(static fn (array $f): string => (string) ($f['text'] ?? ''), $unsuppressed['findings'] ?? array())));
-$assert(! str_contains($unsuppressedText, 'you@example.com'), '3c: placeholder value remains attribute text, not invented visible prose', $unsuppressedText);
+$assert(str_contains($serialized, 'Email: you@example.com (required)'), '3b: static form placeholder value is synthesized as readable prose', $serialized);
+$assert(! str_contains($serialized, '<!-- wp:html'), '3c: static form is editable blocks rather than preserved HTML', $serialized);
 
 // ---------------------------------------------------------------------------
 // Summary

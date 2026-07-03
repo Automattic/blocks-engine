@@ -1563,14 +1563,18 @@ final class HtmlTransformer
                 return $searchBlock;
             }
 
-            if ( $this->formHasDataEntryControls($element) ) {
-                $fallbacks[] = $this->formFallbackFinding($element, null);
-                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
-            }
-
             $readableFormBlock = $this->readableFormBlockFromForm($element);
             if ( null !== $readableFormBlock && ! $this->formRequiresRuntimePreservation($element) ) {
+                if ( $this->formHasDataEntryControls($element) ) {
+                    $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
+                }
+
                 return $readableFormBlock;
+            }
+
+            if ( $this->formHasDataEntryControls($element) ) {
+                $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
+                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
             }
 
             $controls = $this->formControls($element);
@@ -4803,8 +4807,50 @@ final class HtmlTransformer
     {
         return 0 < $form->getElementsByTagName('script')->length
             || array() !== $this->eventMetadata($form)
-            || array() !== $this->formMetadata($form)
-            || $this->formHasDataEntryControls($form);
+            || $this->formHasRuntimeSubmissionMetadata($form)
+            || $this->formHasRuntimeDomTargets($form);
+    }
+
+    private function formHasRuntimeSubmissionMetadata(DOMElement $form): bool
+    {
+        $action = trim($this->attr($form, 'action'));
+        if ( '' !== $action && '#' !== $action ) {
+            return true;
+        }
+
+        foreach ( array( 'method', 'enctype', 'target' ) as $attribute ) {
+            if ( '' !== trim($this->attr($form, $attribute)) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function formHasRuntimeDomTargets(DOMElement $form): bool
+    {
+        if ( $this->isRuntimeDomTarget($form) || $this->hasRuntimeClassSignal($form) ) {
+            return true;
+        }
+
+        foreach ( $this->formControlElements($form) as $control ) {
+            if ( $this->isRuntimeDomTarget($control) || $this->hasRuntimeClassSignal($control) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasRuntimeClassSignal(DOMElement $element): bool
+    {
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+            if ( preg_match('/^js-[A-Za-z0-9_-]+$/', $class) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
