@@ -674,6 +674,20 @@ final class RuntimeDependencyParityReport
                     $targets['classes'][$class] = true;
                 }
             }
+
+            $tag = is_string($island['tag'] ?? null) ? strtolower(trim($island['tag'])) : '';
+            foreach ( $attributes as $name => $value ) {
+                $attributeName = strtolower((string) $name);
+                if ( ! str_starts_with($attributeName, 'data-') || ! preg_match('/^data-[a-z][a-z0-9_-]*$/', $attributeName) ) {
+                    continue;
+                }
+
+                $attributeSelector = '[' . $attributeName . ']';
+                $targets['selectors'][$attributeSelector] = true;
+                if ( '' !== $tag ) {
+                    $targets['selectors'][$tag . $attributeSelector] = true;
+                }
+            }
         }
 
         return $targets;
@@ -1175,7 +1189,7 @@ final class RuntimeDependencyParityReport
     private function scriptKind(string $path, string $script): string
     {
         $haystack = strtolower($path . "\n" . substr($script, 0, 2000));
-        if ( str_contains($haystack, 'netlify') || str_contains($haystack, 'rum') || str_contains($haystack, 'analytics') || str_contains($haystack, 'gtag') ) {
+        if ( preg_match('#(?:netlify|analytics|gtag|\brum\b|[-_./]rum[-_./])#', $haystack) ) {
             return 'telemetry';
         }
 

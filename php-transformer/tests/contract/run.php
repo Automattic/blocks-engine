@@ -1713,6 +1713,7 @@ foreach ( array('canvas.preview', 'canvas', 'svg', '[data-tool]', '#mounted-app'
 $assert(true === ($expandedRuntimeDependencies['canvas.preview']['canvas_api'] ?? null), 'compound canvas selector records canvas API usage');
 $assert(str_contains($expandedRuntimeMarkup, '<canvas class="preview" aria-label="Preview"></canvas>'), 'compound canvas selector preserves canvas markup');
 $assert(str_contains($expandedRuntimeMarkup, 'data-tool'), 'data attribute runtime selector remains addressable in generated markup');
+$assert(true === ($expandedRuntimeDependencies['[data-tool]']['source_present'] ?? null), 'data attribute runtime selector is recorded as present in source markup');
 $assert(str_contains($expandedRuntimeMarkup, 'mounted-app'), 'app root receiving appended children remains addressable in generated markup');
 $assert(array() === ($expandedRuntimeReport['findings'] ?? array()), 'expanded runtime target selectors do not emit missing-target findings');
 
@@ -1772,6 +1773,32 @@ $assert(
 $assert(
     array() === array_values(array_filter($sharedScriptFindings, static fn (array $finding): bool => '.only-on-shop' === ($finding['selector'] ?? ''))),
     'runtime dependency parity does not fail entry output for selectors absent from that entry source'
+);
+
+$sharedDrumScriptSite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html'     => '<main><h1>Drum machine</h1><script src="js/site.js"></script></main>',
+            'patterns.html'  => '<main><button data-voice-demo="kick">Kick</button><button data-groove="classic">Classic</button><script src="js/site.js"></script></main>',
+            'js/site.js'     => 'document.querySelectorAll("[data-groove], [data-voice-demo]"); document.querySelectorAll(".is-playing").forEach(function (button) { button.classList.remove("is-playing"); });',
+        ),
+    )
+)->toArray();
+$sharedDrumScriptReport = $sharedDrumScriptSite['source_reports']['runtime_dependency_parity'] ?? array();
+$sharedDrumDependencies = $sharedDrumScriptReport['dependencies'] ?? array();
+$sharedDrumDependency = array_values(array_filter($sharedDrumDependencies, static fn (array $dependency): bool => '[data-voice-demo]' === ($dependency['selector'] ?? '')))[0] ?? null;
+$assert(
+    null !== $sharedDrumDependency,
+    'runtime dependency parity records shared data-attribute selectors absent from the entry source'
+);
+$assert(
+    'first_party' === ($sharedDrumDependency['script_kind'] ?? ''),
+    'runtime dependency parity does not classify drum scripts as RUM telemetry'
+);
+$assert(
+    array() === array_values(array_filter($sharedDrumScriptReport['findings'] ?? array(), static fn (array $finding): bool => in_array($finding['selector'] ?? '', array('.is-playing', '[data-voice-demo]', '[data-groove]'), true))),
+    'runtime dependency parity does not fail entry output for shared drum script selectors absent from that entry source'
 );
 
 $hamburgerOverlaySite = $compiler->compile(
