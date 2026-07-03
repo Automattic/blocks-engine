@@ -2932,9 +2932,11 @@ final class ScenegraphNormalizer
                 } elseif ( in_array($field, array('strokes', 'strokePaints'), true) ) {
                     unset($child['styleIdForStrokeFill'], $child['styleIdForStroke']);
                 }
-                if ( in_array($field, array('characters', 'text'), true) && is_array($child['figma_text'] ?? null) ) {
-                    $child['figma_text']['characters'] = (string) $value;
-                }
+				if ( in_array($field, array('characters', 'text'), true) && is_array($child['figma_text'] ?? null) ) {
+					$child['figma_text']['characters'] = (string) $value;
+				} elseif ( 'textData' === $field && is_array($value) && isset($value['characters']) && is_scalar($value['characters']) && is_array($child['figma_text'] ?? null) ) {
+					$child['figma_text']['characters'] = (string) $value['characters'];
+				}
 			}
 			if ( $hasFieldOverride ) {
 				$child = $this->normalizeOverriddenInstanceChild($child, $id, $overrideFields, $diagnostics, $blobs, $paintStyles, $textStyles, $options, $sourceChildBox);
@@ -3115,6 +3117,10 @@ final class ScenegraphNormalizer
 		$hasVectorGeometryOverride = array_key_exists('fillGeometry', $overrideFields) || array_key_exists('strokeGeometry', $overrideFields);
 		$hasExplicitSizeOverride = array_key_exists('size', $overrideFields);
 		$hasTransformGeometryOverride = is_array($overrideFields['transform'] ?? null) || is_array($overrideFields['absoluteTransform'] ?? null) || is_array($overrideFields['relativeTransform'] ?? null);
+		$inheritedTextStyle = array();
+		if ( 'TEXT' === strtoupper((string) ($child['type'] ?? '')) && ! $this->instanceOverrideFieldsIncludeTypography($overrideFields) && is_array($child['figma_text']['style'] ?? null) ) {
+			$inheritedTextStyle = $child['figma_text']['style'];
+		}
         if ( is_array($child['size'] ?? null) ) {
             foreach ( array('x' => 'width', 'y' => 'height') as $source => $target ) {
                 if ( isset($child['size'][$source]) && is_numeric($child['size'][$source]) ) {
@@ -3175,6 +3181,10 @@ final class ScenegraphNormalizer
 
 		$child['_figma_instance_override_applied'] = true;
 		$child = $this->normalizeNode($child, $diagnostics, $blobs, $paintStyles, $textStyles, $options);
+		if ( ! empty($inheritedTextStyle) && is_array($child['figma_text'] ?? null) ) {
+			$style = is_array($child['figma_text']['style'] ?? null) ? $child['figma_text']['style'] : array();
+			$child['figma_text']['style'] = array_merge($inheritedTextStyle, $style);
+		}
 		if ( $hasTransformGeometryOverride && is_array($sourceChildBox) ) {
 			$child = $this->preserveLocalSourceBoxForFarAbsoluteOverride($child, $sourceChildBox);
 		}
@@ -3193,6 +3203,29 @@ final class ScenegraphNormalizer
         }
 
 		return $child;
+	}
+
+	/**
+	 * @param array<string, mixed> $overrideFields
+	 */
+	private function instanceOverrideFieldsIncludeTypography(array $overrideFields): bool
+	{
+		foreach ( array('style', 'styleIdForText', 'fontName', 'fontFamily', 'fontPostScriptName', 'fontWeight', 'fontSize', 'lineHeight', 'lineHeightPx', 'lineHeightPercent', 'letterSpacing', 'textTracking') as $field ) {
+			if ( array_key_exists($field, $overrideFields) ) {
+				return true;
+			}
+		}
+
+		$textData = $overrideFields['textData'] ?? null;
+		if ( is_array($textData) ) {
+			foreach ( array('style', 'styleIdForText', 'fontName', 'fontFamily', 'fontPostScriptName', 'fontWeight', 'fontSize', 'lineHeight', 'lineHeightPx', 'lineHeightPercent', 'letterSpacing', 'textTracking') as $field ) {
+				if ( array_key_exists($field, $textData) ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	/**

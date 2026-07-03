@@ -208,4 +208,94 @@ function blocks_engine_figma_transformer_run_component_clone_emission_contract(c
     $assert(str_contains($offsetCss, '.offset-content{width:320px;height:40px;position:absolute;left:0px;top:80px}'), 'component-clone-source-refresh-content-keeps-local-y-offset-css');
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $offsetHeader, array('x' => 20.0, 'y' => 30.0, 'width' => 320.0, 'height' => 40.0), 'component-clone-source-refresh-header-visual-offset');
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $offsetContent, array('x' => 20.0, 'y' => 110.0, 'width' => 320.0, 'height' => 40.0), 'component-clone-source-refresh-content-visual-offset');
+
+    $fontCloneResult = blocks_engine_figma_transformer_contract_transform(
+        array(
+            'name'  => 'Component Clone Font Preservation Fixture',
+            'nodes' => array(
+                array(
+                    'id'       => 'font-clone:newsletter-component',
+                    'type'     => 'COMPONENT',
+                    'name'     => 'Newsletter card component',
+                    'width'    => 420,
+                    'height'   => 120,
+                    'children' => array(
+                        array(
+                            'id'         => 'font-clone:newsletter-heading',
+                            'type'       => 'TEXT',
+                            'name'       => 'Card heading',
+                            'characters' => 'Default newsletter heading',
+                            'width'      => 260,
+                            'height'     => 48,
+                            'fontName'   => array('family' => 'Barlow Condensed', 'style' => 'Bold'),
+                            'fontSize'   => 32,
+                        ),
+                    ),
+                ),
+                array(
+                    'id'       => 'font-clone:read-next-component',
+                    'type'     => 'COMPONENT',
+                    'name'     => 'Read next header component',
+                    'width'    => 420,
+                    'height'   => 120,
+                    'children' => array(
+                        array(
+                            'id'         => 'font-clone:read-next-heading',
+                            'type'       => 'TEXT',
+                            'name'       => 'Read next title',
+                            'characters' => 'Default read next',
+                            'width'      => 240,
+                            'height'     => 48,
+                            'fontName'   => array('family' => 'Barlow Condensed', 'style' => 'Bold'),
+                            'fontSize'   => 32,
+                        ),
+                    ),
+                ),
+                array(
+                    'id'       => 'font-clone:page',
+                    'type'     => 'FRAME',
+                    'name'     => 'Article page',
+                    'width'    => 960,
+                    'height'   => 360,
+                    'children' => array(
+                        array(
+                            'id'                  => 'font-clone:newsletter-instance',
+                            'type'                => 'INSTANCE',
+                            'name'                => 'Newsletter card',
+                            'componentId'         => 'font-clone:newsletter-component',
+                            'width'               => 420,
+                            'height'              => 120,
+                            'derivedSymbolData'   => array(
+                                'symbolOverrides' => array(
+                                    'font-clone:newsletter-heading' => array('textData' => array('characters' => 'Get the newsletter')),
+                                ),
+                            ),
+                        ),
+                        array(
+                            'id'                  => 'font-clone:read-next-instance',
+                            'type'                => 'INSTANCE',
+                            'name'                => 'Read next section',
+                            'componentId'         => 'font-clone:read-next-component',
+                            'width'               => 420,
+                            'height'              => 120,
+                            'y'                   => 160,
+                            'derivedSymbolData'   => array(
+                                'symbolOverrides' => array(
+                                    'font-clone:read-next-heading' => array('textData' => array('characters' => 'Read next')),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        array('frame_id' => 'font-clone:page')
+    );
+    $fontCloneHtml = blocks_engine_figma_transformer_contract_file_content($fontCloneResult, 'index.html');
+    $fontCloneCss = blocks_engine_figma_transformer_contract_file_content($fontCloneResult, 'style.css');
+
+    $assert(str_contains($fontCloneHtml, '<h2 class="figma-node-font-clone-newsletter-instance-font-clone-newsletter-heading-card-heading" data-figma-node-id="font-clone:newsletter-instance/font-clone:newsletter-heading"'), 'component-clone-newsletter-text-only-override-keeps-heading-tag');
+    $assert(str_contains($fontCloneHtml, '<h2 class="figma-node-font-clone-read-next-instance-font-clone-read-next-heading-read-next-title" data-figma-node-id="font-clone:read-next-instance/font-clone:read-next-heading"'), 'component-clone-read-next-text-only-override-keeps-heading-tag');
+    $assert(str_contains($fontCloneCss, '.figma-node-font-clone-newsletter-instance-font-clone-newsletter-heading-card-heading{') && str_contains($fontCloneCss, 'font-family:"Barlow Condensed", sans-serif;font-size:32px;font-weight:700'), 'component-clone-newsletter-text-only-override-keeps-font');
+    $assert(str_contains($fontCloneCss, '.figma-node-font-clone-read-next-instance-font-clone-read-next-heading-read-next-title{') && str_contains($fontCloneCss, 'font-family:"Barlow Condensed", sans-serif;font-size:32px;font-weight:700'), 'component-clone-read-next-text-only-override-keeps-font');
 }
