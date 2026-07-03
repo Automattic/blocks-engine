@@ -4278,6 +4278,7 @@ final class StaticHtmlEmitter
         }
         $absolute = 0;
         $flow = 0;
+        $childLayerRoles = array();
         foreach ( $children as $child ) {
             $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
             if ( 'absolute' === ($layout['positioning'] ?? null) ) {
@@ -4285,14 +4286,19 @@ final class StaticHtmlEmitter
             } else {
                 ++$flow;
             }
+
+            $role = $this->layoutIntentClassifier()->siblingLayerRole($child, $node);
+            $childLayerRoles[$role] = (int) ($childLayerRoles[$role] ?? 0) + 1;
         }
         if ( 0 === $absolute || 0 === $flow ) {
             return null;
         }
+        ksort($childLayerRoles);
 
         return array_merge($this->nodeCoverageSample($node), array(
             'absolute_child_count' => $absolute,
             'flow_child_count' => $flow,
+            'child_layer_roles' => $childLayerRoles,
         ));
     }
 
@@ -5412,7 +5418,8 @@ final class StaticHtmlEmitter
         $isDecorativeFlexUnderlay = null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode);
         $parentFreeformUsesFlow = null !== $parentNode && $this->freeformContainerShouldUseFlow($parentNode);
         $willPositionAbsolute = (null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow) || 'absolute' === ($layout['positioning'] ?? null) || $isDecorativeFlexUnderlay;
-        $overlapZIndex = null !== $parentNode ? $this->layoutIntentClassifier()->overlappingSiblingZIndex($node, $parentNode) : null;
+        $layerStackPlan = null !== $parentNode ? $this->layoutIntentClassifier()->siblingLayerStackPlan($node, $parentNode) : array('z_index' => null);
+        $overlapZIndex = isset($layerStackPlan['z_index']) && is_int($layerStackPlan['z_index']) ? $layerStackPlan['z_index'] : null;
         $managesLocalStacking = $this->layoutIntentClassifier()->managesLocalStacking($node);
         $needsLocalStackIsolation = $this->layoutIntentClassifier()->needsLocalStackIsolation($node);
         if ( $canvasShell->responsiveCenteredFlowShell && ! $willPositionAbsolute ) {

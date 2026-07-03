@@ -9,6 +9,10 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class LayoutIntentClassifier
 {
+    public const LAYER_ROLE_UNDERLAY = 'underlay';
+    public const LAYER_ROLE_CONTENT = 'content';
+    public const LAYER_ROLE_CHROME = 'chrome';
+
     /** @var array<int, string> */
     private const FREEFORM_CONTAINER_TYPES = array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'SECTION');
 
@@ -461,9 +465,20 @@ final class LayoutIntentClassifier
      */
     public function overlappingSiblingZIndex(array $node, array $parentNode): ?int
     {
+        $stackPlan = $this->siblingLayerStackPlan($node, $parentNode);
+        return isset($stackPlan['z_index']) && is_int($stackPlan['z_index']) ? $stackPlan['z_index'] : null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     * @return array{role: string, overlaps_sibling: bool, z_index: int|null}
+     */
+    public function siblingLayerStackPlan(array $node, array $parentNode): array
+    {
         $nodeId = (string) ($node['id'] ?? '');
         if ( '' === $nodeId ) {
-            return null;
+            return array('role' => $this->siblingLayerRole($node, $parentNode), 'overlaps_sibling' => false, 'z_index' => null);
         }
 
         $siblings = array_values(array_filter($this->nodeList($parentNode), 'is_array'));
@@ -487,7 +502,7 @@ final class LayoutIntentClassifier
         }
 
         if ( ! $nodeOverlapsSibling ) {
-            return null;
+            return array('role' => $this->siblingLayerRole($node, $parentNode), 'overlaps_sibling' => false, 'z_index' => null);
         }
 
         usort(
@@ -497,11 +512,24 @@ final class LayoutIntentClassifier
 
         foreach ( $stackedSiblings as $rank => $sibling ) {
             if ( $sibling['id'] === $nodeId ) {
-                return $rank + 1;
+                return array('role' => $this->siblingLayerRole($node, $parentNode), 'overlaps_sibling' => true, 'z_index' => $rank + 1);
             }
         }
 
-        return null;
+        return array('role' => $this->siblingLayerRole($node, $parentNode), 'overlaps_sibling' => true, 'z_index' => null);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    public function siblingLayerRole(array $node, array $parentNode): string
+    {
+        if ( $this->hasProtrudingDecorativeUnderlay($node, $parentNode) || $this->isDecorativeFlexUnderlay($node, $parentNode) ) {
+            return self::LAYER_ROLE_UNDERLAY;
+        }
+
+        return $this->isTopChromeLayer($node, $parentNode) ? self::LAYER_ROLE_CHROME : self::LAYER_ROLE_CONTENT;
     }
 
     /**
@@ -969,22 +997,18 @@ final class LayoutIntentClassifier
     private function nodeSiblingStackKey(array $node, array $parentNode, int $fallbackIndex): array
     {
         return array_merge(
-            array($this->siblingStackRoleRank($node, $parentNode)),
+            array($this->siblingLayerRoleRank($this->siblingLayerRole($node, $parentNode))),
             $this->nodePaintOrderKey($node, $fallbackIndex)
         );
     }
 
-    /**
-     * @param array<string, mixed> $node
-     * @param array<string, mixed> $parentNode
-     */
-    private function siblingStackRoleRank(array $node, array $parentNode): int
+    private function siblingLayerRoleRank(string $role): int
     {
-        if ( $this->hasProtrudingDecorativeUnderlay($node, $parentNode) ) {
-            return 0;
-        }
-
-        return $this->isTopChromeLayer($node, $parentNode) ? 2 : 1;
+        return match ( $role ) {
+            self::LAYER_ROLE_UNDERLAY => 0,
+            self::LAYER_ROLE_CHROME => 2,
+            default => 1,
+        };
     }
 
     /**

@@ -281,8 +281,54 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $assert(1 === ($mixedLayerStackingOrder['mixed_positioning_parent_count'] ?? null), 'visual-map-mixed-layer-diagnostics-mixed-position-parent-count');
     $assert(1 === ($mixedLayerStackingOrder['absolute_child_count'] ?? null), 'visual-map-mixed-layer-diagnostics-absolute-child-count');
     $assert(1 === ($mixedLayerStackingOrder['flow_child_count'] ?? null), 'visual-map-mixed-layer-diagnostics-flow-child-count');
+    $assert(1 === ($mixedLayerStackingOrder['sample_nodes'][0]['child_layer_roles']['underlay'] ?? null), 'visual-map-mixed-layer-diagnostics-underlay-role-count');
+    $assert(1 === ($mixedLayerStackingOrder['sample_nodes'][0]['child_layer_roles']['content'] ?? null), 'visual-map-mixed-layer-diagnostics-content-role-count');
     $assert('mixed-layer:section' === ($mixedLayerStackingOrder['sample_nodes'][0]['node_id'] ?? null), 'visual-map-mixed-layer-diagnostics-sample-node');
     $assert(1 === ($mixedLayerArtifactSummary['mixed_positioning_parent_count'] ?? null), 'visual-map-mixed-layer-artifact-summary-mixed-position-parent-count');
+
+    $chromeOverHeroLayerResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Chrome Over Hero Layer Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'layer-role:page',
+                'type'       => 'FRAME',
+                'name'       => 'Landing page',
+                'width'      => 1440,
+                'height'     => 720,
+                'layoutMode' => 'VERTICAL',
+                'children'   => array(
+                    array(
+                        'id'       => 'layer-role:hero',
+                        'type'     => 'FRAME',
+                        'name'     => 'Hero background panel',
+                        'x'        => 0,
+                        'y'        => 0,
+                        'width'    => 1440,
+                        'height'   => 320,
+                        'children' => array(
+                            array('id' => 'layer-role:hero/text', 'type' => 'TEXT', 'name' => 'Hero headline', 'characters' => 'Hero', 'x' => 120, 'y' => 140, 'width' => 200, 'height' => 48, 'fontSize' => 40),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'layer-role:header',
+                        'type'     => 'FRAME',
+                        'name'     => 'Site header navigation',
+                        'x'        => 0,
+                        'y'        => 0,
+                        'width'    => 1440,
+                        'height'   => 80,
+                        'children' => array(
+                            array('id' => 'layer-role:header/logo', 'type' => 'TEXT', 'name' => 'Logo', 'characters' => 'Logo', 'x' => 32, 'y' => 24, 'width' => 80, 'height' => 24),
+                            array('id' => 'layer-role:header/nav', 'type' => 'TEXT', 'name' => 'Navigation links', 'characters' => 'Menu', 'x' => 1200, 'y' => 24, 'width' => 120, 'height' => 24),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $chromeOverHeroLayerCss = blocks_engine_figma_transformer_contract_file_content($chromeOverHeroLayerResult, 'style.css');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $chromeOverHeroLayerCss, '.figma-node-layer-role-hero-hero-background-panel', array('position:relative', 'z-index:1'), 'visual-map-layer-role-hero-content-below-chrome');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $chromeOverHeroLayerCss, '.figma-node-layer-role-header-site-header-navigation', array('position:relative', 'z-index:2'), 'visual-map-layer-role-header-chrome-above-hero');
 
     $invalidCssSanitizationResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Invalid CSS Sanitization Fixture',
