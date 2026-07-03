@@ -120,6 +120,10 @@ final class StaticHtmlSemanticClassifier
                 return 'p';
             }
 
+            if ( $this->hasExplicitBodyTextIntent($lowerName) ) {
+                return 'p';
+            }
+
             $heading = ($this->headingLevel)($node, $lowerName, $depth, $parentNode);
             if ( null !== $heading ) {
                 return $heading;
@@ -659,6 +663,15 @@ final class StaticHtmlSemanticClassifier
         return str_contains($lowerName, 'title')
             || str_contains($lowerName, 'heading')
             || str_contains($lowerName, 'headline');
+    }
+
+    private function hasExplicitBodyTextIntent(string $lowerName): bool
+    {
+        if ( $this->hasExplicitHeadingIntent($lowerName) ) {
+            return false;
+        }
+
+        return 1 === preg_match('/\b(body|supporting\s+text|copy|description|caption|excerpt|summary|intro|eyebrow|author|date|time|timing|chapter|role|name|number|privacy|terms|rights|reserved|copyright|listen|read\s+more)\b/', $lowerName);
     }
 
     /** @param array<string, mixed> $node */

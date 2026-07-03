@@ -75,6 +75,28 @@ function blocks_engine_figma_transformer_run_semantic_accessibility_contract(cal
     $assert(str_contains($html, 'data-figma-node-id="semantic:icon"') && str_contains($html, 'aria-hidden="true" focusable="false"'), 'semantic-accessibility-generic-icon-decorative');
     $assert(str_contains($html, 'data-figma-node-id="semantic:logo-icon"') && str_contains($html, 'role="img" aria-label="Logo"'), 'semantic-accessibility-logo-icon-keeps-accessible-name');
 
+    $largeBodyTextResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Large Body Text Semantics Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'semantic:large-body-root',
+                'type'     => 'FRAME',
+                'name'     => 'Hero',
+                'children' => array(
+                    array('id' => 'semantic:large-body-title', 'type' => 'TEXT', 'name' => 'Title', 'characters' => 'Explicit heading', 'fontSize' => 64),
+                    array('id' => 'semantic:large-body-body', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Large supporting copy should remain paragraph text.', 'fontSize' => 48),
+                    array('id' => 'semantic:large-body-supporting', 'type' => 'TEXT', 'name' => 'Supporting text', 'characters' => 'A second large paragraph-like text layer.', 'fontSize' => 40),
+                    array('id' => 'semantic:large-body-small', 'type' => 'TEXT', 'name' => 'Caption', 'characters' => 'Caption metadata', 'fontSize' => 16),
+                ),
+            ),
+        ),
+    ));
+    $largeBodyTextHtml = $fileContent($largeBodyTextResult, 'index.html');
+    $assert(str_contains($largeBodyTextHtml, '<h1 class="figma-node-semantic-large-body-title-title"'), 'semantic-accessibility-explicit-title-keeps-heading');
+    $assert(str_contains($largeBodyTextHtml, '<p class="figma-node-semantic-large-body-body-body"'), 'semantic-accessibility-large-body-text-paragraph');
+    $assert(str_contains($largeBodyTextHtml, '<p class="figma-node-semantic-large-body-supporting-supporting-text"'), 'semantic-accessibility-large-supporting-text-paragraph');
+    $assert(! str_contains($largeBodyTextHtml, '<h2 class="figma-node-semantic-large-body-body-body"'), 'semantic-accessibility-large-body-text-not-heading');
+
     $booleanLabelResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Decorative Boolean Label Fixture',
         'nodes' => array(
