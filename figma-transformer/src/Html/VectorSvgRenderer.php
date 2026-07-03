@@ -13,6 +13,8 @@ final class VectorSvgRenderer
 {
     private const MAX_RAW_SVG_PATH_DATA_BYTES = 20000;
     private const MAX_DECODED_FIGMA_SVG_PATH_DATA_BYTES = 4194304;
+    private const VECTOR_PRIMITIVE_TYPES = array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE', 'ROUNDED_RECTANGLE', 'STAR', 'POLYGON', 'REGULAR_POLYGON');
+    private const VECTOR_CONTAINER_TYPES = array('GROUP', 'FRAME', 'COMPONENT', 'INSTANCE');
 
     private Closure $nodeList;
     private Closure $number;
@@ -49,7 +51,7 @@ final class VectorSvgRenderer
             return $this->composedVectorGroupSvg($node, $type);
         }
 
-        if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
+        if ( ! in_array($type, self::VECTOR_PRIMITIVE_TYPES, true) ) {
             return null;
         }
 
@@ -191,10 +193,10 @@ final class VectorSvgRenderer
                 continue;
             }
             $type = strtoupper((string) ($child['type'] ?? ''));
-            if ( in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
+            if ( in_array($type, self::VECTOR_PRIMITIVE_TYPES, true) ) {
                 continue;
             }
-            if ( 'GROUP' === $type && $this->isVectorOnlyContainer($child) ) {
+            if ( in_array($type, self::VECTOR_CONTAINER_TYPES, true) && $this->isVectorOnlyContainer($child) ) {
                 continue;
             }
 
@@ -216,7 +218,7 @@ final class VectorSvgRenderer
             }
 
             $childType = strtoupper((string) ($child['type'] ?? ''));
-            if ( 'GROUP' === $childType ) {
+            if ( in_array($childType, self::VECTOR_CONTAINER_TYPES, true) ) {
                 $body .= $this->composedVectorGroupBody(array_values(array_filter($this->nodeList($child), 'is_array')), $originX, $originY);
                 continue;
             }
@@ -776,6 +778,16 @@ final class VectorSvgRenderer
             }
             return array('<ellipse cx="' . $this->number($width / 2) . '" cy="' . $this->number($height / 2) . '" rx="' . $this->number($width / 2) . '" ry="' . $this->number($height / 2) . '" ' . implode(' ', $paint) . '/>');
         }
+        if ( in_array($type, array('RECTANGLE', 'ROUNDED_RECTANGLE'), true) ) {
+            $attributes = array('x="0"', 'y="0"', 'width="' . $this->number($width) . '"', 'height="' . $this->number($height) . '"');
+            $radius = $this->cornerRadius($node, $width, $height);
+            if ( $radius > 0.0 ) {
+                $attributes[] = 'rx="' . $this->number($radius) . '"';
+                $attributes[] = 'ry="' . $this->number($radius) . '"';
+            }
+
+            return array('<rect ' . implode(' ', array_merge($attributes, $paint)) . '/>');
+        }
         if ( 'STAR' === $type ) {
             $path = $this->primitiveStarPath($width, $height);
             return array('<path d="' . $this->sanitizeAttribute($path) . '" ' . implode(' ', $paint) . '/>');
@@ -1008,6 +1020,33 @@ final class VectorSvgRenderer
         }
 
         return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function cornerRadius(array $node, float $width, float $height): float
+    {
+        foreach ( array('cornerRadius', 'radius') as $key ) {
+            if ( isset($node[$key]) && is_numeric($node[$key]) ) {
+                return max(0.0, min((float) $node[$key], $width / 2, $height / 2));
+            }
+        }
+
+        $radii = is_array($node['rectangleCornerRadii'] ?? null) ? $node['rectangleCornerRadii'] : null;
+        if ( null === $radii ) {
+            $radii = is_array($node['cornerRadii'] ?? null) ? $node['cornerRadii'] : null;
+        }
+        if ( null === $radii ) {
+            return 0.0;
+        }
+
+        $numeric = array_values(array_filter($radii, 'is_numeric'));
+        if ( empty($numeric) ) {
+            return 0.0;
+        }
+
+        return max(0.0, min((float) min($numeric), $width / 2, $height / 2));
     }
 
     private function primitiveStarPath(float $width, float $height): string

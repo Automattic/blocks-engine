@@ -832,7 +832,98 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $booleanSubtractHtml = $fileContent($booleanSubtractResult, 'index.html');
     $assert(str_contains($booleanSubtractHtml, 'data-figma-boolean-operation="subtract"'), 'boolean-subtract-marks-subtract');
     $assert(str_contains($booleanSubtractHtml, 'd="M5 5L15 5 15 15 5 15Z M0 0L20 0 20 20 0 20Z" fill="#000000" fill-rule="evenodd"'), 'boolean-subtract-evenodd-composite');
-    
+
+    $vectorContainerCompositionResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Vector Container Composition Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'logo:page',
+                'type'     => 'FRAME',
+                'name'     => 'Page',
+                'width'    => 200,
+                'height'   => 120,
+                'children' => array(
+                    array(
+                        'id'                  => 'logo:group',
+                        'type'                => 'GROUP',
+                        'name'                => 'Footer logo mascot',
+                        'x'                   => 100,
+                        'y'                   => 50,
+                        'width'               => 40,
+                        'height'              => 32,
+                        'absoluteBoundingBox' => array('x' => 100, 'y' => 50, 'width' => 40, 'height' => 32),
+                        'children'            => array(
+                            array(
+                                'id'                  => 'logo:body',
+                                'type'                => 'VECTOR',
+                                'name'                => 'Mascot body',
+                                'x'                   => 100,
+                                'y'                   => 50,
+                                'width'               => 40,
+                                'height'              => 32,
+                                'absoluteBoundingBox' => array('x' => 100, 'y' => 50, 'width' => 40, 'height' => 32),
+                                'fillPaints'          => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 0.8274509804, 'b' => 0))),
+                                'pathData'            => 'M0 0L40 0L40 32L0 32Z',
+                            ),
+                            array(
+                                'id'                  => 'logo:face-component',
+                                'type'                => 'COMPONENT',
+                                'name'                => 'Mascot face details',
+                                'x'                   => 108,
+                                'y'                   => 59,
+                                'width'               => 24,
+                                'height'              => 12,
+                                'absoluteBoundingBox' => array('x' => 108, 'y' => 59, 'width' => 24, 'height' => 12),
+                                'children'            => array(
+                                    array(
+                                        'id'                  => 'logo:left-eye',
+                                        'type'                => 'ELLIPSE',
+                                        'name'                => 'Left eye',
+                                        'x'                   => 108,
+                                        'y'                   => 59,
+                                        'width'               => 6,
+                                        'height'              => 6,
+                                        'absoluteBoundingBox' => array('x' => 108, 'y' => 59, 'width' => 6, 'height' => 6),
+                                        'fillPaints'          => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0))),
+                                    ),
+                                    array(
+                                        'id'                  => 'logo:right-eye-frame',
+                                        'type'                => 'FRAME',
+                                        'name'                => 'Right eye detail frame',
+                                        'x'                   => 124,
+                                        'y'                   => 59,
+                                        'width'               => 8,
+                                        'height'              => 8,
+                                        'absoluteBoundingBox' => array('x' => 124, 'y' => 59, 'width' => 8, 'height' => 8),
+                                        'children'            => array(
+                                            array(
+                                                'id'                  => 'logo:right-eye',
+                                                'type'                => 'ROUNDED_RECTANGLE',
+                                                'name'                => 'Right eye highlight',
+                                                'x'                   => 124,
+                                                'y'                   => 59,
+                                                'width'               => 8,
+                                                'height'              => 8,
+                                                'absoluteBoundingBox' => array('x' => 124, 'y' => 59, 'width' => 8, 'height' => 8),
+                                                'cornerRadius'        => 4,
+                                                'fillPaints'          => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0))),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ), array('frame_id' => 'logo:page'));
+    $vectorContainerCompositionHtml = $fileContent($vectorContainerCompositionResult, 'index.html');
+    $assert(str_contains($vectorContainerCompositionHtml, 'data-figma-vector-composition="group"'), 'vector-container-composition-renders-single-group-svg');
+    $assert(str_contains($vectorContainerCompositionHtml, 'd="M0 0L40 0 40 32 0 32Z" fill="#ffd300"'), 'vector-container-composition-includes-body-path');
+    $assert(str_contains($vectorContainerCompositionHtml, '<g transform="translate(8 9)"><ellipse cx="3" cy="3" rx="3" ry="3" fill="#000000"/></g>'), 'vector-container-composition-preserves-nested-component-eye-offset');
+    $assert(str_contains($vectorContainerCompositionHtml, '<g transform="translate(24 9)"><rect x="0" y="0" width="8" height="8" rx="4" ry="4" fill="#000000"/></g>'), 'vector-container-composition-preserves-nested-frame-rounded-rect-detail');
+
     $multiPageVectorPlaceholderResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Multi Page Vector Placeholder Fixture',
         'nodes' => array(
