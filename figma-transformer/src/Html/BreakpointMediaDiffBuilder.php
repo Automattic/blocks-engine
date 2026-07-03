@@ -10,6 +10,7 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
 final class BreakpointMediaDiffBuilder
 {
     private readonly ResponsiveNodeMatcher $responsiveNodeMatcher;
+    private readonly BreakpointDimensionPolicy $breakpointDimensionPolicy;
 
     /**
      * @param callable(array<string, mixed>): array<int, mixed> $nodeList
@@ -32,8 +33,10 @@ final class BreakpointMediaDiffBuilder
         private readonly mixed $slug,
         private readonly mixed $number,
         ?ResponsiveNodeMatcher $responsiveNodeMatcher = null,
+        ?BreakpointDimensionPolicy $breakpointDimensionPolicy = null,
     ) {
         $this->responsiveNodeMatcher = $responsiveNodeMatcher ?? new ResponsiveNodeMatcher($this->slug);
+        $this->breakpointDimensionPolicy = $breakpointDimensionPolicy ?? new BreakpointDimensionPolicy($this->number);
     }
 
     /**
@@ -192,7 +195,7 @@ final class BreakpointMediaDiffBuilder
                     continue;
                 }
                 $responsiveWidthDeclarations = 'width' === $property
-                    ? $this->responsiveBreakpointWidthDeclarations($value, $baseMap, $baseNode, $variantNode, $baseParentNode, $variantParentNode)
+                    ? $this->breakpointDimensionPolicy->breakpointWidthDeclarations($value, $baseMap, $baseNode, $variantNode, $baseParentNode, $variantParentNode)
                     : null;
                 if ( null !== $responsiveWidthDeclarations ) {
                     foreach ( $responsiveWidthDeclarations as $responsiveWidthDeclaration ) {
@@ -308,7 +311,7 @@ final class BreakpointMediaDiffBuilder
         }
 
         if ( str_contains($name, 'newsletter signup') && $isContainer && 'absolute' === $positioning ) {
-            return array('width:calc(100% - 48px)', 'max-width:1216px', 'height:auto', 'left:24px');
+            return array_merge($this->breakpointDimensionPolicy->sourceMaxWidthDeclarations(1216.0, 24.0, 'fixed'), array('height:auto', 'left:24px'));
         }
 
         if ( 'frame 20' === $name && $isContainer && null !== $parentNode && str_contains($parentName, 'newsletter signup') ) {
@@ -324,11 +327,11 @@ final class BreakpointMediaDiffBuilder
         }
 
         if ( 'pagination' === $name && $isContainer ) {
-            return array('width:calc(100% - 48px)', 'max-width:1216px', 'overflow-x:auto');
+            return array_merge($this->breakpointDimensionPolicy->sourceMaxWidthDeclarations(1216.0, 24.0, 'fixed'), array('overflow-x:auto'));
         }
 
         if ( 'image' === $name && in_array($display, array('flex', 'inline-flex'), true) && null !== $width && $width > 340.0 ) {
-            return array('width:100%', 'max-width:100%');
+            return $this->breakpointDimensionPolicy->fluidFillDeclarations();
         }
 
         if ( $viewportWidth <= 480.0 ) {
@@ -370,10 +373,7 @@ final class BreakpointMediaDiffBuilder
 
         if ( 'absolute' === $positioning ) {
             if ( $width > $mobileContentWidth ) {
-                $declarations[] = 'width:calc(100% - 48px)';
-                $declarations[] = 'max-width:' . ($this->number)($width) . 'px';
-                $declarations[] = 'left:24px';
-                $declarations[] = 'right:auto';
+                array_push($declarations, ...$this->breakpointDimensionPolicy->sourceMaxWidthDeclarations($width, 24.0, 'absolute'));
                 $declarations[] = 'height:auto';
 
                 if ( in_array($display, array('flex', 'inline-flex'), true) && 'row' === ($baseMap['flex-direction'] ?? null) && $hasContainerChild ) {
@@ -395,10 +395,7 @@ final class BreakpointMediaDiffBuilder
         }
 
         if ( 'auto' === ($baseMap['margin-left'] ?? null) && 'auto' === ($baseMap['margin-right'] ?? null) && $width > $mobileContentWidth ) {
-            $declarations[] = 'width:calc(100% - 48px)';
-            $declarations[] = 'max-width:' . ($this->number)($width) . 'px';
-            $declarations[] = 'margin-left:auto';
-            $declarations[] = 'margin-right:auto';
+            array_push($declarations, ...$this->breakpointDimensionPolicy->sourceMaxWidthDeclarations($width, 24.0, 'centered'));
 
             if ( $hasContainerChild ) {
                 $declarations[] = 'height:auto';
@@ -425,8 +422,7 @@ final class BreakpointMediaDiffBuilder
             return $declarations;
         }
 
-        $declarations[] = 'width:100%';
-        $declarations[] = 'max-width:100%';
+        array_push($declarations, ...$this->breakpointDimensionPolicy->fluidFillDeclarations());
 
         if ( $hasContainerChild ) {
             $declarations[] = 'height:auto';
@@ -509,81 +505,6 @@ final class BreakpointMediaDiffBuilder
         }
 
         return max($baseHeight, $newsletterHeight + $bottomRowHeight);
-    }
-
-    /**
-     * @param array<string, string> $baseMap
-     * @param array<string, mixed> $baseNode
-     * @param array<string, mixed> $variantNode
-     * @param array<string, mixed>|null $baseParentNode
-     * @param array<string, mixed>|null $variantParentNode
-     * @return array<int, string>|null
-     */
-    private function responsiveBreakpointWidthDeclarations(string $value, array $baseMap, array $baseNode, array $variantNode, ?array $baseParentNode, ?array $variantParentNode): ?array
-    {
-        $variantWidth = $this->cssPixelValue($value);
-        if ( null === $variantWidth || empty($variantNode) ) {
-            return null;
-        }
-
-        $variantType = strtoupper((string) ($variantNode['type'] ?? 'FRAME'));
-        $variantSourceId = isset($variantNode['figma_component_source_id']) && is_scalar($variantNode['figma_component_source_id']) ? (string) $variantNode['figma_component_source_id'] : '';
-        if ( '' === $variantSourceId && isset($variantNode['source_id']) && is_scalar($variantNode['source_id']) ) {
-            $variantSourceId = (string) $variantNode['source_id'];
-        }
-        if ( '' !== $variantSourceId && ! in_array($variantType, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL'), true) ) {
-            return null;
-        }
-
-        if ( null === $variantParentNode ) {
-            return array('width:100%');
-        }
-
-        $variantParentBox = is_array($variantParentNode['box'] ?? null) ? $variantParentNode['box'] : array();
-        if ( ! isset($variantParentBox['width']) || ! is_numeric($variantParentBox['width']) ) {
-            return null;
-        }
-
-        $variantParentWidth = (float) $variantParentBox['width'];
-        if ( $variantParentWidth <= 0.0 || $variantWidth > $variantParentWidth + 1.0 ) {
-            return null;
-        }
-
-        $baseWidth = $this->nodeBoxWidth($baseNode);
-        if ( null !== $baseWidth && abs($variantWidth - $baseWidth) <= 1.0 ) {
-            return null;
-        }
-
-        $variantParentLayout = is_array($variantParentNode['layout'] ?? null) ? $variantParentNode['layout'] : array();
-        $padding = is_array($variantParentLayout['padding'] ?? null) ? $variantParentLayout['padding'] : array();
-        $paddingLeft = isset($padding['left']) && is_numeric($padding['left']) ? (float) $padding['left'] : 0.0;
-        $paddingRight = isset($padding['right']) && is_numeric($padding['right']) ? (float) $padding['right'] : 0.0;
-        $contentWidth = max(0.0, $variantParentWidth - $paddingLeft - $paddingRight);
-        if ( abs($variantWidth - $variantParentWidth) <= 1.0 || abs($variantWidth - $contentWidth) <= 1.0 ) {
-            return array('width:100%');
-        }
-
-        $gutter = ($variantParentWidth - $variantWidth) / 2.0;
-        if ( $gutter <= 0.0 ) {
-            return null;
-        }
-
-        $baseParentWidth = null === $baseParentNode ? null : $this->nodeBoxWidth($baseParentNode);
-        if ( null === $baseWidth || null === $baseParentWidth || $baseWidth > $baseParentWidth + 1.0 ) {
-            return null;
-        }
-
-        $declarations = array(
-            'width:calc(100% - ' . ($this->number)($gutter * 2.0) . 'px)',
-            'max-width:' . ($this->number)($baseWidth) . 'px',
-        );
-
-        if ( 'absolute' !== ($baseMap['position'] ?? null) && in_array((string) ($baseMap['display'] ?? ''), array('flex', 'inline-flex', 'grid', 'inline-grid'), true) ) {
-            $declarations[] = 'margin-left:auto';
-            $declarations[] = 'margin-right:auto';
-        }
-
-        return $declarations;
     }
 
     private function cssPixelValue(string $value): ?float

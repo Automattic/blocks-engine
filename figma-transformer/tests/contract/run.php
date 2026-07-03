@@ -6907,6 +6907,40 @@ $assert(str_contains($ulResetSiteCss, 'ul,ol{margin:0;padding:0;list-style:none}
 // PARITY FIX 3 — Responsive breakpoint keyed at midpoint, not variant width.
 // Two-variant case: desktop=1440, mobile=390 → midpoint = 915 (not 390).
 // ──────────────────────────────────────────────────────────────────────────────
+$breakpointDimensionPolicy = new Automattic\BlocksEngine\FigmaTransformer\Html\BreakpointDimensionPolicy(fn (float $value): string => rtrim(rtrim(sprintf('%.4F', $value), '0'), '.'));
+$assert(
+    array('width:100%') === $breakpointDimensionPolicy->breakpointWidthDeclarations(
+        '390px',
+        array(),
+        array('box' => array('width' => 1440)),
+        array('type' => 'FRAME', 'box' => array('width' => 390)),
+        null,
+        null
+    ),
+    'breakpoint-dimension-policy-root-fills-viewport'
+);
+$assert(
+    array('width:100%') === $breakpointDimensionPolicy->breakpointWidthDeclarations(
+        '390px',
+        array(),
+        array('box' => array('width' => 1440)),
+        array('type' => 'FRAME', 'box' => array('width' => 390)),
+        array('box' => array('width' => 1440)),
+        array('box' => array('width' => 390))
+    ),
+    'breakpoint-dimension-policy-parent-fill-uses-percent'
+);
+$assert(
+    array('width:calc(100% - 48px)', 'max-width:1216px', 'margin-left:auto', 'margin-right:auto') === $breakpointDimensionPolicy->breakpointWidthDeclarations(
+        '342px',
+        array('display' => 'flex'),
+        array('box' => array('width' => 1216)),
+        array('type' => 'INSTANCE', 'box' => array('width' => 342)),
+        array('box' => array('width' => 1440)),
+        array('box' => array('width' => 390))
+    ),
+    'breakpoint-dimension-policy-source-max-centered-gutters'
+);
 $midpointBreakpointResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
     array(
         'name'   => 'Midpoint Breakpoint Fixture',
