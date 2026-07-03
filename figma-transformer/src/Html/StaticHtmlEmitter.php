@@ -93,6 +93,7 @@ final class StaticHtmlEmitter
     public function __construct(?LayoutGapResolver $layoutGapResolver = null)
     {
         $this->layoutGapResolver = $layoutGapResolver ?? new LayoutGapResolver();
+        $this->linkState = new StaticHtmlLinkState();
     }
 
     private ?LayoutFrameRoleClassifier $layoutFrameRoleClassifier = null;
@@ -290,34 +291,7 @@ final class StaticHtmlEmitter
         );
     }
 
-    /**
-     * Resolved destination-node-id => page-path map used to turn NODE/prototype links into slug hrefs.
-     *
-     * @var array<string, string>
-     */
-    private array $linkTargetPaths = array();
-
-    /**
-     * Page-label => page-path map used for semantic website chrome when Figma
-     * supplied no explicit prototype/hyperlink data.
-     *
-     * @var array<string, string>
-     */
-    private array $implicitRoutePaths = array();
-
-    /**
-     * @var array<string, array{label:string,path:string,confidence:string,evidence:string}>
-     */
-    private array $implicitRouteTargets = array();
-
-    private string $entrypointPath = 'index.html';
-
-    /**
-     * Running link-coverage tallies populated while emitting nodes.
-     *
-     * @var array<string, mixed>
-     */
-    private array $linkCoverage = array();
+    private StaticHtmlLinkState $linkState;
 
     /**
      * Page-relative typographic hierarchy: rounded font-size key => heading tag
@@ -398,11 +372,7 @@ final class StaticHtmlEmitter
         $this->suppressedVisualNodeIds = array();
         $this->decisionTraces = array();
         $this->stickyLayoutCoordinator()->reset();
-        $this->linkTargetPaths = $this->normalizeLinkTargetPaths($options);
-        $this->implicitRoutePaths = array();
-        $this->implicitRouteTargets = array();
-        $this->entrypointPath = 'index.html';
-        $this->linkCoverage = $this->newLinkCoverage();
+        $this->linkState->resetForSinglePage($this->normalizeLinkTargetPaths($options));
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $nodes = $this->nodeList($scenegraph);
         $pagePath = (string) ($options['static_site_page_path'] ?? 'index.html');
@@ -528,11 +498,14 @@ final class StaticHtmlEmitter
         $this->decisionTraces = array();
         $this->breakpointMediaDiffBuilder()->resetDecisionTraces();
         $this->stickyLayoutCoordinator()->reset();
-        $this->linkTargetPaths = $this->linkTargetPathsFromPagePlan($pagePlan, $options);
         $implicitRoutePagePlan = is_array($options['implicit_route_page_plan'] ?? null) ? $options['implicit_route_page_plan'] : $pagePlan;
-        $this->entrypointPath = $this->entrypointPathFromPagePlan($implicitRoutePagePlan);
-        $this->implicitRoutePaths = $this->implicitRoutePathsFromPagePlan($implicitRoutePagePlan, $scenegraph);
-        $this->linkCoverage = $this->newLinkCoverage();
+        $implicitRouteData = $this->implicitRouteDataFromPagePlan($implicitRoutePagePlan, $scenegraph);
+        $this->linkState->resetForSite(
+            $this->linkTargetPathsFromPagePlan($pagePlan, $options),
+            $this->entrypointPathFromPagePlan($implicitRoutePagePlan),
+            $implicitRouteData['paths'],
+            $implicitRouteData['targets']
+        );
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
         $diagnostics = array();
         $nodeStyleDiagnostics = array();
@@ -926,10 +899,10 @@ final class StaticHtmlEmitter
         }
         if ( ! empty($styles) ) {
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
-            foreach ( $this->staticHtmlCssRuleSet()->negativeAutoLayoutSpacingRules($className, $node) as $rule ) {
+            foreach ( $this->negativeAutoLayoutSpacingRules($className, $node) as $rule ) {
                 $cssRules[] = $rule;
             }
-            $this->staticHtmlCssRuleSet()->rememberNodeReadableName($className, $name, $type);
+            $this->staticHtmlCssRuleSet()->markReadableName($className, $name, $type);
         }
         if ( $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode) && $this->textContainsLowercase($this->rawDecodedText($node)) && ! $this->hasExplicitUppercaseTextCase($node) ) {
             $parentClassName = 'figma-node-' . $this->slug((string) ($parentNode['id'] ?? '') . '-' . (string) ($parentNode['name'] ?? 'Node'));
@@ -1983,7 +1956,7 @@ final class StaticHtmlEmitter
         $haystack = $name . ' ' . $text;
 
         if ( str_contains($haystack, 'search') ) {
-            return ' method="get" action="' . $this->sanitizeAttribute($this->entrypointPath) . '" role="search"';
+            return ' method="get" action="' . $this->sanitizeAttribute($this->linkState->entrypointPath()) . '" role="search"';
         }
 
         $action = $this->currentPagePath;
@@ -2643,7 +2616,15 @@ final class StaticHtmlEmitter
      */
     private function styleDeclarationMap(array $styles): array
     {
-        return $this->staticHtmlCssRuleSet()->styleDeclarationMap($styles);
+        $map = array();
+        foreach ( $styles as $style ) {
+            $parts = explode(':', $style, 2);
+            if ( 2 === count($parts) ) {
+                $map[trim($parts[0])] = trim($parts[1]);
+            }
+        }
+
+        return $map;
     }
 
     private function expectedCssLength(mixed $value): ?string
@@ -2904,27 +2885,6 @@ final class StaticHtmlEmitter
     }
 
     /**
-     * @return array<string, mixed>
-     */
-    private function newLinkCoverage(): array
-    {
-        return array(
-            'sources_found'      => 0,
-            'anchors_emitted'    => 0,
-            'url_links'          => 0,
-            'node_links'         => 0,
-            'toc_links'          => 0,
-            'implicit_route_links' => 0,
-            'implicit_route_self_suppressed' => 0,
-            'implicit_route_unresolved' => 0,
-            'unresolved'         => 0,
-            'implicit_route_unresolved_targets' => array(),
-            'implicit_route_self_suppressed_targets' => array(),
-            'unresolved_targets' => array(),
-        );
-    }
-
-    /**
      * @param array<string, mixed> $options
      * @return array<string, string>
      */
@@ -2986,12 +2946,12 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $pagePlan
      * @param array<string, mixed> $scenegraph
-     * @return array<string, string>
+     * @return array{paths: array<string, string>, targets: array<string, array{label:string,path:string,confidence:string,evidence:string}>}
      */
-    private function implicitRoutePathsFromPagePlan(array $pagePlan, array $scenegraph): array
+    private function implicitRouteDataFromPagePlan(array $pagePlan, array $scenegraph): array
     {
         $routes = array();
-        $this->implicitRouteTargets = array();
+        $targets = array();
         $nodeMap = $this->nodeMap($scenegraph);
 
         foreach ( $this->plannedPages($pagePlan) as $index => $page ) {
@@ -3006,35 +2966,38 @@ final class StaticHtmlEmitter
             $pageType = (string) ($page['page_type'] ?? '');
 
             foreach ( array($name, $this->stripDeviceSuffix($name), (string) ($page['slug'] ?? '')) as $label ) {
-                $this->addImplicitRoute($routes, $label, $path, 'high', 'planned_page_identity');
+                $this->addImplicitRoute($routes, $targets, $label, $path, 'high', 'planned_page_identity');
             }
 
             if ( true === ($page['entrypoint'] ?? false) || 'front_page' === $pageType ) {
                 foreach ( array('home', 'homepage', 'front page') as $label ) {
-                    $this->addImplicitRoute($routes, $label, $path, 'high', 'front_page_alias');
+                    $this->addImplicitRoute($routes, $targets, $label, $path, 'high', 'front_page_alias');
                 }
             }
             if ( 'archive' === $pageType ) {
                 foreach ( array('archive', 'archives', 'blog', 'posts', 'news') as $label ) {
-                    $this->addImplicitRoute($routes, $label, $path, 'high', 'archive_page_type_alias');
+                    $this->addImplicitRoute($routes, $targets, $label, $path, 'high', 'archive_page_type_alias');
                 }
             }
 
             if ( 'front_page' !== $pageType ) {
                 foreach ( $this->pageHeadingLabels($frameNode) as $label ) {
-                    $this->addImplicitRoute($routes, $label, $path, 'medium', 'page_heading');
+                    $this->addImplicitRoute($routes, $targets, $label, $path, 'medium', 'page_heading');
                     if ( 'page' === $pageType && str_ends_with($this->routeKey($label), '-us') ) {
-                        $this->addImplicitRoute($routes, preg_replace('/\s+us$/i', '', $label) ?? $label, $path, 'medium', 'page_heading_alias');
+                        $this->addImplicitRoute($routes, $targets, preg_replace('/\s+us$/i', '', $label) ?? $label, $path, 'medium', 'page_heading_alias');
                     }
                 }
             }
         }
 
-        return $routes;
+        return array('paths' => $routes, 'targets' => $targets);
     }
 
-    /** @param array<string, string> $routes */
-    private function addImplicitRoute(array &$routes, string $label, string $path, string $confidence, string $evidence): void
+    /**
+     * @param array<string, string> $routes
+     * @param array<string, array{label:string,path:string,confidence:string,evidence:string}> $targets
+     */
+    private function addImplicitRoute(array &$routes, array &$targets, string $label, string $path, string $confidence, string $evidence): void
     {
         $label = trim($label);
         if ( '' === $label ) {
@@ -3046,14 +3009,14 @@ final class StaticHtmlEmitter
             return;
         }
 
-        $existing = is_array($this->implicitRouteTargets[$key] ?? null) ? $this->implicitRouteTargets[$key] : null;
+        $existing = is_array($targets[$key] ?? null) ? $targets[$key] : null;
         if ( null !== $existing && $this->implicitRouteEvidencePriority((string) ($existing['evidence'] ?? '')) >= $this->implicitRouteEvidencePriority($evidence) ) {
             return;
         }
 
         if ( null === $existing || $this->implicitRouteEvidencePriority((string) ($existing['evidence'] ?? '')) < $this->implicitRouteEvidencePriority($evidence) ) {
             $routes[$key] = $path;
-            $this->implicitRouteTargets[$key] = array(
+            $targets[$key] = array(
                 'label'      => $label,
                 'path'       => $path,
                 'confidence' => $confidence,
@@ -3144,16 +3107,16 @@ final class StaticHtmlEmitter
         if ( empty($link) ) {
             $tocHref = $this->isTocEntryText($node, $parentNode) ? $this->implicitTocHref($node) : null;
             if ( null !== $tocHref ) {
-                $this->linkCoverage['toc_links']++;
-                $this->linkCoverage['anchors_emitted']++;
+                $this->linkState->increment('toc_links');
+                $this->linkState->increment('anchors_emitted');
 
                 return $this->linkedElementMarkup($element, $tocHref, 'toc', 'figma-link figma-toc-link', $buttonLike);
             }
 
             $implicitHref = $this->implicitRouteHref($node, $parentNode, true);
             if ( null !== $implicitHref ) {
-                $this->linkCoverage['implicit_route_links']++;
-                $this->linkCoverage['anchors_emitted']++;
+                $this->linkState->increment('implicit_route_links');
+                $this->linkState->increment('anchors_emitted');
 
                 return $this->linkedElementMarkup($element, $implicitHref, 'implicit-route', $buttonLike ? 'figma-link button' : 'figma-link', $buttonLike);
             }
@@ -3161,7 +3124,7 @@ final class StaticHtmlEmitter
             return $element;
         }
 
-        $this->linkCoverage['sources_found']++;
+        $this->linkState->increment('sources_found');
         $type = (string) ($link['type'] ?? '');
         $nodeId = (string) ($node['id'] ?? '');
         $targetNodeId = (string) ($link['target_node_id'] ?? '');
@@ -3169,13 +3132,14 @@ final class StaticHtmlEmitter
         $resolved = false;
 
         if ( 'url' === $type ) {
-            $this->linkCoverage['url_links']++;
+            $this->linkState->increment('url_links');
             $href = $this->sanitizeLinkUrl((string) ($link['url'] ?? ''));
             $resolved = '#' !== $href;
         } elseif ( 'node' === $type ) {
-            $this->linkCoverage['node_links']++;
-            if ( '' !== $targetNodeId && isset($this->linkTargetPaths[$targetNodeId]) ) {
-                $href = $this->linkTargetPaths[$targetNodeId];
+            $this->linkState->increment('node_links');
+            $targetPath = '' !== $targetNodeId ? $this->linkState->linkTargetPath($targetNodeId) : null;
+            if ( null !== $targetPath ) {
+                $href = $targetPath;
                 if ( isset($this->headingAnchorIds[$targetNodeId]) ) {
                     $href = $this->linkHrefWithHash($href, $this->headingAnchorIds[$targetNodeId]);
                 }
@@ -3193,15 +3157,13 @@ final class StaticHtmlEmitter
         }
 
         if ( ! $resolved ) {
-            $this->linkCoverage['unresolved']++;
-            if ( count($this->linkCoverage['unresolved_targets']) < 50 ) {
-                $this->linkCoverage['unresolved_targets'][] = array(
-                    'node_id'        => $nodeId,
-                    'link_type'      => $type,
-                    'target_node_id' => $targetNodeId,
-                    'source'         => (string) ($link['source'] ?? ''),
-                );
-            }
+            $this->linkState->increment('unresolved');
+            $this->linkState->appendTarget('unresolved_targets', array(
+                'node_id'        => $nodeId,
+                'link_type'      => $type,
+                'target_node_id' => $targetNodeId,
+                'source'         => (string) ($link['source'] ?? ''),
+            ));
             $diagnostics[] = array(
                 'severity' => 'info',
                 'code'     => 'link_target_unresolved',
@@ -3217,7 +3179,7 @@ final class StaticHtmlEmitter
             return $element;
         }
 
-        $this->linkCoverage['anchors_emitted']++;
+        $this->linkState->increment('anchors_emitted');
 
         return $this->linkedElementMarkup($element, $href, $type, $buttonLike ? 'figma-link button' : 'figma-link', $buttonLike);
     }
@@ -3269,7 +3231,7 @@ final class StaticHtmlEmitter
     {
         $name = strtolower((string) ($node['name'] ?? ''));
         if ( str_contains($name, 'logo') && ! $this->isSocialIconNode($node) ) {
-            return $this->entrypointPath;
+            return $this->linkState->entrypointPath();
         }
 
         if ( null !== $parentNode && $this->isNavigationLabelText($node, $parentNode) ) {
@@ -3288,7 +3250,7 @@ final class StaticHtmlEmitter
 
         if ( null !== $parentNode && $this->isPaginationContainer($parentNode) ) {
             $label = strtolower($this->subtreePlainText($node));
-            if ( str_contains($label, 'next') && isset($this->implicitRoutePaths['news']) ) {
+            if ( str_contains($label, 'next') && $this->linkState->hasImplicitRoute('news') ) {
                 return $this->routePathForLabel('news');
             }
         }
@@ -3321,26 +3283,27 @@ final class StaticHtmlEmitter
     private function routePathForLabel(string $label, ?array $node = null, ?array $parentNode = null, bool $recordUnresolved = false): ?string
     {
         $key = $this->routeKey($label);
-        if ( '' === $key || ! isset($this->implicitRoutePaths[$key]) ) {
+        $path = $this->linkState->implicitRoutePath($key);
+        if ( '' === $key || null === $path ) {
             return null;
         }
 
-        $path = $this->implicitRoutePaths[$key];
-        if ( $path === $this->entrypointPath && ! $this->isHomeRouteKey($key) && ! $this->isLogoNode($node) ) {
-            $this->recordImplicitRouteUnresolved($label, $node ?? array(), 'entrypoint_label_not_home', $recordUnresolved, $this->implicitRouteTargets[$key] ?? array());
+        if ( $path === $this->linkState->entrypointPath() && ! $this->isHomeRouteKey($key) && ! $this->isLogoNode($node) ) {
+            $this->recordImplicitRouteUnresolved($label, $node ?? array(), 'entrypoint_label_not_home', $recordUnresolved, $this->linkState->implicitRouteTarget($key));
             return null;
         }
 
         if ( $path === $this->currentPagePath ) {
-            $this->linkCoverage['implicit_route_self_suppressed']++;
-            if ( $recordUnresolved && count($this->linkCoverage['implicit_route_self_suppressed_targets']) < 50 ) {
-                $this->linkCoverage['implicit_route_self_suppressed_targets'][] = array_filter(array(
+            $routeTarget = $this->linkState->implicitRouteTarget($key);
+            $this->linkState->increment('implicit_route_self_suppressed');
+            if ( $recordUnresolved ) {
+                $this->linkState->appendTarget('implicit_route_self_suppressed_targets', array_filter(array(
                     'node_id' => is_array($node) ? (string) ($node['id'] ?? '') : '',
                     'label'   => trim($label),
                     'path'    => $path,
-                    'route_confidence' => (string) (($this->implicitRouteTargets[$key] ?? array())['confidence'] ?? ''),
-                    'route_evidence'   => (string) (($this->implicitRouteTargets[$key] ?? array())['evidence'] ?? ''),
-                ), static fn (mixed $value): bool => '' !== $value);
+                    'route_confidence' => (string) ($routeTarget['confidence'] ?? ''),
+                    'route_evidence'   => (string) ($routeTarget['evidence'] ?? ''),
+                ), static fn (mixed $value): bool => '' !== $value));
             }
             return null;
         }
@@ -3351,7 +3314,7 @@ final class StaticHtmlEmitter
     private function hasImplicitRouteForLabel(string $label): bool
     {
         $key = $this->routeKey($label);
-        return '' !== $key && isset($this->implicitRoutePaths[$key]);
+        return $this->linkState->hasImplicitRoute($key);
     }
 
     private function isHomeRouteKey(string $key): bool
@@ -3375,17 +3338,15 @@ final class StaticHtmlEmitter
             return null;
         }
 
-        $this->linkCoverage['implicit_route_unresolved']++;
-        if ( count($this->linkCoverage['implicit_route_unresolved_targets']) < 50 ) {
-            $this->linkCoverage['implicit_route_unresolved_targets'][] = array_filter(array(
+        $this->linkState->increment('implicit_route_unresolved');
+        $this->linkState->appendTarget('implicit_route_unresolved_targets', array_filter(array(
                 'node_id' => (string) ($node['id'] ?? ''),
                 'label'   => trim($label),
                 'reason'  => $reason,
                 'route_path' => (string) ($routeTarget['path'] ?? ''),
                 'route_confidence' => (string) ($routeTarget['confidence'] ?? ''),
                 'route_evidence' => (string) ($routeTarget['evidence'] ?? ''),
-            ), static fn (mixed $value): bool => '' !== $value);
-        }
+            ), static fn (mixed $value): bool => '' !== $value));
 
         return null;
     }
@@ -3439,24 +3400,7 @@ final class StaticHtmlEmitter
      */
     private function linkDiagnostics(): array
     {
-        $coverage = $this->linkCoverage;
-
-        return array(
-            'schema'             => 'blocks-engine/figma-transformer/link-coverage/v1',
-            'sources_found'      => (int) ($coverage['sources_found'] ?? 0),
-            'anchors_emitted'    => (int) ($coverage['anchors_emitted'] ?? 0),
-            'url_links'          => (int) ($coverage['url_links'] ?? 0),
-            'node_links'         => (int) ($coverage['node_links'] ?? 0),
-            'toc_links'          => (int) ($coverage['toc_links'] ?? 0),
-            'implicit_route_links' => (int) ($coverage['implicit_route_links'] ?? 0),
-            'implicit_route_self_suppressed' => (int) ($coverage['implicit_route_self_suppressed'] ?? 0),
-            'implicit_route_unresolved' => (int) ($coverage['implicit_route_unresolved'] ?? 0),
-            'route_targets'      => array_values($this->implicitRouteTargets),
-            'implicit_route_unresolved_targets' => array_values(is_array($coverage['implicit_route_unresolved_targets'] ?? null) ? $coverage['implicit_route_unresolved_targets'] : array()),
-            'implicit_route_self_suppressed_targets' => array_values(is_array($coverage['implicit_route_self_suppressed_targets'] ?? null) ? $coverage['implicit_route_self_suppressed_targets'] : array()),
-            'unresolved'         => (int) ($coverage['unresolved'] ?? 0),
-            'unresolved_targets' => array_values(is_array($coverage['unresolved_targets'] ?? null) ? $coverage['unresolved_targets'] : array()),
-        );
+        return $this->linkState->diagnostics();
     }
 
     /**
@@ -6871,7 +6815,13 @@ final class StaticHtmlEmitter
      */
     private function stylesDeclareProperty(array $styles, string $property): bool
     {
-        return $this->staticHtmlCssRuleSet()->stylesDeclareProperty($styles, $property);
+        foreach ( $styles as $style ) {
+            if ( is_string($style) && str_starts_with($style, $property . ':') ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -7340,8 +7290,8 @@ final class StaticHtmlEmitter
                 continue;
             }
 
-            $this->linkCoverage['implicit_route_links']++;
-            $this->linkCoverage['anchors_emitted']++;
+            $this->linkState->increment('implicit_route_links');
+            $this->linkState->increment('anchors_emitted');
             $content .= sprintf(
                 '<a class="figma-link" href="%1$s" data-figma-link-type="implicit-route">%2$s</a>',
                 $this->sanitizeAttribute($href),
@@ -9747,6 +9697,21 @@ final class StaticHtmlEmitter
         $slug = trim($slug, '-');
 
         return '' === $slug ? 'node' : $slug;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function negativeAutoLayoutSpacingRules(string $className, array $node): array
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( 'flex' !== ($layout['display'] ?? null) || ! $this->isFiniteNumeric($layout['item_spacing'] ?? null) || (float) $layout['item_spacing'] >= 0.0 ) {
+            return array();
+        }
+
+        $property = 'column' === ($layout['flex_direction'] ?? null) ? 'margin-top' : 'margin-left';
+        return array('.' . $className . '>*+*{' . $property . ':' . $this->number((float) $layout['item_spacing']) . 'px}');
     }
 
     /**
