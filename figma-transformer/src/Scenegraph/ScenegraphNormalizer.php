@@ -1188,6 +1188,11 @@ final class ScenegraphNormalizer
                 continue;
             }
 
+            $layoutDisplay = is_scalar($node['layout']['display'] ?? null) ? (string) $node['layout']['display'] : '';
+            if ( ! in_array($layoutDisplay, array('flex', 'inline-flex'), true) ) {
+                continue;
+            }
+
             $children = array_values(array_filter($node['children'], 'is_array'));
             $childCount = count($children);
             foreach ( $children as $index => $child ) {

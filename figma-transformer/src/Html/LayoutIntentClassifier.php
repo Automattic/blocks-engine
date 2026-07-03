@@ -617,7 +617,7 @@ final class LayoutIntentClassifier
         $localReasons = $this->localStackingReasons($node);
         $isolationReasons = $this->localStackIsolationReasons($node);
         $siblingStackPlan = null !== $parentNode ? $this->siblingLayerStackPlan($node, $parentNode) : array('role' => null, 'overlaps_sibling' => false, 'z_index' => null);
-        $isDecorativeUnderlay = null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode);
+        $isDecorativeUnderlay = null !== $parentNode && ($this->isDecorativeFlexUnderlay($node, $parentNode) || $this->isDecorativeTrackUnderlay($node, $parentNode));
 
         return $this->stackingContextPolicy()->plan($localReasons, $isolationReasons, $siblingStackPlan, $isDecorativeUnderlay, $this->nodeZIndex($node));
     }
@@ -633,7 +633,7 @@ final class LayoutIntentClassifier
      */
     public function siblingLayerRole(array $node, array $parentNode): string
     {
-        if ( $this->hasProtrudingDecorativeUnderlay($node, $parentNode) || $this->isDecorativeFlexUnderlay($node, $parentNode) ) {
+        if ( $this->hasProtrudingDecorativeUnderlay($node, $parentNode) || $this->isDecorativeFlexUnderlay($node, $parentNode) || $this->isDecorativeTrackUnderlay($node, $parentNode) ) {
             return self::LAYER_ROLE_UNDERLAY;
         }
 
@@ -810,6 +810,58 @@ final class LayoutIntentClassifier
             || $this->isOversizedAgainstParent($node, $parentNode)
             || $this->isAbsoluteBackgroundBleed($node, $parentNode, $parentLayout)
             || $this->isCompactAbsoluteShapeUnderlay($node, $parentNode);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isDecorativeTrackUnderlay(array $node, array $parentNode): bool
+    {
+        if ( ! $this->isDecorativeUnderlayVisualCandidate($node) || ! $this->isThinTrackShape($node) ) {
+            return false;
+        }
+
+        $nodeId = (string) ($node['id'] ?? '');
+        foreach ( $this->nodeList($parentNode) as $sibling ) {
+            if ( ! is_array($sibling) || (string) ($sibling['id'] ?? '') === $nodeId ) {
+                continue;
+            }
+            if ( $this->isCompactVisualMarker($sibling) && $this->nodesOverlapInParent($node, $sibling, $parentNode) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isThinTrackShape(array $node): bool
+    {
+        $width = $this->boxValue($node, 'width');
+        $height = $this->boxValue($node, 'height');
+        if ( null === $width || null === $height || $width <= 0.0 || $height <= 0.0 ) {
+            return false;
+        }
+
+        return min($width, $height) <= 24.0 && max($width, $height) >= min($width, $height) * 4.0;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isCompactVisualMarker(array $node): bool
+    {
+        $width = $this->boxValue($node, 'width');
+        $height = $this->boxValue($node, 'height');
+        if ( null === $width || null === $height || $width <= 0.0 || $height <= 0.0 || $width > 64.0 || $height > 64.0 ) {
+            return false;
+        }
+
+        $ratio = max($width, $height) / min($width, $height);
+        return $ratio <= 2.0 && $this->isDecorativeUnderlayVisualCandidate($node);
     }
 
     /**

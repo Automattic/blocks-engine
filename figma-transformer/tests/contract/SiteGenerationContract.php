@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
+use Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphPagePlanner;
+use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 
 /**
  * @param callable(bool, string): void $assert
@@ -107,6 +109,95 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $socialIconCss = $fileContent($socialIconResult, 'style.css');
     $assert(! str_contains($socialIconHtml, '<a class="figma-link" href="index.html" data-figma-link-type="implicit-route"><div class="figma-node-social-facebook-image-001-facebook-logo'), 'social-icon-logo-name-does-not-create-implicit-home-route');
     $assert(str_contains($socialIconCss, '.figma-node-social-facebook-color-001-facebook-logo{width:24px;height:24px;') && str_contains($socialIconCss, 'background:#ffffff') && str_contains($socialIconCss, 'mask-image:url("assets/social-mask-image'), 'social-icon-solid-overlay-uses-image-mask');
+
+    $normalizer = new ScenegraphNormalizer();
+    $localVectorStack = $normalizer->normalize(array(
+        'nodes' => array(
+            array(
+                'id'       => 'local-vector-stack:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 320,
+                'height'   => 320,
+                'children' => array(
+                    array(
+                        'id'                 => 'local-vector-stack:timeline',
+                        'type'               => 'GROUP',
+                        'name'               => 'Timeline dots',
+                        'x'                  => 120,
+                        'y'                  => 64,
+                        'width'              => 20,
+                        'height'             => 120,
+                        'stackReverseZIndex' => true,
+                        'children'           => array(
+                            array('id' => 'local-vector-stack:track', 'type' => 'RECTANGLE', 'name' => 'Track', 'x' => 8, 'y' => 0, 'width' => 4, 'height' => 120),
+                            array('id' => 'local-vector-stack:dot', 'type' => 'ELLIPSE', 'name' => 'Dot', 'x' => 5, 'y' => 8, 'width' => 10, 'height' => 10),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $localTrackLayout = $localVectorStack['node_map']['local-vector-stack:track']['layout'] ?? array();
+    $localDotLayout = $localVectorStack['node_map']['local-vector-stack:dot']['layout'] ?? array();
+    $assert(! isset($localTrackLayout['z_index'], $localDotLayout['z_index']), 'local-vector-stack-reverse-z-index-does-not-override-freeform-source-order');
+
+    $layoutIntent = new LayoutIntentClassifier();
+    $trackNode = array(
+        'id'   => 'local-vector-stack:track',
+        'type' => 'ROUNDED_RECTANGLE',
+        'name' => 'Track',
+        'box'  => array('x' => 0, 'y' => 0, 'width' => 17, 'height' => 920, 'coordinate_space' => 'local'),
+        'figma_paints' => array('fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1)))),
+    );
+    $dotNode = array(
+        'id'   => 'local-vector-stack:dot',
+        'type' => 'ELLIPSE',
+        'name' => 'Dot',
+        'box'  => array('x' => 4, 'y' => 7, 'width' => 10, 'height' => 10, 'coordinate_space' => 'local'),
+        'figma_paints' => array('fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0.8, 'g' => 0.88, 'b' => 0.53, 'a' => 1)))),
+    );
+    $localTimelineParent = array(
+        'id'       => 'local-vector-stack:timeline',
+        'type'     => 'GROUP',
+        'name'     => 'Timeline dots',
+        'box'      => array('x' => 177, 'y' => 1168, 'width' => 17, 'height' => 923, 'coordinate_space' => 'local'),
+        'children' => array($trackNode, $dotNode),
+    );
+    $trackStackPlan = $layoutIntent->stackingContextPlan($trackNode, $localTimelineParent);
+    $dotStackPlan = $layoutIntent->stackingContextPlan($dotNode, $localTimelineParent);
+    $assert(LayoutIntentClassifier::LAYER_ROLE_UNDERLAY === ($trackStackPlan['sibling_role'] ?? null), 'local-vector-track-classifies-as-decorative-underlay');
+    $assert(($dotStackPlan['z_index'] ?? null) > ($trackStackPlan['z_index'] ?? null), 'local-vector-marker-layers-above-track');
+
+    $autoLayoutStack = $normalizer->normalize(array(
+        'nodes' => array(
+            array(
+                'id'       => 'auto-stack:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 320,
+                'height'   => 320,
+                'children' => array(
+                    array(
+                        'id'                 => 'auto-stack:row',
+                        'type'               => 'FRAME',
+                        'name'               => 'Auto row',
+                        'width'              => 120,
+                        'height'             => 40,
+                        'layoutMode'         => 'HORIZONTAL',
+                        'stackReverseZIndex' => true,
+                        'children'           => array(
+                            array('id' => 'auto-stack:first', 'type' => 'RECTANGLE', 'name' => 'First', 'width' => 40, 'height' => 40),
+                            array('id' => 'auto-stack:second', 'type' => 'RECTANGLE', 'name' => 'Second', 'width' => 40, 'height' => 40),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $firstLayout = $autoLayoutStack['node_map']['auto-stack:first']['layout'] ?? array();
+    $secondLayout = $autoLayoutStack['node_map']['auto-stack:second']['layout'] ?? array();
+    $assert(2 === ($firstLayout['z_index'] ?? null) && 1 === ($secondLayout['z_index'] ?? null), 'auto-layout-stack-reverse-z-index-still-applies');
 
     $explicitMaxWidthResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Explicit Root Max Width Fixture',
