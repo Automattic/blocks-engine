@@ -1,0 +1,43 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-whole-element-link-card-propagated",
+  "description": "A whole-element link wrapping a card (image + heading + paragraph) propagates the href onto native link-bearing inner blocks: core/image receives its link attribute, and the heading/paragraph carry an inline <a> around their text. The container core/group keeps its className/layout but never carries a dead href (#260).",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-whole-element-link-card-propagated.json",
+    "notes": "Generic structural coverage for a card/tile anchor wrapping media + heading + body text. The wrapping <a>'s href is propagated deterministically rather than dropped or emitted as an unsupported group attribute."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<a class=\"feature-card\" href=\"https://example.com/feature/\"><img src=\"/img/feature.jpg\" alt=\"Feature\"><h3>Feature Title</h3><p>Feature description text.</p></a>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "feature-card" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "url": "/img/feature.jpg", "alt": "Feature", "href": "https://example.com/feature/", "linkDestination": "custom" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "<a href=\"https://example.com/feature/\">Feature Title</a>", "level": 3 } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/paragraph" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.0.attrs.href", "assert": "equals", "value": null },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/image" },
+    { "path": "blocks.0.innerBlocks.0.attrs.href", "assert": "equals", "value": "https://example.com/feature/" },
+    { "path": "blocks.0.innerBlocks.0.attrs.linkDestination", "assert": "equals", "value": "custom" },
+    { "path": "blocks.0.innerBlocks.1.attrs.content", "assert": "contains", "value": "<a href=\"https://example.com/feature/\">Feature Title</a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"https://example.com/feature/\"><img" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"https://example.com/feature/\">Feature Title</a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"https://example.com/feature/\">Feature description text.</a>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"className\":\"feature-card\",\"href\"" },
+    { "path": "source_reports.html.dropped_link_wrappers", "assert": "count", "count": 0 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
