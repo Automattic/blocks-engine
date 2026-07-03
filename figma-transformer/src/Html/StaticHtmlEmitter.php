@@ -5821,8 +5821,10 @@ final class StaticHtmlEmitter
         $styles = array();
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $layoutBox = $box;
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
         $canvasShell = $this->canvasShellResolver()->resolve($node, $parentNode, $grandParentNode);
+        $canvasWidthDecision = null;
         $zeroHeightVectorFallbackHeight = $this->zeroHeightVectorFallbackHeight($node, $type);
         foreach ( array('width', 'height') as $dimension ) {
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
@@ -5905,6 +5907,7 @@ final class StaticHtmlEmitter
         foreach ( $positioningStyleDecision->styles as $style ) {
             $styles[] = $style;
         }
+        $fullBleedBreakoutDecision = $this->canvasShellResolver()->fullBleedViewportBreakoutDecision($canvasShell);
 
         if ( 'TEXT' !== $type && ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) ) {
             $background = $this->backgroundColor($node);
@@ -6016,7 +6019,167 @@ final class StaticHtmlEmitter
             }
         }
 
-        return $this->mergeBoxShadowDeclarations(array_values(array_unique($styles)));
+        $styles = $this->mergeBoxShadowDeclarations(array_values(array_unique($styles)));
+        $this->recordGeometryDecisionDiagnostics($node, $type, $parentNode, $layoutBox, $box, $layout, $canvasShell, $canvasWidthDecision, $fullBleedBreakoutDecision, $positioningStyleDecision, $styles, $transform);
+
+        return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, mixed> $sourceBox
+     * @param array<string, mixed> $figmaBox
+     * @param array<string, mixed> $layout
+     * @param array{reason_code: string, declarations: array<int, string>}|null $canvasWidthDecision
+     * @param array{reason_code: string, declarations: array<int, string>} $fullBleedBreakoutDecision
+     * @param array<int, string> $styles
+     */
+    private function recordGeometryDecisionDiagnostics(array $node, string $type, ?array $parentNode, array $sourceBox, array $figmaBox, array $layout, CanvasShellDecision $canvasShell, ?array $canvasWidthDecision, array $fullBleedBreakoutDecision, PositioningStyleDecision $positioningStyleDecision, array $styles, ?string $transform): void
+    {
+        $sourceRect = $this->sourceGeometryDiagnostic($sourceBox);
+        $effectiveGeometry = $this->effectiveCssGeometryDiagnostic($styles);
+        $baseEvidence = array(
+            'source_frame' => array_filter(array(
+                'page_path' => $this->currentPagePath,
+                'node_id' => isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '',
+                'parent_id' => null === $parentNode ? '' : (string) ($parentNode['id'] ?? ''),
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value),
+            'source_geometry' => $sourceRect,
+            'effective_css_geometry' => $effectiveGeometry,
+        );
+
+        $canvasReason = (string) ($canvasWidthDecision['reason_code'] ?? '');
+        $fullBleedReason = (string) ($fullBleedBreakoutDecision['reason_code'] ?? '');
+        if ( '' !== $canvasReason || '' !== $fullBleedReason || $canvasShell->fullBleedCanvasChild || $canvasShell->responsiveCenteredFlowShell || $canvasShell->fluidStretchCanvasChild ) {
+            $this->recordDecisionTrace(
+                'effective_geometry',
+                '' !== $fullBleedReason ? $fullBleedReason : ('' !== $canvasReason ? $canvasReason : 'canvas_shell_role'),
+                $node,
+                'resolve_canvas_geometry',
+                $parentNode,
+                array_merge($baseEvidence, array(
+                    'canvas_shell' => array(
+                        'frame_width_role' => $canvasShell->frameWidthRole,
+                        'canvas_child_role' => $canvasShell->canvasChildRole,
+                        'parent_renders_fluid_canvas' => $canvasShell->parentRendersFluidCanvas,
+                        'parent_uses_fluid_canvas_coordinates' => $canvasShell->parentUsesFluidCanvasCoordinates,
+                        'full_bleed_canvas_child' => $canvasShell->fullBleedCanvasChild,
+                        'centered_within_parent_fluid_canvas' => $canvasShell->centeredWithinParentFluidCanvas,
+                        'responsive_centered_flow_shell' => $canvasShell->responsiveCenteredFlowShell,
+                        'fluid_stretch_canvas_child' => $canvasShell->fluidStretchCanvasChild,
+                        'responsive_centered_flow_width' => $canvasShell->responsiveCenteredFlowWidth,
+                    ),
+                    'canvas_width_reason_code' => $canvasReason,
+                    'canvas_width_declarations' => $canvasWidthDecision['declarations'] ?? array(),
+                    'full_bleed_reason_code' => $fullBleedReason,
+                    'full_bleed_declarations' => $fullBleedBreakoutDecision['declarations'],
+                ))
+            );
+        }
+
+        $stackingContextPlan = $this->layoutIntentClassifier()->stackingContextPlan($node, $parentNode);
+        if ( true === ($stackingContextPlan['manages_local_stacking'] ?? false) || true === ($stackingContextPlan['needs_isolation'] ?? false) || null !== ($stackingContextPlan['z_index'] ?? null) || null !== $positioningStyleDecision->zIndexReasonCode ) {
+            $this->recordDecisionTrace(
+                'stacking_context',
+                $positioningStyleDecision->zIndexReasonCode ?? (string) ($stackingContextPlan['z_index_reason'] ?? 'stacking_context_policy'),
+                $node,
+                'resolve_stacking_context',
+                $parentNode,
+                array_merge($baseEvidence, array(
+                    'manages_local_stacking' => true === ($stackingContextPlan['manages_local_stacking'] ?? false),
+                    'needs_isolation' => true === ($stackingContextPlan['needs_isolation'] ?? false),
+                    'local_reasons' => is_array($stackingContextPlan['local_reasons'] ?? null) ? $stackingContextPlan['local_reasons'] : array(),
+                    'sibling_role' => $stackingContextPlan['sibling_role'] ?? null,
+                    'overlaps_sibling' => true === ($stackingContextPlan['overlaps_sibling'] ?? false),
+                    'z_index' => $stackingContextPlan['z_index'] ?? null,
+                    'z_index_reason' => $positioningStyleDecision->zIndexReasonCode ?? ($stackingContextPlan['z_index_reason'] ?? null),
+                    'will_position_absolute' => $positioningStyleDecision->willPositionAbsolute,
+                ))
+            );
+        }
+
+        if ( null !== $transform ) {
+            $matrix = $this->visualGeometryResolver()->cssTransformMatrixValues(is_array($figmaBox['relative_transform'] ?? null) ? $figmaBox['relative_transform'] : null);
+            $viewport = null;
+            if ( null !== $matrix && isset($sourceBox['width'], $sourceBox['height']) && is_numeric($sourceBox['width']) && is_numeric($sourceBox['height']) ) {
+                $viewport = $this->reportRect($this->visualGeometryResolver()->transformedRect((float) $sourceBox['width'], (float) $sourceBox['height'], $matrix));
+            }
+            $this->recordDecisionTrace(
+                'transform_viewport',
+                'css_transform_matrix',
+                $node,
+                'resolve_transform_viewport',
+                $parentNode,
+                array_merge($baseEvidence, array(
+                    'transform' => $transform,
+                    'matrix' => null === $matrix ? array() : array_map(fn (float $value): mixed => $this->reportNumericValue($value), $matrix),
+                    'transformed_rect' => $viewport,
+                ))
+            );
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @return array<string, mixed>
+     */
+    private function sourceGeometryDiagnostic(array $box): array
+    {
+        $rect = array();
+        foreach ( array('x', 'y', 'width', 'height') as $key ) {
+            if ( isset($box[$key]) && is_numeric($box[$key]) ) {
+                $rect[$key] = $this->reportNumericValue((float) $box[$key]);
+            }
+        }
+
+        return $rect;
+    }
+
+    /**
+     * @param array<int, string> $styles
+     * @return array<string, mixed>
+     */
+    private function effectiveCssGeometryDiagnostic(array $styles): array
+    {
+        $geometry = array();
+        foreach ( array('position', 'left', 'right', 'top', 'width', 'max-width', 'height', 'min-height', 'margin-left', 'margin-right', 'z-index') as $property ) {
+            $value = $this->styleDeclarationValue($styles, $property);
+            if ( null !== $value ) {
+                $geometry[$property] = $value;
+            }
+        }
+
+        return $geometry;
+    }
+
+    /**
+     * @param array<int, string> $styles
+     */
+    private function styleDeclarationValue(array $styles, string $property): ?string
+    {
+        $prefix = $property . ':';
+        foreach ( $styles as $style ) {
+            if ( str_starts_with($style, $prefix) ) {
+                return substr($style, strlen($prefix));
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array{x: float, y: float, width: float, height: float} $rect
+     * @return array<string, mixed>
+     */
+    private function reportRect(array $rect): array
+    {
+        return array(
+            'x' => $this->reportNumericValue($rect['x']),
+            'y' => $this->reportNumericValue($rect['y']),
+            'width' => $this->reportNumericValue($rect['width']),
+            'height' => $this->reportNumericValue($rect['height']),
+        );
     }
 
     /**
