@@ -179,6 +179,11 @@ final class StaticHtmlEmitter
      */
     private array $implicitRoutePaths = array();
 
+    /**
+     * @var array<string, array{label:string,path:string,confidence:string,evidence:string}>
+     */
+    private array $implicitRouteTargets = array();
+
     private string $entrypointPath = 'index.html';
 
     /**
@@ -254,6 +259,7 @@ final class StaticHtmlEmitter
         $this->stickyLayoutCoordinator()->reset();
         $this->linkTargetPaths = $this->normalizeLinkTargetPaths($options);
         $this->implicitRoutePaths = array();
+        $this->implicitRouteTargets = array();
         $this->entrypointPath = 'index.html';
         $this->linkCoverage = $this->newLinkCoverage();
         $title = $this->sanitizeText((string) ($scenegraph['name'] ?? 'Figma Site'));
@@ -2782,6 +2788,8 @@ final class StaticHtmlEmitter
             'url_links'          => 0,
             'node_links'         => 0,
             'toc_links'          => 0,
+            'implicit_route_links' => 0,
+            'implicit_route_self_suppressed' => 0,
             'unresolved'         => 0,
             'unresolved_targets' => array(),
         );
@@ -2854,6 +2862,7 @@ final class StaticHtmlEmitter
     private function implicitRoutePathsFromPagePlan(array $pagePlan, array $scenegraph): array
     {
         $routes = array();
+        $this->implicitRouteTargets = array();
         $nodeMap = $this->nodeMap($scenegraph);
 
         foreach ( $this->plannedPages($pagePlan) as $index => $page ) {
@@ -2868,25 +2877,25 @@ final class StaticHtmlEmitter
             $pageType = (string) ($page['page_type'] ?? '');
 
             foreach ( array($name, $this->stripDeviceSuffix($name), (string) ($page['slug'] ?? '')) as $label ) {
-                $this->addImplicitRoute($routes, $label, $path);
+                $this->addImplicitRoute($routes, $label, $path, 'high', 'planned_page_identity');
             }
 
             if ( true === ($page['entrypoint'] ?? false) || 'front_page' === $pageType ) {
                 foreach ( array('home', 'homepage', 'front page') as $label ) {
-                    $this->addImplicitRoute($routes, $label, $path);
+                    $this->addImplicitRoute($routes, $label, $path, 'high', 'front_page_alias');
                 }
             }
             if ( 'archive' === $pageType ) {
                 foreach ( array('archive', 'archives', 'blog', 'posts', 'news') as $label ) {
-                    $this->addImplicitRoute($routes, $label, $path);
+                    $this->addImplicitRoute($routes, $label, $path, 'high', 'archive_page_type_alias');
                 }
             }
 
             if ( 'front_page' !== $pageType ) {
                 foreach ( $this->pageHeadingLabels($frameNode) as $label ) {
-                    $this->addImplicitRoute($routes, $label, $path);
+                    $this->addImplicitRoute($routes, $label, $path, 'medium', 'page_heading');
                     if ( 'page' === $pageType && str_ends_with($this->routeKey($label), '-us') ) {
-                        $this->addImplicitRoute($routes, preg_replace('/\s+us$/i', '', $label) ?? $label, $path);
+                        $this->addImplicitRoute($routes, preg_replace('/\s+us$/i', '', $label) ?? $label, $path, 'medium', 'page_heading_alias');
                     }
                 }
             }
@@ -2896,11 +2905,22 @@ final class StaticHtmlEmitter
     }
 
     /** @param array<string, string> $routes */
-    private function addImplicitRoute(array &$routes, string $label, string $path): void
+    private function addImplicitRoute(array &$routes, string $label, string $path, string $confidence, string $evidence): void
     {
+        $label = trim($label);
+        if ( '' === $label ) {
+            return;
+        }
+
         $key = $this->routeKey($label);
         if ( '' !== $key && ! isset($routes[$key]) ) {
             $routes[$key] = $path;
+            $this->implicitRouteTargets[$key] = array(
+                'label'      => $label,
+                'path'       => $path,
+                'confidence' => $confidence,
+                'evidence'   => $evidence,
+            );
         }
     }
 
@@ -2983,6 +3003,7 @@ final class StaticHtmlEmitter
 
             $implicitHref = $this->implicitRouteHref($node, $parentNode);
             if ( null !== $implicitHref ) {
+                $this->linkCoverage['implicit_route_links']++;
                 $this->linkCoverage['anchors_emitted']++;
 
                 return $this->linkedElementMarkup($element, $implicitHref, 'implicit-route', $buttonLike ? 'figma-link button' : 'figma-link', $buttonLike);
@@ -3134,6 +3155,7 @@ final class StaticHtmlEmitter
 
         $path = $this->implicitRoutePaths[$key];
         if ( $path === $this->currentPagePath ) {
+            $this->linkCoverage['implicit_route_self_suppressed']++;
             return null;
         }
 
@@ -3198,6 +3220,9 @@ final class StaticHtmlEmitter
             'url_links'          => (int) ($coverage['url_links'] ?? 0),
             'node_links'         => (int) ($coverage['node_links'] ?? 0),
             'toc_links'          => (int) ($coverage['toc_links'] ?? 0),
+            'implicit_route_links' => (int) ($coverage['implicit_route_links'] ?? 0),
+            'implicit_route_self_suppressed' => (int) ($coverage['implicit_route_self_suppressed'] ?? 0),
+            'route_targets'      => array_values($this->implicitRouteTargets),
             'unresolved'         => (int) ($coverage['unresolved'] ?? 0),
             'unresolved_targets' => array_values(is_array($coverage['unresolved_targets'] ?? null) ? $coverage['unresolved_targets'] : array()),
         );

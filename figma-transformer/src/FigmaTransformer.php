@@ -1089,6 +1089,10 @@ final class FigmaTransformer
             'anchors_emitted'    => 0,
             'url_links'          => 0,
             'node_links'         => 0,
+            'toc_links'          => 0,
+            'implicit_route_links' => 0,
+            'implicit_route_self_suppressed' => 0,
+            'route_targets'      => array(),
             'unresolved'         => 0,
             'unresolved_targets' => array(),
         );
@@ -1124,7 +1128,8 @@ final class FigmaTransformer
             $fontMaterialized = $fontMaterialized || true === ($pageFonts['materialized'] ?? false);
 
             $pageLinks = is_array($diagnostics['links'] ?? null) ? $diagnostics['links'] : array();
-            DiagnosticAggregation::addIntegerCounts($links, $pageLinks, array('sources_found', 'anchors_emitted', 'url_links', 'node_links', 'unresolved'));
+            DiagnosticAggregation::addIntegerCounts($links, $pageLinks, array('sources_found', 'anchors_emitted', 'url_links', 'node_links', 'toc_links', 'implicit_route_links', 'implicit_route_self_suppressed', 'unresolved'));
+            DiagnosticAggregation::appendContextSamples($links, 'route_targets', $pageLinks, 'route_targets', $pageContext);
             DiagnosticAggregation::appendContextSamples($links, 'unresolved_targets', $pageLinks, 'unresolved_targets', $pageContext);
 
             $pageCss = is_array($diagnostics['css'] ?? null) ? $diagnostics['css'] : array();
@@ -1221,6 +1226,7 @@ final class FigmaTransformer
         $layout['sticky_ghosts']['count'] = count($layout['sticky_ghosts']['candidates']);
         $layout['large_css_offset_nodes'] = array_values($layout['large_css_offset_nodes']);
         $layout['off_canvas_visual_nodes'] = array_values($layout['off_canvas_visual_nodes']);
+        $links['route_targets'] = array_values($links['route_targets']);
         $links['unresolved_targets'] = array_values($links['unresolved_targets']);
         $layout['empty_visible_containers'] = array_values($layout['empty_visible_containers']);
         ksort($layout['empty_visible_container_categories']);

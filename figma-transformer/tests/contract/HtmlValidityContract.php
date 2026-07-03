@@ -112,12 +112,20 @@ function blocks_engine_figma_transformer_run_html_validity_contract(callable $as
     ));
 
     $html = $fileContent($result, 'index.html');
+    $links = $result['source_report']['transform_diagnostics']['links'] ?? array();
     $assert(str_contains($html, '<a class="figma-link" href="archive.html" data-figma-link-type="implicit-route"><div class="figma-node-validity-news-item-menu-item"'), 'html-validity-menu-item-container-linked');
     $assert(! str_contains($html, '<a class="figma-link" href="archive.html" data-figma-link-type="implicit-route"><span class="figma-node-validity-news-text-text"'), 'html-validity-linked-menu-item-suppresses-descendant-anchor');
     $assert(1 === preg_match('/<a class="figma-link button" href="archive\.html" data-figma-link-type="implicit-route"><div class="[^"]*figma-node-validity-next-button-button/', $html), 'html-validity-linked-button-renders-structural-div');
     $assert(! str_contains($html, '<a class="figma-link button" href="archive.html" data-figma-link-type="implicit-route"><button'), 'html-validity-linked-button-not-anchor-wrapped-button');
     $assert(str_contains($html, '<li class="figma-node-validity-footer-about-footer-text" data-figma-node-id="validity:footer-about" data-figma-node-name="Footer text"><a class="figma-link" href="page.html" data-figma-link-type="implicit-route">About</a></li>'), 'html-validity-linked-list-item-anchor-inside-li');
     $assert(! str_contains($html, '<ul class="figma-node-validity-footer-links-frame-29" data-figma-node-id="validity:footer-links" data-figma-node-name="Frame 29"><a '), 'html-validity-list-has-no-direct-anchor-child');
+    $assert(($links['implicit_route_links'] ?? 0) >= 3, 'html-validity-implicit-route-links-counted');
+    $assert(($links['implicit_route_self_suppressed'] ?? 0) >= 1, 'html-validity-implicit-route-self-links-counted');
+    $routeTargets = is_array($links['route_targets'] ?? null) ? $links['route_targets'] : array();
+    $emptyRouteTargets = array_values(array_filter($routeTargets, static fn (array $target): bool => '' === trim((string) ($target['label'] ?? ''))));
+    $assert(empty($emptyRouteTargets), 'html-validity-route-targets-require-labels');
+    $newsTargets = array_values(array_filter($routeTargets, static fn (array $target): bool => 'News' === ($target['label'] ?? '') && 'archive.html' === ($target['path'] ?? '')));
+    $assert(! empty($newsTargets) && in_array(($newsTargets[0]['confidence'] ?? ''), array('high', 'medium'), true) && '' !== ($newsTargets[0]['evidence'] ?? ''), 'html-validity-route-target-evidence-confidence-reported');
 
     $dom = new DOMDocument();
     libxml_use_internal_errors(true);
