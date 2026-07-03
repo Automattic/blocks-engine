@@ -491,6 +491,28 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $invalidCssDetectionDiagnostics = $invalidCssDetectionResult['source_reports']['figma']['html']['transform_diagnostics']['layout'] ?? array();
     $assert(1 === ($invalidCssDetectionDiagnostics['invalid_css_count'] ?? null), 'visual-map-invalid-css-detects-declaration-token');
 
+    $numericSharedClassResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Numeric Shared Class Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'numeric-shared:root',
+                'type'       => 'FRAME',
+                'name'       => 'Root',
+                'width'      => 120,
+                'height'     => 40,
+                'layoutMode' => 'HORIZONTAL',
+                'children'   => array(
+                    array('id' => 'numeric-shared:1', 'type' => 'RECTANGLE', 'name' => '1', 'width' => 16, 'height' => 8, 'fill' => '#ffffff'),
+                    array('id' => 'numeric-shared:2', 'type' => 'RECTANGLE', 'name' => '2', 'width' => 16, 'height' => 8, 'fill' => '#ffffff'),
+                ),
+            ),
+        ),
+    ));
+    $numericSharedClassCss = blocks_engine_figma_transformer_contract_file_content($numericSharedClassResult, 'style.css');
+    $numericSharedClassHtml = blocks_engine_figma_transformer_contract_file_content($numericSharedClassResult, 'index.html');
+    $assert(! str_contains($numericSharedClassCss, '.1{'), 'visual-map-numeric-shared-class-does-not-emit-invalid-selector');
+    $assert(str_contains($numericSharedClassCss, '.style-1{') && str_contains($numericSharedClassHtml, 'class="figma-node-numeric-shared-1-1 style-1"'), 'visual-map-numeric-shared-class-prefixed');
+
     $componentCloneZIndexResult = blocks_engine_figma_transformer_contract_transform(
         array(
             'name'  => 'Component Clone Z Index Fixture',

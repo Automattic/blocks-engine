@@ -9244,6 +9244,10 @@ final class StaticHtmlEmitter
             }
         }
 
+        if ( 1 !== preg_match('/^[a-z_]/', $base) ) {
+            $base = 'style-' . $base;
+        }
+
         return $base;
     }
 
