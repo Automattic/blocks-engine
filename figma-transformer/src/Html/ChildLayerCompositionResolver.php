@@ -167,30 +167,47 @@ final class ChildLayerCompositionResolver
             }
 
             $id = isset($child['id']) && is_scalar($child['id']) ? (string) $child['id'] : '';
-            $signature = $this->samePathVectorStateSignature($child);
-            if ( '' === $id || null === $signature ) {
+            $candidate = $this->samePathVectorStateCandidate($child);
+            if ( '' === $id || null === $candidate ) {
                 continue;
             }
 
-            $groups[$signature][] = $id;
+            $candidate['id'] = $id;
+            $groups[$candidate['key']][] = $candidate;
         }
 
         $suppressed = array();
-        foreach ( $groups as $ids ) {
-            if ( count($ids) < 2 ) {
+        foreach ( $groups as $candidates ) {
+            if ( count($candidates) < 2 ) {
                 continue;
             }
 
-            foreach ( array_slice($ids, 1) as $id ) {
-                $suppressed[$id] = 'same_path_vector_state_duplicate_suppressed';
+            $emitted = array();
+            foreach ( $candidates as $candidate ) {
+                $duplicate = false;
+                foreach ( $emitted as $kept ) {
+                    if ( $this->isNearSameVectorStateBox($candidate['box'], $kept['box']) ) {
+                        $duplicate = true;
+                        break;
+                    }
+                }
+
+                if ( $duplicate ) {
+                    $suppressed[$candidate['id']] = 'same_path_vector_state_duplicate_suppressed';
+                } else {
+                    $emitted[] = $candidate;
+                }
             }
         }
 
         return $suppressed;
     }
 
-    /** @param array<string, mixed> $node */
-    private function samePathVectorStateSignature(array $node): ?string
+    /**
+     * @param array<string, mixed> $node
+     * @return array{key: string, box: array{x: float, y: float, width: float, height: float}}|null
+     */
+    private function samePathVectorStateCandidate(array $node): ?array
     {
         $type = strtoupper((string) ($node['type'] ?? ''));
         $pathSignature = $this->vectorPathSignature($node);
@@ -203,17 +220,46 @@ final class ChildLayerCompositionResolver
             return null;
         }
 
+        $box = $this->vectorStateBox($node);
+        if ( null === $box || $box['width'] > 128.0 || $box['height'] > 128.0 ) {
+            return null;
+        }
+
+        return array(
+            'key' => $type . '|width:' . ($this->number)(round($box['width'], 1)) . '|height:' . ($this->number)(round($box['height'], 1)) . '|' . $pathSignature,
+            'box' => $box,
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array{x: float, y: float, width: float, height: float}|null
+     */
+    private function vectorStateBox(array $node): ?array
+    {
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $boxParts = array();
+        $resolved = array();
         foreach ( array('x', 'y', 'width', 'height') as $key ) {
             $value = isset($box[$key]) && is_numeric($box[$key]) ? (float) $box[$key] : (in_array($key, array('x', 'y'), true) ? 0.0 : null);
             if ( null === $value ) {
                 return null;
             }
-            $boxParts[] = $key . ':' . ($this->number)(round($value, 1));
+            $resolved[$key] = $value;
         }
 
-        return $type . '|' . implode('|', $boxParts) . '|' . $pathSignature;
+        return $resolved;
+    }
+
+    /**
+     * @param array{x: float, y: float, width: float, height: float} $box
+     * @param array{x: float, y: float, width: float, height: float} $candidateBox
+     */
+    private function isNearSameVectorStateBox(array $box, array $candidateBox): bool
+    {
+        return abs($box['x'] - $candidateBox['x']) <= 1.5
+            && abs($box['y'] - $candidateBox['y']) <= 1.5
+            && abs($box['width'] - $candidateBox['width']) <= 0.5
+            && abs($box['height'] - $candidateBox['height']) <= 0.5;
     }
 
     /** @param array<string, mixed> $node */

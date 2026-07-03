@@ -203,6 +203,96 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $assert(str_contains($wrappedVectorStateDuplicateHtml, 'data-figma-node-id="wrapped-state:right-arrow-2"'), 'wrapped-same-path-vector-state-default-emitted');
     $assert(! str_contains($wrappedVectorStateDuplicateHtml, 'data-figma-node-id="wrapped-state:right-arrow-3"'), 'wrapped-same-path-vector-state-duplicate-not-emitted');
 
+    $nestedOffsetVectorStateDuplicateResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Nested Offset Vector State Duplicate Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'nested-offset-state:root',
+                'type'     => 'FRAME',
+                'name'     => 'Carousel Controls',
+                'width'    => 1440,
+                'height'   => 720,
+                'children' => array(
+                    array(
+                        'id'       => 'nested-offset-state:right-arrow-2',
+                        'type'     => 'FRAME',
+                        'name'     => 'right-arrow 2',
+                        'x'        => 1354,
+                        'y'        => 424,
+                        'width'    => 33,
+                        'height'   => 33,
+                        'children' => array(array(
+                            'id'       => 'nested-offset-state:right-arrow-2:group',
+                            'type'     => 'GROUP',
+                            'name'     => 'Group',
+                            'x'        => 0,
+                            'y'        => 2.773,
+                            'width'    => 33,
+                            'height'   => 27.454,
+                            'children' => array(array(
+                                'id'       => 'nested-offset-state:right-arrow-2:inner-group',
+                                'type'     => 'GROUP',
+                                'name'     => 'Group',
+                                'width'    => 33,
+                                'height'   => 27.454,
+                                'children' => array(array(
+                                    'id'       => 'nested-offset-state:right-arrow-2:vector',
+                                    'type'     => 'VECTOR',
+                                    'name'     => 'Vector',
+                                    'width'    => 33,
+                                    'height'   => 27.454,
+                                    'pathData' => 'M32.473 12.445L20.555 0.527 18.001 0.527 16.919 1.609 23.871 11.146 1.783 11.146 0 12.922 0 14.452 1.783 16.306 23.95 16.306 16.919 23.313 18.001 26.928 20.555 26.926 32.473 15.008Z',
+                                    'fills'    => array(array('type' => 'SOLID', 'color' => array('r' => 0.514, 'g' => 0.847, 'b' => 0.921, 'a' => 1))),
+                                )),
+                            )),
+                        )),
+                    ),
+                    array(
+                        'id'       => 'nested-offset-state:right-arrow-3',
+                        'type'     => 'FRAME',
+                        'name'     => 'right-arrow 3',
+                        'x'        => 1354,
+                        'y'        => 423,
+                        'width'    => 33,
+                        'height'   => 33,
+                        'children' => array(array(
+                            'id'       => 'nested-offset-state:right-arrow-3:group',
+                            'type'     => 'GROUP',
+                            'name'     => 'Group',
+                            'x'        => 0,
+                            'y'        => 2.773,
+                            'width'    => 33,
+                            'height'   => 27.454,
+                            'children' => array(array(
+                                'id'       => 'nested-offset-state:right-arrow-3:inner-group',
+                                'type'     => 'GROUP',
+                                'name'     => 'Group',
+                                'width'    => 33,
+                                'height'   => 27.454,
+                                'children' => array(array(
+                                    'id'       => 'nested-offset-state:right-arrow-3:vector',
+                                    'type'     => 'VECTOR',
+                                    'name'     => 'Vector',
+                                    'width'    => 33,
+                                    'height'   => 27.454,
+                                    'pathData' => 'M32.473 12.445L20.555 0.527 18.001 0.527 16.919 1.609 23.871 11.146 1.783 11.146 0 12.922 0 14.452 1.783 16.306 23.95 16.306 16.919 23.313 18.001 26.928 20.555 26.926 32.473 15.008Z',
+                                    'fills'    => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                                )),
+                            )),
+                        )),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $nestedOffsetVectorStateDuplicateHtml = $fileContent($nestedOffsetVectorStateDuplicateResult, 'index.html');
+    $nestedOffsetVectorStateDuplicateCss = $fileContent($nestedOffsetVectorStateDuplicateResult, 'style.css');
+    $nestedOffsetVectorStateDuplicateDiagnostics = $nestedOffsetVectorStateDuplicateResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $assert(str_contains($nestedOffsetVectorStateDuplicateHtml, 'data-figma-node-id="nested-offset-state:right-arrow-2"'), 'nested-offset-same-path-vector-state-default-emitted');
+    $assert(! str_contains($nestedOffsetVectorStateDuplicateHtml, 'data-figma-node-id="nested-offset-state:right-arrow-3"'), 'nested-offset-same-path-vector-state-duplicate-not-emitted');
+    $assert(! str_contains($nestedOffsetVectorStateDuplicateCss, '.figma-node-nested-offset-state-right-arrow-3-right-arrow-3{'), 'nested-offset-same-path-vector-state-duplicate-has-no-visible-css');
+    $assert(1 === ($nestedOffsetVectorStateDuplicateDiagnostics['decision_traces']['reason_counts']['same_path_vector_state_duplicate_suppressed'] ?? null), 'nested-offset-same-path-vector-state-duplicate-suppression-traced');
+
     $generatedPathVectorStateDuplicateResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Generated Path Vector State Duplicate Fixture',
         'nodes' => array(
