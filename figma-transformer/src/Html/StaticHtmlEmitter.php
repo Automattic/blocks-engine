@@ -6054,10 +6054,6 @@ final class StaticHtmlEmitter
             $listKinds[] = $kind;
         }
 
-        if ( count(array_unique($listKinds)) !== 1 ) {
-            return null;
-        }
-
         $characters = isset($text['characters']) && is_scalar($text['characters'])
             ? (string) $text['characters']
             : (string) ($node['characters'] ?? $node['text'] ?? '');
@@ -6065,24 +6061,72 @@ final class StaticHtmlEmitter
             return null;
         }
 
-        $lineTexts = preg_split('/\R/u', $this->derivedLineBreakText($characters, $text));
-        if ( ! is_array($lineTexts) || count($lineTexts) !== count($lines) ) {
+        $lineHtml = $this->sourceTextListLineHtml($node, $text, $characters, count($lines));
+        if ( count($lineHtml) !== count($lines) ) {
             return null;
         }
 
-        $items = array();
-        foreach ( $lineTexts as $lineText ) {
-            $item = $this->sourceTextListItemText((string) $lineText);
-            if ( '' === $item ) {
+        $rootKind = $listKinds[0];
+        $rootIndent = $this->sourceTextListIndent($lines[0]);
+        $stack = array();
+        $content = '';
+        foreach ( $lines as $index => $line ) {
+            $kind = $listKinds[$index];
+            $indent = $this->sourceTextListIndent($line);
+            $item = $this->sourceTextListItemHtml($lineHtml[$index]);
+            if ( '' === $item || $indent < $rootIndent ) {
                 return null;
             }
-            $items[] = '<li>' . $this->sanitizeText($item) . '</li>';
+
+            while ( ! empty($stack) && $indent < $stack[count($stack) - 1]['indent'] ) {
+                $content .= '</li></' . $stack[count($stack) - 1]['tag'] . '>';
+                array_pop($stack);
+            }
+
+            if ( empty($stack) ) {
+                if ( $indent !== $rootIndent || $kind !== $rootKind ) {
+                    return null;
+                }
+            } elseif ( $indent > $stack[count($stack) - 1]['indent'] ) {
+                $tag = 'ordered' === $kind ? 'ol' : 'ul';
+                $content .= '<' . $tag . $this->sourceNestedListAttributes($tag, $line) . '>';
+                $stack[] = array('indent' => $indent, 'tag' => $tag);
+            } elseif ( $kind !== $this->sourceTextListKindForTag($stack[count($stack) - 1]['tag']) ) {
+                $content .= '</li></' . $stack[count($stack) - 1]['tag'] . '>';
+                array_pop($stack);
+                if ( empty($stack) || $indent !== $stack[count($stack) - 1]['indent'] ) {
+                    return null;
+                }
+                $tag = 'ordered' === $kind ? 'ol' : 'ul';
+                $content .= '<' . $tag . $this->sourceNestedListAttributes($tag, $line) . '>';
+                $stack[] = array('indent' => $indent, 'tag' => $tag);
+            } else {
+                $content .= '</li>';
+            }
+
+            if ( empty($stack) ) {
+                $tag = 'ordered' === $kind ? 'ol' : 'ul';
+                $content .= '<' . $tag . $this->sourceNestedListAttributes($tag, $line) . '>';
+                $stack[] = array('indent' => $indent, 'tag' => $tag);
+            }
+            $content .= '<li>' . $item;
         }
 
-        $tag = 'ordered' === $listKinds[0] ? 'ol' : 'ul';
+        while ( ! empty($stack) ) {
+            $content .= '</li></' . $stack[count($stack) - 1]['tag'] . '>';
+            array_pop($stack);
+        }
+
+        $tag = 'ordered' === $rootKind ? 'ol' : 'ul';
+        $open = '<' . $tag . $this->sourceNestedListAttributes($tag, $lines[0]) . '>';
+        $close = '</' . $tag . '>';
+        if ( str_starts_with($content, $open) && str_ends_with($content, $close) ) {
+            $content = substr($content, strlen($open), -strlen($close));
+        }
+
         $result = array(
             'tag'     => $tag,
-            'content' => implode('', $items),
+            'content' => $content,
         );
 
         if ( 'ol' === $tag ) {
@@ -6093,6 +6137,94 @@ final class StaticHtmlEmitter
         }
 
         return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $line
+     */
+    private function sourceTextListIndent(array $line): int
+    {
+        return isset($line['indentation_level']) && is_numeric($line['indentation_level']) ? max(0, (int) $line['indentation_level']) : 0;
+    }
+
+    private function sourceTextListKindForTag(string $tag): string
+    {
+        return 'ol' === $tag ? 'ordered' : 'unordered';
+    }
+
+    /**
+     * @param array<string, mixed> $line
+     */
+    private function sourceNestedListAttributes(string $tag, array $line): string
+    {
+        $attributes = ' style="list-style:' . ( 'ol' === $tag ? 'decimal' : 'disc' ) . ';padding-left:1.5em"';
+        if ( 'ol' === $tag ) {
+            $start = $this->sourceTextListStart($line);
+            if ( null !== $start && 1 !== $start ) {
+                $attributes .= ' start="' . $this->sanitizeAttribute((string) $start) . '"';
+            }
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $text
+     * @return array<int, string>
+     */
+    private function sourceTextListLineHtml(array $node, array $text, string $characters, int $lineCount): array
+    {
+        $segments = is_array($text['segments'] ?? null) ? $text['segments'] : array();
+        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
+        $baselines = is_array($derivedLayout['baselines'] ?? null) ? $derivedLayout['baselines'] : array();
+        if ( ! empty($segments) && count($baselines) === $lineCount ) {
+            $lines = array();
+            foreach ( $baselines as $baseline ) {
+                if ( ! is_array($baseline) || ! isset($baseline['firstCharacter'], $baseline['endCharacter']) || ! is_numeric($baseline['firstCharacter']) || ! is_numeric($baseline['endCharacter']) ) {
+                    return array();
+                }
+                $lines[] = $this->sourceTextListSegmentRangeHtml($segments, (int) $baseline['firstCharacter'], (int) $baseline['endCharacter']);
+            }
+            return $lines;
+        }
+
+        $lineTexts = preg_split('/\R/u', $this->derivedLineBreakText($characters, $text));
+        if ( ! is_array($lineTexts) || count($lineTexts) !== $lineCount ) {
+            return array();
+        }
+
+        return array_map(fn (string $lineText): string => $this->sanitizeText($lineText), array_values($lineTexts));
+    }
+
+    /**
+     * @param array<int, mixed> $segments
+     */
+    private function sourceTextListSegmentRangeHtml(array $segments, int $start, int $end): string
+    {
+        $html = '';
+        $cursor = 0;
+        foreach ( $segments as $segment ) {
+            if ( ! is_array($segment) || ! isset($segment['characters']) || ! is_scalar($segment['characters']) ) {
+                continue;
+            }
+            $segmentText = (string) $segment['characters'];
+            $length = mb_strlen($segmentText);
+            $segmentStart = $cursor;
+            $segmentEnd = $cursor + $length;
+            $cursor = $segmentEnd;
+            if ( $segmentEnd <= $start || $segmentStart >= $end ) {
+                continue;
+            }
+            $sliceStart = max(0, $start - $segmentStart);
+            $sliceLength = min($segmentEnd, $end) - max($segmentStart, $start);
+            if ( $sliceLength <= 0 ) {
+                continue;
+            }
+            $html .= $this->segmentRunHtml(mb_substr($segmentText, $sliceStart, $sliceLength), is_array($segment['style'] ?? null) ? $segment['style'] : null);
+        }
+
+        return $html;
     }
 
     /**
@@ -6116,12 +6248,12 @@ final class StaticHtmlEmitter
         return null;
     }
 
-    private function sourceTextListItemText(string $lineText): string
+    private function sourceTextListItemHtml(string $lineHtml): string
     {
-        $lineText = trim($lineText);
-        $lineText = preg_replace('/^\s*(?:[\x{2022}\x{2023}\x{25E6}\x{2043}\x{2219}\-*+]|\d+[.)])\s+/u', '', $lineText);
+        $lineHtml = trim($lineHtml);
+        $lineHtml = preg_replace('/^\s*(?:[\x{2022}\x{2023}\x{25E6}\x{2043}\x{2219}\-*+]|\d+[.)])\s+/u', '', $lineHtml);
 
-        return null === $lineText ? '' : trim($lineText);
+        return null === $lineHtml ? '' : trim($lineHtml);
     }
 
     /**

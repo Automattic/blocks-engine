@@ -204,6 +204,46 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     blocks_engine_figma_transformer_contract_assert_tag_count($assert, $bulletTextListHtml, 'li', 2, 'source-text-bullet-list-li-count');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $bulletTextListCss, '.figma-node-text-bullet-list-bullet-coverage-list', array('list-style:disc', 'padding-left:1.5em'), 'source-text-bullet-list-restores-marker-css');
 
+    $nestedRichTextListResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Nested Source Text List Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'text:nested-rich-list',
+                'type'     => 'TEXT',
+                'name'     => 'Nested Rich Coverage List',
+                'fontSize' => 16,
+                'fontName' => array('family' => 'Inter', 'style' => 'Regular'),
+                'textData' => array(
+                    'characters' => 'Intro itemNested bold noteFinal item',
+                    'lines'      => array(
+                        array('lineType' => 'ORDERED', 'indentationLevel' => 0, 'listStartOffset' => 2, 'isFirstLineOfList' => true),
+                        array('lineType' => 'BULLET', 'indentationLevel' => 1, 'isFirstLineOfList' => true),
+                        array('lineType' => 'ORDERED', 'indentationLevel' => 0, 'listStartOffset' => 3, 'isFirstLineOfList' => true),
+                    ),
+                ),
+                'derivedTextData' => array(
+                    'baselines' => array(
+                        array('firstCharacter' => 0, 'endCharacter' => 10, 'position' => array('x' => 0, 'y' => 16), 'lineHeight' => 20),
+                        array('firstCharacter' => 10, 'endCharacter' => 26, 'position' => array('x' => 18, 'y' => 36), 'lineHeight' => 20),
+                        array('firstCharacter' => 26, 'endCharacter' => 36, 'position' => array('x' => 0, 'y' => 56), 'lineHeight' => 20),
+                    ),
+                    'characterStyleIDs' => array_merge(array_fill(0, 10, 0), array_fill(0, 11, 1), array_fill(0, 15, 0)),
+                    'styleOverrideTable' => array(
+                        array('styleID' => 1, 'fontName' => array('family' => 'Inter', 'style' => 'Bold')),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $nestedRichTextListHtml = $fileContent($nestedRichTextListResult, 'index.html');
+    $nestedRichTextListCss = $fileContent($nestedRichTextListResult, 'style.css');
+    $assert(str_contains($nestedRichTextListHtml, '<ol class="figma-node-text-nested-rich-list-nested-rich-coverage-list" data-figma-node-id="text:nested-rich-list" data-figma-node-name="Nested Rich Coverage List" start="2">'), 'source-text-nested-list-emits-root-ol-start');
+    $assert(str_contains($nestedRichTextListHtml, '<li>Intro item<ul style="list-style:disc;padding-left:1.5em"><li><span style="font-weight:700">Nested bold</span> note</li></ul></li><li>Final item</li>'), 'source-text-nested-list-emits-indent-and-rich-spans');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $nestedRichTextListHtml, 'ol', 1, 'source-text-nested-list-root-ol-count');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $nestedRichTextListHtml, 'ul', 1, 'source-text-nested-list-child-ul-count');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $nestedRichTextListHtml, 'li', 3, 'source-text-nested-list-li-count');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $nestedRichTextListCss, '.figma-node-text-nested-rich-list-nested-rich-coverage-list', array('list-style:decimal', 'padding-left:1.5em'), 'source-text-nested-list-root-marker-css');
+
     $derivedSoftWrapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Derived Soft Wrap Fixture',
         'nodes' => array(
