@@ -1066,7 +1066,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
                 'height'   => 320,
                 'children' => array(
                     array('id' => 'incomplete:image', 'type' => 'RECTANGLE', 'name' => 'Missing hero asset', 'width' => 320, 'height' => 180, 'asset_id' => 'missing-hero'),
-                    array('id' => 'incomplete:vector', 'type' => 'VECTOR', 'name' => 'Unsupported logo mark'),
+                    array('id' => 'incomplete:vector', 'type' => 'VECTOR', 'name' => 'Unsupported logo mark', 'width' => 24, 'height' => 24),
                 ),
             ),
         ),

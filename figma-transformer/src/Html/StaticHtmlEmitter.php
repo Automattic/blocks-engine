@@ -847,6 +847,9 @@ final class StaticHtmlEmitter
 
         $hasRenderableVectorFallback = '' !== trim($content);
         if ( $this->shouldSuppressNonRenderableUnsupportedVectorPlaceholder($node, $type, $vectorSvg, $hasVectorAssetFallback, $hasRenderableVectorFallback) ) {
+            if ( '' !== $id ) {
+                $this->suppressedVisualNodeIds[$id] = 'non_renderable_unsupported_vector_suppressed';
+            }
             $this->recordDecisionTrace('vector_scaffold', 'non_renderable_unsupported_vector_suppressed', $node, 'skip_node', $parentNode, array('reason' => 'zero_area_without_vector_source'));
 
             return '';
@@ -3837,6 +3840,9 @@ final class StaticHtmlEmitter
         $type = strtoupper((string) ($node['type'] ?? ''));
         $booleanComposedChildren = false;
         if ( $this->isUnsupportedVectorType($type) ) {
+            if ( 'non_renderable_unsupported_vector_suppressed' === $suppressionReason ) {
+                return;
+            }
             if ( $this->isNonRenderingVectorLayer($node) ) {
                 return;
             }
