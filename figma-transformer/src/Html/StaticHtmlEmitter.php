@@ -91,6 +91,8 @@ final class StaticHtmlEmitter
 
     private ?LayoutFrameRoleClassifier $layoutFrameRoleClassifier = null;
 
+    private ?StaticHtmlSemanticClassifier $staticHtmlSemanticClassifier = null;
+
     private function designSystemExtractor(): DesignSystemExtractor
     {
         return $this->designSystemExtractor ??= new DesignSystemExtractor($this->fontResolver());
@@ -237,6 +239,30 @@ final class StaticHtmlEmitter
     private function layoutFrameRoleClassifier(): LayoutFrameRoleClassifier
     {
         return $this->layoutFrameRoleClassifier ??= new LayoutFrameRoleClassifier();
+    }
+
+    private function staticHtmlSemanticClassifier(): StaticHtmlSemanticClassifier
+    {
+        return $this->staticHtmlSemanticClassifier ??= new StaticHtmlSemanticClassifier(
+            $this->layoutIntentClassifier(),
+            array(
+                'nodeList' => fn (array $node): array => $this->nodeList($node),
+                'textContent' => fn (array $node, ?array $parentNode = null): string => $this->textContent($node, $parentNode),
+                'textDescendantCount' => fn (array $node): int => $this->textDescendantCount($node),
+                'subtreePlainText' => fn (array $node): string => $this->subtreePlainText($node),
+                'nodePlainText' => fn (array $node): string => $this->nodePlainText($node),
+                'boxValue' => fn (array $node, string $key): ?float => $this->boxValue($node, $key),
+                'backgroundColor' => fn (array $node): ?string => $this->backgroundColor($node),
+                'cornerRadius' => fn (array $node): float => $this->cornerRadius($node),
+                'hasStrokePaint' => fn (array $node): bool => $this->hasStrokePaint($node),
+                'nodeAssetPath' => fn (array $node): ?string => $this->nodeAssetPath($node),
+                'subtreeHasRenderableVector' => fn (array $node): bool => $this->subtreeHasRenderableVector($node),
+                'listItemIds' => fn (array $container): array => $this->listItemIds($container),
+                'listLooksOrdered' => fn (array $container): bool => $this->listLooksOrdered($container),
+                'headingLevel' => fn (array $node, string $lowerName, int $depth, ?array $parentNode = null): ?string => $this->headingLevel($node, $lowerName, $depth, $parentNode),
+                'sanitizeAttribute' => fn (string $value): string => $this->sanitizeAttribute($value),
+            )
+        );
     }
 
     /**
@@ -964,103 +990,7 @@ final class StaticHtmlEmitter
      */
     private function semanticTag(array $node, string $type, string $name, int $depth, ?array $parentNode, ?array $grandParentNode = null): string
     {
-        $lowerName = strtolower($name);
-
-        if ( 'TEXT' === $type ) {
-            // A label inside a button-like control is inline phrasing content.
-            if ( null !== $parentNode && $this->isButtonLike($parentNode) ) {
-                return 'span';
-            }
-
-            if ( null !== $parentNode && $this->isNavigationLabelText($node, $parentNode) ) {
-                return 'span';
-            }
-
-            if ( null !== $parentNode && $this->isCompactControlTokenText($node, $parentNode) ) {
-                return 'span';
-            }
-
-            if ( null !== $parentNode && $this->isListItemOf($node, $parentNode) ) {
-                return 'li';
-            }
-
-            if ( null !== $parentNode && $this->isSemanticListItemNode($parentNode) ) {
-                return 'p';
-            }
-
-            if ( $this->isFooterTextContext($parentNode, $grandParentNode) && ! $this->hasExplicitHeadingIntent($lowerName) ) {
-                return 'p';
-            }
-
-            $heading = $this->headingLevel($node, $lowerName, $depth, $parentNode);
-            if ( null !== $heading ) {
-                return $heading;
-            }
-
-            return 'p';
-        }
-
-        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
-
-        // List items: a repeated, structurally-similar child of a list container.
-        if ( null !== $parentNode && $this->isListItemOf($node, $parentNode) ) {
-            return 'li';
-        }
-
-        if ( $this->isTextareaLike($node, $parentNode) ) {
-            return 'textarea';
-        }
-
-        if ( $this->isInputLike($node) ) {
-            if ( $this->hasFormControlAccessoryChildren($node) ) {
-                return 'div';
-            }
-            return 'input';
-        }
-
-        if ( $this->isFormLike($node, $parentNode) ) {
-            return 'form';
-        }
-
-        if ( str_contains($lowerName, 'blockquote') || str_contains($lowerName, 'block quote') ) {
-            return 'blockquote';
-        }
-
-        // Inner component chrome inside a larger button-like control is
-        // structural. Only the outer control should become interactive HTML.
-        if ( null !== $parentNode && $this->isButtonLike($parentNode) && $this->isButtonLike($node) ) {
-            return 'div';
-        }
-
-        // A standalone button-like control (no link) becomes a real <button>.
-        // Linked controls stay structural and gain a button class on their anchor.
-        if ( empty($node['figma_link']) && $this->isButtonLike($node) ) {
-            return 'button';
-        }
-
-        // A container of repeated sibling items reads as an unordered list.
-        if ( ! empty($this->listItemIds($node)) ) {
-            return $this->listLooksOrdered($node) ? 'ol' : 'ul';
-        }
-
-        $landmark = $this->landmarkTag($node, $lowerName, $children, $depth, $parentNode);
-        if ( null !== $landmark ) {
-            return $landmark;
-        }
-
-        if ( $this->isArticleLikeContainer($node, $lowerName) ) {
-            return 'article';
-        }
-
-        // A <section> is reserved for genuine top-level content regions — the
-        // page bands a hand-author would wrap in <section>. Every other frame
-        // (nested wrappers, rows, columns, cards, decorative groups) stays a
-        // <div>, so a typical page emits a handful of sections, not hundreds.
-        if ( 'FRAME' === $type && $this->isTopLevelSection($node, $depth, $parentNode, $children) ) {
-            return 'section';
-        }
-
-        return 'div';
+        return $this->staticHtmlSemanticClassifier()->semanticTag($node, $type, $name, $depth, $this->sectionDepth, $parentNode, $grandParentNode);
     }
 
     private function isFooterTextContext(?array $parentNode, ?array $grandParentNode): bool
@@ -1409,29 +1339,7 @@ final class StaticHtmlEmitter
      */
     private function isButtonLike(array $node): bool
     {
-        if ( $this->isTextareaLike($node) || $this->isInputLike($node) ) {
-            return false;
-        }
-        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
-            return false;
-        }
-        if ( 1 !== $this->textDescendantCount($node) ) {
-            return false;
-        }
-
-        $width = $this->boxValue($node, 'width');
-        if ( null !== $width && $width > 480.0 ) {
-            return false;
-        }
-        $height = $this->boxValue($node, 'height');
-        if ( null !== $height && $height > 160.0 ) {
-            return false;
-        }
-
-        $name = strtolower((string) ($node['name'] ?? ''));
-        $nameHint = str_contains($name, 'button') || str_contains($name, 'btn') || str_contains($name, 'cta');
-
-        return $nameHint || null !== $this->backgroundColor($node) || $this->cornerRadius($node) > 0.0;
+        return $this->staticHtmlSemanticClassifier()->isButtonLike($node);
     }
 
     /**
@@ -1493,43 +1401,7 @@ final class StaticHtmlEmitter
      */
     private function isInputLike(array $node): bool
     {
-        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
-            return false;
-        }
-
-        if ( $this->isTextareaLike($node) ) {
-            return false;
-        }
-
-        $name = strtolower((string) ($node['name'] ?? ''));
-        if ( str_contains($name, 'button') || str_contains($name, 'btn') || str_contains($name, 'cta') ) {
-            return false;
-        }
-
-        $placeholder = strtolower(trim($this->subtreePlainText($node)));
-        $haystack = $name . ' ' . $placeholder;
-        $hasInputName = str_contains($name, 'input')
-            || str_contains($name, 'text field')
-            || str_contains($name, 'textfield')
-            || str_contains($name, 'form field')
-            || str_contains($haystack, 'search')
-            || preg_match('/(^|[^a-z])field([^a-z]|$)/', $name);
-        if ( ! $hasInputName ) {
-            return false;
-        }
-
-        $textCount = $this->textDescendantCount($node);
-        if ( $textCount < 1 || $textCount > 2 ) {
-            return false;
-        }
-
-        $width = $this->boxValue($node, 'width');
-        $height = $this->boxValue($node, 'height');
-        if ( (null !== $width && $width > 640.0) || (null !== $height && $height > 120.0) ) {
-            return false;
-        }
-
-        return null !== $this->backgroundColor($node) || $this->cornerRadius($node) > 0.0 || $this->hasStrokePaint($node);
+        return $this->staticHtmlSemanticClassifier()->isInputLike($node);
     }
 
     /**
@@ -1538,56 +1410,7 @@ final class StaticHtmlEmitter
      */
     private function isFormLike(array $node, ?array $parentNode): bool
     {
-        if ( null !== $parentNode && $this->isFormLike($parentNode, null) ) {
-            return false;
-        }
-
-        $name = strtolower((string) ($node['name'] ?? ''));
-        $text = strtolower($this->subtreePlainText($node));
-        $haystack = $name . ' ' . $text;
-        $hasFormIntent = str_contains($haystack, 'search')
-            || str_contains($haystack, 'newsletter')
-            || str_contains($haystack, 'subscribe')
-            || str_contains($haystack, 'sign up')
-            || str_contains($haystack, 'comment')
-            || str_contains($haystack, 'reply');
-        $hasNamedFormIntent = str_contains($name, 'search')
-            || str_contains($name, 'newsletter')
-            || str_contains($name, 'subscribe')
-            || str_contains($name, 'sign up')
-            || str_contains($name, 'comment')
-            || str_contains($name, 'reply')
-            || str_contains($name, 'form');
-        if ( ! $hasFormIntent || ! $hasNamedFormIntent ) {
-            return false;
-        }
-
-        $height = $this->boxValue($node, 'height');
-        if ( null !== $height && $height > 800.0 ) {
-            return false;
-        }
-
-        $hasField = false;
-        $hasSubmit = false;
-        $children = array_values(array_filter($this->nodeList($node), 'is_array'));
-        $relevantChildren = 0;
-        foreach ( $children as $child ) {
-            if ( ! is_array($child) ) {
-                continue;
-            }
-            $childHasField = $this->subtreeHasInputLike($child) || $this->subtreeHasTextareaLike($child);
-            $childHasSubmit = $this->subtreeHasSubmitButtonLike($child);
-            if ( $childHasField || $childHasSubmit ) {
-                $relevantChildren++;
-            }
-            $hasField = $hasField || $childHasField;
-            $hasSubmit = $hasSubmit || $childHasSubmit;
-        }
-
-        if ( count($children) > 3 && $relevantChildren < count($children) - 1 ) {
-            return false;
-        }
-        return $hasField && ($hasSubmit || str_contains($haystack, 'search'));
+        return $this->staticHtmlSemanticClassifier()->isFormLike($node, $parentNode);
     }
 
     /** @param array<string, mixed> $node */
@@ -1638,42 +1461,7 @@ final class StaticHtmlEmitter
      */
     private function isTextareaLike(array $node, ?array $parentNode = null): bool
     {
-        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
-            return false;
-        }
-
-        $name = strtolower((string) ($node['name'] ?? ''));
-        if ( str_contains($name, 'button') || str_contains($name, 'btn') || str_contains($name, 'cta') ) {
-            return false;
-        }
-
-        $placeholder = strtolower(trim($this->subtreePlainText($node)));
-        $label = strtolower($this->nearbyFormControlLabel($node, $parentNode));
-        $haystack = $name . ' ' . $placeholder . ' ' . $label;
-        $hasTextareaIntent = str_contains($haystack, 'textarea')
-            || str_contains($haystack, 'text area')
-            || str_contains($haystack, 'message')
-            || str_contains($haystack, 'comment')
-            || str_contains($haystack, 'reply');
-        if ( ! $hasTextareaIntent ) {
-            return false;
-        }
-
-        $textCount = $this->textDescendantCount($node);
-        if ( $textCount < 1 || $textCount > 3 ) {
-            return false;
-        }
-
-        $width = $this->boxValue($node, 'width');
-        $height = $this->boxValue($node, 'height');
-        if ( null !== $width && $width > 900.0 ) {
-            return false;
-        }
-        if ( null !== $height && $height < 72.0 ) {
-            return false;
-        }
-
-        return null !== $this->backgroundColor($node) || $this->cornerRadius($node) > 0.0 || $this->hasStrokePaint($node);
+        return $this->staticHtmlSemanticClassifier()->isTextareaLike($node, $parentNode);
     }
 
     /**
@@ -1681,17 +1469,7 @@ final class StaticHtmlEmitter
      */
     private function hasFormControlAccessoryChildren(array $node): bool
     {
-        foreach ( $this->nodeList($node) as $child ) {
-            if ( ! is_array($child) || $this->isFormControlPlaceholderChild($child) ) {
-                continue;
-            }
-
-            if ( $this->subtreeHasRenderableVector($child) || null !== $this->nodeAssetPath($child) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->staticHtmlSemanticClassifier()->hasFormControlAccessoryChildren($node);
     }
 
     /**
@@ -1699,17 +1477,7 @@ final class StaticHtmlEmitter
      */
     private function isFormControlPlaceholderChild(array $node): bool
     {
-        if ( '' === trim($this->subtreePlainText($node)) ) {
-            return false;
-        }
-
-        foreach ( $this->nodeList($node) as $child ) {
-            if ( is_array($child) && ! $this->isFormControlPlaceholderChild($child) ) {
-                return false;
-            }
-        }
-
-        return ! $this->subtreeHasRenderableVector($node) && null === $this->nodeAssetPath($node);
+        return $this->staticHtmlSemanticClassifier()->isFormControlPlaceholderChild($node);
     }
 
     /**
@@ -1956,35 +1724,7 @@ final class StaticHtmlEmitter
      */
     private function formControlAttributes(array $node, string $tag, ?array $parentNode = null): string
     {
-        $placeholder = trim($this->subtreePlainText($node));
-        $label = $this->nearbyFormControlLabel($node, $parentNode);
-        $name = (string) ($node['name'] ?? '');
-        $haystack = strtolower($name . ' ' . $placeholder . ' ' . $label);
-        $type = 'text';
-        if ( str_contains($haystack, 'search') ) {
-            $type = 'search';
-        } elseif ( str_contains($haystack, 'email') || str_contains($haystack, 'e-mail') ) {
-            $type = 'email';
-        }
-
-        $attributes = 'input' === $tag ? ' type="' . $type . '"' : '';
-        if ( 'search' === $type ) {
-            $attributes .= ' name="s"';
-        } elseif ( 'email' === $type ) {
-            $attributes .= ' name="email"';
-        } elseif ( 'textarea' === $tag ) {
-            $attributes .= ' name="message"';
-        }
-        if ( '' !== $placeholder ) {
-            $attributes .= ' placeholder="' . $this->sanitizeAttribute($placeholder) . '"';
-            $attributes .= ' aria-label="' . $this->sanitizeAttribute($placeholder) . '"';
-        } elseif ( '' !== $label ) {
-            $attributes .= ' aria-label="' . $this->sanitizeAttribute($label) . '"';
-        } elseif ( '' !== $name ) {
-            $attributes .= ' aria-label="' . $this->sanitizeAttribute($name) . '"';
-        }
-
-        return $attributes;
+        return $this->staticHtmlSemanticClassifier()->formControlAttributes($node, $tag, $parentNode);
     }
 
     /**
@@ -1993,31 +1733,7 @@ final class StaticHtmlEmitter
      */
     private function nearbyFormControlLabel(array $node, ?array $parentNode): string
     {
-        if ( null === $parentNode ) {
-            return '';
-        }
-
-        $nodeId = (string) ($node['id'] ?? '');
-        foreach ( $this->nodeList($parentNode) as $child ) {
-            if ( ! is_array($child) || $nodeId === (string) ($child['id'] ?? '') ) {
-                continue;
-            }
-            if ( 'TEXT' !== strtoupper((string) ($child['type'] ?? '')) ) {
-                continue;
-            }
-
-            $name = strtolower((string) ($child['name'] ?? ''));
-            if ( ! str_contains($name, 'label') ) {
-                continue;
-            }
-
-            $text = trim($this->nodePlainText($child));
-            if ( '' !== $text ) {
-                return $text;
-            }
-        }
-
-        return '';
+        return $this->staticHtmlSemanticClassifier()->nearbyFormControlLabel($node, $parentNode);
     }
 
     /**
@@ -7764,6 +7480,7 @@ final class StaticHtmlEmitter
     private function normalizeAssets(mixed $assets, array &$diagnostics): array
     {
         $this->assetsById = array();
+        $this->staticHtmlSemanticClassifier = null;
         if ( ! is_array($assets) ) {
             return array();
         }
