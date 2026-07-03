@@ -482,7 +482,7 @@ $fseFooterUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(
 ));
 $fseFooterUnderlayCss = $fileContent($fseFooterUnderlayResult, 'style.css');
 $fseFooterUnderlays = $fseFooterUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
-$assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-row-frame-19{width:100%;height:131px;position:relative;isolation:isolate;display:flex;flex-direction:row;justify-content:space-between;align-items:center;padding-top:48px;padding-right:112px;padding-bottom:48px;padding-left:112px}'), 'fse-footer-row-relative');
+$assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-row-frame-19{width:100%;height:131px;position:relative;isolation:isolate;display:flex;flex-direction:row;justify-content:space-between;align-items:center;padding-top:48px;padding-right:max(0px,calc((100% - 1216px) / 2));padding-bottom:48px;padding-left:max(0px,calc((100% - 1216px) / 2))}'), 'fse-footer-row-relative');
 $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-bg-rectangle-3{width:1440px;height:195px;position:absolute;left:0px;top:-64px;bottom:0px;z-index:0;pointer-events:none;background:#d9d9d9}'), 'fse-footer-background-underlay-protected');
 $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-logo-logo{width:228px;height:35px;position:relative;z-index:1;flex-shrink:0}'), 'fse-footer-logo-stacks-above-underlay');
 $assert(str_contains($fseFooterUnderlayCss, '.figma-node-fse-footer-links-frame-29{width:265px;height:26px;position:relative;z-index:1;display:flex;flex-direction:row;flex-shrink:0}'), 'fse-footer-link-row-stacks-above-underlay');

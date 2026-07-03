@@ -5135,6 +5135,10 @@ final class StaticHtmlEmitter
         $overlapZIndex = null !== $parentNode ? $this->layoutIntentClassifier()->overlappingSiblingZIndex($node, $parentNode) : null;
         $managesLocalStacking = $this->layoutIntentClassifier()->managesLocalStacking($node);
         $needsLocalStackIsolation = $this->layoutIntentClassifier()->needsLocalStackIsolation($node);
+        if ( $responsiveCenteredFlowShell && ! $willPositionAbsolute ) {
+            $styles[] = 'margin-left:auto';
+            $styles[] = 'margin-right:auto';
+        }
         if ( ! $willPositionAbsolute && ($managesLocalStacking || ($parentFreeformUsesFlow && 'FRAME' === $type)) ) {
             $styles[] = 'position:relative';
         }
@@ -5266,7 +5270,8 @@ final class StaticHtmlEmitter
         if ( isset($layout['padding']) && is_array($layout['padding']) ) {
             foreach ( array('top', 'right', 'bottom', 'left') as $edge ) {
                 if ( isset($layout['padding'][$edge]) && is_numeric($layout['padding'][$edge]) ) {
-                    $styles[] = 'padding-' . $edge . ':' . $this->number($this->cssPaddingValue($node, $edge)) . 'px';
+                    $paddingValue = $this->cssPaddingValue($node, $edge, $parentNode);
+                    $styles[] = 'padding-' . $edge . ':' . (is_string($paddingValue) ? $paddingValue : $this->number($paddingValue) . 'px');
                 }
             }
         }
@@ -5361,12 +5366,19 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function cssPaddingValue(array $node, string $edge): float
+    private function cssPaddingValue(array $node, string $edge, ?array $parentNode): float|string
     {
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
         $padding = is_array($layout['padding'] ?? null) ? $layout['padding'] : array();
         $value = isset($padding[$edge]) && is_numeric($padding[$edge]) ? (float) $padding[$edge] : 0.0;
         $axis = in_array($edge, array('left', 'right'), true) ? 'horizontal' : 'vertical';
+        if ( 'horizontal' === $axis ) {
+            $responsiveGutter = $this->responsiveFluidCanvasGutter($node, $edge, $parentNode);
+            if ( null !== $responsiveGutter ) {
+                return $responsiveGutter;
+            }
+        }
+
         $dimension = 'horizontal' === $axis ? 'width' : 'height';
         $sizingKey = 'horizontal' === $axis ? 'sizing_horizontal' : 'sizing_vertical';
         if ( in_array(strtoupper((string) ($layout[$sizingKey] ?? '')), array('HUG', 'FILL'), true) ) {
@@ -5389,6 +5401,38 @@ final class StaticHtmlEmitter
         }
 
         return $value * ($available / $sum);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function responsiveFluidCanvasGutter(array $node, string $edge, ?array $parentNode): ?string
+    {
+        if ( ! in_array($edge, array('left', 'right'), true) ) {
+            return null;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( ! $this->isFluidPageWidth($box, $layout, $parentNode) ) {
+            return null;
+        }
+
+        $padding = is_array($layout['padding'] ?? null) ? $layout['padding'] : array();
+        if ( ! isset($padding['left'], $padding['right'], $box['width']) || ! is_numeric($padding['left']) || ! is_numeric($padding['right']) || ! is_numeric($box['width']) ) {
+            return null;
+        }
+
+        $left = (float) $padding['left'];
+        $right = (float) $padding['right'];
+        $width = (float) $box['width'];
+        if ( $left < 64.0 || $right < 64.0 || abs($left - $right) > 1.0 || $left + $right >= $width ) {
+            return null;
+        }
+
+        $contentWidth = $width - $left - $right;
+        return 'max(0px,calc((100% - ' . $this->number($contentWidth) . 'px) / 2))';
     }
 
     /**

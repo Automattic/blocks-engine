@@ -148,7 +148,10 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $responsiveShellCss = $fileContent($responsiveShellResult, 'style.css');
     $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-root-desktop-page{width:100%;min-height:900px;'), 'quality-diagnostics-responsive-shell-root-stays-full-bleed');
     $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-band-full-bleed-band{width:100%;min-height:520px;'), 'quality-diagnostics-responsive-shell-band-stays-full-bleed');
+    $assert(str_contains($responsiveShellCss, 'padding-right:max(0px,calc((100% - 1170px) / 2))'), 'quality-diagnostics-responsive-shell-band-uses-responsive-right-gutter');
+    $assert(str_contains($responsiveShellCss, 'padding-left:max(0px,calc((100% - 1170px) / 2))'), 'quality-diagnostics-responsive-shell-band-uses-responsive-left-gutter');
     $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-centered-centered-content-shell{width:100%;max-width:1170px;height:48px;'), 'quality-diagnostics-centered-flow-shell-renders-responsive-width');
+    $assert(str_contains($responsiveShellCss, 'margin-left:auto;margin-right:auto'), 'quality-diagnostics-centered-flow-shell-centers-with-auto-margins');
     $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-padded-padded-content-shell{width:100%;max-width:1170px;height:48px;'), 'quality-diagnostics-padded-centered-flow-shell-renders-responsive-width');
     $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-off-center-off-center-card{width:420px;height:48px;'), 'quality-diagnostics-off-center-flow-child-keeps-intrinsic-width');
 
