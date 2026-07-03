@@ -244,6 +244,7 @@ final class TransformDiagnosticsBuilder
                 'mask_nodes' => (int) ($maskEffectClipping['mask_node_count'] ?? 0),
                 'mask_metadata_nodes' => (int) ($maskEffectClipping['mask_metadata_node_count'] ?? 0),
                 'emitted_mask_source_nodes' => (int) ($maskEffectClipping['emitted_mask_source_node_count'] ?? 0),
+                'suppressed_mask_source_nodes' => (int) ($maskEffectClipping['suppressed_mask_source_node_count'] ?? 0),
                 'clips_content_nodes' => (int) ($maskEffectClipping['clips_content_node_count'] ?? 0),
                 'clipped_effect_nodes' => (int) ($maskEffectClipping['clipped_effect_node_count'] ?? 0),
                 'mixed_positioning_parent_count' => (int) ($layout['stacking_order']['mixed_positioning_parent_count'] ?? 0),

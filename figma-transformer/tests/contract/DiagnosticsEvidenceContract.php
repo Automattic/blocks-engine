@@ -203,18 +203,23 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $maskEffectClipping = $maskMetadataDiagnostics['mask_effect_clipping'] ?? array();
     $assert(1 === ($maskEffectClipping['mask_node_count'] ?? null), 'diagnostics-evidence-mask-node-count');
     $assert(3 === ($maskEffectClipping['mask_metadata_node_count'] ?? null), 'diagnostics-evidence-mask-metadata-node-count');
-    $assert(1 === ($maskEffectClipping['emitted_mask_source_node_count'] ?? null), 'diagnostics-evidence-emitted-mask-source-count');
+    $assert(0 === ($maskEffectClipping['emitted_mask_source_node_count'] ?? null), 'diagnostics-evidence-emitted-mask-source-count');
+    $assert(1 === ($maskEffectClipping['suppressed_mask_source_node_count'] ?? null), 'diagnostics-evidence-suppressed-mask-source-count');
     $assert(2 === ($maskEffectClipping['clips_content_node_count'] ?? null), 'diagnostics-evidence-mask-clips-content-count');
     $assert(1 === ($maskEffectClipping['by_mask_type']['ALPHA'] ?? null), 'diagnostics-evidence-mask-type-count');
     $assert(false === ($maskEffectClipping['sample_nodes'][0]['frame_mask_disabled'] ?? null), 'diagnostics-evidence-frame-mask-disabled-sample');
     $assert(true === ($maskEffectClipping['sample_nodes'][1]['is_mask'] ?? null), 'diagnostics-evidence-is-mask-sample');
     $assert('ALPHA' === ($maskEffectClipping['sample_nodes'][1]['type'] ?? null), 'diagnostics-evidence-mask-type-sample');
-    $assert('diag:mask-source' === ($maskEffectClipping['emitted_mask_source_nodes'][0]['node_id'] ?? null), 'diagnostics-evidence-emitted-mask-source-sample');
-    $assert('ALPHA' === ($maskEffectClipping['emitted_mask_source_nodes'][0]['type'] ?? null), 'diagnostics-evidence-emitted-mask-source-type-sample');
+    $assert('diag:mask-source' === ($maskEffectClipping['suppressed_mask_source_nodes'][0]['node_id'] ?? null), 'diagnostics-evidence-suppressed-mask-source-sample');
+    $assert('ALPHA' === ($maskEffectClipping['suppressed_mask_source_nodes'][0]['type'] ?? null), 'diagnostics-evidence-suppressed-mask-source-type-sample');
     $assert(true === ($maskEffectClipping['sample_nodes'][2]['is_clip'] ?? null), 'diagnostics-evidence-is-clip-sample');
+    $maskMetadataHtml = blocks_engine_figma_transformer_contract_file_content($maskMetadataResult, 'index.html');
+    $assert(! str_contains($maskMetadataHtml, 'data-figma-node-id="diag:mask-source"'), 'diagnostics-evidence-mask-source-not-emitted');
+    $assert(0 === ($maskMetadataDiagnostics['vectors']['placeholders'] ?? null), 'diagnostics-evidence-mask-source-not-vector-placeholder');
     $assert(1 === ($maskMetadataDiagnostics['artifact_quality']['summary']['mask_nodes'] ?? null), 'diagnostics-evidence-artifact-summary-mask-nodes');
     $assert(3 === ($maskMetadataDiagnostics['artifact_quality']['summary']['mask_metadata_nodes'] ?? null), 'diagnostics-evidence-artifact-summary-mask-metadata-nodes');
-    $assert(1 === ($maskMetadataDiagnostics['artifact_quality']['summary']['emitted_mask_source_nodes'] ?? null), 'diagnostics-evidence-artifact-summary-emitted-mask-source-nodes');
+    $assert(0 === ($maskMetadataDiagnostics['artifact_quality']['summary']['emitted_mask_source_nodes'] ?? null), 'diagnostics-evidence-artifact-summary-emitted-mask-source-nodes');
+    $assert(1 === ($maskMetadataDiagnostics['artifact_quality']['summary']['suppressed_mask_source_nodes'] ?? null), 'diagnostics-evidence-artifact-summary-suppressed-mask-source-nodes');
 
     $multiPageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Diagnostics Aggregation Fixture',

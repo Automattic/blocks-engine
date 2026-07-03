@@ -619,6 +619,10 @@ final class StaticHtmlEmitter
             return '';
         }
 
+        if ( $depth > 0 && $this->isMaskOperatorNode($node) ) {
+            return '';
+        }
+
         $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
         $name = (string) ($node['name'] ?? '');
         $attributeName = $this->sanitizeAttribute($name);
@@ -3431,12 +3435,14 @@ final class StaticHtmlEmitter
             'mask_node_count' => 0,
             'mask_metadata_node_count' => 0,
             'emitted_mask_source_node_count' => 0,
+            'suppressed_mask_source_node_count' => 0,
             'clips_content_node_count' => 0,
             'effect_node_count' => 0,
             'clipped_effect_node_count' => 0,
             'by_mask_type' => array(),
             'sample_nodes' => array(),
             'emitted_mask_source_nodes' => array(),
+            'suppressed_mask_source_nodes' => array(),
         );
 
         foreach ( $nodes as $node ) {
@@ -3476,6 +3482,7 @@ final class StaticHtmlEmitter
         ksort($maskEffectClipping['by_mask_type']);
         $maskEffectClipping['sample_nodes'] = array_slice($maskEffectClipping['sample_nodes'], 0, 25);
         $maskEffectClipping['emitted_mask_source_nodes'] = array_slice($maskEffectClipping['emitted_mask_source_nodes'], 0, 25);
+        $maskEffectClipping['suppressed_mask_source_nodes'] = array_slice($maskEffectClipping['suppressed_mask_source_nodes'], 0, 25);
         $generatedSvgAssets = $this->generatedSvgAssetDiagnostics($assetFiles);
         $assets = array(
             'emitted_files' => count($assetFiles),
@@ -3726,6 +3733,10 @@ final class StaticHtmlEmitter
         $this->collectComponentCoverageDiagnostics($node, $components, $html);
         $this->collectEffectCoverageDiagnostics($node, $effects, $maskEffectClipping, $html, $css);
         $this->collectMaskEffectClippingDiagnostics($node, $maskEffectClipping, $html);
+
+        if ( null !== $parentNode && $this->isMaskOperatorNode($node) ) {
+            return;
+        }
 
         $emptyContainer = $this->emptyVisibleContainerDiagnostic($node, $parentNode);
         if ( null !== $emptyContainer ) {
@@ -4012,11 +4023,14 @@ final class StaticHtmlEmitter
             }
             $maskEffectClipping['sample_nodes'][] = $maskSample;
         }
-        if ( true === ($mask['is_mask'] ?? null) || true === ($node['isMask'] ?? null) || true === ($node['mask'] ?? null) ) {
+        if ( $this->isMaskOperatorNode($node) ) {
             ++$maskEffectClipping['mask_node_count'];
             if ( $this->htmlContainsNodeId($html, (string) ($node['id'] ?? '')) ) {
                 ++$maskEffectClipping['emitted_mask_source_node_count'];
                 $maskEffectClipping['emitted_mask_source_nodes'][] = $maskSample ?? $this->nodeCoverageSample($node);
+            } else {
+                ++$maskEffectClipping['suppressed_mask_source_node_count'];
+                $maskEffectClipping['suppressed_mask_source_nodes'][] = $maskSample ?? $this->nodeCoverageSample($node);
             }
         }
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
@@ -4053,6 +4067,16 @@ final class StaticHtmlEmitter
         $sample = $this->nodeCoverageSample($node);
         $sample['vector_child_count'] = count($vectorChildren);
         $vectors['child_composition']['sample_nodes'][] = $sample;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isMaskOperatorNode(array $node): bool
+    {
+        $mask = is_array($node['figma_mask'] ?? null) ? $node['figma_mask'] : array();
+
+        return true === ($mask['is_mask'] ?? null) || true === ($node['isMask'] ?? null) || true === ($node['mask'] ?? null);
     }
 
     /**
