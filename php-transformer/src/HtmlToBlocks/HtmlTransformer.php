@@ -4808,6 +4808,7 @@ final class HtmlTransformer
         return 0 < $form->getElementsByTagName('script')->length
             || array() !== $this->eventMetadata($form)
             || $this->formHasRuntimeSubmissionMetadata($form)
+            || $this->formHasCommerceSubmissionSignal($form)
             || $this->formHasRuntimeDomTargets($form);
     }
 
@@ -4818,8 +4819,37 @@ final class HtmlTransformer
             return true;
         }
 
-        foreach ( array( 'method', 'enctype', 'target' ) as $attribute ) {
+        if ( '' === $action && '' !== trim($this->attr($form, 'method')) ) {
+            return true;
+        }
+
+        foreach ( array( 'enctype', 'target' ) as $attribute ) {
             if ( '' !== trim($this->attr($form, $attribute)) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function formHasCommerceSubmissionSignal(DOMElement $form): bool
+    {
+        foreach ( $this->formControlElements($form) as $control ) {
+            if ( ! $this->isSubmitLikeControl($control) ) {
+                continue;
+            }
+
+            $haystack = strtolower(implode(' ', array(
+                $control->textContent ?? '',
+                $this->attr($control, 'value'),
+                $this->attr($control, 'class'),
+                $this->attr($control, 'id'),
+                $this->attr($control, 'name'),
+                $this->attr($control, 'aria-label'),
+                $this->attr($control, 'title'),
+            )));
+
+            if ( preg_match('/(?:^|[^a-z0-9])(?:add to cart|cart|checkout|payment|purchase|buy|order|register|registration|ticket)(?:[^a-z0-9]|$)/', $haystack) ) {
                 return true;
             }
         }

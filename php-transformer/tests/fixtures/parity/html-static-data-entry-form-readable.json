@@ -5,7 +5,7 @@
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-static-data-entry-form-readable.json",
-    "notes": "Covers static/mockup newsletter and contact forms with no action, method, scripts, events, or runtime DOM targets."
+    "notes": "Covers static/mockup newsletter and contact forms with placeholder action plus method, and no scripts, events, or runtime DOM targets."
   },
   "legacy_comparison": {
     "skip": true,
@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<main><form id=\"newsletter\" class=\"signup-form\" action=\"#\" aria-label=\"Newsletter signup\"><label>Email <input type=\"email\" name=\"email\" placeholder=\"you@example.com\" required></label><button type=\"submit\">Subscribe</button></form></main>"
+    "content": "<main><form id=\"newsletter\" class=\"signup-form\" action=\"#\" method=\"post\" novalidate aria-label=\"Newsletter signup\"><label>Email <input type=\"email\" name=\"email\" placeholder=\"you@example.com\" required></label><button type=\"submit\">Subscribe</button></form></main>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "signup-form" } },
@@ -30,6 +30,7 @@
     { "path": "fallbacks", "assert": "count", "count": 1 },
     { "path": "fallbacks.0.form.id", "assert": "equals", "value": "newsletter" },
     { "path": "fallbacks.0.form.action", "assert": "equals", "value": "#" },
+    { "path": "fallbacks.0.form.method", "assert": "equals", "value": "post" },
     { "path": "fallbacks.0.controls.0.type", "assert": "equals", "value": "email" },
     { "path": "fallbacks.0.controls.0.required", "assert": "equals", "value": true },
     { "path": "fallbacks.0.readable_blocks.0.blockName", "assert": "equals", "value": "core/group" },
