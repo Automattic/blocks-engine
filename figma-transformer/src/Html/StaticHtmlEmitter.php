@@ -736,20 +736,16 @@ final class StaticHtmlEmitter
         }
         $children = $this->nodeList($node);
         $content = $text;
-        $nodeIntroducesLink = ! $insideLink && $this->nodeWouldWrapWithLink($node, $parentNode);
+        $nodeIntroducesLink = $this->nodeIntroducesLinkContext($node, $parentNode, $insideLink);
         $inputAccessoryControl = 'div' === $tag && $this->isInputLike($node) && $this->hasFormControlAccessoryChildren($node);
-        $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
-        $assetPath = $this->nodeAssetPath($node);
-        if ( null !== $assetPath || (isset($node['_figma_css_mask_image_path']) && is_scalar($node['_figma_css_mask_image_path']) && '' !== (string) $node['_figma_css_mask_image_path']) ) {
-            $vectorSvg = null;
-        }
-        $hasVectorAssetFallback = $this->isUnsupportedVectorType($type) && null !== $assetPath;
+        $assetComposition = $this->nodeAssetComposition($node, $type, $parentNode);
+        $vectorSvg = $assetComposition['vector_svg'];
+        $hasVectorAssetFallback = $assetComposition['has_vector_asset_fallback'];
 
         if ( ! in_array($tag, array('input', 'textarea'), true) && ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) && ! $this->vectorSvgComposesChildren($vectorSvg) ) {
             $insertedAccessoryInput = false;
-            $simpleMaskClipPaths = $this->simpleMaskClipPathsByTargetId($children);
+            $childCompositionMaps = $this->childAssetCompositionMaps($children);
             $suppressRootOffCanvasChildren = 0 === $depth && $this->hasRootOffCanvasChildCluster($children, $node);
-            $imageMaskPaths = $this->imageMaskPathsBySolidOverlayId($children);
             foreach ( $children as $child ) {
                 if ( is_array($child) ) {
                     if ( $this->isMaskOperatorNode($child) ) {
@@ -757,12 +753,7 @@ final class StaticHtmlEmitter
                         continue;
                     }
                     $childId = isset($child['id']) && is_scalar($child['id']) ? (string) $child['id'] : '';
-                    if ( '' !== $childId && isset($simpleMaskClipPaths[$childId]) ) {
-                        $child['_figma_css_clip_path'] = $simpleMaskClipPaths[$childId];
-                    }
-                    if ( '' !== $childId && isset($imageMaskPaths[$childId]) ) {
-                        $child['_figma_css_mask_image_path'] = $imageMaskPaths[$childId];
-                    }
+                    $child = $this->applyChildAssetComposition($child, $childId, $childCompositionMaps);
                     if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
                         $this->recordDecisionTrace('layout_suppression', 'fully_clipped_decorative_child_suppressed', $child, 'skip_child', $node, array('depth' => $depth + 1));
                         continue;
@@ -868,6 +859,77 @@ final class StaticHtmlEmitter
             $element = sprintf("<%1\$s%2\$s>%3\$s</%1\$s>\n", $tag, $attributes, $content);
         }
 
+        return $this->wrapComposedElementWithLink($node, $element, $diagnostics, $parentNode, $insideLink);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array{asset_path: string|null, vector_svg: string|null, has_vector_asset_fallback: bool}
+     */
+    private function nodeAssetComposition(array $node, string $type, ?array $parentNode): array
+    {
+        $vectorSvg = $this->supportedVectorSvg($node, $type, $parentNode);
+        $assetPath = $this->nodeAssetPath($node);
+        if ( null !== $assetPath || $this->nodeHasCssMaskImage($node) ) {
+            $vectorSvg = null;
+        }
+
+        return array(
+            'asset_path' => $assetPath,
+            'vector_svg' => $vectorSvg,
+            'has_vector_asset_fallback' => $this->isUnsupportedVectorType($type) && null !== $assetPath,
+        );
+    }
+
+    /**
+     * @param array<int, mixed> $children
+     * @return array{clip_paths: array<string, string>, image_mask_paths: array<string, string>}
+     */
+    private function childAssetCompositionMaps(array $children): array
+    {
+        return array(
+            'clip_paths' => $this->simpleMaskClipPathsByTargetId($children),
+            'image_mask_paths' => $this->imageMaskPathsBySolidOverlayId($children),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $child
+     * @param array{clip_paths: array<string, string>, image_mask_paths: array<string, string>} $compositionMaps
+     * @return array<string, mixed>
+     */
+    private function applyChildAssetComposition(array $child, string $childId, array $compositionMaps): array
+    {
+        if ( '' !== $childId && isset($compositionMaps['clip_paths'][$childId]) ) {
+            $child['_figma_css_clip_path'] = $compositionMaps['clip_paths'][$childId];
+        }
+        if ( '' !== $childId && isset($compositionMaps['image_mask_paths'][$childId]) ) {
+            $child['_figma_css_mask_image_path'] = $compositionMaps['image_mask_paths'][$childId];
+        }
+
+        return $child;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function nodeHasCssMaskImage(array $node): bool
+    {
+        return isset($node['_figma_css_mask_image_path'])
+            && is_scalar($node['_figma_css_mask_image_path'])
+            && '' !== (string) $node['_figma_css_mask_image_path'];
+    }
+
+    /** @param array<string, mixed> $node */
+    private function nodeIntroducesLinkContext(array $node, ?array $parentNode, bool $insideLink): bool
+    {
+        return ! $insideLink && $this->nodeWouldWrapWithLink($node, $parentNode);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, array<string, mixed>> $diagnostics
+     */
+    private function wrapComposedElementWithLink(array $node, string $element, array &$diagnostics, ?array $parentNode, bool $insideLink): string
+    {
         return $this->wrapWithLink($node, $element, $diagnostics, $this->isButtonLike($node), $parentNode, $insideLink);
     }
 
@@ -5883,26 +5945,8 @@ final class StaticHtmlEmitter
             }
         }
 
-        $imageLayers = $this->nodeImagePaintLayers($node);
-        if ( empty($imageLayers) ) {
-            $assetPaths = $this->nodeAssetPaths($node);
-            if ( ! empty($assetPaths) ) {
-                $urlList = implode(',', array_map(static fn (string $p): string => 'url("' . $p . '")', $assetPaths));
-                $styles[] = 'background-image:' . $urlList;
-                $styles[] = 'background-size:cover';
-                $styles[] = 'background-position:center';
-            }
-        } else {
-            $assetPaths = array_map(static fn (array $layer): string => (string) $layer['path'], $imageLayers);
-            $urlList = implode(',', array_map(static fn (string $p): string => 'url("' . $p . '")', $assetPaths));
-            $styles[] = 'background-image:' . $urlList;
-            $blendModes = $this->imageBackgroundBlendModes($imageLayers);
-            if ( ! empty($blendModes) ) {
-                $styles[] = 'background-blend-mode:' . implode(',', $blendModes);
-            }
-            foreach ( $this->imageBackgroundStyles($node, $imageLayers) as $style ) {
-                $styles[] = $style;
-            }
+        foreach ( $this->composedImageBackgroundStyles($node) as $style ) {
+            $styles[] = $style;
         }
 
         if ( 'TEXT' === $type ) {
@@ -5972,6 +6016,68 @@ final class StaticHtmlEmitter
         }
 
         return $this->mergeBoxShadowDeclarations(array_values(array_unique($styles)));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function cssMaskImageStyles(array $node): array
+    {
+        if ( ! $this->nodeHasCssMaskImage($node) ) {
+            return array();
+        }
+
+        $maskPath = (string) $node['_figma_css_mask_image_path'];
+        return array(
+            '-webkit-mask-image:url("' . $maskPath . '")',
+            'mask-image:url("' . $maskPath . '")',
+            '-webkit-mask-size:100% 100%',
+            'mask-size:100% 100%',
+            '-webkit-mask-repeat:no-repeat',
+            'mask-repeat:no-repeat',
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function composedImageBackgroundStyles(array $node): array
+    {
+        $styles = array();
+        $imageLayers = $this->nodeImagePaintLayers($node);
+        if ( empty($imageLayers) ) {
+            $assetPaths = $this->nodeAssetPaths($node);
+            if ( empty($assetPaths) ) {
+                return array();
+            }
+
+            $styles[] = 'background-image:' . $this->cssUrlList($assetPaths);
+            $styles[] = 'background-size:cover';
+            $styles[] = 'background-position:center';
+            return $styles;
+        }
+
+        $assetPaths = array_map(static fn (array $layer): string => (string) $layer['path'], $imageLayers);
+        $styles[] = 'background-image:' . $this->cssUrlList($assetPaths);
+        $blendModes = $this->imageBackgroundBlendModes($imageLayers);
+        if ( ! empty($blendModes) ) {
+            $styles[] = 'background-blend-mode:' . implode(',', $blendModes);
+        }
+        foreach ( $this->imageBackgroundStyles($node, $imageLayers) as $style ) {
+            $styles[] = $style;
+        }
+
+        return $styles;
+    }
+
+    /**
+     * @param array<int, string> $paths
+     */
+    private function cssUrlList(array $paths): string
+    {
+        return implode(',', array_map(static fn (string $path): string => 'url("' . $path . '")', $paths));
     }
 
     /**
