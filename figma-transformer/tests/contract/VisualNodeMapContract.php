@@ -378,9 +378,22 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
         ),
     ));
     $flippedChromeStripCss = blocks_engine_figma_transformer_contract_file_content($flippedChromeStripResult, 'style.css');
+    $flippedChromeStripDiagnostics = $flippedChromeStripResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+    $flippedChromeStripReserveTraces = array_values(array_filter(
+        is_array($flippedChromeStripDiagnostics['decision_traces']['samples'] ?? null) ? $flippedChromeStripDiagnostics['decision_traces']['samples'] : array(),
+        static fn (array $trace): bool => 'absolute_child_reserve_height_from_visual_bounds' === ($trace['reason_code'] ?? null)
+    ));
+    $flippedChromeStripBottomTrace = array_values(array_filter(
+        is_array($flippedChromeStripReserveTraces[0]['evidence']['child_bounds'] ?? null) ? $flippedChromeStripReserveTraces[0]['evidence']['child_bounds'] : array(),
+        static fn (array $child): bool => 'chrome-strip:footer/bottom-strip' === ($child['node_id'] ?? null)
+    ));
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $flippedChromeStripCss, '.figma-node-chrome-strip-footer-footer-chrome', array('height:251px', 'min-height:251px'), 'visual-map-flipped-chrome-strip-reserves-rendered-height');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $flippedChromeStripCss, '.figma-node-chrome-strip-footer-bottom-strip-bottom-info-strip', array('height:53px', 'top:251px', 'transform:matrix(1,0,0,-1,0,0)', 'transform-origin:0 0'), 'visual-map-flipped-chrome-strip-keeps-source-transform');
     $assert(! str_contains($flippedChromeStripCss, '.figma-node-chrome-strip-footer-footer-chrome{width:100%;height:251px;min-height:304px'), 'visual-map-flipped-chrome-strip-no-untransformed-reserve-height');
+    $assert(1 === ($flippedChromeStripDiagnostics['decision_traces']['reason_counts']['absolute_child_reserve_height_from_visual_bounds'] ?? null), 'visual-map-flipped-chrome-strip-reserve-height-traced');
+    $assert(array('x' => 0.0, 'y' => 251.0, 'width' => 1440.0, 'height' => 53.0) === ($flippedChromeStripBottomTrace[0]['source_box'] ?? null), 'visual-map-flipped-chrome-strip-trace-source-box');
+    $assert(array('x' => 0.0, 'y' => 198.0, 'width' => 1440.0, 'height' => 53.0) === ($flippedChromeStripBottomTrace[0]['transformed_visual_box'] ?? null), 'visual-map-flipped-chrome-strip-trace-transformed-box');
+    $assert(array('min_height' => 251.0) === ($flippedChromeStripReserveTraces[0]['evidence']['emitted_css_box'] ?? null), 'visual-map-flipped-chrome-strip-trace-emitted-css-box');
 
     $invalidCssSanitizationResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Invalid CSS Sanitization Fixture',

@@ -5629,10 +5629,17 @@ final class StaticHtmlEmitter
             }
         }
 
-        $absoluteChildReserveHeight = $this->absoluteChildReserveHeight($node);
+        $absoluteChildReserveHeightDecision = $this->absoluteChildReserveHeightDecision($node);
+        $absoluteChildReserveHeight = is_array($absoluteChildReserveHeightDecision) && isset($absoluteChildReserveHeightDecision['height']) && is_numeric($absoluteChildReserveHeightDecision['height']) ? (float) $absoluteChildReserveHeightDecision['height'] : null;
         if ( null !== $absoluteChildReserveHeight && ! $this->stylesDeclareProperty($styles, 'min-height') ) {
             $layoutMinHeight = isset($layout['min_height']) && is_numeric($layout['min_height']) ? (float) $layout['min_height'] : null;
-            $styles[] = 'min-height:' . $this->number(null === $layoutMinHeight ? $absoluteChildReserveHeight : max($layoutMinHeight, $absoluteChildReserveHeight)) . 'px';
+            $emittedMinHeight = null === $layoutMinHeight ? $absoluteChildReserveHeight : max($layoutMinHeight, $absoluteChildReserveHeight);
+            $styles[] = 'min-height:' . $this->number($emittedMinHeight) . 'px';
+            $this->recordDecisionTrace('layout_geometry', 'absolute_child_reserve_height_from_visual_bounds', $node, 'emit_min_height', $parentNode, array(
+                'source_box' => $this->visualGeometryResolver()->nodeSourceBoxEvidence($node),
+                'emitted_css_box' => array('min_height' => $emittedMinHeight),
+                'child_bounds' => $absoluteChildReserveHeightDecision['children'] ?? array(),
+            ));
         }
 
         // Auto Layout min/max constraints (Kiwi minSize/maxSize). Skip a property
@@ -6318,7 +6325,7 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function absoluteChildReserveHeight(array $node): ?float
+    private function absoluteChildReserveHeightDecision(array $node): ?array
     {
         $children = $this->nodeList($node);
         if ( empty($children) || (! $this->isFreeformContainer($node) && ! $this->hasAbsoluteChild($node) && ! $this->hasDecorativeFlexUnderlayChild($node)) ) {
@@ -6329,6 +6336,7 @@ final class StaticHtmlEmitter
         $parentHeight = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
         $maxBottom = null;
         $contributingChildren = 0;
+        $childEvidence = array();
         foreach ( $children as $child ) {
             if ( ! is_array($child) ) {
                 continue;
@@ -6352,8 +6360,9 @@ final class StaticHtmlEmitter
                 return null;
             }
 
-            $visualBounds = $this->visualGeometryResolver()->childVisualBoundsInParent($child, $node);
-            if ( is_array($visualBounds) && isset($visualBounds['y'], $visualBounds['height']) && is_numeric($visualBounds['y']) && is_numeric($visualBounds['height']) ) {
+            $visualBoundsEvidence = $this->visualGeometryResolver()->childVisualBoundsEvidenceInParent($child, $node);
+            $visualBounds = is_array($visualBoundsEvidence['transformed_visual_box'] ?? null) ? $visualBoundsEvidence['transformed_visual_box'] : array();
+            if ( isset($visualBounds['y'], $visualBounds['height']) && is_numeric($visualBounds['y']) && is_numeric($visualBounds['height']) ) {
                 $top = (float) $visualBounds['y'];
                 $bottom = $top + (float) $visualBounds['height'];
             } else {
@@ -6367,6 +6376,9 @@ final class StaticHtmlEmitter
             }
             $maxBottom = null === $maxBottom ? $bottom : max($maxBottom, $bottom);
             $contributingChildren++;
+            $visualBoundsEvidence['reserve_top'] = $top;
+            $visualBoundsEvidence['reserve_bottom'] = $bottom;
+            $childEvidence[] = $visualBoundsEvidence;
         }
 
         if ( $contributingChildren <= 1 || null === $maxBottom || $maxBottom <= 0.0 ) {
@@ -6376,7 +6388,10 @@ final class StaticHtmlEmitter
             return null;
         }
 
-        return $maxBottom;
+        return array(
+            'height' => $maxBottom,
+            'children' => $childEvidence,
+        );
     }
 
     /**

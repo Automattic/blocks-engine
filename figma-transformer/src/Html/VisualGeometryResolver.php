@@ -100,6 +100,37 @@ final class VisualGeometryResolver
 
     /**
      * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     * @return array<string, mixed>
+     */
+    public function childVisualBoundsEvidenceInParent(array $node, array $parentNode): array
+    {
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $sourceBox = $this->diagnosticBox($box);
+        $visualBounds = $this->childVisualBoundsInParent($node, $parentNode);
+
+        return array_filter(array(
+            'node_id' => isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : null,
+            'parent_id' => isset($parentNode['id']) && is_scalar($parentNode['id']) ? (string) $parentNode['id'] : null,
+            'source_box' => $sourceBox,
+            'parent_source_box' => $this->diagnosticBox($parentBox),
+            'transformed_visual_box' => is_array($visualBounds) && ! empty($visualBounds) ? $this->diagnosticBox($visualBounds) : null,
+            'used_transformed_visual_box' => is_array($visualBounds) && isset($visualBounds['y'], $visualBounds['height']) && is_numeric($visualBounds['y']) && is_numeric($visualBounds['height']),
+        ), static fn (mixed $value): bool => null !== $value && array() !== $value);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, float>
+     */
+    public function nodeSourceBoxEvidence(array $node): array
+    {
+        return $this->diagnosticBox(is_array($node['box'] ?? null) ? $node['box'] : array());
+    }
+
+    /**
+     * @param array<string, mixed> $node
      */
     public function isHorizontallyReflected(array $node): bool
     {
@@ -232,5 +263,21 @@ final class VisualGeometryResolver
         $translated = array($matrix[0], $matrix[1], $matrix[2], $matrix[3], $matrix[4] + (float) $left, $matrix[5] + (float) $top);
 
         return $this->transformedRect((float) $box['width'], (float) $box['height'], $translated);
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @return array<string, float>
+     */
+    private function diagnosticBox(array $box): array
+    {
+        $diagnostic = array();
+        foreach ( array('x', 'y', 'width', 'height') as $key ) {
+            if ( isset($box[$key]) && is_numeric($box[$key]) ) {
+                $diagnostic[$key] = (float) $box[$key];
+            }
+        }
+
+        return $diagnostic;
     }
 }
