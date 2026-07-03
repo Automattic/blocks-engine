@@ -5223,15 +5223,24 @@ final class StaticHtmlEmitter
             }
         }
 
-        $assetPaths = $this->nodeAssetPaths($node);
-        if ( ! empty($assetPaths) ) {
+        $imageLayers = $this->nodeImagePaintLayers($node);
+        if ( empty($imageLayers) ) {
+            $assetPaths = $this->nodeAssetPaths($node);
+            if ( ! empty($assetPaths) ) {
+                $urlList = implode(',', array_map(static fn (string $p): string => 'url("' . $p . '")', $assetPaths));
+                $styles[] = 'background-image:' . $urlList;
+                $styles[] = 'background-size:cover';
+                $styles[] = 'background-position:center';
+            }
+        } else {
+            $assetPaths = array_map(static fn (array $layer): string => (string) $layer['path'], $imageLayers);
             $urlList = implode(',', array_map(static fn (string $p): string => 'url("' . $p . '")', $assetPaths));
             $styles[] = 'background-image:' . $urlList;
-            $blendModes = $this->imageBackgroundBlendModes($node);
+            $blendModes = $this->imageBackgroundBlendModes($imageLayers);
             if ( ! empty($blendModes) ) {
                 $styles[] = 'background-blend-mode:' . implode(',', $blendModes);
             }
-            foreach ( $this->imageBackgroundStyles($node) as $style ) {
+            foreach ( $this->imageBackgroundStyles($node, $imageLayers) as $style ) {
                 $styles[] = $style;
             }
         }
@@ -7138,6 +7147,27 @@ final class StaticHtmlEmitter
      */
     private function nodeAssetPaths(array $node): array
     {
+        $layers = $this->nodeImagePaintLayers($node);
+        if ( ! empty($layers) ) {
+            return array_map(static fn (array $layer): string => (string) $layer['path'], $layers);
+        }
+
+        // Fallback: node-level asset reference (e.g. explicit `asset_id` key
+        // not expressed as a fill paint).
+        $fallbackPath = $this->nodeAssetPath($node);
+        return null !== $fallbackPath ? array($fallbackPath) : array();
+    }
+
+    /**
+     * Return resolved image paint layers ordered top→bottom. Duplicate asset
+     * paths are intentionally preserved because Figma can stack the same image
+     * with different crops, opacity, or blend modes.
+     *
+     * @param array<string, mixed> $node
+     * @return array<int, array{path: string, paint: array<string, mixed>}>
+     */
+    private function nodeImagePaintLayers(array $node): array
+    {
         $paths = array();
 
         foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
@@ -7168,7 +7198,7 @@ final class StaticHtmlEmitter
                             continue;
                         }
                         $this->usedAssetPaths[$path] = true;
-                        $paths[] = $path;
+                        $paths[] = array('path' => $path, 'paint' => $paint);
                         break;
                     }
                 }
@@ -7176,13 +7206,10 @@ final class StaticHtmlEmitter
         }
 
         if ( ! empty($paths) ) {
-            return array_values(array_unique($paths));
+            return $paths;
         }
 
-        // Fallback: node-level asset reference (e.g. explicit `asset_id` key
-        // not expressed as a fill paint).
-        $fallbackPath = $this->nodeAssetPath($node);
-        return null !== $fallbackPath ? array($fallbackPath) : array();
+        return array();
     }
 
     /**
@@ -7205,55 +7232,72 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @return array<int, string>
      */
-    private function imageBackgroundStyles(array $node): array
+    private function imageBackgroundStyles(array $node, array $imageLayers): array
     {
-        $scaleMode = $this->nodeImageScaleMode($node);
-        $transformStyles = $this->imagePaintTransformStyles($node, $scaleMode);
-        if ( ! empty($transformStyles) ) {
-            return $transformStyles;
+        if ( 1 === count($imageLayers) ) {
+            $paint = is_array($imageLayers[0]['paint'] ?? null) ? $imageLayers[0]['paint'] : array();
+            $scaleMode = $this->imagePaintScaleMode($paint);
+            $transformStyles = $this->imagePaintTransformStyles($node, $paint);
+            if ( ! empty($transformStyles) ) {
+                return array(
+                    'background-size:' . $transformStyles['size'],
+                    'background-repeat:' . $transformStyles['repeat'],
+                    'background-position:' . $transformStyles['position'],
+                );
+            }
+
+            if ( 'STRETCH' === $scaleMode ) {
+                return array('background-size:100% 100%', 'background-repeat:no-repeat', 'background-position:center');
+            }
+
+            if ( 'TILE' === $scaleMode ) {
+                return array('background-repeat:repeat', 'background-position:center');
+            }
+
+            return array('background-size:cover', 'background-position:center');
         }
 
-        if ( 'STRETCH' === $scaleMode ) {
-            return array('background-size:100% 100%', 'background-repeat:no-repeat', 'background-position:center');
+        $sizes = array();
+        $repeats = array();
+        $positions = array();
+        foreach ( $imageLayers as $layer ) {
+            $paint = is_array($layer['paint'] ?? null) ? $layer['paint'] : array();
+            $scaleMode = $this->imagePaintScaleMode($paint);
+            $layerStyles = $this->imagePaintLayerBackgroundStyles($node, $paint, $scaleMode);
+            $sizes[] = $layerStyles['size'];
+            $repeats[] = $layerStyles['repeat'];
+            $positions[] = $layerStyles['position'];
         }
 
-        if ( 'TILE' === $scaleMode ) {
-            return array('background-repeat:repeat', 'background-position:center');
+        if ( empty($sizes) ) {
+            return array();
         }
 
-        return array('background-size:cover', 'background-position:center');
+        if ( array('cover') === array_values(array_unique($sizes)) && array('no-repeat') === array_values(array_unique($repeats)) && array('center') === array_values(array_unique($positions)) ) {
+            return array('background-size:cover', 'background-position:center');
+        }
+
+        return array(
+            'background-size:' . implode(',', $sizes),
+            'background-repeat:' . implode(',', $repeats),
+            'background-position:' . implode(',', $positions),
+        );
     }
 
     /**
      * @param array<string, mixed> $node
      * @return array<int, string>
      */
-    private function imageBackgroundBlendModes(array $node): array
+    private function imageBackgroundBlendModes(array $imageLayers): array
     {
         $blendModes = array();
-        foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
-            $paintCollections = array();
-            if ( is_array($node[$paintKey] ?? null) ) {
-                $paintCollections[] = $node[$paintKey];
+        foreach ( $imageLayers as $layer ) {
+            $paint = is_array($layer['paint'] ?? null) ? $layer['paint'] : array();
+            $blendMode = null;
+            if ( isset($paint['blendMode']) && is_scalar($paint['blendMode']) ) {
+                $blendMode = $this->blendModeCss((string) $paint['blendMode']);
             }
-            if ( is_array($node['figma_paints'][$paintKey] ?? null) ) {
-                $paintCollections[] = $node['figma_paints'][$paintKey];
-            }
-
-            foreach ( $paintCollections as $paints ) {
-                foreach ( array_reverse(array_values($paints)) as $paint ) {
-                    if ( ! is_array($paint) || 'IMAGE' !== strtoupper((string) ($paint['type'] ?? '')) || false === ($paint['visible'] ?? true) ) {
-                        continue;
-                    }
-
-                    $blendMode = null;
-                    if ( isset($paint['blendMode']) && is_scalar($paint['blendMode']) ) {
-                        $blendMode = $this->blendModeCss((string) $paint['blendMode']);
-                    }
-
-                    $blendModes[] = $blendMode ?? 'normal';
-                }
-            }
+            $blendModes[] = $blendMode ?? 'normal';
         }
 
         return in_array(true, array_map(static fn (string $mode): bool => 'normal' !== $mode, $blendModes), true) ? $blendModes : array();
@@ -7261,14 +7305,36 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<string, mixed> $node
-     * @return array<int, string>
+     * @param array<string, mixed> $paint
+     * @return array{size: string, repeat: string, position: string}
      */
-    private function imagePaintTransformStyles(array $node, string $scaleMode): array
+    private function imagePaintLayerBackgroundStyles(array $node, array $paint, string $scaleMode): array
     {
-        if ( 'TILE' === $scaleMode ) {
-            return array();
+        if ( 'TILE' !== $scaleMode ) {
+            $transformStyles = $this->imagePaintTransformStyles($node, $paint);
+            if ( ! empty($transformStyles) ) {
+                return $transformStyles;
+            }
         }
 
+        if ( 'STRETCH' === $scaleMode ) {
+            return array('size' => '100% 100%', 'repeat' => 'no-repeat', 'position' => 'center');
+        }
+
+        if ( 'TILE' === $scaleMode ) {
+            return array('size' => 'auto', 'repeat' => 'repeat', 'position' => 'center');
+        }
+
+        return array('size' => 'cover', 'repeat' => 'no-repeat', 'position' => 'center');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $paint
+     * @return array{size: string, repeat: string, position: string}|array{}
+     */
+    private function imagePaintTransformStyles(array $node, array $paint): array
+    {
         $box = is_array($node['box'] ?? null) ? $node['box'] : (is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array());
         $width = $box['width'] ?? $node['width'] ?? null;
         $height = $box['height'] ?? $node['height'] ?? null;
@@ -7276,43 +7342,39 @@ final class StaticHtmlEmitter
             return array();
         }
 
-        foreach ( $this->nodeImagePaints($node) as $paint ) {
-            $matrix = $this->imagePaintTransformMatrix($paint);
-            if ( null === $matrix || $this->isIdentityImageTransform($matrix) ) {
-                $cropRect = $this->imagePaintCropRect($paint);
-                if ( null === $cropRect ) {
-                    continue;
-                }
-
-                $backgroundWidth = (float) $width / $cropRect['width'];
-                $backgroundHeight = (float) $height / $cropRect['height'];
-                $backgroundX = -1 * $cropRect['x'] * $backgroundWidth;
-                $backgroundY = -1 * $cropRect['y'] * $backgroundHeight;
-
-                return array(
-                    'background-size:' . $this->number($backgroundWidth) . 'px ' . $this->number($backgroundHeight) . 'px',
-                    'background-repeat:no-repeat',
-                    'background-position:' . $this->number($backgroundX) . 'px ' . $this->number($backgroundY) . 'px',
-                );
+        $matrix = $this->imagePaintTransformMatrix($paint);
+        if ( null === $matrix || $this->isIdentityImageTransform($matrix) ) {
+            $cropRect = $this->imagePaintCropRect($paint);
+            if ( null === $cropRect ) {
+                return array();
             }
 
-            if ( 0.00001 < abs($matrix['m01']) || 0.00001 < abs($matrix['m10']) || 0 >= $matrix['m00'] || 0 >= $matrix['m11'] ) {
-                continue;
-            }
-
-            $backgroundWidth = (float) $width / $matrix['m00'];
-            $backgroundHeight = (float) $height / $matrix['m11'];
-            $backgroundX = -1 * $matrix['m02'] * $backgroundWidth;
-            $backgroundY = -1 * $matrix['m12'] * $backgroundHeight;
+            $backgroundWidth = (float) $width / $cropRect['width'];
+            $backgroundHeight = (float) $height / $cropRect['height'];
+            $backgroundX = -1 * $cropRect['x'] * $backgroundWidth;
+            $backgroundY = -1 * $cropRect['y'] * $backgroundHeight;
 
             return array(
-                'background-size:' . $this->number($backgroundWidth) . 'px ' . $this->number($backgroundHeight) . 'px',
-                'background-repeat:no-repeat',
-                'background-position:' . $this->number($backgroundX) . 'px ' . $this->number($backgroundY) . 'px',
+                'size'     => $this->number($backgroundWidth) . 'px ' . $this->number($backgroundHeight) . 'px',
+                'repeat'   => 'no-repeat',
+                'position' => $this->number($backgroundX) . 'px ' . $this->number($backgroundY) . 'px',
             );
         }
 
-        return array();
+        if ( 0.00001 < abs($matrix['m01']) || 0.00001 < abs($matrix['m10']) || 0 >= $matrix['m00'] || 0 >= $matrix['m11'] ) {
+            return array();
+        }
+
+        $backgroundWidth = (float) $width / $matrix['m00'];
+        $backgroundHeight = (float) $height / $matrix['m11'];
+        $backgroundX = -1 * $matrix['m02'] * $backgroundWidth;
+        $backgroundY = -1 * $matrix['m12'] * $backgroundHeight;
+
+        return array(
+            'size'     => $this->number($backgroundWidth) . 'px ' . $this->number($backgroundHeight) . 'px',
+            'repeat'   => 'no-repeat',
+            'position' => $this->number($backgroundX) . 'px ' . $this->number($backgroundY) . 'px',
+        );
     }
 
     /**
@@ -7403,10 +7465,20 @@ final class StaticHtmlEmitter
     private function nodeImageScaleMode(array $node): string
     {
         foreach ( $this->nodeImagePaints($node) as $paint ) {
-            foreach ( array('imageScaleMode', 'scaleMode') as $key ) {
-                if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
-                    return strtoupper((string) $paint[$key]);
-                }
+            return $this->imagePaintScaleMode($paint);
+        }
+
+        return 'FILL';
+    }
+
+    /**
+     * @param array<string, mixed> $paint
+     */
+    private function imagePaintScaleMode(array $paint): string
+    {
+        foreach ( array('imageScaleMode', 'scaleMode') as $key ) {
+            if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
+                return strtoupper((string) $paint[$key]);
             }
         }
 

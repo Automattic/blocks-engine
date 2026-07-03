@@ -324,6 +324,57 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $assert(true === ($cropRectVisualNode['image']['has_crop_rect'] ?? null), 'visual-node-image-crop-rect-flag');
     $assert(0.5 === ($cropRectVisualNode['image']['crop_rect']['width'] ?? null), 'visual-node-image-crop-rect-width');
 
+    $layeredImageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'   => 'Layered Image Paint Fixture',
+        'assets' => array(
+            'photo-layer' => array('mime_type' => 'image/png', 'content' => 'photo layer'),
+            'wash-layer'  => array('mime_type' => 'image/png', 'content' => 'wash layer'),
+        ),
+        'nodes'  => array(
+            array(
+                'id'         => 'image:layered-paints',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Layered image paints',
+                'width'      => 100,
+                'height'     => 80,
+                'fillPaints' => array(
+                    array(
+                        'type'           => 'IMAGE',
+                        'imageRef'       => 'photo-layer',
+                        'imageScaleMode' => 'STRETCH',
+                        'cropRect'       => array('x' => 0.25, 'y' => 0.1, 'width' => 0.5, 'height' => 0.8),
+                    ),
+                    array(
+                        'type'           => 'IMAGE',
+                        'imageRef'       => 'wash-layer',
+                        'imageScaleMode' => 'FILL',
+                        'blendMode'      => 'MULTIPLY',
+                        'imageTransform' => array(
+                            array(0.25, 0, 0.5),
+                            array(0, 0.5, 0.25),
+                        ),
+                    ),
+                    array(
+                        'type'           => 'IMAGE',
+                        'imageRef'       => 'photo-layer',
+                        'imageScaleMode' => 'FILL',
+                        'blendMode'      => 'SCREEN',
+                        'imageTransform' => array(
+                            array(0.5, 0, 0),
+                            array(0, 0.25, 0.5),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $layeredImageCss = $fileContent($layeredImageResult, 'style.css');
+    $assert(str_contains($layeredImageCss, 'background-image:url("assets/photo-layer.png"),url("assets/wash-layer.png"),url("assets/photo-layer.png")'), 'image-layered-paints-preserve-duplicate-top-to-bottom-order');
+    $assert(str_contains($layeredImageCss, 'background-blend-mode:screen,multiply,normal'), 'image-layered-paints-align-blend-modes');
+    $assert(str_contains($layeredImageCss, 'background-size:200px 320px,400px 160px,200px 100px'), 'image-layered-paints-align-background-size');
+    $assert(str_contains($layeredImageCss, 'background-repeat:no-repeat,no-repeat,no-repeat'), 'image-layered-paints-align-background-repeat');
+    $assert(str_contains($layeredImageCss, 'background-position:0px -160px,-200px -40px,-50px -10px'), 'image-layered-paints-align-background-position');
+
     $nestedImageOverrideResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Nested Image Override Fixture',
         'nodes' => array(

@@ -133,7 +133,7 @@ final class StyleDeclarationBuilder
 
             $effectType = (string) ($effect['type'] ?? '');
             if ( in_array($effectType, array('drop_shadow', 'inner_shadow'), true) ) {
-                if ( 'drop_shadow' === $effectType && $this->shouldEmitVectorDropShadowFilter($effect, $type) ) {
+                if ( 'drop_shadow' === $effectType && $this->shouldEmitSilhouetteDropShadowFilter($effect, $node, $type) ) {
                     $filters[] = $this->dropShadowFilterValue($effect);
                     continue;
                 }
@@ -268,9 +268,13 @@ final class StyleDeclarationBuilder
     /**
      * @param array<string, mixed> $effect
      */
-    private function shouldEmitVectorDropShadowFilter(array $effect, string $type): bool
+    private function shouldEmitSilhouetteDropShadowFilter(array $effect, array $node, string $type): bool
     {
-        if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
+        $imagePaints = array_filter(
+            is_array($node['figma_paints']['fills'] ?? null) ? $node['figma_paints']['fills'] : array(),
+            static fn (mixed $paint): bool => is_array($paint) && 'IMAGE' === strtoupper((string) ($paint['type'] ?? ''))
+        );
+        if ( empty($imagePaints) && ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
             return false;
         }
 
