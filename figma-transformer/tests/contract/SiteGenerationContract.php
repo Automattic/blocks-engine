@@ -307,6 +307,37 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($geometryResponsiveFooterCss, '.figma-node-geometry-footer-desktop-footer-footer{width:100%;height:483px;min-height:483px;position:relative}'), 'geometry-responsive-footer-shell-preserves-freeform-reserved-height');
     $assert(str_contains($geometryResponsiveFooterCss, '.figma-node-geometry-footer-desktop-footer-footer{height:auto}'), 'geometry-responsive-footer-shell-safety-uses-freeform-children');
 
+    $fixedSocialFooterResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Fixed Social Footer Breakpoint Fixture',
+        'nodes' => array(
+            array('id' => 'fixed-social:desktop', 'type' => 'FRAME', 'name' => 'Landing Page Desktop', 'width' => 1440, 'height' => 900, 'children' => array(
+                array('id' => 'fixed-social:desktop-footer', 'type' => 'FRAME', 'name' => 'Footer', 'x' => 0, 'y' => 650, 'width' => 1440, 'height' => 251, 'children' => array(
+                    array('id' => 'fixed-social:desktop-social', 'type' => 'FRAME', 'name' => 'Social', 'x' => 1345, 'y' => 91, 'width' => 54, 'height' => 23, 'children' => array(
+                        array('id' => 'fixed-social:desktop-facebook', 'type' => 'RECTANGLE', 'name' => 'Facebook logo', 'x' => 0, 'y' => 0, 'width' => 23, 'height' => 23),
+                        array('id' => 'fixed-social:desktop-instagram', 'type' => 'RECTANGLE', 'name' => 'Instagram logo', 'x' => 31, 'y' => 0, 'width' => 23, 'height' => 23),
+                    )),
+                )),
+            )),
+            array('id' => 'fixed-social:mobile', 'type' => 'FRAME', 'name' => 'Landing Page Mobile', 'width' => 390, 'height' => 900, 'children' => array(
+                array('id' => 'fixed-social:mobile-footer', 'type' => 'FRAME', 'name' => 'Footer', 'x' => 0, 'y' => 430, 'width' => 390, 'height' => 469, 'children' => array(
+                    array('id' => 'fixed-social:mobile-social', 'type' => 'FRAME', 'name' => 'Social', 'x' => 24, 'y' => 312, 'width' => 54, 'height' => 23, 'children' => array(
+                        array('id' => 'fixed-social:mobile-facebook', 'type' => 'RECTANGLE', 'name' => 'Facebook logo', 'x' => 0, 'y' => 0, 'width' => 23, 'height' => 23),
+                        array('id' => 'fixed-social:mobile-instagram', 'type' => 'RECTANGLE', 'name' => 'Instagram logo', 'x' => 31, 'y' => 0, 'width' => 23, 'height' => 23),
+                    )),
+                )),
+            )),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'fixed-social:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'fixed-social:mobile', 'viewport_width' => 390),
+        ),
+        'page_name' => 'Landing Page',
+    ));
+    $fixedSocialFooterCss = $fileContent($fixedSocialFooterResult, 'style.css');
+    $assert(str_contains($fixedSocialFooterCss, '.figma-node-fixed-social-desktop-social-social{left:24px;top:312px}'), 'fixed-social-footer-breakpoint-moves-fixed-width-icon-row');
+    $assert(! str_contains($fixedSocialFooterCss, '.figma-node-fixed-social-desktop-social-social{width:calc(100% - 336px)'), 'fixed-social-footer-breakpoint-keeps-fixed-icon-row-width');
+
     $assert(in_array('large_absolute_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-absolute-offsets');
     $assert(in_array('large_css_offsets', $qualitySignalCodes, true), 'quality-diagnostics-large-css-offsets');
     $assert(in_array('image_heavy_landmark_candidate', $qualitySignalCodes, true), 'quality-diagnostics-image-heavy-landmark');

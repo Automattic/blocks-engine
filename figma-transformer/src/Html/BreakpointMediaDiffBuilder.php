@@ -549,6 +549,11 @@ final class BreakpointMediaDiffBuilder
             return null;
         }
 
+        $baseWidth = $this->nodeBoxWidth($baseNode);
+        if ( null !== $baseWidth && abs($variantWidth - $baseWidth) <= 1.0 ) {
+            return null;
+        }
+
         $variantParentLayout = is_array($variantParentNode['layout'] ?? null) ? $variantParentNode['layout'] : array();
         $padding = is_array($variantParentLayout['padding'] ?? null) ? $variantParentLayout['padding'] : array();
         $paddingLeft = isset($padding['left']) && is_numeric($padding['left']) ? (float) $padding['left'] : 0.0;
@@ -563,7 +568,6 @@ final class BreakpointMediaDiffBuilder
             return null;
         }
 
-        $baseWidth = $this->nodeBoxWidth($baseNode);
         $baseParentWidth = null === $baseParentNode ? null : $this->nodeBoxWidth($baseParentNode);
         if ( null === $baseWidth || null === $baseParentWidth || $baseWidth > $baseParentWidth + 1.0 ) {
             return null;
