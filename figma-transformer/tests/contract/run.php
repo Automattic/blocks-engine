@@ -7134,6 +7134,20 @@ $assert(
     'responsive-breakpoint-safety-policy-header-chrome-decision-seam'
 );
 $assert(
+    array('reason_code' => '', 'declarations' => array()) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
+        array('id' => 'policy:header:cta', 'type' => 'INSTANCE', 'name' => 'Button One', 'box' => array('height' => 48)),
+        array('id' => 'policy:header', 'type' => 'FRAME', 'name' => 'Header', 'box' => array('height' => 145)),
+        array('position' => 'absolute', 'left' => '1180px', 'top' => '72px'),
+        array('id' => 'policy:header-mobile:cta', 'type' => 'INSTANCE', 'name' => 'Button One', 'box' => array('height' => 48)),
+        'button one',
+        'header',
+        true,
+        null,
+        Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER
+    ),
+    'responsive-breakpoint-safety-policy-header-child-preserves-matched-variant-geometry'
+);
+$assert(
     array('width:calc(100% - 48px)', 'max-width:342px', 'left:24px', 'right:auto') === $responsiveBreakpointSafetyPolicy->mobileCenteredTextFallbackDecision(
         array('id' => 'policy:text', 'type' => 'TEXT', 'name' => 'Hero Title'),
         array('id' => 'policy:parent', 'type' => 'FRAME'),

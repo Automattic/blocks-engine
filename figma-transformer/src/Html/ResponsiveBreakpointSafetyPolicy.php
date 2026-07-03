@@ -80,7 +80,7 @@ final class ResponsiveBreakpointSafetyPolicy
             return array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $this->breakpointDimensionPolicy->headerChromeDeclarations($this->responsiveHeaderMinHeight($node, $baseMap, $variantNode)));
         }
 
-        if ( LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $parentChromeRole || $this->isHeaderChromeShellName($parentName) ) {
+        if ( null === $variantNode && (LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $parentChromeRole || $this->isHeaderChromeShellName($parentName)) ) {
             $headerChildDeclarations = array('position:relative', 'left:auto', 'right:auto', 'top:auto', 'max-width:100%');
             if ( $isContainer ) {
                 array_unshift($headerChildDeclarations, 'width:100%', 'max-width:100%', 'height:auto');
