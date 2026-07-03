@@ -57,6 +57,8 @@ $source = array(
     'Charcoal'              => 'Charcoal, Impact, sans-serif',
 
     // --- Sans-serif: Humanist / UI (system UI faces) ---
+    'SF Pro Display'        => '"SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    'SF Pro Text'           => '"SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     'Segoe UI'              => '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif',
     'SF Pro Text'           => '"SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     'SF UI Text'            => '"SF UI Text", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',

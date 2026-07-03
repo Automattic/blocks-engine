@@ -42,6 +42,7 @@ return array(
     'rockwell'               => array('generic' => 'serif', 'stack' => 'Rockwell, "Rockwell Nova", "Roboto Slab", "DejaVu Serif", "Sitka Small", serif'),
     'segoe ui'               => array('generic' => 'sans-serif', 'stack' => '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif'),
     'sf mono'                => array('generic' => 'monospace', 'stack' => '"SF Mono", Menlo, Monaco, Consolas, "Courier New", monospace'),
+    'sf pro display'         => array('generic' => 'sans-serif', 'stack' => '"SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'),
     'sf pro text'            => array('generic' => 'sans-serif', 'stack' => '"SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'),
     'sf ui text'             => array('generic' => 'sans-serif', 'stack' => '"SF UI Text", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'),
     'tahoma'                 => array('generic' => 'sans-serif', 'stack' => 'Tahoma, Geneva, Verdana, sans-serif'),

@@ -18,7 +18,49 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     ));
     $multilineTextCss = $fileContent($multilineTextResult, 'style.css');
     $assert(str_contains($multilineTextCss, '.figma-node-text-multiline-checklist-text{font-size:16px;white-space:pre-line}'), 'multiline-text-preserves-line-breaks');
-    
+
+    $styleTokenFontResolution = ( new \Automattic\BlocksEngine\FigmaTransformer\Html\FontResolver() )->resolve(array(
+        array(
+            'family' => 'Skolar Latin',
+            'weights' => array(600),
+            'weight_counts' => array(),
+            'text_node_count' => 0,
+            'visible_text_area_px' => 0,
+            'sample_nodes' => array(
+                array('weight' => 600, 'source' => 'materialized_css'),
+            ),
+        ),
+    ));
+    $assert(array() === ($styleTokenFontResolution['unresolved_families'] ?? null), 'style-token-only-font-usage-not-missing-css');
+    $assert('style_token_only' === ($styleTokenFontResolution['coverage'][0]['resolution'] ?? null), 'style-token-only-font-resolution-reported');
+
+    $visibleFontResolution = ( new \Automattic\BlocksEngine\FigmaTransformer\Html\FontResolver() )->resolve(array(
+        array(
+            'family' => 'Skolar Latin',
+            'weights' => array(600),
+            'text_node_count' => 1,
+            'visible_text_area_px' => 1200,
+            'sample_nodes' => array(
+                array('node_id' => 'text:visible', 'name' => 'Visible text', 'weight' => 600),
+            ),
+        ),
+    ));
+    $assert(array('Skolar Latin') === ($visibleFontResolution['unresolved_families'] ?? null), 'visible-unresolved-font-usage-still-missing-css');
+
+    $systemFontResolution = ( new \Automattic\BlocksEngine\FigmaTransformer\Html\FontResolver() )->resolve(array(
+        array(
+            'family' => 'SF Pro Text',
+            'weights' => array(900),
+            'text_node_count' => 1,
+            'visible_text_area_px' => 1200,
+            'sample_nodes' => array(
+                array('node_id' => 'text:footer', 'name' => 'Footer text', 'weight' => 900),
+            ),
+        ),
+    ));
+    $assert(array() === ($systemFontResolution['unresolved_families'] ?? null), 'sf-pro-text-system-font-not-missing-css');
+    $assert('web_safe' === ($systemFontResolution['coverage'][0]['resolution'] ?? null), 'sf-pro-text-system-font-resolution-reported');
+
     $derivedTextLayoutScenegraph = array(
         'name'  => 'Derived Text Layout Fixture',
         'blobs' => array(
