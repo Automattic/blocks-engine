@@ -132,7 +132,7 @@ final class StaticHtmlSemanticClassifier
         }
 
         if ( $this->isTextareaLike($node, $parentNode) ) {
-            return 'textarea';
+            return $this->hasFormControlAccessoryChildren($node) ? 'div' : 'textarea';
         }
 
         if ( $this->isInputLike($node, $parentNode) ) {
@@ -218,7 +218,7 @@ final class StaticHtmlSemanticClassifier
             return false;
         }
 
-        return null !== ($this->backgroundColor)($node) || ($this->cornerRadius)($node) > 0.0 || ($this->hasStrokePaint)($node);
+        return null !== ($this->backgroundColor)($node) || ($this->cornerRadius)($node) > 0.0 || ($this->hasStrokePaint)($node) || $this->hasFormControlChromeChild($node);
     }
 
     /**
@@ -262,7 +262,7 @@ final class StaticHtmlSemanticClassifier
             return false;
         }
 
-        return null !== ($this->backgroundColor)($node) || ($this->cornerRadius)($node) > 0.0 || ($this->hasStrokePaint)($node);
+        return null !== ($this->backgroundColor)($node) || ($this->cornerRadius)($node) > 0.0 || ($this->hasStrokePaint)($node) || $this->hasFormControlChromeChild($node);
     }
 
     /**
@@ -323,12 +323,46 @@ final class StaticHtmlSemanticClassifier
     /** @param array<string, mixed> $node */
     public function hasFormControlAccessoryChildren(array $node): bool
     {
+        if ( $this->hasFormControlChromeChild($node) ) {
+            return true;
+        }
+
         foreach ( ($this->nodeList)($node) as $child ) {
             if ( ! is_array($child) || $this->isFormControlPlaceholderChild($child) ) {
                 continue;
             }
 
             if ( ($this->subtreeHasRenderableVector)($child) || null !== ($this->nodeAssetPath)($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function hasFormControlChromeChild(array $node): bool
+    {
+        $width = ($this->boxValue)($node, 'width');
+        $height = ($this->boxValue)($node, 'height');
+        if ( null === $width || null === $height || $width < 80.0 || $width > 640.0 || $height < 24.0 || $height > 160.0 ) {
+            return false;
+        }
+
+        foreach ( ($this->nodeList)($node) as $child ) {
+            if ( ! is_array($child) || 'TEXT' === strtoupper((string) ($child['type'] ?? '')) ) {
+                continue;
+            }
+
+            $childWidth = ($this->boxValue)($child, 'width');
+            $childHeight = ($this->boxValue)($child, 'height');
+            if ( null === $childWidth || null === $childHeight ) {
+                continue;
+            }
+            if ( abs($childWidth - $width) > 8.0 || abs($childHeight - $height) > 8.0 ) {
+                continue;
+            }
+            if ( null !== ($this->backgroundColor)($child) || ($this->cornerRadius)($child) > 0.0 || ($this->hasStrokePaint)($child) || ($this->subtreeHasRenderableVector)($child) ) {
                 return true;
             }
         }

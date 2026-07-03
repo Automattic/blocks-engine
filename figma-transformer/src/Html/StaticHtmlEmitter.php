@@ -802,6 +802,8 @@ final class StaticHtmlEmitter
         $content = $text;
         $nodeIntroducesLink = $this->nodeIntroducesLinkContext($node, $parentNode, $insideLink);
         $inputAccessoryControl = 'div' === $tag && $this->isInputLike($node) && $this->hasFormControlAccessoryChildren($node);
+        $textareaAccessoryControl = 'div' === $tag && $this->isTextareaLike($node) && $this->hasFormControlAccessoryChildren($node);
+        $formControlAccessoryControl = $inputAccessoryControl || $textareaAccessoryControl;
         $assetComposition = $this->nodeAssetComposition($node, $type, $parentNode);
         $vectorSvg = $assetComposition['vector_svg'];
         $hasVectorAssetFallback = $assetComposition['has_vector_asset_fallback'];
@@ -853,11 +855,11 @@ final class StaticHtmlEmitter
                         $this->recordDecisionTrace('source_loss_accounting', 'spatial_label_converted_to_form_control', $child, 'skip_child', $node, array('depth' => $depth + 1));
                         continue;
                     }
-                    if ( $inputAccessoryControl && $this->isFormControlPlaceholderChild($child) ) {
+                    if ( $formControlAccessoryControl && $this->isFormControlPlaceholderChild($child) ) {
                         $this->recordDecisionTrace('source_loss_accounting', 'placeholder_child_converted_to_form_control', $child, 'skip_child', $node, array('depth' => $depth + 1));
                         if ( ! $insertedAccessoryInput ) {
-                            $content .= $this->syntheticInputControlMarkup($node, $className);
-                            $cssRules[] = '.' . $className . '__control{border:0;background:transparent;padding:0;margin:0;min-width:0;flex:1;font:inherit;color:inherit;outline:none}';
+                            $content .= $this->syntheticFormControlMarkup($node, $className, $textareaAccessoryControl ? 'textarea' : 'input');
+                            $cssRules[] = $this->syntheticFormControlResetCss($className, $textareaAccessoryControl ? 'textarea' : 'input');
                             $insertedAccessoryInput = true;
                         }
                         continue;
@@ -869,9 +871,9 @@ final class StaticHtmlEmitter
                     $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node, $parentNode, $insideForm || 'form' === $tag, $insideLink || $nodeIntroducesLink);
                 }
             }
-            if ( $inputAccessoryControl && ! $insertedAccessoryInput ) {
-                $content .= $this->syntheticInputControlMarkup($node, $className, $parentNode);
-                $cssRules[] = '.' . $className . '__control{border:0;background:transparent;padding:0;margin:0;min-width:0;flex:1;font:inherit;color:inherit;outline:none}';
+            if ( $formControlAccessoryControl && ! $insertedAccessoryInput ) {
+                $content .= $this->syntheticFormControlMarkup($node, $className, $textareaAccessoryControl ? 'textarea' : 'input', $parentNode);
+                $cssRules[] = $this->syntheticFormControlResetCss($className, $textareaAccessoryControl ? 'textarea' : 'input');
             }
         }
 
@@ -1699,13 +1701,33 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function syntheticInputControlMarkup(array $node, string $className, ?array $parentNode = null): string
+    private function syntheticFormControlMarkup(array $node, string $className, string $tag = 'input', ?array $parentNode = null): string
     {
+        $tag = 'textarea' === $tag ? 'textarea' : 'input';
+        $attributes = $this->formControlAttributes($node, $tag, $parentNode);
+        if ( 'textarea' === $tag ) {
+            return sprintf(
+                '<textarea class="%1$s__control" data-figma-synthetic-control="textarea"%2$s></textarea>' . "\n",
+                $this->sanitizeAttribute($className),
+                $attributes
+            );
+        }
+
         return sprintf(
             '<input class="%1$s__control" data-figma-synthetic-control="input"%2$s>' . "\n",
             $this->sanitizeAttribute($className),
-            $this->formControlAttributes($node, 'input', $parentNode)
+            $attributes
         );
+    }
+
+    private function syntheticFormControlResetCss(string $className, string $tag): string
+    {
+        $css = '.' . $className . '__control{border:0;background:transparent;padding:0;margin:0;min-width:0;flex:1;font:inherit;color:inherit;outline:none';
+        if ( 'textarea' === $tag ) {
+            $css .= ';resize:none';
+        }
+
+        return $css . '}';
     }
 
     /**

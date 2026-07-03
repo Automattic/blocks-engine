@@ -376,4 +376,35 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
     $assert(str_contains($newsletterHtml, '<input class="figma-node-newsletter-email-box-rectangle"') && str_contains($newsletterHtml, 'type="email" name="email" placeholder="Email"'), 'form-control-newsletter-spatial-label-email-input');
     $assert(! str_contains($newsletterHtml, 'data-figma-node-id="newsletter:name-label"') && ! str_contains($newsletterHtml, 'data-figma-node-id="newsletter:email-label"'), 'form-control-newsletter-spatial-label-text-suppressed');
     $assert(str_contains($newsletterHtml, '<button class="figma-node-newsletter-submit-button-one"') && str_contains($newsletterHtml, 'type="submit"'), 'form-control-newsletter-spatial-label-submit-button');
+
+    $fieldShellResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Field Shell Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'field-shell:root',
+                'type'     => 'FRAME',
+                'name'     => 'Contact Form',
+                'width'    => 520,
+                'height'   => 240,
+                'children' => array(
+                    array('id' => 'field-shell:email', 'type' => 'FRAME', 'name' => 'Light/Field/Default', 'width' => 374, 'height' => 48, 'children' => array(
+                        array('id' => 'field-shell:email-bg', 'type' => 'RECTANGLE', 'name' => 'Rectangle', 'width' => 374, 'height' => 48, 'cornerRadius' => 10, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'strokePaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.8, 'g' => 0.8, 'b' => 0.8, 'a' => 1)))),
+                        array('id' => 'field-shell:email-placeholder', 'type' => 'TEXT', 'name' => 'Placeholder', 'characters' => 'Your email', 'fontSize' => 16),
+                    )),
+                    array('id' => 'field-shell:message', 'type' => 'FRAME', 'name' => 'Light/Field/Default', 'width' => 374, 'height' => 96, 'children' => array(
+                        array('id' => 'field-shell:message-bg', 'type' => 'RECTANGLE', 'name' => 'Rectangle', 'width' => 374, 'height' => 96, 'cornerRadius' => 10, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'strokePaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.8, 'g' => 0.8, 'b' => 0.8, 'a' => 1)))),
+                        array('id' => 'field-shell:message-placeholder', 'type' => 'TEXT', 'name' => 'Placeholder', 'characters' => 'Message', 'fontSize' => 16),
+                    )),
+                    array('id' => 'field-shell:submit', 'type' => 'FRAME', 'name' => 'Button', 'width' => 120, 'height' => 48, 'children' => array(
+                        array('id' => 'field-shell:submit-text', 'type' => 'TEXT', 'name' => 'Button', 'characters' => 'Submit', 'fontSize' => 16),
+                    )),
+                ),
+            ),
+        ),
+    ));
+    $fieldShellHtml = $fileContent($fieldShellResult, 'index.html');
+    $assert(str_contains($fieldShellHtml, 'data-figma-synthetic-control="input"') && str_contains($fieldShellHtml, 'type="email" name="email" placeholder="Your email"'), 'form-control-field-shell-emits-synthetic-email-input');
+    $assert(str_contains($fieldShellHtml, 'data-figma-node-id="field-shell:email-bg"'), 'form-control-field-shell-keeps-email-chrome');
+    $assert(! str_contains($fieldShellHtml, 'data-figma-node-id="field-shell:email-placeholder"'), 'form-control-field-shell-suppresses-email-placeholder');
+    $assert(str_contains($fieldShellHtml, 'data-figma-synthetic-control="textarea"') && str_contains($fieldShellHtml, 'name="message" placeholder="Message"'), 'form-control-field-shell-emits-synthetic-message-textarea');
 }
