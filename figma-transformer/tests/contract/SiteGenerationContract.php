@@ -110,6 +110,43 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(! str_contains($socialIconHtml, '<a class="figma-link" href="index.html" data-figma-link-type="implicit-route"><div class="figma-node-social-facebook-image-001-facebook-logo'), 'social-icon-logo-name-does-not-create-implicit-home-route');
     $assert(str_contains($socialIconCss, '.figma-node-social-facebook-color-001-facebook-logo{width:24px;height:24px;') && str_contains($socialIconCss, 'background:#ffffff') && str_contains($socialIconCss, 'mask-image:url("assets/social-mask-image'), 'social-icon-solid-overlay-uses-image-mask');
 
+    $zeroAreaScaffoldResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Zero Area Scaffold Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'zero-scaffold:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 320,
+                'height'   => 160,
+                'children' => array(
+                    array(
+                        'id'      => 'zero-scaffold:helper',
+                        'type'    => 'FRAME',
+                        'name'    => 'Invisible crop helper',
+                        'width'   => 120,
+                        'height'  => 0.0002,
+                        'opacity' => 0,
+                    ),
+                    array(
+                        'id'      => 'zero-scaffold:line',
+                        'type'    => 'VECTOR',
+                        'name'    => 'Vector separator',
+                        'width'   => 120,
+                        'height'  => 0,
+                        'pathData' => 'M0 0H120',
+                        'strokes' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 1))),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $zeroAreaScaffoldHtml = $fileContent($zeroAreaScaffoldResult, 'index.html');
+    $zeroAreaScaffoldCss = $fileContent($zeroAreaScaffoldResult, 'style.css');
+    $assert(! str_contains($zeroAreaScaffoldHtml, 'data-figma-node-id="zero-scaffold:helper"'), 'invisible-zero-area-scaffold-suppressed-from-html');
+    $assert(! str_contains($zeroAreaScaffoldCss, '.figma-node-zero-scaffold-helper-invisible-crop-helper'), 'invisible-zero-area-scaffold-suppressed-from-css');
+    $assert(str_contains($zeroAreaScaffoldHtml, 'data-figma-node-id="zero-scaffold:line"'), 'zero-height-vector-line-still-renders');
+
     $normalizer = new ScenegraphNormalizer();
     $localVectorStack = $normalizer->normalize(array(
         'nodes' => array(

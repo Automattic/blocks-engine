@@ -757,6 +757,15 @@ final class StaticHtmlEmitter
             return '';
         }
 
+        if ( $depth > 0 && $this->isInvisibleZeroAreaScaffold($node) ) {
+            $scaffoldId = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
+            if ( '' !== $scaffoldId ) {
+                $this->suppressedVisualNodeIds[$scaffoldId] = 'invisible-zero-area-scaffold';
+            }
+            $this->recordDecisionTrace('layout_suppression', 'invisible_zero_area_scaffold_suppressed', $node, 'skip_node', $parentNode, array('depth' => $depth));
+            return '';
+        }
+
         $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
         $name = (string) ($node['name'] ?? '');
         $attributeName = $this->sanitizeAttribute($name);
@@ -4389,6 +4398,9 @@ final class StaticHtmlEmitter
         if ( null !== $parentNode && $this->isFullyClippedDecorativeChild($node, $parentNode) ) {
             return 'masked/clipped';
         }
+        if ( $this->isInvisibleZeroAreaScaffold($node) ) {
+            return 'invisible-zero-area-scaffold';
+        }
         if ( $this->isMaskOperatorNode($node) ) {
             return 'mask-source';
         }
@@ -4414,7 +4426,36 @@ final class StaticHtmlEmitter
 
     private function isIntentionalComponentCloneSuppression(string $reason): bool
     {
-        return in_array($reason, array('mask-source', 'composed-into-parent', 'non-rendering-vector-layer'), true);
+        return in_array($reason, array('mask-source', 'composed-into-parent', 'non-rendering-vector-layer', 'invisible-zero-area-scaffold'), true);
+    }
+
+    /**
+     * Figma exports can include opacity-zero, zero-area helper frames inside image
+     * crops/masks. They add DOM/CSS noise but cannot contribute visible pixels.
+     *
+     * @param array<string, mixed> $node
+     */
+    private function isInvisibleZeroAreaScaffold(array $node): bool
+    {
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        if ( in_array($type, array('TEXT', 'VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : null;
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
+        if ( null === $width || null === $height || ($width > 0.5 && $height > 0.5) ) {
+            return false;
+        }
+
+        $figmaBox = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array();
+        $opacity = $figmaBox['opacity'] ?? $node['opacity'] ?? null;
+        if ( ! is_numeric($opacity) || (float) $opacity > 0.001 ) {
+            return false;
+        }
+
+        return '' === trim($this->subtreePlainText($node));
     }
 
     /**
