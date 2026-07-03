@@ -159,6 +159,9 @@ final class ComponentSourceCloneGeometry
 
         $mergedLayout = is_array($merged['layout'] ?? null) ? $merged['layout'] : array();
         $mergedLayout['z_index'] = (int) $refreshedLayout['z_index'];
+        if ( is_string($refreshedLayout['z_index_source'] ?? null) ) {
+            $mergedLayout['z_index_source'] = $refreshedLayout['z_index_source'];
+        }
         $merged['layout'] = $mergedLayout;
 
         return $merged;

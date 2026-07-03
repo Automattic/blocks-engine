@@ -334,6 +334,28 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $chromeOverHeroLayerCss, '.figma-node-layer-role-hero-hero-background-panel', array('position:relative', 'z-index:1'), 'visual-map-layer-role-hero-content-below-chrome');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $chromeOverHeroLayerCss, '.figma-node-layer-role-header-site-header-navigation', array('position:relative', 'z-index:2'), 'visual-map-layer-role-header-chrome-above-hero');
 
+    $reverseOrderSectionsResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Reverse Order Non Overlapping Sections Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'reverse-sections:page',
+                'type'       => 'FRAME',
+                'name'       => 'Reverse ordered page',
+                'width'      => 1440,
+                'height'     => 720,
+                'layoutMode' => 'VERTICAL',
+                'layout'     => array('display' => 'flex', 'reverse_z_index' => true),
+                'children'   => array(
+                    array('id' => 'reverse-sections:header', 'type' => 'FRAME', 'name' => 'Header band', 'x' => 0, 'y' => 0, 'width' => 1440, 'height' => 120),
+                    array('id' => 'reverse-sections:content', 'type' => 'FRAME', 'name' => 'Content band', 'x' => 0, 'y' => 240, 'width' => 1440, 'height' => 320),
+                ),
+            ),
+        ),
+    ));
+    $reverseOrderSectionsCss = blocks_engine_figma_transformer_contract_file_content($reverseOrderSectionsResult, 'style.css');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $reverseOrderSectionsCss, '.figma-node-reverse-sections-header-header-band', array('z-index:'), 'visual-map-reverse-order-non-overlap-header-not-z-indexed');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $reverseOrderSectionsCss, '.figma-node-reverse-sections-content-content-band', array('z-index:'), 'visual-map-reverse-order-non-overlap-content-not-z-indexed');
+
     $flippedChromeStripResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Flipped Chrome Strip Fixture',
         'nodes' => array(

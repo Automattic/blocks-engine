@@ -619,7 +619,12 @@ final class LayoutIntentClassifier
         $siblingStackPlan = null !== $parentNode ? $this->siblingLayerStackPlan($node, $parentNode) : array('role' => null, 'overlaps_sibling' => false, 'z_index' => null);
         $isDecorativeUnderlay = null !== $parentNode && ($this->isDecorativeFlexUnderlay($node, $parentNode) || $this->isDecorativeTrackUnderlay($node, $parentNode));
 
-        return $this->stackingContextPolicy()->plan($localReasons, $isolationReasons, $siblingStackPlan, $isDecorativeUnderlay, $this->nodeZIndex($node));
+        $sourceZIndex = $this->nodeZIndex($node);
+        if ( 'reverse_child_order' === ($node['layout']['z_index_source'] ?? null) && true !== ($siblingStackPlan['overlaps_sibling'] ?? false) && (null === $parentNode || ! $this->hasNegativeAutoLayoutSpacing($parentNode)) ) {
+            $sourceZIndex = null;
+        }
+
+        return $this->stackingContextPolicy()->plan($localReasons, $isolationReasons, $siblingStackPlan, $isDecorativeUnderlay, $sourceZIndex);
     }
 
     private function stackingContextPolicy(): StackingContextPolicy
@@ -1631,6 +1636,14 @@ final class LayoutIntentClassifier
     private function nodeZIndex(array $node): ?int
     {
         return isset($node['layout']['z_index']) && is_numeric($node['layout']['z_index']) ? (int) $node['layout']['z_index'] : null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasNegativeAutoLayoutSpacing(array $node): bool
+    {
+        return isset($node['layout']['item_spacing']) && is_numeric($node['layout']['item_spacing']) && (float) $node['layout']['item_spacing'] < 0.0;
     }
 
     /**

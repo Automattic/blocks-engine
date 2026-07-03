@@ -1203,6 +1203,7 @@ final class ScenegraphNormalizer
 
                 $layout = is_array($nodeMap[$childId]['layout'] ?? null) ? $nodeMap[$childId]['layout'] : array();
                 $layout['z_index'] = $childCount - (int) $index;
+                $layout['z_index_source'] = 'reverse_child_order';
                 $nodeMap[$childId]['layout'] = $layout;
             }
         }
