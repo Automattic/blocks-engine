@@ -1140,11 +1140,15 @@ final class LayoutIntentClassifier
      */
     private function isFooterChromeCandidate(array $node, int $depth, ?array $parentNode): bool
     {
-        if ( null === $parentNode ) {
-            return false;
+        if ( null !== $parentNode && ( 'bottom' === $this->verticalRegion($node, $parentNode) || $this->hasLegalText($node) || $depth <= 1 ) ) {
+            return true;
         }
 
-        return 'bottom' === $this->verticalRegion($node, $parentNode) || $this->hasLegalText($node) || $depth <= 1;
+        $text = strtolower($this->subtreePlainText($node));
+        return str_contains($text, 'copyright')
+            || str_contains($text, 'all rights reserved')
+            || (str_contains($text, 'contact') && str_contains($text, 'location'))
+            || ($this->hasNavigationTextRun($text) && $this->textDescendantCount($node) <= 8);
     }
 
     /**
@@ -1169,6 +1173,12 @@ final class LayoutIntentClassifier
         }
 
         return $textCount >= 2 && $textCount === count($children);
+    }
+
+    private function hasNavigationTextRun(string $text): bool
+    {
+        $matches = preg_match_all('/\b(home|about|services|reviews|faq|contact|news|blog|appointments?|handouts?)\b/', $text);
+        return false !== $matches && $matches >= 3;
     }
 
     private function isMenuItemName(string $lowerName): bool

@@ -190,4 +190,39 @@ function blocks_engine_figma_transformer_run_semantic_accessibility_contract(cal
     $assert(str_contains($chromeHtml, '<nav class="figma-node-chrome-social-social-links"'), 'semantic-accessibility-social-cluster-emits-nav');
     $assert(str_contains($chromeHtml, '<div class="figma-node-chrome-cta-call-to-action"'), 'semantic-accessibility-cta-group-stays-structural');
     $assert(str_contains($chromeHtml, '<footer class="figma-node-chrome-bottom-bottom-bar"'), 'semantic-accessibility-generic-bottom-chrome-emits-footer');
+
+    $footerOverflowResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Footer Overflow Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'chrome-overflow:page',
+                'type'     => 'FRAME',
+                'name'     => 'Page',
+                'width'    => 1440,
+                'height'   => 720,
+                'children' => array(
+                    array(
+                        'id'       => 'chrome-overflow:footer',
+                        'type'     => 'FRAME',
+                        'name'     => 'Footer',
+                        'x'        => 0,
+                        'y'        => 520,
+                        'width'    => 1440,
+                        'height'   => 120,
+                        'children' => array(
+                            array('id' => 'chrome-overflow:links', 'type' => 'TEXT', 'name' => 'Footer Links', 'x' => 320, 'y' => 24, 'width' => 900, 'height' => 24, 'characters' => 'News      About      Services      Contact', 'fontSize' => 18),
+                            array('id' => 'chrome-overflow:bar', 'type' => 'RECTANGLE', 'name' => 'Rectangle', 'x' => 0, 'y' => 120, 'width' => 1440, 'height' => 32, 'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.5, 'g' => 0.8, 'b' => 0.9, 'a' => 1), 'visible' => true))),
+                            array('id' => 'chrome-overflow:legal', 'type' => 'TEXT', 'name' => 'Legal', 'x' => 520, 'y' => 96, 'width' => 860, 'height' => 14, 'characters' => 'Contact: 555-555-5555        Location: Example Clinic        Copyright 2026. All rights reserved.', 'fontSize' => 12),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+
+    $footerOverflowHtml = $fileContent($footerOverflowResult, 'index.html');
+    $footerOverflowCss = $fileContent($footerOverflowResult, 'style.css');
+    $assert(str_contains($footerOverflowHtml, '<footer class="figma-node-chrome-overflow-footer-footer"'), 'semantic-accessibility-named-footer-with-legal-evidence-emits-footer');
+    $assert(str_contains($footerOverflowCss, '.figma-node-chrome-overflow-footer-footer{') && str_contains($footerOverflowCss, 'min-height:152px'), 'semantic-accessibility-footer-reserves-protruding-bottom-bar');
+    $assert(str_contains($footerOverflowCss, '.figma-node-chrome-overflow-links-footer-links{') && str_contains($footerOverflowCss, 'white-space:pre-wrap'), 'semantic-accessibility-footer-spaced-text-preserves-layout-spacing');
 }

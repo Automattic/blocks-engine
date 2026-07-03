@@ -5679,7 +5679,7 @@ final class StaticHtmlEmitter
         }
 
         if ( 'TEXT' === $type ) {
-            foreach ( $this->textStyles($node) as $style ) {
+            foreach ( $this->textStyles($node, $parentNode, $grandParentNode) as $style ) {
                 if ( $this->textShouldUseFluidFlowBox($node, $parentNode) && str_starts_with($style, 'white-space:') ) {
                     continue;
                 }
@@ -5972,6 +5972,15 @@ final class StaticHtmlEmitter
 
     /**
      * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function isFooterChromeNode(array $node, ?array $parentNode, int $depth): bool
+    {
+        return LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER === $this->layoutIntentClassifier()->chromeGroupRole($node, $parentNode, $depth);
+    }
+
+    /**
+     * @param array<string, mixed> $node
      */
     private function absoluteChildReserveHeight(array $node): ?float
     {
@@ -6008,7 +6017,7 @@ final class StaticHtmlEmitter
             }
 
             $bottom = $top + (float) $childBox['height'];
-            if ( null !== $parentHeight && $bottom > $parentHeight + 0.5 ) {
+            if ( null !== $parentHeight && $bottom > $parentHeight + 0.5 && ! $this->isFooterChromeNode($node, null, 1) ) {
                 return null;
             }
             $maxBottom = null === $maxBottom ? $bottom : max($maxBottom, $bottom);
@@ -6018,7 +6027,7 @@ final class StaticHtmlEmitter
         if ( $contributingChildren <= 1 || null === $maxBottom || $maxBottom <= 0.0 ) {
             return null;
         }
-        if ( null !== $parentHeight && abs($parentHeight - $maxBottom) > 0.5 ) {
+        if ( null !== $parentHeight && abs($parentHeight - $maxBottom) > 0.5 && ! $this->isFooterChromeNode($node, null, 1) ) {
             return null;
         }
 
@@ -6956,7 +6965,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @return array<int, string>
      */
-    private function textStyles(array $node): array
+    private function textStyles(array $node, ?array $parentNode = null, ?array $grandParentNode = null): array
     {
         $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
         $style = is_array($text['style'] ?? null) ? $text['style'] : array();
@@ -6977,13 +6986,36 @@ final class StaticHtmlEmitter
             ));
             $styles[] = 'line-height:' . $this->number($derivedLineHeight) . 'px';
         }
-        if ( ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) && ! $this->shouldSplitParagraphs($node) ) {
+        if ( $this->textShouldPreserveChromeSpacing($node, $parentNode, $grandParentNode) ) {
+            $styles[] = 'white-space:pre-wrap';
+        } elseif ( ( $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) && ! $this->shouldSplitParagraphs($node) ) {
             $styles[] = $this->textHasDerivedLineBreaks($node) && ! $this->textHasLineBreaks($node) ? 'white-space:pre' : 'white-space:pre-line';
         } elseif ( $this->textIsAtomicSingleLineLabel($node, $text) ) {
             $styles[] = 'white-space:nowrap';
         }
 
         return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, mixed>|null $grandParentNode
+     */
+    private function textShouldPreserveChromeSpacing(array $node, ?array $parentNode, ?array $grandParentNode): bool
+    {
+        $characters = strip_tags($this->textContent($node));
+        if ( ! preg_match('/ {2,}/', $characters) ) {
+            return false;
+        }
+
+        foreach ( array($parentNode, $grandParentNode) as $candidate ) {
+            if ( is_array($candidate) && $this->isFooterChromeNode($candidate, null, 1) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
