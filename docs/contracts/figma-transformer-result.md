@@ -76,6 +76,7 @@ Positional parity coverage lives at `transform_diagnostics.layout.positional_par
 - `chrome_overflow_nodes[]`: bounded samples with page, node, parent, geometry, and class evidence.
 - `root_stacking_trace_count`: count of recorded stacking-context decision traces.
 - `root_stacking_reason_counts`: stable stacking/z-index/overlap decision reason counts when present.
+- `decision_trace_samples[]`: bounded positional decision trace samples derived from `decision_traces.samples` for effective geometry, stacking context, transform viewport, and responsive decisions. Samples include stable node/page/class identity plus compact source geometry, emitted CSS geometry, full-bleed/canvas-shell, stacking, transform, or responsive declaration evidence when present.
 
 Status meanings:
 

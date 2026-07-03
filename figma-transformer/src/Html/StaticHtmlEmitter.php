@@ -3700,7 +3700,84 @@ final class StaticHtmlEmitter
             'chrome_overflow_nodes' => array_slice(array_map(fn (array $node): array => $this->positionalParityNodeSample($node), $chromeOverflowNodes), 0, 25),
             'root_stacking_trace_count' => (int) ($domainCounts['stacking_context'] ?? 0),
             'root_stacking_reason_counts' => array_filter($reasonCounts, static fn (mixed $count, string $reason): bool => str_contains($reason, 'stack') || str_contains($reason, 'z_index') || str_contains($reason, 'overlap'), ARRAY_FILTER_USE_BOTH),
+            'decision_trace_samples' => $this->positionalDecisionTraceSamples($decisionTraces),
         );
+    }
+
+    /**
+     * @param array<string, mixed> $decisionTraces
+     * @return array<int, array<string, mixed>>
+     */
+    private function positionalDecisionTraceSamples(array $decisionTraces): array
+    {
+        $samples = array();
+        $traces = is_array($decisionTraces['samples'] ?? null) ? $decisionTraces['samples'] : array();
+        $positionalDomains = array(
+            'effective_geometry' => true,
+            'stacking_context' => true,
+            'transform_viewport' => true,
+            'responsive_decision' => true,
+        );
+
+        foreach ( $traces as $trace ) {
+            if ( ! is_array($trace) ) {
+                continue;
+            }
+
+            $domain = (string) ($trace['domain'] ?? '');
+            if ( ! isset($positionalDomains[$domain]) ) {
+                continue;
+            }
+
+            $samples[] = $this->positionalDecisionTraceSample($trace);
+            if ( count($samples) >= 25 ) {
+                break;
+            }
+        }
+
+        return $samples;
+    }
+
+    /**
+     * @param array<string, mixed> $trace
+     * @return array<string, mixed>
+     */
+    private function positionalDecisionTraceSample(array $trace): array
+    {
+        $evidence = is_array($trace['evidence'] ?? null) ? $trace['evidence'] : array();
+
+        return array_filter(array(
+            'domain' => isset($trace['domain']) && is_scalar($trace['domain']) ? (string) $trace['domain'] : null,
+            'reason_code' => isset($trace['reason_code']) && is_scalar($trace['reason_code']) ? (string) $trace['reason_code'] : null,
+            'decision' => isset($trace['decision']) && is_scalar($trace['decision']) ? (string) $trace['decision'] : null,
+            'node_id' => isset($trace['node_id']) && is_scalar($trace['node_id']) ? (string) $trace['node_id'] : null,
+            'name' => isset($trace['name']) && is_scalar($trace['name']) ? (string) $trace['name'] : null,
+            'type' => isset($trace['type']) && is_scalar($trace['type']) ? (string) $trace['type'] : null,
+            'class' => isset($trace['class']) && is_scalar($trace['class']) ? (string) $trace['class'] : null,
+            'parent_id' => isset($trace['parent_id']) && is_scalar($trace['parent_id']) ? (string) $trace['parent_id'] : null,
+            'page_path' => isset($trace['page_path']) && is_scalar($trace['page_path']) ? (string) $trace['page_path'] : null,
+            'count' => isset($trace['count']) && is_numeric($trace['count']) ? (int) $trace['count'] : null,
+            'source_geometry' => is_array($evidence['source_geometry'] ?? null) ? $evidence['source_geometry'] : null,
+            'effective_css_geometry' => is_array($evidence['effective_css_geometry'] ?? null) ? $evidence['effective_css_geometry'] : null,
+            'canvas_shell' => is_array($evidence['canvas_shell'] ?? null) ? $evidence['canvas_shell'] : null,
+            'canvas_width_reason_code' => isset($evidence['canvas_width_reason_code']) && is_scalar($evidence['canvas_width_reason_code']) ? (string) $evidence['canvas_width_reason_code'] : null,
+            'canvas_width_declarations' => is_array($evidence['canvas_width_declarations'] ?? null) ? $evidence['canvas_width_declarations'] : null,
+            'full_bleed_reason_code' => isset($evidence['full_bleed_reason_code']) && is_scalar($evidence['full_bleed_reason_code']) ? (string) $evidence['full_bleed_reason_code'] : null,
+            'full_bleed_declarations' => is_array($evidence['full_bleed_declarations'] ?? null) ? $evidence['full_bleed_declarations'] : null,
+            'manages_local_stacking' => $evidence['manages_local_stacking'] ?? null,
+            'needs_isolation' => $evidence['needs_isolation'] ?? null,
+            'local_reasons' => is_array($evidence['local_reasons'] ?? null) ? $evidence['local_reasons'] : null,
+            'sibling_role' => isset($evidence['sibling_role']) && is_scalar($evidence['sibling_role']) ? (string) $evidence['sibling_role'] : null,
+            'overlaps_sibling' => $evidence['overlaps_sibling'] ?? null,
+            'z_index' => isset($evidence['z_index']) && is_numeric($evidence['z_index']) ? (int) $evidence['z_index'] : null,
+            'z_index_reason' => isset($evidence['z_index_reason']) && is_scalar($evidence['z_index_reason']) ? (string) $evidence['z_index_reason'] : null,
+            'will_position_absolute' => $evidence['will_position_absolute'] ?? null,
+            'transform' => isset($evidence['transform']) && is_scalar($evidence['transform']) ? (string) $evidence['transform'] : null,
+            'matrix' => is_array($evidence['matrix'] ?? null) ? $evidence['matrix'] : null,
+            'transformed_rect' => is_array($evidence['transformed_rect'] ?? null) ? $evidence['transformed_rect'] : null,
+            'viewport_width' => isset($evidence['viewport_width']) && is_numeric($evidence['viewport_width']) ? $this->reportNumericValue((float) $evidence['viewport_width']) : null,
+            'declarations' => is_array($evidence['declarations'] ?? null) ? $evidence['declarations'] : null,
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
     }
 
     private function cssDeclarationCount(string $css, string $property, string $value): int
