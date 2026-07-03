@@ -3319,11 +3319,13 @@ final class StaticHtmlEmitter
             'schema' => 'blocks-engine/figma-transformer/mask-effect-clipping/v1',
             'mask_node_count' => 0,
             'mask_metadata_node_count' => 0,
+            'emitted_mask_source_node_count' => 0,
             'clips_content_node_count' => 0,
             'effect_node_count' => 0,
             'clipped_effect_node_count' => 0,
             'by_mask_type' => array(),
             'sample_nodes' => array(),
+            'emitted_mask_source_nodes' => array(),
         );
 
         foreach ( $nodes as $node ) {
@@ -3362,6 +3364,7 @@ final class StaticHtmlEmitter
         ksort($effects['by_type']);
         ksort($maskEffectClipping['by_mask_type']);
         $maskEffectClipping['sample_nodes'] = array_slice($maskEffectClipping['sample_nodes'], 0, 25);
+        $maskEffectClipping['emitted_mask_source_nodes'] = array_slice($maskEffectClipping['emitted_mask_source_nodes'], 0, 25);
         $generatedSvgAssets = $this->generatedSvgAssetDiagnostics($assetFiles);
         $assets = array(
             'emitted_files' => count($assetFiles),
@@ -3611,7 +3614,7 @@ final class StaticHtmlEmitter
 
         $this->collectComponentCoverageDiagnostics($node, $components, $html);
         $this->collectEffectCoverageDiagnostics($node, $effects, $maskEffectClipping, $html, $css);
-        $this->collectMaskEffectClippingDiagnostics($node, $maskEffectClipping);
+        $this->collectMaskEffectClippingDiagnostics($node, $maskEffectClipping, $html);
 
         $emptyContainer = $this->emptyVisibleContainerDiagnostic($node, $parentNode);
         if ( null !== $emptyContainer ) {
@@ -3881,7 +3884,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @param array<string, mixed> $maskEffectClipping
      */
-    private function collectMaskEffectClippingDiagnostics(array $node, array &$maskEffectClipping): void
+    private function collectMaskEffectClippingDiagnostics(array $node, array &$maskEffectClipping, string $html): void
     {
         $mask = is_array($node['figma_mask'] ?? null) ? $node['figma_mask'] : array();
         if ( ! empty($mask) ) {
@@ -3900,6 +3903,10 @@ final class StaticHtmlEmitter
         }
         if ( true === ($mask['is_mask'] ?? null) || true === ($node['isMask'] ?? null) || true === ($node['mask'] ?? null) ) {
             ++$maskEffectClipping['mask_node_count'];
+            if ( $this->htmlContainsNodeId($html, (string) ($node['id'] ?? '')) ) {
+                ++$maskEffectClipping['emitted_mask_source_node_count'];
+                $maskEffectClipping['emitted_mask_source_nodes'][] = $maskSample ?? $this->nodeCoverageSample($node);
+            }
         }
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
         if ( true === ($layout['clips_content'] ?? false) ) {
