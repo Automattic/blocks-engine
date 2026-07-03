@@ -888,7 +888,7 @@ $labeledButtons = ( new HtmlTransformer() )->transform(
 $labeledButtonsSerialized = (string) ($labeledButtons['serialized_blocks'] ?? '');
 $assert(str_contains($labeledButtonsSerialized, '<!-- wp:button'), 'labeled/standalone buttons still convert to core/button');
 $assert(str_contains($labeledButtonsSerialized, 'Sign Up'), 'labeled button text is preserved as core/button');
-$assert(str_contains($labeledButtonsSerialized, 'aria-controls="missing"'), 'a toggle-looking control with no associated nav still converts to core/button');
+$assert(! str_contains($labeledButtonsSerialized, 'aria-controls="missing"'), 'a toggle-looking control with no associated nav omits unsupported ARIA from native core/button markup');
 
 // Recursively counts blocks by name across the block tree (the serialized string
 // renders nested navigation/buttons without block-comment delimiters, so structural
@@ -1248,7 +1248,7 @@ $emptyRuntimeControl = ( new HtmlTransformer() )->transform(
     '<main><button class="nav-toggle" aria-label="Open navigation" aria-expanded="false"><span></span><span></span><span></span></button></main>'
 )->toArray();
 $assert(str_contains((string) ($emptyRuntimeControl['serialized_blocks'] ?? ''), 'nav-toggle'), 'empty runtime control button class is preserved for scripts');
-$assert(str_contains((string) ($emptyRuntimeControl['serialized_blocks'] ?? ''), 'aria-expanded="false"'), 'empty runtime control button ARIA state is preserved');
+$assert(! str_contains((string) ($emptyRuntimeControl['serialized_blocks'] ?? ''), 'aria-expanded="false"'), 'empty runtime control button omits unsupported ARIA state from native core/button markup');
 
 // Behavior-loss diagnostic: an interactive control converted to a static block
 // without its behavior must surface a generic, severity-warning finding so the

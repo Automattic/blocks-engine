@@ -229,20 +229,11 @@ final class ButtonsPattern
      */
     private function buttonRuntimeAttributes(DOMElement $button): array
     {
-        $attrs = array();
-        foreach ( array( 'type', 'role', 'aria-label', 'aria-controls', 'aria-expanded', 'aria-haspopup' ) as $name ) {
-            if ( $button->hasAttribute($name) ) {
-                $attrs[$name] = $button->getAttribute($name);
-            }
+        if ( ! $button->hasAttribute('type') ) {
+            return array();
         }
 
-        foreach ( $button->attributes ?? array() as $attribute ) {
-            if ( str_starts_with(strtolower($attribute->nodeName), 'data-') ) {
-                $attrs[$attribute->nodeName] = $attribute->nodeValue ?? '';
-            }
-        }
-
-        return $attrs;
+        return array( 'type' => $button->getAttribute('type') );
     }
 
     private function hasOutlineSignal(DOMElement $element, string $style): bool

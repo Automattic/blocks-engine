@@ -256,12 +256,7 @@ final class BlockFactory
             );
 
             if ( 'button' === ($attrs['tagName'] ?? '') ) {
-                $buttonAttrs = array_intersect_key($attrs, array_flip(array( 'type', 'role', 'aria-label', 'aria-controls', 'aria-expanded', 'aria-haspopup' )));
-                foreach ( $attrs as $attrName => $attrValue ) {
-                    if ( is_string($attrName) && str_starts_with(strtolower($attrName), 'data-') ) {
-                        $buttonAttrs[$attrName] = (string) $attrValue;
-                    }
-                }
+                $buttonAttrs = array_intersect_key($attrs, array_flip(array( 'type' )));
                 $buttonAttrs = array_merge(array(
                     'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button'),
                     'style' => $support['style'],
