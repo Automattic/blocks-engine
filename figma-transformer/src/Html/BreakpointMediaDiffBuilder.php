@@ -335,11 +335,12 @@ final class BreakpointMediaDiffBuilder
         if ( null === $width && '100%' === ($baseMap['width'] ?? null) ) {
             $width = $this->cssPixelValue($baseMap['max-width'] ?? '');
         }
+        $parentName = null === $parentNode ? '' : strtolower(trim((string) ($parentNode['name'] ?? '')));
         $isContainer = in_array($type, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL'), true);
         $chromeRole = $this->layoutIntentClassifier->chromeGroupRole($node, $parentNode, $depth);
         $parentChromeRole = null === $parentNode ? null : $this->layoutIntentClassifier->chromeGroupRole($parentNode, $grandParentNode, max(1, $depth - 1));
 
-        if ( LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $chromeRole && $isContainer ) {
+        if ( (LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $chromeRole || $this->isHeaderChromeShellName($name)) && $isContainer ) {
             $minHeight = $this->cssPixelValue($baseMap['height'] ?? '') ?? $this->nodeBoxHeight($node);
             $declarations = array('width:100%', 'max-width:100%', 'height:auto');
             if ( null !== $minHeight && $minHeight > 0.0 ) {
@@ -360,7 +361,7 @@ final class BreakpointMediaDiffBuilder
             return array('reason_code' => 'responsive_navigation_chrome_safety', 'declarations' => array('width:100%', 'max-width:100%', 'height:auto', 'justify-content:flex-start', 'flex-wrap:wrap', 'gap:16px'));
         }
 
-        if ( LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $parentChromeRole && $isContainer ) {
+        if ( (LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $parentChromeRole || $this->isHeaderChromeShellName($parentName)) && $isContainer ) {
             return array('reason_code' => 'responsive_header_child_chrome_safety', 'declarations' => array('width:100%', 'max-width:100%', 'height:auto', 'position:relative', 'left:auto', 'right:auto', 'top:auto', 'justify-content:flex-start', 'align-items:center', 'flex-wrap:wrap', 'gap:16px', 'padding-top:24px', 'padding-right:24px', 'padding-bottom:24px', 'padding-left:24px'));
         }
 
