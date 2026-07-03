@@ -1495,6 +1495,61 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     // entry's bold `fontName` — and " plain text" stays unwrapped.
     $assert(str_contains($kiwiInlineTextStyleHtml, '<span style="font-weight:700">Bold</span> plain text'), 'kiwi-inline-style-mixed-weight-spans');
 
+    $tokenOnlyFontResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(array(
+        'name'  => 'Token Only Font Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'tok:system',
+                'type'     => 'FRAME',
+                'name'     => 'Typography tokens',
+                'children' => array(
+                    array(
+                        'id'         => 'tok:display',
+                        'type'       => 'TEXT',
+                        'name'       => 'Display token',
+                        'figma_text' => array(
+                            'characters' => 'Display',
+                            'style'      => array('font_family' => 'Token Only Sans', 'font_size' => 48, 'font_weight' => 700),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id'       => 'tok:page',
+                'type'     => 'FRAME',
+                'name'     => 'Rendered page',
+                'children' => array(),
+            ),
+        ),
+    ), array(array('frame_id' => 'tok:page', 'name' => 'Rendered page', 'path' => 'index.html', 'entrypoint' => true)));
+    $tokenOnlyFontCss = $fileContent($tokenOnlyFontResult, 'style.css');
+    $tokenOnlyFontDiagnostics = $tokenOnlyFontResult['source_report']['transform_diagnostics'] ?? array();
+    $assert(str_contains($tokenOnlyFontCss, 'font-family:"Token Only Sans", sans-serif'), 'token-only-font-family-css-emitted');
+    $assert(array('Token Only Sans') === ($tokenOnlyFontDiagnostics['fonts']['missing_css'] ?? null), 'token-only-font-family-missing-css-diagnostic');
+    $assert(array('Token Only Sans') === array_column($tokenOnlyFontResult['source_report']['font_usage'] ?? array(), 'family'), 'token-only-font-family-usage-materialized');
+
+    $inlineRunFontResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emit(array(
+        'name'  => 'Inline Run Font Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'run:1',
+                'type'       => 'TEXT',
+                'name'       => 'Inline run family text',
+                'figma_text' => array(
+                    'segments' => array(
+                        array('characters' => 'Base ', 'style' => null),
+                        array('characters' => 'custom', 'style' => array('font_family' => 'Run Only Sans', 'font_weight' => 600)),
+                    ),
+                    'style'    => array('font_family' => 'Inter', 'font_size' => 16, 'font_weight' => 400),
+                ),
+            ),
+        ),
+    ));
+    $inlineRunFontHtml = $fileContent($inlineRunFontResult, 'index.html');
+    $inlineRunFontDiagnostics = $inlineRunFontResult['source_report']['transform_diagnostics'] ?? array();
+    $assert(str_contains($inlineRunFontHtml, '<span style="font-family:&quot;Run Only Sans&quot;, sans-serif;font-weight:600">custom</span>'), 'inline-run-font-family-span-emitted');
+    $assert(in_array('Run Only Sans', $inlineRunFontDiagnostics['fonts']['missing_css'] ?? array(), true), 'inline-run-font-family-missing-css-diagnostic');
+
     // Kiwi derived rich text spans: production .fig payloads can put the character
     // range IDs and NodeChange-shaped override table under `derivedTextData` while
     // the root text node still carries stale uppercase/heading-sized styling from a

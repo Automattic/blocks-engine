@@ -289,8 +289,9 @@ final class StaticHtmlEmitter
         $cssRules = $shared['rules'];
         $body     = $this->applySharedClassMapToHtml($body, $shared['class_map']);
 
-        $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
-        $fontUsage = $this->fontUsage($nodeStyleDiagnostics);
+        $cssWithoutFontCss = $this->htmlArtifactAssembler()->stylesheet('', (string) $designSystem['css'], $cssRules);
+        $fontUsage = $this->fontUsage($nodeStyleDiagnostics, $cssWithoutFontCss, $body);
+        $fontFamilies = array_column($fontUsage, 'family');
         $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss, $familyOverrides);
         $fontCss = (string) $fontResolution['css'];
 
@@ -515,8 +516,10 @@ final class StaticHtmlEmitter
             }
         }
 
-        $fontFamilies = $this->fontFamilies($nodeStyleDiagnostics);
-        $fontUsage = $this->fontUsage($nodeStyleDiagnostics);
+        $htmlForFontUsage = $this->htmlArtifactAssembler()->htmlFilesContent($files);
+        $cssWithoutFontCss = $this->htmlArtifactAssembler()->stylesheet('', (string) $designSystem['css'], $cssRules, $mediaBlocks, true);
+        $fontUsage = $this->fontUsage($nodeStyleDiagnostics, $cssWithoutFontCss, $htmlForFontUsage);
+        $fontFamilies = array_column($fontUsage, 'family');
         $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss, $familyOverrides);
         $fontCss = (string) $fontResolution['css'];
         foreach ( $this->designSystemDiagnostics($designSystem) as $diagnostic ) {
@@ -2551,7 +2554,7 @@ final class StaticHtmlEmitter
      * @param array<int, array<string, mixed>> $nodeStyleDiagnostics
      * @return array<int, array<string, mixed>>
      */
-    private function fontUsage(array $nodeStyleDiagnostics): array
+    private function fontUsage(array $nodeStyleDiagnostics, string $css = '', string $html = ''): array
     {
         $usageByFamily = array();
         foreach ( $nodeStyleDiagnostics as $diagnostic ) {
@@ -2581,6 +2584,14 @@ final class StaticHtmlEmitter
             }
         }
 
+        foreach ( $this->fontUsageEntriesFromMaterializedCss($css) as $entry ) {
+            $this->addFontUsageEntry($usageByFamily, $entry);
+        }
+
+        foreach ( $this->fontUsageEntriesFromInlineHtml($html) as $entry ) {
+            $this->addFontUsageEntry($usageByFamily, $entry);
+        }
+
         ksort($usageByFamily);
         $usage = array();
         foreach ( $usageByFamily as $family => $data ) {
@@ -2598,6 +2609,112 @@ final class StaticHtmlEmitter
         }
 
         return $usage;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $usageByFamily
+     * @param array<string, mixed> $entry
+     */
+    private function addFontUsageEntry(array &$usageByFamily, array $entry): void
+    {
+        $family = $this->primaryFontFamily((string) ($entry['family'] ?? ''));
+        if ( '' === $family ) {
+            return;
+        }
+
+        $weight = isset($entry['weight']) && is_numeric($entry['weight']) ? (int) $entry['weight'] : 400;
+        $usageByFamily[$family] ??= array('weights' => array(), 'weight_counts' => array(), 'text_node_count' => 0, 'visible_text_area_px' => 0.0, 'sample_nodes' => array());
+        $usageByFamily[$family]['weights'][] = $weight;
+        if ( false !== ($entry['counts_as_text_node'] ?? true) ) {
+            $usageByFamily[$family]['weight_counts'][(string) $weight] = ($usageByFamily[$family]['weight_counts'][(string) $weight] ?? 0) + 1;
+            $usageByFamily[$family]['text_node_count']++;
+        }
+        if ( count($usageByFamily[$family]['sample_nodes']) < 10 ) {
+            $usageByFamily[$family]['sample_nodes'][] = array_filter(array(
+                'node_id' => (string) ($entry['node_id'] ?? ''),
+                'name'    => (string) ($entry['name'] ?? ''),
+                'weight'  => $weight,
+                'source'  => (string) ($entry['source'] ?? ''),
+            ), static fn (mixed $value): bool => '' !== $value);
+        }
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function fontUsageEntriesFromMaterializedCss(string $css): array
+    {
+        $entries = array();
+        if ( '' === trim($css) || false === preg_match_all('/font-family\s*:\s*([^;}]+)/i', $css, $matches, PREG_OFFSET_CAPTURE) ) {
+            return $entries;
+        }
+
+        foreach ( $matches[1] as $match ) {
+            $family = $this->primaryFontFamily((string) $match[0]);
+            if ( '' === $family || $this->isCssGenericFontFamily($family) ) {
+                continue;
+            }
+            $entries[] = array(
+                'family' => $family,
+                'weight' => $this->fontWeightNearCssOffset($css, (int) $match[1]),
+                'source' => 'materialized_css',
+                'counts_as_text_node' => false,
+            );
+        }
+
+        return $entries;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function fontUsageEntriesFromInlineHtml(string $html): array
+    {
+        $entries = array();
+        if ( '' === trim($html) || false === preg_match_all('/style=(?:"([^"]*)"|\'([^\']*)\')/i', $html, $matches) ) {
+            return $entries;
+        }
+
+        foreach ( $matches[1] as $index => $doubleQuotedStyle ) {
+            $style = '' !== $doubleQuotedStyle ? $doubleQuotedStyle : (string) ($matches[2][$index] ?? '');
+            $map = $this->styleDeclarationMap(array_filter(array_map('trim', explode(';', html_entity_decode($style, ENT_QUOTES | ENT_HTML5, 'UTF-8')))));
+            if ( ! isset($map['font-family']) || ! is_scalar($map['font-family']) ) {
+                continue;
+            }
+            $family = $this->primaryFontFamily((string) $map['font-family']);
+            if ( '' === $family || $this->isCssGenericFontFamily($family) ) {
+                continue;
+            }
+            $entries[] = array(
+                'family' => $family,
+                'weight' => isset($map['font-weight']) && is_numeric($map['font-weight']) ? (int) $map['font-weight'] : 400,
+                'source' => 'inline_html',
+                'counts_as_text_node' => false,
+            );
+        }
+
+        return $entries;
+    }
+
+    private function fontWeightNearCssOffset(string $css, int $offset): int
+    {
+        $blockStart = strrpos(substr($css, 0, $offset), '{');
+        $blockEnd = strpos($css, '}', $offset);
+        if ( false === $blockStart || false === $blockEnd ) {
+            return 400;
+        }
+
+        $block = substr($css, $blockStart + 1, $blockEnd - $blockStart - 1);
+        if ( 1 === preg_match('/font-weight\s*:\s*([0-9.]+)/i', $block, $matches) && is_numeric($matches[1]) ) {
+            return (int) $matches[1];
+        }
+
+        return 400;
+    }
+
+    private function isCssGenericFontFamily(string $family): bool
+    {
+        return in_array(strtolower($family), array('serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'emoji', 'math', 'fangsong'), true);
     }
 
     /**
