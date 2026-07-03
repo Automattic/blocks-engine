@@ -6524,10 +6524,11 @@ $assert(str_contains($designSystemCss, '--color-accent:#e64d33'), 'design-system
 // Typography becomes custom properties plus a reusable type-scale class set.
 $assert(str_contains($designSystemCss, '--font-size-heading-1:48px'), 'design-system-heading-font-size-token');
 $assert(str_contains($designSystemCss, '--font-size-body:16px'), 'design-system-body-font-size-token');
-$assert(str_contains($designSystemCss, '.type-heading-1{'), 'design-system-heading-type-class');
-$assert(str_contains($designSystemCss, '.type-body{'), 'design-system-body-type-class');
+$assert(str_contains($designSystemCss, '.type-heading-1,.figma-node-ds-type-heading-heading{'), 'design-system-heading-type-class');
+$assert(str_contains($designSystemCss, '.type-body,.figma-node-ds-type-body-body{'), 'design-system-body-type-class');
 $assert(str_contains($designSystemCss, 'font-size:var(--font-size-heading-1)'), 'design-system-type-class-references-token');
 $assert(str_contains($designSystemCss, 'line-height:56px'), 'design-system-type-class-carries-line-height');
+$assert(1 === preg_match('/\.figma-node-ds-type-heading-heading\{[^}]*font-size:var\(--font-size-heading-1\)/', $designSystemCss), 'design-system-node-css-materializes-heading-token');
 
 // Consistent spacing becomes a spacing token.
 $assert(str_contains($designSystemCss, '--space-1:32px'), 'design-system-spacing-token');
@@ -6546,6 +6547,9 @@ $assert(1 === ($designSystemCoverage['frame_count'] ?? 0), 'design-system-covera
 $assert(2 === ($designSystemCoverage['color_tokens'] ?? 0), 'design-system-coverage-color-count');
 $assert(2 === ($designSystemCoverage['type_tokens'] ?? 0), 'design-system-coverage-type-count');
 $assert(($designSystemCoverage['spacing_tokens'] ?? 0) >= 1, 'design-system-coverage-spacing-count');
+$assert(2 === ($designSystemCoverage['materialized_type_nodes'] ?? 0), 'design-system-coverage-materialized-node-count');
+$assert(in_array('figma-node-ds-type-heading-heading', $designSystemReport['materialized_node_classes'] ?? array(), true), 'design-system-report-materialized-node-class');
+$assert(! empty($designSystemReport['type_token_map'] ?? array()), 'design-system-report-type-token-map');
 
 // A matching coverage diagnostic is surfaced for operators.
 $designSystemDiagnostic = null;
@@ -6557,6 +6561,7 @@ foreach ( (is_array($designSystemResult['diagnostics'] ?? null) ? $designSystemR
 }
 $assert(null !== $designSystemDiagnostic, 'design-system-coverage-diagnostic-emitted');
 $assert(null !== $designSystemDiagnostic && 2 === ($designSystemDiagnostic['color_tokens'] ?? 0), 'design-system-diagnostic-color-count');
+$assert(null !== $designSystemDiagnostic && 2 === ($designSystemDiagnostic['materialized_type_nodes'] ?? 0), 'design-system-diagnostic-materialized-node-count');
 
 // A plain site without a style-guide frame extracts no design system, so the
 // `:root` token block never pollutes ordinary pages.

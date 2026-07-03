@@ -37,9 +37,21 @@ final class StaticHtmlEmitter
 
     private ?FontResolver $fontResolver = null;
 
+    private ?TypographyModel $typographyModel = null;
+
+    /**
+     * @var array<string, string> TypographyModel signature => font-size token name.
+     */
+    private array $typographyTokenVars = array();
+
     private function fontResolver(): FontResolver
     {
         return $this->fontResolver ??= new FontResolver();
+    }
+
+    private function typographyModel(): TypographyModel
+    {
+        return $this->typographyModel ??= new TypographyModel($this->fontResolver());
     }
 
     private ?DesignSystemExtractor $designSystemExtractor = null;
@@ -69,7 +81,7 @@ final class StaticHtmlEmitter
 
     private function designSystemExtractor(): DesignSystemExtractor
     {
-        return $this->designSystemExtractor ??= new DesignSystemExtractor();
+        return $this->designSystemExtractor ??= new DesignSystemExtractor($this->fontResolver());
     }
 
     private function vectorSvgRenderer(): VectorSvgRenderer
@@ -261,6 +273,8 @@ final class StaticHtmlEmitter
         $cssRules = $this->htmlArtifactAssembler()->baseCssRules($this->renderTextGlyphPaths);
         $operatorFontCss = $this->fontCss($options);
         $familyOverrides = $this->fontFamilyOverrides($options);
+        $designSystem = $this->designSystemExtractor()->extract($scenegraph);
+        $this->typographyTokenVars = is_array($designSystem['type_token_map'] ?? null) ? $designSystem['type_token_map'] : array();
 
         foreach ( $nodes as $node ) {
             if ( ! is_array($node) ) {
@@ -280,7 +294,6 @@ final class StaticHtmlEmitter
         $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss, $familyOverrides);
         $fontCss = (string) $fontResolution['css'];
 
-        $designSystem = $this->designSystemExtractor()->extract($scenegraph);
         foreach ( $this->designSystemDiagnostics($designSystem) as $diagnostic ) {
             $diagnostics[] = $diagnostic;
         }
@@ -334,8 +347,10 @@ final class StaticHtmlEmitter
                 'font_css_supplied'            => (bool) $fontResolution['operator_supplied'],
                 'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
                 'design_system'                => array(
-                    'coverage'    => $designSystem['coverage'],
-                    'frame_names' => $designSystem['frame_names'],
+                    'coverage'                  => $designSystem['coverage'],
+                    'frame_names'               => $designSystem['frame_names'],
+                    'type_token_map'            => $designSystem['type_token_map'] ?? array(),
+                    'materialized_node_classes' => $designSystem['materialized_node_classes'] ?? array(),
                 ),
                 'transform_diagnostics'        => $transformDiagnostics,
             ),
@@ -374,6 +389,8 @@ final class StaticHtmlEmitter
         $cssRules = $this->htmlArtifactAssembler()->baseCssRules($this->renderTextGlyphPaths);
         $operatorFontCss = $this->fontCss($options);
         $familyOverrides = $this->fontFamilyOverrides($options);
+        $designSystem = $this->designSystemExtractor()->extract($scenegraph);
+        $this->typographyTokenVars = is_array($designSystem['type_token_map'] ?? null) ? $designSystem['type_token_map'] : array();
         $files = array();
         $pages = array();
         $renderedNodes = array();
@@ -502,7 +519,6 @@ final class StaticHtmlEmitter
         $fontUsage = $this->fontUsage($nodeStyleDiagnostics);
         $fontResolution = $this->fontResolver()->resolve($fontUsage, $operatorFontCss, $familyOverrides);
         $fontCss = (string) $fontResolution['css'];
-        $designSystem = $this->designSystemExtractor()->extract($scenegraph);
         foreach ( $this->designSystemDiagnostics($designSystem) as $diagnostic ) {
             $diagnostics[] = $diagnostic;
         }
@@ -548,8 +564,10 @@ final class StaticHtmlEmitter
                 'font_css_supplied'            => (bool) $fontResolution['operator_supplied'],
                 'render_text_glyph_paths'      => $this->renderTextGlyphPaths,
                 'design_system'                => array(
-                    'coverage'    => $designSystem['coverage'],
-                    'frame_names' => $designSystem['frame_names'],
+                    'coverage'                  => $designSystem['coverage'],
+                    'frame_names'               => $designSystem['frame_names'],
+                    'type_token_map'            => $designSystem['type_token_map'] ?? array(),
+                    'materialized_node_classes' => $designSystem['materialized_node_classes'] ?? array(),
                 ),
                 'transform_diagnostics'        => $transformDiagnostics,
             ),
@@ -2306,7 +2324,7 @@ final class StaticHtmlEmitter
      * style-guide frames. Returns an empty list when no design-system frame was
      * detected, so files without one stay silent.
      *
-     * @param array{css: string, coverage: array<string, int>, frame_names: array<int, string>} $designSystem
+     * @param array{css: string, coverage: array<string, int>, frame_names: array<int, string>, materialized_node_classes?: array<int, string>} $designSystem
      * @return array<int, array<string, mixed>>
      */
     private function designSystemDiagnostics(array $designSystem): array
@@ -2325,7 +2343,9 @@ final class StaticHtmlEmitter
                 'color_tokens'   => (int) ($coverage['color_tokens'] ?? 0),
                 'type_tokens'    => (int) ($coverage['type_tokens'] ?? 0),
                 'spacing_tokens' => (int) ($coverage['spacing_tokens'] ?? 0),
+                'materialized_type_nodes' => (int) ($coverage['materialized_type_nodes'] ?? 0),
                 'frame_names'    => is_array($designSystem['frame_names'] ?? null) ? $designSystem['frame_names'] : array(),
+                'materialized_node_classes' => is_array($designSystem['materialized_node_classes'] ?? null) ? $designSystem['materialized_node_classes'] : array(),
             ),
         );
     }
@@ -6415,17 +6435,17 @@ final class StaticHtmlEmitter
     private function textStyleDeclarations(array $style): array
     {
         $styles = array();
+        $lineHeightStyles = array();
 
-        if ( isset($style['font_family']) && is_scalar($style['font_family']) ) {
-            $styles[] = 'font-family:' . $this->fontResolver()->fallbackStack((string) $style['font_family']);
-        }
-
-        if ( isset($style['font_size']) && is_numeric($style['font_size']) ) {
-            $styles[] = 'font-size:' . $this->number((float) $style['font_size']) . 'px';
-        }
-
-        if ( isset($style['font_weight']) && is_numeric($style['font_weight']) ) {
-            $styles[] = 'font-weight:' . $this->number((float) $style['font_weight']);
+        $typographyStyle = $this->typographyModel()->styleFromNormalizedStyle($style);
+        if ( null !== $typographyStyle ) {
+            foreach ( $this->typographyModel()->declarations($typographyStyle, $this->typographyTokenVars) as $declaration ) {
+                if ( str_starts_with($declaration, 'line-height:') ) {
+                    $lineHeightStyles[] = $declaration;
+                    continue;
+                }
+                $styles[] = $declaration;
+            }
         }
 
         if ( is_array($style['font_variation_settings'] ?? null) ) {
@@ -6452,12 +6472,8 @@ final class StaticHtmlEmitter
             }
         }
 
-        if ( isset($style['line_height_px']) && is_numeric($style['line_height_px']) && 0.0 < (float) $style['line_height_px'] ) {
-            $styles[] = 'line-height:' . $this->number((float) $style['line_height_px']) . 'px';
-        } elseif ( isset($style['line_height_raw']) && is_numeric($style['line_height_raw']) && 0.0 < (float) $style['line_height_raw'] ) {
-            $styles[] = 'line-height:' . $this->number((float) $style['line_height_raw']);
-        } elseif ( isset($style['line_height_percent']) && is_numeric($style['line_height_percent']) && 0.0 < (float) $style['line_height_percent'] ) {
-            $styles[] = 'line-height:' . $this->number((float) $style['line_height_percent']) . '%';
+        foreach ( $lineHeightStyles as $lineHeightStyle ) {
+            $styles[] = $lineHeightStyle;
         }
 
         if ( isset($style['letter_spacing']) && is_numeric($style['letter_spacing']) ) {

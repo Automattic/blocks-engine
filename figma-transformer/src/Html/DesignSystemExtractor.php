@@ -23,6 +23,13 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class DesignSystemExtractor
 {
+    private TypographyModel $typographyModel;
+
+    public function __construct(?FontResolver $fontResolver = null)
+    {
+        $this->typographyModel = new TypographyModel($fontResolver ?? new FontResolver());
+    }
+
     /**
      * Frame-name signals that mark a frame as the design-system source.
      */
@@ -52,7 +59,7 @@ final class DesignSystemExtractor
      * many tokens of each kind were extracted.
      *
      * @param array<string, mixed> $scenegraph Normalized Figma scenegraph.
-     * @return array{css: string, coverage: array<string, int>, frame_names: array<int, string>}
+     * @return array{css: string, coverage: array<string, int>, frame_names: array<int, string>, type_token_map: array<string, string>, materialized_node_classes: array<int, string>}
      */
     public function extract(array $scenegraph): array
     {
@@ -67,6 +74,8 @@ final class DesignSystemExtractor
             'css'         => '',
             'coverage'    => array('color_tokens' => 0, 'type_tokens' => 0, 'spacing_tokens' => 0, 'frame_count' => 0),
             'frame_names' => array(),
+            'type_token_map' => array(),
+            'materialized_node_classes' => array(),
         );
         if ( empty($frames) ) {
             return $empty;
@@ -96,8 +105,11 @@ final class DesignSystemExtractor
                 'type_tokens'    => count($typeTokens['classes']),
                 'spacing_tokens' => count($spacingTokens),
                 'frame_count'    => count($frames),
+                'materialized_type_nodes' => count($typeTokens['materialized_node_classes']),
             ),
             'frame_names' => array_values(array_filter($frameNames, static fn (string $name): bool => '' !== $name)),
+            'type_token_map' => $typeTokens['token_map'],
+            'materialized_node_classes' => $typeTokens['materialized_node_classes'],
         );
     }
 
@@ -294,6 +306,7 @@ final class DesignSystemExtractor
                 $key = $this->textStyleKey($style);
                 if ( '' !== $key && ! isset($textStyles[$key]) ) {
                     $style['label'] = trim((string) ($node['name'] ?? ''));
+                    $style['node_class'] = $this->nodeClass($node);
                     $textStyles[$key] = $style;
                 }
             }
@@ -406,12 +419,12 @@ final class DesignSystemExtractor
      * the body class.
      *
      * @param array<string, array<string, mixed>> $textStyles
-     * @return array{variables: array<int, array{name: string, value: string}>, classes: array<int, array{name: string, declarations: array<int, string>}>}
+     * @return array{variables: array<int, array{name: string, value: string}>, classes: array<int, array{name: string, declarations: array<int, string>, node_classes: array<int, string>}>, token_map: array<string, string>, materialized_node_classes: array<int, string>}
      */
     private function buildTypeTokens(array $textStyles): array
     {
         if ( empty($textStyles) ) {
-            return array('variables' => array(), 'classes' => array());
+            return array('variables' => array(), 'classes' => array(), 'token_map' => array(), 'materialized_node_classes' => array());
         }
 
         $styles = array_values($textStyles);
@@ -428,6 +441,8 @@ final class DesignSystemExtractor
         $count = count($styles);
         $variables = array();
         $classes = array();
+        $tokenMap = array();
+        $materializedNodeClasses = array();
         $usedVarNames = array();
         $headingLevel = 1;
 
@@ -443,8 +458,10 @@ final class DesignSystemExtractor
             $size = isset($style['font_size']) && is_numeric($style['font_size']) ? (float) $style['font_size'] : null;
             $declarations = array();
 
-            if ( isset($style['font_family']) && is_scalar($style['font_family']) && '' !== (string) $style['font_family'] ) {
-                $declarations[] = 'font-family:' . $this->fallbackFontStack((string) $style['font_family']);
+            foreach ( $this->typographyModel->declarations($style) as $declaration ) {
+                if ( ! str_starts_with($declaration, 'font-size:') ) {
+                    $declarations[] = $declaration;
+                }
             }
             if ( null !== $size ) {
                 $varName = 'font-size-' . $role;
@@ -456,23 +473,27 @@ final class DesignSystemExtractor
                 }
                 $usedVarNames[$unique] = true;
                 $variables[] = array('name' => $unique, 'value' => $this->number($size) . 'px');
+                $tokenMap[$this->textStyleKey($style)] = $unique;
                 $declarations[] = 'font-size:var(--' . $unique . ')';
             }
-            if ( isset($style['font_weight']) && is_numeric($style['font_weight']) ) {
-                $declarations[] = 'font-weight:' . $this->number((float) $style['font_weight']);
-            }
-            if ( isset($style['line_height']) && is_numeric($style['line_height']) && (float) $style['line_height'] > 0.0 ) {
-                $declarations[] = 'line-height:' . $this->number((float) $style['line_height']) . 'px';
-            }
-
             if ( empty($declarations) ) {
                 continue;
             }
 
-            $classes[] = array('name' => 'type-' . $role, 'declarations' => $declarations);
+            $nodeClasses = array();
+            if ( isset($style['node_class']) && is_string($style['node_class']) && '' !== $style['node_class'] ) {
+                $nodeClasses[] = $style['node_class'];
+                $materializedNodeClasses[] = $style['node_class'];
+            }
+            $classes[] = array('name' => 'type-' . $role, 'declarations' => $declarations, 'node_classes' => $nodeClasses);
         }
 
-        return array('variables' => $variables, 'classes' => $classes);
+        return array(
+            'variables' => $variables,
+            'classes' => $classes,
+            'token_map' => $tokenMap,
+            'materialized_node_classes' => array_values(array_unique($materializedNodeClasses)),
+        );
     }
 
     /**
@@ -547,7 +568,13 @@ final class DesignSystemExtractor
             $blocks[] = ':root{' . implode(';', $rootDeclarations) . '}';
         }
         foreach ( $typeClasses as $class ) {
-            $blocks[] = '.' . $class['name'] . '{' . implode(';', $class['declarations']) . '}';
+            $selectors = array('.' . $class['name']);
+            foreach ( is_array($class['node_classes'] ?? null) ? $class['node_classes'] : array() as $nodeClass ) {
+                if ( is_string($nodeClass) && '' !== $nodeClass ) {
+                    $selectors[] = '.' . $nodeClass;
+                }
+            }
+            $blocks[] = implode(',', array_values(array_unique($selectors))) . '{' . implode(';', $class['declarations']) . '}';
         }
 
         return empty($blocks) ? '' : implode("\n", $blocks) . "\n";
@@ -559,32 +586,7 @@ final class DesignSystemExtractor
      */
     private function textStyle(array $node): ?array
     {
-        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
-        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
-        if ( empty($style) ) {
-            return null;
-        }
-
-        $result = array();
-        if ( isset($style['font_family']) && is_scalar($style['font_family']) ) {
-            $result['font_family'] = (string) $style['font_family'];
-        }
-        if ( isset($style['font_size']) && is_numeric($style['font_size']) ) {
-            $result['font_size'] = (float) $style['font_size'];
-        }
-        if ( isset($style['font_weight']) && is_numeric($style['font_weight']) ) {
-            $result['font_weight'] = (float) $style['font_weight'];
-        }
-        if ( isset($style['line_height_px']) && is_numeric($style['line_height_px']) && (float) $style['line_height_px'] > 0.0 ) {
-            $result['line_height'] = (float) $style['line_height_px'];
-        }
-
-        // A style with no usable typographic fields is not a specimen.
-        if ( ! isset($result['font_size']) && ! isset($result['font_family']) ) {
-            return null;
-        }
-
-        return $result;
+        return $this->typographyModel->styleFromNode($node);
     }
 
     /**
@@ -592,13 +594,7 @@ final class DesignSystemExtractor
      */
     private function textStyleKey(array $style): string
     {
-        $family = isset($style['font_family']) ? strtolower((string) $style['font_family']) : '';
-        $size = isset($style['font_size']) ? $this->number((float) $style['font_size']) : '';
-        $weight = isset($style['font_weight']) ? $this->number((float) $style['font_weight']) : '';
-        $lineHeight = isset($style['line_height']) ? $this->number((float) $style['line_height']) : '';
-        $key = $family . '|' . $size . '|' . $weight . '|' . $lineHeight;
-
-        return '|||' === $key ? '' : $key;
+        return $this->typographyModel->signature($style);
     }
 
     /**
@@ -665,19 +661,11 @@ final class DesignSystemExtractor
     }
 
     /**
-     * Build a CSS font-family stack from a single family name, mirroring the
-     * generic fallback that FontResolver applies so the type scale and the
-     * per-node text styles agree.
+     * @param array<string, mixed> $node
      */
-    private function fallbackFontStack(string $family): string
+    private function nodeClass(array $node): string
     {
-        $name = trim($family);
-        if ( '' === $name ) {
-            return 'sans-serif';
-        }
-        $quoted = str_contains($name, ' ') ? '"' . str_replace('"', '\\"', $name) . '"' : $name;
-
-        return $quoted . ',sans-serif';
+        return 'figma-node-' . $this->slug((string) ($node['id'] ?? '') . '-' . (string) ($node['name'] ?? ''));
     }
 
     /**
