@@ -74,4 +74,53 @@ function blocks_engine_figma_transformer_run_semantic_accessibility_contract(cal
     $assert(str_contains($html, '<blockquote class="figma-node-semantic-quote-blockquote'), 'semantic-accessibility-blockquote-emits-blockquote');
     $assert(str_contains($html, 'data-figma-node-id="semantic:icon"') && str_contains($html, 'aria-hidden="true" focusable="false"'), 'semantic-accessibility-generic-icon-decorative');
     $assert(str_contains($html, 'data-figma-node-id="semantic:logo-icon"') && str_contains($html, 'role="img" aria-label="Logo"'), 'semantic-accessibility-logo-icon-keeps-accessible-name');
+
+    $layeringResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Header Layering Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'layer:root',
+                'type'     => 'FRAME',
+                'name'     => 'Home',
+                'width'    => 1440,
+                'height'   => 1200,
+                'children' => array(
+                    array(
+                        'id'     => 'layer:header',
+                        'type'   => 'INSTANCE',
+                        'name'   => 'Site Header',
+                        'x'      => 0,
+                        'y'      => 0,
+                        'width'  => 1440,
+                        'height' => 145,
+                    ),
+                    array(
+                        'id'       => 'layer:hero',
+                        'type'     => 'FRAME',
+                        'name'     => 'Hero Artwork Group',
+                        'x'        => 0,
+                        'y'        => 61,
+                        'width'    => 1440,
+                        'height'   => 758,
+                        'children' => array(
+                            array(
+                                'id'     => 'layer:hero:image',
+                                'type'   => 'RECTANGLE',
+                                'name'   => 'Hero Image',
+                                'x'      => 0,
+                                'y'      => 0,
+                                'width'  => 1440,
+                                'height' => 758,
+                                'fills'  => array(array('type' => 'SOLID', 'color' => array('r' => 0.1, 'g' => 0.2, 'b' => 0.3, 'a' => 1))),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+
+    $layeringCss = $fileContent($layeringResult, 'style.css');
+    $assert(1 === preg_match('/\.figma-node-layer-header-site-header\{[^}]*z-index:2/s', $layeringCss), 'semantic-accessibility-top-header-outranks-overlapping-hero');
+    $assert(1 === preg_match('/\.figma-node-layer-hero-hero-artwork-group\{[^}]*z-index:1/s', $layeringCss), 'semantic-accessibility-overlapping-hero-keeps-base-stack-rank');
 }
