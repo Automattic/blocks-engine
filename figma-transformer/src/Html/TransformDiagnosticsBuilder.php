@@ -185,6 +185,17 @@ final class TransformDiagnosticsBuilder
             );
         }
 
+        $sourceLossCoverage = $this->sourceLossCoverage($image, $vectors, $text, $components, $effects, $maskEffectClipping);
+        if ( ! empty($sourceLossCoverage['not_emitted_source_nodes']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'source_loss_coverage_gap',
+                'count' => (int) $sourceLossCoverage['not_emitted_source_nodes'],
+                'coverage_ratio' => (float) $sourceLossCoverage['coverage_ratio'],
+                'domains' => $sourceLossCoverage['domains'],
+            );
+        }
+
         $failCodes = array('missing_render_assets', 'vector_placeholders', 'invalid_css_numeric_token');
         $failCount = count(array_filter($signals, static fn (array $signal): bool => in_array((string) ($signal['code'] ?? ''), $failCodes, true)));
         $warningCount = count(array_filter($signals, static fn (array $signal): bool => 'warning' === ($signal['severity'] ?? null)));
@@ -250,7 +261,83 @@ final class TransformDiagnosticsBuilder
                 'mixed_positioning_parent_count' => (int) ($layout['stacking_order']['mixed_positioning_parent_count'] ?? 0),
                 'uncomposed_vector_child_nodes' => (int) ($vectors['child_composition']['uncomposed_vector_child_node_count'] ?? 0),
                 'invalid_css_numeric_tokens' => (int) ($css['invalid_numeric_token_count'] ?? 0),
+                'source_loss_coverage' => $sourceLossCoverage,
             ),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $image
+     * @param array<string, mixed> $vectors
+     * @param array<string, mixed> $text
+     * @param array<string, mixed> $components
+     * @param array<string, mixed> $effects
+     * @param array<string, mixed> $maskEffectClipping
+     * @return array<string, mixed>
+     */
+    private function sourceLossCoverage(array $image, array $vectors, array $text, array $components, array $effects, array $maskEffectClipping): array
+    {
+        $domains = array(
+            'images' => $this->sourceLossDomain(
+                (int) ($image['node_refs'] ?? 0),
+                (int) ($image['resolved_assets'] ?? 0),
+                count($image['missing_assets'] ?? array())
+            ),
+            'vectors' => $this->sourceLossDomain(
+                (int) ($vectors['nodes'] ?? 0),
+                (int) ($vectors['rendered_paths'] ?? 0) + (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
+                (int) ($vectors['placeholders'] ?? 0)
+            ),
+            'text' => $this->sourceLossDomain(
+                (int) ($text['decoded_text_node_count'] ?? 0),
+                (int) ($text['emitted_text_node_count'] ?? 0),
+                (int) ($text['missing_emitted_text_node_count'] ?? 0)
+            ),
+            'components' => $this->sourceLossDomain(
+                (int) ($components['clone_source_node_count'] ?? 0),
+                (int) ($components['emitted_clone_node_count'] ?? 0),
+                (int) ($components['missing_emitted_clone_node_count'] ?? 0)
+            ),
+            'effects' => $this->sourceLossDomain(
+                (int) ($effects['source_effect_node_count'] ?? 0),
+                (int) ($effects['emitted_effect_node_count'] ?? 0),
+                (int) ($effects['missing_emitted_effect_node_count'] ?? 0)
+            ),
+            'masks' => $this->sourceLossDomain(
+                (int) ($maskEffectClipping['mask_node_count'] ?? 0),
+                (int) ($maskEffectClipping['emitted_mask_source_node_count'] ?? 0),
+                (int) ($maskEffectClipping['suppressed_mask_source_node_count'] ?? 0)
+            ),
+        );
+
+        $decoded = 0;
+        $emitted = 0;
+        $notEmitted = 0;
+        foreach ( $domains as $domain ) {
+            $decoded += (int) ($domain['decoded_source_nodes'] ?? 0);
+            $emitted += (int) ($domain['emitted_source_nodes'] ?? 0);
+            $notEmitted += (int) ($domain['not_emitted_source_nodes'] ?? 0);
+        }
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/source-loss-coverage/v1',
+            'decoded_source_nodes' => $decoded,
+            'emitted_source_nodes' => $emitted,
+            'not_emitted_source_nodes' => $notEmitted,
+            'coverage_ratio' => $decoded > 0 ? round($emitted / $decoded, 3) : 1.0,
+            'domains' => $domains,
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function sourceLossDomain(int $decoded, int $emitted, int $notEmitted): array
+    {
+        return array(
+            'decoded_source_nodes' => max(0, $decoded),
+            'emitted_source_nodes' => max(0, $emitted),
+            'not_emitted_source_nodes' => max(0, $notEmitted),
         );
     }
 

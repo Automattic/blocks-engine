@@ -29,8 +29,11 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(1 === ($normalDiagnostics['text']['emitted_text_node_count'] ?? null), 'diagnostics-evidence-normal-emitted-text-count');
     $assert(0 === ($normalDiagnostics['text']['missing_emitted_text_node_count'] ?? null), 'diagnostics-evidence-normal-missing-text-zero');
     $assert(0 === ($normalDiagnostics['layout']['clipped_visual_node_count'] ?? null), 'diagnostics-evidence-normal-clipped-zero');
+    $assert('blocks-engine/figma-transformer/source-loss-coverage/v1' === ($normalDiagnostics['artifact_quality']['summary']['source_loss_coverage']['schema'] ?? null), 'diagnostics-evidence-normal-source-loss-schema');
+    $assert(1.0 === ($normalDiagnostics['artifact_quality']['summary']['source_loss_coverage']['coverage_ratio'] ?? null), 'diagnostics-evidence-normal-source-loss-clean-ratio');
     $assert(! in_array('decoded_text_not_emitted', $normalSignalCodes, true), 'diagnostics-evidence-normal-no-missing-text-signal');
     $assert(! in_array('clipped_visual_area', $normalSignalCodes, true), 'diagnostics-evidence-normal-no-clipped-area-signal');
+    $assert(! in_array('source_loss_coverage_gap', $normalSignalCodes, true), 'diagnostics-evidence-normal-no-source-loss-signal');
 
     $invalidCssQuality = (new \Automattic\BlocksEngine\FigmaTransformer\Html\TransformDiagnosticsBuilder())->artifactQualityDiagnostics(
         array(),
@@ -143,6 +146,8 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(1 === ($omittedTextDiagnostics['text']['missing_emitted_text_node_count'] ?? null), 'diagnostics-evidence-omitted-text-count');
     $assert(1 === ($omittedTextReasons['hidden'] ?? null), 'diagnostics-evidence-omitted-text-hidden-reason');
     $assert('hidden' === ($omittedTextDiagnostics['text']['missing_emitted_text_nodes'][0]['reason'] ?? null), 'diagnostics-evidence-omitted-text-sample-reason');
+    $assert(1 === ($omittedTextDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['text']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-source-loss-text-domain-count');
+    $assert(in_array('source_loss_coverage_gap', blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($omittedTextResult), true), 'diagnostics-evidence-source-loss-text-quality-signal');
 
     $assetOmissionResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Asset Omission Fixture',
@@ -269,6 +274,13 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('diag:aggregation-home-vector' === ($placeholderNodes[0]['node_id'] ?? null), 'diagnostics-evidence-multi-page-placeholder-home-node');
     $assert('aggregation-about.html' === ($placeholderNodes[1]['page_path'] ?? null), 'diagnostics-evidence-multi-page-placeholder-about-context');
     $assert(2 === ($multiPageDiagnostics['diagnostic_codes']['unsupported_vector_node_placeholder'] ?? null), 'diagnostics-evidence-multi-page-diagnostic-code-count');
+    $sourceLossCoverage = $multiPageDiagnostics['artifact_quality']['summary']['source_loss_coverage'] ?? array();
+    $sourceLossSignal = blocks_engine_figma_transformer_contract_artifact_quality_signal($multiPageResult, 'source_loss_coverage_gap');
+    $assert(4 === ($sourceLossCoverage['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-multi-page-source-loss-total-count');
+    $assert(2 === ($sourceLossCoverage['domains']['images']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-multi-page-source-loss-image-domain-count');
+    $assert(2 === ($sourceLossCoverage['domains']['vectors']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-multi-page-source-loss-vector-domain-count');
+    $assert(0.0 === ($sourceLossCoverage['coverage_ratio'] ?? null), 'diagnostics-evidence-multi-page-source-loss-ratio');
+    $assert(4 === ($sourceLossSignal['count'] ?? null), 'diagnostics-evidence-multi-page-source-loss-signal-count');
     $assert('fail' === ($multiPageDiagnostics['artifact_quality']['quality_status'] ?? null), 'diagnostics-evidence-multi-page-source-loss-quality-fail');
     $assert(in_array('missing_render_assets', blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($multiPageResult), true), 'diagnostics-evidence-multi-page-source-loss-missing-assets-signal');
     $assert(in_array('vector_placeholders', blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($multiPageResult), true), 'diagnostics-evidence-multi-page-source-loss-vector-signal');

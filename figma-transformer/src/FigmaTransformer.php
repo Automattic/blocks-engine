@@ -1391,6 +1391,16 @@ final class FigmaTransformer
                 'sample_tokens' => array_slice(is_array($css['invalid_numeric_tokens'] ?? null) ? $css['invalid_numeric_tokens'] : array(), 0, 10),
             );
         }
+        $sourceLossCoverage = $this->sourceLossCoverage($images, $vectors);
+        if ( ! empty($sourceLossCoverage['not_emitted_source_nodes']) ) {
+            $signals[] = array(
+                'severity' => 'warning',
+                'code' => 'source_loss_coverage_gap',
+                'count' => (int) $sourceLossCoverage['not_emitted_source_nodes'],
+                'coverage_ratio' => (float) $sourceLossCoverage['coverage_ratio'],
+                'domains' => $sourceLossCoverage['domains'],
+            );
+        }
         $imageBlockCount = (int) ($images['image_block_count'] ?? 0);
         $totalNodeCount = max(0, (int) ($images['total_node_count'] ?? 0));
         $imageNodeDensity = $totalNodeCount > 0 ? $imageBlockCount / $totalNodeCount : 0.0;
@@ -1458,7 +1468,59 @@ final class FigmaTransformer
                 'image_heavy_landmark_candidates' => count($layout['image_heavy_landmark_candidates'] ?? array()),
                 'layout_mismatch_count' => (int) ($layout['layout_mismatch_count'] ?? 0),
                 'layout_mismatch_status' => (string) ($layout['layout_mismatch_status'] ?? 'not_evaluated'),
+                'source_loss_coverage' => $sourceLossCoverage,
             ),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $images
+     * @param array<string, mixed> $vectors
+     * @return array<string, mixed>
+     */
+    private function sourceLossCoverage(array $images, array $vectors): array
+    {
+        $domains = array(
+            'images' => $this->sourceLossDomain(
+                (int) ($images['node_refs'] ?? 0),
+                (int) ($images['resolved_assets'] ?? 0),
+                count($images['missing_assets'] ?? array())
+            ),
+            'vectors' => $this->sourceLossDomain(
+                (int) ($vectors['nodes'] ?? 0),
+                (int) ($vectors['rendered_paths'] ?? 0) + (int) ($vectors['rendered_asset_fallbacks'] ?? 0),
+                (int) ($vectors['placeholders'] ?? 0)
+            ),
+        );
+
+        $decoded = 0;
+        $emitted = 0;
+        $notEmitted = 0;
+        foreach ( $domains as $domain ) {
+            $decoded += (int) ($domain['decoded_source_nodes'] ?? 0);
+            $emitted += (int) ($domain['emitted_source_nodes'] ?? 0);
+            $notEmitted += (int) ($domain['not_emitted_source_nodes'] ?? 0);
+        }
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/source-loss-coverage/v1',
+            'decoded_source_nodes' => $decoded,
+            'emitted_source_nodes' => $emitted,
+            'not_emitted_source_nodes' => $notEmitted,
+            'coverage_ratio' => $decoded > 0 ? round($emitted / $decoded, 3) : 1.0,
+            'domains' => $domains,
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function sourceLossDomain(int $decoded, int $emitted, int $notEmitted): array
+    {
+        return array(
+            'decoded_source_nodes' => max(0, $decoded),
+            'emitted_source_nodes' => max(0, $emitted),
+            'not_emitted_source_nodes' => max(0, $notEmitted),
         );
     }
 
