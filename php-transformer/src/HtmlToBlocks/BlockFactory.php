@@ -185,7 +185,7 @@ final class BlockFactory
         }
 
         if ( 'core/accordion' === $name ) {
-            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-accordion') . '>', 'closing' => '</div>' );
+            return array( 'opening' => '<div role="group"' . $this->blockSupportAttrs($attrs, 'wp-block-accordion') . '>', 'closing' => '</div>' );
         }
 
         if ( 'core/accordion-item' === $name ) {
@@ -196,11 +196,15 @@ final class BlockFactory
         if ( 'core/accordion-heading' === $name ) {
             $level = (int) ($attrs['level'] ?? 3);
             $level = max(1, min(6, $level));
-            return '<h' . $level . $this->blockSupportAttrs($attrs, 'wp-block-accordion-heading') . '><button type="button" class="wp-block-accordion-heading__toggle"><span class="wp-block-accordion-heading__toggle-title">' . ($attrs['title'] ?? '') . '</span></button></h' . $level . '>';
+            $showIcon = ! array_key_exists('showIcon', $attrs) || false !== $attrs['showIcon'];
+            $icon = $showIcon ? '<span class="wp-block-accordion-heading__toggle-icon" aria-hidden="true">+</span>' : '';
+            $title = '<span class="wp-block-accordion-heading__toggle-title">' . ($attrs['title'] ?? '') . '</span>';
+            $children = 'left' === ($attrs['iconPosition'] ?? 'right') ? $icon . $title : $title . $icon;
+            return '<h' . $level . $this->blockSupportAttrs($attrs, 'wp-block-accordion-heading') . '><button type="button" class="wp-block-accordion-heading__toggle">' . $children . '</button></h' . $level . '>';
         }
 
         if ( 'core/accordion-panel' === $name ) {
-            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-accordion-panel') . '>', 'closing' => '</div>' );
+            return array( 'opening' => '<div role="region"' . $this->blockSupportAttrs($attrs, 'wp-block-accordion-panel') . '>', 'closing' => '</div>' );
         }
 
         if ( 'core/image' === $name ) {
