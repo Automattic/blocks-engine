@@ -397,6 +397,49 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $assert(array('x' => 0.0, 'y' => 198.0, 'width' => 1440.0, 'height' => 53.0) === ($flippedChromeStripBottomTrace[0]['transformed_visual_box'] ?? null), 'visual-map-flipped-chrome-strip-trace-transformed-box');
     $assert(array('min_height' => 251.0) === ($flippedChromeStripReserveTraces[0]['evidence']['emitted_css_box'] ?? null), 'visual-map-flipped-chrome-strip-trace-emitted-css-box');
 
+    $fullBleedVectorBandResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Full Bleed Vector Band Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'vector-band:page',
+                'type'     => 'FRAME',
+                'name'     => 'Vector band page',
+                'width'    => 1440,
+                'height'   => 640,
+                'layoutMode' => 'VERTICAL',
+                'children' => array(
+                    array(
+                        'id'                => 'vector-band:diagonal',
+                        'type'              => 'VECTOR',
+                        'name'              => 'Diagonal rectangle band',
+                        'x'                 => 0,
+                        'y'                 => 120,
+                        'width'             => 1440,
+                        'height'            => 220,
+                        'layoutPositioning' => 'ABSOLUTE',
+                        'opacity'           => 0.5,
+                        'transform'         => array(
+                            'm00' => 1,
+                            'm01' => 0,
+                            'm02' => 0,
+                            'm10' => 0,
+                            'm11' => -1,
+                            'm12' => 0,
+                        ),
+                        'paints'            => array(
+                            array('type' => 'SOLID', 'color' => array('r' => 0.9328333139419556, 'g' => 0.9666666984558105, 'b' => 0.7975000143051147, 'a' => 1)),
+                        ),
+                    ),
+                    array('id' => 'vector-band:headline', 'type' => 'TEXT', 'name' => 'Headline', 'characters' => 'Foreground content', 'x' => 480, 'y' => 180, 'width' => 360, 'height' => 64, 'fontSize' => 40),
+                ),
+            ),
+        ),
+    ));
+    $fullBleedVectorBandCss = blocks_engine_figma_transformer_contract_file_content($fullBleedVectorBandResult, 'style.css');
+    $fullBleedVectorBandHtml = blocks_engine_figma_transformer_contract_file_content($fullBleedVectorBandResult, 'index.html');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $fullBleedVectorBandCss, '.figma-node-vector-band-diagonal-diagonal-rectangle-band', array('width:100vw', 'left:50%', 'margin-left:-50vw', 'pointer-events:none', 'opacity:0.5', 'transform:matrix(1,0,0,-1,0,0)', 'transform-origin:0 0'), 'visual-map-full-bleed-vector-band-keeps-css-layering');
+    $assert(str_contains($fullBleedVectorBandHtml, 'data-figma-node-id="vector-band:diagonal"') && str_contains($fullBleedVectorBandHtml, 'fill="#eef7cb"'), 'visual-map-full-bleed-vector-band-keeps-svg-fill');
+
     $invalidCssSanitizationResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Invalid CSS Sanitization Fixture',
         'nodes' => array(

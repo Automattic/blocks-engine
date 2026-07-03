@@ -12,6 +12,7 @@ final class PaintNormalizer
     private const PAINT_COLLECTION_SOURCES = array(
         'fills'            => 'fills',
         'fillPaints'       => 'fills',
+        'paints'           => 'fills',
         'strokes'          => 'strokes',
         'strokePaints'     => 'strokes',
         'background'       => 'background',
@@ -176,6 +177,11 @@ final class PaintNormalizer
                 continue;
             }
 
+            if ( ! $this->looksLikePaint($paint) && $this->looksLikePaintList($paint) ) {
+                array_push($normalizedPaints, ...$this->normalizePaintList($paint, $nodeId, $paintKey, $diagnostics));
+                continue;
+            }
+
             $normalized = $this->normalizePaint($paint, $nodeId, $paintKey, $diagnostics);
             if ( ! empty($normalized) ) {
                 $normalizedPaints[] = $normalized;
@@ -183,6 +189,28 @@ final class PaintNormalizer
         }
 
         return $normalizedPaints;
+    }
+
+    /**
+     * @param array<int|string, mixed> $paint
+     */
+    private function looksLikePaint(array $paint): bool
+    {
+        return isset($paint['type']) || isset($paint['color']) || isset($paint['image']) || isset($paint['gradientStops']) || isset($paint['stops']);
+    }
+
+    /**
+     * @param array<int|string, mixed> $paints
+     */
+    private function looksLikePaintList(array $paints): bool
+    {
+        foreach ( $paints as $paint ) {
+            if ( is_array($paint) && $this->looksLikePaint($paint) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

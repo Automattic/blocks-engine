@@ -849,8 +849,12 @@ final class StaticHtmlEmitter
             }
         }
 
+        $vectorSvgMarkup = null;
         if ( null !== $vectorSvg ) {
-            $content = $this->vectorSvgMarkup($vectorSvg, $node, $type, $parentNode) . $content;
+            $vectorSvgMarkup = $this->vectorSvgMarkup($vectorSvg, $node, $type, $parentNode);
+            if ( '' !== trim($vectorSvgMarkup) ) {
+                $content = $vectorSvgMarkup . $content;
+            }
         }
 
         $hasRenderableVectorFallback = '' !== trim($content);
@@ -874,7 +878,8 @@ final class StaticHtmlEmitter
             $content = '';
         }
 
-        $styles = $this->styleDeclarations($node, $type, $parentNode, $grandParentNode);
+        $rendersInlineVectorSvg = null !== $vectorSvgMarkup && '' !== trim($vectorSvgMarkup);
+        $styles = $this->styleDeclarations($node, $type, $parentNode, $grandParentNode, $rendersInlineVectorSvg);
         if ( ! empty($buttonLayerComposition['styles']) ) {
             array_push($styles, ...$buttonLayerComposition['styles']);
         }
@@ -894,7 +899,7 @@ final class StaticHtmlEmitter
             $cssRules[] = '.' . $className . '{position:relative}';
             $cssRules[] = '.' . $className . '::before{content:' . $marker . ';counter-increment:figma-list-item;display:inline-block;min-width:1.5em;margin-left:-1.5em;flex-shrink:0}';
         }
-        $nodeStyleDiagnostics[] = $this->nodeStyleDiagnostic($node, $type, $className, $tag, $styles, $parentNode);
+        $nodeStyleDiagnostics[] = $this->nodeStyleDiagnostic($node, $type, $className, $tag, $styles, $parentNode, $rendersInlineVectorSvg);
 
         if ( 'TEXT' === $type ) {
             $paragraphSpacingDiagnostic = $this->paragraphSpacingDiagnostic($node);
@@ -2448,9 +2453,9 @@ final class StaticHtmlEmitter
      * @param array<int, string> $styles
      * @return array<string, mixed>
      */
-    private function nodeStyleDiagnostic(array $node, string $type, string $className, string $tag, array $styles, ?array $parentNode): array
+    private function nodeStyleDiagnostic(array $node, string $type, string $className, string $tag, array $styles, ?array $parentNode, bool $rendersInlineVectorSvg = false): array
     {
-        $expected = $this->expectedNodeStyleData($node, $type, $parentNode);
+        $expected = $this->expectedNodeStyleData($node, $type, $parentNode, $rendersInlineVectorSvg);
         $emitted = $this->emittedNodeStyleData($styles);
         $matches = array();
         $mismatches = array();
@@ -2483,11 +2488,11 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @return array<string, string|null>
      */
-    private function expectedNodeStyleData(array $node, string $type, ?array $parentNode): array
+    private function expectedNodeStyleData(array $node, string $type, ?array $parentNode, bool $rendersInlineVectorSvg = false): array
     {
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $data = array(
-            'background'  => 'TEXT' !== $type && ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) ? $this->backgroundColor($node) : null,
+            'background'  => $this->nodeShouldEmitCssBackground($type, null, $rendersInlineVectorSvg) ? $this->backgroundColor($node) : null,
             'width'       => $this->expectedCssLength($box['width'] ?? null),
             'height'      => $this->expectedCssLength($box['height'] ?? null),
             'x'           => null,
@@ -5601,6 +5606,19 @@ final class StaticHtmlEmitter
         return $this->layoutIntentClassifier()->isClippableDecorativeVisualNode($node);
     }
 
+    private function nodeShouldEmitCssBackground(string $type, ?float $zeroHeightVectorFallbackHeight, bool $rendersInlineVectorSvg): bool
+    {
+        if ( 'TEXT' === $type ) {
+            return false;
+        }
+
+        if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) ) {
+            return true;
+        }
+
+        return ! $rendersInlineVectorSvg || null !== $zeroHeightVectorFallbackHeight;
+    }
+
     /**
      * @param array<string, mixed> $node
      * @param array<string, mixed> $parentNode
@@ -5642,7 +5660,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @return array<int, string>
      */
-    private function styleDeclarations(array $node, string $type, ?array $parentNode, ?array $grandParentNode): array
+    private function styleDeclarations(array $node, string $type, ?array $parentNode, ?array $grandParentNode, bool $rendersInlineVectorSvg = false): array
     {
         $styles = array();
 
@@ -5742,7 +5760,7 @@ final class StaticHtmlEmitter
         }
         $fullBleedBreakoutDecision = $this->canvasShellResolver()->fullBleedViewportBreakoutDecision($canvasShell);
 
-        if ( 'TEXT' !== $type && ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) || null !== $zeroHeightVectorFallbackHeight ) ) {
+        if ( $this->nodeShouldEmitCssBackground($type, $zeroHeightVectorFallbackHeight, $rendersInlineVectorSvg) ) {
             $background = $this->backgroundColor($node);
             if ( null !== $background ) {
                 $styles[] = 'background:' . $background;
@@ -8695,7 +8713,7 @@ final class StaticHtmlEmitter
             return $paint;
         }
 
-        return $this->color($node['background'] ?? $node['backgroundColor'] ?? $node['fill'] ?? $node['fills'][0]['color'] ?? null);
+        return $this->color($node['background'] ?? $node['backgroundColor'] ?? $node['fill'] ?? $node['fills'][0]['color'] ?? $node['fillPaints'][0]['color'] ?? $node['paints']['fills'][0]['color'] ?? $node['paints'][0]['color'] ?? $node['paints'][0][0]['color'] ?? null);
     }
 
     /**
