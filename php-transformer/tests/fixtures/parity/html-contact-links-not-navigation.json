@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-contact-links-not-navigation",
+  "description": "Keeps tel/mail contact link clusters as content instead of site navigation.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-contact-links-not-navigation.json",
+    "notes": "Generic contact details coverage for local-business imports."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"visit-links\"><a href=\"tel:+15038417220\">(503) 841-7220</a><a href=\"mailto:hello@example.com\">hello@example.com</a></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons", "attrs": { "className": "visit-links" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "(503) 841-7220", "url": "tel:+15038417220" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/button", "attrs": { "text": "hello@example.com", "url": "mailto:hello@example.com" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:navigation" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:navigation-link" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "href=\"tel:+15038417220\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "href=\"mailto:hello@example.com\"" }
+  ]
+}

@@ -5468,16 +5468,18 @@ final class HtmlTransformer
         $second = $children[1];
         $firstIsPrice = $this->isPriceElement($first);
         $secondIsPrice = $this->isPriceElement($second);
-        if ( $firstIsPrice === $secondIsPrice ) {
-            return null;
+        if ( $firstIsPrice !== $secondIsPrice ) {
+            $other = $firstIsPrice ? $second : $first;
+            if ( $this->isNameElement($other) || $this->hasCommerceToken($element, array( 'menu', 'product', 'pricing', 'price', 'plan', 'tier', 'dish', 'item', 'row' )) ) {
+                return $children;
+            }
         }
 
-        $other = $firstIsPrice ? $second : $first;
-        if ( ! $this->isNameElement($other) && ! $this->hasCommerceToken($element, array( 'menu', 'product', 'pricing', 'price', 'plan', 'tier', 'dish', 'item', 'row' )) ) {
-            return null;
+        if ( $this->looksLikeHoursRow($element, $first, $second) ) {
+            return $children;
         }
 
-        return $children;
+        return null;
     }
 
     private function isInlineCommerceRowChild(DOMElement $element): bool
@@ -5498,6 +5500,26 @@ final class HtmlTransformer
     private function isNameElement(DOMElement $element): bool
     {
         return $this->hasCommerceToken($element, array( 'name', 'title', 'product', 'dish', 'item', 'plan', 'tier' )) || preg_match('/^h[1-6]$/', strtolower($element->tagName));
+    }
+
+    private function looksLikeHoursRow(DOMElement $row, DOMElement $first, DOMElement $second): bool
+    {
+        if ( ! $this->hasCommerceToken($row, array( 'hours', 'hour', 'schedule', 'time', 'row' )) ) {
+            return false;
+        }
+
+        return ( $this->isDayElement($first) && $this->isTimeValueElement($second) )
+            || ( $this->isDayElement($second) && $this->isTimeValueElement($first) );
+    }
+
+    private function isDayElement(DOMElement $element): bool
+    {
+        return $this->hasCommerceToken($element, array( 'day', 'date', 'label' )) || (bool) preg_match('/\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|weekdays?|weekends?)\b/i', $element->textContent ?? '');
+    }
+
+    private function isTimeValueElement(DOMElement $element): bool
+    {
+        return $this->hasCommerceToken($element, array( 'time', 'hours', 'value', 'closed' )) || (bool) preg_match('/\b(?:closed|open|\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:[\x{2013}\x{2014}-]|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/iu', $element->textContent ?? '');
     }
 
     /**

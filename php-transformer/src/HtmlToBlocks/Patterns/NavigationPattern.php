@@ -581,13 +581,34 @@ final class NavigationPattern implements PatternRecognizerInterface
         foreach ( array( 'class', 'id' ) as $attribute ) {
             $value = $element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '';
             foreach ( preg_split('/[^a-z0-9]+/', strtolower($value)) ?: array() as $token ) {
-                if ( in_array($token, array( 'nav', 'navbar', 'navigation', 'menu', 'links' ), true) ) {
+                if ( in_array($token, array( 'nav', 'navbar', 'navigation', 'menu' ), true) ) {
+                    return true;
+                }
+                if ( 'links' === $token && ! $this->isContactLinkCluster($element) ) {
                     return true;
                 }
             }
         }
 
         return false;
+    }
+
+    private function isContactLinkCluster(DOMElement $element): bool
+    {
+        $anchors = array();
+        $this->collectAnchorsExcluding($element, $anchors, array());
+        if ( array() === $anchors ) {
+            return false;
+        }
+
+        foreach ( $anchors as $anchor ) {
+            $href = strtolower(trim($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''));
+            if ( ! preg_match('/^(?:tel|mailto|sms):/', $href) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function hasDirectListNavigationSignal(DOMElement $element): bool
