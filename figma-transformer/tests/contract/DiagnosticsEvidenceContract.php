@@ -29,6 +29,11 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(1 === ($normalDiagnostics['text']['emitted_text_node_count'] ?? null), 'diagnostics-evidence-normal-emitted-text-count');
     $assert(0 === ($normalDiagnostics['text']['missing_emitted_text_node_count'] ?? null), 'diagnostics-evidence-normal-missing-text-zero');
     $assert(0 === ($normalDiagnostics['layout']['clipped_visual_node_count'] ?? null), 'diagnostics-evidence-normal-clipped-zero');
+    $assert('blocks-engine/figma-transformer/visual-node-map-summary/v1' === ($normalDiagnostics['visual_node_map_summary']['schema'] ?? null), 'diagnostics-evidence-normal-visual-map-summary-schema');
+    $assert(2 === ($normalDiagnostics['visual_node_map_summary']['visual_node_count'] ?? null), 'diagnostics-evidence-normal-visual-map-summary-count');
+    $assert(2 === ($normalDiagnostics['visual_node_map_summary']['nodes_with_emitted_metadata'] ?? null), 'diagnostics-evidence-normal-visual-map-summary-emitted-count');
+    $assert(2 === ($normalDiagnostics['visual_node_map_summary']['page_path_counts']['index.html'] ?? null), 'diagnostics-evidence-normal-visual-map-summary-page-count');
+    $assert('diag:normal-page' === ($normalDiagnostics['visual_node_map_summary']['emitted_class_samples'][0]['node_id'] ?? null), 'diagnostics-evidence-normal-visual-map-summary-sample-node');
     $assert('blocks-engine/figma-transformer/source-loss-coverage/v1' === ($normalDiagnostics['artifact_quality']['summary']['source_loss_coverage']['schema'] ?? null), 'diagnostics-evidence-normal-source-loss-schema');
     $assert(1.0 === ($normalDiagnostics['artifact_quality']['summary']['source_loss_coverage']['coverage_ratio'] ?? null), 'diagnostics-evidence-normal-source-loss-clean-ratio');
     $assert(! in_array('decoded_text_not_emitted', $normalSignalCodes, true), 'diagnostics-evidence-normal-no-missing-text-signal');
@@ -336,6 +341,11 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $missingAssets = $multiPageDiagnostics['images']['missing_assets'] ?? array();
     $placeholderNodes = $multiPageDiagnostics['vectors']['placeholder_nodes'] ?? array();
     $assert('multi_page' === ($multiPageDiagnostics['scope'] ?? null), 'diagnostics-evidence-multi-page-scope');
+    $assert(4 === ($multiPageDiagnostics['visual_node_map_summary']['visual_node_count'] ?? null), 'diagnostics-evidence-multi-page-visual-map-summary-count');
+    $assert(2 === ($multiPageDiagnostics['visual_node_map_summary']['page_path_counts']['index.html'] ?? null), 'diagnostics-evidence-multi-page-visual-map-summary-home-count');
+    $assert(2 === ($multiPageDiagnostics['visual_node_map_summary']['page_path_counts']['aggregation-about.html'] ?? null), 'diagnostics-evidence-multi-page-visual-map-summary-about-count');
+    $assert(2 === ($multiPageDiagnostics['visual_node_map_summary']['source_page_index_counts'][0] ?? null), 'diagnostics-evidence-multi-page-visual-map-summary-source-page-zero');
+    $assert(2 === ($multiPageDiagnostics['visual_node_map_summary']['source_page_index_counts'][1] ?? null), 'diagnostics-evidence-multi-page-visual-map-summary-source-page-one');
     $assert(2 === ($multiPageDiagnostics['images']['node_refs'] ?? null), 'diagnostics-evidence-multi-page-image-node-count');
     $assert(2 === count(is_array($missingAssets) ? $missingAssets : array()), 'diagnostics-evidence-multi-page-missing-asset-sample-count');
     $assert('index.html' === ($missingAssets[0]['page_path'] ?? null), 'diagnostics-evidence-multi-page-missing-asset-home-context');

@@ -3517,6 +3517,7 @@ final class StaticHtmlEmitter
         return array(
             'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
             'selection' => $this->selectionDiagnostics($nodes),
+            'visual_node_map_summary' => $this->visualNodeMapSummary($visualNodeMap),
             'images' => $image,
             'vectors' => $vectors,
             'fonts' => $fonts,
@@ -3531,6 +3532,60 @@ final class StaticHtmlEmitter
             'css' => $cssDiagnostics,
             'artifact_quality' => $this->transformDiagnosticsBuilder()->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text, $components, $effects, $maskEffectClipping, $cssDiagnostics),
             'diagnostic_codes' => $this->diagnosticCodeCounts($diagnostics),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $visualNodeMap
+     * @return array<string, mixed>
+     */
+    private function visualNodeMapSummary(array $visualNodeMap): array
+    {
+        $pagePathCounts = array();
+        $emittedTagCounts = array();
+        $emittedClassSamples = array();
+        $withEmittedMetadata = 0;
+        $withPagePath = 0;
+
+        foreach ( $visualNodeMap as $visualNode ) {
+            if ( ! is_array($visualNode) ) {
+                continue;
+            }
+
+            $pagePath = isset($visualNode['page_path']) && is_scalar($visualNode['page_path']) ? (string) $visualNode['page_path'] : '';
+            if ( '' !== $pagePath ) {
+                ++$withPagePath;
+                $pagePathCounts[$pagePath] = ($pagePathCounts[$pagePath] ?? 0) + 1;
+            }
+
+            $emittedClass = isset($visualNode['emitted_class']) && is_scalar($visualNode['emitted_class']) ? (string) $visualNode['emitted_class'] : '';
+            $emittedTag = isset($visualNode['emitted_tag']) && is_scalar($visualNode['emitted_tag']) ? (string) $visualNode['emitted_tag'] : '';
+            if ( '' !== $emittedClass || '' !== $emittedTag ) {
+                ++$withEmittedMetadata;
+            }
+            if ( '' !== $emittedTag ) {
+                $emittedTagCounts[$emittedTag] = ($emittedTagCounts[$emittedTag] ?? 0) + 1;
+            }
+            if ( '' !== $emittedClass && count($emittedClassSamples) < 10 ) {
+                $emittedClassSamples[] = array(
+                    'node_id' => isset($visualNode['id']) && is_scalar($visualNode['id']) ? (string) $visualNode['id'] : '',
+                    'class' => $emittedClass,
+                    'page_path' => '' !== $pagePath ? $pagePath : null,
+                );
+            }
+        }
+
+        ksort($pagePathCounts);
+        ksort($emittedTagCounts);
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/visual-node-map-summary/v1',
+            'visual_node_count' => count($visualNodeMap),
+            'nodes_with_emitted_metadata' => $withEmittedMetadata,
+            'nodes_with_page_path' => $withPagePath,
+            'page_path_counts' => $pagePathCounts,
+            'emitted_tag_counts' => $emittedTagCounts,
+            'emitted_class_samples' => $emittedClassSamples,
         );
     }
 

@@ -721,7 +721,7 @@ final class FigmaTransformer
         }
 
         $assetReport = $this->assetReportFromFiles(array_values($assetsByPath));
-        $transformDiagnostics = $this->mergePageTransformDiagnostics($pageReports, $assetReport);
+        $transformDiagnostics = $this->mergePageTransformDiagnostics($pageReports, $assetReport, $visualNodeMap);
         $parity = $this->parityReportBuilder->build($options['parity'] ?? array());
         $artifact = array(
             'files' => $files,
@@ -1066,9 +1066,10 @@ final class FigmaTransformer
     /**
      * @param array<int, array<string, mixed>> $pageReports
      * @param array<int, array<string, mixed>> $assetReport
+     * @param array<int, array<string, mixed>> $visualNodeMap
      * @return array<string, mixed>
      */
-    private function mergePageTransformDiagnostics(array $pageReports, array $assetReport): array
+    private function mergePageTransformDiagnostics(array $pageReports, array $assetReport, array $visualNodeMap): array
     {
         $images = array('paint_refs' => 0, 'node_refs' => 0, 'resolved_assets' => 0, 'image_block_count' => 0, 'total_node_count' => 0, 'image_block_nodes' => array(), 'missing_assets' => array());
         $vectors = array('nodes' => 0, 'rendered_paths' => 0, 'rendered_asset_fallbacks' => 0, 'vector_network_decoded' => 0, 'boolean_operations_composed' => 0, 'placeholders' => 0, 'placeholder_nodes' => array(), 'placeholder_reasons' => array());
@@ -1299,6 +1300,7 @@ final class FigmaTransformer
             'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
             'scope' => 'multi_page',
             'selection' => $this->multiPageSelectionDiagnostics($pageReports),
+            'visual_node_map_summary' => $this->visualNodeMapSummary($visualNodeMap),
             'pages' => $pages,
             'images' => $images,
             'vectors' => $vectors,
@@ -1521,6 +1523,62 @@ final class FigmaTransformer
             'decoded_source_nodes' => max(0, $decoded),
             'emitted_source_nodes' => max(0, $emitted),
             'not_emitted_source_nodes' => max(0, $notEmitted),
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $visualNodeMap
+     * @return array<string, mixed>
+     */
+    private function visualNodeMapSummary(array $visualNodeMap): array
+    {
+        $pagePathCounts = array();
+        $sourcePageCounts = array();
+        $emittedClassSamples = array();
+        $withEmittedMetadata = 0;
+        $withPagePath = 0;
+
+        foreach ( $visualNodeMap as $visualNode ) {
+            if ( ! is_array($visualNode) ) {
+                continue;
+            }
+
+            $pagePath = isset($visualNode['page_path']) && is_scalar($visualNode['page_path']) ? (string) $visualNode['page_path'] : '';
+            if ( '' !== $pagePath ) {
+                ++$withPagePath;
+                $pagePathCounts[$pagePath] = ($pagePathCounts[$pagePath] ?? 0) + 1;
+            }
+
+            if ( isset($visualNode['source_page_index']) && is_numeric($visualNode['source_page_index']) ) {
+                $sourcePageIndex = (string) ((int) $visualNode['source_page_index']);
+                $sourcePageCounts[$sourcePageIndex] = ($sourcePageCounts[$sourcePageIndex] ?? 0) + 1;
+            }
+
+            $emittedClass = isset($visualNode['emitted_class']) && is_scalar($visualNode['emitted_class']) ? (string) $visualNode['emitted_class'] : '';
+            $emittedTag = isset($visualNode['emitted_tag']) && is_scalar($visualNode['emitted_tag']) ? (string) $visualNode['emitted_tag'] : '';
+            if ( '' !== $emittedClass || '' !== $emittedTag ) {
+                ++$withEmittedMetadata;
+            }
+            if ( '' !== $emittedClass && count($emittedClassSamples) < 10 ) {
+                $emittedClassSamples[] = array(
+                    'node_id' => isset($visualNode['id']) && is_scalar($visualNode['id']) ? (string) $visualNode['id'] : '',
+                    'class' => $emittedClass,
+                    'page_path' => '' !== $pagePath ? $pagePath : null,
+                );
+            }
+        }
+
+        ksort($pagePathCounts);
+        ksort($sourcePageCounts);
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/visual-node-map-summary/v1',
+            'visual_node_count' => count($visualNodeMap),
+            'nodes_with_emitted_metadata' => $withEmittedMetadata,
+            'nodes_with_page_path' => $withPagePath,
+            'page_path_counts' => $pagePathCounts,
+            'source_page_index_counts' => $sourcePageCounts,
+            'emitted_class_samples' => $emittedClassSamples,
         );
     }
 
