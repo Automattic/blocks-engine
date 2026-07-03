@@ -777,8 +777,6 @@ final class StaticHtmlEmitter
         if ( null !== $sourceTextList ) {
             $tag = $sourceTextList['tag'];
             $text = $sourceTextList['content'];
-        } elseif ( 'TEXT' === $type ) {
-            $text = $this->implicitRouteTextRunMarkup($node, $parentNode, $insideLink) ?? $text;
         }
         if ( $insideForm && 'form' === $tag ) {
             $tag = 'div';
@@ -3200,103 +3198,6 @@ final class StaticHtmlEmitter
         }
 
         return $anchor . $element . "</a>\n";
-    }
-
-    /**
-     * Figma site chrome sometimes stores a full navigation row in one text node,
-     * separated visually by long whitespace runs. Preserve that spacing while
-     * turning recognized page labels into discrete anchors.
-     *
-     * @param array<string, mixed> $node
-     * @param array<string, mixed>|null $parentNode
-     */
-    private function implicitRouteTextRunMarkup(array $node, ?array $parentNode, bool $insideLink): ?string
-    {
-        if ( $insideLink || empty($this->implicitRoutePaths) || null === $parentNode ) {
-            return null;
-        }
-
-        if ( ! $this->isRouteTextRunContext($node, $parentNode) ) {
-            return null;
-        }
-
-        $text = trim($this->nodePlainText($node));
-        if ( '' === $text || ! preg_match('/\S\s{2,}\S/', $text) ) {
-            return null;
-        }
-
-        if ( $this->isMeasuredTextRun($node) ) {
-            return null;
-        }
-
-        $parts = preg_split('/(\s{2,})/', $text, -1, PREG_SPLIT_DELIM_CAPTURE);
-        if ( false === $parts || count($parts) < 3 ) {
-            return null;
-        }
-
-        $routeLabelCount = 0;
-        $anchorCount = 0;
-        $markup = '';
-        foreach ( $parts as $part ) {
-            if ( '' === $part ) {
-                continue;
-            }
-
-            if ( preg_match('/^\s+$/', $part) ) {
-                $markup .= str_repeat(' ', strlen($part));
-                continue;
-            }
-
-            $label = trim($part);
-            if ( '' !== $label && $this->hasImplicitRouteForLabel($label) ) {
-                $routeLabelCount++;
-                $href = $this->routePathForLabel($label, $node, $parentNode, true);
-                if ( null !== $href ) {
-                    $this->linkCoverage['implicit_route_links']++;
-                    $this->linkCoverage['anchors_emitted']++;
-                    $anchorCount++;
-                    $markup .= '<a class="figma-link" href="' . $this->sanitizeAttribute($href) . '" data-figma-link-type="implicit-route">' . $this->sanitizeText($label) . '</a>';
-                    continue;
-                }
-            }
-
-            $markup .= $this->sanitizeText($part);
-        }
-
-        return $routeLabelCount >= 2 && $anchorCount >= 1 ? $markup : null;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function isMeasuredTextRun(array $node): bool
-    {
-        foreach ( array('width', 'height', 'box', 'absoluteBoundingBox', 'absoluteRenderBounds') as $key ) {
-            if ( ! empty($node[$key]) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @param array<string, mixed> $parentNode
-     */
-    private function isRouteTextRunContext(array $node, array $parentNode): bool
-    {
-        $nodeName = strtolower((string) ($node['name'] ?? ''));
-        $parentName = strtolower((string) ($parentNode['name'] ?? ''));
-
-        return str_contains($nodeName, 'nav')
-            || str_contains($nodeName, 'menu')
-            || str_contains($nodeName, 'link')
-            || str_contains($parentName, 'nav')
-            || str_contains($parentName, 'menu')
-            || str_contains($parentName, 'header')
-            || str_contains($parentName, 'footer')
-            || 'nav' === $this->semanticTag($parentNode, strtoupper((string) ($parentNode['type'] ?? 'FRAME')), (string) ($parentNode['name'] ?? ''), 1, null);
     }
 
     /**
