@@ -283,6 +283,8 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $assert(1 === ($mixedLayerStackingOrder['flow_child_count'] ?? null), 'visual-map-mixed-layer-diagnostics-flow-child-count');
     $assert(1 === ($mixedLayerStackingOrder['sample_nodes'][0]['child_layer_roles']['underlay'] ?? null), 'visual-map-mixed-layer-diagnostics-underlay-role-count');
     $assert(1 === ($mixedLayerStackingOrder['sample_nodes'][0]['child_layer_roles']['content'] ?? null), 'visual-map-mixed-layer-diagnostics-content-role-count');
+    $assert(1 === ($mixedLayerStackingOrder['sample_nodes'][0]['child_z_index_reasons']['overlapping_sibling_layer_rank'] ?? null), 'visual-map-mixed-layer-diagnostics-z-index-reason-count');
+    $assert(in_array('local_mixed_positioning_children', $mixedLayerStackingOrder['sample_nodes'][0]['local_stacking_reasons'] ?? array(), true), 'visual-map-mixed-layer-diagnostics-local-stack-reason');
     $assert('mixed-layer:section' === ($mixedLayerStackingOrder['sample_nodes'][0]['node_id'] ?? null), 'visual-map-mixed-layer-diagnostics-sample-node');
     $assert(1 === ($mixedLayerArtifactSummary['mixed_positioning_parent_count'] ?? null), 'visual-map-mixed-layer-artifact-summary-mixed-position-parent-count');
 

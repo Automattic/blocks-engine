@@ -4489,6 +4489,7 @@ final class StaticHtmlEmitter
         $absolute = 0;
         $flow = 0;
         $childLayerRoles = array();
+        $childZIndexReasons = array();
         foreach ( $children as $child ) {
             $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
             if ( 'absolute' === ($layout['positioning'] ?? null) ) {
@@ -4497,18 +4498,27 @@ final class StaticHtmlEmitter
                 ++$flow;
             }
 
-            $role = $this->layoutIntentClassifier()->siblingLayerRole($child, $node);
+            $stackingContextPlan = $this->layoutIntentClassifier()->stackingContextPlan($child, $node);
+            $role = is_string($stackingContextPlan['sibling_role'] ?? null) ? $stackingContextPlan['sibling_role'] : $this->layoutIntentClassifier()->siblingLayerRole($child, $node);
             $childLayerRoles[$role] = (int) ($childLayerRoles[$role] ?? 0) + 1;
+            $zIndexReason = is_string($stackingContextPlan['z_index_reason'] ?? null) ? $stackingContextPlan['z_index_reason'] : null;
+            if ( null !== $zIndexReason ) {
+                $childZIndexReasons[$zIndexReason] = (int) ($childZIndexReasons[$zIndexReason] ?? 0) + 1;
+            }
         }
         if ( 0 === $absolute || 0 === $flow ) {
             return null;
         }
         ksort($childLayerRoles);
+        ksort($childZIndexReasons);
+        $stackingContextPlan = $this->layoutIntentClassifier()->stackingContextPlan($node);
 
         return array_merge($this->nodeCoverageSample($node), array(
             'absolute_child_count' => $absolute,
             'flow_child_count' => $flow,
             'child_layer_roles' => $childLayerRoles,
+            'child_z_index_reasons' => $childZIndexReasons,
+            'local_stacking_reasons' => is_array($stackingContextPlan['local_reasons'] ?? null) ? $stackingContextPlan['local_reasons'] : array(),
         ));
     }
 

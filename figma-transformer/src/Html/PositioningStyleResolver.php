@@ -39,20 +39,19 @@ final class PositioningStyleResolver
         $isDecorativeFlexUnderlay = null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode);
         $parentFreeformUsesFlow = null !== $parentNode && $this->freeformContainerShouldUseFlow($parentNode);
         $willPositionAbsolute = (null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow) || 'absolute' === ($layout['positioning'] ?? null) || $isDecorativeFlexUnderlay;
-        $layerStackPlan = null !== $parentNode ? $this->layoutIntentClassifier->siblingLayerStackPlan($node, $parentNode) : array('z_index' => null);
-        $overlapZIndex = isset($layerStackPlan['z_index']) && is_int($layerStackPlan['z_index']) ? $layerStackPlan['z_index'] : null;
-        $managesLocalStacking = $this->layoutIntentClassifier->managesLocalStacking($node);
-        $needsLocalStackIsolation = $this->layoutIntentClassifier->needsLocalStackIsolation($node);
+        $stackingContextPlan = $this->layoutIntentClassifier->stackingContextPlan($node, $parentNode);
+        $effectiveZIndex = isset($stackingContextPlan['z_index']) && is_int($stackingContextPlan['z_index']) ? $stackingContextPlan['z_index'] : null;
+        $zIndexReason = isset($stackingContextPlan['z_index_reason']) && is_string($stackingContextPlan['z_index_reason']) ? $stackingContextPlan['z_index_reason'] : null;
 
         if ( $canvasShell->responsiveCenteredFlowShell && ! $willPositionAbsolute ) {
             $styles[] = 'margin-left:auto';
             $styles[] = 'margin-right:auto';
         }
-        if ( ! $willPositionAbsolute && ($managesLocalStacking || ($parentFreeformUsesFlow && 'FRAME' === $type)) ) {
+        if ( ! $willPositionAbsolute && (true === ($stackingContextPlan['manages_local_stacking'] ?? false) || ($parentFreeformUsesFlow && 'FRAME' === $type)) ) {
             $styles[] = 'position:relative';
         }
 
-        if ( $needsLocalStackIsolation ) {
+        if ( true === ($stackingContextPlan['needs_isolation'] ?? false) ) {
             $styles[] = 'isolation:isolate';
         }
 
@@ -61,7 +60,9 @@ final class PositioningStyleResolver
             foreach ( $this->cssPositioningResolver->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
                 $styles[] = $style;
             }
-            $styles[] = 'z-index:0';
+            if ( null !== $effectiveZIndex && ! $this->stylesDeclareProperty(array_merge($declaredStyles, $styles), 'z-index') ) {
+                $styles[] = 'z-index:' . (string) $effectiveZIndex;
+            }
             $styles[] = 'pointer-events:none';
         } elseif ( null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow ) {
             $styles[] = 'position:absolute';
@@ -86,17 +87,15 @@ final class PositioningStyleResolver
             $styles[] = 'z-index:1';
         }
 
-        if ( null !== $overlapZIndex && ! $willPositionAbsolute && ! $this->stylesDeclareProperty(array_merge($declaredStyles, $styles), 'position') ) {
+        if ( LayoutIntentClassifier::STACK_REASON_SIBLING_LAYER_RANK === $zIndexReason && ! $willPositionAbsolute && ! $this->stylesDeclareProperty(array_merge($declaredStyles, $styles), 'position') ) {
             $styles[] = 'position:relative';
         }
 
-        if ( $this->isFiniteNumeric($layout['z_index'] ?? null) && ! $this->stylesDeclareProperty(array_merge($declaredStyles, $styles), 'z-index') ) {
-            $styles[] = 'z-index:' . (string) (int) $layout['z_index'];
-        } elseif ( null !== $parentNode && ! $this->stylesDeclareProperty(array_merge($declaredStyles, $styles), 'z-index') && null !== $overlapZIndex ) {
-            $styles[] = 'z-index:' . (string) $overlapZIndex;
+        if ( null !== $effectiveZIndex && ! $this->stylesDeclareProperty(array_merge($declaredStyles, $styles), 'z-index') ) {
+            $styles[] = 'z-index:' . (string) $effectiveZIndex;
         }
 
-        return new PositioningStyleDecision($styles, $willPositionAbsolute, $isDecorativeFlexUnderlay);
+        return new PositioningStyleDecision($styles, $willPositionAbsolute, $isDecorativeFlexUnderlay, $zIndexReason);
     }
 
     /**
@@ -112,11 +111,6 @@ final class PositioningStyleResolver
         }
 
         return false;
-    }
-
-    private function isFiniteNumeric(mixed $value): bool
-    {
-        return is_int($value) || is_float($value) || (is_string($value) && is_numeric($value));
     }
 
     /**

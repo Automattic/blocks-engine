@@ -9,6 +9,15 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class LayoutIntentClassifier
 {
+    public const STACK_REASON_ABSOLUTE_CHILD = 'local_absolute_child';
+    public const STACK_REASON_DECORATIVE_UNDERLAY = 'local_decorative_underlay';
+    public const STACK_REASON_FREEFORM_CONTAINER = 'local_freeform_container';
+    public const STACK_REASON_MIXED_POSITIONING_CHILDREN = 'local_mixed_positioning_children';
+    public const STACK_REASON_OVERLAPPING_STACKED_CHILD = 'local_overlapping_stacked_child';
+    public const STACK_REASON_SOURCE_Z_INDEX = 'source_z_index';
+    public const STACK_REASON_SIBLING_LAYER_RANK = 'overlapping_sibling_layer_rank';
+    public const STACK_REASON_Z_INDEXED_CHILD = 'local_z_indexed_child';
+
     public const LAYER_ROLE_UNDERLAY = 'underlay';
     public const LAYER_ROLE_CONTENT = 'content';
     public const LAYER_ROLE_CHROME = 'chrome';
@@ -598,6 +607,31 @@ final class LayoutIntentClassifier
 
     /**
      * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @return array{manages_local_stacking: bool, needs_isolation: bool, local_reasons: array<int, string>, sibling_role: string|null, overlaps_sibling: bool, z_index: int|null, z_index_reason: string|null}
+     */
+    public function stackingContextPlan(array $node, ?array $parentNode = null): array
+    {
+        $localReasons = $this->localStackingReasons($node);
+        $isolationReasons = $this->localStackIsolationReasons($node);
+        $siblingStackPlan = null !== $parentNode ? $this->siblingLayerStackPlan($node, $parentNode) : array('role' => null, 'overlaps_sibling' => false, 'z_index' => null);
+        $isDecorativeUnderlay = null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode);
+        $sourceZIndex = $this->nodeZIndex($node);
+        $siblingZIndex = isset($siblingStackPlan['z_index']) && is_int($siblingStackPlan['z_index']) ? $siblingStackPlan['z_index'] : null;
+
+        return array(
+            'manages_local_stacking' => ! empty($localReasons),
+            'needs_isolation' => ! empty($isolationReasons),
+            'local_reasons' => array_values(array_unique(array_merge($localReasons, $isolationReasons))),
+            'sibling_role' => is_string($siblingStackPlan['role'] ?? null) ? $siblingStackPlan['role'] : null,
+            'overlaps_sibling' => true === ($siblingStackPlan['overlaps_sibling'] ?? false),
+            'z_index' => $isDecorativeUnderlay ? 0 : ($sourceZIndex ?? $siblingZIndex),
+            'z_index_reason' => $isDecorativeUnderlay ? self::STACK_REASON_DECORATIVE_UNDERLAY : (null !== $sourceZIndex ? self::STACK_REASON_SOURCE_Z_INDEX : (null !== $siblingZIndex ? self::STACK_REASON_SIBLING_LAYER_RANK : null)),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
      * @param array<string, mixed> $parentNode
      */
     public function siblingLayerRole(array $node, array $parentNode): string
@@ -636,10 +670,7 @@ final class LayoutIntentClassifier
      */
     public function managesLocalStacking(array $node): bool
     {
-        return $this->hasAbsoluteChild($node)
-            || $this->hasDecorativeFlexUnderlayChild($node)
-            || $this->isFreeformContainer($node)
-            || $this->hasOverlappingStackedChild($node);
+        return ! empty($this->localStackingReasons($node));
     }
 
     /**
@@ -647,10 +678,53 @@ final class LayoutIntentClassifier
      */
     public function needsLocalStackIsolation(array $node): bool
     {
-        return $this->hasDecorativeFlexUnderlayChild($node)
-            || $this->hasMixedPositioningChildren($node)
-            || $this->hasZIndexedChild($node)
-            || $this->hasOverlappingStackedChild($node);
+        return ! empty($this->localStackIsolationReasons($node));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function localStackingReasons(array $node): array
+    {
+        $reasons = array();
+        if ( $this->hasAbsoluteChild($node) ) {
+            $reasons[] = self::STACK_REASON_ABSOLUTE_CHILD;
+        }
+        if ( $this->hasDecorativeFlexUnderlayChild($node) ) {
+            $reasons[] = self::STACK_REASON_DECORATIVE_UNDERLAY;
+        }
+        if ( $this->isFreeformContainer($node) ) {
+            $reasons[] = self::STACK_REASON_FREEFORM_CONTAINER;
+        }
+        if ( $this->hasOverlappingStackedChild($node) ) {
+            $reasons[] = self::STACK_REASON_OVERLAPPING_STACKED_CHILD;
+        }
+
+        return $reasons;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function localStackIsolationReasons(array $node): array
+    {
+        $reasons = array();
+        if ( $this->hasDecorativeFlexUnderlayChild($node) ) {
+            $reasons[] = self::STACK_REASON_DECORATIVE_UNDERLAY;
+        }
+        if ( $this->hasMixedPositioningChildren($node) ) {
+            $reasons[] = self::STACK_REASON_MIXED_POSITIONING_CHILDREN;
+        }
+        if ( $this->hasZIndexedChild($node) ) {
+            $reasons[] = self::STACK_REASON_Z_INDEXED_CHILD;
+        }
+        if ( $this->hasOverlappingStackedChild($node) ) {
+            $reasons[] = self::STACK_REASON_OVERLAPPING_STACKED_CHILD;
+        }
+
+        return $reasons;
     }
 
     /**
