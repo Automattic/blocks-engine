@@ -5272,17 +5272,19 @@ final class StaticHtmlEmitter
                 }
                 continue;
             }
-            if ( 'width' === $dimension && null !== $parentNode && $parentUsesFluidCanvasCoordinates && $this->isFluidStretchAbsoluteChild($box, $layout, $parentNode) ) {
-                $styles[] = 'width:auto';
-                continue;
-            }
-            if ( 'width' === $dimension && $this->isFluidPageWidth($box, $layout, $parentNode) ) {
+            if ( 'width' === $dimension && $isAbsoluteFullWidthCanvasChild ) {
+                $styles[] = 'width:100vw';
+            } elseif ( 'width' === $dimension && $this->isFluidPageWidth($box, $layout, $parentNode) ) {
                 // Full-page roots and matching first-level bands should occupy the
-                // viewport. Explicit Kiwi/Figma max-width constraints still apply
-                // below; the intrinsic frame width is evidence, not a viewport cap.
+                // available width. Top-level desktop canvases also need their
+                // intrinsic width as the centering shell so absolute children using
+                // calc(50% +/- n) stay anchored to the designed canvas center.
                 $styles[] = 'width:100%';
-            } elseif ( 'width' === $dimension && $isAbsoluteFullWidthCanvasChild ) {
-                $styles[] = 'width:100%';
+                if ( null === $parentNode && isset($box['width']) && is_numeric($box['width']) && ! $this->isFiniteNumeric($layout['max_width'] ?? null) ) {
+                    $styles[] = 'max-width:' . $this->number((float) $box['width']) . 'px';
+                }
+            } elseif ( 'width' === $dimension && null !== $parentNode && $parentUsesFluidCanvasCoordinates && $this->isFluidStretchAbsoluteChild($box, $layout, $parentNode) ) {
+                $styles[] = 'width:auto';
             } elseif ( 'width' === $dimension && $responsiveCenteredFlowShell && $this->centeredShellShouldUseResponsiveFlowWidth($layout, $parentNode) && isset($box['width']) && is_numeric($box['width']) ) {
                 $styles[] = 'width:100%';
                 $styles[] = 'max-width:' . $this->number((float) $box['width']) . 'px';
@@ -5368,9 +5370,15 @@ final class StaticHtmlEmitter
             foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $centerWithinParentFluidCanvas) as $style ) {
                 $styles[] = $style;
             }
+            foreach ( $this->fullBleedViewportBreakoutStyles($isAbsoluteFullWidthCanvasChild) as $style ) {
+                $styles[] = $style;
+            }
         } elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
             $styles[] = 'position:absolute';
             foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $centerWithinParentFluidCanvas) as $style ) {
+                $styles[] = $style;
+            }
+            foreach ( $this->fullBleedViewportBreakoutStyles($isAbsoluteFullWidthCanvasChild) as $style ) {
                 $styles[] = $style;
             }
         }
@@ -5534,6 +5542,21 @@ final class StaticHtmlEmitter
         }
 
         return ! $this->isFreeformContainer($parentNode) || $this->freeformContainerShouldUseFlow($parentNode);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function fullBleedViewportBreakoutStyles(bool $isAbsoluteFullWidthCanvasChild): array
+    {
+        if ( ! $isAbsoluteFullWidthCanvasChild ) {
+            return array();
+        }
+
+        return array(
+            'left:50%',
+            'margin-left:-50vw',
+        );
     }
 
     /**
