@@ -60,6 +60,9 @@ final class PositioningStyleResolver
             foreach ( $this->cssPositioningResolver->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
                 $styles[] = $style;
             }
+            foreach ( $this->canvasShellResolver->fullBleedViewportBreakoutDecision($canvasShell)['declarations'] as $style ) {
+                $styles[] = $style;
+            }
             if ( null !== $effectiveZIndex && ! $this->stylesDeclareProperty(array_merge($declaredStyles, $styles), 'z-index') ) {
                 $styles[] = 'z-index:' . (string) $effectiveZIndex;
             }

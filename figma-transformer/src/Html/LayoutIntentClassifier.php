@@ -801,7 +801,7 @@ final class LayoutIntentClassifier
     {
         $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
         $isCompactControlUnderlay = $this->isCompactAbsoluteShapeUnderlay($node, $parentNode);
-        if ( ! $isCompactControlUnderlay && ! $this->parentSupportsDecorativeFlexUnderlay($parentLayout) ) {
+        if ( ! $isCompactControlUnderlay && ! $this->parentSupportsDecorativeUnderlay($parentNode, $parentLayout) ) {
             return false;
         }
 
@@ -879,9 +879,10 @@ final class LayoutIntentClassifier
     /**
      * @param array<string, mixed> $layout
      */
-    private function parentSupportsDecorativeFlexUnderlay(array $layout): bool
+    private function parentSupportsDecorativeUnderlay(array $parentNode, array $layout): bool
     {
-        return in_array((string) ($layout['display'] ?? ''), array('flex', 'inline-flex'), true);
+        return in_array((string) ($layout['display'] ?? ''), array('flex', 'inline-flex'), true)
+            || $this->isFreeformContainer($parentNode);
     }
 
     /**
@@ -890,8 +891,12 @@ final class LayoutIntentClassifier
      */
     private function hasDecorativeUnderlayForegroundEvidence(array $node, array $parentNode): bool
     {
+        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        $requiresTextOverlap = ! in_array((string) ($parentLayout['display'] ?? ''), array('flex', 'inline-flex'), true);
+
         return $this->isDecorativeUnderlayVisualCandidate($node)
             && $this->parentHasTextOutsideNode($parentNode, $node)
+            && (! $requiresTextOverlap || $this->nodeOverlapsTextOutsideNode($parentNode, $node))
             && $this->nodeIsBehindTextOutsideNode($parentNode, $node);
     }
 
@@ -1087,6 +1092,26 @@ final class LayoutIntentClassifier
             }
 
             if ( $this->nodeHasPaintOrderEvidenceBehindSibling($node, $sibling, $nodeZIndex, $nodeSiblingIndex, (int) $index) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $parentNode
+     * @param array<string, mixed> $node
+     */
+    private function nodeOverlapsTextOutsideNode(array $parentNode, array $node): bool
+    {
+        $nodeId = (string) ($node['id'] ?? '');
+        foreach ( $this->nodeList($parentNode) as $sibling ) {
+            if ( ! is_array($sibling) || (string) ($sibling['id'] ?? '') === $nodeId || ! $this->treeHasText($sibling) ) {
+                continue;
+            }
+
+            if ( $this->nodesOverlapInParent($node, $sibling, $parentNode) ) {
                 return true;
             }
         }

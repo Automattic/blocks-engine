@@ -421,6 +421,152 @@ $assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-b
 $assert(str_contains($absoluteDecorativeUnderlayCss, '.figma-node-abs-underlay-copy-footer-copy{position:relative;z-index:1;font-size:16px;flex-shrink:0}'), 'absolute-decorative-underlay-flow-text-stacks-above');
 $assert(1 === ($absoluteDecorativeUnderlays['count'] ?? null), 'absolute-decorative-underlay-diagnostic-count');
 
+$freeformDecorativeOverlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Freeform Decorative Overlay Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'       => 'freeform-overlay:section',
+            'type'     => 'FRAME',
+            'name'     => 'Services hero',
+            'width'    => 1200,
+            'height'   => 520,
+            'children' => array(
+                array(
+                    'id'           => 'freeform-overlay:band',
+                    'type'         => 'RECTANGLE',
+                    'name'         => 'Diagonal decorative band',
+                    'x'            => -120,
+                    'y'            => 20,
+                    'width'        => 1440,
+                    'height'       => 360,
+                    'rotation'     => -8,
+                    'fill'         => array('r' => 0.90, 'g' => 0.94, 'b' => 0.98),
+                    'fillGeometry' => array(array('commandsBlob' => 0)),
+                ),
+                array(
+                    'id'       => 'freeform-overlay:copy',
+                    'type'     => 'TEXT',
+                    'name'     => 'Hero headline',
+                    'x'        => 80,
+                    'y'        => 120,
+                    'width'    => 620,
+                    'height'   => 120,
+                    'text'     => 'Services content stays above decorative bands',
+                    'fontSize' => 48,
+                ),
+                array(
+                    'id'       => 'freeform-overlay:button',
+                    'type'     => 'TEXT',
+                    'name'     => 'Hero CTA',
+                    'x'        => 80,
+                    'y'        => 280,
+                    'width'    => 180,
+                    'height'   => 42,
+                    'text'     => 'Book a visit',
+                    'fontSize' => 18,
+                ),
+            ),
+        ),
+    ),
+));
+$freeformDecorativeOverlayCss = $fileContent($freeformDecorativeOverlayResult, 'style.css');
+$freeformDecorativeOverlayUnderlays = $freeformDecorativeOverlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $freeformDecorativeOverlayCss, '.figma-node-freeform-overlay-section-services-hero', array('position:relative', 'isolation:isolate'), 'freeform-decorative-overlay-parent-isolated');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $freeformDecorativeOverlayCss, '.figma-node-freeform-overlay-band-diagonal-decorative-band', array('position:absolute', 'left:-120px', 'top:20px', 'z-index:0', 'pointer-events:none'), 'freeform-decorative-overlay-band-underlay');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $freeformDecorativeOverlayCss, '.figma-node-freeform-overlay-copy-hero-headline', array('position:absolute', 'left:80px', 'top:120px', 'z-index:2'), 'freeform-decorative-overlay-text-above');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $freeformDecorativeOverlayCss, '.figma-node-freeform-overlay-button-hero-cta', array('position:absolute', 'left:80px', 'top:280px', 'z-index:3'), 'freeform-decorative-overlay-cta-above');
+$assert(1 === ($freeformDecorativeOverlayUnderlays['count'] ?? null), 'freeform-decorative-overlay-underlay-diagnostic-count');
+
+$timelineScaffoldUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Timeline Scaffold Underlay Fixture',
+    'blobs' => array(array('bytes' => $vectorCommandBlob)),
+    'nodes' => array(
+        array(
+            'id'       => 'timeline-scaffold:section',
+            'type'     => 'FRAME',
+            'name'     => 'Treatment timeline',
+            'width'    => 900,
+            'height'   => 680,
+            'children' => array(
+                array(
+                    'id'       => 'timeline-scaffold:rail',
+                    'type'     => 'GROUP',
+                    'name'     => 'Vertical line and dots',
+                    'x'        => 88,
+                    'y'        => 40,
+                    'width'    => 32,
+                    'height'   => 560,
+                    'children' => array(
+                        array(
+                            'id'           => 'timeline-scaffold:line',
+                            'type'         => 'RECTANGLE',
+                            'name'         => 'Timeline vertical line',
+                            'x'            => 15,
+                            'y'            => 0,
+                            'width'        => 2,
+                            'height'       => 560,
+                            'fill'         => array('r' => 0.78, 'g' => 0.82, 'b' => 0.88),
+                            'fillGeometry' => array(array('commandsBlob' => 0)),
+                        ),
+                        array(
+                            'id'           => 'timeline-scaffold:dot-1',
+                            'type'         => 'ELLIPSE',
+                            'name'         => 'Timeline dot 1',
+                            'x'            => 0,
+                            'y'            => 70,
+                            'width'        => 32,
+                            'height'       => 32,
+                            'fill'         => array('r' => 0.20, 'g' => 0.40, 'b' => 0.68),
+                            'fillGeometry' => array(array('commandsBlob' => 0)),
+                        ),
+                        array(
+                            'id'           => 'timeline-scaffold:dot-2',
+                            'type'         => 'ELLIPSE',
+                            'name'         => 'Timeline dot 2',
+                            'x'            => 0,
+                            'y'            => 300,
+                            'width'        => 32,
+                            'height'       => 32,
+                            'fill'         => array('r' => 0.20, 'g' => 0.40, 'b' => 0.68),
+                            'fillGeometry' => array(array('commandsBlob' => 0)),
+                        ),
+                    ),
+                ),
+                array(
+                    'id'       => 'timeline-scaffold:step-1',
+                    'type'     => 'TEXT',
+                    'name'     => 'Consultation step',
+                    'x'        => 80,
+                    'y'        => 84,
+                    'width'    => 640,
+                    'height'   => 80,
+                    'text'     => 'Consultation and treatment plan',
+                    'fontSize' => 24,
+                ),
+                array(
+                    'id'       => 'timeline-scaffold:step-2',
+                    'type'     => 'TEXT',
+                    'name'     => 'Follow up step',
+                    'x'        => 80,
+                    'y'        => 314,
+                    'width'    => 640,
+                    'height'   => 80,
+                    'text'     => 'Follow up and maintenance',
+                    'fontSize' => 24,
+                ),
+            ),
+        ),
+    ),
+));
+$timelineScaffoldUnderlayCss = $fileContent($timelineScaffoldUnderlayResult, 'style.css');
+$timelineScaffoldUnderlays = $timelineScaffoldUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $timelineScaffoldUnderlayCss, '.figma-node-timeline-scaffold-section-treatment-timeline', array('position:relative', 'isolation:isolate'), 'timeline-scaffold-parent-isolated');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $timelineScaffoldUnderlayCss, '.figma-node-timeline-scaffold-rail-vertical-line-and-dots', array('position:absolute', 'left:88px', 'top:40px', 'z-index:0', 'pointer-events:none'), 'timeline-scaffold-rail-underlay');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $timelineScaffoldUnderlayCss, '.figma-node-timeline-scaffold-step-1-consultation-step', array('position:absolute', 'left:80px', 'top:84px', 'z-index:2'), 'timeline-scaffold-step-1-above');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $timelineScaffoldUnderlayCss, '.figma-node-timeline-scaffold-step-2-follow-up-step', array('position:absolute', 'left:80px', 'top:314px', 'z-index:3'), 'timeline-scaffold-step-2-above');
+$assert(1 === ($timelineScaffoldUnderlays['count'] ?? null), 'timeline-scaffold-underlay-diagnostic-count');
+
 $fseFooterUnderlayResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'FSE Footer Underlay Fixture',
     'blobs' => array(array('bytes' => $vectorCommandBlob)),
