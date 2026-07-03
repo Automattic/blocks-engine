@@ -115,6 +115,9 @@ function blocks_engine_figma_transformer_run_component_clone_emission_contract(c
     $assert(array('composed-into-parent' => 1, 'mask-source' => 1) === ($components['intentional_suppression_reason_counts'] ?? null), 'component-clone-intentional-suppression-reason-counts');
     $assert(1 === ($qualitySignal['count'] ?? null), 'component-clone-quality-signal-count');
     $assert(array('hidden' => 1) === ($qualitySignal['omission_reason_counts'] ?? null), 'component-clone-quality-signal-reason-counts');
+    $assert('component_clone_not_emitted' === ($qualitySignal['reason_code'] ?? null), 'component-clone-quality-signal-reason-code');
+    $assert(1 === ($diagnostics['decision_traces']['reason_counts']['hidden_descendant_suppressed'] ?? null), 'component-clone-hidden-decision-trace-reason');
+    $assert(1 === ($diagnostics['decision_traces']['reason_counts']['mask_source_suppressed'] ?? null), 'component-clone-mask-decision-trace-reason');
 
     $missing = is_array($components['missing_emitted_clone_nodes'] ?? null) ? $components['missing_emitted_clone_nodes'] : array();
     $hiddenSamples = array_values(array_filter($missing, static fn (array $node): bool => 'clone-contract:hidden-geometry' === ($node['node_id'] ?? null)));

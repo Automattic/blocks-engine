@@ -205,6 +205,16 @@ final class TransformDiagnosticsBuilder
         }
 
         $failCodes = array('missing_render_assets', 'vector_placeholders', 'invalid_css_numeric_token');
+        $signals = array_map(
+            static function (array $signal): array {
+                if ( ! isset($signal['reason_code']) && isset($signal['code']) ) {
+                    $signal['reason_code'] = (string) $signal['code'];
+                }
+
+                return $signal;
+            },
+            $signals
+        );
         $failCount = count(array_filter($signals, static fn (array $signal): bool => in_array((string) ($signal['code'] ?? ''), $failCodes, true)));
         $warningCount = count(array_filter($signals, static fn (array $signal): bool => 'warning' === ($signal['severity'] ?? null)));
         $qualityStatus = $failCount > 0 ? 'fail' : (empty($signals) ? 'pass' : 'warn');

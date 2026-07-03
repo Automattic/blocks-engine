@@ -13,6 +13,11 @@ final class BreakpointMediaDiffBuilder
     private readonly BreakpointDimensionPolicy $breakpointDimensionPolicy;
 
     /**
+     * @var array<string, array<string, mixed>>
+     */
+    private array $decisionTraces = array();
+
+    /**
      * @param callable(array<string, mixed>): array<int, mixed> $nodeList
      * @param callable(array<string, mixed>, string, array<string, mixed>|null, array<string, mixed>|null): array<int, string> $styleDeclarations
      * @param callable(array<string, mixed>, string, array<string, mixed>|null): mixed $supportedVectorSvg
@@ -37,6 +42,19 @@ final class BreakpointMediaDiffBuilder
     ) {
         $this->responsiveNodeMatcher = $responsiveNodeMatcher ?? new ResponsiveNodeMatcher($this->slug);
         $this->breakpointDimensionPolicy = $breakpointDimensionPolicy ?? new BreakpointDimensionPolicy($this->number);
+    }
+
+    public function resetDecisionTraces(): void
+    {
+        $this->decisionTraces = array();
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function decisionTraces(): array
+    {
+        return array_values($this->decisionTraces);
     }
 
     /**
@@ -249,7 +267,8 @@ final class BreakpointMediaDiffBuilder
                 continue;
             }
 
-            $declarations = $this->responsiveSafetyDeclarations($node, $parentNode, $baseMap, $viewportWidth);
+            $decision = $this->responsiveSafetyDecision($node, $parentNode, $baseMap, $viewportWidth);
+            $declarations = is_array($decision['declarations'] ?? null) ? $decision['declarations'] : array();
             if ( empty($declarations) ) {
                 continue;
             }
@@ -268,6 +287,7 @@ final class BreakpointMediaDiffBuilder
             }
             if ( ! empty($changed) ) {
                 $rules[] = '.' . $class . '{' . implode(';', $changed) . '}';
+                $this->recordResponsiveDecisionTrace($node, $parentNode, (string) ($decision['reason_code'] ?? 'responsive_safety_override'), $viewportWidth, $changed);
             }
         }
 
@@ -282,6 +302,18 @@ final class BreakpointMediaDiffBuilder
      */
     private function responsiveSafetyDeclarations(array $node, ?array $parentNode, array $baseMap, float $viewportWidth): array
     {
+        $decision = $this->responsiveSafetyDecision($node, $parentNode, $baseMap, $viewportWidth);
+        return is_array($decision['declarations'] ?? null) ? $decision['declarations'] : array();
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, string> $baseMap
+     * @return array{reason_code: string, declarations: array<int, string>}
+     */
+    private function responsiveSafetyDecision(array $node, ?array $parentNode, array $baseMap, float $viewportWidth): array
+    {
         $name = strtolower(trim((string) ($node['name'] ?? '')));
         $parentName = null === $parentNode ? '' : strtolower(trim((string) ($parentNode['name'] ?? '')));
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
@@ -295,53 +327,84 @@ final class BreakpointMediaDiffBuilder
         $isContainer = in_array($type, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL'), true);
 
         if ( 'header' === $name && $isContainer ) {
-            return array('height:auto', 'min-height:127px');
+            return array('reason_code' => 'responsive_header_shell_safety', 'declarations' => array('height:auto', 'min-height:127px'));
         }
 
         if ( 'footer' === $name && $isContainer && $this->hasFooterResponsiveShell($node) ) {
-            return array('height:auto', 'min-height:' . ($this->number)($this->footerResponsiveMinHeight($node)) . 'px');
+            return array('reason_code' => 'responsive_footer_shell_safety', 'declarations' => array('height:auto', 'min-height:' . ($this->number)($this->footerResponsiveMinHeight($node)) . 'px'));
         }
 
         if ( 'navigation' === $name && $isContainer ) {
-            return array('width:100%', 'max-width:100%', 'height:auto', 'justify-content:flex-start', 'flex-wrap:wrap', 'gap:16px');
+            return array('reason_code' => 'responsive_navigation_shell_safety', 'declarations' => array('width:100%', 'max-width:100%', 'height:auto', 'justify-content:flex-start', 'flex-wrap:wrap', 'gap:16px'));
         }
 
         if ( 'frame 21' === $name && 'header' === $parentName && $isContainer ) {
-            return array('width:100%', 'height:auto', 'position:relative', 'left:auto', 'right:auto', 'top:auto', 'justify-content:flex-start', 'align-items:center', 'flex-wrap:wrap', 'gap:16px', 'padding-top:72px', 'padding-right:24px', 'padding-bottom:24px', 'padding-left:24px');
+            return array('reason_code' => 'responsive_header_inner_shell_safety', 'declarations' => array('width:100%', 'height:auto', 'position:relative', 'left:auto', 'right:auto', 'top:auto', 'justify-content:flex-start', 'align-items:center', 'flex-wrap:wrap', 'gap:16px', 'padding-top:72px', 'padding-right:24px', 'padding-bottom:24px', 'padding-left:24px'));
         }
 
         if ( str_contains($name, 'newsletter signup') && $isContainer && 'absolute' === $positioning ) {
-            return array_merge($this->breakpointDimensionPolicy->sourceMaxWidthDeclarations(1216.0, 24.0, 'fixed'), array('height:auto', 'left:24px'));
+            return array('reason_code' => 'responsive_absolute_newsletter_shell_safety', 'declarations' => array_merge($this->breakpointDimensionPolicy->sourceMaxWidthDeclarations(1216.0, 24.0, 'fixed'), array('height:auto', 'left:24px')));
         }
 
         if ( 'frame 20' === $name && $isContainer && null !== $parentNode && str_contains($parentName, 'newsletter signup') ) {
-            return array('height:auto', 'padding-top:56px', 'padding-right:24px', 'padding-bottom:48px', 'padding-left:24px', 'gap:24px');
+            return array('reason_code' => 'responsive_newsletter_inner_shell_safety', 'declarations' => array('height:auto', 'padding-top:56px', 'padding-right:24px', 'padding-bottom:48px', 'padding-left:24px', 'gap:24px'));
         }
 
         if ( 'frame 19' === $name && $isContainer && 'absolute' === $positioning ) {
-            return array('height:auto', 'position:relative', 'left:auto', 'top:auto', 'justify-content:center', 'flex-wrap:wrap', 'align-content:flex-start', 'padding-top:32px', 'padding-right:24px', 'padding-bottom:32px', 'padding-left:24px');
+            return array('reason_code' => 'responsive_absolute_inner_shell_safety', 'declarations' => array('height:auto', 'position:relative', 'left:auto', 'top:auto', 'justify-content:center', 'flex-wrap:wrap', 'align-content:flex-start', 'padding-top:32px', 'padding-right:24px', 'padding-bottom:32px', 'padding-left:24px'));
         }
 
         if ( ('featured preview' === $name || 'preview' === $name) && $isContainer && null !== $width && $width > 340.0 ) {
-            return array('width:100%', 'height:auto');
+            return array('reason_code' => 'responsive_preview_card_width_safety', 'declarations' => array('width:100%', 'height:auto'));
         }
 
         if ( 'pagination' === $name && $isContainer ) {
-            return array_merge($this->breakpointDimensionPolicy->sourceMaxWidthDeclarations(1216.0, 24.0, 'fixed'), array('overflow-x:auto'));
+            return array('reason_code' => 'responsive_pagination_overflow_safety', 'declarations' => array_merge($this->breakpointDimensionPolicy->sourceMaxWidthDeclarations(1216.0, 24.0, 'fixed'), array('overflow-x:auto')));
         }
 
         if ( 'image' === $name && in_array($display, array('flex', 'inline-flex'), true) && null !== $width && $width > 340.0 ) {
-            return $this->breakpointDimensionPolicy->fluidFillDeclarations();
+            return array('reason_code' => 'responsive_image_fill_safety', 'declarations' => $this->breakpointDimensionPolicy->fluidFillDeclarations());
         }
 
         if ( $viewportWidth <= 480.0 ) {
             $mobileDeclarations = $this->genericMobileSafetyDeclarations($node, $parentNode, $baseMap, $viewportWidth, $isContainer, $width, $positioning, $display);
             if ( ! empty($mobileDeclarations) ) {
-                return $mobileDeclarations;
+                return array('reason_code' => 'responsive_generic_mobile_safety', 'declarations' => $mobileDeclarations);
             }
         }
 
-        return array();
+        return array('reason_code' => '', 'declarations' => array());
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<int, string> $declarations
+     */
+    private function recordResponsiveDecisionTrace(array $node, ?array $parentNode, string $reasonCode, float $viewportWidth, array $declarations): void
+    {
+        if ( '' === $reasonCode ) {
+            $reasonCode = 'responsive_safety_override';
+        }
+        $nodeId = (string) ($node['id'] ?? '');
+        $key = implode('|', array($reasonCode, $nodeId, (string) ($parentNode['id'] ?? ''), (string) $viewportWidth));
+        if ( isset($this->decisionTraces[$key]) ) {
+            $this->decisionTraces[$key]['count'] = (int) ($this->decisionTraces[$key]['count'] ?? 1) + 1;
+            return;
+        }
+
+        $this->decisionTraces[$key] = array_filter(array(
+            'domain' => 'responsive_decision',
+            'reason_code' => $reasonCode,
+            'decision' => 'emit_media_override',
+            'node_id' => $nodeId,
+            'name' => (string) ($node['name'] ?? ''),
+            'type' => strtoupper((string) ($node['type'] ?? '')),
+            'parent_id' => null === $parentNode ? null : (string) ($parentNode['id'] ?? ''),
+            'viewport_width' => $viewportWidth,
+            'declarations' => array_values($declarations),
+            'count' => 1,
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
     }
 
     /**

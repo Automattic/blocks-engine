@@ -35,6 +35,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(2 === ($normalDiagnostics['visual_node_map_summary']['page_path_counts']['index.html'] ?? null), 'diagnostics-evidence-normal-visual-map-summary-page-count');
     $assert('diag:normal-page' === ($normalDiagnostics['visual_node_map_summary']['emitted_class_samples'][0]['node_id'] ?? null), 'diagnostics-evidence-normal-visual-map-summary-sample-node');
     $assert('blocks-engine/figma-transformer/source-loss-coverage/v1' === ($normalDiagnostics['artifact_quality']['summary']['source_loss_coverage']['schema'] ?? null), 'diagnostics-evidence-normal-source-loss-schema');
+    $assert('blocks-engine/figma-transformer/decision-traces/v1' === ($normalDiagnostics['decision_traces']['schema'] ?? null), 'diagnostics-evidence-normal-decision-traces-schema');
     $assert(1.0 === ($normalDiagnostics['artifact_quality']['summary']['source_loss_coverage']['coverage_ratio'] ?? null), 'diagnostics-evidence-normal-source-loss-clean-ratio');
     $assert(! in_array('decoded_text_not_emitted', $normalSignalCodes, true), 'diagnostics-evidence-normal-no-missing-text-signal');
     $assert(! in_array('clipped_visual_area', $normalSignalCodes, true), 'diagnostics-evidence-normal-no-clipped-area-signal');
@@ -108,6 +109,7 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $largeOffsetDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($largeOffsetResult);
     $largeOffsetNodes = $largeOffsetDiagnostics['layout']['large_css_offset_nodes'] ?? array();
     $assert('empty_visible_container' === ($largeOffsetNodes[0]['classification'] ?? null), 'diagnostics-evidence-large-css-offset-classification');
+    $assert('empty_visible_container' === ($largeOffsetNodes[0]['reason_code'] ?? null), 'diagnostics-evidence-large-css-offset-reason-code');
 
     $emptyTextResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Empty Text Fixture',
@@ -151,8 +153,10 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(1 === ($omittedTextDiagnostics['text']['missing_emitted_text_node_count'] ?? null), 'diagnostics-evidence-omitted-text-count');
     $assert(1 === ($omittedTextReasons['hidden'] ?? null), 'diagnostics-evidence-omitted-text-hidden-reason');
     $assert('hidden' === ($omittedTextDiagnostics['text']['missing_emitted_text_nodes'][0]['reason'] ?? null), 'diagnostics-evidence-omitted-text-sample-reason');
+    $assert(1 === ($omittedTextDiagnostics['decision_traces']['reason_counts']['hidden_descendant_suppressed'] ?? null), 'diagnostics-evidence-omitted-text-decision-trace-reason');
     $assert(1 === ($omittedTextDiagnostics['artifact_quality']['summary']['source_loss_coverage']['domains']['text']['not_emitted_source_nodes'] ?? null), 'diagnostics-evidence-source-loss-text-domain-count');
     $assert(in_array('source_loss_coverage_gap', blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($omittedTextResult), true), 'diagnostics-evidence-source-loss-text-quality-signal');
+    $assert('source_loss_coverage_gap' === (blocks_engine_figma_transformer_contract_artifact_quality_signal($omittedTextResult, 'source_loss_coverage_gap')['reason_code'] ?? null), 'diagnostics-evidence-source-loss-quality-reason-code');
 
     $assetOmissionResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Asset Omission Fixture',

@@ -281,6 +281,14 @@ final class StaticHtmlEmitter
     private array $emittedNodeMetadata = array();
 
     /**
+     * Stable reason traces for behavior decisions that suppress, re-route, or
+     * normalize source nodes without changing the emitted artifact contract.
+     *
+     * @var array<string, array<string, mixed>>
+     */
+    private array $decisionTraces = array();
+
+    /**
      * @param array<string, mixed> $scenegraph Normalized Figma scenegraph.
      * @param array<string, mixed> $options Transformation options.
      * @return array<string, mixed>
@@ -293,6 +301,7 @@ final class StaticHtmlEmitter
         $this->generatedVectorSvgPathsByHash = array();
         $this->nodeReadableNames = array();
         $this->emittedNodeMetadata = array();
+        $this->decisionTraces = array();
         $this->stickyLayoutCoordinator()->reset();
         $this->linkTargetPaths = $this->normalizeLinkTargetPaths($options);
         $this->implicitRoutePaths = array();
@@ -420,6 +429,8 @@ final class StaticHtmlEmitter
         $this->generatedVectorSvgPathsByHash = array();
         $this->nodeReadableNames = array();
         $this->emittedNodeMetadata = array();
+        $this->decisionTraces = array();
+        $this->breakpointMediaDiffBuilder()->resetDecisionTraces();
         $this->stickyLayoutCoordinator()->reset();
         $this->linkTargetPaths = $this->linkTargetPathsFromPagePlan($pagePlan, $options);
         $implicitRoutePagePlan = is_array($options['implicit_route_page_plan'] ?? null) ? $options['implicit_route_page_plan'] : $pagePlan;
@@ -635,6 +646,7 @@ final class StaticHtmlEmitter
     private function emitNode(array $node, array &$cssRules, array &$diagnostics, array &$nodeStyleDiagnostics, int $depth, ?array $parentNode, ?array $grandParentNode = null, bool $insideForm = false, bool $insideLink = false): string
     {
         if ( $this->stickyLayoutCoordinator()->isSuppressedStickyGhost($node) ) {
+            $this->recordDecisionTrace('layout_suppression', 'sticky_ghost_suppressed', $node, 'skip_node', $parentNode, array('depth' => $depth));
             return '';
         }
 
@@ -644,14 +656,17 @@ final class StaticHtmlEmitter
         // emitted as a top-level render root (depth 0, e.g. an explicitly
         // selected frame) still renders; hidden descendants never do.
         if ( $depth > 0 && false === ($node['visible'] ?? null) ) {
+            $this->recordDecisionTrace('layout_suppression', 'hidden_descendant_suppressed', $node, 'skip_node', $parentNode, array('depth' => $depth));
             return '';
         }
 
         if ( $depth > 0 && $this->isMaskOperatorNode($node) ) {
+            $this->recordDecisionTrace('layout_suppression', 'mask_source_suppressed', $node, 'skip_node', $parentNode, array('depth' => $depth));
             return '';
         }
 
         if ( $depth > 0 && $this->isNonRenderingVectorLayer($node) ) {
+            $this->recordDecisionTrace('vector_scaffold', 'non_rendering_vector_layer_suppressed', $node, 'skip_node', $parentNode, array('depth' => $depth));
             return '';
         }
 
@@ -701,6 +716,7 @@ final class StaticHtmlEmitter
             foreach ( $children as $child ) {
                 if ( is_array($child) ) {
                     if ( $this->isMaskOperatorNode($child) ) {
+                        $this->recordDecisionTrace('layout_suppression', 'mask_source_suppressed', $child, 'skip_child', $node, array('depth' => $depth + 1));
                         continue;
                     }
                     $childId = isset($child['id']) && is_scalar($child['id']) ? (string) $child['id'] : '';
@@ -708,9 +724,11 @@ final class StaticHtmlEmitter
                         $child['_figma_css_clip_path'] = $simpleMaskClipPaths[$childId];
                     }
                     if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
+                        $this->recordDecisionTrace('layout_suppression', 'fully_clipped_decorative_child_suppressed', $child, 'skip_child', $node, array('depth' => $depth + 1));
                         continue;
                     }
                     if ( $inputAccessoryControl && $this->isFormControlPlaceholderChild($child) ) {
+                        $this->recordDecisionTrace('source_loss_accounting', 'placeholder_child_converted_to_form_control', $child, 'skip_child', $node, array('depth' => $depth + 1));
                         if ( ! $insertedAccessoryInput ) {
                             $content .= $this->syntheticInputControlMarkup($node, $className);
                             $cssRules[] = '.' . $className . '__control{border:0;background:transparent;padding:0;margin:0;min-width:0;flex:1;font:inherit;color:inherit;outline:none}';
@@ -719,6 +737,7 @@ final class StaticHtmlEmitter
                         continue;
                     }
                     if ( 'li' === $tag && $this->isListMarkerTextChild($child) ) {
+                        $this->recordDecisionTrace('source_loss_accounting', 'list_marker_text_suppressed', $child, 'skip_child', $node, array('depth' => $depth + 1));
                         continue;
                     }
                     $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node, $parentNode, $insideForm || 'form' === $tag, $insideLink || $nodeIntroducesLink);
@@ -739,8 +758,10 @@ final class StaticHtmlEmitter
             $diagnostics[] = array(
                 'severity' => 'warning',
                 'code'     => 'unsupported_vector_node_placeholder',
+                'reason_code' => 'unsupported_vector_node_placeholder',
                 'message'  => 'Unsupported vector-like Figma node emitted as a static placeholder.',
             ) + $this->vectorPlaceholderDiagnostic($node, $type, $parentNode);
+            $this->recordDecisionTrace('vector_scaffold', 'unsupported_vector_node_placeholder', $node, 'emit_placeholder', $parentNode, $this->vectorPlaceholderDiagnostic($node, $type, $parentNode));
 
             $content = '';
         }
@@ -3523,6 +3544,7 @@ final class StaticHtmlEmitter
         $text = $this->textCoverageDiagnostics($nodes, $html);
         $links = $this->linkDiagnostics();
         $cssDiagnostics = $this->cssDiagnostics($css);
+        $decisionTraces = $this->decisionTraceDiagnostics($this->breakpointMediaDiffBuilder()->decisionTraces());
 
         return array(
             'schema' => 'blocks-engine/figma-transformer/transform-diagnostics/v1',
@@ -3538,11 +3560,106 @@ final class StaticHtmlEmitter
             'assets' => $assets,
             'generated_svg_assets' => $generatedSvgAssets,
             'layout' => $layout,
+            'decision_traces' => $decisionTraces,
             'links' => $links,
             'css' => $cssDiagnostics,
             'artifact_quality' => $this->transformDiagnosticsBuilder()->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text, $components, $effects, $maskEffectClipping, $cssDiagnostics),
             'diagnostic_codes' => $this->diagnosticCodeCounts($diagnostics),
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $responsiveTraces
+     * @return array<string, mixed>
+     */
+    private function decisionTraceDiagnostics(array $responsiveTraces = array()): array
+    {
+        foreach ( $responsiveTraces as $trace ) {
+            if ( is_array($trace) ) {
+                $this->recordDecisionTrace(
+                    (string) ($trace['domain'] ?? 'responsive_decision'),
+                    (string) ($trace['reason_code'] ?? 'responsive_decision'),
+                    array(
+                        'id' => (string) ($trace['node_id'] ?? ''),
+                        'name' => (string) ($trace['name'] ?? ''),
+                        'type' => (string) ($trace['type'] ?? ''),
+                    ),
+                    (string) ($trace['decision'] ?? 'responsive_override'),
+                    null,
+                    $trace
+                );
+            }
+        }
+
+        $countsByReason = array();
+        $countsByDomain = array();
+        foreach ( $this->decisionTraces as $trace ) {
+            $reason = (string) ($trace['reason_code'] ?? 'unknown');
+            $domain = (string) ($trace['domain'] ?? 'unknown');
+            $countsByReason[$reason] = (int) ($countsByReason[$reason] ?? 0) + 1;
+            $countsByDomain[$domain] = (int) ($countsByDomain[$domain] ?? 0) + 1;
+        }
+        ksort($countsByReason);
+        ksort($countsByDomain);
+
+        return array(
+            'schema' => 'blocks-engine/figma-transformer/decision-traces/v1',
+            'trace_count' => count($this->decisionTraces),
+            'reason_counts' => $countsByReason,
+            'domain_counts' => $countsByDomain,
+            'samples' => array_slice(array_values($this->decisionTraces), 0, 100),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, mixed> $evidence
+     */
+    private function recordDecisionTrace(string $domain, string $reasonCode, array $node, string $decision, ?array $parentNode = null, array $evidence = array()): void
+    {
+        if ( '' === $reasonCode ) {
+            $reasonCode = 'unknown';
+        }
+        $nodeId = (string) ($node['id'] ?? '');
+        $parentId = null === $parentNode ? '' : (string) ($parentNode['id'] ?? '');
+        $key = implode('|', array($domain, $reasonCode, $decision, $nodeId, $parentId, (string) ($evidence['page_path'] ?? $this->currentPagePath)));
+        if ( isset($this->decisionTraces[$key]) ) {
+            $this->decisionTraces[$key]['count'] = (int) ($this->decisionTraces[$key]['count'] ?? 1) + 1;
+            return;
+        }
+
+        $trace = array_filter(array(
+            'domain' => $domain,
+            'reason_code' => $reasonCode,
+            'decision' => $decision,
+            'node_id' => $nodeId,
+            'name' => (string) ($node['name'] ?? ''),
+            'type' => strtoupper((string) ($node['type'] ?? '')),
+            'class' => '' === $nodeId && empty($node['name'] ?? '') ? null : $this->nodeDiagnosticClass($node),
+            'parent_id' => $parentId,
+            'page_path' => (string) ($evidence['page_path'] ?? $this->currentPagePath),
+            'evidence' => $this->boundedDecisionEvidence($evidence),
+            'count' => 1,
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
+
+        $this->decisionTraces[$key] = $trace;
+    }
+
+    /**
+     * @param array<string, mixed> $evidence
+     * @return array<string, mixed>
+     */
+    private function boundedDecisionEvidence(array $evidence): array
+    {
+        unset($evidence['domain'], $evidence['reason_code'], $evidence['decision'], $evidence['node_id'], $evidence['name'], $evidence['type']);
+        foreach ( $evidence as $key => $value ) {
+            if ( is_array($value) ) {
+                $evidence[$key] = array_slice($value, 0, 10);
+            }
+        }
+
+        return array_filter($evidence, static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
     }
 
     /**
@@ -4526,6 +4643,7 @@ final class StaticHtmlEmitter
             if ( '' !== $classification ) {
                 $sample['classification'] = $classification;
             }
+            $sample['reason_code'] = '' !== $classification ? $classification : 'large_css_offset';
             $samples[] = $sample;
         }
 
@@ -4600,6 +4718,7 @@ final class StaticHtmlEmitter
             if ( '' !== $classification ) {
                 $sample['classification'] = $classification;
             }
+            $sample['reason_code'] = '' !== $classification ? $classification : 'off_canvas_visual_node';
             $samples[] = $sample;
         }
 
