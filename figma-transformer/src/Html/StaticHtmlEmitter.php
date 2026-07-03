@@ -823,6 +823,10 @@ final class StaticHtmlEmitter
                         $this->recordDecisionTrace('layout_suppression', 'root_off_canvas_child_suppressed', $child, 'skip_child', $node, array('depth' => $depth + 1));
                         continue;
                     }
+                    if ( 'form' === $tag && $this->isSpatialFormControlLabel($child, $node) ) {
+                        $this->recordDecisionTrace('source_loss_accounting', 'spatial_label_converted_to_form_control', $child, 'skip_child', $node, array('depth' => $depth + 1));
+                        continue;
+                    }
                     if ( $inputAccessoryControl && $this->isFormControlPlaceholderChild($child) ) {
                         $this->recordDecisionTrace('source_loss_accounting', 'placeholder_child_converted_to_form_control', $child, 'skip_child', $node, array('depth' => $depth + 1));
                         if ( ! $insertedAccessoryInput ) {
@@ -1542,9 +1546,9 @@ final class StaticHtmlEmitter
      *
      * @param array<string, mixed> $node
      */
-    private function isInputLike(array $node): bool
+    private function isInputLike(array $node, ?array $parentNode = null): bool
     {
-        return $this->staticHtmlSemanticClassifier()->isInputLike($node);
+        return $this->staticHtmlSemanticClassifier()->isInputLike($node, $parentNode);
     }
 
     /**
@@ -1621,6 +1625,15 @@ final class StaticHtmlEmitter
     private function isFormControlPlaceholderChild(array $node): bool
     {
         return $this->staticHtmlSemanticClassifier()->isFormControlPlaceholderChild($node);
+    }
+
+    /**
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function isSpatialFormControlLabel(array $node, ?array $parentNode): bool
+    {
+        return $this->staticHtmlSemanticClassifier()->isSpatialFormControlLabel($node, $parentNode);
     }
 
     /**

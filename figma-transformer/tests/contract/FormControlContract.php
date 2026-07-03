@@ -345,4 +345,35 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
     $assert(str_contains($layeredButtonHtml, '<button class="figma-node-layered-submit-subscribe-button"') && str_contains($layeredButtonHtml, 'type="submit"'), 'layered-button-preserves-submit-behavior');
     $assert(! str_contains($layeredButtonHtml, 'data-figma-node-id="layered:submit:bg"'), 'layered-submit-suppresses-decorative-background-child');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $layeredButtonCss, '.figma-node-layered-submit-subscribe-button', array('background:#ffffff', 'border-radius:999px'), 'layered-submit-composes-background-child-styles');
+
+    $newsletterResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Newsletter Spatial Labels Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'newsletter:root',
+                'type'     => 'FRAME',
+                'name'     => 'Newsletter Signup',
+                'width'    => 720,
+                'height'   => 220,
+                'children' => array(
+                    array('id' => 'newsletter:bg', 'type' => 'RECTANGLE', 'name' => 'Background', 'x' => 0, 'y' => 0, 'width' => 720, 'height' => 220, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 0.2, 'g' => 0.3, 'b' => 0.1, 'a' => 1)))),
+                    array('id' => 'newsletter:title', 'type' => 'TEXT', 'name' => 'Heading', 'x' => 220, 'y' => 36, 'width' => 280, 'height' => 32, 'characters' => 'Subscribe to Updates', 'fontSize' => 28),
+                    array('id' => 'newsletter:helper', 'type' => 'TEXT', 'name' => 'Description', 'x' => 90, 'y' => 78, 'width' => 540, 'height' => 24, 'characters' => 'Get occasional updates from our team.', 'fontSize' => 16),
+                    array('id' => 'newsletter:name-box', 'type' => 'RECTANGLE', 'name' => 'Rectangle', 'x' => 90, 'y' => 130, 'width' => 220, 'height' => 44, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1)))),
+                    array('id' => 'newsletter:email-box', 'type' => 'RECTANGLE', 'name' => 'Rectangle', 'x' => 330, 'y' => 130, 'width' => 220, 'height' => 44, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1)))),
+                    array('id' => 'newsletter:name-label', 'type' => 'TEXT', 'name' => 'Skolar Latin Regular', 'x' => 112, 'y' => 140, 'width' => 48, 'height' => 20, 'characters' => 'Name', 'fontSize' => 16),
+                    array('id' => 'newsletter:email-label', 'type' => 'TEXT', 'name' => 'Skolar Latin Regular', 'x' => 352, 'y' => 140, 'width' => 48, 'height' => 20, 'characters' => 'Email', 'fontSize' => 16),
+                    array('id' => 'newsletter:submit', 'type' => 'FRAME', 'name' => 'Button One', 'x' => 570, 'y' => 130, 'width' => 110, 'height' => 44, 'cornerRadius' => 4, 'fills' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))), 'children' => array(
+                        array('id' => 'newsletter:submit-text', 'type' => 'TEXT', 'name' => 'button one', 'characters' => 'Subscribe', 'fontSize' => 16),
+                    )),
+                ),
+            ),
+        ),
+    ));
+    $newsletterHtml = $fileContent($newsletterResult, 'index.html');
+    $assert(str_contains($newsletterHtml, '<form class="figma-node-newsletter-root-newsletter-signup"'), 'form-control-newsletter-spatial-labels-wraps-form');
+    $assert(str_contains($newsletterHtml, '<input class="figma-node-newsletter-name-box-rectangle"') && str_contains($newsletterHtml, 'placeholder="Name"'), 'form-control-newsletter-spatial-label-name-input');
+    $assert(str_contains($newsletterHtml, '<input class="figma-node-newsletter-email-box-rectangle"') && str_contains($newsletterHtml, 'type="email" name="email" placeholder="Email"'), 'form-control-newsletter-spatial-label-email-input');
+    $assert(! str_contains($newsletterHtml, 'data-figma-node-id="newsletter:name-label"') && ! str_contains($newsletterHtml, 'data-figma-node-id="newsletter:email-label"'), 'form-control-newsletter-spatial-label-text-suppressed');
+    $assert(str_contains($newsletterHtml, '<button class="figma-node-newsletter-submit-button-one"') && str_contains($newsletterHtml, 'type="submit"'), 'form-control-newsletter-spatial-label-submit-button');
 }

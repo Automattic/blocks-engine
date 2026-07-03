@@ -135,7 +135,7 @@ final class StaticHtmlSemanticClassifier
             return 'textarea';
         }
 
-        if ( $this->isInputLike($node) ) {
+        if ( $this->isInputLike($node, $parentNode) ) {
             return $this->hasFormControlAccessoryChildren($node) ? 'div' : 'input';
         }
 
@@ -176,7 +176,7 @@ final class StaticHtmlSemanticClassifier
     }
 
     /** @param array<string, mixed> $node */
-    public function isInputLike(array $node): bool
+    public function isInputLike(array $node, ?array $parentNode = null): bool
     {
         if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
             return false;
@@ -184,6 +184,10 @@ final class StaticHtmlSemanticClassifier
 
         if ( $this->isTextareaLike($node) ) {
             return false;
+        }
+
+        if ( $this->isSpatiallyLabeledInputRectangle($node, $parentNode) ) {
+            return true;
         }
 
         $name = strtolower((string) ($node['name'] ?? ''));
@@ -301,7 +305,7 @@ final class StaticHtmlSemanticClassifier
         $children = array_values(array_filter(($this->nodeList)($node), 'is_array'));
         $relevantChildren = 0;
         foreach ( $children as $child ) {
-            $childHasField = $this->subtreeHasInputLike($child) || $this->subtreeHasTextareaLike($child);
+            $childHasField = $this->isInputLike($child, $node) || $this->isTextareaLike($child, $node) || $this->subtreeHasInputLike($child) || $this->subtreeHasTextareaLike($child);
             $childHasSubmit = $this->subtreeHasSubmitButtonLike($child);
             if ( $childHasField || $childHasSubmit ) {
                 $relevantChildren++;
@@ -310,7 +314,7 @@ final class StaticHtmlSemanticClassifier
             $hasSubmit = $hasSubmit || $childHasSubmit;
         }
 
-        if ( count($children) > 3 && $relevantChildren < count($children) - 1 ) {
+        if ( count($children) > 3 && $relevantChildren < 2 && $relevantChildren < count($children) - 1 ) {
             return false;
         }
         return $hasField && ($hasSubmit || str_contains($haystack, 'search'));
@@ -401,6 +405,9 @@ final class StaticHtmlSemanticClassifier
         if ( '' !== $placeholder ) {
             $attributes .= ' placeholder="' . ($this->sanitizeAttribute)($placeholder) . '"';
             $attributes .= ' aria-label="' . ($this->sanitizeAttribute)($placeholder) . '"';
+        } elseif ( '' !== $label && $this->isSpatiallyLabeledInputRectangle($node, $parentNode) ) {
+            $attributes .= ' placeholder="' . ($this->sanitizeAttribute)($label) . '"';
+            $attributes .= ' aria-label="' . ($this->sanitizeAttribute)($label) . '"';
         } elseif ( '' !== $label ) {
             $attributes .= ' aria-label="' . ($this->sanitizeAttribute)($label) . '"';
         } elseif ( '' !== $name ) {
@@ -430,7 +437,7 @@ final class StaticHtmlSemanticClassifier
             }
 
             $name = strtolower((string) ($child['name'] ?? ''));
-            if ( ! str_contains($name, 'label') ) {
+            if ( ! str_contains($name, 'label') && ! $this->isSpatiallyLabeledInputRectangle($node, $parentNode, $child) ) {
                 continue;
             }
 
@@ -441,6 +448,30 @@ final class StaticHtmlSemanticClassifier
         }
 
         return '';
+    }
+
+    /**
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    public function isSpatialFormControlLabel(array $node, ?array $parentNode): bool
+    {
+        if ( null === $parentNode || 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) ) {
+            return false;
+        }
+
+        $text = trim(($this->nodePlainText)($node));
+        if ( ! $this->isSimpleFormFieldLabel($text) ) {
+            return false;
+        }
+
+        foreach ( ($this->nodeList)($parentNode) as $sibling ) {
+            if ( is_array($sibling) && $this->isSpatiallyLabeledInputRectangle($sibling, $parentNode, $node) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param array<string, mixed> $node */
@@ -484,6 +515,91 @@ final class StaticHtmlSemanticClassifier
             }
         }
         return false;
+    }
+
+    /**
+     * @param array<string, mixed>      $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, mixed>|null $requiredLabel
+     */
+    private function isSpatiallyLabeledInputRectangle(array $node, ?array $parentNode, ?array $requiredLabel = null): bool
+    {
+        if ( null === $parentNode ) {
+            return false;
+        }
+
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        if ( ! in_array($type, array('RECTANGLE', 'ROUNDED_RECTANGLE', 'FRAME', 'INSTANCE'), true) ) {
+            return false;
+        }
+        if ( ($this->textDescendantCount)($node) > 0 || null === ($this->backgroundColor)($node) && ! ($this->hasStrokePaint)($node) && 0.0 === ($this->cornerRadius)($node) ) {
+            return false;
+        }
+
+        $width = ($this->boxValue)($node, 'width');
+        $height = ($this->boxValue)($node, 'height');
+        if ( null === $width || null === $height || $width < 80.0 || $width > 640.0 || $height < 24.0 || $height > 96.0 ) {
+            return false;
+        }
+
+        $parentName = strtolower((string) ($parentNode['name'] ?? ''));
+        $parentText = strtolower(($this->subtreePlainText)($parentNode));
+        $parentHaystack = $parentName . ' ' . $parentText;
+        if ( ! str_contains($parentHaystack, 'newsletter') && ! str_contains($parentHaystack, 'subscribe') && ! str_contains($parentHaystack, 'sign up') && ! str_contains($parentHaystack, 'contact') && ! str_contains($parentHaystack, 'comment') && ! str_contains($parentHaystack, 'search') && ! str_contains($parentName, 'form') ) {
+            return false;
+        }
+
+        foreach ( ($this->nodeList)($parentNode) as $sibling ) {
+            if ( ! is_array($sibling) || 'TEXT' !== strtoupper((string) ($sibling['type'] ?? '')) ) {
+                continue;
+            }
+            if ( null !== $requiredLabel && (string) ($requiredLabel['id'] ?? '') !== (string) ($sibling['id'] ?? '') ) {
+                continue;
+            }
+            $label = trim(($this->nodePlainText)($sibling));
+            if ( ! $this->isSimpleFormFieldLabel($label) ) {
+                continue;
+            }
+            if ( $this->boxContainsCenter($node, $sibling) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isSimpleFormFieldLabel(string $label): bool
+    {
+        $normalized = strtolower(trim(preg_replace('/\s+/', ' ', $label) ?? ''));
+        return '' !== $normalized
+            && strlen($normalized) <= 40
+            && 1 === preg_match('/^(name|full name|first name|last name|email|e-mail|phone|telephone|company|organization|subject|message|comment|search|address|zip|postal code)$/', $normalized);
+    }
+
+    /**
+     * @param array<string, mixed> $container
+     * @param array<string, mixed> $child
+     */
+    private function boxContainsCenter(array $container, array $child): bool
+    {
+        $containerX = ($this->boxValue)($container, 'x');
+        $containerY = ($this->boxValue)($container, 'y');
+        $containerWidth = ($this->boxValue)($container, 'width');
+        $containerHeight = ($this->boxValue)($container, 'height');
+        $childX = ($this->boxValue)($child, 'x');
+        $childY = ($this->boxValue)($child, 'y');
+        $childWidth = ($this->boxValue)($child, 'width');
+        $childHeight = ($this->boxValue)($child, 'height');
+        if ( null === $containerX || null === $containerY || null === $containerWidth || null === $containerHeight || null === $childX || null === $childY || null === $childWidth || null === $childHeight ) {
+            return false;
+        }
+
+        $centerX = $childX + ($childWidth / 2.0);
+        $centerY = $childY + ($childHeight / 2.0);
+        return $centerX >= $containerX - 1.0
+            && $centerX <= $containerX + $containerWidth + 1.0
+            && $centerY >= $containerY - 1.0
+            && $centerY <= $containerY + $containerHeight + 1.0;
     }
 
     private function isFooterTextContext(?array $parentNode, ?array $grandParentNode): bool
