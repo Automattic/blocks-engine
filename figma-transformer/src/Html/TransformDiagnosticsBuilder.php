@@ -256,6 +256,8 @@ final class TransformDiagnosticsBuilder
                 'component_clone_source_nodes' => (int) ($components['clone_source_node_count'] ?? 0),
                 'component_clone_nodes_emitted' => (int) ($components['emitted_clone_node_count'] ?? 0),
                 'component_clone_omission_reason_counts' => is_array($components['omission_reason_counts'] ?? null) ? $components['omission_reason_counts'] : array(),
+                'component_clone_intentionally_suppressed_nodes' => (int) ($components['intentionally_suppressed_clone_node_count'] ?? 0),
+                'component_clone_intentional_suppression_reason_counts' => is_array($components['intentional_suppression_reason_counts'] ?? null) ? $components['intentional_suppression_reason_counts'] : array(),
                 'component_override_candidates' => (int) ($components['override_candidate_node_count'] ?? 0),
                 'component_overrides_applied' => (int) ($components['override_applied_node_count'] ?? 0),
                 'effect_source_nodes' => (int) ($effects['source_effect_node_count'] ?? 0),
@@ -304,7 +306,7 @@ final class TransformDiagnosticsBuilder
             ),
             'components' => $this->sourceLossDomain(
                 (int) ($components['clone_source_node_count'] ?? 0),
-                (int) ($components['emitted_clone_node_count'] ?? 0),
+                (int) ($components['emitted_clone_node_count'] ?? 0) + (int) ($components['intentionally_suppressed_clone_node_count'] ?? 0),
                 (int) ($components['missing_emitted_clone_node_count'] ?? 0)
             ),
             'effects' => $this->sourceLossDomain(
@@ -314,8 +316,8 @@ final class TransformDiagnosticsBuilder
             ),
             'masks' => $this->sourceLossDomain(
                 (int) ($maskEffectClipping['mask_node_count'] ?? 0),
-                (int) ($maskEffectClipping['emitted_mask_source_node_count'] ?? 0),
-                (int) ($maskEffectClipping['suppressed_mask_source_node_count'] ?? 0)
+                (int) ($maskEffectClipping['emitted_mask_source_node_count'] ?? 0) + (int) ($maskEffectClipping['suppressed_mask_source_node_count'] ?? 0),
+                0
             ),
         );
 

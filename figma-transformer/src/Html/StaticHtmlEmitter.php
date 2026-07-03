@@ -3429,10 +3429,13 @@ final class StaticHtmlEmitter
             'override_applied_node_count' => 0,
             'override_candidate_node_count' => 0,
             'missing_emitted_clone_node_count' => 0,
+            'intentionally_suppressed_clone_node_count' => 0,
             'omission_reason_counts' => array(),
+            'intentional_suppression_reason_counts' => array(),
             'clone_nodes' => array(),
             'override_nodes' => array(),
             'missing_emitted_clone_nodes' => array(),
+            'intentionally_suppressed_clone_nodes' => array(),
         );
         $effects = array(
             'schema' => 'blocks-engine/figma-transformer/effect-coverage/v1',
@@ -3488,7 +3491,9 @@ final class StaticHtmlEmitter
         $components['clone_nodes'] = array_slice($components['clone_nodes'], 0, 25);
         $components['override_nodes'] = array_slice($components['override_nodes'], 0, 25);
         $components['missing_emitted_clone_nodes'] = array_slice($components['missing_emitted_clone_nodes'], 0, 25);
+        $components['intentionally_suppressed_clone_nodes'] = array_slice($components['intentionally_suppressed_clone_nodes'], 0, 25);
         ksort($components['omission_reason_counts']);
+        ksort($components['intentional_suppression_reason_counts']);
         ksort($effects['field_coverage']);
         $effects['effect_nodes'] = array_slice($effects['effect_nodes'], 0, 25);
         $effects['missing_emitted_effect_nodes'] = array_slice($effects['missing_emitted_effect_nodes'], 0, 25);
@@ -3944,10 +3949,16 @@ final class StaticHtmlEmitter
                 ++$components['emitted_clone_node_count'];
             } else {
                 $reason = $ownOmissionReason ?? 'unsupported';
-                ++$components['missing_emitted_clone_node_count'];
-                $components['omission_reason_counts'][$reason] = (int) ($components['omission_reason_counts'][$reason] ?? 0) + 1;
                 $sample['omission_reason'] = $reason;
-                $components['missing_emitted_clone_nodes'][] = $sample;
+                if ( $this->isIntentionalComponentCloneSuppression($reason) ) {
+                    ++$components['intentionally_suppressed_clone_node_count'];
+                    $components['intentional_suppression_reason_counts'][$reason] = (int) ($components['intentional_suppression_reason_counts'][$reason] ?? 0) + 1;
+                    $components['intentionally_suppressed_clone_nodes'][] = $sample;
+                } else {
+                    ++$components['missing_emitted_clone_node_count'];
+                    $components['omission_reason_counts'][$reason] = (int) ($components['omission_reason_counts'][$reason] ?? 0) + 1;
+                    $components['missing_emitted_clone_nodes'][] = $sample;
+                }
             }
         }
 
@@ -4009,6 +4020,9 @@ final class StaticHtmlEmitter
         if ( null !== $parentNode && $this->isFullyClippedDecorativeChild($node, $parentNode) ) {
             return 'masked/clipped';
         }
+        if ( $this->isMaskOperatorNode($node) ) {
+            return 'mask-source';
+        }
         if ( null !== $parentNode && $this->isComposedVectorChild($node, $parentNode) ) {
             return 'composed-into-parent';
         }
@@ -4024,6 +4038,11 @@ final class StaticHtmlEmitter
         }
 
         return null;
+    }
+
+    private function isIntentionalComponentCloneSuppression(string $reason): bool
+    {
+        return in_array($reason, array('mask-source'), true);
     }
 
     /**
