@@ -133,6 +133,22 @@ final class BreakpointDimensionPolicy
     }
 
     /**
+     * Pair fluid responsive chrome with a source-height floor so headers can wrap
+     * without collapsing below their desktop visual rhythm.
+     *
+     * @return array<int, string>
+     */
+    public function headerChromeDeclarations(?float $sourceHeight): array
+    {
+        $declarations = array('width:100%', 'max-width:100%', 'height:auto');
+        if ( null !== $sourceHeight && $sourceHeight > 0.0 ) {
+            $declarations[] = 'min-height:' . ($this->number)($sourceHeight) . 'px';
+        }
+
+        return $declarations;
+    }
+
+    /**
      * Resolve a variant width override relative to its breakpoint parent.
      *
      * @param array<string, string> $baseMap
@@ -144,9 +160,27 @@ final class BreakpointDimensionPolicy
      */
     public function breakpointWidthDeclarations(string $value, array $baseMap, array $baseNode, array $variantNode, ?array $baseParentNode, ?array $variantParentNode): ?array
     {
+        $decision = $this->breakpointWidthDecision($value, $baseMap, $baseNode, $variantNode, $baseParentNode, $variantParentNode);
+        $declarations = is_array($decision['declarations'] ?? null) ? $decision['declarations'] : array();
+
+        return array() === $declarations ? null : $declarations;
+    }
+
+    /**
+     * Resolve a variant width override and expose the policy branch that made the decision.
+     *
+     * @param array<string, string> $baseMap
+     * @param array<string, mixed> $baseNode
+     * @param array<string, mixed> $variantNode
+     * @param array<string, mixed>|null $baseParentNode
+     * @param array<string, mixed>|null $variantParentNode
+     * @return array{reason_code: string, declarations: array<int, string>}
+     */
+    public function breakpointWidthDecision(string $value, array $baseMap, array $baseNode, array $variantNode, ?array $baseParentNode, ?array $variantParentNode): array
+    {
         $variantWidth = $this->cssPixelValue($value);
         if ( null === $variantWidth || empty($variantNode) ) {
-            return null;
+            return array('reason_code' => 'not_pixel_width', 'declarations' => array());
         }
 
         $variantType = strtoupper((string) ($variantNode['type'] ?? 'FRAME'));
@@ -155,26 +189,26 @@ final class BreakpointDimensionPolicy
             $variantSourceId = (string) $variantNode['source_id'];
         }
         if ( '' !== $variantSourceId && ! in_array($variantType, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL'), true) ) {
-            return null;
+            return array('reason_code' => 'component_leaf_width_preserved', 'declarations' => array());
         }
 
         if ( null === $variantParentNode ) {
-            return $this->rootFillDeclarations();
+            return array('reason_code' => 'root_fill', 'declarations' => $this->rootFillDeclarations());
         }
 
         $variantParentBox = is_array($variantParentNode['box'] ?? null) ? $variantParentNode['box'] : array();
         if ( ! isset($variantParentBox['width']) || ! is_numeric($variantParentBox['width']) ) {
-            return null;
+            return array('reason_code' => 'missing_variant_parent_width', 'declarations' => array());
         }
 
         $variantParentWidth = (float) $variantParentBox['width'];
         if ( $variantParentWidth <= 0.0 || $variantWidth > $variantParentWidth + 1.0 ) {
-            return null;
+            return array('reason_code' => 'invalid_variant_parent_width', 'declarations' => array());
         }
 
         $baseWidth = $this->nodeBoxWidth($baseNode);
         if ( null !== $baseWidth && abs($variantWidth - $baseWidth) <= 1.0 ) {
-            return null;
+            return array('reason_code' => 'unchanged_width', 'declarations' => array());
         }
 
         $variantParentLayout = is_array($variantParentNode['layout'] ?? null) ? $variantParentNode['layout'] : array();
@@ -183,17 +217,17 @@ final class BreakpointDimensionPolicy
         $paddingRight = isset($padding['right']) && is_numeric($padding['right']) ? (float) $padding['right'] : 0.0;
         $contentWidth = max(0.0, $variantParentWidth - $paddingLeft - $paddingRight);
         if ( abs($variantWidth - $variantParentWidth) <= 1.0 || abs($variantWidth - $contentWidth) <= 1.0 ) {
-            return array('width:100%');
+            return array('reason_code' => 'parent_fill', 'declarations' => array('width:100%'));
         }
 
         $gutter = ($variantParentWidth - $variantWidth) / 2.0;
         if ( $gutter <= 0.0 ) {
-            return null;
+            return array('reason_code' => 'invalid_gutter', 'declarations' => array());
         }
 
         $baseParentWidth = null === $baseParentNode ? null : $this->nodeBoxWidth($baseParentNode);
         if ( null === $baseWidth || null === $baseParentWidth || $baseWidth > $baseParentWidth + 1.0 ) {
-            return null;
+            return array('reason_code' => 'missing_source_max_width', 'declarations' => array());
         }
 
         $placement = 'absolute' === ($baseMap['position'] ?? null) ? 'absolute' : 'fixed';
@@ -201,7 +235,7 @@ final class BreakpointDimensionPolicy
             $placement = 'centered';
         }
 
-        return $this->sourceMaxWidthDeclarations($baseWidth, $gutter, $placement);
+        return array('reason_code' => 'source_max_width_' . $placement, 'declarations' => $this->sourceMaxWidthDeclarations($baseWidth, $gutter, $placement));
     }
 
     private function cssPixelValue(string $value): ?float

@@ -9,6 +9,10 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class ResponsiveNodeMatcher
 {
+    private const BREAKPOINT_QUALIFIER_PATTERN = '/\b(desktop|mobile|tablet|phone|web|copy|variant|version|v\d+|i\d+)\b/';
+    private const VIEWPORT_SIZE_PATTERN = '/\b\d{3,4}\s*x\s*\d{3,5}\b/';
+    private const VIEWPORT_WIDTH_PATTERN = '/\b(320|375|390|393|414|428|768|834|1024|1280|1366|1440|1512|1728|1920)\b/';
+
     /**
      * @param callable(string): string $slug
      */
@@ -78,9 +82,21 @@ final class ResponsiveNodeMatcher
             return array_values(array_unique($keys));
         }
 
-        $keys[] = 'struct-ordinal:' . $ordinal . ':' . $this->nodeType($node) . ':' . ($this->slug)($this->nodeName($node));
+        $keys[] = 'struct-ordinal:' . $ordinal . ':' . $this->nodeType($node) . ':' . $this->responsiveIdentity($this->nodeName($node));
 
         return array_values(array_unique($keys));
+    }
+
+    public function responsiveIdentity(string $name): string
+    {
+        $normalized = strtolower($name);
+        $normalized = (string) preg_replace('/[_\-\/]+/', ' ', $normalized);
+        $normalized = (string) preg_replace(self::BREAKPOINT_QUALIFIER_PATTERN, ' ', $normalized);
+        $normalized = (string) preg_replace(self::VIEWPORT_SIZE_PATTERN, ' ', $normalized);
+        $normalized = (string) preg_replace(self::VIEWPORT_WIDTH_PATTERN, ' ', $normalized);
+        $normalized = trim((string) preg_replace('/[^a-z0-9]+/', '-', $normalized), '-');
+
+        return '' === $normalized ? 'frame' : $normalized;
     }
 
     /**
@@ -115,7 +131,7 @@ final class ResponsiveNodeMatcher
             return null;
         }
 
-        return $this->nodeType($node) . ':' . ($this->slug)($name);
+        return $this->nodeType($node) . ':' . $this->responsiveIdentity($name);
     }
 
     /**

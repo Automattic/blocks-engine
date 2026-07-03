@@ -6939,6 +6939,31 @@ $assert(str_contains($ulResetSiteCss, 'ul,ol{margin:0;padding:0;list-style:none}
 // Two-variant case: desktop=1440, mobile=390 → midpoint = 915 (not 390).
 // ──────────────────────────────────────────────────────────────────────────────
 $breakpointDimensionPolicy = new Automattic\BlocksEngine\FigmaTransformer\Html\BreakpointDimensionPolicy(fn (float $value): string => rtrim(rtrim(sprintf('%.4F', $value), '0'), '.'));
+$responsiveNodeMatcher = new Automattic\BlocksEngine\FigmaTransformer\Html\ResponsiveNodeMatcher(fn (string $value): string => strtolower(preg_replace('/[^a-z0-9]+/i', '-', trim($value, '-')) ?? $value));
+$assert('header' === $responsiveNodeMatcher->responsiveIdentity('Header Desktop 1440'), 'responsive-node-matcher-strips-desktop-width-qualifiers');
+$assert('hero-card' === $responsiveNodeMatcher->responsiveIdentity('Hero Card / Mobile 390 x 844'), 'responsive-node-matcher-strips-mobile-viewport-size');
+$responsiveNodeMatcherDesktopCounts = $responsiveNodeMatcher->siblingSignatureCounts(array(array('type' => 'FRAME', 'name' => 'Header Desktop')));
+$responsiveNodeMatcherMobileCounts = $responsiveNodeMatcher->siblingSignatureCounts(array(array('type' => 'FRAME', 'name' => 'Header Mobile')));
+$assert(
+    $responsiveNodeMatcher->childKeys(array('type' => 'FRAME', 'name' => 'Header Desktop'), 0, $responsiveNodeMatcherDesktopCounts)
+        === $responsiveNodeMatcher->childKeys(array('type' => 'FRAME', 'name' => 'Header Mobile'), 0, $responsiveNodeMatcherMobileCounts),
+    'responsive-node-matcher-structural-keys-ignore-breakpoint-qualifiers'
+);
+$assert(
+    array('reason_code' => 'root_fill', 'declarations' => array('width:100%')) === $breakpointDimensionPolicy->breakpointWidthDecision(
+        '390px',
+        array(),
+        array('box' => array('width' => 1440)),
+        array('type' => 'FRAME', 'box' => array('width' => 390)),
+        null,
+        null
+    ),
+    'breakpoint-dimension-policy-root-fill-decision-evidence'
+);
+$assert(
+    array('width:100%', 'max-width:100%', 'height:auto', 'min-height:96px') === $breakpointDimensionPolicy->headerChromeDeclarations(96.0),
+    'breakpoint-dimension-policy-header-fluid-min-height-pairing'
+);
 $assert(
     array('width:100%') === $breakpointDimensionPolicy->breakpointWidthDeclarations(
         '390px',

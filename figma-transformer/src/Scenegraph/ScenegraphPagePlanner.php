@@ -108,6 +108,8 @@ final class ScenegraphPagePlanner
      *             frame_id: string,
      *             name: string,
      *             slug: string,           // identity for the variant frame
+     *             responsive_identity: string, // qualifier-stripped page identity
+     *             sibling_group_key: string|null, // detection scope + identity evidence
      *             device_hint: string,    // desktop|tablet|mobile|unknown
      *             viewport_width: float|null,
      *             viewport_height: float|null,
@@ -1385,6 +1387,8 @@ final class ScenegraphPagePlanner
                 'frame_id'        => $memberId,
                 'name'            => $name,
                 'slug'            => $this->slugify($name),
+                'responsive_identity' => $this->frameInspector->normalizedPageName($name),
+                'sibling_group_key' => isset($detectionById[$memberId]['sibling_group_key']) && is_scalar($detectionById[$memberId]['sibling_group_key']) ? (string) $detectionById[$memberId]['sibling_group_key'] : null,
                 'device_hint'     => (string) ($detectionById[$memberId]['device_hint'] ?? 'unknown'),
                 'viewport_width'  => $candidate['dimensions']['width'],
                 'viewport_height' => $candidate['dimensions']['height'],

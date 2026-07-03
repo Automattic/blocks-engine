@@ -1229,6 +1229,10 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
         && false === ($responsiveHomePage['variants'][2]['primary'] ?? null), 'page-plan-responsive-only-widest-is-primary');
     $assert(1440.0 === ($responsiveHomePage['variants'][0]['viewport_width'] ?? null)
         && 390.0 === ($responsiveHomePage['variants'][2]['viewport_width'] ?? null), 'page-plan-responsive-variant-viewport-widths');
+    $assert(array('home-page', 'home-page', 'home-page')
+        === array_map(static fn (array $variant): string => (string) ($variant['responsive_identity'] ?? ''), $responsiveHomePage['variants'] ?? array()), 'page-plan-responsive-variant-identity-evidence-strips-breakpoint-qualifiers');
+    $assert(array('section:responsive:home-page', 'section:responsive:home-page', 'section:responsive:home-page')
+        === array_map(static fn (array $variant): string => (string) ($variant['sibling_group_key'] ?? ''), $responsiveHomePage['variants'] ?? array()), 'page-plan-responsive-variant-sibling-group-evidence');
     $assert(null !== $responsiveAboutPage, 'page-plan-responsive-about-stays-its-own-page');
     $assert(false === ($responsiveAboutPage['responsive'] ?? null) && 1 === ($responsiveAboutPage['breakpoint_count'] ?? null), 'page-plan-non-responsive-frame-single-variant');
     $assert(1 === count($responsiveAboutPage['variants'] ?? array()) && 'frame:about-desktop' === ($responsiveAboutPage['variants'][0]['frame_id'] ?? null), 'page-plan-non-responsive-frame-self-variant');

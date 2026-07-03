@@ -342,11 +342,7 @@ final class BreakpointMediaDiffBuilder
 
         if ( (LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $chromeRole || $this->isHeaderChromeShellName($name)) && $isContainer ) {
             $minHeight = $this->cssPixelValue($baseMap['height'] ?? '') ?? $this->nodeBoxHeight($node);
-            $declarations = array('width:100%', 'max-width:100%', 'height:auto');
-            if ( null !== $minHeight && $minHeight > 0.0 ) {
-                $declarations[] = 'min-height:' . ($this->number)($minHeight) . 'px';
-            }
-            return array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $declarations);
+            return array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $this->breakpointDimensionPolicy->headerChromeDeclarations($minHeight));
         }
 
         if ( $this->isNavigationShellName($name) && $isContainer ) {
