@@ -814,6 +814,31 @@ $assert(array('x' => 0.0, 'y' => 20.0, 'width' => 40.0, 'height' => 30.0) === ($
 $assert(array('x' => -10.0, 'y' => 70.0, 'width' => 140.0, 'height' => 20.0) === ($clippedVisibleCopy['rect'] ?? null), 'clipped-content-node-keeps-source-rect');
 $assert(0 === ($clippedDecorativeDiagnostics['large_absolute_offset_count'] ?? null), 'fully-clipped-decorative-node-not-counted-as-large-offset');
 
+$rootOffCanvasResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+    'name'  => 'Root Off Canvas Alternate Fixture',
+    'nodes' => array(
+        array(
+            'id'       => 'root-offcanvas:root',
+            'type'     => 'FRAME',
+            'name'     => 'Page root',
+            'width'    => 640,
+            'height'   => 480,
+            'children' => array(
+                array('id' => 'root-offcanvas:image', 'type' => 'RECTANGLE', 'name' => 'Alternate image', 'x' => 0, 'y' => -720, 'width' => 640, 'height' => 240),
+                array('id' => 'root-offcanvas:title', 'type' => 'TEXT', 'name' => 'Alternate title', 'characters' => 'Alternate hero', 'x' => 64, 'y' => -360, 'width' => 320, 'height' => 48, 'fontSize' => 24),
+                array('id' => 'root-offcanvas:visible', 'type' => 'TEXT', 'name' => 'Visible title', 'characters' => 'Visible hero', 'x' => 64, 'y' => 120, 'width' => 320, 'height' => 48, 'fontSize' => 24),
+            ),
+        ),
+    ),
+));
+$rootOffCanvasHtml = $fileContent($rootOffCanvasResult, 'index.html');
+$rootOffCanvasCss = $fileContent($rootOffCanvasResult, 'style.css');
+$rootOffCanvasDiagnostics = $rootOffCanvasResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
+$assert(! str_contains($rootOffCanvasHtml, 'Alternate hero') && ! str_contains($rootOffCanvasCss, 'figma-node-root-offcanvas-image'), 'root-off-canvas-unpositioned-children-not-emitted');
+$assert(str_contains($rootOffCanvasHtml, 'Visible hero'), 'root-off-canvas-visible-child-emitted');
+$assert(2 === ($rootOffCanvasDiagnostics['decision_traces']['reason_counts']['root_off_canvas_child_suppressed'] ?? null), 'root-off-canvas-decision-trace-count');
+$assert(0 === ($rootOffCanvasDiagnostics['layout']['off_canvas_visual_node_count'] ?? null), 'root-off-canvas-suppressed-not-visual-warning');
+
 $gamesControlLayoutResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Games Control Layout Guard Fixture',
     'blobs' => array(array('bytes' => $vectorCommandBlob)),

@@ -281,6 +281,11 @@ final class StaticHtmlEmitter
     private array $emittedNodeMetadata = array();
 
     /**
+     * @var array<string, bool>
+     */
+    private array $suppressedVisualNodeIds = array();
+
+    /**
      * Stable reason traces for behavior decisions that suppress, re-route, or
      * normalize source nodes without changing the emitted artifact contract.
      *
@@ -301,6 +306,7 @@ final class StaticHtmlEmitter
         $this->generatedVectorSvgPathsByHash = array();
         $this->nodeReadableNames = array();
         $this->emittedNodeMetadata = array();
+        $this->suppressedVisualNodeIds = array();
         $this->decisionTraces = array();
         $this->stickyLayoutCoordinator()->reset();
         $this->linkTargetPaths = $this->normalizeLinkTargetPaths($options);
@@ -429,6 +435,7 @@ final class StaticHtmlEmitter
         $this->generatedVectorSvgPathsByHash = array();
         $this->nodeReadableNames = array();
         $this->emittedNodeMetadata = array();
+        $this->suppressedVisualNodeIds = array();
         $this->decisionTraces = array();
         $this->breakpointMediaDiffBuilder()->resetDecisionTraces();
         $this->stickyLayoutCoordinator()->reset();
@@ -713,6 +720,7 @@ final class StaticHtmlEmitter
         if ( ! in_array($tag, array('input', 'textarea'), true) && ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) && ! $this->vectorSvgComposesChildren($vectorSvg) ) {
             $insertedAccessoryInput = false;
             $simpleMaskClipPaths = $this->simpleMaskClipPathsByTargetId($children);
+            $suppressRootOffCanvasChildren = 0 === $depth && $this->hasRootOffCanvasChildCluster($children, $node);
             foreach ( $children as $child ) {
                 if ( is_array($child) ) {
                     if ( $this->isMaskOperatorNode($child) ) {
@@ -725,6 +733,13 @@ final class StaticHtmlEmitter
                     }
                     if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
                         $this->recordDecisionTrace('layout_suppression', 'fully_clipped_decorative_child_suppressed', $child, 'skip_child', $node, array('depth' => $depth + 1));
+                        continue;
+                    }
+                    if ( $suppressRootOffCanvasChildren && $this->isFullyOffCanvasRootChild($child, $node) ) {
+                        if ( '' !== $childId ) {
+                            $this->suppressedVisualNodeIds[$childId] = true;
+                        }
+                        $this->recordDecisionTrace('layout_suppression', 'root_off_canvas_child_suppressed', $child, 'skip_child', $node, array('depth' => $depth + 1));
                         continue;
                     }
                     if ( $inputAccessoryControl && $this->isFormControlPlaceholderChild($child) ) {
@@ -3355,7 +3370,35 @@ final class StaticHtmlEmitter
      */
     private function visualNodeMap(array $nodes): array
     {
-        return (new VisualNodeMapBuilder($this->assetsById, $this->renderTextGlyphPaths, $this->emittedNodeMetadata))->build($nodes);
+        return (new VisualNodeMapBuilder($this->assetsById, $this->renderTextGlyphPaths, $this->emittedNodeMetadata))->build($this->withoutSuppressedVisualNodes($nodes));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodes
+     * @return array<int, array<string, mixed>>
+     */
+    private function withoutSuppressedVisualNodes(array $nodes): array
+    {
+        if ( empty($this->suppressedVisualNodeIds) ) {
+            return $nodes;
+        }
+
+        $filtered = array();
+        foreach ( $nodes as $node ) {
+            if ( ! is_array($node) ) {
+                continue;
+            }
+            $id = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
+            if ( '' !== $id && isset($this->suppressedVisualNodeIds[$id]) ) {
+                continue;
+            }
+            if ( is_array($node['children'] ?? null) ) {
+                $node['children'] = $this->withoutSuppressedVisualNodes($node['children']);
+            }
+            $filtered[] = $node;
+        }
+
+        return $filtered;
     }
 
     /**
@@ -5284,6 +5327,58 @@ final class StaticHtmlEmitter
         $childRect = array('x' => $left, 'y' => $top, 'width' => (float) $box['width'], 'height' => (float) $box['height']);
 
         return null === $this->rectIntersection($parentRect, $childRect);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isFullyOffCanvasRootChild(array $node, array $parentNode): bool
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( 'absolute' === ($layout['positioning'] ?? null) ) {
+            return false;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        if ( ! isset($parentBox['width'], $parentBox['height'], $box['width'], $box['height']) || ! is_numeric($parentBox['width']) || ! is_numeric($parentBox['height']) || ! is_numeric($box['width']) || ! is_numeric($box['height']) ) {
+            return false;
+        }
+
+        if ( (float) $box['width'] <= 0.0 || (float) $box['height'] <= 0.0 || (float) $parentBox['width'] <= 0.0 || (float) $parentBox['height'] <= 0.0 ) {
+            return false;
+        }
+
+        $left = $this->positionOffset($box, $parentBox, 'x', $parentNode);
+        $top = $this->positionOffset($box, $parentBox, 'y', $parentNode);
+        if ( null === $left || null === $top ) {
+            return false;
+        }
+
+        $parentRect = array('x' => 0.0, 'y' => 0.0, 'width' => (float) $parentBox['width'], 'height' => (float) $parentBox['height']);
+        $childRect = array('x' => $left, 'y' => $top, 'width' => (float) $box['width'], 'height' => (float) $box['height']);
+
+        return null === $this->rectIntersection($parentRect, $childRect);
+    }
+
+    /**
+     * @param array<int, mixed> $children
+     * @param array<string, mixed> $parentNode
+     */
+    private function hasRootOffCanvasChildCluster(array $children, array $parentNode): bool
+    {
+        $count = 0;
+        foreach ( $children as $child ) {
+            if ( is_array($child) && $this->isFullyOffCanvasRootChild($child, $parentNode) ) {
+                ++$count;
+                if ( $count >= 2 ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
