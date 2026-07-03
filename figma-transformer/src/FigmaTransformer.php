@@ -416,6 +416,7 @@ final class FigmaTransformer
         $artifact    = $this->withRenderStyleMismatchReport($artifact, $options);
         $diagnostics = array_merge($normalized['diagnostics'] ?? array(), $artifact['diagnostics']);
         $parity      = $this->parityReportBuilder->build($options['parity'] ?? array());
+        $transformDiagnostics = is_array($artifact['source_report']['transform_diagnostics'] ?? null) ? $artifact['source_report']['transform_diagnostics'] : array();
 
         return FigmaTransformResult::create(
             $artifact['status'],
@@ -437,6 +438,7 @@ final class FigmaTransformer
                 'asset_count'            => $artifact['metrics']['asset_count'] ?? 0,
                 'file_count'             => count($artifact['files']),
                 'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
+                'vector_placeholder_count' => (int) ($transformDiagnostics['vectors']['placeholders'] ?? 0),
             )
         );
     }
@@ -528,6 +530,8 @@ final class FigmaTransformer
         $diagnostics = array_merge($normalized['diagnostics'] ?? array(), $artifact['diagnostics']);
         $parity      = $this->parityReportBuilder->build($options['parity'] ?? array());
 
+        $transformDiagnostics = is_array($artifact['source_report']['transform_diagnostics'] ?? null) ? $artifact['source_report']['transform_diagnostics'] : array();
+
         return FigmaTransformResult::create(
             $artifact['status'],
             $diagnostics,
@@ -549,6 +553,7 @@ final class FigmaTransformer
                 'file_count'             => count($artifact['files']),
                 'breakpoint_count'       => count($variants),
                 'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
+                'vector_placeholder_count' => (int) ($transformDiagnostics['vectors']['placeholders'] ?? 0),
             )
         );
     }
@@ -764,6 +769,7 @@ final class FigmaTransformer
                 'file_count'             => count($files),
                 'page_count'             => count($pageReports),
                 'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
+                'vector_placeholder_count' => (int) ($transformDiagnostics['vectors']['placeholders'] ?? 0),
             )
         );
     }
