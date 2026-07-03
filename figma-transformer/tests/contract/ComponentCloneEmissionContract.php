@@ -253,6 +253,16 @@ function blocks_engine_figma_transformer_run_component_clone_emission_contract(c
     $sourceOffsetCloneBox = is_array($sourceOffsetClone) && is_array($sourceOffsetClone['box'] ?? null) ? $sourceOffsetClone['box'] : array();
     $assert(80.0 === ($sourceOffsetCloneBox['y'] ?? null), 'component-clone-source-local-offset-preserved');
 
+    $sourceOffsetPreservationDiagnostics = array_values(array_filter(
+        is_array($sourceOffsetNormalized['diagnostics'] ?? null) ? $sourceOffsetNormalized['diagnostics'] : array(),
+        static fn (array $diagnostic): bool => 'figma_component_clone_transform_override_source_preserved' === ($diagnostic['code'] ?? null)
+    ));
+    $sourceOffsetPreservationDiagnostic = is_array($sourceOffsetPreservationDiagnostics[0] ?? null) ? $sourceOffsetPreservationDiagnostics[0] : array();
+    $assert('source-offset:body' === (($sourceOffsetPreservationDiagnostic['context']['source_node_id'] ?? null) ?: ($sourceOffsetPreservationDiagnostic['context']['node_id'] ?? null)), 'component-clone-source-local-offset-preservation-diagnostic-source-id');
+    $assert(array('y') === ($sourceOffsetPreservationDiagnostic['context']['preserved_dimensions'] ?? null), 'component-clone-source-local-offset-preservation-diagnostic-dimensions');
+    $assert(80.0 === ($sourceOffsetPreservationDiagnostic['context']['source_box']['y'] ?? null), 'component-clone-source-local-offset-preservation-diagnostic-source-y');
+    $assert(0.0 === ($sourceOffsetPreservationDiagnostic['context']['override_box']['y'] ?? null), 'component-clone-source-local-offset-preservation-diagnostic-override-y');
+
     $offsetResult = blocks_engine_figma_transformer_contract_transform(
         array(
             'name'  => 'Component Clone Source Refresh Offset Fixture',

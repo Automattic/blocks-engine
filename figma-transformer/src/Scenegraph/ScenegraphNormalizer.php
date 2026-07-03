@@ -2880,7 +2880,7 @@ final class ScenegraphNormalizer
 			$child['figma_text']['style'] = array_merge($inheritedTextStyle, $style);
 		}
 		if ( $hasTransformGeometryOverride && is_array($sourceChildBox) ) {
-			$child = $this->preserveLocalSourceBoxForFarAbsoluteOverride($child, $sourceChildBox);
+			$child = $this->preserveLocalSourceBoxForFarAbsoluteOverride($child, $sourceChildBox, $diagnostics);
 		}
         unset($child[GeometryBox::PROVENANCE_KEY]);
         if ( $hasVectorGeometryOverride && ! $hasExplicitSizeOverride ) {
@@ -2927,7 +2927,7 @@ final class ScenegraphNormalizer
 	 * @param array<string, mixed> $sourceChildBox
 	 * @return array<string, mixed>
 	 */
-	private function preserveLocalSourceBoxForFarAbsoluteOverride(array $child, array $sourceChildBox): array
+	private function preserveLocalSourceBoxForFarAbsoluteOverride(array $child, array $sourceChildBox, array &$diagnostics): array
 	{
 		if ( GeometryBox::COORDINATE_SPACE_PARENT_LOCAL !== GeometryBox::coordinateSpace($sourceChildBox) || ! is_array($child['box'] ?? null) ) {
 			return $child;
@@ -2948,6 +2948,18 @@ final class ScenegraphNormalizer
 		}
 
 		if ( ! empty($preservedDimensions) ) {
+			$diagnostics[] = array(
+				'severity' => 'warning',
+				'code'     => 'figma_component_clone_transform_override_source_preserved',
+				'message'  => 'A component clone transform override was far from the source component geometry, so the source-local coordinates were preserved.',
+				'context'  => array(
+					'node_id'              => isset($child['id']) && is_scalar($child['id']) ? (string) $child['id'] : null,
+					'source_node_id'       => isset($child['figma_component_source_id']) && is_scalar($child['figma_component_source_id']) ? (string) $child['figma_component_source_id'] : null,
+					'preserved_dimensions' => $preservedDimensions,
+					'source_box'           => $this->diagnosticGeometryBox($sourceChildBox),
+					'override_box'         => $this->diagnosticGeometryBox($box),
+				),
+			);
 			foreach ( $preservedDimensions as $dimension ) {
 				if ( ! isset($sourceChildBox[$dimension]) || ! is_numeric($sourceChildBox[$dimension]) ) {
 					continue;
@@ -2967,6 +2979,31 @@ final class ScenegraphNormalizer
 		}
 
 		return $child;
+	}
+
+	/**
+	 * @param array<string, mixed> $box
+	 * @return array<string, float|string>
+	 */
+	private function diagnosticGeometryBox(array $box): array
+	{
+		$summary = array();
+		foreach ( array('x', 'y', 'width', 'height') as $dimension ) {
+			if ( isset($box[$dimension]) && is_numeric($box[$dimension]) ) {
+				$summary[$dimension] = (float) $box[$dimension];
+			}
+		}
+
+		$coordinateSpace = GeometryBox::coordinateSpace($box);
+		if ( null !== $coordinateSpace ) {
+			$summary['coordinate_space'] = $coordinateSpace;
+		}
+
+		if ( isset($box['local_origin']) && is_scalar($box['local_origin']) ) {
+			$summary['local_origin'] = (string) $box['local_origin'];
+		}
+
+		return $summary;
 	}
 
 	/**
