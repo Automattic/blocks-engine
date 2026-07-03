@@ -403,6 +403,35 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $assert(str_contains($layeredImageCss, 'background-repeat:no-repeat,no-repeat,no-repeat'), 'image-layered-paints-align-background-repeat');
     $assert(str_contains($layeredImageCss, 'background-position:0px -160px,-200px -40px,-50px -10px'), 'image-layered-paints-align-background-position');
 
+    $imageGradientStackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'   => 'Image Gradient Stack Fixture',
+        'assets' => array(
+            'photo-layer' => array('mime_type' => 'image/png', 'content' => 'photo'),
+        ),
+        'nodes'  => array(
+            array(
+                'id'         => 'image:gradient-stack',
+                'type'       => 'RECTANGLE',
+                'name'       => 'Image plus gradient stack',
+                'width'      => 100,
+                'height'     => 80,
+                'fillPaints' => array(
+                    array('type' => 'IMAGE', 'imageRef' => 'photo-layer', 'imageScaleMode' => 'FILL'),
+                    array(
+                        'type'  => 'GRADIENT_LINEAR',
+                        'stops' => array(
+                            array('position' => 0, 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 0.5)),
+                            array('position' => 1, 'color' => array('r' => 0, 'g' => 0, 'b' => 0, 'a' => 0.5)),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $imageGradientStackCss = $fileContent($imageGradientStackResult, 'style.css');
+    $assert(str_contains($imageGradientStackCss, 'background-image:linear-gradient(') && str_contains($imageGradientStackCss, '),url("assets/photo-layer.png")'), 'image-gradient-stack-preserves-gradient-and-image-layers');
+    $assert(str_contains($imageGradientStackCss, 'background-size:100% 100%,cover'), 'image-gradient-stack-aligns-background-size-layers');
+
     $nestedImageOverrideResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Nested Image Override Fixture',
         'nodes' => array(

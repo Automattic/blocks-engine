@@ -6223,17 +6223,138 @@ final class StaticHtmlEmitter
             return $styles;
         }
 
-        $assetPaths = array_map(static fn (array $layer): string => (string) $layer['path'], $imageLayers);
-        $styles[] = 'background-image:' . $this->cssUrlList($assetPaths);
-        $blendModes = $this->imageBackgroundBlendModes($imageLayers);
+        $backgroundLayers = $this->nodeComposedBackgroundLayers($node, $imageLayers);
+        $styles[] = 'background-image:' . implode(',', array_map(static fn (array $layer): string => (string) $layer['css'], $backgroundLayers));
+        $blendModes = $this->composedBackgroundBlendModes($backgroundLayers);
         if ( ! empty($blendModes) ) {
             $styles[] = 'background-blend-mode:' . implode(',', $blendModes);
         }
-        foreach ( $this->imageBackgroundStyles($node, $imageLayers) as $style ) {
+        foreach ( $this->composedBackgroundLayerStyles($node, $backgroundLayers) as $style ) {
             $styles[] = $style;
         }
 
         return $styles;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, array{path: string, paint: array<string, mixed>}> $fallbackImageLayers
+     * @return array<int, array{type: string, css: string, paint: array<string, mixed>}>
+     */
+    private function nodeComposedBackgroundLayers(array $node, array $fallbackImageLayers): array
+    {
+        $layers = array();
+        foreach ( array('fills', 'background') as $paintKey ) {
+            $paintCollections = array();
+            if ( is_array($node[$paintKey] ?? null) ) {
+                $paintCollections[] = $node[$paintKey];
+            }
+            if ( is_array($node['figma_paints'][$paintKey] ?? null) ) {
+                $paintCollections[] = $node['figma_paints'][$paintKey];
+            }
+
+            foreach ( $paintCollections as $paints ) {
+                foreach ( array_reverse(array_values($paints)) as $paint ) {
+                    if ( ! is_array($paint) || false === ($paint['visible'] ?? true) ) {
+                        continue;
+                    }
+
+                    if ( 'IMAGE' === strtoupper((string) ($paint['type'] ?? '')) ) {
+                        foreach ( $this->paintAssetReferences($paint) as $assetId ) {
+                            $path = $this->resolveAssetPath($assetId);
+                            if ( null === $path ) {
+                                continue;
+                            }
+                            $this->usedAssetPaths[$path] = true;
+                            $layers[] = array('type' => 'image', 'css' => 'url("' . $path . '")', 'paint' => $paint);
+                            break;
+                        }
+                        continue;
+                    }
+
+                    if ( in_array(($paint['type'] ?? null), array('GRADIENT_LINEAR', 'GRADIENT_RADIAL', 'GRADIENT_ANGULAR'), true) ) {
+                        $gradient = $this->gradientPaint($paint);
+                        if ( null !== $gradient ) {
+                            $layers[] = array('type' => 'gradient', 'css' => $gradient, 'paint' => $paint);
+                        }
+                    }
+                }
+            }
+        }
+
+        if ( ! empty($layers) ) {
+            return $layers;
+        }
+
+        return array_map(static fn (array $layer): array => array(
+            'type'  => 'image',
+            'css'   => 'url("' . (string) $layer['path'] . '")',
+            'paint' => is_array($layer['paint'] ?? null) ? $layer['paint'] : array(),
+        ), $fallbackImageLayers);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<int, array{type: string, css: string, paint: array<string, mixed>}> $layers
+     * @return array<int, string>
+     */
+    private function composedBackgroundLayerStyles(array $node, array $layers): array
+    {
+        $sizes = array();
+        $repeats = array();
+        $positions = array();
+        foreach ( $layers as $layer ) {
+            if ( 'image' !== ($layer['type'] ?? null) ) {
+                $sizes[] = '100% 100%';
+                $repeats[] = 'no-repeat';
+                $positions[] = 'center';
+                continue;
+            }
+
+            $paint = is_array($layer['paint'] ?? null) ? $layer['paint'] : array();
+            $layerStyles = $this->imagePaintLayerBackgroundStyles($node, $paint, $this->imagePaintScaleMode($paint));
+            $sizes[] = $layerStyles['size'];
+            $repeats[] = $layerStyles['repeat'];
+            $positions[] = $layerStyles['position'];
+        }
+
+        if ( empty($sizes) ) {
+            return array();
+        }
+
+        if ( array('cover') === array_values(array_unique($sizes)) && array('no-repeat') === array_values(array_unique($repeats)) && array('center') === array_values(array_unique($positions)) ) {
+            return array('background-size:cover', 'background-position:center');
+        }
+
+        return array(
+            'background-size:' . implode(',', $sizes),
+            'background-repeat:' . implode(',', $repeats),
+            'background-position:' . implode(',', $positions),
+        );
+    }
+
+    /**
+     * @param array<int, array{type: string, css: string, paint: array<string, mixed>}> $layers
+     * @return array<int, string>
+     */
+    private function composedBackgroundBlendModes(array $layers): array
+    {
+        $blendModes = array();
+        foreach ( $layers as $layer ) {
+            if ( 'image' !== ($layer['type'] ?? null) ) {
+                $blendModes[] = 'normal';
+                continue;
+            }
+
+            $paint = is_array($layer['paint'] ?? null) ? $layer['paint'] : array();
+            $blendMode = null;
+            if ( isset($paint['blendMode']) && is_scalar($paint['blendMode']) ) {
+                $blendMode = $this->blendModeCss((string) $paint['blendMode']);
+            }
+            $blendModes[] = $blendMode ?? 'normal';
+        }
+
+        return in_array(true, array_map(static fn (string $mode): bool => 'normal' !== $mode, $blendModes), true) ? $blendModes : array();
     }
 
     /**

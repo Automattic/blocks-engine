@@ -652,6 +652,7 @@ final class FigmaTransformer
             $html = $this->fileContent($pageResult['files'] ?? array(), 'index.html');
             $css = $this->fileContent($pageResult['files'] ?? array(), 'style.css');
             if ( '' !== $css ) {
+                $css = $this->scopeRootCustomPropertiesToPage($css, $html);
                 $cssChunkIndexesByPath[$path] = count($cssChunks);
                 $cssChunks[] = $css;
             }
@@ -1781,6 +1782,36 @@ final class FigmaTransformer
             'css' => implode("\n", $ordered) . (empty($ordered) ? '' : "\n"),
             'class_maps' => $classMaps,
         );
+    }
+
+    /**
+     * Multi-page output merges independently-emitted page stylesheets. Leaving
+     * per-page design tokens on `:root` lets later pages override earlier page
+     * typography/color variables, so scope custom properties to the emitted page
+     * frame when a concrete root node class is available.
+     */
+    private function scopeRootCustomPropertiesToPage(string $css, string $html): string
+    {
+        if ( '' === $css || '' === $html || ! str_contains($css, ':root{') ) {
+            return $css;
+        }
+
+        if ( 1 !== preg_match('/<main\b[^>]*data-figma-root="true"[^>]*>\s*<[^>]+class="([^"]*)"/s', $html, $matches) ) {
+            return $css;
+        }
+
+        $rootClass = '';
+        foreach ( preg_split('/\s+/', trim((string) $matches[1])) ?: array() as $class ) {
+            if ( str_starts_with($class, 'figma-node-') ) {
+                $rootClass = $class;
+                break;
+            }
+        }
+        if ( '' === $rootClass ) {
+            return $css;
+        }
+
+        return (string) preg_replace('/(^|\n):root\{/m', '$1.' . $rootClass . '{', $css);
     }
 
     /**

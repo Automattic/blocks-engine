@@ -2117,6 +2117,62 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(($multiPageTransformDiagnostics['generated_svg_assets']['path_data_bytes'] ?? 0) > 65536, 'multi-page-transform-diagnostics-generated-svg-path-data-bytes');
     $assert(1 === ($multiPageTransformDiagnostics['generated_svg_assets']['unique_path_data_count'] ?? null), 'multi-page-transform-diagnostics-generated-svg-unique-path-data-count');
     $assert(0 === ($multiPageTransformDiagnostics['generated_svg_assets']['duplicate_path_data_count'] ?? null), 'multi-page-transform-diagnostics-generated-svg-duplicate-path-data-count');
+
+    $multiPageTokenScopeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Multi Page Token Scope Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'token-scope:canvas',
+                'type'     => 'CANVAS',
+                'name'     => 'Site Pages',
+                'children' => array(
+                    array(
+                        'id'       => 'token-scope:home',
+                        'type'     => 'FRAME',
+                        'name'     => 'Home',
+                        'width'    => 1440,
+                        'height'   => 900,
+                        'children' => array(
+                            array(
+                                'id'       => 'token-scope:home:tokens',
+                                'type'     => 'FRAME',
+                                'name'     => 'Typography',
+                                'width'    => 320,
+                                'height'   => 160,
+                                'children' => array(
+                                    array('id' => 'token-scope:home:display', 'type' => 'TEXT', 'name' => 'Display', 'characters' => 'Display', 'fontSize' => 72, 'fontWeight' => 700),
+                                    array('id' => 'token-scope:home:body', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Body', 'fontSize' => 18, 'fontWeight' => 400),
+                                ),
+                            ),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'token-scope:about',
+                        'type'     => 'FRAME',
+                        'name'     => 'About',
+                        'width'    => 1440,
+                        'height'   => 900,
+                        'children' => array(
+                            array(
+                                'id'       => 'token-scope:about:tokens',
+                                'type'     => 'FRAME',
+                                'name'     => 'Typography',
+                                'width'    => 320,
+                                'height'   => 160,
+                                'children' => array(
+                                    array('id' => 'token-scope:about:display', 'type' => 'TEXT', 'name' => 'Display', 'characters' => 'Display', 'fontSize' => 36, 'fontWeight' => 700),
+                                    array('id' => 'token-scope:about:body', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Body', 'fontSize' => 14, 'fontWeight' => 400),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ), array('multi_page' => true, 'frame_ids' => array('token-scope:home', 'token-scope:about'), 'entry_frame_id' => 'token-scope:home'));
+    $multiPageTokenScopeCss = $fileContent($multiPageTokenScopeResult, 'style.css');
+    $assert(! str_contains($multiPageTokenScopeCss, ':root{--'), 'multi-page-design-tokens-not-global-root');
+    $assert(str_contains($multiPageTokenScopeCss, '.figma-node-token-scope-home-home{--') && str_contains($multiPageTokenScopeCss, '.figma-node-token-scope-about-about{--'), 'multi-page-design-tokens-scoped-to-page-roots');
     $assert('selected_frames' === ($multiPageTransformDiagnostics['selection']['mode'] ?? null), 'multi-page-transform-diagnostics-selection-mode');
     $assert('frame:home' === ($multiPageTransformDiagnostics['selection']['selected_frames'][0]['frame_id'] ?? null), 'multi-page-transform-diagnostics-entry-frame-selection');
     $assert('about.html' === ($multiPageTransformDiagnostics['selection']['selected_frames'][1]['path'] ?? null), 'multi-page-transform-diagnostics-about-selection-path');
