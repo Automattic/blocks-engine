@@ -846,6 +846,11 @@ final class StaticHtmlEmitter
         }
 
         $hasRenderableVectorFallback = '' !== trim($content);
+        if ( $this->shouldSuppressNonRenderableUnsupportedVectorPlaceholder($node, $type, $vectorSvg, $hasVectorAssetFallback, $hasRenderableVectorFallback) ) {
+            $this->recordDecisionTrace('vector_scaffold', 'non_renderable_unsupported_vector_suppressed', $node, 'skip_node', $parentNode, array('reason' => 'zero_area_without_vector_source'));
+
+            return '';
+        }
         if ( $this->isUnsupportedVectorType($type) && null === $vectorSvg && ! $hasVectorAssetFallback && ! $hasRenderableVectorFallback ) {
             $diagnostics[] = array(
                 'severity' => 'warning',
@@ -8020,6 +8025,28 @@ final class StaticHtmlEmitter
     private function vectorSvgComposesChildren(?string $vectorSvg): bool
     {
         return null !== $vectorSvg && (str_contains($vectorSvg, 'data-figma-vector-composition="group"') || str_contains($vectorSvg, 'data-figma-boolean-operation='));
+    }
+
+    /** @param array<string, mixed> $node */
+    private function shouldSuppressNonRenderableUnsupportedVectorPlaceholder(array $node, string $type, ?string $vectorSvg, bool $hasVectorAssetFallback, bool $hasRenderableVectorFallback): bool
+    {
+        if ( ! $this->isUnsupportedVectorType($type) || null !== $vectorSvg || $hasVectorAssetFallback || $hasRenderableVectorFallback ) {
+            return false;
+        }
+        if ( ! empty($this->nodeList($node)) ) {
+            return false;
+        }
+
+        $diagnostic = $this->vectorPlaceholderDiagnostic($node, $type);
+        if ( ! empty($diagnostic['source_fields'] ?? array()) ) {
+            return false;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $width = isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : 0.0;
+        $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : 0.0;
+
+        return $width <= 0.0 || $height <= 0.0;
     }
 
     /**

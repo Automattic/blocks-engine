@@ -541,6 +541,37 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(str_contains($geometrylessVectorHtml, 'data-figma-node-id="vector:geometryless"') && str_contains($geometrylessVectorHtml, '<rect x="0" y="0" width="16" height="8" fill="#336699"/>'), 'geometryless-vector-renders-inherited-color-bounds');
     $assert(! in_array('unsupported_vector_node_placeholder', $geometrylessVectorDiagnosticCodes, true), 'geometryless-vector-no-placeholder-diagnostic');
     
+    $zeroAreaBooleanResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Zero Area Boolean Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'vector:zero-area-parent',
+                'type'     => 'FRAME',
+                'name'     => 'Zero area boolean parent',
+                'width'    => 40,
+                'height'   => 40,
+                'children' => array(
+                    array(
+                        'id'         => 'vector:zero-area-boolean',
+                        'type'       => 'BOOLEAN_OPERATION',
+                        'name'       => 'Zero area boolean',
+                        'width'      => 0,
+                        'height'     => 0,
+                        'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.75, 'g' => 0.75, 'b' => 0.75))),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $zeroAreaBooleanHtml = $fileContent($zeroAreaBooleanResult, 'index.html');
+    $zeroAreaBooleanDiagnosticCodes = array_map(
+        static fn (array $diagnostic): string => (string) ($diagnostic['code'] ?? ''),
+        $zeroAreaBooleanResult['diagnostics'] ?? array()
+    );
+    $assert(! str_contains($zeroAreaBooleanHtml, 'data-figma-node-id="vector:zero-area-boolean"'), 'zero-area-boolean-without-source-suppressed');
+    $assert(! str_contains($zeroAreaBooleanHtml, 'data-figma-unsupported-vector="true"'), 'zero-area-boolean-without-source-no-placeholder-markup');
+    $assert(! in_array('unsupported_vector_node_placeholder', $zeroAreaBooleanDiagnosticCodes, true), 'zero-area-boolean-without-source-no-placeholder-diagnostic');
+
     $singleLoopNetworkBlob = static function (array $points, array $segments, array $regionEntries, ?int $regionSegmentCount = null): string {
         $vertexCount = count($points);
         $segmentCount = count($segments);
