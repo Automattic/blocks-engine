@@ -124,6 +124,42 @@ function blocks_engine_figma_transformer_run_semantic_accessibility_contract(cal
     $assert(1 === preg_match('/\.figma-node-layer-header-site-header\{[^}]*z-index:2/s', $layeringCss), 'semantic-accessibility-top-header-outranks-overlapping-hero');
     $assert(1 === preg_match('/\.figma-node-layer-hero-hero-artwork-group\{[^}]*z-index:1/s', $layeringCss), 'semantic-accessibility-overlapping-hero-keeps-base-stack-rank');
 
+    $sourceZIndexLayeringResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Source Z Index Header Layering Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'source-z:root',
+                'type'       => 'FRAME',
+                'name'       => 'Home',
+                'width'      => 1440,
+                'height'     => 1200,
+                'layoutMode' => 'VERTICAL',
+                'children'   => array(
+                    array(
+                        'id'     => 'source-z:hero',
+                        'type'   => 'FRAME',
+                        'name'   => 'Hero',
+                        'width'  => 1440,
+                        'height' => 600,
+                        'layout' => array('z_index' => 1),
+                    ),
+                    array(
+                        'id'     => 'source-z:header',
+                        'type'   => 'FRAME',
+                        'name'   => 'Site Header',
+                        'width'  => 1440,
+                        'height' => 120,
+                        'layout' => array('z_index' => 9),
+                    ),
+                ),
+            ),
+        ),
+    ));
+
+    $sourceZIndexLayeringCss = $fileContent($sourceZIndexLayeringResult, 'style.css');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $sourceZIndexLayeringCss, '.figma-node-source-z-hero-hero', array('position:relative', 'z-index:1'), 'semantic-accessibility-source-z-index-hero-is-effective');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $sourceZIndexLayeringCss, '.figma-node-source-z-header-site-header', array('position:relative', 'z-index:9'), 'semantic-accessibility-source-z-index-header-is-effective');
+
     $chromeResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Generic Chrome Fixture',
         'nodes' => array(

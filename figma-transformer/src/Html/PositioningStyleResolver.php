@@ -87,7 +87,7 @@ final class PositioningStyleResolver
             $styles[] = 'z-index:1';
         }
 
-        if ( LayoutIntentClassifier::STACK_REASON_SIBLING_LAYER_RANK === $zIndexReason && ! $willPositionAbsolute && ! $this->stylesDeclareProperty(array_merge($declaredStyles, $styles), 'position') ) {
+        if ( null !== $effectiveZIndex && ! $willPositionAbsolute && ! $this->stylesDeclareProperty(array_merge($declaredStyles, $styles), 'position') ) {
             $styles[] = 'position:relative';
         }
 

@@ -157,8 +157,8 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-row-overlapping-reverse-z-row{width:180px;height:80px;isolation:isolate;display:flex;flex-direction:row;gap:0px}'), 'visual-map-reverse-z-parent-gap-clamped');
     $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-row-overlapping-reverse-z-row>*+*{margin-left:-20px}'), 'visual-map-reverse-z-negative-spacing-overlap-margin');
     $assert(! str_contains($reverseZIndexCss, 'gap:-'), 'visual-map-reverse-z-no-negative-gap-css');
-    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-first-first-top-child{width:80px;height:80px;z-index:2;flex-shrink:0}'), 'visual-map-reverse-z-first-child-on-top');
-    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-second-second-lower-child{width:80px;height:80px;z-index:1;flex-shrink:0}'), 'visual-map-reverse-z-second-child-lower');
+    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-first-first-top-child{width:80px;height:80px;position:relative;z-index:2;flex-shrink:0}'), 'visual-map-reverse-z-first-child-on-top');
+    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-second-second-lower-child{width:80px;height:80px;position:relative;z-index:1;flex-shrink:0}'), 'visual-map-reverse-z-second-child-lower');
 
     $isolatedStackResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Isolated Local Stack Fixture',
@@ -403,8 +403,8 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
         array('frame_id' => 'clone-z:page')
     );
     $componentCloneZIndexCss = blocks_engine_figma_transformer_contract_file_content($componentCloneZIndexResult, 'style.css');
-    $assert(str_contains($componentCloneZIndexCss, '.back-panel{width:160px;height:120px;z-index:2;flex-shrink:0}'), 'visual-map-component-clone-preserves-back-z-index');
-    $assert(str_contains($componentCloneZIndexCss, '.front-panel{width:160px;height:120px;z-index:1;flex-shrink:0}'), 'visual-map-component-clone-preserves-front-z-index');
+    $assert(str_contains($componentCloneZIndexCss, '.back-panel{width:160px;height:120px;position:relative;z-index:2;flex-shrink:0}'), 'visual-map-component-clone-preserves-back-z-index');
+    $assert(str_contains($componentCloneZIndexCss, '.front-panel{width:160px;height:120px;position:relative;z-index:1;flex-shrink:0}'), 'visual-map-component-clone-preserves-front-z-index');
 
     $visualFlexOffCanvasResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Visual Flex Off Canvas Classification Fixture',
