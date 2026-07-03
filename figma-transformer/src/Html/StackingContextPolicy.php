@@ -57,12 +57,12 @@ final class StackingContextPolicy
             );
         }
 
-        if ( null !== $sourceZIndex ) {
-            return array('z_index' => $sourceZIndex, 'reason' => self::STACK_REASON_SOURCE_Z_INDEX);
-        }
-
         if ( null !== $siblingZIndex ) {
             return array('z_index' => $siblingZIndex, 'reason' => self::STACK_REASON_SIBLING_LAYER_RANK);
+        }
+
+        if ( null !== $sourceZIndex ) {
+            return array('z_index' => $sourceZIndex, 'reason' => self::STACK_REASON_SOURCE_Z_INDEX);
         }
 
         return array('z_index' => null, 'reason' => null);

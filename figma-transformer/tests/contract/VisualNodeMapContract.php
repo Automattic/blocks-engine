@@ -307,6 +307,7 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
                         'y'        => 0,
                         'width'    => 1440,
                         'height'   => 320,
+                        'layout'   => array('z_index' => 39),
                         'children' => array(
                             array('id' => 'layer-role:hero/text', 'type' => 'TEXT', 'name' => 'Hero headline', 'characters' => 'Hero', 'x' => 120, 'y' => 140, 'width' => 200, 'height' => 48, 'fontSize' => 40),
                         ),
@@ -319,6 +320,7 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
                         'y'        => 0,
                         'width'    => 1440,
                         'height'   => 80,
+                        'layout'   => array('z_index' => 16),
                         'children' => array(
                             array('id' => 'layer-role:header/logo', 'type' => 'TEXT', 'name' => 'Logo', 'characters' => 'Logo', 'x' => 32, 'y' => 24, 'width' => 80, 'height' => 24),
                             array('id' => 'layer-role:header/nav', 'type' => 'TEXT', 'name' => 'Navigation links', 'characters' => 'Menu', 'x' => 1200, 'y' => 24, 'width' => 120, 'height' => 24),
