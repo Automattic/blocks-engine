@@ -11,6 +11,7 @@ final class BreakpointMediaDiffBuilder
 {
     private readonly ResponsiveNodeMatcher $responsiveNodeMatcher;
     private readonly BreakpointDimensionPolicy $breakpointDimensionPolicy;
+    private readonly LayoutIntentClassifier $layoutIntentClassifier;
 
     /**
      * @var array<string, array<string, mixed>>
@@ -39,9 +40,11 @@ final class BreakpointMediaDiffBuilder
         private readonly mixed $number,
         ?ResponsiveNodeMatcher $responsiveNodeMatcher = null,
         ?BreakpointDimensionPolicy $breakpointDimensionPolicy = null,
+        ?LayoutIntentClassifier $layoutIntentClassifier = null,
     ) {
         $this->responsiveNodeMatcher = $responsiveNodeMatcher ?? new ResponsiveNodeMatcher($this->slug);
         $this->breakpointDimensionPolicy = $breakpointDimensionPolicy ?? new BreakpointDimensionPolicy($this->number);
+        $this->layoutIntentClassifier = $layoutIntentClassifier ?? new LayoutIntentClassifier();
     }
 
     public function resetDecisionTraces(): void
@@ -141,6 +144,8 @@ final class BreakpointMediaDiffBuilder
             'contains_sticky' => $this->stickyLayoutCoordinator->containsStickyPrimary($node),
             'node'            => $node,
             'parent_node'     => $parentNode,
+            'grand_parent_node' => $grandParentNode,
+            'depth'           => $depth,
         );
 
         $vectorSvg = ($this->supportedVectorSvg)($node, $type, $parentNode);
@@ -266,13 +271,15 @@ final class BreakpointMediaDiffBuilder
         foreach ( $baseStyles as $base ) {
             $node = is_array($base['node'] ?? null) ? $base['node'] : array();
             $parentNode = is_array($base['parent_node'] ?? null) ? $base['parent_node'] : null;
+            $grandParentNode = is_array($base['grand_parent_node'] ?? null) ? $base['grand_parent_node'] : null;
             $class = isset($base['class']) && is_scalar($base['class']) ? (string) $base['class'] : '';
             $baseMap = $this->styleDeclarationMap(is_array($base['styles'] ?? null) ? $base['styles'] : array());
             if ( '' === $class || empty($node) || empty($baseMap) ) {
                 continue;
             }
 
-            $decision = $this->responsiveSafetyDecision($node, $parentNode, $baseMap, $viewportWidth);
+            $depth = isset($base['depth']) && is_numeric($base['depth']) ? (int) $base['depth'] : 0;
+            $decision = $this->responsiveSafetyDecision($node, $parentNode, $baseMap, $viewportWidth, $depth, $grandParentNode);
             $declarations = is_array($decision['declarations'] ?? null) ? $decision['declarations'] : array();
             if ( empty($declarations) ) {
                 continue;
@@ -305,9 +312,9 @@ final class BreakpointMediaDiffBuilder
      * @param array<string, string> $baseMap
      * @return array<int, string>
      */
-    private function responsiveSafetyDeclarations(array $node, ?array $parentNode, array $baseMap, float $viewportWidth): array
+    private function responsiveSafetyDeclarations(array $node, ?array $parentNode, array $baseMap, float $viewportWidth, int $depth = 0, ?array $grandParentNode = null): array
     {
-        $decision = $this->responsiveSafetyDecision($node, $parentNode, $baseMap, $viewportWidth);
+        $decision = $this->responsiveSafetyDecision($node, $parentNode, $baseMap, $viewportWidth, $depth, $grandParentNode);
         return is_array($decision['declarations'] ?? null) ? $decision['declarations'] : array();
     }
 
@@ -317,10 +324,9 @@ final class BreakpointMediaDiffBuilder
      * @param array<string, string> $baseMap
      * @return array{reason_code: string, declarations: array<int, string>}
      */
-    private function responsiveSafetyDecision(array $node, ?array $parentNode, array $baseMap, float $viewportWidth): array
+    private function responsiveSafetyDecision(array $node, ?array $parentNode, array $baseMap, float $viewportWidth, int $depth = 0, ?array $grandParentNode = null): array
     {
         $name = strtolower(trim((string) ($node['name'] ?? '')));
-        $parentName = null === $parentNode ? '' : strtolower(trim((string) ($parentNode['name'] ?? '')));
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
         $positioning = (string) ($layout['positioning'] ?? ($baseMap['position'] ?? ''));
@@ -330,21 +336,28 @@ final class BreakpointMediaDiffBuilder
             $width = $this->cssPixelValue($baseMap['max-width'] ?? '');
         }
         $isContainer = in_array($type, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL'), true);
+        $chromeRole = $this->layoutIntentClassifier->chromeGroupRole($node, $parentNode, $depth);
+        $parentChromeRole = null === $parentNode ? null : $this->layoutIntentClassifier->chromeGroupRole($parentNode, $grandParentNode, max(1, $depth - 1));
 
-        if ( 'header' === $name && $isContainer ) {
-            return array('reason_code' => 'responsive_header_shell_safety', 'declarations' => array('height:auto', 'min-height:127px'));
+        if ( LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $chromeRole && $isContainer ) {
+            $minHeight = $this->cssPixelValue($baseMap['height'] ?? '') ?? $this->nodeBoxHeight($node);
+            $declarations = array('width:100%', 'max-width:100%', 'height:auto');
+            if ( null !== $minHeight && $minHeight > 0.0 ) {
+                $declarations[] = 'min-height:' . ($this->number)($minHeight) . 'px';
+            }
+            return array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $declarations);
         }
 
         if ( 'footer' === $name && $isContainer && $this->hasFooterResponsiveShell($node) ) {
             return array('reason_code' => 'responsive_footer_shell_safety', 'declarations' => array('height:auto', 'min-height:' . ($this->number)($this->footerResponsiveMinHeight($node)) . 'px'));
         }
 
-        if ( 'navigation' === $name && $isContainer ) {
-            return array('reason_code' => 'responsive_navigation_shell_safety', 'declarations' => array('width:100%', 'max-width:100%', 'height:auto', 'justify-content:flex-start', 'flex-wrap:wrap', 'gap:16px'));
+        if ( (LayoutIntentClassifier::CHROME_GROUP_ROLE_NAVIGATION === $chromeRole || 'navigation' === $name) && $isContainer ) {
+            return array('reason_code' => 'responsive_navigation_chrome_safety', 'declarations' => array('width:100%', 'max-width:100%', 'height:auto', 'justify-content:flex-start', 'flex-wrap:wrap', 'gap:16px'));
         }
 
-        if ( 'frame 21' === $name && 'header' === $parentName && $isContainer ) {
-            return array('reason_code' => 'responsive_header_inner_shell_safety', 'declarations' => array('width:100%', 'height:auto', 'position:relative', 'left:auto', 'right:auto', 'top:auto', 'justify-content:flex-start', 'align-items:center', 'flex-wrap:wrap', 'gap:16px', 'padding-top:72px', 'padding-right:24px', 'padding-bottom:24px', 'padding-left:24px'));
+        if ( LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $parentChromeRole && $isContainer ) {
+            return array('reason_code' => 'responsive_header_child_chrome_safety', 'declarations' => array('width:100%', 'max-width:100%', 'height:auto', 'position:relative', 'left:auto', 'right:auto', 'top:auto', 'justify-content:flex-start', 'align-items:center', 'flex-wrap:wrap', 'gap:16px', 'padding-top:24px', 'padding-right:24px', 'padding-bottom:24px', 'padding-left:24px'));
         }
 
         if ( str_contains($name, 'newsletter signup') && $isContainer && 'absolute' === $positioning ) {

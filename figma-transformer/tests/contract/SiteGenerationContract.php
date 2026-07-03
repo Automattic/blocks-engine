@@ -1416,6 +1416,77 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-card-a-feature-card-a{width:100%;max-width:100%}'), 'responsive-emit-mobile-generic-mismatched-fixed-card-fluidizes');
     $assert(str_contains($responsiveMismatchMobileBlock, '.figma-node-mismatch-desktop-absolute-card-floating-promo-card{width:calc(100% - 48px);max-width:980px;left:24px;right:auto;height:auto;'), 'responsive-emit-mobile-generic-mismatched-absolute-card-insets');
 
+    $responsiveChromeScenegraph = array(
+        'name'  => 'Responsive Top Chrome Site',
+        'nodes' => array(
+            $responsiveEmitFrame('chrome:desktop', 'Chrome Desktop', 1440.0, 900.0, array(
+                array(
+                    'id'       => 'chrome:desktop:header',
+                    'type'     => 'FRAME',
+                    'name'     => 'Header',
+                    'box'      => array('width' => 1440.0, 'height' => 96.0),
+                    'layout'   => array('display' => 'flex', 'flex_direction' => 'row', 'justify_content' => 'center', 'align_items' => 'center'),
+                    'children' => array(
+                        array(
+                            'id'       => 'chrome:desktop:header-row',
+                            'type'     => 'FRAME',
+                            'name'     => 'Primary chrome row',
+                            'box'      => array('width' => 1200.0, 'height' => 48.0),
+                            'layout'   => array('display' => 'flex', 'flex_direction' => 'row', 'justify_content' => 'space-between', 'align_items' => 'center', 'item_spacing' => 32.0),
+                            'children' => array(
+                                array('id' => 'chrome:desktop:logo', 'type' => 'TEXT', 'name' => 'Brand logo', 'characters' => 'Dr Aarti', 'box' => array('width' => 140.0, 'height' => 24.0), 'fontSize' => 20),
+                                array(
+                                    'id'       => 'chrome:desktop:navigation',
+                                    'type'     => 'FRAME',
+                                    'name'     => 'Primary navigation',
+                                    'box'      => array('width' => 420.0, 'height' => 24.0),
+                                    'layout'   => array('display' => 'flex', 'flex_direction' => 'row', 'item_spacing' => 28.0),
+                                    'children' => array(
+                                        array('id' => 'chrome:desktop:nav-home', 'type' => 'TEXT', 'name' => 'Menu item', 'characters' => 'Home', 'box' => array('width' => 48.0, 'height' => 20.0), 'figma_link' => array('url' => '/')),
+                                        array('id' => 'chrome:desktop:nav-services', 'type' => 'TEXT', 'name' => 'Menu item', 'characters' => 'Services', 'box' => array('width' => 72.0, 'height' => 20.0), 'figma_link' => array('url' => '/services')),
+                                    ),
+                                ),
+                                array('id' => 'chrome:desktop:cta', 'type' => 'FRAME', 'name' => 'Book now CTA', 'box' => array('width' => 132.0, 'height' => 44.0), 'children' => array(
+                                    array('id' => 'chrome:desktop:cta-label', 'type' => 'TEXT', 'name' => 'Button label', 'characters' => 'Book now', 'box' => array('width' => 72.0, 'height' => 20.0)),
+                                )),
+                            ),
+                        ),
+                    ),
+                ),
+                array('id' => 'chrome:desktop:hero', 'type' => 'FRAME', 'name' => 'Hero', 'box' => array('width' => 1440.0, 'height' => 600.0)),
+            )),
+            $responsiveEmitFrame('chrome:mobile', 'Chrome Mobile', 390.0, 1000.0, array(
+                array('id' => 'chrome:mobile:header', 'type' => 'FRAME', 'name' => 'Mobile header', 'box' => array('width' => 390.0, 'height' => 156.0)),
+                array('id' => 'chrome:mobile:hero', 'type' => 'FRAME', 'name' => 'Hero', 'box' => array('width' => 390.0, 'height' => 620.0)),
+            )),
+        ),
+    );
+    $responsiveChromeResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveChromeScenegraph, array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'chrome:desktop',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'responsive' => true,
+                'variants'   => array(
+                    array('frame_id' => 'chrome:desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true, 'order' => 0),
+                    array('frame_id' => 'chrome:mobile', 'device_hint' => 'mobile', 'viewport_width' => 390.0, 'primary' => false, 'order' => 1),
+                ),
+            ),
+        ),
+    ));
+    $responsiveChromeCss = '';
+    foreach ( $responsiveChromeResult['files'] ?? array() as $responsiveChromeFile ) {
+        if ( is_array($responsiveChromeFile) && 'style.css' === ($responsiveChromeFile['path'] ?? null) ) {
+            $responsiveChromeCss = (string) ($responsiveChromeFile['content'] ?? '');
+        }
+    }
+    $responsiveChromeMobileBlock = substr($responsiveChromeCss, strpos($responsiveChromeCss, '@media'));
+    $assert(str_contains($responsiveChromeMobileBlock, '.figma-node-chrome-desktop-header-header{max-width:100%;height:auto;min-height:96px}'), 'responsive-emit-mobile-top-chrome-header-keeps-source-height-floor');
+    $assert(preg_match('/\.figma-node-chrome-desktop-header-row-primary-chrome-row\{[^}]*height:auto[^}]*position:relative[^}]*left:auto[^}]*right:auto[^}]*top:auto[^}]*justify-content:flex-start[^}]*flex-wrap:wrap[^}]*gap:16px[^}]*padding-top:24px[^}]*padding-right:24px[^}]*padding-bottom:24px[^}]*padding-left:24px/s', $responsiveChromeMobileBlock) === 1, 'responsive-emit-mobile-top-chrome-inner-row-wraps-with-normal-gutters');
+    $assert(str_contains($responsiveChromeMobileBlock, '.figma-node-chrome-desktop-navigation-primary-navigation{width:100%;max-width:100%;height:auto;justify-content:flex-start;flex-wrap:wrap;gap:16px}'), 'responsive-emit-mobile-top-chrome-navigation-wraps');
+    $assert(! str_contains($responsiveChromeMobileBlock, 'padding-top:72px'), 'responsive-emit-mobile-top-chrome-no-instance-specific-header-offset');
+
     $responsiveIdentityScenegraph = array(
         'name'  => 'Responsive Source Identity Site',
         'nodes' => array(
