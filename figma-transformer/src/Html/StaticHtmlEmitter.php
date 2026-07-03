@@ -721,6 +721,7 @@ final class StaticHtmlEmitter
             $insertedAccessoryInput = false;
             $simpleMaskClipPaths = $this->simpleMaskClipPathsByTargetId($children);
             $suppressRootOffCanvasChildren = 0 === $depth && $this->hasRootOffCanvasChildCluster($children, $node);
+            $imageMaskPaths = $this->imageMaskPathsBySolidOverlayId($children);
             foreach ( $children as $child ) {
                 if ( is_array($child) ) {
                     if ( $this->isMaskOperatorNode($child) ) {
@@ -730,6 +731,9 @@ final class StaticHtmlEmitter
                     $childId = isset($child['id']) && is_scalar($child['id']) ? (string) $child['id'] : '';
                     if ( '' !== $childId && isset($simpleMaskClipPaths[$childId]) ) {
                         $child['_figma_css_clip_path'] = $simpleMaskClipPaths[$childId];
+                    }
+                    if ( '' !== $childId && isset($imageMaskPaths[$childId]) ) {
+                        $child['_figma_css_mask_image_path'] = $imageMaskPaths[$childId];
                     }
                     if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
                         $this->recordDecisionTrace('layout_suppression', 'fully_clipped_decorative_child_suppressed', $child, 'skip_child', $node, array('depth' => $depth + 1));
@@ -3188,7 +3192,7 @@ final class StaticHtmlEmitter
     private function implicitRouteHref(array $node, ?array $parentNode, bool $recordUnresolved = false): ?string
     {
         $name = strtolower((string) ($node['name'] ?? ''));
-        if ( str_contains($name, 'logo') ) {
+        if ( str_contains($name, 'logo') && ! $this->isSocialIconNode($node) ) {
             return $this->entrypointPath;
         }
 
@@ -3221,6 +3225,21 @@ final class StaticHtmlEmitter
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function isSocialIconNode(array $node): bool
+    {
+        $name = strtolower((string) ($node['name'] ?? ''));
+        foreach ( array('facebook', 'instagram', 'twitter', 'x-twitter', 'linkedin', 'youtube', 'tiktok', 'pinterest', 'mastodon', 'bluesky') as $network ) {
+            if ( str_contains($name, $network) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function routePathForLabel(string $label, ?array $node = null, ?array $parentNode = null, bool $recordUnresolved = false): ?string
@@ -5408,6 +5427,90 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array<int, mixed> $children
+     * @return array<string, string>
+     */
+    private function imageMaskPathsBySolidOverlayId(array $children): array
+    {
+        $nodes = array_values(array_filter($children, 'is_array'));
+        $maskPaths = array();
+        foreach ( $nodes as $node ) {
+            if ( $this->isMaskOperatorNode($node) ) {
+                continue;
+            }
+
+            $nodeId = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
+            if ( '' === $nodeId || null !== $this->nodeAssetPath($node) || ! $this->hasVisibleSolidFill($node) ) {
+                continue;
+            }
+
+            foreach ( $nodes as $candidate ) {
+                if ( $candidate === $node || $this->isMaskOperatorNode($candidate) ) {
+                    continue;
+                }
+
+                $assetPath = $this->nodeAssetPath($candidate);
+                if ( null !== $assetPath && $this->isSameBoxNode($node, $candidate) ) {
+                    $maskPaths[$nodeId] = $assetPath;
+                    break;
+                }
+            }
+        }
+
+        return $maskPaths;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $candidate
+     */
+    private function isSameBoxNode(array $node, array $candidate): bool
+    {
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $candidateBox = is_array($candidate['box'] ?? null) ? $candidate['box'] : array();
+        foreach ( array('x', 'y', 'width', 'height') as $key ) {
+            $value = isset($box[$key]) && is_numeric($box[$key]) ? (float) $box[$key] : ( in_array($key, array('x', 'y'), true) ? 0.0 : null );
+            $candidateValue = isset($candidateBox[$key]) && is_numeric($candidateBox[$key]) ? (float) $candidateBox[$key] : ( in_array($key, array('x', 'y'), true) ? 0.0 : null );
+            if ( null === $value || null === $candidateValue || abs($value - $candidateValue) > 0.5 ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     */
+    private function hasVisibleSolidFill(array $node): bool
+    {
+        $paintCollections = array();
+        if ( is_array($node['figma_paints']['fills'] ?? null) ) {
+            $paintCollections[] = $node['figma_paints']['fills'];
+        }
+        foreach ( array('fillPaints', 'paints') as $key ) {
+            if ( is_array($node[$key] ?? null) ) {
+                $paintCollections[] = $node[$key];
+            }
+        }
+
+        foreach ( $paintCollections as $fills ) {
+            foreach ( $fills as $fill ) {
+                if ( ! is_array($fill) || 'SOLID' !== strtoupper((string) ($fill['type'] ?? '')) ) {
+                    continue;
+                }
+                if ( false === ($fill['visible'] ?? null) || (isset($fill['opacity']) && is_numeric($fill['opacity']) && (float) $fill['opacity'] <= 0.0) ) {
+                    continue;
+                }
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param array<string, mixed> $maskNode
      * @param array<int, array<string, mixed>> $nodes
      * @return array<string, mixed>|null
@@ -5609,6 +5712,16 @@ final class StaticHtmlEmitter
 
         if ( isset($node['_figma_css_clip_path']) && is_scalar($node['_figma_css_clip_path']) && '' !== (string) $node['_figma_css_clip_path'] ) {
             $styles[] = 'clip-path:' . (string) $node['_figma_css_clip_path'];
+        }
+
+        if ( isset($node['_figma_css_mask_image_path']) && is_scalar($node['_figma_css_mask_image_path']) && '' !== (string) $node['_figma_css_mask_image_path'] ) {
+            $maskPath = (string) $node['_figma_css_mask_image_path'];
+            $styles[] = '-webkit-mask-image:url("' . $maskPath . '")';
+            $styles[] = 'mask-image:url("' . $maskPath . '")';
+            $styles[] = '-webkit-mask-size:100% 100%';
+            $styles[] = 'mask-size:100% 100%';
+            $styles[] = '-webkit-mask-repeat:no-repeat';
+            $styles[] = 'mask-repeat:no-repeat';
         }
 
         $positioningStyleDecision = $this->positioningStyleResolver()->resolve($node, $type, $parentNode, $box, $layout, $canvasShell, $styles);

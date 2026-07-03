@@ -55,6 +55,59 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $qualityRootRule = blocks_engine_figma_transformer_contract_css_rule($qualityCss, '.figma-node-quality-root-desktop-fixed-root');
     $assert(str_contains($qualityRootRule, 'width:100%') && ! str_contains($qualityRootRule, 'max-width:1440px'), 'quality-diagnostics-root-fills-viewport-without-implicit-canvas-cap');
 
+    $socialIconResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'   => 'Social Icon Fixture',
+        'assets' => array(
+            'social-mask-image' => array('mime_type' => 'image/png', 'content' => 'social icon'),
+        ),
+        'nodes'  => array(
+            array(
+                'id'       => 'social:page',
+                'type'     => 'FRAME',
+                'name'     => 'Home',
+                'width'    => 1440,
+                'height'   => 320,
+                'children' => array(
+                    array(
+                        'id'       => 'social:footer',
+                        'type'     => 'FRAME',
+                        'name'     => 'Footer',
+                        'width'    => 1440,
+                        'height'   => 160,
+                        'children' => array(
+                            array(
+                                'id'       => 'social:icons',
+                                'type'     => 'FRAME',
+                                'name'     => 'Social',
+                                'x'        => 1200,
+                                'y'        => 64,
+                                'width'    => 54,
+                                'height'   => 24,
+                                'children' => array(
+                                    array(
+                                        'id'       => 'social:facebook-object',
+                                        'type'     => 'FRAME',
+                                        'name'     => 'Object',
+                                        'width'    => 24,
+                                        'height'   => 24,
+                                        'children' => array(
+                                            array('id' => 'social:facebook-image', 'type' => 'RECTANGLE', 'name' => '001-facebook-logo', 'width' => 24, 'height' => 24, 'asset_id' => 'social-mask-image'),
+                                            array('id' => 'social:facebook-color', 'type' => 'RECTANGLE', 'name' => '001-facebook-logo', 'width' => 24, 'height' => 24, 'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1)))),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $socialIconHtml = $fileContent($socialIconResult, 'index.html');
+    $socialIconCss = $fileContent($socialIconResult, 'style.css');
+    $assert(! str_contains($socialIconHtml, '<a class="figma-link" href="index.html" data-figma-link-type="implicit-route"><div class="figma-node-social-facebook-image-001-facebook-logo'), 'social-icon-logo-name-does-not-create-implicit-home-route');
+    $assert(str_contains($socialIconCss, '.figma-node-social-facebook-color-001-facebook-logo{width:24px;height:24px;') && str_contains($socialIconCss, 'background:#ffffff') && str_contains($socialIconCss, 'mask-image:url("assets/social-mask-image'), 'social-icon-solid-overlay-uses-image-mask');
+
     $explicitMaxWidthResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Explicit Root Max Width Fixture',
         'nodes' => array(
