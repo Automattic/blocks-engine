@@ -20,6 +20,8 @@ final class StaticHtmlEmitter
 
     private const EXTERNAL_VECTOR_SVG_BYTES = 65536;
 
+    private LayoutGapResolver $layoutGapResolver;
+
     /**
      * @var array<string, array<string, mixed>>
      */
@@ -66,6 +68,11 @@ final class StaticHtmlEmitter
     private ?HtmlArtifactAssembler $htmlArtifactAssembler = null;
 
     private ?BreakpointMediaDiffBuilder $breakpointMediaDiffBuilder = null;
+
+    public function __construct(?LayoutGapResolver $layoutGapResolver = null)
+    {
+        $this->layoutGapResolver = $layoutGapResolver ?? new LayoutGapResolver();
+    }
 
     private function designSystemExtractor(): DesignSystemExtractor
     {
@@ -4955,24 +4962,13 @@ final class StaticHtmlEmitter
 
         $justifyContent = (string) ($layout['justify_content'] ?? '');
         $usesDistributedMainAxis = in_array($justifyContent, array('space-between', 'space-around', 'space-evenly'), true);
-        $itemSpacing = $layout['item_spacing'] ?? ($layout['gap'] ?? null);
-        if ( ! $usesDistributedMainAxis && is_numeric($itemSpacing) ) {
-            $mainGap = $this->number((float) $itemSpacing);
-            if ( 'wrap' === ($layout['flex_wrap'] ?? null)
-                && isset($layout['counter_axis_spacing'])
-                && is_numeric($layout['counter_axis_spacing'])
-                && (float) $layout['counter_axis_spacing'] !== (float) $itemSpacing ) {
-                // CSS `gap` shorthand is `row-gap column-gap`. In a wrapping flex
-                // row the main-axis item spacing is the column gap while the
-                // counter-axis spacing (the gap between wrapped rows) is the row
-                // gap; a wrapping column is the inverse.
-                $counterGap = $this->number((float) $layout['counter_axis_spacing']);
-                $isColumn = 'column' === ($layout['flex_direction'] ?? null);
-                $rowGap = $isColumn ? $mainGap : $counterGap;
-                $columnGap = $isColumn ? $counterGap : $mainGap;
-                $styles[] = 'gap:' . $rowGap . 'px ' . $columnGap . 'px';
+        $gap = $this->layoutGapResolver->resolve($layout);
+        if ( ! $usesDistributedMainAxis && null !== $gap ) {
+            if ( 'wrap' === ($layout['flex_wrap'] ?? null) && $gap['row'] !== $gap['column'] ) {
+                // CSS `gap` shorthand is `row-gap column-gap`.
+                $styles[] = 'gap:' . $this->number($gap['row']) . 'px ' . $this->number($gap['column']) . 'px';
             } else {
-                $styles[] = 'gap:' . $mainGap . 'px';
+                $styles[] = 'gap:' . $this->number($gap['column']) . 'px';
             }
         }
 
