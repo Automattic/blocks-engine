@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<div class=\"visit-links\"><a href=\"tel:+15038417220\">(503) 841-7220</a><a href=\"mailto:hello@example.com\">hello@example.com</a></div>"
+    "content": "<div class=\"visit-links\"><a href=\"tel:+15038417220\"><svg viewBox=\"0 0 10 10\" aria-hidden=\"true\"><path d=\"M0 0h10v10H0z\"></path></svg>(503) 841-7220</a><a href=\"mailto:hello@example.com\"><svg viewBox=\"0 0 10 10\" aria-hidden=\"true\"><path d=\"M0 0h10v10H0z\"></path></svg>hello@example.com</a></div>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/buttons", "attrs": { "className": "visit-links" } },
@@ -25,6 +25,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:navigation" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:navigation-link" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
     { "path": "serialized_blocks", "assert": "contains", "value": "href=\"tel:+15038417220\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "href=\"mailto:hello@example.com\"" }
   ]

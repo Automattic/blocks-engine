@@ -1424,14 +1424,6 @@ final class HtmlTransformer
                 return $linkedImage;
             }
 
-            if ( '' === trim($element->textContent ?? '') && '' !== $this->safeLinkUrl($this->attr($element, 'href')) && '' !== trim($this->attr($element, 'aria-label')) ) {
-                return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->outerHtml($element) )), array(), $element);
-            }
-
-            if ( '' === trim($element->textContent ?? '') ) {
-                return null;
-            }
-
             $logo = $this->logoPattern->match(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
@@ -1454,6 +1446,14 @@ final class HtmlTransformer
             );
             if ( null !== $button ) {
                 return $button;
+            }
+
+            if ( '' === trim($element->textContent ?? '') && '' !== $this->safeLinkUrl($this->attr($element, 'href')) && '' !== trim($this->attr($element, 'aria-label')) ) {
+                return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->outerHtml($element) )), array(), $element);
+            }
+
+            if ( '' === trim($element->textContent ?? '') ) {
+                return null;
             }
 
             if ( $this->hasBlockContentChildren($element) ) {

@@ -54,7 +54,7 @@ final class ButtonsPattern
                 $this->buttonRuntimeAttributes($button),
                 array(
                     'tagName' => 'button',
-                    'text'    => $this->buttonText($innerHtml($button)),
+                    'text'    => $this->buttonText($button, $innerHtml($button)),
                 )
             ), array(), $button),
         ), $button);
@@ -96,16 +96,54 @@ final class ButtonsPattern
     private function buttonBlockFromAnchor(DOMElement $anchor, callable $presentationAttributes, callable $resolvedStyle, callable $innerHtml, callable $attr, callable $createBlock): array
     {
         return $createBlock('core/button', array_filter(array_merge($this->buttonPresentationAttributes($anchor, $presentationAttributes, $resolvedStyle), array(
-            'text' => $this->buttonText($innerHtml($anchor)),
+            'text' => $this->buttonText($anchor, $innerHtml($anchor)),
             'url'  => $attr($anchor, 'href'),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value), array(), $anchor);
     }
 
-    private function buttonText(string $html): string
+    private function buttonText(DOMElement $element, string $html): string
     {
+        $html = preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html;
+        $html = preg_replace('/<img\b[^>]*\balt\s*=\s*(["\'])(.*?)\1[^>]*>/is', '$2', $html) ?? $html;
+        $html = preg_replace('/<img\b[^>]*>/is', '', $html) ?? $html;
         $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>\s*<\/\1>/i', '', $html) ?? $html;
         $html = preg_replace('/<\/?(?:' . self::BLOCK_LEVEL_LABEL_TAGS . ')\b[^>]*>/i', '', $html) ?? $html;
-        return $this->unwrapPresentationalSpan(trim($html));
+        $html = $this->unwrapPresentationalSpan(trim($html));
+        if ( '' !== trim($this->plainText($html)) ) {
+            return $html;
+        }
+
+        return $this->accessibleFallbackLabel($element);
+    }
+
+    private function plainText(string $html): string
+    {
+        return trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+    }
+
+    private function accessibleFallbackLabel(DOMElement $element): string
+    {
+        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
+            $label = trim($element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '');
+            if ( '' !== $label ) {
+                return htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            }
+        }
+
+        $image = $element->getElementsByTagName('img')->item(0);
+        if ( $image instanceof DOMElement ) {
+            $alt = trim($image->hasAttribute('alt') ? $image->getAttribute('alt') : '');
+            if ( '' !== $alt ) {
+                return htmlspecialchars($alt, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            }
+        }
+
+        $title = $element->getElementsByTagName('title')->item(0);
+        if ( $title instanceof DOMElement && '' !== trim($title->textContent ?? '') ) {
+            return htmlspecialchars(trim($title->textContent ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+
+        return '';
     }
 
     /**
@@ -315,8 +353,13 @@ final class ButtonsPattern
 				continue;
 			}
 
-			if ( ! in_array(strtolower($child->tagName), array( 'abbr', 'b', 'br', 'cite', 'code', 'em', 'i', 'mark', 'small', 'span', 'strong', 'sub', 'sup', 'time' ), true) ) {
+			$tagName = strtolower($child->tagName);
+			if ( ! in_array($tagName, array( 'abbr', 'b', 'br', 'cite', 'code', 'em', 'i', 'mark', 'small', 'span', 'strong', 'sub', 'sup', 'svg', 'time' ), true) ) {
 				return false;
+			}
+
+			if ( 'svg' === $tagName ) {
+				continue;
 			}
 
 			if ( ! $this->isSimpleAnchor($child) ) {

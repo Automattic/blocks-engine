@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-header" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/html" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "site-logo" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "primary-nav" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation-link", "attrs": { "url": "/docs", "kind": "custom" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/navigation-link", "attrs": { "url": "/pricing", "kind": "custom" } },
@@ -38,7 +38,8 @@
     { "path": "blocks", "assert": "count", "count": 4 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
     { "path": "serialized_blocks", "assert": "contains", "value": "site-logo" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<svg" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/\">Acme</a>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
     { "path": "blocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 2 },
     { "path": "blocks.1.innerBlocks", "assert": "count", "count": 2 },
     { "path": "blocks.2.innerBlocks", "assert": "count", "count": 2 },
