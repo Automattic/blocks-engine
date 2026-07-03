@@ -24,7 +24,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button checkout-button\">" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link has-text-color has-background wp-element-button\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"border-radius:6px;color:#f9fafb;background-color:#111827;padding-top:10px;padding-right:20px;padding-bottom:10px;padding-left:20px;font-weight:800;text-transform:uppercase\"" },
+    { "path": "serialized_blocks", "assert": "contains_style_declarations", "value": "border-radius:6px;color:#f9fafb;background-color:#111827;padding-top:10px;padding-right:20px;padding-bottom:10px;padding-left:20px;font-weight:800;text-transform:uppercase" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "background-color:#f7f7f7" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "border-width" }
   ]

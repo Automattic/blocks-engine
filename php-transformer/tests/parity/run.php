@@ -684,6 +684,20 @@ function assertExpectation(array $output, array $expectation, string $fixtureNam
         return;
     }
 
+    if ( 'contains_style_declarations' === $assertion ) {
+        $expected = parseStyleDeclarations((string) ($expectation['value'] ?? ''));
+        if ( array() === $expected ) {
+            fail("Fixture {$fixtureName} contains_style_declarations expectation at {$path} must provide at least one CSS declaration.");
+        }
+        if ( ! is_string($actual) ) {
+            failExpectation($fixtureName, $path, 'string containing inline style declarations', $actual);
+        }
+        if ( ! containsStyleDeclarations($actual, $expected) ) {
+            failExpectation($fixtureName, $path, array('style_declarations' => $expected), inlineStyleDeclarationMaps($actual));
+        }
+        return;
+    }
+
     if ( 'not_contains' === $assertion ) {
         $expected = (string) ($expectation['value'] ?? '');
         if ( is_string($actual) && str_contains($actual, $expected) ) {
@@ -702,6 +716,133 @@ function assertExpectation(array $output, array $expectation, string $fixtureNam
     }
 
     fail("Fixture {$fixtureName} declares unsupported assertion: {$assertion}");
+}
+
+/**
+ * @param array<string, string> $expected
+ */
+function containsStyleDeclarations(string $actual, array $expected): bool
+{
+    foreach ( inlineStyleDeclarationMaps($actual) as $styleDeclarations ) {
+        $matched = true;
+        foreach ( $expected as $property => $value ) {
+            if ( ($styleDeclarations[$property] ?? null) !== $value ) {
+                $matched = false;
+                break;
+            }
+        }
+        if ( $matched ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * @return array<int, array<string, string>>
+ */
+function inlineStyleDeclarationMaps(string $html): array
+{
+    $matchCount = preg_match_all('/\sstyle=("|\')(.*?)\1/s', $html, $matches);
+    if ( false === $matchCount || 0 === $matchCount ) {
+        return array();
+    }
+
+    $styles = array();
+    foreach ( $matches[2] as $style ) {
+        $styles[] = parseStyleDeclarations(html_entity_decode($style, ENT_QUOTES | ENT_HTML5));
+    }
+
+    return $styles;
+}
+
+/**
+ * @return array<string, string>
+ */
+function parseStyleDeclarations(string $style): array
+{
+    $declarations = array();
+    foreach ( splitCssTopLevel($style, ';') as $declaration ) {
+        $parts = splitCssTopLevel($declaration, ':', 2);
+        if ( 2 !== count($parts) ) {
+            continue;
+        }
+
+        $property = strtolower(trim($parts[0]));
+        $value = trim($parts[1]);
+        if ( '' === $property || '' === $value ) {
+            continue;
+        }
+
+        $declarations[$property] = $value;
+    }
+
+    return $declarations;
+}
+
+/**
+ * @return array<int, string>
+ */
+function splitCssTopLevel(string $value, string $delimiter, ?int $limit = null): array
+{
+    $parts = array();
+    $part = '';
+    $depth = 0;
+    $quote = '';
+    $escaped = false;
+
+    foreach ( str_split($value) as $char ) {
+        if ( $escaped ) {
+            $part .= $char;
+            $escaped = false;
+            continue;
+        }
+
+        if ( '\\' === $char ) {
+            $part .= $char;
+            $escaped = true;
+            continue;
+        }
+
+        if ( '' !== $quote ) {
+            $part .= $char;
+            if ( $char === $quote ) {
+                $quote = '';
+            }
+            continue;
+        }
+
+        if ( '"' === $char || "'" === $char ) {
+            $part .= $char;
+            $quote = $char;
+            continue;
+        }
+
+        if ( '(' === $char ) {
+            ++$depth;
+            $part .= $char;
+            continue;
+        }
+
+        if ( ')' === $char && $depth > 0 ) {
+            --$depth;
+            $part .= $char;
+            continue;
+        }
+
+        if ( $char === $delimiter && 0 === $depth && ( null === $limit || count($parts) < $limit - 1 ) ) {
+            $parts[] = $part;
+            $part = '';
+            continue;
+        }
+
+        $part .= $char;
+    }
+
+    $parts[] = $part;
+
+    return $parts;
 }
 
 /**
