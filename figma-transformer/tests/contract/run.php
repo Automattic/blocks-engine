@@ -6964,6 +6964,39 @@ $assert(
     array('width:100%', 'max-width:100%', 'height:auto', 'display:flex', 'flex-direction:column', 'align-items:stretch', 'justify-content:flex-start', 'min-height:96px') === $breakpointDimensionPolicy->headerChromeDeclarations(96.0),
     'breakpoint-dimension-policy-header-fluid-min-height-pairing'
 );
+$responsiveBreakpointSafetyPolicy = new Automattic\BlocksEngine\FigmaTransformer\Html\ResponsiveBreakpointSafetyPolicy(
+    static fn (array $node): array => is_array($node['children'] ?? null) ? $node['children'] : array(),
+    fn (float $value): string => rtrim(rtrim(sprintf('%.4F', $value), '0'), '.'),
+    $breakpointDimensionPolicy,
+    new Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier()
+);
+$assert(
+    array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $breakpointDimensionPolicy->headerChromeDeclarations(96.0)) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
+        array('id' => 'policy:header', 'type' => 'FRAME', 'name' => 'Top Bar', 'box' => array('height' => 96)),
+        null,
+        array('height' => '96px'),
+        null,
+        'top bar',
+        '',
+        true,
+        Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER,
+        null
+    ),
+    'responsive-breakpoint-safety-policy-header-chrome-decision-seam'
+);
+$assert(
+    array('width:calc(100% - 48px)', 'max-width:342px', 'left:24px', 'right:auto') === $responsiveBreakpointSafetyPolicy->mobileCenteredTextFallbackDecision(
+        array('id' => 'policy:text', 'type' => 'TEXT', 'name' => 'Hero Title'),
+        array('id' => 'policy:parent', 'type' => 'FRAME'),
+        array('left' => 'calc(50% - 360px)'),
+        390.0,
+        'TEXT',
+        899.0,
+        'absolute',
+        null
+    ),
+    'responsive-breakpoint-safety-policy-centered-text-fallback-seam'
+);
 $assert(
     array('width:100%') === $breakpointDimensionPolicy->breakpointWidthDeclarations(
         '390px',
