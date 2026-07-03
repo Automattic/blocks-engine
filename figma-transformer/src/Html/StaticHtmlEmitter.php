@@ -5594,6 +5594,9 @@ final class StaticHtmlEmitter
         foreach ( $this->composedImageBackgroundStyles($node) as $style ) {
             $styles[] = $style;
         }
+        if ( $canvasShell->fullBleedCanvasChild ) {
+            $styles = $this->scaleFullBleedImageCropStyles($styles, $layoutBox);
+        }
 
         if ( 'TEXT' === $type ) {
             foreach ( $this->textStyles($node, $parentNode, $grandParentNode) as $style ) {
@@ -5665,6 +5668,69 @@ final class StaticHtmlEmitter
         $this->recordGeometryDecisionDiagnostics($node, $type, $parentNode, $layoutBox, $box, $layout, $canvasShell, $canvasWidthDecision, $fullBleedBreakoutDecision, $positioningStyleDecision, $styles, $transform);
 
         return $styles;
+    }
+
+    /**
+     * @param array<int, string> $styles
+     * @param array<string, mixed> $box
+     * @return array<int, string>
+     */
+    private function scaleFullBleedImageCropStyles(array $styles, array $box): array
+    {
+        if ( ! isset($box['width']) || ! is_numeric($box['width']) || (float) $box['width'] <= 0.0 ) {
+            return $styles;
+        }
+
+        $sourceWidth = (float) $box['width'];
+        $scaled = array();
+        foreach ( $styles as $style ) {
+            if ( str_starts_with($style, 'background-size:') ) {
+                $scaled[] = $this->scaleFullBleedImageCropDeclaration($style, $sourceWidth, 'size');
+                continue;
+            }
+            if ( str_starts_with($style, 'background-position:') ) {
+                $scaled[] = $this->scaleFullBleedImageCropDeclaration($style, $sourceWidth, 'position');
+                continue;
+            }
+
+            $scaled[] = $style;
+        }
+
+        return $scaled;
+    }
+
+    private function scaleFullBleedImageCropDeclaration(string $style, float $sourceWidth, string $kind): string
+    {
+        $parts = explode(':', $style, 2);
+        if ( 2 !== count($parts) ) {
+            return $style;
+        }
+
+        $layers = explode(',', $parts[1]);
+        $scaledLayers = array();
+        foreach ( $layers as $layer ) {
+            $tokens = preg_split('/\s+/', trim($layer));
+            if ( ! is_array($tokens) || 2 !== count($tokens) ) {
+                return $style;
+            }
+
+            $scaledTokens = array();
+            foreach ( $tokens as $token ) {
+                if ( 1 !== preg_match('/^-?\d+(?:\.\d+)?px$/', $token) ) {
+                    return $style;
+                }
+
+                $value = (float) substr($token, 0, -2);
+                if ( 'size' === $kind && $value <= 0.0 ) {
+                    return $style;
+                }
+                $scaledTokens[] = 'calc(100vw * ' . $this->number($value / $sourceWidth) . ')';
+            }
+
+            $scaledLayers[] = implode(' ', $scaledTokens);
+        }
+
+        return $parts[0] . ':' . implode(',', $scaledLayers);
     }
 
     /**

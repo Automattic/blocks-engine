@@ -608,6 +608,49 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $assert(true === ($cropRectVisualNode['image']['has_crop_rect'] ?? null), 'visual-node-image-crop-rect-flag');
     $assert(0.5 === ($cropRectVisualNode['image']['crop_rect']['width'] ?? null), 'visual-node-image-crop-rect-width');
 
+    $fullBleedImageTransformResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'   => 'Full Bleed Image Transform Fixture',
+        'assets' => array(
+            'hero-crop' => array('mime_type' => 'image/png', 'content' => 'hero crop image'),
+        ),
+        'nodes'  => array(
+            array(
+                'id'       => 'fullbleed:root',
+                'type'     => 'FRAME',
+                'name'     => 'Full bleed page',
+                'width'    => 1440,
+                'height'   => 720,
+                'layout'   => array('freeform' => true, 'display' => 'flex', 'flex_direction' => 'column'),
+                'children' => array(
+                    array(
+                        'id'         => 'fullbleed:hero-image',
+                        'type'       => 'RECTANGLE',
+                        'name'       => 'Hero crop image',
+                        'width'      => 1440,
+                        'height'     => 590,
+                        'x'          => 0,
+                        'y'          => 120,
+                        'layout'     => array('positioning' => 'absolute'),
+                        'fillPaints' => array(
+                            array(
+                                'type'           => 'IMAGE',
+                                'imageRef'       => 'hero-crop',
+                                'imageScaleMode' => 'FILL',
+                                'imageTransform' => array(
+                                    array(0.5, 0, 0),
+                                    array(0, 0.8, 0.1),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $fullBleedImageTransformCss = $fileContent($fullBleedImageTransformResult, 'style.css');
+    $assert(str_contains($fullBleedImageTransformCss, '.figma-node-fullbleed-hero-image-hero-crop-image{width:100vw;height:590px;position:absolute;top:120px;left:50%;margin-left:-50vw;background-image:url("assets/hero-crop.png");background-size:calc(100vw * 2) calc(100vw * 0.512);background-repeat:no-repeat;background-position:calc(100vw * 0) calc(100vw * -0.051)'), 'full-bleed-image-transform-scales-crop-to-viewport');
+    $assert(! str_contains($fullBleedImageTransformCss, '.figma-node-fullbleed-hero-image-hero-crop-image{width:100vw;height:590px;position:absolute;left:0px;'), 'full-bleed-image-transform-drops-source-left-before-breakout');
+
     $layeredImageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'   => 'Layered Image Paint Fixture',
         'assets' => array(

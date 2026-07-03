@@ -59,6 +59,26 @@ function blocks_engine_figma_transformer_run_component_clone_emission_contract(c
     $assert(in_array('left:1180px', $scalarStyles, true), 'component-clone-page-local-css-uses-clone-scalar-x');
     $assert(in_array('top:72px', $scalarStyles, true), 'component-clone-page-local-css-uses-clone-scalar-y');
 
+    $headerChromePositioning = new Automattic\BlocksEngine\FigmaTransformer\Html\CssPositioningResolver(
+        new Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier(),
+        static fn (float $value): string => 0.0 === fmod($value, 1.0) ? (string) (int) $value : rtrim(rtrim(sprintf('%.3F', $value), '0'), '.')
+    );
+    $headerChromeCtaStyles = $headerChromePositioning->styles(
+        array('x' => 1180, 'y' => 72, 'width' => 225, 'height' => 48),
+        array(),
+        array('name' => 'Header', 'box' => array('x' => 0, 'y' => 0, 'width' => 1440, 'height' => 145), 'layout' => array('freeform' => true)),
+        array('id' => 'header:cta', 'type' => 'INSTANCE', 'name' => 'Button One')
+    );
+    $assert(in_array('right:35px', $headerChromeCtaStyles, true), 'component-clone-header-cta-pins-to-right-edge');
+    $assert(! in_array('left:1180px', $headerChromeCtaStyles, true), 'component-clone-header-cta-drops-stale-left-edge');
+    $headerChromeStripStyles = $headerChromePositioning->styles(
+        array('x' => 264, 'y' => 0, 'width' => 1176, 'height' => 53),
+        array(),
+        array('name' => 'Header', 'box' => array('x' => 0, 'y' => 0, 'width' => 1440, 'height' => 145), 'layout' => array('freeform' => true)),
+        array('id' => 'header:strip', 'type' => 'RECTANGLE', 'name' => 'Top info strip')
+    );
+    $assert(array('left:264px', 'right:0px', 'width:auto', 'top:0px') === $headerChromeStripStyles, 'component-clone-header-strip-stretches-to-right-edge');
+
     $absoluteSourceDecision = $cloneGeometry->decideGeometrySource(
         array(
             'figma_component_source_id' => 'component-source:absolute',

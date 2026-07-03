@@ -162,7 +162,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     ));
     $fullWidthBandCss = $fileContent($fullWidthBandResult, 'style.css');
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-hero-hero-band{width:100%;height:520px;'), 'quality-diagnostics-full-width-band-renders-fluid');
-    $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-bg-full-bleed-background{width:100vw;height:520px;position:absolute;left:0px;top:0px;left:50%;margin-left:-50vw'), 'quality-diagnostics-fluid-band-full-bleed-absolute-child-breaks-out-to-viewport');
+    $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-bg-full-bleed-background{width:100vw;height:520px;position:absolute;top:0px;left:50%;margin-left:-50vw'), 'quality-diagnostics-fluid-band-full-bleed-absolute-child-breaks-out-to-viewport');
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-content-centered-content-shell{width:1216px;height:240px;position:absolute;left:calc(50% - 608px);top:80px'), 'quality-diagnostics-fluid-band-absolute-child-centers-in-intrinsic-canvas');
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-card-narrow-card{width:420px;height:240px;'), 'quality-diagnostics-narrow-band-keeps-intrinsic-width');
 
@@ -237,7 +237,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     ));
     $fluidManagedStackCss = $fileContent($fluidManagedStackResult, 'style.css');
     $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-footer-footer-shell{width:100%;height:483px;'), 'quality-diagnostics-fluid-managed-stack-renders-full-width');
-    $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-bg-footer-background{width:100vw;height:195px;position:absolute;left:0px;top:-64px;left:50%;margin-left:-50vw'), 'quality-diagnostics-fluid-managed-stack-full-bleed-child-breaks-out-to-viewport');
+    $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-bg-footer-background{width:100vw;height:195px;position:absolute;top:-64px;left:50%;margin-left:-50vw'), 'quality-diagnostics-fluid-managed-stack-full-bleed-child-breaks-out-to-viewport');
     $assert(str_contains($fluidManagedStackCss, '.figma-node-fluid-stack-card-centered-card{width:1216px;height:352px;position:absolute;left:calc(50% - 608px);top:0px'), 'quality-diagnostics-fluid-managed-stack-centered-child-uses-canvas-center');
 
     $fluidInstanceStackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -461,8 +461,8 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
         ),
     ));
     $rootAbsoluteChromeCss = $fileContent($rootAbsoluteChromeResult, 'style.css');
-    $assert(str_contains($rootAbsoluteChromeCss, '.figma-node-root-chrome-header-site-header{width:100vw;height:96px;position:absolute;left:0px;top:0px;left:50%;margin-left:-50vw'), 'quality-diagnostics-root-absolute-header-breaks-out-to-viewport');
-    $assert(str_contains($rootAbsoluteChromeCss, '.figma-node-root-chrome-hero-clipped-hero-group{width:100vw;height:640px;overflow:hidden;position:absolute;left:0px;top:96px;left:50%;margin-left:-50vw'), 'quality-diagnostics-root-absolute-clipped-hero-breaks-out-to-viewport');
+    $assert(str_contains($rootAbsoluteChromeCss, '.figma-node-root-chrome-header-site-header{width:100vw;height:96px;position:absolute;top:0px;left:50%;margin-left:-50vw'), 'quality-diagnostics-root-absolute-header-breaks-out-to-viewport');
+    $assert(str_contains($rootAbsoluteChromeCss, '.figma-node-root-chrome-hero-clipped-hero-group{width:100vw;height:640px;overflow:hidden;position:absolute;top:96px;left:50%;margin-left:-50vw'), 'quality-diagnostics-root-absolute-clipped-hero-breaks-out-to-viewport');
 
     $fixedSocialFooterResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Fixed Social Footer Breakpoint Fixture',

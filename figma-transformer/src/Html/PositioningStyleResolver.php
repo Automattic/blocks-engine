@@ -70,6 +70,9 @@ final class PositioningStyleResolver
         } elseif ( null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow ) {
             $styles[] = 'position:absolute';
             foreach ( $this->cssPositioningResolver->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
+                if ( $canvasShell->fullBleedCanvasChild && $this->isHorizontalOffsetStyle($style) ) {
+                    continue;
+                }
                 $styles[] = $style;
             }
             foreach ( $this->canvasShellResolver->fullBleedViewportBreakoutDecision($canvasShell)['declarations'] as $style ) {
@@ -78,6 +81,9 @@ final class PositioningStyleResolver
         } elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
             $styles[] = 'position:absolute';
             foreach ( $this->cssPositioningResolver->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
+                if ( $canvasShell->fullBleedCanvasChild && $this->isHorizontalOffsetStyle($style) ) {
+                    continue;
+                }
                 $styles[] = $style;
             }
             foreach ( $this->canvasShellResolver->fullBleedViewportBreakoutDecision($canvasShell)['declarations'] as $style ) {
@@ -114,6 +120,11 @@ final class PositioningStyleResolver
         }
 
         return false;
+    }
+
+    private function isHorizontalOffsetStyle(string $style): bool
+    {
+        return str_starts_with($style, 'left:') || str_starts_with($style, 'right:') || str_starts_with($style, 'margin-left:') || str_starts_with($style, 'margin-right:');
     }
 
     /**

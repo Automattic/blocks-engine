@@ -53,10 +53,10 @@ final class CssPositioningResolver
             unset($constraints['horizontal'], $constraints['vertical']);
         }
 
-        foreach ( $this->axisConstraintStyles('horizontal', is_scalar($constraints['horizontal'] ?? null) ? (string) $constraints['horizontal'] : null, $left, $parentBox, $box, $layout, $centerWithinFluidCanvas, $parentIsFreeform) as $style ) {
+        foreach ( $this->axisConstraintStyles('horizontal', is_scalar($constraints['horizontal'] ?? null) ? (string) $constraints['horizontal'] : null, $left, $parentBox, $box, $layout, $parentNode, $centerWithinFluidCanvas, $parentIsFreeform) as $style ) {
             $styles[] = $style;
         }
-        foreach ( $this->axisConstraintStyles('vertical', is_scalar($constraints['vertical'] ?? null) ? (string) $constraints['vertical'] : null, $top, $parentBox, $box, $layout) as $style ) {
+        foreach ( $this->axisConstraintStyles('vertical', is_scalar($constraints['vertical'] ?? null) ? (string) $constraints['vertical'] : null, $top, $parentBox, $box, $layout, $parentNode) as $style ) {
             $styles[] = $style;
         }
 
@@ -225,7 +225,7 @@ final class CssPositioningResolver
      * @param array<string, mixed> $layout
      * @return array<int, string>
      */
-    private function axisConstraintStyles(string $axis, ?string $constraint, ?float $offset, array $parentBox, array $box, array $layout, bool $centerWithinFluidCanvas = false, bool $parentIsFreeform = false): array
+    private function axisConstraintStyles(string $axis, ?string $constraint, ?float $offset, array $parentBox, array $box, array $layout, ?array $parentNode, bool $centerWithinFluidCanvas = false, bool $parentIsFreeform = false): array
     {
         $isHorizontal = 'horizontal' === $axis;
         $startProp = $isHorizontal ? 'left' : 'top';
@@ -250,6 +250,21 @@ final class CssPositioningResolver
             $trailing = $parentSize - $offset - $boxSize;
             if ( $trailing >= -0.5 ) {
                 $styles[] = $startProp . ':' . $this->number(max(0.0, $offset)) . 'px';
+                $styles[] = $endProp . ':' . $this->number(max(0.0, $trailing)) . 'px';
+                return $styles;
+            }
+        }
+
+        if ( $isHorizontal && null !== $offset && null !== $parentSize && null !== $boxSize && $this->parentIsHeaderChrome($parentNode ?? null) ) {
+            $trailing = $parentSize - $offset - $boxSize;
+            if ( $trailing >= -0.5 && $trailing <= 64.0 && $offset > 64.0 ) {
+                if ( $boxSize >= $parentSize * 0.5 ) {
+                    $styles[] = $startProp . ':' . $this->number($offset) . 'px';
+                    $styles[] = $endProp . ':' . $this->number(max(0.0, $trailing)) . 'px';
+                    $styles[] = $sizeKey . ':auto';
+                    return $styles;
+                }
+
                 $styles[] = $endProp . ':' . $this->number(max(0.0, $trailing)) . 'px';
                 return $styles;
             }
@@ -306,5 +321,20 @@ final class CssPositioningResolver
     private function number(float $value): string
     {
         return ($this->numberFormatter)($value);
+    }
+
+    /**
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function parentIsHeaderChrome(?array $parentNode): bool
+    {
+        if ( null === $parentNode ) {
+            return false;
+        }
+
+        $name = strtolower(trim((string) ($parentNode['name'] ?? '')));
+        return LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $this->layoutIntentClassifier->chromeGroupRole($parentNode, null, 1)
+            || 'header' === $name
+            || str_contains($name, 'top bar');
     }
 }
