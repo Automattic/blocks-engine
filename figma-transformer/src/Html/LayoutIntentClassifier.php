@@ -619,14 +619,19 @@ final class LayoutIntentClassifier
         $sourceZIndex = $this->nodeZIndex($node);
         $siblingZIndex = isset($siblingStackPlan['z_index']) && is_int($siblingStackPlan['z_index']) ? $siblingStackPlan['z_index'] : null;
 
+        $zIndex = $sourceZIndex ?? $siblingZIndex;
+        if ( $isDecorativeUnderlay ) {
+            $zIndex = $siblingZIndex ?? 0;
+        }
+
         return array(
             'manages_local_stacking' => ! empty($localReasons),
             'needs_isolation' => ! empty($isolationReasons),
             'local_reasons' => array_values(array_unique(array_merge($localReasons, $isolationReasons))),
             'sibling_role' => is_string($siblingStackPlan['role'] ?? null) ? $siblingStackPlan['role'] : null,
             'overlaps_sibling' => true === ($siblingStackPlan['overlaps_sibling'] ?? false),
-            'z_index' => $isDecorativeUnderlay ? 0 : ($sourceZIndex ?? $siblingZIndex),
-            'z_index_reason' => $isDecorativeUnderlay ? self::STACK_REASON_DECORATIVE_UNDERLAY : (null !== $sourceZIndex ? self::STACK_REASON_SOURCE_Z_INDEX : (null !== $siblingZIndex ? self::STACK_REASON_SIBLING_LAYER_RANK : null)),
+            'z_index' => $zIndex,
+            'z_index_reason' => $isDecorativeUnderlay ? (null !== $siblingZIndex ? self::STACK_REASON_SIBLING_LAYER_RANK : self::STACK_REASON_DECORATIVE_UNDERLAY) : (null !== $sourceZIndex ? self::STACK_REASON_SOURCE_Z_INDEX : (null !== $siblingZIndex ? self::STACK_REASON_SIBLING_LAYER_RANK : null)),
         );
     }
 

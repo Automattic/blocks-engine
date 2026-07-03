@@ -473,7 +473,7 @@ $freeformDecorativeOverlayResult = blocks_engine_figma_transformer_transform_sce
 $freeformDecorativeOverlayCss = $fileContent($freeformDecorativeOverlayResult, 'style.css');
 $freeformDecorativeOverlayUnderlays = $freeformDecorativeOverlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
 blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $freeformDecorativeOverlayCss, '.figma-node-freeform-overlay-section-services-hero', array('position:relative', 'isolation:isolate'), 'freeform-decorative-overlay-parent-isolated');
-blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $freeformDecorativeOverlayCss, '.figma-node-freeform-overlay-band-diagonal-decorative-band', array('position:absolute', 'left:-120px', 'top:20px', 'z-index:0', 'pointer-events:none'), 'freeform-decorative-overlay-band-underlay');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $freeformDecorativeOverlayCss, '.figma-node-freeform-overlay-band-diagonal-decorative-band', array('position:absolute', 'left:-120px', 'top:20px', 'z-index:1', 'pointer-events:none'), 'freeform-decorative-overlay-band-underlay');
 blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $freeformDecorativeOverlayCss, '.figma-node-freeform-overlay-copy-hero-headline', array('position:absolute', 'left:80px', 'top:120px', 'z-index:2'), 'freeform-decorative-overlay-text-above');
 blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $freeformDecorativeOverlayCss, '.figma-node-freeform-overlay-button-hero-cta', array('position:absolute', 'left:80px', 'top:280px', 'z-index:3'), 'freeform-decorative-overlay-cta-above');
 $assert(1 === ($freeformDecorativeOverlayUnderlays['count'] ?? null), 'freeform-decorative-overlay-underlay-diagnostic-count');
@@ -562,7 +562,7 @@ $timelineScaffoldUnderlayResult = blocks_engine_figma_transformer_transform_scen
 $timelineScaffoldUnderlayCss = $fileContent($timelineScaffoldUnderlayResult, 'style.css');
 $timelineScaffoldUnderlays = $timelineScaffoldUnderlayResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
 blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $timelineScaffoldUnderlayCss, '.figma-node-timeline-scaffold-section-treatment-timeline', array('position:relative', 'isolation:isolate'), 'timeline-scaffold-parent-isolated');
-blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $timelineScaffoldUnderlayCss, '.figma-node-timeline-scaffold-rail-vertical-line-and-dots', array('position:absolute', 'left:88px', 'top:40px', 'z-index:0', 'pointer-events:none'), 'timeline-scaffold-rail-underlay');
+blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $timelineScaffoldUnderlayCss, '.figma-node-timeline-scaffold-rail-vertical-line-and-dots', array('position:absolute', 'left:88px', 'top:40px', 'z-index:1', 'pointer-events:none'), 'timeline-scaffold-rail-underlay');
 blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $timelineScaffoldUnderlayCss, '.figma-node-timeline-scaffold-step-1-consultation-step', array('position:absolute', 'left:80px', 'top:84px', 'z-index:2'), 'timeline-scaffold-step-1-above');
 blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $timelineScaffoldUnderlayCss, '.figma-node-timeline-scaffold-step-2-follow-up-step', array('position:absolute', 'left:80px', 'top:314px', 'z-index:3'), 'timeline-scaffold-step-2-above');
 $assert(1 === ($timelineScaffoldUnderlays['count'] ?? null), 'timeline-scaffold-underlay-diagnostic-count');
@@ -7337,8 +7337,8 @@ $paginationActiveUnderlayResult = ( new Automattic\BlocksEngine\FigmaTransformer
 ));
 $paginationActiveUnderlayCss = $fileContent($paginationActiveUnderlayResult, 'style.css');
 $assert('success' === ($paginationActiveUnderlayResult['status'] ?? null), 'pagination-active-underlay-transform-success');
-$assert(str_contains($paginationActiveUnderlayCss, '.figma-node-active-ellipse-ellipse{') && str_contains($paginationActiveUnderlayCss, 'z-index:0') && str_contains($paginationActiveUnderlayCss, 'pointer-events:none'), 'pagination-active-ellipse-underlay-z-index');
-$assert(str_contains($paginationActiveUnderlayCss, '.figma-node-active-number-number{') && str_contains($paginationActiveUnderlayCss, 'z-index:1'), 'pagination-active-number-above-underlay');
+$assert(str_contains($paginationActiveUnderlayCss, '.figma-node-active-ellipse-ellipse{') && str_contains($paginationActiveUnderlayCss, 'z-index:1') && str_contains($paginationActiveUnderlayCss, 'pointer-events:none'), 'pagination-active-ellipse-underlay-z-index');
+$assert(str_contains($paginationActiveUnderlayCss, '.figma-node-active-number-number{') && str_contains($paginationActiveUnderlayCss, 'z-index:2'), 'pagination-active-number-above-underlay');
 
 $paginationResponsiveResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
     array(

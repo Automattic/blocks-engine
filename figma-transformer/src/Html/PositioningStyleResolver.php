@@ -94,7 +94,7 @@ final class PositioningStyleResolver
             }
         }
 
-        if ( null !== $parentNode && ! $willPositionAbsolute && $this->hasDecorativeFlexUnderlayChild($parentNode) ) {
+        if ( null !== $parentNode && ! $willPositionAbsolute && null === $effectiveZIndex && $this->hasDecorativeFlexUnderlayChild($parentNode) ) {
             $styles[] = 'position:relative';
             $styles[] = 'z-index:1';
         }

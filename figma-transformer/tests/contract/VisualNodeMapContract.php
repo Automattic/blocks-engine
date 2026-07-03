@@ -276,14 +276,14 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $mixedLayerStackingOrder = $mixedLayerStackDiagnostics['layout']['stacking_order'] ?? array();
     $mixedLayerArtifactSummary = $mixedLayerStackDiagnostics['artifact_quality']['summary'] ?? array();
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $mixedLayerStackCss, '.figma-node-mixed-layer-section-feature-image-section', array('position:relative', 'isolation:isolate', 'display:flex', 'flex-direction:column'), 'visual-map-mixed-layer-parent-isolated');
-    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $mixedLayerStackCss, '.figma-node-mixed-layer-image-featured-image-background', array('position:absolute', 'left:0px', 'top:0px', 'z-index:0', 'pointer-events:none', 'background:#ffd900'), 'visual-map-mixed-layer-image-behind');
-    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $mixedLayerStackCss, '.figma-node-mixed-layer-title-headline-over-image', array('position:relative', 'z-index:1', 'font-size:32px', 'font-weight:700'), 'visual-map-mixed-layer-title-above');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $mixedLayerStackCss, '.figma-node-mixed-layer-image-featured-image-background', array('position:absolute', 'left:0px', 'top:0px', 'z-index:1', 'pointer-events:none', 'background:#ffd900'), 'visual-map-mixed-layer-image-behind');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $mixedLayerStackCss, '.figma-node-mixed-layer-title-headline-over-image', array('position:relative', 'z-index:2', 'font-size:32px', 'font-weight:700'), 'visual-map-mixed-layer-title-above');
     $assert(1 === ($mixedLayerStackingOrder['mixed_positioning_parent_count'] ?? null), 'visual-map-mixed-layer-diagnostics-mixed-position-parent-count');
     $assert(1 === ($mixedLayerStackingOrder['absolute_child_count'] ?? null), 'visual-map-mixed-layer-diagnostics-absolute-child-count');
     $assert(1 === ($mixedLayerStackingOrder['flow_child_count'] ?? null), 'visual-map-mixed-layer-diagnostics-flow-child-count');
     $assert(1 === ($mixedLayerStackingOrder['sample_nodes'][0]['child_layer_roles']['underlay'] ?? null), 'visual-map-mixed-layer-diagnostics-underlay-role-count');
     $assert(1 === ($mixedLayerStackingOrder['sample_nodes'][0]['child_layer_roles']['content'] ?? null), 'visual-map-mixed-layer-diagnostics-content-role-count');
-    $assert(1 === ($mixedLayerStackingOrder['sample_nodes'][0]['child_z_index_reasons']['overlapping_sibling_layer_rank'] ?? null), 'visual-map-mixed-layer-diagnostics-z-index-reason-count');
+    $assert(2 === ($mixedLayerStackingOrder['sample_nodes'][0]['child_z_index_reasons']['overlapping_sibling_layer_rank'] ?? null), 'visual-map-mixed-layer-diagnostics-z-index-reason-count');
     $assert(in_array('local_mixed_positioning_children', $mixedLayerStackingOrder['sample_nodes'][0]['local_stacking_reasons'] ?? array(), true), 'visual-map-mixed-layer-diagnostics-local-stack-reason');
     $assert('mixed-layer:section' === ($mixedLayerStackingOrder['sample_nodes'][0]['node_id'] ?? null), 'visual-map-mixed-layer-diagnostics-sample-node');
     $assert(1 === ($mixedLayerArtifactSummary['mixed_positioning_parent_count'] ?? null), 'visual-map-mixed-layer-artifact-summary-mixed-position-parent-count');
