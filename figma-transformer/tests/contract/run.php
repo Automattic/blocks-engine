@@ -6966,6 +6966,17 @@ $assert(
     ),
     'breakpoint-dimension-policy-source-max-centered-gutters'
 );
+$assert(
+    array('width:calc(100% - 106px)', 'max-width:899px', 'left:53px', 'right:auto') === $breakpointDimensionPolicy->breakpointWidthDeclarations(
+        '284px',
+        array('position' => 'absolute'),
+        array('box' => array('width' => 899)),
+        array('type' => 'TEXT', 'box' => array('width' => 284)),
+        array('box' => array('width' => 1440)),
+        array('box' => array('width' => 390))
+    ),
+    'breakpoint-dimension-policy-absolute-source-max-centered-gutters'
+);
 $midpointBreakpointResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
     array(
         'name'   => 'Midpoint Breakpoint Fixture',
@@ -7301,7 +7312,40 @@ foreach ( $absoluteComponentResponsiveResult['files'] ?? array() as $absoluteCom
     }
 }
 $assert('success' === ($absoluteComponentResponsiveResult['status'] ?? null), 'absolute-component-responsive-transform-success');
-$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-abs-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:1216px[^}]*height:420px[^}]*left:24px/s', $absoluteComponentResponsiveCss) === 1, 'absolute-component-responsive-width-follows-breakpoint');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-abs-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:1216px[^}]*left:24px[^}]*right:auto[^}]*height:420px/s', $absoluteComponentResponsiveCss) === 1, 'absolute-component-responsive-width-follows-breakpoint');
+
+$absoluteTextResponsiveResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name' => 'Absolute Text Responsive Fixture',
+        'nodes' => array(
+            array(
+                'id' => 'abstext:desktop', 'type' => 'FRAME', 'name' => 'Desktop', 'box' => array('width' => 1440, 'height' => 600),
+                'children' => array(
+                    array('id' => 'abstext:copy', 'type' => 'TEXT', 'name' => 'Footer copy', 'box' => array('x' => 435, 'y' => 91, 'width' => 899, 'height' => 25), 'layout' => array('positioning' => 'absolute'), 'figma_text' => array('characters' => 'Footer copy')),
+                ),
+            ),
+            array(
+                'id' => 'abstext:mobile', 'type' => 'FRAME', 'name' => 'Mobile', 'box' => array('width' => 390, 'height' => 600),
+                'children' => array(
+                    array('id' => 'abstext:copy-mobile', 'type' => 'TEXT', 'name' => 'Footer copy', 'box' => array('x' => 175, 'y' => 113, 'width' => 284, 'height' => 288), 'layout' => array('positioning' => 'absolute'), 'figma_text' => array('characters' => 'Footer copy')),
+                ),
+            ),
+        ),
+    ),
+    array('pages' => array(array('frame_id' => 'abstext:desktop', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true, 'variants' => array(
+        array('frame_id' => 'abstext:desktop', 'viewport_width' => 1440.0, 'primary' => true),
+        array('frame_id' => 'abstext:mobile', 'viewport_width' => 390.0, 'primary' => false),
+    ))))
+);
+$absoluteTextResponsiveCss = '';
+foreach ( $absoluteTextResponsiveResult['files'] ?? array() as $absoluteTextResponsiveFile ) {
+    if ( is_array($absoluteTextResponsiveFile) && 'style.css' === ($absoluteTextResponsiveFile['path'] ?? null) ) {
+        $absoluteTextResponsiveCss = (string) ($absoluteTextResponsiveFile['content'] ?? '');
+    }
+}
+$assert('success' === ($absoluteTextResponsiveResult['status'] ?? null), 'absolute-text-responsive-transform-success');
+$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-abstext-copy-footer-copy\{[^}]*width:calc\(100% - 106px\)[^}]*max-width:899px[^}]*left:53px[^}]*right:auto/s', $absoluteTextResponsiveCss) === 1, 'absolute-text-responsive-position-centered-gutter');
+$assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-abstext-copy-footer-copy\{[^}]*left:175px/s', $absoluteTextResponsiveCss), 'absolute-text-responsive-suppresses-raw-variant-left');
 
 $responsiveSafetyResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
     array(

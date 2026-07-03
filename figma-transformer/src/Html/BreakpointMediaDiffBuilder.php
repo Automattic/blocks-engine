@@ -192,6 +192,7 @@ final class BreakpointMediaDiffBuilder
             $baseParentNode = is_array($base['parent_node'] ?? null) ? $base['parent_node'] : null;
             $variantParentNode = is_array($variantStyles[$pathKey]['parent_node'] ?? null) ? $variantStyles[$pathKey]['parent_node'] : null;
             $preservePaginationRow = ! empty($baseNode) && ($this->isPaginationContainer)($baseNode);
+            $responsiveWidthHandledProperties = array();
             foreach ( $variantDeclarations as $declaration ) {
                 $parts = explode(':', (string) $declaration, 2);
                 if ( 2 !== count($parts) ) {
@@ -223,10 +224,14 @@ final class BreakpointMediaDiffBuilder
                         }
                         $responsiveProperty = trim($responsiveParts[0]);
                         $responsiveValue = trim($responsiveParts[1]);
+                        $responsiveWidthHandledProperties[$responsiveProperty] = true;
                         if ( ! array_key_exists($responsiveProperty, $baseMap) || $baseMap[$responsiveProperty] !== $responsiveValue ) {
                             $changed[] = $responsiveProperty . ':' . $responsiveValue;
                         }
                     }
+                    continue;
+                }
+                if ( isset($responsiveWidthHandledProperties[$property]) ) {
                     continue;
                 }
                 if ( ! array_key_exists($property, $baseMap) || $baseMap[$property] !== $value ) {

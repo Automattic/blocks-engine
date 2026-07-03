@@ -132,12 +132,7 @@ final class BreakpointDimensionPolicy
             $placement = 'centered';
         }
 
-        $declarations = $this->sourceMaxWidthDeclarations($baseWidth, $gutter, $placement);
-        if ( 'absolute' === $placement ) {
-            return array_slice($declarations, 0, 2);
-        }
-
-        return $declarations;
+        return $this->sourceMaxWidthDeclarations($baseWidth, $gutter, $placement);
     }
 
     private function cssPixelValue(string $value): ?float

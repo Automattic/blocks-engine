@@ -1329,7 +1329,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-card-desktop-hero-card{width:calc(100% - 40px);max-width:1200px;height:500px;background:#00ff00}'), 'responsive-emit-mobile-card-diffs-width-height-background');
     $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-cards-desktop-article-cards{width:calc(100% - 40px);max-width:760px;margin-left:auto;margin-right:auto;height:auto;flex-direction:column}'), 'responsive-emit-mobile-row-container-fluid-auto-height-centered');
     $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-cards-desktop-card-a-article-card{width:100%;height:auto}'), 'responsive-emit-mobile-card-frame-fluid-auto-height');
-    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-cards-desktop-card-a-image-card-image{width:calc(100% - 32px);max-width:328px}'), 'responsive-emit-mobile-card-image-fluid-width');
+    $assert(str_contains($responsiveEmitMobileBlock, '.figma-node-cards-desktop-card-a-image-card-image{width:calc(100% - 32px);max-width:328px;left:16px;right:auto}'), 'responsive-emit-mobile-card-image-fluid-width');
     $assert(! preg_match('/\.figma-node-cards-desktop-card-a-image-card-image\{[^}]*height:auto/', $responsiveEmitMobileBlock), 'responsive-emit-mobile-leaf-image-keeps-fixed-height');
     $assert(! preg_match('/\.figma-node-cards-desktop-decor-absolute-decorative-rail\{[^}]*height:auto/', $responsiveEmitMobileBlock), 'responsive-emit-mobile-absolute-decoration-keeps-fixed-height');
     $assert(! str_contains($responsiveEmitMobileBlock, '.figma-node-frame-home-desktop-home-desktop{width:390px'), 'responsive-emit-mobile-root-does-not-pin-variant-width');
