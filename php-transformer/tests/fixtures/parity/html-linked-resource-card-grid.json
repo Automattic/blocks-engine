@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-linked-resource-card-grid",
-  "description": "Whole-card anchors wrapping resource-card content become valid core/group blocks with their children preserved and no unsupported href attribute on the group (#260).",
+  "description": "Whole-card anchors wrapping resource-card content become valid core/group blocks with the link propagated onto inner image/heading/paragraph blocks so the card stays navigable. The group itself never carries an unsupported href attribute (#260).",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-linked-resource-card-grid.json",
-    "notes": "Product-neutral coverage for resource/card grids where the whole card is an anchor. core/group has no native link attribute, so the wrapping anchor's href/target/rel are not emitted on the group; the card children are preserved as valid blocks."
+    "notes": "Product-neutral coverage for resource/card grids where the whole card is an anchor. The wrapping anchor's href is propagated to the inner core/image (native link attrs) and to the heading/paragraph (inline <a>), never onto the group."
   },
   "legacy_comparison": {
     "skip": true,
@@ -31,8 +31,9 @@
     { "path": "blocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "core/group" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Block Pattern Basics" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Launch Review" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"href\":\"/resources/block-patterns\"" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"href\":\"/resources/site-launch\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/resources/block-patterns\">Block Pattern Basics</a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/resources/site-launch\" target=\"_blank\" rel=\"noopener\">Launch Review</a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/resources/block-patterns\"><img" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<p><a class=\"resource-card\"" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }

@@ -1,0 +1,38 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-whole-element-link-dropped-finding",
+  "description": "A whole-element link wrapping content that has no native link-bearing inner block (a media-only card) emits a structured 'source link wrapper dropped / content no longer navigable' finding carrying the source selector and href so a downstream repair loop can act on it (#260). The group never carries a dead href.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-whole-element-link-dropped-finding.json",
+    "notes": "Generic structural coverage: an <a href> wrapping a core/video (no text/image/heading inner block can receive the link). The link is non-preservable natively, so the finding is emitted rather than a dead href."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<a href=\"/watch\" class=\"video-card\"><video src=\"/clip.mp4\">Transcript</video></a>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "video-card" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/video", "attrs": { "src": "/clip.mp4" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.0.attrs.href", "assert": "equals", "value": null },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/video" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"href\":\"/watch\"" },
+    { "path": "source_reports.html.dropped_link_wrappers", "assert": "count", "count": 1 },
+    { "path": "source_reports.html.dropped_link_wrappers.0.kind", "assert": "equals", "value": "source link wrapper dropped / content no longer navigable" },
+    { "path": "source_reports.html.dropped_link_wrappers.0.href", "assert": "equals", "value": "/watch" },
+    { "path": "source_reports.html.dropped_link_wrappers.0.selector", "assert": "contains", "value": "a:nth-of-type(1)" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
