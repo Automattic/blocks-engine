@@ -58,6 +58,8 @@ $source = array(
 
     // --- Sans-serif: Humanist / UI (system UI faces) ---
     'Segoe UI'              => '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif',
+    'SF Pro Text'           => '"SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    'SF UI Text'            => '"SF UI Text", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     'Tahoma'                => 'Tahoma, Geneva, Verdana, sans-serif',
     'Geneva'                => 'Geneva, Tahoma, Verdana, sans-serif',
     'Verdana'               => 'Verdana, Geneva, sans-serif',
@@ -101,6 +103,7 @@ $source = array(
     'Consolas'              => 'Consolas, "Lucida Console", Monaco, monospace',
     'Monaco'                => 'Monaco, Consolas, "Lucida Console", monospace',
     'Menlo'                 => 'Menlo, Monaco, Consolas, "Courier New", monospace',
+    'SF Mono'               => '"SF Mono", Menlo, Monaco, Consolas, "Courier New", monospace',
     'Lucida Console'        => '"Lucida Console", Monaco, monospace',
     'Andale Mono'           => '"Andale Mono", AndaleMono, Monaco, monospace',
 );
