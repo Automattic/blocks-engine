@@ -61,7 +61,7 @@ final class BlockFactory
      */
     private function normalizeAttrsForBlock(string $name, array $attrs): array
     {
-        if ( in_array($name, array( 'core/column', 'core/group', 'core/heading', 'core/list-item', 'core/paragraph' ), true) ) {
+        if ( in_array($name, array( 'core/buttons', 'core/column', 'core/columns', 'core/group', 'core/heading', 'core/list-item', 'core/paragraph' ), true) ) {
             unset($attrs['style']['spacing']['blockGap']);
             if ( empty($attrs['style']['spacing']) ) {
                 unset($attrs['style']['spacing']);

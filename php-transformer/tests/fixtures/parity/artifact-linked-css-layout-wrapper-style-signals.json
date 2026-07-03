@@ -31,8 +31,8 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "hero-grid" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"hero-grid\",\"style\":{\"spacing\":{\"blockGap\":\"clamp(24px,4vw,64px)\"}}} -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-columns hero-grid\" style=\"gap:clamp(24px,4vw,64px)\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"hero-grid\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-columns hero-grid\">" },
     { "path": "serialized_blocks", "assert": "contains", "value": "shift-card" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"shift-card\",\"tagName\":\"section\"} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<section class=\"wp-block-group shift-card\">" },
