@@ -665,8 +665,16 @@ final class StaticHtmlEmitter
 
         if ( ! in_array($tag, array('input', 'textarea'), true) && ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) && ! $this->vectorSvgComposesChildren($vectorSvg) ) {
             $insertedAccessoryInput = false;
+            $simpleMaskClipPaths = $this->simpleMaskClipPathsByTargetId($children);
             foreach ( $children as $child ) {
                 if ( is_array($child) ) {
+                    if ( $this->isMaskOperatorNode($child) ) {
+                        continue;
+                    }
+                    $childId = isset($child['id']) && is_scalar($child['id']) ? (string) $child['id'] : '';
+                    if ( '' !== $childId && isset($simpleMaskClipPaths[$childId]) ) {
+                        $child['_figma_css_clip_path'] = $simpleMaskClipPaths[$childId];
+                    }
                     if ( $this->isFullyClippedDecorativeChild($child, $node) ) {
                         continue;
                     }
@@ -5007,6 +5015,123 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array<int, mixed> $children
+     * @return array<string, string>
+     */
+    private function simpleMaskClipPathsByTargetId(array $children): array
+    {
+        $nodes = array_values(array_filter($children, 'is_array'));
+        $clipPaths = array();
+        foreach ( $nodes as $maskNode ) {
+            if ( ! $this->isMaskOperatorNode($maskNode) ) {
+                continue;
+            }
+            $targetNode = $this->simpleMaskTargetNode($maskNode, $nodes);
+            if ( null === $targetNode ) {
+                continue;
+            }
+            $targetId = isset($targetNode['id']) && is_scalar($targetNode['id']) ? (string) $targetNode['id'] : '';
+            $clipPath = $this->simpleMaskClipPath($maskNode, $targetNode);
+            if ( '' !== $targetId && null !== $clipPath ) {
+                $clipPaths[$targetId] = $clipPath;
+            }
+        }
+
+        return $clipPaths;
+    }
+
+    /**
+     * @param array<string, mixed> $maskNode
+     * @param array<int, array<string, mixed>> $nodes
+     * @return array<string, mixed>|null
+     */
+    private function simpleMaskTargetNode(array $maskNode, array $nodes): ?array
+    {
+        if ( ! isset($maskNode['_source_order']) || ! is_numeric($maskNode['_source_order']) ) {
+            return null;
+        }
+
+        $maskOrder = (int) $maskNode['_source_order'];
+        $targetNode = null;
+        $targetOrder = PHP_INT_MAX;
+        foreach ( $nodes as $node ) {
+            if ( $this->isMaskOperatorNode($node) || ! isset($node['_source_order']) || ! is_numeric($node['_source_order']) ) {
+                continue;
+            }
+            $nodeOrder = (int) $node['_source_order'];
+            if ( $nodeOrder > $maskOrder && $nodeOrder < $targetOrder ) {
+                $targetNode = $node;
+                $targetOrder = $nodeOrder;
+            }
+        }
+
+        return $targetNode;
+    }
+
+    /**
+     * @param array<string, mixed> $maskNode
+     * @param array<string, mixed> $targetNode
+     */
+    private function simpleMaskClipPath(array $maskNode, array $targetNode): ?string
+    {
+        $maskType = strtoupper((string) ($maskNode['type'] ?? ''));
+        if ( ! in_array($maskType, array('RECTANGLE', 'FRAME', 'ELLIPSE'), true) ) {
+            return null;
+        }
+
+        $maskBox = is_array($maskNode['box'] ?? null) ? $maskNode['box'] : array();
+        $targetBox = is_array($targetNode['box'] ?? null) ? $targetNode['box'] : array();
+        foreach ( array('width', 'height') as $dimension ) {
+            if ( ! isset($maskBox[$dimension], $targetBox[$dimension]) || ! is_numeric($maskBox[$dimension]) || ! is_numeric($targetBox[$dimension]) || 0.0 >= (float) $targetBox[$dimension] ) {
+                return null;
+            }
+        }
+
+        $maskLeft = isset($maskBox['x']) && is_numeric($maskBox['x']) ? (float) $maskBox['x'] : 0.0;
+        $maskTop = isset($maskBox['y']) && is_numeric($maskBox['y']) ? (float) $maskBox['y'] : 0.0;
+        $targetLeft = isset($targetBox['x']) && is_numeric($targetBox['x']) ? (float) $targetBox['x'] : 0.0;
+        $targetTop = isset($targetBox['y']) && is_numeric($targetBox['y']) ? (float) $targetBox['y'] : 0.0;
+        $maskWidth = (float) $maskBox['width'];
+        $maskHeight = (float) $maskBox['height'];
+        $targetWidth = (float) $targetBox['width'];
+        $targetHeight = (float) $targetBox['height'];
+        $relativeLeft = $maskLeft - $targetLeft;
+        $relativeTop = $maskTop - $targetTop;
+
+        if ( 'ELLIPSE' === $maskType ) {
+            return 'ellipse(' . $this->number($maskWidth / 2.0) . 'px ' . $this->number($maskHeight / 2.0) . 'px at ' . $this->number($relativeLeft + ($maskWidth / 2.0)) . 'px ' . $this->number($relativeTop + ($maskHeight / 2.0)) . 'px)';
+        }
+
+        $clip = 'inset('
+            . $this->number($relativeTop) . 'px '
+            . $this->number($targetWidth - ($relativeLeft + $maskWidth)) . 'px '
+            . $this->number($targetHeight - ($relativeTop + $maskHeight)) . 'px '
+            . $this->number($relativeLeft) . 'px';
+        $radius = $this->simpleMaskRadius($maskNode);
+        if ( null !== $radius && $radius > 0.0 ) {
+            $clip .= ' round ' . $this->number($radius) . 'px';
+        }
+
+        return $clip . ')';
+    }
+
+    /**
+     * @param array<string, mixed> $maskNode
+     */
+    private function simpleMaskRadius(array $maskNode): ?float
+    {
+        $box = is_array($maskNode['figma_box'] ?? null) ? $maskNode['figma_box'] : array();
+        if ( isset($box['corner_radius']) && is_numeric($box['corner_radius']) ) {
+            return (float) $box['corner_radius'];
+        }
+        if ( isset($maskNode['cornerRadius']) && is_numeric($maskNode['cornerRadius']) ) {
+            return (float) $maskNode['cornerRadius'];
+        }
+
+        return null;
+    }
+
+    /**
      * @param array{x: float, y: float, width: float, height: float} $rect
      * @param array{x: float, y: float, width: float, height: float} $clipRect
      * @return array{x: float, y: float, width: float, height: float}|null
@@ -5127,6 +5252,10 @@ final class StaticHtmlEmitter
 
         if ( $this->effectOverflowPolicy()->shouldHideOverflow($node, $this->stickyLayoutCoordinator()->containsStickyPrimary($node)) ) {
             $styles[] = 'overflow:hidden';
+        }
+
+        if ( isset($node['_figma_css_clip_path']) && is_scalar($node['_figma_css_clip_path']) && '' !== (string) $node['_figma_css_clip_path'] ) {
+            $styles[] = 'clip-path:' . (string) $node['_figma_css_clip_path'];
         }
 
         $isDecorativeFlexUnderlay = null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode);

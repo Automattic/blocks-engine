@@ -226,6 +226,77 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(0 === ($maskMetadataDiagnostics['artifact_quality']['summary']['emitted_mask_source_nodes'] ?? null), 'diagnostics-evidence-artifact-summary-emitted-mask-source-nodes');
     $assert(1 === ($maskMetadataDiagnostics['artifact_quality']['summary']['suppressed_mask_source_nodes'] ?? null), 'diagnostics-evidence-artifact-summary-suppressed-mask-source-nodes');
 
+    $simpleMaskCompositionResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Simple Mask Composition Fixture',
+        'assets' => array(
+            'mask-photo' => array('mime_type' => 'image/png', 'content' => 'mask photo'),
+        ),
+        'nodes' => array(
+            array(
+                'id'       => 'mask:frame',
+                'type'     => 'FRAME',
+                'name'     => 'Mask Frame',
+                'width'    => 240,
+                'height'   => 120,
+                'children' => array(
+                    array(
+                        'id'           => 'mask:rect-source',
+                        'type'         => 'RECTANGLE',
+                        'name'         => 'Rounded Rect Mask',
+                        'x'            => 20,
+                        'y'            => 10,
+                        'width'        => 80,
+                        'height'       => 60,
+                        'cornerRadius' => 12,
+                        'isMask'       => true,
+                        'maskType'     => 'ALPHA',
+                    ),
+                    array(
+                        'id'         => 'mask:rect-photo',
+                        'type'       => 'RECTANGLE',
+                        'name'       => 'Rect Masked Photo',
+                        'x'          => 0,
+                        'y'          => 0,
+                        'width'      => 120,
+                        'height'     => 80,
+                        'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'mask-photo')),
+                    ),
+                    array(
+                        'id'       => 'mask:ellipse-source',
+                        'type'     => 'ELLIPSE',
+                        'name'     => 'Ellipse Mask',
+                        'x'        => 150,
+                        'y'        => 20,
+                        'width'    => 60,
+                        'height'   => 60,
+                        'isMask'   => true,
+                        'maskType' => 'ALPHA',
+                    ),
+                    array(
+                        'id'         => 'mask:ellipse-photo',
+                        'type'       => 'RECTANGLE',
+                        'name'       => 'Ellipse Masked Photo',
+                        'x'          => 140,
+                        'y'          => 0,
+                        'width'      => 80,
+                        'height'     => 100,
+                        'fillPaints' => array(array('type' => 'IMAGE', 'imageRef' => 'mask-photo')),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $simpleMaskCss = blocks_engine_figma_transformer_contract_file_content($simpleMaskCompositionResult, 'style.css');
+    $simpleMaskHtml = blocks_engine_figma_transformer_contract_file_content($simpleMaskCompositionResult, 'index.html');
+    $simpleMaskDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($simpleMaskCompositionResult);
+    $simpleMaskClipping = $simpleMaskDiagnostics['mask_effect_clipping'] ?? array();
+    $assert(str_contains($simpleMaskCss, '.figma-node-mask-rect-photo-rect-masked-photo{') && str_contains($simpleMaskCss, 'clip-path:inset(10px 20px 10px 20px round 12px)'), 'diagnostics-evidence-rect-mask-emits-clip-path');
+    $assert(str_contains($simpleMaskCss, '.figma-node-mask-ellipse-photo-ellipse-masked-photo{') && str_contains($simpleMaskCss, 'clip-path:ellipse(30px 30px at 40px 50px)'), 'diagnostics-evidence-ellipse-mask-emits-clip-path');
+    $assert(! str_contains($simpleMaskHtml, 'data-figma-node-id="mask:rect-source"'), 'diagnostics-evidence-rect-mask-source-suppressed');
+    $assert(! str_contains($simpleMaskHtml, 'data-figma-node-id="mask:ellipse-source"'), 'diagnostics-evidence-ellipse-mask-source-suppressed');
+    $assert(2 === ($simpleMaskClipping['mask_node_count'] ?? null), 'diagnostics-evidence-simple-mask-node-count');
+    $assert(2 === ($simpleMaskClipping['suppressed_mask_source_node_count'] ?? null), 'diagnostics-evidence-simple-mask-source-suppressed-count');
+
     $multiPageResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Diagnostics Aggregation Fixture',
         'nodes' => array(
