@@ -1,0 +1,44 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-static-data-entry-form-readable",
+  "description": "Converts static data-entry forms into readable editable blocks while preserving form metadata for downstream materialization.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-static-data-entry-form-readable.json",
+    "notes": "Covers static/mockup newsletter and contact forms with placeholder action plus method, and no scripts, events, or runtime DOM targets."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><form id=\"newsletter\" class=\"signup-form\" action=\"#\" method=\"post\" novalidate aria-label=\"Newsletter signup\"><label>Email <input type=\"email\" name=\"email\" placeholder=\"you@example.com\" required></label><button type=\"submit\">Subscribe</button></form></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "signup-form" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Email: you@example.com (required)" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/button", "attrs": { "text": "Subscribe" } }
+  ],
+  "expected_fallbacks": [
+    { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.form.id", "assert": "equals", "value": "newsletter" },
+    { "path": "fallbacks.0.form.action", "assert": "equals", "value": "#" },
+    { "path": "fallbacks.0.form.method", "assert": "equals", "value": "post" },
+    { "path": "fallbacks.0.controls.0.type", "assert": "equals", "value": "email" },
+    { "path": "fallbacks.0.controls.0.required", "assert": "equals", "value": true },
+    { "path": "fallbacks.0.readable_blocks.0.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Email: you@example.com (required)" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Subscribe" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "coverage.0.block_count", "assert": "equals", "value": 1 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-business-hours-label-value-rows",
+  "description": "Preserves business-hours rows as editable label/value columns instead of flattening day and time text.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-business-hours-label-value-rows.json",
+    "notes": "Generic local-business hours coverage."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"hours-col\"><span class=\"section-label\">Hours</span><div class=\"hours-row\"><span class=\"hours-day\">Monday</span><span class=\"hours-time closed\">Closed</span></div><div class=\"hours-row\"><span class=\"hours-day\">Tuesday – Thursday</span><span class=\"hours-time\">5:00 – 10:00 pm</span></div></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "hours-col" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/columns", "attrs": { "className": "hours-row" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/column", "attrs": { "className": "hours-day" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/column", "attrs": { "className": "hours-time closed" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/columns", "attrs": { "className": "hours-row" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"hours-row\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"hours-day\">Monday</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"hours-time closed\">Closed</p>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "Monday\n" }
+  ]
+}

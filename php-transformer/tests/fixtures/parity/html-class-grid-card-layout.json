@@ -29,7 +29,7 @@
     { "path": "source_reports.html.structure_signals.3.signals.grid_like", "assert": "equals", "value": true },
     { "path": "source_reports.html.structure_signals.3.signals.repeated_card_children", "assert": "equals", "value": 3 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"catalog-grid reveal-stagger\",\"layout\":{\"type\":\"grid\"},\"tagName\":\"section\"} -->" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<section class=\"wp-block-group catalog-grid reveal-stagger\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<section class=\"wp-block-group is-layout-grid wp-block-group-is-layout-grid catalog-grid reveal-stagger\">" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"catalog-card\",\"tagName\":\"article\"} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<article class=\"wp-block-group catalog-card\">" }
   ]

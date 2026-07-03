@@ -53,7 +53,7 @@ final class StyleAttributeMapper
      * Map resolved CSS declarations to canonical block style attributes.
      *
      * @param array<string, string> $declarations
-     * @return array{style: array<string, mixed>, leftover: array<string, string>}
+     * @return array{style: array<string, mixed>, attrs: array<string, string>, leftover: array<string, string>}
      */
     public function map(array $declarations): array
     {
@@ -74,7 +74,8 @@ final class StyleAttributeMapper
             $style['typography'] = $typography;
         }
 
-        $color = $this->color($normalized, $consumed);
+        $attrs = array();
+        $color = $this->color($normalized, $consumed, $attrs);
         if ( array() !== $color ) {
             $style['color'] = $color;
         }
@@ -92,6 +93,11 @@ final class StyleAttributeMapper
             $style['spacing'] = $spacing;
         }
 
+        $blockGap = $this->blockGap($normalized, $consumed);
+        if ( '' !== $blockGap ) {
+            $style['spacing']['blockGap'] = $blockGap;
+        }
+
         $border = $this->border($normalized, $consumed);
         if ( array() !== $border ) {
             $style['border'] = $border;
@@ -107,6 +113,7 @@ final class StyleAttributeMapper
 
         return array(
             'style'    => $style,
+            'attrs'    => $attrs,
             'leftover' => $leftover,
         );
     }
@@ -158,7 +165,7 @@ final class StyleAttributeMapper
         }
 
         $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array();
-        foreach ( array( 'padding', 'margin' ) as $box ) {
+        foreach ( array( 'margin', 'padding' ) as $box ) {
             $sides = is_array($spacing[ $box ] ?? null) ? $spacing[ $box ] : array();
             foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
                 $value = trim((string) ($sides[ $side ] ?? ''));
@@ -166,6 +173,10 @@ final class StyleAttributeMapper
                     $declarations[] = $box . '-' . $side . ':' . $value;
                 }
             }
+        }
+        $blockGap = trim((string) ($spacing['blockGap'] ?? ''));
+        if ( '' !== $blockGap ) {
+            $declarations[] = 'gap:' . $blockGap;
         }
 
         $typography    = is_array($style['typography'] ?? null) ? $style['typography'] : array();
@@ -225,7 +236,7 @@ final class StyleAttributeMapper
      * @param array<string, bool> $consumed
      * @return array<string, string>
      */
-    private function color(array $declarations, array &$consumed): array
+    private function color(array $declarations, array &$consumed, array &$attrs): array
     {
         $color = array();
 
@@ -233,20 +244,64 @@ final class StyleAttributeMapper
             $consumed['color'] = true;
             $text = $this->cssColor($declarations['color']);
             if ( '' !== $text ) {
-                $color['text'] = $text;
+                $preset = $this->presetColorSlug($text);
+                if ( '' !== $preset ) {
+                    $attrs['textColor'] = $preset;
+                } else {
+                    $color['text'] = $text;
+                }
             }
         }
 
         $gradient = $this->gradient($declarations, $consumed);
         $background = $this->backgroundColor($declarations, $consumed);
         if ( '' !== $background ) {
-            $color['background'] = $background;
+            $preset = $this->presetColorSlug($background);
+            if ( '' !== $preset ) {
+                $attrs['backgroundColor'] = $preset;
+            } else {
+                $color['background'] = $background;
+            }
         }
         if ( '' !== $gradient ) {
             $color['gradient'] = $gradient;
         }
 
         return $color;
+    }
+
+    /**
+     * Gutenberg stores preset colors as top-level block attrs, not custom inline
+     * style values. Accept both serialized support syntax and CSS custom props.
+     */
+    private function presetColorSlug(string $value): string
+    {
+        $value = trim($value);
+        if ( preg_match('/^var:preset\|color\|([a-z0-9_-]+)$/i', $value, $match) ) {
+            return strtolower($match[1]);
+        }
+        if ( preg_match('/^var\(\s*--wp--preset--color--([a-z0-9_-]+)\s*\)$/i', $value, $match) ) {
+            return strtolower($match[1]);
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     * @param array<string, bool> $consumed
+     */
+    private function blockGap(array $declarations, array &$consumed): string
+    {
+        foreach ( array( 'gap', 'row-gap', 'column-gap' ) as $name ) {
+            $value = trim((string) ($declarations[ $name ] ?? ''));
+            if ( '' !== $value ) {
+                $consumed[ $name ] = true;
+                return $value;
+            }
+        }
+
+        return '';
     }
 
     /**

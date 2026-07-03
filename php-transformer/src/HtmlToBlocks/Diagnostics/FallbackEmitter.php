@@ -506,6 +506,9 @@ final class FallbackEmitter
             'diagnostic_code'     => 'preserved_runtime_island',
             'preservation_reason' => $reason,
             'runtime_requirement' => $runtimeRequirement,
+            'disposition'         => 'preserve',
+            'preservation_status' => 'accepted_runtime_preservation',
+            'js_handling'         => 'client_script_execution' === $runtimeRequirement ? 'preserve_verbatim' : '',
             'source_snippet'      => $boundedHtml['html'],
             'source_bytes'        => $boundedHtml['bytes'],
             'source_truncated'    => $boundedHtml['truncated'],
@@ -573,6 +576,28 @@ final class FallbackEmitter
             if ( '' !== $class && isset($this->runtimeCanvasSelectors['.' . $class]) ) {
                 return true;
             }
+        }
+
+        foreach ( array_keys($this->runtimeCanvasSelectors) as $selector ) {
+            if ( $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function elementMatchesRuntimeSelector(DOMElement $element, string $selector): bool
+    {
+        $tag = strtolower($element->tagName);
+        if ( $selector === $tag && 'canvas' === $tag ) {
+            return true;
+        }
+        if ( preg_match('/^([a-z][a-z0-9-]*)\.([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
+            return $tag === strtolower((string) $match[1]) && in_array((string) $match[2], preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array(), true);
+        }
+        if ( preg_match('/^(?:([a-z][a-z0-9-]*))?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:=["\'][^"\']{1,80}["\'])?\]$/', $selector, $match) ) {
+            return ( '' === (string) ($match[1] ?? '') || $tag === strtolower((string) $match[1]) ) && $element->hasAttribute(strtolower((string) $match[2]));
         }
 
         return false;

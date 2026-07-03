@@ -368,6 +368,9 @@ final class ConversionReportProjection
                     'tag'                       => $island['tag'] ?? '',
                     'conversion_classification' => 'runtime_island_preserved',
                     'preservation_strategy'     => $island['preservation_strategy'] ?? 'scoped_runtime_metadata',
+                    'disposition'               => $island['disposition'] ?? '',
+                    'preservation_status'       => $island['preservation_status'] ?? '',
+                    'js_handling'               => $island['js_handling'] ?? '',
                 ),
                 static fn (mixed $value): bool => '' !== $value
             );

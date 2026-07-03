@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-icon-only-button-accessible-label",
+  "description": "Uses an accessible label for icon-only button-like anchors after stripping decorative SVG markup.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-icon-only-button-accessible-label.json",
+    "notes": "Generic coverage for accessible icon-only CTA controls."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New generic RichText-safe label extraction behavior has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<a class=\"icon-button\" href=\"mailto:hello@example.com\" aria-label=\"Email us\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M2 4h20v16H2z\"></path></svg></a>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "icon-button", "text": "Email us", "url": "mailto:hello@example.com" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": ">Email us</a>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

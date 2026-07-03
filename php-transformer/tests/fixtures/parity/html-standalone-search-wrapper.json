@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-standalone-search-wrapper",
-  "description": "Converts a static search wrapper with one search input into a core/search block instead of flattening chrome and control text.",
+  "description": "Preserves a static search wrapper with one search input as valid HTML instead of invalid static core/search markup.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-standalone-search-wrapper.json",
@@ -18,15 +18,15 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Knowledge base", "level": 1 } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/search", "attrs": { "className": "search-wrap animate-in", "label": "Search documentation", "placeholder": "Search articles" } }
+    { "path": "blocks.0.innerBlocks.1", "name": "core/html" }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:search" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "\"label\":\"Search documentation\"" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "⌘K" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"search-wrap animate-in\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "id=\"hero-search\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:search" }
   ]
 }

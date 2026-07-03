@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<main><form action=\"/contact\" method=\"post\"><label>Name <input name=\"name\" required></label><label>Email <input name=\"email\" type=\"email\"></label><textarea name=\"message\" aria-label=\"Message\"></textarea><button type=\"submit\">Send</button></form><form action=\"/newsletter\" method=\"post\" class=\"newsletter\"><label>Email <input type=\"email\" name=\"email\" placeholder=\"you@example.com\"></label><button type=\"submit\" value=\"subscribe\">Subscribe</button></form></main>"
+    "content": "<main><form id=\"contact-form\" action=\"/contact\" method=\"post\" aria-label=\"Contact form\" novalidate><label>Name <span aria-hidden=\"true\">*</span><input name=\"name\" required autocomplete=\"name\" maxlength=\"80\"></label><label>Email <input name=\"email\" type=\"email\"></label><textarea name=\"message\" aria-label=\"Message\"></textarea><button type=\"submit\">Send</button></form><form action=\"/newsletter\" method=\"post\" class=\"newsletter\"><label>Email <input type=\"email\" name=\"email\" placeholder=\"you@example.com\"></label><button type=\"submit\" value=\"subscribe\">Subscribe</button></form></main>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "tagName": "main" } },
@@ -29,15 +29,23 @@
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "fallbacks", "assert": "count", "count": 2 },
     { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
+    { "path": "fallbacks.0.form.id", "assert": "equals", "value": "contact-form" },
+    { "path": "fallbacks.0.form.aria_label", "assert": "equals", "value": "Contact form" },
+    { "path": "fallbacks.0.form.novalidate", "assert": "equals", "value": true },
     { "path": "fallbacks.0.form.action", "assert": "equals", "value": "/contact" },
     { "path": "fallbacks.0.control_count", "assert": "equals", "value": 4 },
     { "path": "fallbacks.0.controls.0.name", "assert": "equals", "value": "name" },
+    { "path": "fallbacks.0.controls.0.order", "assert": "equals", "value": 0 },
+    { "path": "fallbacks.0.controls.0.label", "assert": "equals", "value": "Name" },
+    { "path": "fallbacks.0.controls.0.autocomplete", "assert": "equals", "value": "name" },
+    { "path": "fallbacks.0.controls.0.maxlength", "assert": "equals", "value": "80" },
     { "path": "fallbacks.0.controls.0.required", "assert": "equals", "value": true },
     { "path": "fallbacks.0.controls.2.tag", "assert": "equals", "value": "textarea" },
+    { "path": "fallbacks.0.controls.3.text", "assert": "equals", "value": "Send" },
     { "path": "fallbacks.1.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
     { "path": "fallbacks.1.form.action", "assert": "equals", "value": "/newsletter" },
     { "path": "fallbacks.1.control_count", "assert": "equals", "value": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<form action=\"/contact\" method=\"post\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<form id=\"contact-form\" action=\"/contact\" method=\"post\" aria-label=\"Contact form\" novalidate>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<textarea name=\"message\" aria-label=\"Message\"></textarea>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<form action=\"/newsletter\" method=\"post\" class=\"newsletter\">" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<button type=\"submit\" value=\"subscribe\">Subscribe</button>" },

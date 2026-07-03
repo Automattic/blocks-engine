@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-schedule-label-value-rows",
+  "description": "Preserves schedule/session label-value rows as editable columns instead of flattening time and title text.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-schedule-label-value-rows.json",
+    "notes": "Generic event/session row coverage for static site imports."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New generic label-value row behavior has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<section class=\"schedule-list\"><div class=\"session-row\"><time class=\"session-time\">10:00 AM</time><span class=\"session-title\">Opening keynote</span></div><div class=\"detail-pair\"><span class=\"detail-label\">Location</span><span class=\"detail-value\">Main Hall</span></div></section>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "schedule-list" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/columns", "attrs": { "className": "session-row" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "session-time" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/column", "attrs": { "className": "session-title" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/columns", "attrs": { "className": "detail-pair" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"session-row\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p><time class=\"session-time\">10:00 AM</time></p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"session-title\">Opening keynote</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"detail-label\">Location</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"detail-value\">Main Hall</p>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "10:00 AM\n" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

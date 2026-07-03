@@ -269,13 +269,14 @@ final class CorpusDetectors
 
         foreach ( $flat as $block ) {
             $haystack = self::blockMarkup($block);
-            if ( '' === $haystack ) {
-                continue;
+            if ( '' !== $haystack && preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $haystack, $matches) ) {
+                foreach ( $matches[1] as $name ) {
+                    ++$total;
+                    $occurrences[$name] = ($occurrences[$name] ?? 0) + 1;
+                }
             }
-            if ( ! preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $haystack, $matches) ) {
-                continue;
-            }
-            foreach ( $matches[1] as $name ) {
+
+            foreach ( self::presetVarNamesFromAttrs($block) as $name ) {
                 ++$total;
                 $occurrences[$name] = ($occurrences[$name] ?? 0) + 1;
             }
@@ -727,6 +728,27 @@ final class CorpusDetectors
     private static function blockMarkup(array $block): string
     {
         return is_string($block['innerHTML'] ?? null) ? $block['innerHTML'] : '';
+    }
+
+    /**
+     * Native preset color attrs are the valid form of CSS preset vars, so they no
+     * longer appear in innerHTML. Keep them in var_names for corpus visibility.
+     *
+     * @param array<string, mixed> $block
+     * @return array<int, string>
+     */
+    private static function presetVarNamesFromAttrs(array $block): array
+    {
+        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+        $names = array();
+        foreach ( array( 'textColor', 'backgroundColor' ) as $attrName ) {
+            $slug = is_string($attrs[ $attrName ] ?? null) ? strtolower(trim($attrs[ $attrName ])) : '';
+            if ( '' !== $slug && preg_match('/^[a-z0-9_-]+$/', $slug) ) {
+                $names[] = '--wp--preset--color--' . $slug;
+            }
+        }
+
+        return $names;
     }
 
     /**

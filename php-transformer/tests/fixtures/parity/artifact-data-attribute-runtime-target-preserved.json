@@ -1,0 +1,42 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-data-attribute-runtime-target-preserved",
+  "description": "Preserves first-party runtime DOM targets addressed by bounded data attribute selectors.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-data-attribute-runtime-target-preserved.json",
+    "notes": "Covers generic SSI-style runtime selectors such as [data-stagger], [data-attr-val], and [data-cfg-name], including value selectors and a bounded child combinator."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Runtime dependency target preservation is an upstream artifact compiler contract with no legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<main><section data-stagger><article data-attr-val=\"card\"><h2>One</h2><p>Copy</p></article></section><div data-cfg-name=\"hero\">Hero config</div><script src=\"js/runtime.js\"></script></main>"
+        },
+        {
+          "path": "js/runtime.js",
+          "kind": "js",
+          "content": "document.querySelectorAll('[data-stagger] > *').forEach(function (item) { item.classList.add('is-ready'); }); document.querySelector('[data-attr-val=\"card\"]')?.setAttribute('data-active', '1'); document.querySelector(\"[data-cfg-name='hero']\")?.classList.add('has-config');"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
+    { "path": "source_reports.runtime_dependency_parity.dependencies.0.selector", "assert": "equals", "value": "[data-attr-val]" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "data-stagger" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "data-attr-val=\"card\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "data-cfg-name=\"hero\"" },
+    { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "dom" }
+  ]
+}

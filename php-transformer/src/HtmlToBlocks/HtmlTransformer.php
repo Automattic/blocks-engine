@@ -40,6 +40,26 @@ final class HtmlTransformer
     private const MAX_INTERACTION_CANDIDATES = 100;
 
     /**
+     * Tag-only script selectors that must keep their native DOM shape when a
+     * first-party runtime binds directly to them.
+     *
+     * @var array<int, string>
+     */
+    private const RUNTIME_TAG_SELECTORS = array( 'button', 'input', 'select', 'textarea', 'ul', 'ol', 'li', 'span', 'menu', 'menuitem' );
+
+    /**
+     * Generic class/id tokens that usually mark a JS-owned application surface
+     * rather than editorial content. Used only with runtime selector evidence.
+     *
+     * @var array<int, string>
+     */
+    private const RUNTIME_APP_ROOT_TOKENS = array(
+        'app', 'application', 'board', 'canvas', 'dashboard', 'desktop', 'editor',
+        'explorer', 'instrument', 'lab', 'playground', 'rack', 'scene', 'shell',
+        'simulator', 'stage', 'studio', 'terminal', 'viewport', 'workspace', 'world',
+    );
+
+    /**
      * Blocks that manage their own link destination and must never receive a
      * propagated card-link wrapper href (core/button owns its `url`,
      * core/navigation-link owns its `url`, core/html is opaque markup, …).
@@ -121,6 +141,8 @@ final class HtmlTransformer
     private readonly MathPattern $mathPattern;
 
     private readonly ParameterTablePattern $parameterTablePattern;
+
+    private readonly TableClassificationPolicy $tableClassificationPolicy;
 
     private readonly PlaceholderMediaPattern $placeholderMediaPattern;
 
@@ -293,6 +315,7 @@ final class HtmlTransformer
         $this->logoPattern       = new LogoPattern();
         $this->mathPattern       = new MathPattern();
         $this->parameterTablePattern = new ParameterTablePattern();
+        $this->tableClassificationPolicy = new TableClassificationPolicy();
         $this->placeholderMediaPattern = new PlaceholderMediaPattern();
         $this->quotePattern      = new QuotePattern();
         $this->spacerPattern     = new SpacerPattern();
@@ -334,6 +357,7 @@ final class HtmlTransformer
         $this->generatedAssets = array();
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
+        $this->resetPresentationResolutionCache();
         $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
         $this->supersededRuntimeSelectors = array();
@@ -1114,6 +1138,10 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( $this->shouldPreserveDataAttributeRuntimeTarget($element) ) {
+            return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+        }
+
         $mathBlock = $this->mathPattern->match(
             $element,
             fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
@@ -1129,6 +1157,9 @@ final class HtmlTransformer
 
         if ( preg_match('/^h([1-6])$/', $tagName, $matches) ) {
             $content = $this->innerHtml($element);
+            if ( $this->richTextRequiresHtmlFallback($content) ) {
+                return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($element)) ), array(), $element);
+            }
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 return null;
             }
@@ -1141,6 +1172,9 @@ final class HtmlTransformer
 
         if ( 'p' === $tagName ) {
             $content = $this->innerHtml($element);
+            if ( $this->richTextRequiresHtmlFallback($content) ) {
+                return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($element)) ), array(), $element);
+            }
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 if ( $this->isRuntimeDomTarget($element) ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
@@ -1394,6 +1428,11 @@ final class HtmlTransformer
         }
 
         if ( 'table' === $tagName ) {
+            $classification = $this->tableClassificationPolicy->classify($element);
+            if ( ! $classification['representable'] ) {
+                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+            }
+
             return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
         }
 
@@ -1448,14 +1487,6 @@ final class HtmlTransformer
                 return $linkedImage;
             }
 
-            if ( '' === trim($element->textContent ?? '') && '' !== $this->safeLinkUrl($this->attr($element, 'href')) && '' !== trim($this->attr($element, 'aria-label')) ) {
-                return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->outerHtml($element) )), array(), $element);
-            }
-
-            if ( '' === trim($element->textContent ?? '') ) {
-                return null;
-            }
-
             $logo = $this->logoPattern->match(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
@@ -1480,6 +1511,14 @@ final class HtmlTransformer
                 return $button;
             }
 
+            if ( '' === trim($element->textContent ?? '') && '' !== $this->safeLinkUrl($this->attr($element, 'href')) && '' !== trim($this->attr($element, 'aria-label')) ) {
+                return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->outerHtml($element) )), array(), $element);
+            }
+
+            if ( '' === trim($element->textContent ?? '') ) {
+                return null;
+            }
+
             if ( $this->hasBlockContentChildren($element) ) {
                 $linkWrapper = $this->convertLinkWrapperGroup($element, $fallbacks);
                 if ( null !== $linkWrapper ) {
@@ -1491,6 +1530,11 @@ final class HtmlTransformer
         }
 
         if ( 'button' === $tagName ) {
+            if ( $this->isRuntimeDomTarget($element) ) {
+                $this->recordRuntimeControlIsland($element);
+                return $this->htmlPreservationBlock($element);
+            }
+
             return $this->buttonsPattern->matchButton(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
@@ -1501,6 +1545,13 @@ final class HtmlTransformer
         }
 
         if ( 'svg' === $tagName ) {
+            if ( $this->isRuntimeDomTarget($element) ) {
+                $html = $this->sanitizeInlineSvgMarkup($element);
+                if ( $this->isSafeSvgContent($html) ) {
+                    return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($html) ), array(), $element);
+                }
+            }
+
             // Imported inline SVGs are preserved faithfully as raw markup
             // (core/html via inlineSvgBlockFromElement). They are never routed
             // through core/icon: that block is a dynamic block keyed on a
@@ -1581,14 +1632,18 @@ final class HtmlTransformer
                 return $searchBlock;
             }
 
-            if ( $this->formHasDataEntryControls($element) ) {
-                $fallbacks[] = $this->formFallbackFinding($element, null);
-                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
-            }
-
             $readableFormBlock = $this->readableFormBlockFromForm($element);
             if ( null !== $readableFormBlock && ! $this->formRequiresRuntimePreservation($element) ) {
+                if ( $this->formHasDataEntryControls($element) ) {
+                    $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
+                }
+
                 return $readableFormBlock;
+            }
+
+            if ( $this->formHasDataEntryControls($element) ) {
+                $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
+                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
             }
 
             $controls = $this->formControls($element);
@@ -1625,6 +1680,19 @@ final class HtmlTransformer
         }
 
         if ( in_array($tagName, array( 'article', 'aside', 'body', 'center', 'div', 'footer', 'header', 'main', 'nav', 'section' ), true) ) {
+            if ( $this->shouldPreserveRuntimeAppShell($element) ) {
+                $targets = $this->runtimeTargetsInSubtree($element, 8);
+                $this->recordRuntimeIsland($element, 'app_shell', 'runtime_app_shell', 'client_script_execution', array(
+                    'events'          => $this->eventMetadata($element),
+                    'target_count'    => count($targets),
+                    'targets'         => $targets,
+                    'app_shell_signals' => $this->runtimeAppShellSignals($element),
+                    'required_scripts' => $this->requiredScriptsForElement($element),
+                ));
+
+                return $this->htmlPreservationBlock($element);
+            }
+
             // Div-based pseudo-form (issue #315 follow-up): some signup/contact
             // widgets pair data-entry controls with a submit-like control inside a
             // plain container and never wrap them in a <form>. Without a <form>
@@ -1853,6 +1921,10 @@ final class HtmlTransformer
     {
         $attrs = $this->hoistContentWrappingSpans($name, $attrs);
 
+        if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) && $this->richTextRequiresHtmlFallback((string) ($attrs['content'] ?? '')) ) {
+            return $this->blockFactory->create('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($sourceElement)) ));
+        }
+
         if ( $sourceElement instanceof DOMElement ) {
             $provenanceId = $this->nextSourceProvenanceId++;
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
@@ -1904,7 +1976,10 @@ final class HtmlTransformer
      *   - Remaining sibling/partial styling-hook spans are UNWRAPPED to their
      *     inner content. Their per-span class styling cannot ride valid RichText
      *     here, so this is best-effort; the emitted block is always valid.
-     * Genuine inline formats (strong/em/a/br/…) are never touched.
+     * Genuine inline formats (strong/em/a/br/…) are kept, but arbitrary
+     * class/style hooks on links are moved to the block wrapper when the link is
+     * the sole content wrapper, or dropped when they are partial-content hooks.
+     * RichText's link format round-trips href/target/rel, not source CSS hooks.
      *
      * A list item whose content carries block-level children (an image/heading/
      * paragraph "card", e.g. a commerce product grid) is left untouched here:
@@ -1921,7 +1996,7 @@ final class HtmlTransformer
         }
 
         $content = (string) ($attrs['content'] ?? '');
-        if ( '' === $content || ! preg_match('/<span\b/i', $content) ) {
+        if ( '' === $content || ! preg_match('/<(?:span|a)\b/i', $content) ) {
             return $attrs;
         }
 
@@ -1952,6 +2027,20 @@ final class HtmlTransformer
                 $hoistedDeclarations = array_merge($hoistedDeclarations, $this->cssDeclarations($wrapperStyle));
             }
             $this->unwrapElement($wrapper);
+        }
+
+        $soleAnchor = $this->soleRichTextAnchor($body);
+        if ( $soleAnchor instanceof DOMElement ) {
+            $hoistedClasses = trim($hoistedClasses . ' ' . $this->attr($soleAnchor, 'class'));
+            $anchorStyle    = trim($this->attr($soleAnchor, 'style'));
+            if ( '' !== $anchorStyle ) {
+                $hoistedDeclarations = array_merge($hoistedDeclarations, $this->cssDeclarations($anchorStyle));
+            }
+        }
+
+        foreach ( $this->richTextAnchors($body) as $anchor ) {
+            $anchor->removeAttribute('class');
+            $anchor->removeAttribute('style');
         }
 
         // Unwrap any remaining styling-hook spans (sibling / partial content):
@@ -2006,6 +2095,22 @@ final class HtmlTransformer
         return $only instanceof DOMElement && $this->isStylingHookSpan($only) ? $only : null;
     }
 
+    private function soleRichTextAnchor(DOMElement $container): ?DOMElement
+    {
+        $only = null;
+        foreach ( $container->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( null !== $only ) {
+                return null;
+            }
+            $only = $child;
+        }
+
+        return $only instanceof DOMElement && 'a' === strtolower($only->tagName) ? $only : null;
+    }
+
     /**
      * A `<span>` whose only attributes are class and/or style (at least one
      * non-empty). These are presentational styling hooks RichText cannot store,
@@ -2044,6 +2149,26 @@ final class HtmlTransformer
         }
 
         return $spans;
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function richTextAnchors(DOMElement $container): array
+    {
+        $anchors = array();
+        foreach ( $container->getElementsByTagName('a') as $anchor ) {
+            if ( $anchor instanceof DOMElement && ( $anchor->hasAttribute('class') || $anchor->hasAttribute('style') ) ) {
+                $anchors[] = $anchor;
+            }
+        }
+
+        return $anchors;
+    }
+
+    private function richTextRequiresHtmlFallback(string $content): bool
+    {
+        return (bool) preg_match('/<(?:svg|canvas|img|picture|video|audio|iframe|object|embed|input|button|select|textarea|form)\b/i', $content);
     }
 
     /**
@@ -3681,7 +3806,13 @@ final class HtmlTransformer
         foreach ( array( 'thead' => 'head', 'tbody' => 'body', 'tfoot' => 'foot' ) as $sectionTag => $attrName ) {
             $rows = array();
             foreach ( $table->getElementsByTagName($sectionTag) as $section ) {
+                if ( ! $this->belongsToTable($section, $table) ) {
+                    continue;
+                }
                 foreach ( $section->getElementsByTagName('tr') as $row ) {
+                    if ( ! $this->belongsToTable($row, $table) ) {
+                        continue;
+                    }
                     $rows[] = array( 'cells' => $this->tableCells($row) );
                 }
             }
@@ -3693,6 +3824,9 @@ final class HtmlTransformer
         if ( empty($attrs['body']) ) {
             $rows = array();
             foreach ( $table->getElementsByTagName('tr') as $row ) {
+                if ( ! $this->belongsToTable($row, $table) ) {
+                    continue;
+                }
                 if ( in_array($this->closestTagName($row), array( 'thead', 'tfoot' ), true) ) {
                     continue;
                 }
@@ -3709,6 +3843,19 @@ final class HtmlTransformer
         }
 
         return $attrs;
+    }
+
+    private function belongsToTable(DOMElement $element, DOMElement $table): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'table' !== strtolower($node->tagName) ) {
+                continue;
+            }
+
+            return $node->isSameNode($table);
+        }
+
+        return false;
     }
 
     /**
@@ -4200,6 +4347,175 @@ final class HtmlTransformer
             }
         }
 
+        foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
+            if ( $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function shouldPreserveRuntimeAppShell(DOMElement $element): bool
+    {
+        if ( array() === $this->runtimeDomSelectors && array() === $this->runtimeCanvasSelectors ) {
+            return false;
+        }
+
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'header', 'footer', 'nav' ), true) ) {
+            return false;
+        }
+
+        $targets = $this->runtimeTargetsInSubtree($element, 4);
+        if ( count($targets) < 2 ) {
+            return false;
+        }
+
+        $signals = $this->runtimeAppShellSignals($element);
+        if ( in_array($tagName, array( 'body', 'main' ), true) && ! in_array('app_root_token', $signals, true) ) {
+            return false;
+        }
+
+        return in_array('app_root_token', $signals, true) || in_array('workspace_surface', $signals, true);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function runtimeTargetsInSubtree(DOMElement $element, int $limit): array
+    {
+        $targets = array();
+        foreach ( $this->descendantElements($element) as $descendant ) {
+            if ( $this->isRuntimeDomTarget($descendant) || $this->isRuntimeCanvasTarget($descendant) ) {
+                $targets[] = array_filter(array(
+                    'selector'   => $this->runtimeIslandSelector($descendant),
+                    'tag'        => strtolower($descendant->tagName),
+                    'attributes' => $this->boundedRuntimeTargetAttributes($descendant),
+                ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
+            }
+
+            if ( count($targets) >= $limit ) {
+                break;
+            }
+        }
+
+        return $targets;
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function descendantElements(DOMElement $element): array
+    {
+        $descendants = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $descendants[] = $child;
+            foreach ( $this->descendantElements($child) as $grandchild ) {
+                $descendants[] = $grandchild;
+            }
+        }
+
+        return $descendants;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function runtimeAppShellSignals(DOMElement $element): array
+    {
+        $signals = array();
+        if ( $this->hasRuntimeAppRootToken($element) ) {
+            $signals[] = 'app_root_token';
+        }
+        if ( $this->hasWorkspaceSurface($element) ) {
+            $signals[] = 'workspace_surface';
+        }
+
+        return array_values(array_unique($signals));
+    }
+
+    private function hasRuntimeAppRootToken(DOMElement $element): bool
+    {
+        $tokens = preg_split('/[^A-Za-z0-9]+/', strtolower(trim($this->attr($element, 'id') . ' ' . $this->attr($element, 'class')))) ?: array();
+        foreach ( $tokens as $token ) {
+            if ( in_array($token, self::RUNTIME_APP_ROOT_TOKENS, true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasWorkspaceSurface(DOMElement $element): bool
+    {
+        foreach ( $this->descendantElements($element) as $descendant ) {
+            $tagName = strtolower($descendant->tagName);
+            if ( in_array($tagName, array( 'canvas', 'iframe', 'svg', 'template', 'textarea' ), true) ) {
+                return true;
+            }
+            if ( '' !== trim($this->attr($descendant, 'contenteditable')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function boundedRuntimeTargetAttributes(DOMElement $element): array
+    {
+        $attributes = array();
+        foreach ( array( 'id', 'class', 'role', 'aria-label', 'type', 'name' ) as $name ) {
+            $value = trim($this->attr($element, $name));
+            if ( '' !== $value ) {
+                $attributes[$name] = substr($value, 0, 160);
+            }
+        }
+
+        foreach ( $element->attributes ?? array() as $attribute ) {
+            if ( str_starts_with(strtolower($attribute->name), 'data-') ) {
+                $attributes[$attribute->name] = substr((string) $attribute->value, 0, 160);
+            }
+        }
+
+        return $attributes;
+    }
+
+    private function shouldPreserveDataAttributeRuntimeTarget(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'canvas', 'form', 'script' ), true) || $this->isFormControlElement($element) ) {
+            return false;
+        }
+
+        foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
+            if ( str_contains((string) $selector, '[') && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function elementMatchesRuntimeSelector(DOMElement $element, string $selector): bool
+    {
+        $tag = strtolower($element->tagName);
+        if ( $selector === $tag && in_array($tag, array_merge(array('canvas', 'svg'), self::RUNTIME_TAG_SELECTORS), true) ) {
+            return true;
+        }
+        if ( preg_match('/^([a-z][a-z0-9-]*)\.([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
+            return $tag === strtolower((string) $match[1]) && in_array((string) $match[2], preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array(), true);
+        }
+        if ( preg_match('/^(?:([a-z][a-z0-9-]*))?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:=["\'][^"\']{1,80}["\'])?\]$/', $selector, $match) ) {
+            return ( '' === (string) ($match[1] ?? '') || $tag === strtolower((string) $match[1]) ) && $element->hasAttribute(strtolower((string) $match[2]));
+        }
+
         return false;
     }
 
@@ -4264,12 +4580,19 @@ final class HtmlTransformer
     {
         $selectors = array();
         foreach ( $options[$key] ?? array() as $selector ) {
-            if ( is_string($selector) && preg_match('/^[#.][A-Za-z][A-Za-z0-9_-]*$/', $selector) ) {
+            if ( is_string($selector) && $this->isBoundedRuntimeSelector($selector) ) {
                 $selectors[$selector] = true;
             }
         }
 
         return $selectors;
+    }
+
+    private function isBoundedRuntimeSelector(string $selector): bool
+    {
+        $name = '[A-Za-z][A-Za-z0-9_-]*';
+        $runtimeTags = implode('|', self::RUNTIME_TAG_SELECTORS);
+        return 1 === preg_match('/^(?:[#.]' . $name . '|' . $name . '\.' . $name . '|\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\]|' . $name . '\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\]|canvas|svg|' . $runtimeTags . ')$/', $selector);
     }
 
     /**
@@ -4396,10 +4719,13 @@ final class HtmlTransformer
     private function formControls(DOMElement $form): array
     {
         $controls = array();
+        $order = 0;
         foreach ( $this->formControlElements($form) as $control ) {
             $metadata = $this->formControlMetadata($control);
             if ( array() !== $metadata ) {
+                $metadata['order'] = $order;
                 $controls[] = $metadata;
+                ++$order;
             }
         }
 
@@ -4407,18 +4733,32 @@ final class HtmlTransformer
     }
 
     /**
-     * @return array<string, string>
+     * @return array<string, mixed>
      */
     private function formMetadata(DOMElement $form): array
     {
-        return array_filter(
+        $metadata = array_filter(
             array(
-                'action'  => $this->attr($form, 'action'),
-                'method'  => strtolower($this->attr($form, 'method')),
-                'enctype' => $this->attr($form, 'enctype'),
+                'id'         => $this->attr($form, 'id'),
+                'name'       => $this->attr($form, 'name'),
+                'class'      => $this->attr($form, 'class'),
+                'aria_label' => $this->attr($form, 'aria-label'),
+                'action'     => $this->attr($form, 'action'),
+                'method'     => strtolower($this->attr($form, 'method')),
+                'enctype'    => $this->attr($form, 'enctype'),
+                'target'     => $this->attr($form, 'target'),
+                'autocomplete' => $this->attr($form, 'autocomplete'),
             ),
             static fn (string $value): bool => '' !== $value
         );
+
+        foreach ( array( 'novalidate' ) as $attribute ) {
+            if ( $form->hasAttribute($attribute) ) {
+                $metadata[$attribute] = true;
+            }
+        }
+
+        return $metadata;
     }
 
     /**
@@ -4467,18 +4807,7 @@ final class HtmlTransformer
             return null;
         }
 
-        $inputLabel = $this->formControlLabel($textInput);
-        $attrs = array_filter(array_merge(
-            $this->presentationAttributes($form),
-            $this->searchInputRuntimeAttributes($textInput),
-            array(
-                'label'       => '' !== $inputLabel ? $inputLabel : 'Search',
-                'placeholder' => $this->attr($textInput, 'placeholder'),
-                'buttonText'  => $submitControl instanceof DOMElement ? $this->submitButtonText($submitControl) : '',
-            )
-        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
-
-        return $this->createBlock('core/search', $attrs, array(), $form);
+        return $this->htmlPreservationBlock($form);
     }
 
     /**
@@ -4517,20 +4846,7 @@ final class HtmlTransformer
         if ( '' === $label ) {
             $label = $this->attr($searchInput, 'placeholder');
         }
-        if ( '' === $label ) {
-            $label = 'Search';
-        }
-
-        $attrs = array_filter(array_merge(
-            $this->presentationAttributes($element),
-            $this->searchInputRuntimeAttributes($searchInput),
-            array(
-                'label'       => $label,
-                'placeholder' => $this->attr($searchInput, 'placeholder'),
-            )
-        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
-
-        return $this->createBlock('core/search', $attrs, array(), $element);
+        return $this->htmlPreservationBlock($element);
     }
 
     /**
@@ -4596,6 +4912,11 @@ final class HtmlTransformer
                         return null;
                     }
 
+                    if ( $this->isRuntimeDomTarget($control) ) {
+                        $this->recordRuntimeControlIsland($control);
+                        return $this->htmlPreservationBlock($element);
+                    }
+
                     $summary = $this->readableFormControlText($control);
                     if ( '' !== $summary ) {
                         $blocks[] = $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $control);
@@ -4630,24 +4951,12 @@ final class HtmlTransformer
                 $label = 'Search';
             }
 
-            $attrs = array_filter(array_merge(
-                $this->presentationAttributes($element),
-                $this->searchInputRuntimeAttributes($element),
-                array(
-                    'label'       => $label,
-                    'placeholder' => $this->attr($element, 'placeholder'),
-                )
-            ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
-
-            return $this->createBlock('core/search', $attrs, array(), $element);
+            return $this->htmlPreservationBlock($element);
         }
 
         if ( $this->isRuntimeDomTarget($element) ) {
-            $this->recordRuntimeIsland($element, 'control', 'runtime_dom_target', 'client_script_execution', array(
-                'control'          => $this->formControlMetadata($element),
-                'events'           => $this->eventMetadata($element),
-                'required_scripts' => $this->requiredScriptsForElement($element),
-            ));
+            $this->recordRuntimeControlIsland($element);
+            return $this->htmlPreservationBlock($element);
         }
 
         if ( 'select' === $tagName ) {
@@ -4663,6 +4972,20 @@ final class HtmlTransformer
         }
 
         return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $summary )), array(), $element);
+    }
+
+    private function htmlPreservationBlock(DOMElement $element): array
+    {
+        return $this->blockFactory->create('core/html', array( 'content' => $this->outerHtml($element) ));
+    }
+
+    private function recordRuntimeControlIsland(DOMElement $element): void
+    {
+        $this->recordRuntimeIsland($element, 'control', 'runtime_dom_target', 'client_script_execution', array(
+            'control'          => $this->formControlMetadata($element),
+            'events'           => $this->eventMetadata($element),
+            'required_scripts' => $this->requiredScriptsForElement($element),
+        ));
     }
 
     /**
@@ -4747,8 +5070,80 @@ final class HtmlTransformer
     {
         return 0 < $form->getElementsByTagName('script')->length
             || array() !== $this->eventMetadata($form)
-            || array() !== $this->formMetadata($form)
-            || $this->formHasDataEntryControls($form);
+            || $this->formHasRuntimeSubmissionMetadata($form)
+            || $this->formHasCommerceSubmissionSignal($form)
+            || $this->formHasRuntimeDomTargets($form);
+    }
+
+    private function formHasRuntimeSubmissionMetadata(DOMElement $form): bool
+    {
+        $action = trim($this->attr($form, 'action'));
+        if ( '' !== $action && '#' !== $action ) {
+            return true;
+        }
+
+        if ( '' === $action && '' !== trim($this->attr($form, 'method')) ) {
+            return true;
+        }
+
+        foreach ( array( 'enctype', 'target' ) as $attribute ) {
+            if ( '' !== trim($this->attr($form, $attribute)) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function formHasCommerceSubmissionSignal(DOMElement $form): bool
+    {
+        foreach ( $this->formControlElements($form) as $control ) {
+            if ( ! $this->isSubmitLikeControl($control) ) {
+                continue;
+            }
+
+            $haystack = strtolower(implode(' ', array(
+                $control->textContent ?? '',
+                $this->attr($control, 'value'),
+                $this->attr($control, 'class'),
+                $this->attr($control, 'id'),
+                $this->attr($control, 'name'),
+                $this->attr($control, 'aria-label'),
+                $this->attr($control, 'title'),
+            )));
+
+            if ( preg_match('/(?:^|[^a-z0-9])(?:add to cart|cart|checkout|payment|purchase|buy|order|register|registration|ticket)(?:[^a-z0-9]|$)/', $haystack) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function formHasRuntimeDomTargets(DOMElement $form): bool
+    {
+        if ( $this->isRuntimeDomTarget($form) || $this->hasRuntimeClassSignal($form) ) {
+            return true;
+        }
+
+        foreach ( $this->formControlElements($form) as $control ) {
+            if ( $this->isRuntimeDomTarget($control) || $this->hasRuntimeClassSignal($control) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasRuntimeClassSignal(DOMElement $element): bool
+    {
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+            if ( preg_match('/^js-[A-Za-z0-9_-]+$/', $class) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -4776,6 +5171,7 @@ final class HtmlTransformer
             'selector'        => $this->elementSelector($element),
             'attributes'      => $this->htmlAttributes($element),
             'form'            => $this->formMetadata($element),
+            'success_panel'   => $this->formSuccessPanelMetadata($element),
             'context'         => $this->sourceContext($element),
             'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
             'events'          => $this->eventMetadata($element),
@@ -4788,6 +5184,58 @@ final class HtmlTransformer
             'html_bytes'      => $boundedHtml['bytes'],
             'html_truncated'  => $boundedHtml['truncated'],
         ), $this->fallbackProvenance);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function formSuccessPanelMetadata(DOMElement $form): array
+    {
+        for ( $sibling = $form->nextSibling; $sibling instanceof DOMNode; $sibling = $sibling->nextSibling ) {
+            if ( XML_TEXT_NODE === $sibling->nodeType && '' === trim($sibling->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $sibling instanceof DOMElement ) {
+                return array();
+            }
+
+            if ( ! $this->hasSuccessPanelSignal($sibling) ) {
+                return array();
+            }
+
+            $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($sibling));
+            return array_filter(array(
+                'selector'       => $this->elementSelector($sibling),
+                'id'             => $this->attr($sibling, 'id'),
+                'class'          => $this->attr($sibling, 'class'),
+                'role'           => $this->attr($sibling, 'role'),
+                'aria_live'      => $this->attr($sibling, 'aria-live'),
+                'text'           => $this->normalizedSuccessPanelText($sibling),
+                'html'           => $boundedHtml['html'],
+                'html_bytes'     => $boundedHtml['bytes'],
+                'html_truncated' => $boundedHtml['truncated'],
+            ), static fn (mixed $value): bool => is_bool($value) || is_int($value) || '' !== trim((string) $value));
+        }
+
+        return array();
+    }
+
+    private function normalizedSuccessPanelText(DOMElement $element): string
+    {
+        $html = preg_replace('/<\/?[a-z][a-z0-9]*\b[^>]*>/i', ' ', $this->innerHtml($element)) ?? $element->textContent ?? '';
+        return trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+    }
+
+    private function hasSuccessPanelSignal(DOMElement $element): bool
+    {
+        $role = strtolower($this->attr($element, 'role'));
+        if ( in_array($role, array( 'status', 'alert' ), true) ) {
+            return true;
+        }
+
+        $tokens = strtolower(trim($this->attr($element, 'id') . ' ' . $this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-live')));
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:success|sent|submitted|thank|thanks|confirmation|confirmed)(?:[^a-z0-9]|$)/', $tokens);
     }
 
     /**
@@ -5187,20 +5635,45 @@ final class HtmlTransformer
         }
 
         $tagName = strtolower($control->tagName);
+        $type = $this->formControlType($control);
         $metadata = array_filter(array(
             'tag'         => $tagName,
             'selector'    => $this->elementSelector($control),
+            'id'          => $this->attr($control, 'id'),
             'name'        => $this->attr($control, 'name'),
-            'type'        => $this->formControlType($control),
+            'type'        => $type,
             'label'       => $this->formControlLabel($control),
             'placeholder' => $this->attr($control, 'placeholder'),
+            'autocomplete' => $this->attr($control, 'autocomplete'),
+            'pattern'     => $this->attr($control, 'pattern'),
+            'min'         => $this->attr($control, 'min'),
+            'max'         => $this->attr($control, 'max'),
+            'step'        => $this->attr($control, 'step'),
+            'maxlength'   => $this->attr($control, 'maxlength'),
+            'rows'        => $this->attr($control, 'rows'),
         ), static fn (string $value): bool => '' !== $value);
+
+        if ( in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
+            $text = $this->formButtonText($control);
+            if ( '' !== $text ) {
+                $metadata['text'] = $text;
+            }
+        }
 
         if ( $control->hasAttribute('required') ) {
             $metadata['required'] = true;
         }
         if ( $control->hasAttribute('disabled') ) {
             $metadata['disabled'] = true;
+        }
+        if ( $control->hasAttribute('readonly') ) {
+            $metadata['readonly'] = true;
+        }
+        if ( $control->hasAttribute('checked') ) {
+            $metadata['checked'] = true;
+        }
+        if ( $control->hasAttribute('multiple') ) {
+            $metadata['multiple'] = true;
         }
 
         $value = $this->attr($control, 'value');
@@ -5277,6 +5750,10 @@ final class HtmlTransformer
             return $node->textContent ?? '';
         }
 
+        if ( $node instanceof DOMElement && 'true' === strtolower($this->attr($node, 'aria-hidden')) ) {
+            return '';
+        }
+
         if ( $node instanceof DOMElement && $this->isFormControlElement($node) ) {
             return '';
         }
@@ -5287,6 +5764,23 @@ final class HtmlTransformer
         }
 
         return $text;
+    }
+
+    private function formButtonText(DOMElement $control): string
+    {
+        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
+            $label = trim($this->attr($control, $attribute));
+            if ( '' !== $label ) {
+                return $label;
+            }
+        }
+
+        $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
+        if ( '' !== $text ) {
+            return $text;
+        }
+
+        return trim($this->attr($control, 'value'));
     }
 
     /**
@@ -5310,6 +5804,9 @@ final class HtmlTransformer
             }
             if ( $option->hasAttribute('disabled') ) {
                 $optionMetadata['disabled'] = true;
+            }
+            if ( '' === trim($this->attr($option, 'value')) && ( $option->hasAttribute('disabled') || $option->hasAttribute('selected') ) ) {
+                $optionMetadata['placeholder'] = true;
             }
 
             $options[] = $optionMetadata;
@@ -5429,22 +5926,28 @@ final class HtmlTransformer
         $second = $children[1];
         $firstIsPrice = $this->isPriceElement($first);
         $secondIsPrice = $this->isPriceElement($second);
-        if ( $firstIsPrice === $secondIsPrice ) {
-            return null;
+        if ( $firstIsPrice !== $secondIsPrice ) {
+            $other = $firstIsPrice ? $second : $first;
+            if ( $this->isNameElement($other) || $this->hasCommerceToken($element, array( 'menu', 'product', 'pricing', 'price', 'plan', 'tier', 'dish', 'item', 'row' )) ) {
+                return $children;
+            }
         }
 
-        $other = $firstIsPrice ? $second : $first;
-        if ( ! $this->isNameElement($other) && ! $this->hasCommerceToken($element, array( 'menu', 'product', 'pricing', 'price', 'plan', 'tier', 'dish', 'item', 'row' )) ) {
-            return null;
+        if ( $this->looksLikeHoursRow($element, $first, $second) ) {
+            return $children;
         }
 
-        return $children;
+        if ( $this->looksLikeLabelValueRow($element, $first, $second) ) {
+            return $children;
+        }
+
+        return null;
     }
 
     private function isInlineCommerceRowChild(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a', 'span', 'strong', 'em', 'small' ), true) ) {
+        if ( in_array($tagName, array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a', 'span', 'strong', 'em', 'small', 'time' ), true) ) {
             return ! $this->hasBlockContentChildren($element);
         }
 
@@ -5459,6 +5962,58 @@ final class HtmlTransformer
     private function isNameElement(DOMElement $element): bool
     {
         return $this->hasCommerceToken($element, array( 'name', 'title', 'product', 'dish', 'item', 'plan', 'tier' )) || preg_match('/^h[1-6]$/', strtolower($element->tagName));
+    }
+
+    private function looksLikeHoursRow(DOMElement $row, DOMElement $first, DOMElement $second): bool
+    {
+        if ( ! $this->hasCommerceToken($row, array( 'hours', 'hour', 'schedule', 'time', 'row' )) ) {
+            return false;
+        }
+
+        return ( $this->isDayElement($first) && $this->isTimeValueElement($second) )
+            || ( $this->isDayElement($second) && $this->isTimeValueElement($first) );
+    }
+
+    private function looksLikeLabelValueRow(DOMElement $row, DOMElement $first, DOMElement $second): bool
+    {
+        if ( ! $this->hasCommerceToken($row, array( 'row', 'item', 'pair', 'line', 'entry', 'schedule', 'session', 'meta', 'detail' )) ) {
+            return false;
+        }
+
+        $firstIsLabel = $this->isLabelValueLabelElement($first);
+        $secondIsLabel = $this->isLabelValueLabelElement($second);
+        $firstIsValue = $this->isLabelValueValueElement($first);
+        $secondIsValue = $this->isLabelValueValueElement($second);
+
+        return ( $firstIsLabel && $secondIsValue ) || ( $secondIsLabel && $firstIsValue );
+    }
+
+    private function isLabelValueLabelElement(DOMElement $element): bool
+    {
+        return $this->hasCommerceToken($element, array( 'label', 'term', 'key', 'day', 'date', 'time', 'hour', 'hours', 'duration' ))
+            || 'time' === strtolower($element->tagName)
+            || $this->looksLikeDateOrTimeText($element->textContent ?? '');
+    }
+
+    private function isLabelValueValueElement(DOMElement $element): bool
+    {
+        return $this->hasCommerceToken($element, array( 'value', 'detail', 'title', 'name', 'content', 'description', 'desc', 'meta', 'session', 'event', 'location', 'venue' ))
+            || preg_match('/^h[1-6]$/', strtolower($element->tagName));
+    }
+
+    private function looksLikeDateOrTimeText(string $text): bool
+    {
+        return (bool) preg_match('/\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:min|mins|minutes|hr|hrs|hours)|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|day\s+\d+)\b/i', trim($text));
+    }
+
+    private function isDayElement(DOMElement $element): bool
+    {
+        return $this->hasCommerceToken($element, array( 'day', 'date', 'label' )) || (bool) preg_match('/\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|weekdays?|weekends?)\b/i', $element->textContent ?? '');
+    }
+
+    private function isTimeValueElement(DOMElement $element): bool
+    {
+        return $this->hasCommerceToken($element, array( 'time', 'hours', 'value', 'closed' )) || (bool) preg_match('/\b(?:closed|open|\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:[\x{2013}\x{2014}-]|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/iu', $element->textContent ?? '');
     }
 
     /**

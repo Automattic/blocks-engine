@@ -32,7 +32,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 3 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"data-figure\"} --><div class=\"wp-block-group data-figure\">" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-table\"><table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Ada</td></tr></tbody></table></figure>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-table\"><table class=\"has-fixed-layout\"><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Ada</td></tr></tbody></table></figure>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"content\":\"Team <em>roster</em>\"} --><p>Team <em>roster</em></p><!-- /wp:paragraph --></div><!-- /wp:group -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group --><div class=\"wp-block-group\"><!-- wp:paragraph {\"content\":\"First line.\"} --><p>First line.</p><!-- /wp:paragraph -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"content\":\"Plain figure text\"} --><p>Plain figure text</p><!-- /wp:paragraph --><!-- wp:paragraph {\"content\":\"Short caption\"} -->" },

@@ -1,0 +1,46 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-runtime-canvas-bundle-targets-preserved",
+  "description": "Preserves canvas DOM targets when one script references the canvas IDs and another script in the same page bundle owns the getContext() helper.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-runtime-canvas-bundle-targets-preserved.json",
+    "notes": "Regression coverage for corpus canvas targets such as #hero-canvas, #cta-canvas, #hero-sim, and #board."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Runtime dependency parity is an upstream artifact compiler contract with no legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "kind": "html",
+          "content": "<main><canvas id=\"hero-canvas\" aria-hidden=\"true\"></canvas><canvas id=\"cta-canvas\" aria-hidden=\"true\"></canvas><canvas id=\"hero-sim\" aria-hidden=\"true\"></canvas><canvas id=\"board\" tabindex=\"0\" aria-label=\"Board\"></canvas><script src=\"main.js\"></script><script src=\"engine.js\"></script></main>"
+        },
+        {
+          "path": "main.js",
+          "kind": "js",
+          "content": "Engine.flow(document.getElementById('hero-canvas')); Engine.ambient(document.getElementById('cta-canvas')); const sim = document.getElementById('hero-sim'); new Engine.Renderer(sim); const board = document.getElementById('board'); createBoard(board);"
+        },
+        {
+          "path": "engine.js",
+          "kind": "js",
+          "content": "window.Engine = { flow(canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, 10, 10); }, ambient(canvas) { const ctx = canvas.getContext('2d'); ctx.fillRect(0, 0, 10, 10); }, Renderer: function (canvas) { this.ctx = canvas.getContext('2d'); } }; function createBoard(canvas) { const ctx = canvas.getContext('2d'); ctx.strokeRect(0, 0, 10, 10); }"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "id=\"hero-canvas\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "id=\"cta-canvas\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "id=\"hero-sim\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "id=\"board\"" },
+    { "path": "source_reports.runtime_island_package.islands", "assert": "count", "count": 4 }
+  ]
+}

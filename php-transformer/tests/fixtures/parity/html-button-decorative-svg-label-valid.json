@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-button-decorative-svg-label-valid",
+  "description": "Converts button-like anchors with decorative inline SVG icons into valid native button RichText labels.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-button-decorative-svg-label-valid.json",
+    "notes": "Generic coverage for CTA labels that include decorative SVG icons."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New generic RichText-safe label extraction behavior has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<a class=\"cta-phone\" href=\"tel:+16165550182\"><svg class=\"phone-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 4h16v16H4z\"></path></svg><span>Call now</span></a>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "cta-phone", "text": "Call now", "url": "tel:+16165550182" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "href=\"tel:+16165550182\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": ">Call now</a>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

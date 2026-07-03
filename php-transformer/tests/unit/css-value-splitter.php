@@ -113,6 +113,26 @@ $assert('' === $serialized['style'], '6c: no inline style emitted for the invali
 $valid = $mapper->serialize($mapper->map(array( 'background' => 'rgba(1, 2, 3, .4)' ))['style']);
 $assert(str_contains($valid['classes'], 'has-background') && str_contains($valid['style'], 'background-color:rgba(1, 2, 3, .4)'), '6d: valid background pairs class + style');
 
+// ---------------------------------------------------------------------------
+// 7. Mapper: Gutenberg-supported wrapper CSS becomes native support attrs/style.
+// ---------------------------------------------------------------------------
+$support = $mapper->map(array(
+    'background'      => 'var(--wp--preset--color--base)',
+    'color'           => 'var(--wp--preset--color--contrast)',
+    'gap'             => '1.25rem',
+    'display'         => 'flex',
+    'align-items'     => 'center',
+    'justify-content' => 'space-between',
+    'box-shadow'      => '0 12px 30px rgba(0,0,0,.12)',
+));
+$assert(($support['attrs']['backgroundColor'] ?? '') === 'base', '7: preset background CSS variable maps to backgroundColor attr');
+$assert(($support['attrs']['textColor'] ?? '') === 'contrast', '7b: preset text CSS variable maps to textColor attr');
+$assert(($support['style']['spacing']['blockGap'] ?? '') === '1.25rem', '7c: gap maps to spacing.blockGap');
+$assert(! isset($support['leftover']['display']) && ! isset($support['leftover']['align-items']) && ! isset($support['leftover']['justify-content']), '7d: layout declarations are not left as raw styles');
+$assert(($support['leftover']['box-shadow'] ?? '') === '0 12px 30px rgba(0,0,0,.12)', '7e: unsupported box-shadow stays leftover for class/CSS ownership');
+$serializedGap = $mapper->serialize($support['style']);
+$assert(str_contains($serializedGap['style'], 'gap:1.25rem'), '7f: blockGap serializes to the wrapper gap declaration');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssValueSplitter unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

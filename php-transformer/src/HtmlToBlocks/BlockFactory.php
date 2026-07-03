@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 
 /**
  * @internal Block construction is owned by HtmlTransformer.
@@ -33,6 +34,7 @@ final class BlockFactory
      */
     public function create(string $name, array $attrs = array(), array $innerBlocks = array()): array
     {
+        $attrs = $this->normalizeAttrsForBlock($name, $attrs);
         $innerHtml = $this->blockHtml($name, $attrs, $innerBlocks);
         if ( is_array($innerHtml) ) {
             $innerContent = array( $innerHtml['opening'] );
@@ -52,6 +54,25 @@ final class BlockFactory
             'innerHTML'    => $innerHtml,
             'innerContent' => $innerContent,
         );
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function normalizeAttrsForBlock(string $name, array $attrs): array
+    {
+        if ( in_array($name, array( 'core/buttons', 'core/column', 'core/columns', 'core/group', 'core/heading', 'core/list', 'core/list-item', 'core/paragraph' ), true) ) {
+            unset($attrs['style']['spacing']['blockGap']);
+            if ( empty($attrs['style']['spacing']) ) {
+                unset($attrs['style']['spacing']);
+            }
+            if ( empty($attrs['style']) ) {
+                unset($attrs['style']);
+            }
+        }
+
+        return $attrs;
     }
 
     /**
@@ -139,7 +160,7 @@ final class BlockFactory
         }
 
         if ( 'core/separator' === $name ) {
-            return '<hr' . $this->blockSupportAttrs($attrs, 'wp-block-separator') . ' />';
+            return '<hr' . $this->blockSupportAttrs($attrs, implode(' ', GeneratedGutenbergClassPolicy::classesForBlock('core/separator'))) . ' />';
         }
 
         if ( 'core/spacer' === $name ) {
@@ -165,7 +186,7 @@ final class BlockFactory
         }
 
         if ( 'core/accordion' === $name ) {
-            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-accordion') . '>', 'closing' => '</div>' );
+            return $this->roleWrapperHtml('group', $attrs, 'wp-block-accordion');
         }
 
         if ( 'core/accordion-item' === $name ) {
@@ -176,11 +197,15 @@ final class BlockFactory
         if ( 'core/accordion-heading' === $name ) {
             $level = (int) ($attrs['level'] ?? 3);
             $level = max(1, min(6, $level));
-            return '<h' . $level . $this->blockSupportAttrs($attrs, 'wp-block-accordion-heading') . '><button type="button" class="wp-block-accordion-heading__toggle"><span class="wp-block-accordion-heading__toggle-title">' . ($attrs['title'] ?? '') . '</span></button></h' . $level . '>';
+            $showIcon = ! array_key_exists('showIcon', $attrs) || false !== $attrs['showIcon'];
+            $icon = $showIcon ? '<span class="wp-block-accordion-heading__toggle-icon" aria-hidden="true">+</span>' : '';
+            $title = '<span class="wp-block-accordion-heading__toggle-title">' . ($attrs['title'] ?? '') . '</span>';
+            $children = 'left' === ($attrs['iconPosition'] ?? 'right') ? $icon . $title : $title . $icon;
+            return '<h' . $level . $this->blockSupportAttrs($attrs, 'wp-block-accordion-heading') . '><button type="button" class="wp-block-accordion-heading__toggle">' . $children . '</button></h' . $level . '>';
         }
 
         if ( 'core/accordion-panel' === $name ) {
-            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-accordion-panel') . '>', 'closing' => '</div>' );
+            return $this->roleWrapperHtml('region', $attrs, 'wp-block-accordion-panel');
         }
 
         if ( 'core/image' === $name ) {
@@ -221,41 +246,7 @@ final class BlockFactory
         }
 
         if ( 'core/button' === $name ) {
-            $support = $this->buttonStyleSupport($attrs);
-
-            // Match core/button save(): useBlockProps.save() lives on the OUTER
-            // wrapper <div>, so the block className and the anchor id belong on
-            // the wrapper. The inner <a>/<button> carries only the structural
-            // wp-block-button__link / wp-element-button classes plus color and
-            // border support classes/styles. Routing the source className onto
-            // the inner element instead leaves the stored markup divergent from
-            // save() and the editor flags the block invalid.
-            $wrapperAttrs = array(
-                'id'    => (string) ($attrs['anchor'] ?? ''),
-                'class' => $this->mergeClassNames('wp-block-button', (string) ($attrs['className'] ?? '')),
-            );
-
-            if ( 'button' === ($attrs['tagName'] ?? '') ) {
-                $buttonAttrs = array_intersect_key($attrs, array_flip(array( 'type', 'role', 'aria-label', 'aria-controls', 'aria-expanded', 'aria-haspopup' )));
-                foreach ( $attrs as $attrName => $attrValue ) {
-                    if ( is_string($attrName) && str_starts_with(strtolower($attrName), 'data-') ) {
-                        $buttonAttrs[$attrName] = (string) $attrValue;
-                    }
-                }
-                $buttonAttrs = array_merge(array(
-                    'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button'),
-                    'style' => $support['style'],
-                ), $buttonAttrs);
-
-                return '<div' . $this->htmlAttrs($wrapperAttrs) . '><button' . $this->htmlAttrs($buttonAttrs) . '>' . ($attrs['text'] ?? '') . '</button></div>';
-            }
-
-            $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
-            $linkAttrs = array(
-                'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button'),
-                'style' => $support['style'],
-            );
-            return '<div' . $this->htmlAttrs($wrapperAttrs) . '><a' . $this->htmlAttrs($linkAttrs) . $href . '>' . ($attrs['text'] ?? '') . '</a></div>';
+            return $this->buttonHtml($attrs);
         }
 
         // The navigation family (`core/navigation`, `core/navigation-link`,
@@ -301,10 +292,54 @@ final class BlockFactory
 
     /**
      * @param array<string, mixed> $attrs
+     * @return array{opening: string, closing: string}
+     */
+    private function roleWrapperHtml(string $role, array $attrs, string $baseClass): array
+    {
+        return array( 'opening' => '<div role="' . $role . '"' . $this->blockSupportAttrs($attrs, $baseClass) . '>', 'closing' => '</div>' );
+    }
+
+    /**
+     * Match core/button save(): useBlockProps.save() lives on the OUTER wrapper
+     * <div>, so the block className and anchor id belong on the wrapper. The
+     * inner <a>/<button> carries only structural classes plus color/border
+     * support classes/styles.
+     *
+     * @param array<string, mixed> $attrs
+     */
+    private function buttonHtml(array $attrs): string
+    {
+        $support = $this->buttonStyleSupport($attrs);
+
+        $wrapperAttrs = array(
+            'id'    => (string) ($attrs['anchor'] ?? ''),
+            'class' => $this->mergeClassNames('wp-block-button', (string) ($attrs['className'] ?? '')),
+        );
+
+        $controlAttrs = array(
+            'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button'),
+            'style' => $support['style'],
+        );
+
+        if ( 'button' === ($attrs['tagName'] ?? '') ) {
+            $controlAttrs = array( 'type' => (string) ($attrs['type'] ?? 'button') ) + $controlAttrs;
+
+            return '<div' . $this->htmlAttrs($wrapperAttrs) . '><button' . $this->htmlAttrs($controlAttrs) . '>' . ($attrs['text'] ?? '') . '</button></div>';
+        }
+
+        $href = '' !== ($attrs['url'] ?? '') ? ' href="' . htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
+        return '<div' . $this->htmlAttrs($wrapperAttrs) . '><a' . $this->htmlAttrs($controlAttrs) . $href . '>' . ($attrs['text'] ?? '') . '</a></div>';
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
      */
     private function tableHtml(array $attrs): string
     {
-        $html = '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-table') . '><table>';
+        $tableAttrs = array(
+            'class' => empty($attrs['hasFixedLayout']) && array_key_exists('hasFixedLayout', $attrs) ? '' : 'has-fixed-layout',
+        );
+        $html = '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-table') . '><table' . $this->htmlAttrs($tableAttrs) . '>';
         foreach ( array( 'head' => 'thead', 'body' => 'tbody', 'foot' => 'tfoot' ) as $attrName => $tagName ) {
             if ( empty($attrs[$attrName]) || ! is_array($attrs[$attrName]) ) {
                 continue;
@@ -429,23 +464,9 @@ final class BlockFactory
      */
     private function searchHtml(array $attrs): string
     {
-        $inputId = (string) ($attrs['inputAnchor'] ?? '');
-        $label = (string) ($attrs['label'] ?? 'Search');
-        $labelAttrs = array(
-            'class' => 'wp-block-search__label',
-            'for'   => $inputId,
-        );
-        $inputAttrs = array(
-            'type'        => 'search',
-            'id'          => $inputId,
-            'class'       => $this->mergeClassNames('wp-block-search__input', (string) ($attrs['inputClassName'] ?? '')),
-            'name'        => 's',
-            'placeholder' => (string) ($attrs['placeholder'] ?? ''),
-        );
-        $buttonText = (string) ($attrs['buttonText'] ?? 'Search');
-        $button = '' !== trim($buttonText) ? '<button type="submit" class="wp-block-search__button wp-element-button">' . $buttonText . '</button>' : '';
-
-        return '<form role="search" method="get"' . $this->blockSupportAttrs($attrs, 'wp-block-search') . '><label' . $this->htmlAttrs($labelAttrs) . '>' . $label . '</label><div class="wp-block-search__inside-wrapper"><input' . $this->htmlAttrs($inputAttrs) . ' />' . $button . '</div></form>';
+        // core/search is dynamic in the supported runtime: save() returns null,
+        // so stored blocks must carry no static form markup.
+        return '';
     }
 
     /**
@@ -474,11 +495,9 @@ final class BlockFactory
         $text = (string) ($style['color']['text'] ?? '');
         if ( '' !== $text ) {
             $classes[] = 'has-text-color';
-            $declarations[] = 'color:' . $text;
         }
         if ( '' !== $background ) {
             $classes[] = 'has-background';
-            $declarations[] = 'background-color:' . $background;
         }
 
         $border = is_array($style['border'] ?? null) ? $style['border'] : array();
@@ -486,14 +505,21 @@ final class BlockFactory
             $classes[] = 'has-border-color';
             $declarations[] = 'border-color:' . (string) $border['color'];
         }
-        if ( isset($border['width']) && '' !== (string) $border['width'] ) {
-            $declarations[] = 'border-width:' . (string) $border['width'];
-        }
         if ( isset($border['style']) && '' !== (string) $border['style'] ) {
             $declarations[] = 'border-style:' . (string) $border['style'];
         }
+        if ( isset($border['width']) && '' !== (string) $border['width'] ) {
+            $declarations[] = 'border-width:' . (string) $border['width'];
+        }
         if ( isset($border['radius']) && '' !== (string) $border['radius'] ) {
             $declarations[] = 'border-radius:' . (string) $border['radius'];
+        }
+
+        if ( '' !== $text ) {
+            $declarations[] = 'color:' . $text;
+        }
+        if ( '' !== $background ) {
+            $declarations[] = 'background-color:' . $background;
         }
 
         $padding = is_array($style['spacing']['padding'] ?? null) ? $style['spacing']['padding'] : array();
@@ -545,7 +571,9 @@ final class BlockFactory
     private function blockSupportAttrs(array $attrs, string $baseClass = ''): string
     {
         $support = $this->styleSupport($attrs['style'] ?? null);
-        $classes = $this->mergeClassNames($baseClass, $support['classes'], (string) ($attrs['className'] ?? ''));
+        $presetClasses = $this->presetColorClasses($attrs);
+        $layoutClasses = $this->layoutClasses($attrs['layout'] ?? null, $baseClass);
+        $classes = $this->mergeClassNames($baseClass, $presetClasses, $support['classes'], $layoutClasses, (string) ($attrs['className'] ?? ''));
         return $this->htmlAttrs(array(
             'id'    => (string) ($attrs['anchor'] ?? ''),
             'class' => $classes,
@@ -571,6 +599,50 @@ final class BlockFactory
             'classes' => '',
             'style'   => is_string($style) ? $style : '',
         );
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function presetColorClasses(array $attrs): string
+    {
+        $classes = array();
+        $textColor = $this->safeSlug((string) ($attrs['textColor'] ?? ''));
+        if ( '' !== $textColor ) {
+            $classes[] = 'has-' . $textColor . '-color';
+            $classes[] = 'has-text-color';
+        }
+
+        $backgroundColor = $this->safeSlug((string) ($attrs['backgroundColor'] ?? ''));
+        if ( '' !== $backgroundColor ) {
+            $classes[] = 'has-' . $backgroundColor . '-background-color';
+            $classes[] = 'has-background';
+        }
+
+        return implode(' ', $classes);
+    }
+
+    private function layoutClasses(mixed $layout, string $baseClass): string
+    {
+        if ( ! is_array($layout) ) {
+            return '';
+        }
+
+        $type = $this->safeSlug((string) ($layout['type'] ?? ''));
+        if ( ! in_array($type, array( 'constrained', 'flex', 'flow', 'grid' ), true) ) {
+            return '';
+        }
+
+        return $this->mergeClassNames(
+            'is-layout-' . $type,
+            '' !== $baseClass ? $baseClass . '-is-layout-' . $type : ''
+        );
+    }
+
+    private function safeSlug(string $value): string
+    {
+        $value = strtolower(trim($value));
+        return preg_match('/^[a-z0-9_-]+$/', $value) ? $value : '';
     }
 
     /**
