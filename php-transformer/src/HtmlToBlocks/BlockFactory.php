@@ -256,11 +256,11 @@ final class BlockFactory
             );
 
             if ( 'button' === ($attrs['tagName'] ?? '') ) {
-                $buttonAttrs = array_intersect_key($attrs, array_flip(array( 'type' )));
-                $buttonAttrs = array_merge(array(
+                $buttonAttrs = array(
+                    'type'  => (string) ($attrs['type'] ?? 'button'),
                     'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button'),
                     'style' => $support['style'],
-                ), $buttonAttrs);
+                );
 
                 return '<div' . $this->htmlAttrs($wrapperAttrs) . '><button' . $this->htmlAttrs($buttonAttrs) . '>' . ($attrs['text'] ?? '') . '</button></div>';
             }
@@ -489,11 +489,9 @@ final class BlockFactory
         $text = (string) ($style['color']['text'] ?? '');
         if ( '' !== $text ) {
             $classes[] = 'has-text-color';
-            $declarations[] = 'color:' . $text;
         }
         if ( '' !== $background ) {
             $classes[] = 'has-background';
-            $declarations[] = 'background-color:' . $background;
         }
 
         $border = is_array($style['border'] ?? null) ? $style['border'] : array();
@@ -501,14 +499,21 @@ final class BlockFactory
             $classes[] = 'has-border-color';
             $declarations[] = 'border-color:' . (string) $border['color'];
         }
-        if ( isset($border['width']) && '' !== (string) $border['width'] ) {
-            $declarations[] = 'border-width:' . (string) $border['width'];
-        }
         if ( isset($border['style']) && '' !== (string) $border['style'] ) {
             $declarations[] = 'border-style:' . (string) $border['style'];
         }
+        if ( isset($border['width']) && '' !== (string) $border['width'] ) {
+            $declarations[] = 'border-width:' . (string) $border['width'];
+        }
         if ( isset($border['radius']) && '' !== (string) $border['radius'] ) {
             $declarations[] = 'border-radius:' . (string) $border['radius'];
+        }
+
+        if ( '' !== $text ) {
+            $declarations[] = 'color:' . $text;
+        }
+        if ( '' !== $background ) {
+            $declarations[] = 'background-color:' . $background;
         }
 
         $padding = is_array($style['spacing']['padding'] ?? null) ? $style['spacing']['padding'] : array();

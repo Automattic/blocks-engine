@@ -27,7 +27,7 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:buttons -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button btnPrimary\">" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link wp-element-button\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"color:#ffffff;background-color:#0a66c2;border-radius:6px;padding-top:12px;padding-right:24px;padding-bottom:12px;padding-left:24px\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"border-radius:6px;color:#ffffff;background-color:#0a66c2;padding-top:12px;padding-right:24px;padding-bottom:12px;padding-left:24px\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:paragraph" }
   ]
 }

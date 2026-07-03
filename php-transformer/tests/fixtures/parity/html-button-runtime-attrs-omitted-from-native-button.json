@@ -29,7 +29,7 @@
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<button class=\"wp-block-button__link wp-element-button\" type=\"button\">$15</button>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<button type=\"button\" class=\"wp-block-button__link wp-element-button\">$15</button>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "data-amount" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "aria-label" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "aria-controls" },
