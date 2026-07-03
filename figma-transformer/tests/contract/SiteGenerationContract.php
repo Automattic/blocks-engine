@@ -1372,6 +1372,83 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $assert(! str_contains($responsiveIdentityCss, '.figma-node-identity-a-desktop-part-a{width:19px;height:2px}'), 'responsive-emit-source-identity-avoids-ordinal-part-a-mismatch');
     $assert(! str_contains($responsiveIdentityCss, '.figma-node-identity-b-desktop-part-b{width:72px;height:72px}'), 'responsive-emit-source-identity-avoids-ordinal-part-b-mismatch');
 
+    $responsiveDuplicateIdentityScenegraph = array(
+        'name'  => 'Responsive Duplicate Source Identity Site',
+        'nodes' => array(
+            $responsiveEmitFrame('duplicate-identity:desktop', 'Duplicate Identity Desktop', 1440.0, 420.0, array(
+                array('id' => 'duplicate-identity:group:desktop', 'type' => 'FRAME', 'name' => 'Repeated cards', 'box' => array('width' => 960.0, 'height' => 240.0), 'layout' => array('display' => 'flex', 'flex_direction' => 'row'), 'children' => array(
+                    array('id' => 'duplicate-identity:a:desktop', 'type' => 'FRAME', 'name' => 'Card', 'source_id' => 'component:article-a', 'box' => array('width' => 460.0, 'height' => 220.0)),
+                    array('id' => 'duplicate-identity:b:desktop', 'type' => 'FRAME', 'name' => 'Card', 'source_id' => 'component:article-b', 'box' => array('width' => 220.0, 'height' => 120.0)),
+                )),
+            )),
+            $responsiveEmitFrame('duplicate-identity:mobile', 'Duplicate Identity Mobile', 390.0, 620.0, array(
+                array('id' => 'duplicate-identity:group:mobile', 'type' => 'FRAME', 'name' => 'Repeated cards', 'box' => array('width' => 342.0, 'height' => 500.0), 'layout' => array('display' => 'flex', 'flex_direction' => 'column'), 'children' => array(
+                    array('id' => 'duplicate-identity:b:mobile', 'type' => 'FRAME', 'name' => 'Card', 'source_id' => 'component:article-b', 'box' => array('width' => 198.0, 'height' => 88.0)),
+                    array('id' => 'duplicate-identity:a:mobile', 'type' => 'FRAME', 'name' => 'Card', 'source_id' => 'component:article-a', 'box' => array('width' => 342.0, 'height' => 300.0)),
+                )),
+            )),
+        ),
+    );
+    $responsiveDuplicateIdentityResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveDuplicateIdentityScenegraph, array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'duplicate-identity:desktop',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'responsive' => true,
+                'variants'   => array(
+                    array('frame_id' => 'duplicate-identity:desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true),
+                    array('frame_id' => 'duplicate-identity:mobile', 'device_hint' => 'mobile', 'viewport_width' => 390.0, 'primary' => false),
+                ),
+            ),
+        ),
+    ));
+    $responsiveDuplicateIdentityCss = '';
+    foreach ( $responsiveDuplicateIdentityResult['files'] ?? array() as $responsiveDuplicateIdentityFile ) {
+        if ( is_array($responsiveDuplicateIdentityFile) && 'style.css' === ($responsiveDuplicateIdentityFile['path'] ?? null) ) {
+            $responsiveDuplicateIdentityCss = (string) ($responsiveDuplicateIdentityFile['content'] ?? '');
+        }
+    }
+    $assert(preg_match('/\.figma-node-duplicate-identity-a-desktop-card\{[^}]*width:100%/s', $responsiveDuplicateIdentityCss) === 1, 'responsive-emit-duplicate-source-identity-keeps-card-a-mobile-width');
+    $assert(str_contains($responsiveDuplicateIdentityCss, '.figma-node-duplicate-identity-b-desktop-card{width:calc(100% - 144px);max-width:220px;height:88px}'), 'responsive-emit-duplicate-source-identity-keeps-card-b-mobile-width');
+    $assert(! str_contains($responsiveDuplicateIdentityCss, '.figma-node-duplicate-identity-a-desktop-card{width:198px;height:88px}'), 'responsive-emit-duplicate-source-identity-avoids-ordinal-card-a-mispatch');
+    $assert(! str_contains($responsiveDuplicateIdentityCss, '.figma-node-duplicate-identity-b-desktop-card{width:100%;height:auto}'), 'responsive-emit-duplicate-source-identity-avoids-ordinal-card-b-mispatch');
+
+    $responsiveCenteredGridScenegraph = array(
+        'name'  => 'Responsive Centered Grid Safety Site',
+        'nodes' => array(
+            array('id' => 'centered-grid:desktop', 'type' => 'FRAME', 'name' => 'Centered Grid Desktop', 'box' => array('width' => 1440.0, 'height' => 900.0), 'layout' => array('display' => 'flex', 'flex_direction' => 'column'), 'children' => array(
+                array('id' => 'centered-grid:shell:desktop', 'type' => 'FRAME', 'name' => 'Cards grid', 'box' => array('x' => 130.0, 'width' => 1180.0, 'height' => 360.0), 'layout' => array('display' => 'grid'), 'children' => array(
+                    array('id' => 'centered-grid:card-a:desktop', 'type' => 'FRAME', 'name' => 'Card', 'box' => array('width' => 360.0, 'height' => 280.0)),
+                    array('id' => 'centered-grid:card-b:desktop', 'type' => 'FRAME', 'name' => 'Card', 'box' => array('width' => 360.0, 'height' => 280.0)),
+                )),
+            )),
+            array('id' => 'centered-grid:mobile', 'type' => 'FRAME', 'name' => 'Centered Grid Mobile', 'box' => array('width' => 390.0, 'height' => 980.0), 'layout' => array('display' => 'flex', 'flex_direction' => 'column'), 'children' => array()),
+        ),
+    );
+    $responsiveCenteredGridResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite($responsiveCenteredGridScenegraph, array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'centered-grid:desktop',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'responsive' => true,
+                'variants'   => array(
+                    array('frame_id' => 'centered-grid:desktop', 'device_hint' => 'desktop', 'viewport_width' => 1440.0, 'primary' => true),
+                    array('frame_id' => 'centered-grid:mobile', 'device_hint' => 'mobile', 'viewport_width' => 390.0, 'primary' => false),
+                ),
+            ),
+        ),
+    ));
+    $responsiveCenteredGridCss = '';
+    foreach ( $responsiveCenteredGridResult['files'] ?? array() as $responsiveCenteredGridFile ) {
+        if ( is_array($responsiveCenteredGridFile) && 'style.css' === ($responsiveCenteredGridFile['path'] ?? null) ) {
+            $responsiveCenteredGridCss = (string) ($responsiveCenteredGridFile['content'] ?? '');
+        }
+    }
+    $assert(preg_match('/\.figma-node-centered-grid-shell-desktop-cards-grid\{[^}]*margin-left:auto[^}]*margin-right:auto/s', $responsiveCenteredGridCss) === 1, 'responsive-emit-mobile-centered-grid-shell-base-centered');
+    $assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-centered-grid-shell-desktop-cards-grid\{[^}]*width:calc\(100% - 48px\)[^}]*grid-template-columns:1fr/s', $responsiveCenteredGridCss) === 1, 'responsive-emit-mobile-centered-grid-shell-keeps-centered-fluid-role');
+
     // SINGLE-VARIANT PAGE PARITY: a page plan with only primary variants emits the
     // SAME CSS as today — zero `@media` queries.
     $singleVariantPagePlan = array(

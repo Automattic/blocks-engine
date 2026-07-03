@@ -138,8 +138,9 @@ final class BreakpointMediaDiffBuilder
 
         $childOrdinal = 0;
         $siblingSignatureCounts = $this->responsiveNodeMatcher->siblingSignatureCounts($children);
+        $siblingSourceIdentityCounts = $this->responsiveNodeMatcher->siblingSourceIdentityCounts($children);
         foreach ( $children as $child ) {
-            foreach ( $this->responsiveNodeMatcher->childKeys($child, $childOrdinal, $siblingSignatureCounts) as $childKeyPart ) {
+            foreach ( $this->responsiveNodeMatcher->childKeys($child, $childOrdinal, $siblingSignatureCounts, $siblingSourceIdentityCounts) as $childKeyPart ) {
                 $childKey = $pathKey . '/' . $childKeyPart;
                 $this->collectVariantNodeStyles($child, $depth + 1, $node, $parentNode, $childKey, $map);
             }
@@ -285,6 +286,9 @@ final class BreakpointMediaDiffBuilder
         $positioning = (string) ($layout['positioning'] ?? ($baseMap['position'] ?? ''));
         $display = (string) ($baseMap['display'] ?? '');
         $width = $this->cssPixelValue($baseMap['width'] ?? '');
+        if ( null === $width && '100%' === ($baseMap['width'] ?? null) ) {
+            $width = $this->cssPixelValue($baseMap['max-width'] ?? '');
+        }
         $isContainer = in_array($type, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL'), true);
 
         if ( 'header' === $name && $isContainer ) {
@@ -384,6 +388,37 @@ final class BreakpointMediaDiffBuilder
                     if ( null !== $padding && $padding > 24.0 ) {
                         $declarations[] = $property . ':24px';
                     }
+                }
+            }
+
+            return $declarations;
+        }
+
+        if ( 'auto' === ($baseMap['margin-left'] ?? null) && 'auto' === ($baseMap['margin-right'] ?? null) && $width > $mobileContentWidth ) {
+            $declarations[] = 'width:calc(100% - 48px)';
+            $declarations[] = 'max-width:' . ($this->number)($width) . 'px';
+            $declarations[] = 'margin-left:auto';
+            $declarations[] = 'margin-right:auto';
+
+            if ( $hasContainerChild ) {
+                $declarations[] = 'height:auto';
+            }
+
+            if ( in_array($display, array('flex', 'inline-flex'), true) && 'row' === ($baseMap['flex-direction'] ?? null) && $hasContainerChild ) {
+                $declarations[] = 'flex-direction:column';
+                $declarations[] = 'align-items:stretch';
+                $declarations[] = 'flex-wrap:nowrap';
+            }
+
+            if ( in_array($display, array('grid', 'inline-grid'), true) && $hasContainerChild ) {
+                $declarations[] = 'grid-template-columns:1fr';
+            }
+
+            foreach ( array('top', 'right', 'bottom', 'left') as $edge ) {
+                $property = 'padding-' . $edge;
+                $padding = $this->cssPixelValue($baseMap[$property] ?? '');
+                if ( null !== $padding && $padding > 24.0 ) {
+                    $declarations[] = $property . ':24px';
                 }
             }
 
