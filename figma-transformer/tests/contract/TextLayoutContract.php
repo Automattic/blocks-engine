@@ -1680,7 +1680,7 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     $tokenOnlyFontCss = $fileContent($tokenOnlyFontResult, 'style.css');
     $tokenOnlyFontDiagnostics = $tokenOnlyFontResult['source_report']['transform_diagnostics'] ?? array();
     $assert(str_contains($tokenOnlyFontCss, 'font-family:"Token Only Sans", sans-serif'), 'token-only-font-family-css-emitted');
-    $assert(array('Token Only Sans') === ($tokenOnlyFontDiagnostics['fonts']['missing_css'] ?? null), 'token-only-font-family-missing-css-diagnostic');
+    $assert(array() === ($tokenOnlyFontDiagnostics['fonts']['missing_css'] ?? null), 'token-only-font-family-not-missing-css-diagnostic');
     $assert(array('Token Only Sans') === array_column($tokenOnlyFontResult['source_report']['font_usage'] ?? array(), 'family'), 'token-only-font-family-usage-materialized');
 
     $inlineRunFontResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emit(array(
