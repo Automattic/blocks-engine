@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { assertConvertReport } from '../contract';
-import { CONVERT_REPORT_SCHEMA, type ConversionMetrics, type ConvertReport } from '../schema';
+import {
+  CONVERSION_FINDING_CODES,
+  CONVERT_REPORT_SCHEMA,
+  type ConversionMetrics,
+  type ConvertReport,
+} from '../schema';
 
 function validReport(overrides: Partial<ConvertReport> = {}): ConvertReport {
   return {
@@ -70,6 +75,35 @@ describe('assertConvertReport', () => {
         metrics: { ...validReport().metrics, fallbackCount: '1' },
       }),
     ).toThrow(/fallbackCount/);
+  });
+
+  it('freezes generated HTML quality diagnostic codes in the report contract', () => {
+    expect(CONVERSION_FINDING_CODES).toEqual(
+      expect.arrayContaining([
+        'hero_image_layering_risk',
+        'body_text_promoted_to_heading',
+        'heading_inside_list_item',
+        'scaffold_noise_candidate',
+        'svg_dense_region',
+        'route_self_link_oddity',
+        'duplicate_canvas_chrome',
+        'split_word_heading',
+      ]),
+    );
+    expect(() =>
+      assertConvertReport({
+        ...validReport(),
+        diagnostics: [
+          {
+            code: 'svg_dense_region',
+            severity: 'warning',
+            message: 'A single semantic region contains many inline SVGs.',
+            selector: 'section',
+            svgCount: 12,
+          },
+        ],
+      }),
+    ).not.toThrow();
   });
 
   it.each([

@@ -23,6 +23,14 @@ export const CONVERSION_FINDING_CODES = [
   'conversion_degraded',
   'fallback_inventory_truncated',
   'content_dropped',
+  'hero_image_layering_risk',
+  'body_text_promoted_to_heading',
+  'heading_inside_list_item',
+  'scaffold_noise_candidate',
+  'svg_dense_region',
+  'route_self_link_oddity',
+  'duplicate_canvas_chrome',
+  'split_word_heading',
 ] as const;
 
 export type ConversionFindingCode = (typeof CONVERSION_FINDING_CODES)[number];
