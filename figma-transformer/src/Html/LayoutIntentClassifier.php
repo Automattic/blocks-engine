@@ -1268,6 +1268,9 @@ final class LayoutIntentClassifier
     private function siblingLayerRoleRank(array $node, array $parentNode): int
     {
         $role = $this->siblingLayerRole($node, $parentNode);
+        if ( self::LAYER_ROLE_CONTENT === $role && $this->isHeroMediaLayerOverTopChromeUnderlay($node, $parentNode) ) {
+            return 3;
+        }
         if ( self::LAYER_ROLE_CONTENT === $role && $this->isTopChromePrimitiveVisual($node, $parentNode) ) {
             return 2;
         }
@@ -1277,6 +1280,37 @@ final class LayoutIntentClassifier
             self::LAYER_ROLE_CHROME => 2,
             default => 1,
         };
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isHeroMediaLayerOverTopChromeUnderlay(array $node, array $parentNode): bool
+    {
+        if ( $this->treeHasText($node) || ! $this->treeHasImageReference($node) ) {
+            return false;
+        }
+
+        $rect = $this->nodeVisualRectInParent($node, $parentNode);
+        if ( null === $rect || $rect['height'] < 160.0 ) {
+            return false;
+        }
+
+        $nodeId = (string) ($node['id'] ?? '');
+        foreach ( $this->nodeList($parentNode) as $sibling ) {
+            if ( ! is_array($sibling) || (string) ($sibling['id'] ?? '') === $nodeId ) {
+                continue;
+            }
+            if ( ! $this->nodesOverlapInParent($node, $sibling, $parentNode) ) {
+                continue;
+            }
+            if ( $this->isTopChromePrimitiveVisual($sibling, $parentNode) || self::LAYER_ROLE_UNDERLAY === $this->siblingLayerRole($sibling, $parentNode) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
