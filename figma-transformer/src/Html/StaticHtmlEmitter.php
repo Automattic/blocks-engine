@@ -919,6 +919,10 @@ final class StaticHtmlEmitter
             }
             $this->nodeReadableNames[$className] = $this->sharedClassBaseName($name, $type);
         }
+        if ( $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode) && $this->textStyleHasUnprovenUppercaseTransform($node, is_array(($node['figma_text'] ?? array())['style'] ?? null) ? ($node['figma_text'] ?? array())['style'] : array()) ) {
+            $parentClassName = 'figma-node-' . $this->slug((string) ($parentNode['id'] ?? '') . '-' . (string) ($parentNode['name'] ?? 'Node'));
+            $cssRules[] = '.' . $parentClassName . '>.' . $className . '{text-transform:none}';
+        }
         if ( in_array($tag, array('ol', 'ul'), true) && $this->listShouldRenderMarkers($node, null !== $sourceTextList) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
             $cssRules[] = '.' . $className . '{list-style:' . ( 'ol' === $tag ? 'decimal' : 'disc' ) . ';padding-left:1.5em' . ( 'ol' === $tag ? ';counter-reset:figma-list-item' : '' ) . '}';
         }
