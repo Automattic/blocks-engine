@@ -166,6 +166,43 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-content-centered-content-shell{width:1216px;height:240px;position:absolute;left:calc(50% - 608px);top:80px'), 'quality-diagnostics-fluid-band-absolute-child-centers-in-intrinsic-canvas');
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-card-narrow-card{width:420px;height:240px;'), 'quality-diagnostics-narrow-band-keeps-intrinsic-width');
 
+    $responsiveFullBleedBandResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Responsive Full Bleed Band Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'responsive-band:desktop',
+                'type'     => 'FRAME',
+                'name'     => 'Services Desktop',
+                'width'    => 1440,
+                'height'   => 900,
+                'children' => array(
+                    array('id' => 'responsive-band:desktop-band', 'type' => 'RECTANGLE', 'name' => 'Section background band', 'x' => 0, 'y' => 320, 'width' => 1443, 'height' => 149, 'layoutPositioning' => 'ABSOLUTE'),
+                    array('id' => 'responsive-band:desktop-title', 'type' => 'TEXT', 'name' => 'Page title', 'characters' => 'Services', 'x' => 120, 'y' => 360, 'width' => 280, 'height' => 48, 'fontSize' => 36),
+                ),
+            ),
+            array(
+                'id'       => 'responsive-band:mobile',
+                'type'     => 'FRAME',
+                'name'     => 'Services Mobile',
+                'width'    => 390,
+                'height'   => 900,
+                'children' => array(
+                    array('id' => 'responsive-band:mobile-band', 'type' => 'RECTANGLE', 'name' => 'Section background band', 'x' => 0, 'y' => 260, 'width' => 390, 'height' => 149, 'layoutPositioning' => 'ABSOLUTE'),
+                    array('id' => 'responsive-band:mobile-title', 'type' => 'TEXT', 'name' => 'Page title', 'characters' => 'Services', 'x' => 24, 'y' => 300, 'width' => 180, 'height' => 42, 'fontSize' => 32),
+                ),
+            ),
+        ),
+    ), array(
+        'responsive_variants' => array(
+            array('frame_id' => 'responsive-band:desktop', 'viewport_width' => 1440, 'primary' => true),
+            array('frame_id' => 'responsive-band:mobile', 'viewport_width' => 390),
+        ),
+    ));
+    $responsiveFullBleedBandCss = $fileContent($responsiveFullBleedBandResult, 'style.css');
+    $responsiveFullBleedBandMobileBlock = substr($responsiveFullBleedBandCss, strpos($responsiveFullBleedBandCss, '@media'));
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $responsiveFullBleedBandCss, '.figma-node-responsive-band-desktop-band-section-background-band', array('width:100vw', 'left:50%', 'margin-left:-50vw'), 'responsive-full-bleed-band-base-uses-viewport-breakout');
+    blocks_engine_figma_transformer_contract_assert_css_rule_omits($assert, $responsiveFullBleedBandMobileBlock, '.figma-node-responsive-band-desktop-band-section-background-band', array('width:100%', 'width:390px', 'left:0px', 'margin-left:0px'), 'responsive-full-bleed-band-mobile-keeps-viewport-breakout');
+
     $responsiveShellResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Responsive Centered Shell Fixture',
         'nodes' => array(

@@ -205,6 +205,10 @@ final class BreakpointDimensionPolicy
             return array('reason_code' => 'not_pixel_width', 'declarations' => array());
         }
 
+        if ( $this->isViewportBreakoutBase($baseMap) ) {
+            return array('reason_code' => 'preserve_full_bleed_viewport_breakout', 'declarations' => array('width:100vw', 'left:50%', 'margin-left:-50vw'));
+        }
+
         $variantType = strtoupper((string) ($variantNode['type'] ?? 'FRAME'));
         $variantSourceId = isset($variantNode['figma_component_source_id']) && is_scalar($variantNode['figma_component_source_id']) ? (string) $variantNode['figma_component_source_id'] : '';
         if ( '' === $variantSourceId && isset($variantNode['source_id']) && is_scalar($variantNode['source_id']) ) {
@@ -267,6 +271,16 @@ final class BreakpointDimensionPolicy
         }
 
         return (float) $matches[1];
+    }
+
+    /**
+     * @param array<string, string> $baseMap
+     */
+    private function isViewportBreakoutBase(array $baseMap): bool
+    {
+        return '100vw' === ($baseMap['width'] ?? null)
+            && '50%' === ($baseMap['left'] ?? null)
+            && '-50vw' === ($baseMap['margin-left'] ?? null);
     }
 
     /**
