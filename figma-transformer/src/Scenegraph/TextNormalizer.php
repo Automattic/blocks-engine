@@ -41,11 +41,12 @@ final class TextNormalizer
         }
 
         $style = array();
+        $hasLocalStyle = is_array($node['style'] ?? null);
         $styleId = $this->readStyleGuidId($node['styleIdForText'] ?? null);
         if ( null !== $styleId && is_array($textStyles[$styleId] ?? null) ) {
             $style = $this->normalizeTextStyle($textStyles[$styleId]);
         } elseif ( null !== $styleId ) {
-            $this->appendMissingTextStyleDiagnostic($diagnostics, $nodeId, $styleId);
+            $this->appendMissingTextStyleDiagnostic($diagnostics, $nodeId, $styleId, $hasLocalStyle);
         }
 
         if ( is_array($node['style'] ?? null) ) {
@@ -166,7 +167,7 @@ final class TextNormalizer
     /**
      * @param array<int, array<string, mixed>> $diagnostics
      */
-    private function appendMissingTextStyleDiagnostic(array &$diagnostics, string $nodeId, string $styleId): void
+    private function appendMissingTextStyleDiagnostic(array &$diagnostics, string $nodeId, string $styleId, bool $hasLocalStyle): void
     {
         foreach ( $diagnostics as $diagnostic ) {
             if ( 'figma_missing_text_style_reference' !== ($diagnostic['code'] ?? null) || ! is_array($diagnostic['context'] ?? null) ) {
@@ -180,13 +181,14 @@ final class TextNormalizer
         }
 
         $diagnostics[] = array(
-            'severity' => 'warning',
+            'severity' => $hasLocalStyle ? 'info' : 'warning',
             'code'     => 'figma_missing_text_style_reference',
             'message'  => 'Figma text node references a text style that is not present in the decoded source graph.',
             'source'   => 'TextNormalizer',
             'context'  => array(
-                'node_id'  => $nodeId,
-                'style_id' => $styleId,
+                'node_id'              => $nodeId,
+                'style_id'             => $styleId,
+                'local_style_preserved' => $hasLocalStyle,
             ),
         );
     }

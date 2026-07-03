@@ -299,6 +299,7 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     $assert(str_contains($localPaintWithStyleCss, '.figma-node-vector-local-paint-with-style-local-paint-with-style{width:28px;height:3px;background:#d9d9d9'), 'local-fill-paint-wins-over-style-fill');
     $assert(! str_contains($localPaintWithStyleCss, '.figma-node-vector-local-paint-with-style-local-paint-with-style{width:28px;height:3px;background:#ffffff'), 'style-fill-does-not-overwrite-local-fill-paint');
     $assert('local' === ($localPaintWithStyleDiagnostics[0]['context']['precedence'] ?? null), 'local-style-fill-conflict-diagnostic-precedence');
+    $assert('info' === ($localPaintWithStyleDiagnostics[0]['severity'] ?? null), 'local-style-fill-conflict-diagnostic-info');
 
     $containerPaintWithStyleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Container Paint With Style Fixture',
@@ -329,6 +330,7 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     ));
     $assert(str_contains($containerPaintWithStyleCss, '.figma-node-frame-stale-local-with-style-stale-local-with-style{width:28px;height:3px;background:#ffcf00'), 'style-fill-wins-over-container-stale-local-fill');
     $assert('style' === ($containerPaintWithStyleDiagnostics[0]['context']['precedence'] ?? null), 'container-style-fill-conflict-diagnostic-precedence');
+    $assert('warning' === ($containerPaintWithStyleDiagnostics[0]['severity'] ?? null), 'container-style-fill-conflict-diagnostic-warning');
 
     $shapeCommandBlobPaintWithStyleResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'        => 'Shape Command Blob Paint Style Fixture',
@@ -360,6 +362,7 @@ function blocks_engine_figma_transformer_run_vector_rendering_contract(Closure $
     ));
     $assert(str_contains($shapeCommandBlobPaintWithStyleCss, '.figma-node-shape-command-blob-stale-local-with-style-command-blob-stale-local-with-style{width:28px;height:3px;background:#ffcf00'), 'style-fill-wins-over-command-blob-shape-stale-local-fill');
     $assert('style' === ($shapeCommandBlobPaintWithStyleDiagnostics[0]['context']['precedence'] ?? null), 'command-blob-shape-style-fill-conflict-diagnostic-precedence');
+    $assert('warning' === ($shapeCommandBlobPaintWithStyleDiagnostics[0]['severity'] ?? null), 'command-blob-shape-style-fill-conflict-diagnostic-warning');
 
     $externalizedEquivalentVectorPath = 'M0,0' . str_repeat('L10,10', 12000) . 'Z';
     $externalizedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(

@@ -41,6 +41,76 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(! in_array('clipped_visual_area', $normalSignalCodes, true), 'diagnostics-evidence-normal-no-clipped-area-signal');
     $assert(! in_array('source_loss_coverage_gap', $normalSignalCodes, true), 'diagnostics-evidence-normal-no-source-loss-signal');
 
+    $styleReferenceFallbackResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Style Reference Fallback Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'diag:style-ref-page',
+                'type'     => 'FRAME',
+                'name'     => 'Style Reference Page',
+                'width'    => 320,
+                'height'   => 160,
+                'children' => array(
+                    array(
+                        'id'             => 'diag:style-ref-paint-local',
+                        'type'           => 'RECTANGLE',
+                        'name'           => 'Local Paint Preserved',
+                        'width'          => 120,
+                        'height'         => 40,
+                        'styleIdForFill' => 'missing-fill-style',
+                        'fills'          => array(array('type' => 'SOLID', 'color' => array('r' => 0.1, 'g' => 0.2, 'b' => 0.3, 'a' => 1))),
+                    ),
+                    array(
+                        'id'             => 'diag:style-ref-paint-missing',
+                        'type'           => 'RECTANGLE',
+                        'name'           => 'Missing Paint Only',
+                        'x'              => 0,
+                        'y'              => 48,
+                        'width'          => 120,
+                        'height'         => 40,
+                        'styleIdForFill' => 'missing-fill-only',
+                    ),
+                    array(
+                        'id'             => 'diag:style-ref-text-local',
+                        'type'           => 'TEXT',
+                        'name'           => 'Local Text Style Preserved',
+                        'text'           => 'Styled locally',
+                        'x'              => 0,
+                        'y'              => 96,
+                        'width'          => 140,
+                        'height'         => 24,
+                        'styleIdForText' => 'missing-text-style',
+                        'style'          => array('fontFamily' => 'Inter', 'fontSize' => 16),
+                    ),
+                    array(
+                        'id'             => 'diag:style-ref-text-missing',
+                        'type'           => 'TEXT',
+                        'name'           => 'Missing Text Style Only',
+                        'text'           => 'Unstyled reference',
+                        'x'              => 0,
+                        'y'              => 128,
+                        'width'          => 140,
+                        'height'         => 24,
+                        'styleIdForText' => 'missing-text-only',
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $styleReferenceDiagnostics = $styleReferenceFallbackResult['diagnostics'] ?? array();
+    $styleReferenceSeverity = static function (array $diagnostics, string $code, string $nodeId): ?string {
+        foreach ( $diagnostics as $diagnostic ) {
+            if ( $code === ($diagnostic['code'] ?? null) && $nodeId === ($diagnostic['context']['node_id'] ?? null) ) {
+                return (string) ($diagnostic['severity'] ?? '');
+            }
+        }
+        return null;
+    };
+    $assert('info' === $styleReferenceSeverity($styleReferenceDiagnostics, 'figma_missing_paint_style_reference', 'diag:style-ref-paint-local'), 'diagnostics-evidence-local-paint-style-reference-info');
+    $assert('warning' === $styleReferenceSeverity($styleReferenceDiagnostics, 'figma_missing_paint_style_reference', 'diag:style-ref-paint-missing'), 'diagnostics-evidence-missing-paint-style-reference-warning');
+    $assert('info' === $styleReferenceSeverity($styleReferenceDiagnostics, 'figma_missing_text_style_reference', 'diag:style-ref-text-local'), 'diagnostics-evidence-local-text-style-reference-info');
+    $assert('warning' === $styleReferenceSeverity($styleReferenceDiagnostics, 'figma_missing_text_style_reference', 'diag:style-ref-text-missing'), 'diagnostics-evidence-missing-text-style-reference-warning');
+
     $invalidCssQuality = (new \Automattic\BlocksEngine\FigmaTransformer\Html\TransformDiagnosticsBuilder())->artifactQualityDiagnostics(
         array(),
         array(),

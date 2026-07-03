@@ -107,7 +107,7 @@ final class PaintNormalizer
 
         $stylePaints = $this->readStylePaints($paintStyles, $styleId, $collection);
         if ( empty($stylePaints) ) {
-            $this->appendMissingPaintStyleDiagnostic($diagnostics, $nodeId, $collection, $styleId);
+            $this->appendMissingPaintStyleDiagnostic($diagnostics, $nodeId, $collection, $styleId, ! empty($collections[$collection]));
             return;
         }
 
@@ -311,7 +311,7 @@ final class PaintNormalizer
         }
 
         $diagnostics[] = array(
-            'severity' => 'warning',
+            'severity' => 'local' === $precedence['winner'] ? 'info' : 'warning',
             'code'     => 'figma_local_style_paint_conflict',
             'message'  => 'Figma node has local paints and a paint style reference that normalize to different paint values.',
             'source'   => 'PaintNormalizer',
@@ -331,7 +331,7 @@ final class PaintNormalizer
     /**
      * @param array<int, array<string, mixed>> $diagnostics
      */
-    private function appendMissingPaintStyleDiagnostic(array &$diagnostics, string $nodeId, string $collection, string $styleId): void
+    private function appendMissingPaintStyleDiagnostic(array &$diagnostics, string $nodeId, string $collection, string $styleId, bool $hasLocalPaints): void
     {
         foreach ( $diagnostics as $diagnostic ) {
             if ( 'figma_missing_paint_style_reference' !== ($diagnostic['code'] ?? null) || ! is_array($diagnostic['context'] ?? null) ) {
@@ -345,7 +345,7 @@ final class PaintNormalizer
         }
 
         $diagnostics[] = array(
-            'severity' => 'warning',
+            'severity' => $hasLocalPaints ? 'info' : 'warning',
             'code'     => 'figma_missing_paint_style_reference',
             'message'  => 'Figma node references a paint style that is not present in the decoded source graph.',
             'source'   => 'PaintNormalizer',
@@ -353,6 +353,7 @@ final class PaintNormalizer
                 'node_id'    => $nodeId,
                 'collection' => $collection,
                 'style_id'   => $styleId,
+                'local_paints_preserved' => $hasLocalPaints,
             ),
         );
     }
