@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 
 /**
  * @internal Block construction is owned by HtmlTransformer.
@@ -61,7 +62,7 @@ final class BlockFactory
      */
     private function normalizeAttrsForBlock(string $name, array $attrs): array
     {
-        if ( in_array($name, array( 'core/buttons', 'core/column', 'core/columns', 'core/group', 'core/heading', 'core/list-item', 'core/paragraph' ), true) ) {
+        if ( in_array($name, array( 'core/buttons', 'core/column', 'core/columns', 'core/group', 'core/heading', 'core/list', 'core/list-item', 'core/paragraph' ), true) ) {
             unset($attrs['style']['spacing']['blockGap']);
             if ( empty($attrs['style']['spacing']) ) {
                 unset($attrs['style']['spacing']);
@@ -159,7 +160,7 @@ final class BlockFactory
         }
 
         if ( 'core/separator' === $name ) {
-            return '<hr' . $this->blockSupportAttrs($attrs, 'wp-block-separator') . ' />';
+            return '<hr' . $this->blockSupportAttrs($attrs, implode(' ', GeneratedGutenbergClassPolicy::classesForBlock('core/separator'))) . ' />';
         }
 
         if ( 'core/spacer' === $name ) {
@@ -335,7 +336,10 @@ final class BlockFactory
      */
     private function tableHtml(array $attrs): string
     {
-        $html = '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-table') . '><table>';
+        $tableAttrs = array(
+            'class' => empty($attrs['hasFixedLayout']) && array_key_exists('hasFixedLayout', $attrs) ? '' : 'has-fixed-layout',
+        );
+        $html = '<figure' . $this->blockSupportAttrs($attrs, 'wp-block-table') . '><table' . $this->htmlAttrs($tableAttrs) . '>';
         foreach ( array( 'head' => 'thead', 'body' => 'tbody', 'foot' => 'tfoot' ) as $attrName => $tagName ) {
             if ( empty($attrs[$attrName]) || ! is_array($attrs[$attrName]) ) {
                 continue;
@@ -460,23 +464,9 @@ final class BlockFactory
      */
     private function searchHtml(array $attrs): string
     {
-        $inputId = (string) ($attrs['inputAnchor'] ?? '');
-        $label = (string) ($attrs['label'] ?? 'Search');
-        $labelAttrs = array(
-            'class' => 'wp-block-search__label',
-            'for'   => $inputId,
-        );
-        $inputAttrs = array(
-            'type'        => 'search',
-            'id'          => $inputId,
-            'class'       => $this->mergeClassNames('wp-block-search__input', (string) ($attrs['inputClassName'] ?? '')),
-            'name'        => 's',
-            'placeholder' => (string) ($attrs['placeholder'] ?? ''),
-        );
-        $buttonText = (string) ($attrs['buttonText'] ?? 'Search');
-        $button = '' !== trim($buttonText) ? '<button type="submit" class="wp-block-search__button wp-element-button">' . $buttonText . '</button>' : '';
-
-        return '<form role="search" method="get"' . $this->blockSupportAttrs($attrs, 'wp-block-search') . '><label' . $this->htmlAttrs($labelAttrs) . '>' . $label . '</label><div class="wp-block-search__inside-wrapper"><input' . $this->htmlAttrs($inputAttrs) . ' />' . $button . '</div></form>';
+        // core/search is dynamic in the supported runtime: save() returns null,
+        // so stored blocks must carry no static form markup.
+        return '';
     }
 
     /**

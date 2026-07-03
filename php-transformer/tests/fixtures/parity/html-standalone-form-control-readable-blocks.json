@@ -23,8 +23,7 @@
     { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph" },
     { "path": "blocks.0.innerBlocks.1", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/list" },
-    { "path": "blocks.0.innerBlocks.2", "name": "core/group" },
-    { "path": "blocks.0.innerBlocks.2.innerBlocks.1", "name": "core/list" }
+    { "path": "blocks.0.innerBlocks.2", "name": "core/html" }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -37,9 +36,8 @@
     { "path": "source_reports.html.runtime_islands.0.kind", "assert": "equals", "value": "control" },
     { "path": "source_reports.html.runtime_islands.0.selector", "assert": "equals", "value": ".js-sort-select" },
     { "path": "source_reports.html.runtime_islands.0.source_snippet", "assert": "contains", "value": "<select class=\"js-sort-select\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "Runtime sort" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Newest" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "<select class=\"js-sort-select\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<select class=\"js-sort-select\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<select class=\"sort-select\"" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]

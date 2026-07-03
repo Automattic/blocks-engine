@@ -18,7 +18,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/quote", "attrs": { "className": "testimonial-card", "citation": "<strong>Ada</strong>, Founder" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Build with care." } },
-    { "path": "blocks.1", "name": "core/pullquote", "attrs": { "className": "wp-block-pullquote alignwide", "citation": "Editor", "value": "<p>Pull this.</p>" } },
+    { "path": "blocks.1", "name": "core/pullquote", "attrs": { "className": "alignwide", "citation": "Editor", "value": "<p>Pull this.</p>" } },
     { "path": "blocks.2", "name": "core/image", "attrs": { "className": "aligncenter framed rounded is-resized", "style": { "spacing": { "margin": { "top": "0", "right": "0", "bottom": "0", "left": "0" } } }, "url": "https://example.com/photo.jpg", "alt": "Photo", "width": "800", "height": "600", "caption": "Image <em>caption</em>", "id": 42, "sizeSlug": "large" } },
     { "path": "blocks.3", "name": "core/image", "attrs": { "className": "alignwide", "url": "wrapped.jpg", "alt": "Wrapped media", "caption": "Wrapped caption" } }
   ],

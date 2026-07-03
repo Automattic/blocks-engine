@@ -21,6 +21,7 @@ final class BlockValidityValidator
         'core/navigation',
         'core/navigation-link',
         'core/navigation-submenu',
+        'core/search',
     );
 
     /**

@@ -2,6 +2,7 @@
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 use DOMElement;
 
 /**
@@ -24,6 +25,32 @@ trait StyleResolutionTrait
 {
     private ?StyleAttributeMapper $styleAttributeMapper = null;
 
+    /**
+     * Resolved presentation attributes for the active transform, keyed by the
+     * DOMElement wrapper object id plus node path. PHP may reuse wrapper object
+     * ids within one traversal as transient DOMElement wrappers are released.
+     *
+     * @var array<string, array<string, mixed>>
+     */
+    private array $presentationAttributesCache = array();
+
+    /**
+     * @var array<string, array<string, string>>
+     */
+    private array $presentationDeclarationsCache = array();
+
+    /**
+     * @var array<string, string>
+     */
+    private array $mergedPresentationStyleCache = array();
+
+    private function resetPresentationResolutionCache(): void
+    {
+        $this->presentationAttributesCache = array();
+        $this->presentationDeclarationsCache = array();
+        $this->mergedPresentationStyleCache = array();
+    }
+
     private function styleAttributeMapper(): StyleAttributeMapper
     {
         return $this->styleAttributeMapper ??= new StyleAttributeMapper();
@@ -44,16 +71,40 @@ trait StyleResolutionTrait
      */
     private function presentationAttributes(DOMElement $element): array
     {
-        $style        = $this->mergedPresentationStyle($element);
-        $declarations = $this->stripFrozenHiddenState($element, $this->cssDeclarations($style));
+        $cacheKey = $this->presentationCacheKey($element);
+        if ( isset($this->presentationAttributesCache[$cacheKey]) ) {
+            return $this->presentationAttributesCache[$cacheKey];
+        }
+
+        $declarations = $this->presentationDeclarations($element);
         $mapped       = $this->styleAttributeMapper()->map($declarations);
 
-        return array_filter(array_merge($mapped['attrs'] ?? array(), array(
+        $attrs = array_filter(array_merge($mapped['attrs'] ?? array(), array(
             'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
             'className' => $this->promotedClassName($this->attr($element, 'class')),
             'style'     => $mapped['style'],
             'layout'    => $this->layoutAttribute($element, $this->cssDeclarationString($declarations)),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+
+        $this->presentationAttributesCache[$cacheKey] = $attrs;
+
+        return $attrs;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function presentationDeclarations(DOMElement $element): array
+    {
+        $cacheKey = $this->presentationCacheKey($element);
+        if ( isset($this->presentationDeclarationsCache[$cacheKey]) ) {
+            return $this->presentationDeclarationsCache[$cacheKey];
+        }
+
+        $style = $this->mergedPresentationStyle($element);
+        $this->presentationDeclarationsCache[$cacheKey] = $this->stripFrozenHiddenState($element, $this->cssDeclarations($style));
+
+        return $this->presentationDeclarationsCache[$cacheKey];
     }
 
     /**
@@ -129,8 +180,14 @@ trait StyleResolutionTrait
 
     private function mergedPresentationStyle(DOMElement $element): string
     {
+        $cacheKey = $this->presentationCacheKey($element);
+        if ( isset($this->mergedPresentationStyleCache[$cacheKey]) ) {
+            return $this->mergedPresentationStyleCache[$cacheKey];
+        }
+
         $inlineStyle = $this->attr($element, 'style');
         if ( array() === $this->staticStyleRules || ! $this->isHighValueStyledElement($element) ) {
+            $this->mergedPresentationStyleCache[$cacheKey] = $inlineStyle;
             return $inlineStyle;
         }
 
@@ -142,11 +199,19 @@ trait StyleResolutionTrait
         }
 
         if ( array() === $declarations ) {
+            $this->mergedPresentationStyleCache[$cacheKey] = $inlineStyle;
             return $inlineStyle;
         }
 
         $declarations = array_merge($declarations, $this->cssDeclarations($inlineStyle));
-        return $this->cssDeclarationString($declarations);
+        $this->mergedPresentationStyleCache[$cacheKey] = $this->cssDeclarationString($declarations);
+
+        return $this->mergedPresentationStyleCache[$cacheKey];
+    }
+
+    private function presentationCacheKey(DOMElement $element): string
+    {
+        return spl_object_id($element) . ':' . $element->getNodePath();
     }
 
     private function isHighValueStyledElement(DOMElement $element): bool
@@ -391,7 +456,7 @@ trait StyleResolutionTrait
     private function presentationClassName(string $className): string
     {
         $classes = preg_split('/\s+/', trim($className)) ?: array();
-        $classes = array_filter($classes, static fn (string $class): bool => '' !== $class && ! self::isBehaviorHookClassName($class));
+        $classes = array_filter($classes, static fn (string $class): bool => '' !== $class && ! self::isBehaviorHookClassName($class) && ! self::isGeneratedCoreClassName($class));
 
         return implode(' ', array_values(array_unique($classes)));
     }
@@ -399,6 +464,11 @@ trait StyleResolutionTrait
     private static function isBehaviorHookClassName(string $className): bool
     {
         return 1 === preg_match('/^js(?:$|[-_:]|[A-Z])/', $className);
+    }
+
+    private static function isGeneratedCoreClassName(string $className): bool
+    {
+        return GeneratedGutenbergClassPolicy::isGeneratedClassName($className);
     }
 
     /**

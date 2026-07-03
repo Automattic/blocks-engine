@@ -1,11 +1,20 @@
 {
-  "class": "docs/blog",
+  "fixture_class": "canvas/webgl/audio/runtime-heavy",
   "tags": [
     "wiki",
     "fan-wiki",
     "experimental",
+    "legacy-dom",
+    "nested-tables",
+    "visual-timeout",
+    "stress",
     "has-form",
     "multipage"
   ],
-  "complexity": 2
+  "capabilities": [
+    "runtime-dom",
+    "legacy-layout"
+  ],
+  "risk_profile": "high",
+  "complexity": 5
 }

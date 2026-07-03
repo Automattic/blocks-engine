@@ -165,7 +165,7 @@ final class StyleAttributeMapper
         }
 
         $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array();
-        foreach ( array( 'padding', 'margin' ) as $box ) {
+        foreach ( array( 'margin', 'padding' ) as $box ) {
             $sides = is_array($spacing[ $box ] ?? null) ? $spacing[ $box ] : array();
             foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
                 $value = trim((string) ($sides[ $side ] ?? ''));

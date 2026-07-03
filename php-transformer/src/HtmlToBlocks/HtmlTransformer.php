@@ -40,6 +40,14 @@ final class HtmlTransformer
     private const MAX_INTERACTION_CANDIDATES = 100;
 
     /**
+     * Tag-only script selectors that must keep their native DOM shape when a
+     * first-party runtime binds directly to them.
+     *
+     * @var array<int, string>
+     */
+    private const RUNTIME_TAG_SELECTORS = array( 'button', 'input', 'select', 'textarea', 'ul', 'ol', 'li', 'span', 'menu', 'menuitem' );
+
+    /**
      * @var array<int, string>
      */
     private const SUPPORTED_BLOCKS = array(
@@ -92,6 +100,8 @@ final class HtmlTransformer
     private readonly MathPattern $mathPattern;
 
     private readonly ParameterTablePattern $parameterTablePattern;
+
+    private readonly TableClassificationPolicy $tableClassificationPolicy;
 
     private readonly PlaceholderMediaPattern $placeholderMediaPattern;
 
@@ -263,6 +273,7 @@ final class HtmlTransformer
         $this->logoPattern       = new LogoPattern();
         $this->mathPattern       = new MathPattern();
         $this->parameterTablePattern = new ParameterTablePattern();
+        $this->tableClassificationPolicy = new TableClassificationPolicy();
         $this->placeholderMediaPattern = new PlaceholderMediaPattern();
         $this->quotePattern      = new QuotePattern();
         $this->spacerPattern     = new SpacerPattern();
@@ -304,6 +315,7 @@ final class HtmlTransformer
         $this->generatedAssets = array();
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $this->staticStyleRules = $this->staticStyleRules($html, (string) ($options['static_css'] ?? ''));
+        $this->resetPresentationResolutionCache();
         $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
         $this->supersededRuntimeSelectors = array();
@@ -1084,6 +1096,10 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( $this->shouldPreserveDataAttributeRuntimeTarget($element) ) {
+            return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+        }
+
         $mathBlock = $this->mathPattern->match(
             $element,
             fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
@@ -1370,6 +1386,11 @@ final class HtmlTransformer
         }
 
         if ( 'table' === $tagName ) {
+            $classification = $this->tableClassificationPolicy->classify($element);
+            if ( ! $classification['representable'] ) {
+                return $this->createBlock('core/html', array( 'content' => $this->outerHtml($element) ), array(), $element);
+            }
+
             return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
         }
 
@@ -1473,6 +1494,11 @@ final class HtmlTransformer
         }
 
         if ( 'button' === $tagName ) {
+            if ( $this->isRuntimeDomTarget($element) ) {
+                $this->recordRuntimeControlIsland($element);
+                return $this->htmlPreservationBlock($element);
+            }
+
             return $this->buttonsPattern->matchButton(
                 $element,
                 fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
@@ -1483,6 +1509,13 @@ final class HtmlTransformer
         }
 
         if ( 'svg' === $tagName ) {
+            if ( $this->isRuntimeDomTarget($element) ) {
+                $html = $this->sanitizeInlineSvgMarkup($element);
+                if ( $this->isSafeSvgContent($html) ) {
+                    return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($html) ), array(), $element);
+                }
+            }
+
             // Imported inline SVGs are preserved faithfully as raw markup
             // (core/html via inlineSvgBlockFromElement). They are never routed
             // through core/icon: that block is a dynamic block keyed on a
@@ -3724,7 +3757,13 @@ final class HtmlTransformer
         foreach ( array( 'thead' => 'head', 'tbody' => 'body', 'tfoot' => 'foot' ) as $sectionTag => $attrName ) {
             $rows = array();
             foreach ( $table->getElementsByTagName($sectionTag) as $section ) {
+                if ( ! $this->belongsToTable($section, $table) ) {
+                    continue;
+                }
                 foreach ( $section->getElementsByTagName('tr') as $row ) {
+                    if ( ! $this->belongsToTable($row, $table) ) {
+                        continue;
+                    }
                     $rows[] = array( 'cells' => $this->tableCells($row) );
                 }
             }
@@ -3736,6 +3775,9 @@ final class HtmlTransformer
         if ( empty($attrs['body']) ) {
             $rows = array();
             foreach ( $table->getElementsByTagName('tr') as $row ) {
+                if ( ! $this->belongsToTable($row, $table) ) {
+                    continue;
+                }
                 if ( in_array($this->closestTagName($row), array( 'thead', 'tfoot' ), true) ) {
                     continue;
                 }
@@ -3752,6 +3794,19 @@ final class HtmlTransformer
         }
 
         return $attrs;
+    }
+
+    private function belongsToTable(DOMElement $element, DOMElement $table): bool
+    {
+        for ( $node = $element->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'table' !== strtolower($node->tagName) ) {
+                continue;
+            }
+
+            return $node->isSameNode($table);
+        }
+
+        return false;
     }
 
     /**
@@ -4243,6 +4298,44 @@ final class HtmlTransformer
             }
         }
 
+        foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
+            if ( $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function shouldPreserveDataAttributeRuntimeTarget(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'canvas', 'form', 'script' ), true) || $this->isFormControlElement($element) ) {
+            return false;
+        }
+
+        foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
+            if ( str_contains((string) $selector, '[') && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function elementMatchesRuntimeSelector(DOMElement $element, string $selector): bool
+    {
+        $tag = strtolower($element->tagName);
+        if ( $selector === $tag && in_array($tag, array_merge(array('canvas', 'svg'), self::RUNTIME_TAG_SELECTORS), true) ) {
+            return true;
+        }
+        if ( preg_match('/^([a-z][a-z0-9-]*)\.([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
+            return $tag === strtolower((string) $match[1]) && in_array((string) $match[2], preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array(), true);
+        }
+        if ( preg_match('/^(?:([a-z][a-z0-9-]*))?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:=["\'][^"\']{1,80}["\'])?\]$/', $selector, $match) ) {
+            return ( '' === (string) ($match[1] ?? '') || $tag === strtolower((string) $match[1]) ) && $element->hasAttribute(strtolower((string) $match[2]));
+        }
+
         return false;
     }
 
@@ -4307,12 +4400,19 @@ final class HtmlTransformer
     {
         $selectors = array();
         foreach ( $options[$key] ?? array() as $selector ) {
-            if ( is_string($selector) && preg_match('/^[#.][A-Za-z][A-Za-z0-9_-]*$/', $selector) ) {
+            if ( is_string($selector) && $this->isBoundedRuntimeSelector($selector) ) {
                 $selectors[$selector] = true;
             }
         }
 
         return $selectors;
+    }
+
+    private function isBoundedRuntimeSelector(string $selector): bool
+    {
+        $name = '[A-Za-z][A-Za-z0-9_-]*';
+        $runtimeTags = implode('|', self::RUNTIME_TAG_SELECTORS);
+        return 1 === preg_match('/^(?:[#.]' . $name . '|' . $name . '\.' . $name . '|\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\]|' . $name . '\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\]|canvas|svg|' . $runtimeTags . ')$/', $selector);
     }
 
     /**
@@ -4527,18 +4627,7 @@ final class HtmlTransformer
             return null;
         }
 
-        $inputLabel = $this->formControlLabel($textInput);
-        $attrs = array_filter(array_merge(
-            $this->presentationAttributes($form),
-            $this->searchInputRuntimeAttributes($textInput),
-            array(
-                'label'       => '' !== $inputLabel ? $inputLabel : 'Search',
-                'placeholder' => $this->attr($textInput, 'placeholder'),
-                'buttonText'  => $submitControl instanceof DOMElement ? $this->submitButtonText($submitControl) : '',
-            )
-        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
-
-        return $this->createBlock('core/search', $attrs, array(), $form);
+        return $this->htmlPreservationBlock($form);
     }
 
     /**
@@ -4577,20 +4666,7 @@ final class HtmlTransformer
         if ( '' === $label ) {
             $label = $this->attr($searchInput, 'placeholder');
         }
-        if ( '' === $label ) {
-            $label = 'Search';
-        }
-
-        $attrs = array_filter(array_merge(
-            $this->presentationAttributes($element),
-            $this->searchInputRuntimeAttributes($searchInput),
-            array(
-                'label'       => $label,
-                'placeholder' => $this->attr($searchInput, 'placeholder'),
-            )
-        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
-
-        return $this->createBlock('core/search', $attrs, array(), $element);
+        return $this->htmlPreservationBlock($element);
     }
 
     /**
@@ -4656,6 +4732,11 @@ final class HtmlTransformer
                         return null;
                     }
 
+                    if ( $this->isRuntimeDomTarget($control) ) {
+                        $this->recordRuntimeControlIsland($control);
+                        return $this->htmlPreservationBlock($element);
+                    }
+
                     $summary = $this->readableFormControlText($control);
                     if ( '' !== $summary ) {
                         $blocks[] = $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $control);
@@ -4690,24 +4771,12 @@ final class HtmlTransformer
                 $label = 'Search';
             }
 
-            $attrs = array_filter(array_merge(
-                $this->presentationAttributes($element),
-                $this->searchInputRuntimeAttributes($element),
-                array(
-                    'label'       => $label,
-                    'placeholder' => $this->attr($element, 'placeholder'),
-                )
-            ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
-
-            return $this->createBlock('core/search', $attrs, array(), $element);
+            return $this->htmlPreservationBlock($element);
         }
 
         if ( $this->isRuntimeDomTarget($element) ) {
-            $this->recordRuntimeIsland($element, 'control', 'runtime_dom_target', 'client_script_execution', array(
-                'control'          => $this->formControlMetadata($element),
-                'events'           => $this->eventMetadata($element),
-                'required_scripts' => $this->requiredScriptsForElement($element),
-            ));
+            $this->recordRuntimeControlIsland($element);
+            return $this->htmlPreservationBlock($element);
         }
 
         if ( 'select' === $tagName ) {
@@ -4723,6 +4792,20 @@ final class HtmlTransformer
         }
 
         return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $summary )), array(), $element);
+    }
+
+    private function htmlPreservationBlock(DOMElement $element): array
+    {
+        return $this->blockFactory->create('core/html', array( 'content' => $this->outerHtml($element) ));
+    }
+
+    private function recordRuntimeControlIsland(DOMElement $element): void
+    {
+        $this->recordRuntimeIsland($element, 'control', 'runtime_dom_target', 'client_script_execution', array(
+            'control'          => $this->formControlMetadata($element),
+            'events'           => $this->eventMetadata($element),
+            'required_scripts' => $this->requiredScriptsForElement($element),
+        ));
     }
 
     /**

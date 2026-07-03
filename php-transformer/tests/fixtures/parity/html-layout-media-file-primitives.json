@@ -16,8 +16,8 @@
     "content": "<div class=\"wp-block-columns\"><div class=\"wp-block-column left\"><h2>Left</h2><p>Copy</p></div><div class=\"wp-block-column right\"><hr class=\"is-style-wide\"></div></div><video controls poster=\"/poster.jpg\" src=\"/movie.mp4\" width=\"640\"></video><audio controls><source src=\"/clip.mp3\" type=\"audio/mpeg\"></audio><a href=\"/docs/menu.pdf\" download>Menu PDF</a>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/columns", "attrs": { "className": "wp-block-columns" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "wp-block-column left" } },
+    { "path": "blocks.0", "name": "core/columns" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "left" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Left", "level": 2 } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/separator", "attrs": { "className": "is-style-wide" } },
     { "path": "blocks.1", "name": "core/video", "attrs": { "src": "/movie.mp4", "poster": "/poster.jpg", "width": "640", "controls": true } },

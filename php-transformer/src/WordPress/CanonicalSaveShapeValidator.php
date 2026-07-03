@@ -66,28 +66,7 @@ final class CanonicalSaveShapeValidator
         'core/heading',
         'core/list',
         'core/quote',
-    );
-
-    /**
-     * The base `wp-block-{name}` class WordPress' `addGeneratedClassName` filter
-     * reproduces in `save()` for every block whose `className` support is true
-     * (the default). For these blocks the stored wrapper must carry the class or
-     * `wp.blocks.validateBlock` flags the block invalid, since the current
-     * `save()` always emits it. Keyed by block name so the assertion stays a
-     * pure-PHP shape check.
-     *
-     * @var array<string, string>
-     */
-    private const GENERATED_BASE_CLASS = array(
-        'core/group'   => 'wp-block-group',
-        'core/columns' => 'wp-block-columns',
-        'core/column'  => 'wp-block-column',
-        'core/buttons' => 'wp-block-buttons',
-        'core/button'  => 'wp-block-button',
-        'core/details' => 'wp-block-details',
-        'core/heading' => 'wp-block-heading',
-        'core/list'    => 'wp-block-list',
-        'core/quote'   => 'wp-block-quote',
+        'core/separator',
     );
 
     /**
@@ -157,7 +136,7 @@ final class CanonicalSaveShapeValidator
         // without it (the historic core/heading / core/list leak that dropped
         // the generated wp-block-* class) diverges from the current save() and
         // the editor flags it invalid.
-        $generatedClass = self::GENERATED_BASE_CLASS[$blockName] ?? '';
+        $generatedClass = GeneratedGutenbergClassPolicy::baseClassForBlock($blockName);
         if ( '' !== $generatedClass && ! in_array($generatedClass, $wrapperClasses, true) ) {
             $this->addFinding(
                 $findings,
@@ -165,6 +144,20 @@ final class CanonicalSaveShapeValidator
                 $blockName,
                 'Wrapper is missing the generated class "' . $generatedClass . '" that core save() always emits for this block; the stored markup diverges from save().',
                 array( 'reason' => 'missing_generated_class', 'class' => $generatedClass )
+            );
+        }
+
+        foreach ( GeneratedGutenbergClassPolicy::extraClassesForBlock($blockName) as $extraClass ) {
+            if ( in_array($extraClass, $wrapperClasses, true) ) {
+                continue;
+            }
+
+            $this->addFinding(
+                $findings,
+                $path,
+                $blockName,
+                'Wrapper is missing the generated class "' . $extraClass . '" that core save() emits for this block; the stored markup diverges from save().',
+                array( 'reason' => 'missing_generated_class', 'class' => $extraClass )
             );
         }
 
@@ -288,7 +281,7 @@ final class CanonicalSaveShapeValidator
             || str_starts_with($class, 'wp-element-')
             || str_starts_with($class, 'wp-container-')
             || str_starts_with($class, 'has-')
-            || str_starts_with($class, 'is-')
+            || str_starts_with($class, 'is-layout-')
             || str_starts_with($class, 'align');
     }
 
