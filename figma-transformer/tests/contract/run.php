@@ -7298,6 +7298,57 @@ $assert(! str_contains($midpointBreakpointCss, '@media (max-width:390px){'), 'mi
 $assert(str_contains($midpointBreakpointCss, '.figma-node-bp-band-band{width:100vw;height:120px;position:absolute;top:0px;left:50%;margin-left:-50vw'), 'responsive-full-bleed-base-uses-viewport-breakout');
 $assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-bp-band-band\{[^}]*\b(?:width:100%|left:0px|margin-left:0px)/', $midpointBreakpointCss), 'responsive-full-bleed-media-preserves-viewport-breakout');
 
+$mobileSafetyBreakpointResult = ( new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter() )->emitSite(
+    array(
+        'name'   => 'Mobile Safety Breakpoint Fixture',
+        'assets' => array(),
+        'nodes'  => array(
+            array(
+                'id' => 'ms:desktop', 'type' => 'FRAME', 'name' => 'Home Desktop',
+                'box' => array('width' => 1440, 'height' => 900),
+                'children' => array(
+                    array(
+                        'id' => 'ms:promo', 'type' => 'FRAME', 'name' => 'Floating Promo',
+                        'box' => array('x' => 260, 'y' => 120, 'width' => 900, 'height' => 220),
+                        'layout' => array('positioning' => 'absolute'),
+                        'children' => array(
+                            array('id' => 'ms:promo-card', 'type' => 'RECTANGLE', 'name' => 'Promo Card', 'box' => array('width' => 860, 'height' => 180), 'background' => '#ff0000'),
+                        ),
+                    ),
+                ),
+            ),
+            array(
+                'id' => 'ms:mobile', 'type' => 'FRAME', 'name' => 'Home Mobile',
+                'box' => array('width' => 390, 'height' => 900),
+                'children' => array(),
+            ),
+        ),
+    ),
+    array(
+        'pages' => array(
+            array(
+                'frame_id'   => 'ms:desktop',
+                'name'       => 'Home',
+                'path'       => 'index.html',
+                'entrypoint' => true,
+                'variants'   => array(
+                    array('frame_id' => 'ms:desktop', 'viewport_width' => 1440.0, 'primary' => true),
+                    array('frame_id' => 'ms:mobile',  'viewport_width' => 390.0,  'primary' => false),
+                ),
+            ),
+        ),
+    )
+);
+$mobileSafetyBreakpointCss = '';
+foreach ( $mobileSafetyBreakpointResult['files'] ?? array() as $mobileSafetyBreakpointFile ) {
+    if ( is_array($mobileSafetyBreakpointFile) && 'style.css' === ($mobileSafetyBreakpointFile['path'] ?? null) ) {
+        $mobileSafetyBreakpointCss = (string) ($mobileSafetyBreakpointFile['content'] ?? '');
+    }
+}
+$assert('success' === ($mobileSafetyBreakpointResult['status'] ?? null), 'mobile-safety-breakpoint-transform-success');
+$assert(str_contains($mobileSafetyBreakpointCss, '@media (max-width:390px){'), 'mobile-safety-breakpoint-keyed-at-phone-width');
+$assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-ms-promo-floating-promo\{[^}]*width:calc\(100% - 48px\)/', $mobileSafetyBreakpointCss), 'mobile-safety-breakpoint-does-not-leak-to-midpoint');
+
 $paginationSemanticsResult = blocks_engine_figma_transformer_transform_scenegraph(array(
     'name'  => 'Pagination Semantics Fixture',
     'nodes' => array(
@@ -7669,10 +7720,11 @@ foreach ( $responsiveSafetyResult['files'] ?? array() as $responsiveSafetyFile )
     }
 }
 $assert('success' === ($responsiveSafetyResult['status'] ?? null), 'responsive-safety-transform-success');
-$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-safety-header-actions-frame-21\{[^}]*width:100%[^}]*position:relative[^}]*left:auto[^}]*right:auto[^}]*top:auto[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-header-actions-defixed');
-$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-safety-nav-navigation\{[^}]*width:100%[^}]*max-width:100%[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-navigation-wraps');
-$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-safety-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:1216px[^}]*left:24px/s', $responsiveSafetyCss) === 1, 'responsive-safety-newsletter-defixed');
-$assert(preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-safety-footer-row-frame-19\{[^}]*position:relative[^}]*left:auto[^}]*top:auto[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-footer-row-defixed');
+$assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-header-actions-frame-21\{[^}]*width:100%[^}]*position:relative[^}]*left:auto[^}]*right:auto[^}]*top:auto[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-header-actions-defixed');
+$assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-nav-navigation\{[^}]*width:100%[^}]*max-width:100%[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-navigation-wraps');
+$assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)[^}]*max-width:1216px[^}]*left:24px/s', $responsiveSafetyCss) === 1, 'responsive-safety-newsletter-defixed');
+$assert(preg_match('/@media \(max-width:390px\)\{[\s\S]*\.figma-node-safety-footer-row-frame-19\{[^}]*position:relative[^}]*left:auto[^}]*top:auto[^}]*flex-wrap:wrap/s', $responsiveSafetyCss) === 1, 'responsive-safety-footer-row-defixed');
+$assert(! preg_match('/@media \(max-width:915px\)\{[\s\S]*\.figma-node-safety-newsletter-newsletter-signup\{[^}]*width:calc\(100% - 48px\)/s', $responsiveSafetyCss), 'responsive-safety-fallbacks-do-not-leak-to-midpoint');
 
 if ( ! empty($failures) ) {
     fwrite(STDERR, "Figma Transformer contract failures:\n- " . implode("\n- ", $failures) . "\n");

@@ -108,26 +108,34 @@ final class BreakpointMediaDiffBuilder
             $variantStyles = array();
             $this->collectVariantNodeStyles($nodeMap[$variantId], 0, null, null, 'r', $variantStyles);
 
-            $rules = array_merge(
-                $this->diffRules($baseStyles, $variantStyles),
-                $this->responsiveSafetyRules($baseStyles, $variantStyles, (float) $viewportWidth, $this->matchedBreakpointGeometryClasses($baseStyles, $variantStyles))
-            );
-            if ( empty($rules) ) {
-                $prevViewportWidth = (float) $viewportWidth;
-                continue;
-            }
-
             $breakpointPx = null !== $prevViewportWidth && $prevViewportWidth > (float) $viewportWidth
                 ? (int) round(($prevViewportWidth + (float) $viewportWidth) / 2)
                 : (int) round((float) $viewportWidth);
 
-            $blocks[] = '@media (max-width:' . ($this->number)((float) $breakpointPx) . 'px){'
-                . "\n" . implode("\n", $rules) . "\n}";
+            $diffRules = $this->diffRules($baseStyles, $variantStyles);
+            if ( ! empty($diffRules) ) {
+                $blocks[] = $this->mediaBlock($breakpointPx, $diffRules);
+            }
+
+            $safetyRules = $this->responsiveSafetyRules($baseStyles, $variantStyles, (float) $viewportWidth, $this->matchedBreakpointGeometryClasses($baseStyles, $variantStyles));
+            if ( ! empty($safetyRules) ) {
+                $safetyBreakpointPx = (float) $viewportWidth <= 480.0 ? (int) round((float) $viewportWidth) : $breakpointPx;
+                $blocks[] = $this->mediaBlock($safetyBreakpointPx, $safetyRules);
+            }
 
             $prevViewportWidth = (float) $viewportWidth;
         }
 
         return $blocks;
+    }
+
+    /**
+     * @param array<int, string> $rules
+     */
+    private function mediaBlock(int $breakpointPx, array $rules): string
+    {
+        return '@media (max-width:' . ($this->number)((float) $breakpointPx) . 'px){'
+            . "\n" . implode("\n", $rules) . "\n}";
     }
 
     /**
