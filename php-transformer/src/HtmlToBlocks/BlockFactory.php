@@ -33,6 +33,7 @@ final class BlockFactory
      */
     public function create(string $name, array $attrs = array(), array $innerBlocks = array()): array
     {
+        $attrs = $this->normalizeAttrsForBlock($name, $attrs);
         $innerHtml = $this->blockHtml($name, $attrs, $innerBlocks);
         if ( is_array($innerHtml) ) {
             $innerContent = array( $innerHtml['opening'] );
@@ -52,6 +53,25 @@ final class BlockFactory
             'innerHTML'    => $innerHtml,
             'innerContent' => $innerContent,
         );
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function normalizeAttrsForBlock(string $name, array $attrs): array
+    {
+        if ( in_array($name, array( 'core/column', 'core/group', 'core/heading', 'core/list-item', 'core/paragraph' ), true) ) {
+            unset($attrs['style']['spacing']['blockGap']);
+            if ( empty($attrs['style']['spacing']) ) {
+                unset($attrs['style']['spacing']);
+            }
+            if ( empty($attrs['style']) ) {
+                unset($attrs['style']);
+            }
+        }
+
+        return $attrs;
     }
 
     /**
@@ -545,7 +565,9 @@ final class BlockFactory
     private function blockSupportAttrs(array $attrs, string $baseClass = ''): string
     {
         $support = $this->styleSupport($attrs['style'] ?? null);
-        $classes = $this->mergeClassNames($baseClass, $support['classes'], (string) ($attrs['className'] ?? ''));
+        $presetClasses = $this->presetColorClasses($attrs);
+        $layoutClasses = $this->layoutClasses($attrs['layout'] ?? null, $baseClass);
+        $classes = $this->mergeClassNames($baseClass, $presetClasses, $support['classes'], $layoutClasses, (string) ($attrs['className'] ?? ''));
         return $this->htmlAttrs(array(
             'id'    => (string) ($attrs['anchor'] ?? ''),
             'class' => $classes,
@@ -571,6 +593,50 @@ final class BlockFactory
             'classes' => '',
             'style'   => is_string($style) ? $style : '',
         );
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     */
+    private function presetColorClasses(array $attrs): string
+    {
+        $classes = array();
+        $textColor = $this->safeSlug((string) ($attrs['textColor'] ?? ''));
+        if ( '' !== $textColor ) {
+            $classes[] = 'has-' . $textColor . '-color';
+            $classes[] = 'has-text-color';
+        }
+
+        $backgroundColor = $this->safeSlug((string) ($attrs['backgroundColor'] ?? ''));
+        if ( '' !== $backgroundColor ) {
+            $classes[] = 'has-' . $backgroundColor . '-background-color';
+            $classes[] = 'has-background';
+        }
+
+        return implode(' ', $classes);
+    }
+
+    private function layoutClasses(mixed $layout, string $baseClass): string
+    {
+        if ( ! is_array($layout) ) {
+            return '';
+        }
+
+        $type = $this->safeSlug((string) ($layout['type'] ?? ''));
+        if ( ! in_array($type, array( 'constrained', 'flex', 'flow', 'grid' ), true) ) {
+            return '';
+        }
+
+        return $this->mergeClassNames(
+            'is-layout-' . $type,
+            '' !== $baseClass ? $baseClass . '-is-layout-' . $type : ''
+        );
+    }
+
+    private function safeSlug(string $value): string
+    {
+        $value = strtolower(trim($value));
+        return preg_match('/^[a-z0-9_-]+$/', $value) ? $value : '';
     }
 
     /**

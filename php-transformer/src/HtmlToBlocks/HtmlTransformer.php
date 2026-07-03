@@ -1099,6 +1099,9 @@ final class HtmlTransformer
 
         if ( preg_match('/^h([1-6])$/', $tagName, $matches) ) {
             $content = $this->innerHtml($element);
+            if ( $this->richTextRequiresHtmlFallback($content) ) {
+                return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($element)) ), array(), $element);
+            }
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 return null;
             }
@@ -1111,6 +1114,9 @@ final class HtmlTransformer
 
         if ( 'p' === $tagName ) {
             $content = $this->innerHtml($element);
+            if ( $this->richTextRequiresHtmlFallback($content) ) {
+                return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($element)) ), array(), $element);
+            }
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 if ( $this->isRuntimeDomTarget($element) ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
@@ -1829,6 +1835,10 @@ final class HtmlTransformer
     {
         $attrs = $this->hoistContentWrappingSpans($name, $attrs);
 
+        if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) && $this->richTextRequiresHtmlFallback((string) ($attrs['content'] ?? '')) ) {
+            return $this->blockFactory->create('core/html', array( 'content' => $this->restoreSvgCasing($this->outerHtml($sourceElement)) ));
+        }
+
         if ( $sourceElement instanceof DOMElement ) {
             $provenanceId = $this->nextSourceProvenanceId++;
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
@@ -1880,7 +1890,10 @@ final class HtmlTransformer
      *   - Remaining sibling/partial styling-hook spans are UNWRAPPED to their
      *     inner content. Their per-span class styling cannot ride valid RichText
      *     here, so this is best-effort; the emitted block is always valid.
-     * Genuine inline formats (strong/em/a/br/…) are never touched.
+     * Genuine inline formats (strong/em/a/br/…) are kept, but arbitrary
+     * class/style hooks on links are moved to the block wrapper when the link is
+     * the sole content wrapper, or dropped when they are partial-content hooks.
+     * RichText's link format round-trips href/target/rel, not source CSS hooks.
      *
      * A list item whose content carries block-level children (an image/heading/
      * paragraph "card", e.g. a commerce product grid) is left untouched here:
@@ -1897,7 +1910,7 @@ final class HtmlTransformer
         }
 
         $content = (string) ($attrs['content'] ?? '');
-        if ( '' === $content || ! preg_match('/<span\b/i', $content) ) {
+        if ( '' === $content || ! preg_match('/<(?:span|a)\b/i', $content) ) {
             return $attrs;
         }
 
@@ -1928,6 +1941,20 @@ final class HtmlTransformer
                 $hoistedDeclarations = array_merge($hoistedDeclarations, $this->cssDeclarations($wrapperStyle));
             }
             $this->unwrapElement($wrapper);
+        }
+
+        $soleAnchor = $this->soleRichTextAnchor($body);
+        if ( $soleAnchor instanceof DOMElement ) {
+            $hoistedClasses = trim($hoistedClasses . ' ' . $this->attr($soleAnchor, 'class'));
+            $anchorStyle    = trim($this->attr($soleAnchor, 'style'));
+            if ( '' !== $anchorStyle ) {
+                $hoistedDeclarations = array_merge($hoistedDeclarations, $this->cssDeclarations($anchorStyle));
+            }
+        }
+
+        foreach ( $this->richTextAnchors($body) as $anchor ) {
+            $anchor->removeAttribute('class');
+            $anchor->removeAttribute('style');
         }
 
         // Unwrap any remaining styling-hook spans (sibling / partial content):
@@ -1982,6 +2009,22 @@ final class HtmlTransformer
         return $only instanceof DOMElement && $this->isStylingHookSpan($only) ? $only : null;
     }
 
+    private function soleRichTextAnchor(DOMElement $container): ?DOMElement
+    {
+        $only = null;
+        foreach ( $container->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( null !== $only ) {
+                return null;
+            }
+            $only = $child;
+        }
+
+        return $only instanceof DOMElement && 'a' === strtolower($only->tagName) ? $only : null;
+    }
+
     /**
      * A `<span>` whose only attributes are class and/or style (at least one
      * non-empty). These are presentational styling hooks RichText cannot store,
@@ -2020,6 +2063,26 @@ final class HtmlTransformer
         }
 
         return $spans;
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function richTextAnchors(DOMElement $container): array
+    {
+        $anchors = array();
+        foreach ( $container->getElementsByTagName('a') as $anchor ) {
+            if ( $anchor instanceof DOMElement && ( $anchor->hasAttribute('class') || $anchor->hasAttribute('style') ) ) {
+                $anchors[] = $anchor;
+            }
+        }
+
+        return $anchors;
+    }
+
+    private function richTextRequiresHtmlFallback(string $content): bool
+    {
+        return (bool) preg_match('/<(?:svg|canvas|img|picture|video|audio|iframe|object|embed|input|button|select|textarea|form)\b/i', $content);
     }
 
     /**

@@ -560,9 +560,41 @@ $linkedLogoBlock = $linkedLogoResult['blocks'][0] ?? array();
 $linkedLogoSerialized = (string) ($linkedLogoResult['serialized_blocks'] ?? '');
 $assert('core/paragraph' === ($linkedLogoBlock['blockName'] ?? ''), 'linked logo text converts to a paragraph block');
 $assert(! array_key_exists('content', is_array($linkedLogoBlock['attrs'] ?? null) ? $linkedLogoBlock['attrs'] : array()), 'paragraph source content is not serialized as a block comment attribute');
-$assert(str_contains($linkedLogoSerialized, '<p class="site-logo"><a class="site-logo" href="/">Mara Vale</a></p>'), 'linked logo paragraph preserves anchor markup in saved HTML');
+$assert(str_contains($linkedLogoSerialized, '<p class="site-logo"><a href="/">Mara Vale</a></p>'), 'linked logo paragraph hoists link styling hooks to the paragraph wrapper and keeps valid anchor markup');
+$assert(! str_contains($linkedLogoSerialized, '<a class="site-logo"'), 'linked logo paragraph does not leave className on the RichText anchor');
 $assert(! str_contains($linkedLogoSerialized, '\\u003ca'), 'linked logo paragraph avoids raw anchor HTML in delimiter JSON');
 $assert('pass' === ($linkedLogoResult['source_reports']['wp_block_validity']['status'] ?? ''), 'linked logo paragraph passes generated block validity checks');
+
+$canonicalWrapperAttrsResult = ( new HtmlTransformer() )->transform(
+    '<main><section class="menu-grid" style="display:grid;gap:2rem"><h2 class="section-title" style="color:red">Menu</h2><p class="card-desc" style="margin-bottom:1rem">Fresh daily.</p></section></main>'
+)->toArray();
+$canonicalWrapperAttrsSerialized = (string) ($canonicalWrapperAttrsResult['serialized_blocks'] ?? '');
+$assert(str_contains($canonicalWrapperAttrsSerialized, '<section class="wp-block-group is-layout-grid wp-block-group-is-layout-grid menu-grid"'), 'group wrappers preserve semantic tag, canonical classes, and source classes');
+$assert(! str_contains($canonicalWrapperAttrsSerialized, 'style="display:grid'), 'group wrappers omit raw layout styles that core/group save validation does not reproduce');
+$assert(str_contains($canonicalWrapperAttrsSerialized, '<h2 class="wp-block-heading has-text-color section-title" style="color:red">Menu</h2>'), 'heading wrappers include canonical and support classes with supported color style');
+$assert(str_contains($canonicalWrapperAttrsSerialized, '<p class="card-desc" style="margin-bottom:1rem">Fresh daily.</p>'), 'paragraph wrappers preserve runtime-addressable classes and supported margin style');
+
+$paragraphSvgResult = ( new HtmlTransformer() )->transform(
+    '<main><p class="social-link"><a class="social-link" href="#" aria-label="Follow"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0h10v10H0z"></path></svg></a></p></main>'
+)->toArray();
+$paragraphSvgBlock = $paragraphSvgResult['blocks'][0] ?? array();
+$paragraphSvgSerialized = (string) ($paragraphSvgResult['serialized_blocks'] ?? '');
+$assert('core/html' === ($paragraphSvgBlock['blockName'] ?? ''), 'paragraph content with inline SVG falls back to core/html instead of invalid RichText');
+$assert(str_contains($paragraphSvgSerialized, '<!-- wp:html'), 'paragraph inline SVG serializes as a bounded custom HTML block');
+$assert(! preg_match('/<!-- wp:paragraph[^>]*-->.*<svg\b.*<!-- \/wp:paragraph -->/s', $paragraphSvgSerialized), 'paragraph inline SVG is not stored inside core/paragraph RichText');
+
+$coffeeHtml = (string) file_get_contents(dirname(__DIR__, 3) . '/fixtures/websites/2-onepager-coffee/index.html');
+$coffeeResult = ( new HtmlTransformer() )->transform($coffeeHtml, array())->toArray();
+$coffeeSerialized = (string) ($coffeeResult['serialized_blocks'] ?? '');
+$coffeeRiskCount = 0;
+if ( preg_match_all('/<!-- wp:(paragraph|heading|list-item)[^>]*-->(.*?)<!-- \/wp:\\1 -->/s', $coffeeSerialized, $coffeeBlocks, PREG_SET_ORDER) ) {
+    foreach ( $coffeeBlocks as $coffeeBlock ) {
+        if ( preg_match('/<(?:span|a)\b[^>]*(?:class|style)=|<svg\b/i', $coffeeBlock[2]) ) {
+            ++$coffeeRiskCount;
+        }
+    }
+}
+$assert(0 === $coffeeRiskCount, '2-onepager-coffee emits no class/style anchors/spans or SVG inside RichText core blocks', (string) $coffeeRiskCount);
 
 $invalidButtonBlocks = array(
     array(
@@ -787,6 +819,21 @@ $assert('pass' === ($dropdownHeaderParity['status'] ?? ''), 'dropdown header nav
 $assert(5 === ($dropdownHeaderBlockMenu['item_count'] ?? null), 'dropdown header nav counts parent and submenu items consistently');
 $assert('Day Hike' === ($dropdownHeaderBlockMenu['items'][2]['label'] ?? ''), 'dropdown header nav preserves submenu item labels');
 
+$nestedNavMenu = ( new HtmlTransformer() )->transform(
+    '<nav aria-label="Main"><ul><li><a href="/coffee">Coffee</a><nav id="nav-links" class="wp-block-navigation nav-links" style="display:none;align-items:flex-start;gap:1.4rem;background:var(--cream);flex-direction:column;padding:1.8rem var(--gutter) 2rem;box-shadow:0 10px 20px rgba(0,0,0,.2)"><a href="#espresso">Espresso</a><a href="#latte">Latte</a></nav></li><li><a href="/visit">Visit</a></li></ul></nav>'
+)->toArray();
+$nestedNavMenuSerialized = (string) ($nestedNavMenu['serialized_blocks'] ?? '');
+$nestedNavMenuParity = $nestedNavMenu['source_reports']['semantic_parity'] ?? array();
+$nestedNavMenuBlock = $nestedNavMenuParity['navigation_menus']['blocks'][0] ?? array();
+$assert('pass' === ($nestedNavMenu['source_reports']['wp_block_validity']['status'] ?? ''), 'nested nav/menu serializes to valid WordPress navigation blocks');
+$assert(str_contains($nestedNavMenuSerialized, '<!-- wp:navigation-submenu'), 'nested nav/menu emits a canonical navigation-submenu block');
+$assert(! str_contains($nestedNavMenuSerialized, '<nav id="nav-links"'), 'nested nav/menu does not embed a raw nav wrapper inside core/navigation content');
+$assert(! str_contains($nestedNavMenuSerialized, 'style="display:none'), 'nested nav/menu does not freeze hidden raw inline nav styles into serialized block markup');
+$assert(! str_contains($nestedNavMenuSerialized, 'wp-block-navigation nav-links'), 'nested nav/menu strips core wrapper classes while preserving custom nav classes');
+$assert(str_contains($nestedNavMenuSerialized, 'nav-links'), 'nested nav/menu preserves the custom submenu class for styling');
+$assert(4 === ($nestedNavMenuBlock['item_count'] ?? null), 'nested nav/menu preserves parent, submenu, and sibling link items');
+$assert('Latte' === ($nestedNavMenuBlock['items'][2]['label'] ?? ''), 'nested nav/menu preserves submenu item labels');
+
 // Regression: a <nav> that sits as a SIBLING of a brand/logo and a menu-toggle
 // inside header/footer "chrome" container divs (direct-anchor menus, no <ul>)
 // must still be represented as core/navigation. This locks in the diagnostic
@@ -1007,12 +1054,29 @@ $assert('preserve_runtime_island' === ($diagnosticsByCode['html_script_fallback'
 $scriptRuntimeIslands = array_values(array_filter($normalizedFallbacks['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'script' === ($island['kind'] ?? '')));
 $assert(1 === count($scriptRuntimeIslands), 'runtime script fallback projects as a runtime island');
 $assert('script_requires_runtime' === ($scriptRuntimeIslands[0]['preservation_reason'] ?? ''), 'runtime script island exposes preservation reason');
+$assert('preserve' === ($scriptRuntimeIslands[0]['disposition'] ?? ''), 'runtime script island exposes accepted preserve disposition');
+$assert('accepted_runtime_preservation' === ($scriptRuntimeIslands[0]['preservation_status'] ?? ''), 'runtime script island exposes accepted runtime preservation status');
+$assert('preserve_verbatim' === ($scriptRuntimeIslands[0]['js_handling'] ?? ''), 'runtime script island exposes verbatim JS preservation intent');
 $preservedRuntimeDiagnostics = array_values(array_filter($normalizedFallbacks['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'preserved_runtime_island' === ($diagnostic['code'] ?? '')));
 $assert(1 <= count($preservedRuntimeDiagnostics), 'runtime script fallback emits preserved_runtime_island diagnostics');
 $assert('runtime_island_preserved' === ($preservedRuntimeDiagnostics[0]['diagnostic_class'] ?? ''), 'preserved_runtime_island diagnostic exposes runtime-island diagnostic class');
+$assert('accepted_runtime_preservation' === ($preservedRuntimeDiagnostics[0]['preservation_status'] ?? ''), 'preserved_runtime_island diagnostic exposes accepted preservation status');
 $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallback'] ?? array(), 'html_iframe_embed_fallback', 'warning', 'third_party_embed_runtime', 'embed');
 $assert(! isset($diagnosticsByCode['html_inline_svg_fallback']), 'safe inline SVGs convert to inline core/html blocks instead of fallback diagnostics');
 $assert(! isset($diagnosticsByCode['html_canvas_runtime_fallback']), 'non-runtime canvas does not emit runtime canvas fallback diagnostics');
+
+$coffeeFixturePath = dirname(__DIR__, 3) . '/fixtures/websites/2-onepager-coffee/index.html';
+$coffeeFixtureHtml = (string) file_get_contents($coffeeFixturePath);
+$coffeeResult = ( new HtmlTransformer() )->transform($coffeeFixtureHtml)->toArray();
+$coffeeScriptIslands = array_values(array_filter($coffeeResult['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'script' === ($island['kind'] ?? '')));
+$assert(1 === count($coffeeScriptIslands), '2-onepager-coffee inline runtime script is classified as a single script runtime island');
+$assert('script:nth-of-type(1)' === ($coffeeScriptIslands[0]['selector'] ?? ''), '2-onepager-coffee script island keeps the source selector');
+$assert('script_requires_runtime' === ($coffeeScriptIslands[0]['preservation_reason'] ?? ''), '2-onepager-coffee script island keeps the runtime preservation reason');
+$assert('accepted_runtime_preservation' === ($coffeeScriptIslands[0]['preservation_status'] ?? ''), '2-onepager-coffee script island is marked as accepted runtime preservation');
+$assert('preserve_verbatim' === ($coffeeScriptIslands[0]['js_handling'] ?? ''), '2-onepager-coffee script island carries explicit verbatim JS preservation intent');
+$coffeeScriptDiagnostics = array_values(array_filter($coffeeResult['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'preserved_runtime_island' === ($diagnostic['code'] ?? '') && 'script' === ($diagnostic['kind'] ?? '')));
+$assert(1 === count($coffeeScriptDiagnostics), '2-onepager-coffee emits one script preserved_runtime_island diagnostic');
+$assert('accepted_runtime_preservation' === ($coffeeScriptDiagnostics[0]['preservation_status'] ?? ''), '2-onepager-coffee diagnostic exposes accepted runtime preservation metadata');
 
 $safeProviderIframe = ( new HtmlTransformer() )->transform(
     '<main><iframe title="Demo" src="https://www.youtube.com/embed/dQw4w9WgXcQ" width="560" height="315"></iframe></main>'

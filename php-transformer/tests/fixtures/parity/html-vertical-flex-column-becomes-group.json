@@ -28,6 +28,7 @@
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 4 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"hero\",\"layout\":{\"type\":\"flex\",\"orientation\":\"vertical\"}}" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-group is-layout-flex wp-block-group-is-layout-flex hero\">" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:columns" }
   ]
 }

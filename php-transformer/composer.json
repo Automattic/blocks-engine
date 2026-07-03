@@ -57,6 +57,7 @@
       "php tests/unit/subtree-classifier.php",
       "php tests/unit/custom-block-generator.php",
       "php tests/unit/css-value-splitter.php",
+      "php tests/unit/block-style-support-conversion.php",
       "php tests/unit/content-round-trip-reporter.php",
       "php tests/unit/content-round-trip-form-echo.php",
       "php tests/unit/corpus-detectors.php",

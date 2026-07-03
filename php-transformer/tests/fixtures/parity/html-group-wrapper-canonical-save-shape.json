@@ -22,7 +22,7 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div id=\"foo\" class=\"wp-block-group grid-3 custom-x\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div id=\"foo\" class=\"wp-block-group is-layout-grid wp-block-group-is-layout-grid grid-3 custom-x\">" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "id=\"foo\" class=\"wp-block-group grid-3 custom-x\" id=" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]

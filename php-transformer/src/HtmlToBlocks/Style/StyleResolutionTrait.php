@@ -48,12 +48,12 @@ trait StyleResolutionTrait
         $declarations = $this->stripFrozenHiddenState($element, $this->cssDeclarations($style));
         $mapped       = $this->styleAttributeMapper()->map($declarations);
 
-        return array_filter(array(
+        return array_filter(array_merge($mapped['attrs'] ?? array(), array(
             'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
             'className' => $this->promotedClassName($this->attr($element, 'class')),
             'style'     => $mapped['style'],
             'layout'    => $this->layoutAttribute($element, $this->cssDeclarationString($declarations)),
-        ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+        )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
     }
 
     /**
@@ -420,20 +420,28 @@ trait StyleResolutionTrait
         }
 
         $inlineStyle = strtolower($this->attr($element, 'style'));
+        $mergedDeclarations = $this->cssDeclarations($mergedStyle);
+        $inlineDeclarations = $this->cssDeclarations($inlineStyle);
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $inlineStyle) ) {
+            $layout = array( 'type' => 'flex' );
             // flex-direction: column / column-reverse is a vertical main axis. A
             // core/group flex layout defaults to a horizontal Row, so the
             // orientation must be made explicit or the children render
             // side-by-side instead of stacked. Row / row-reverse / default flex
             // keeps the implicit horizontal orientation.
             if ( preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $inlineStyle) ) {
-                return array(
-                    'type'        => 'flex',
-                    'orientation' => 'vertical',
-                );
+                $layout['orientation'] = 'vertical';
+            }
+            $justifyContent = $this->layoutJustifyContent((string) ($inlineDeclarations['justify-content'] ?? $mergedDeclarations['justify-content'] ?? ''));
+            if ( '' !== $justifyContent ) {
+                $layout['justifyContent'] = $justifyContent;
+            }
+            $flexWrap = $this->layoutFlexWrap((string) ($inlineDeclarations['flex-wrap'] ?? $mergedDeclarations['flex-wrap'] ?? ''));
+            if ( '' !== $flexWrap ) {
+                $layout['flexWrap'] = $flexWrap;
             }
 
-            return array( 'type' => 'flex' );
+            return $layout;
         }
         $style = strtolower('' !== trim($mergedStyle) ? $mergedStyle : $this->attr($element, 'style'));
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style)
@@ -468,6 +476,29 @@ trait StyleResolutionTrait
         }
 
         return array();
+    }
+
+    private function layoutJustifyContent(string $value): string
+    {
+        $value = strtolower(trim($value));
+        $map = array(
+            'flex-start'    => 'left',
+            'start'         => 'left',
+            'left'          => 'left',
+            'center'        => 'center',
+            'flex-end'      => 'right',
+            'end'           => 'right',
+            'right'         => 'right',
+            'space-between' => 'space-between',
+        );
+
+        return $map[ $value ] ?? '';
+    }
+
+    private function layoutFlexWrap(string $value): string
+    {
+        $value = strtolower(trim($value));
+        return in_array($value, array( 'wrap', 'nowrap' ), true) ? $value : '';
     }
 
     /**

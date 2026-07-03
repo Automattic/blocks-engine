@@ -304,7 +304,7 @@ final class FontMaterializationPlanBuilder
      * passes resolve variables whose values reference other variables. Leaves
      * unresolved references intact so they can be filtered as invalid families.
      */
-    private function resolveCssVariables(string $css): string
+    public function resolveCssVariables(string $css): string
     {
         if ( '' === trim($css) || ! str_contains($css, 'var(') ) {
             return $css;

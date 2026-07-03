@@ -63,8 +63,9 @@ final class TypographyParityAnalyzer
             );
         }
 
+        $typographyCss = $this->planBuilder->resolveCssVariables(trim($this->styleBlockCss($html) . "\n" . $css));
         $headingDeclarations = array_merge(
-            $this->headingFamiliesFromCss($this->styleBlockCss($html)),
+            $this->headingFamiliesFromCss($typographyCss),
             $this->normalizeInlineHeadingDeclarations($inlineHeadingDeclarations)
         );
 

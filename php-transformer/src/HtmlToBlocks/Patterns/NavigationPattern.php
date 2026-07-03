@@ -39,7 +39,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // `mobile` matches the core default: WP renders the responsive overlay
         // container and enqueues the `navigation/view` Interactivity module so the
         // hamburger menu functions on the rendered site (#native-interactivity).
-        return $createBlock('core/navigation', array_merge($presentationAttributes($element), array(
+        return $createBlock('core/navigation', array_merge($this->navigationContainerAttributes($element, $presentationAttributes), array(
             'overlayMenu' => 'mobile',
         )), $links, $element);
     }
@@ -251,9 +251,9 @@ final class NavigationPattern implements PatternRecognizerInterface
      */
     private function navigationItemAttributes(DOMElement $item, DOMElement $anchor, ?DOMElement $submenuContainer, array $baseAttrs, callable $presentationAttributes): array
     {
-        $itemAttrs = $item->isSameNode($anchor) ? array() : $presentationAttributes($item);
-        $anchorAttrs = $presentationAttributes($anchor);
-        $submenuAttrs = $submenuContainer instanceof DOMElement ? $presentationAttributes($submenuContainer) : array();
+        $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
+        $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
+        $submenuAttrs = $submenuContainer instanceof DOMElement ? $this->withoutCoreNavigationClasses($presentationAttributes($submenuContainer)) : array();
         if ( '' === (string) ($itemAttrs['className'] ?? '') && '' !== (string) ($anchorAttrs['className'] ?? '') ) {
             $itemAttrs['className'] = $anchorAttrs['className'];
         }
@@ -265,6 +265,44 @@ final class NavigationPattern implements PatternRecognizerInterface
             'anchorClassName'  => $anchorAttrs['className'] ?? '',
             'submenuClassName' => $submenuAttrs['className'] ?? '',
         )), static fn ($value): bool => '' !== $value);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function navigationContainerAttributes(DOMElement $element, callable $presentationAttributes): array
+    {
+        return $this->withoutCoreNavigationClasses($presentationAttributes($element));
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withoutCoreNavigationClasses(array $attrs): array
+    {
+        if ( empty($attrs['className']) || ! is_string($attrs['className']) ) {
+            return $attrs;
+        }
+
+        $classNames = array_values(array_filter(preg_split('/\s+/', trim($attrs['className'])) ?: array(), static function (string $className): bool {
+            return ! in_array($className, array(
+                'wp-block-navigation',
+                'wp-block-navigation-item',
+                'wp-block-navigation-link',
+                'wp-block-navigation-submenu',
+                'wp-block-navigation__container',
+                'wp-block-navigation__submenu-container',
+            ), true);
+        }));
+
+        if ( array() === $classNames ) {
+            unset($attrs['className']);
+            return $attrs;
+        }
+
+        $attrs['className'] = implode(' ', $classNames);
+        return $attrs;
     }
 
     private function attr(DOMElement $element, string $name): string
@@ -310,7 +348,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             $tagName = strtolower($child->tagName);
-            if ( in_array($tagName, array( 'ul', 'ol' ), true) || $this->hasSubmenuSignal($child) ) {
+            if ( in_array($tagName, array( 'nav', 'ul', 'ol' ), true) || $this->hasSubmenuSignal($child) ) {
                 $containers[] = $child;
             }
         }

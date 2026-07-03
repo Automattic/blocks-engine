@@ -25,7 +25,7 @@
     { "path": "blocks", "assert": "count", "count": 2 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"single.html\" aria-hidden=\"true\" tabindex=\"-1\"><img src=\"assets/photos/thumb-stop-motion.png\" alt=\"\"/></a>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"bp-logo\" href=\"index.html\" aria-label=\"The Baseplate - home\"></a>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"bp-logo\"><a href=\"index.html\" aria-label=\"The Baseplate - home\"></a></p>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "\\u003ca class=\\u0022bp-logo" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
