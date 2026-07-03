@@ -1,0 +1,47 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-form-fallback-enriched-metadata",
+  "description": "Reports provider-neutral form metadata needed by downstream materializers without changing preserved form HTML output.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-form-fallback-enriched-metadata.json",
+    "notes": "Generic contract coverage for form identity, control order/defaults, submit labels, and adjacent success panels."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New metadata-only form materialization contract has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><form id=\"registration\" class=\"event-form\" action=\"#\" method=\"post\" aria-label=\"Conference registration form\" novalidate><label for=\"ticket\">Ticket Type <span aria-hidden=\"true\">*</span></label><select id=\"ticket\" name=\"ticket_type\" required><option value=\"\" disabled selected>— Select a ticket —</option><option value=\"standard\">Standard Pass</option></select><label><input type=\"checkbox\" name=\"updates\" value=\"yes\" checked> Send me event updates</label><button type=\"submit\">Continue to Payment</button></form><div id=\"form-success\" role=\"status\" aria-live=\"polite\"><h2>Registration received</h2><p>Check your email for next steps.</p></div></main>"
+  },
+  "expected_fallbacks": [
+    { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.form.id", "assert": "equals", "value": "registration" },
+    { "path": "fallbacks.0.form.class", "assert": "equals", "value": "event-form" },
+    { "path": "fallbacks.0.form.action", "assert": "equals", "value": "#" },
+    { "path": "fallbacks.0.form.method", "assert": "equals", "value": "post" },
+    { "path": "fallbacks.0.form.aria_label", "assert": "equals", "value": "Conference registration form" },
+    { "path": "fallbacks.0.form.novalidate", "assert": "equals", "value": true },
+    { "path": "fallbacks.0.control_count", "assert": "equals", "value": 3 },
+    { "path": "fallbacks.0.controls.0.order", "assert": "equals", "value": 0 },
+    { "path": "fallbacks.0.controls.0.tag", "assert": "equals", "value": "select" },
+    { "path": "fallbacks.0.controls.0.label", "assert": "equals", "value": "Ticket Type" },
+    { "path": "fallbacks.0.controls.0.required", "assert": "equals", "value": true },
+    { "path": "fallbacks.0.controls.0.options.0.placeholder", "assert": "equals", "value": true },
+    { "path": "fallbacks.0.controls.0.options.1.value", "assert": "equals", "value": "standard" },
+    { "path": "fallbacks.0.controls.1.type", "assert": "equals", "value": "checkbox" },
+    { "path": "fallbacks.0.controls.1.checked", "assert": "equals", "value": true },
+    { "path": "fallbacks.0.controls.2.type", "assert": "equals", "value": "submit" },
+    { "path": "fallbacks.0.controls.2.text", "assert": "equals", "value": "Continue to Payment" },
+    { "path": "fallbacks.0.success_panel.id", "assert": "equals", "value": "form-success" },
+    { "path": "fallbacks.0.success_panel.role", "assert": "equals", "value": "status" },
+    { "path": "fallbacks.0.success_panel.aria_live", "assert": "equals", "value": "polite" },
+    { "path": "fallbacks.0.success_panel.text", "assert": "equals", "value": "Registration received Check your email for next steps." },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<form id=\"registration\" class=\"event-form\"" }
+  ]
+}

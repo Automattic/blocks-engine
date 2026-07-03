@@ -4435,10 +4435,13 @@ final class HtmlTransformer
     private function formControls(DOMElement $form): array
     {
         $controls = array();
+        $order = 0;
         foreach ( $this->formControlElements($form) as $control ) {
             $metadata = $this->formControlMetadata($control);
             if ( array() !== $metadata ) {
+                $metadata['order'] = $order;
                 $controls[] = $metadata;
+                ++$order;
             }
         }
 
@@ -4446,18 +4449,32 @@ final class HtmlTransformer
     }
 
     /**
-     * @return array<string, string>
+     * @return array<string, mixed>
      */
     private function formMetadata(DOMElement $form): array
     {
-        return array_filter(
+        $metadata = array_filter(
             array(
-                'action'  => $this->attr($form, 'action'),
-                'method'  => strtolower($this->attr($form, 'method')),
-                'enctype' => $this->attr($form, 'enctype'),
+                'id'         => $this->attr($form, 'id'),
+                'name'       => $this->attr($form, 'name'),
+                'class'      => $this->attr($form, 'class'),
+                'aria_label' => $this->attr($form, 'aria-label'),
+                'action'     => $this->attr($form, 'action'),
+                'method'     => strtolower($this->attr($form, 'method')),
+                'enctype'    => $this->attr($form, 'enctype'),
+                'target'     => $this->attr($form, 'target'),
+                'autocomplete' => $this->attr($form, 'autocomplete'),
             ),
             static fn (string $value): bool => '' !== $value
         );
+
+        foreach ( array( 'novalidate' ) as $attribute ) {
+            if ( $form->hasAttribute($attribute) ) {
+                $metadata[$attribute] = true;
+            }
+        }
+
+        return $metadata;
     }
 
     /**
@@ -4815,6 +4832,7 @@ final class HtmlTransformer
             'selector'        => $this->elementSelector($element),
             'attributes'      => $this->htmlAttributes($element),
             'form'            => $this->formMetadata($element),
+            'success_panel'   => $this->formSuccessPanelMetadata($element),
             'context'         => $this->sourceContext($element),
             'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
             'events'          => $this->eventMetadata($element),
@@ -4827,6 +4845,58 @@ final class HtmlTransformer
             'html_bytes'      => $boundedHtml['bytes'],
             'html_truncated'  => $boundedHtml['truncated'],
         ), $this->fallbackProvenance);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function formSuccessPanelMetadata(DOMElement $form): array
+    {
+        for ( $sibling = $form->nextSibling; $sibling instanceof DOMNode; $sibling = $sibling->nextSibling ) {
+            if ( XML_TEXT_NODE === $sibling->nodeType && '' === trim($sibling->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( ! $sibling instanceof DOMElement ) {
+                return array();
+            }
+
+            if ( ! $this->hasSuccessPanelSignal($sibling) ) {
+                return array();
+            }
+
+            $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($sibling));
+            return array_filter(array(
+                'selector'       => $this->elementSelector($sibling),
+                'id'             => $this->attr($sibling, 'id'),
+                'class'          => $this->attr($sibling, 'class'),
+                'role'           => $this->attr($sibling, 'role'),
+                'aria_live'      => $this->attr($sibling, 'aria-live'),
+                'text'           => $this->normalizedSuccessPanelText($sibling),
+                'html'           => $boundedHtml['html'],
+                'html_bytes'     => $boundedHtml['bytes'],
+                'html_truncated' => $boundedHtml['truncated'],
+            ), static fn (mixed $value): bool => is_bool($value) || is_int($value) || '' !== trim((string) $value));
+        }
+
+        return array();
+    }
+
+    private function normalizedSuccessPanelText(DOMElement $element): string
+    {
+        $html = preg_replace('/<\/?[a-z][a-z0-9]*\b[^>]*>/i', ' ', $this->innerHtml($element)) ?? $element->textContent ?? '';
+        return trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+    }
+
+    private function hasSuccessPanelSignal(DOMElement $element): bool
+    {
+        $role = strtolower($this->attr($element, 'role'));
+        if ( in_array($role, array( 'status', 'alert' ), true) ) {
+            return true;
+        }
+
+        $tokens = strtolower(trim($this->attr($element, 'id') . ' ' . $this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-live')));
+        return (bool) preg_match('/(?:^|[^a-z0-9])(?:success|sent|submitted|thank|thanks|confirmation|confirmed)(?:[^a-z0-9]|$)/', $tokens);
     }
 
     /**
@@ -5226,20 +5296,45 @@ final class HtmlTransformer
         }
 
         $tagName = strtolower($control->tagName);
+        $type = $this->formControlType($control);
         $metadata = array_filter(array(
             'tag'         => $tagName,
             'selector'    => $this->elementSelector($control),
+            'id'          => $this->attr($control, 'id'),
             'name'        => $this->attr($control, 'name'),
-            'type'        => $this->formControlType($control),
+            'type'        => $type,
             'label'       => $this->formControlLabel($control),
             'placeholder' => $this->attr($control, 'placeholder'),
+            'autocomplete' => $this->attr($control, 'autocomplete'),
+            'pattern'     => $this->attr($control, 'pattern'),
+            'min'         => $this->attr($control, 'min'),
+            'max'         => $this->attr($control, 'max'),
+            'step'        => $this->attr($control, 'step'),
+            'maxlength'   => $this->attr($control, 'maxlength'),
+            'rows'        => $this->attr($control, 'rows'),
         ), static fn (string $value): bool => '' !== $value);
+
+        if ( in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
+            $text = $this->formButtonText($control);
+            if ( '' !== $text ) {
+                $metadata['text'] = $text;
+            }
+        }
 
         if ( $control->hasAttribute('required') ) {
             $metadata['required'] = true;
         }
         if ( $control->hasAttribute('disabled') ) {
             $metadata['disabled'] = true;
+        }
+        if ( $control->hasAttribute('readonly') ) {
+            $metadata['readonly'] = true;
+        }
+        if ( $control->hasAttribute('checked') ) {
+            $metadata['checked'] = true;
+        }
+        if ( $control->hasAttribute('multiple') ) {
+            $metadata['multiple'] = true;
         }
 
         $value = $this->attr($control, 'value');
@@ -5316,6 +5411,10 @@ final class HtmlTransformer
             return $node->textContent ?? '';
         }
 
+        if ( $node instanceof DOMElement && 'true' === strtolower($this->attr($node, 'aria-hidden')) ) {
+            return '';
+        }
+
         if ( $node instanceof DOMElement && $this->isFormControlElement($node) ) {
             return '';
         }
@@ -5326,6 +5425,23 @@ final class HtmlTransformer
         }
 
         return $text;
+    }
+
+    private function formButtonText(DOMElement $control): string
+    {
+        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
+            $label = trim($this->attr($control, $attribute));
+            if ( '' !== $label ) {
+                return $label;
+            }
+        }
+
+        $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
+        if ( '' !== $text ) {
+            return $text;
+        }
+
+        return trim($this->attr($control, 'value'));
     }
 
     /**
@@ -5349,6 +5465,9 @@ final class HtmlTransformer
             }
             if ( $option->hasAttribute('disabled') ) {
                 $optionMetadata['disabled'] = true;
+            }
+            if ( '' === trim($this->attr($option, 'value')) && ( $option->hasAttribute('disabled') || $option->hasAttribute('selected') ) ) {
+                $optionMetadata['placeholder'] = true;
             }
 
             $options[] = $optionMetadata;
