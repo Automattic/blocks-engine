@@ -252,8 +252,9 @@ final class ChildLayerCompositionResolver
                 continue;
             }
             foreach ( $node[$key] as $entry ) {
-                if ( is_array($entry) && isset($entry['path']) && is_scalar($entry['path']) && '' !== trim((string) $entry['path']) ) {
-                    $paths[] = trim((string) $entry['path']);
+                $path = is_array($entry) ? ($entry['data'] ?? $entry['pathData'] ?? $entry['path'] ?? $entry['d'] ?? null) : $entry;
+                if ( is_scalar($path) && '' !== trim((string) $path) ) {
+                    $paths[] = trim((string) $path);
                 }
             }
         }
