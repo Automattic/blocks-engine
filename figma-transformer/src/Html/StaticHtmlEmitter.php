@@ -76,6 +76,8 @@ final class StaticHtmlEmitter
 
     private ?BreakpointMediaDiffBuilder $breakpointMediaDiffBuilder = null;
 
+    private ?BreakpointDimensionPolicy $breakpointDimensionPolicy = null;
+
     public function __construct(?LayoutGapResolver $layoutGapResolver = null)
     {
         $this->layoutGapResolver = $layoutGapResolver ?? new LayoutGapResolver();
@@ -141,6 +143,7 @@ final class StaticHtmlEmitter
             fn (array $node): bool => $this->freeformContainerShouldUseFlow($node),
             fn (array $node): bool => $this->hasAbsoluteChild($node),
             fn (array $node): bool => $this->hasDecorativeFlexUnderlayChild($node),
+            $this->breakpointDimensionPolicy(),
         );
     }
 
@@ -184,7 +187,14 @@ final class StaticHtmlEmitter
             fn (string $value): string => $this->sanitizeAttribute($value),
             fn (string $value): string => $this->slug($value),
             fn (float $value): string => $this->number($value),
+            null,
+            $this->breakpointDimensionPolicy(),
         );
+    }
+
+    private function breakpointDimensionPolicy(): BreakpointDimensionPolicy
+    {
+        return $this->breakpointDimensionPolicy ??= new BreakpointDimensionPolicy(fn (float $value): string => $this->number($value));
     }
 
     private function layoutIntentClassifier(): LayoutIntentClassifier
@@ -5679,20 +5689,18 @@ final class StaticHtmlEmitter
                 }
                 continue;
             }
-            if ( 'width' === $dimension && $canvasShell->fullBleedCanvasChild ) {
-                $styles[] = 'width:100vw';
-            } elseif ( 'width' === $dimension && $this->isFluidPageWidth($box, $layout, $parentNode) ) {
-                // Full-page roots and matching first-level bands should occupy the
-                // available width. Root frames keep explicit source max-width
-                // constraints, but their intrinsic canvas width is not a viewport
-                // cap; capping it clips full-bleed breakout children on wide screens.
-                $styles[] = 'width:100%';
-            } elseif ( 'width' === $dimension && $canvasShell->fluidStretchCanvasChild ) {
-                $styles[] = 'width:auto';
-            } elseif ( 'width' === $dimension && $canvasShell->responsiveCenteredFlowShell && $canvasShell->responsiveCenteredFlowWidth && isset($box['width']) && is_numeric($box['width']) ) {
-                $styles[] = 'width:100%';
-                $styles[] = 'max-width:' . $this->number((float) $box['width']) . 'px';
-            } elseif ( 'HUG' === $sizing ) {
+            if ( 'width' === $dimension ) {
+                $canvasWidthDecision = $this->breakpointDimensionPolicy()->canvasWidthDecision(
+                    $canvasShell,
+                    $this->isFluidPageWidth($box, $layout, $parentNode),
+                    isset($box['width']) && is_numeric($box['width']) ? (float) $box['width'] : null,
+                );
+                if ( ! empty($canvasWidthDecision['declarations']) ) {
+                    array_push($styles, ...$canvasWidthDecision['declarations']);
+                    continue;
+                }
+            }
+            if ( 'HUG' === $sizing ) {
                 $derivedTextSize = 'TEXT' === $type ? $this->derivedTextLayoutSize($node, $dimension) : null;
                 if ( null !== $derivedTextSize ) {
                     if ( 'height' === $dimension && $this->textShouldAvoidTinyFixedHeight($node, $derivedTextSize) && ! $this->textShouldUseMeasuredFlexHeight($node, $parentNode) ) {

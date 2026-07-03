@@ -68,7 +68,7 @@ final class PositioningStyleResolver
             foreach ( $this->cssPositioningResolver->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
                 $styles[] = $style;
             }
-            foreach ( $this->canvasShellResolver->fullBleedViewportBreakoutStyles($canvasShell) as $style ) {
+            foreach ( $this->canvasShellResolver->fullBleedViewportBreakoutDecision($canvasShell)['declarations'] as $style ) {
                 $styles[] = $style;
             }
         } elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
@@ -76,7 +76,7 @@ final class PositioningStyleResolver
             foreach ( $this->cssPositioningResolver->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
                 $styles[] = $style;
             }
-            foreach ( $this->canvasShellResolver->fullBleedViewportBreakoutStyles($canvasShell) as $style ) {
+            foreach ( $this->canvasShellResolver->fullBleedViewportBreakoutDecision($canvasShell)['declarations'] as $style ) {
                 $styles[] = $style;
             }
         }

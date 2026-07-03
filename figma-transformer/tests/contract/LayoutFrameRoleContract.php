@@ -82,6 +82,7 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
     $backgroundDecision = $resolver->resolve($backgroundNode, $freeformBand, $root);
     $assert($backgroundDecision->parentUsesFluidCanvasCoordinates, 'canvas-shell-decision-parent-uses-fluid-coordinates');
     $assert($backgroundDecision->fullBleedCanvasChild, 'canvas-shell-decision-full-bleed-child');
+    $assert('full_bleed_canvas_child_viewport_breakout' === $resolver->fullBleedViewportBreakoutDecision($backgroundDecision)['reason_code'], 'canvas-shell-decision-breakout-reason-code');
     $assert(array('left:50%', 'margin-left:-50vw') === $resolver->fullBleedViewportBreakoutStyles($backgroundDecision), 'canvas-shell-decision-breakout-styles');
 
     $flowBand = $band;

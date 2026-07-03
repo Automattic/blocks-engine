@@ -10,11 +10,19 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
 final class BreakpointDimensionPolicy
 {
     /**
-     * @param callable(float): string $number
+     * @param callable(float): string|null $number
      */
     public function __construct(
-        private readonly mixed $number,
+        private readonly mixed $number = null,
     ) {
+    }
+
+    /**
+     * @return array{reason_code: string, declarations: array<int, string>}
+     */
+    public function rootFillDecision(): array
+    {
+        return array('reason_code' => 'root_fluid_canvas_width', 'declarations' => array('width:100%'));
     }
 
     /**
@@ -24,7 +32,15 @@ final class BreakpointDimensionPolicy
      */
     public function rootFillDeclarations(): array
     {
-        return array('width:100%');
+        return $this->rootFillDecision()['declarations'];
+    }
+
+    /**
+     * @return array{reason_code: string, declarations: array<int, string>}
+     */
+    public function fluidFillDecision(): array
+    {
+        return array('reason_code' => 'fluid_fill_width', 'declarations' => array('width:100%', 'max-width:100%'));
     }
 
     /**
@@ -34,7 +50,32 @@ final class BreakpointDimensionPolicy
      */
     public function fluidFillDeclarations(): array
     {
-        return array('width:100%', 'max-width:100%');
+        return $this->fluidFillDecision()['declarations'];
+    }
+
+    /**
+     * @return array{reason_code: string, declarations: array<int, string>}
+     */
+    public function sourceMaxWidthDecision(float $sourceMaxWidth, float $gutter, string $placement): array
+    {
+        $declarations = array(
+            'width:calc(100% - ' . $this->formatNumber($gutter * 2.0) . 'px)',
+            'max-width:' . $this->formatNumber($sourceMaxWidth) . 'px',
+        );
+
+        if ( 'absolute' === $placement ) {
+            $declarations[] = 'left:' . $this->formatNumber($gutter) . 'px';
+            $declarations[] = 'right:auto';
+            return array('reason_code' => 'source_max_width_absolute_gutter', 'declarations' => $declarations);
+        }
+
+        if ( 'centered' === $placement ) {
+            $declarations[] = 'margin-left:auto';
+            $declarations[] = 'margin-right:auto';
+            return array('reason_code' => 'source_max_width_centered_gutter', 'declarations' => $declarations);
+        }
+
+        return array('reason_code' => 'source_max_width_fixed_gutter', 'declarations' => $declarations);
     }
 
     /**
@@ -44,23 +85,51 @@ final class BreakpointDimensionPolicy
      */
     public function sourceMaxWidthDeclarations(float $sourceMaxWidth, float $gutter, string $placement): array
     {
-        $declarations = array(
-            'width:calc(100% - ' . ($this->number)($gutter * 2.0) . 'px)',
-            'max-width:' . ($this->number)($sourceMaxWidth) . 'px',
+        return $this->sourceMaxWidthDecision($sourceMaxWidth, $gutter, $placement)['declarations'];
+    }
+
+    /**
+     * Resolve base canvas width declarations for root, full-bleed children, and centered shells.
+     *
+     * @return array{reason_code: string, declarations: array<int, string>}
+     */
+    public function canvasWidthDecision(CanvasShellDecision $canvasShell, bool $isFluidPageWidth, ?float $sourceWidth): array
+    {
+        if ( $canvasShell->fullBleedCanvasChild ) {
+            return array('reason_code' => 'full_bleed_canvas_child_viewport_width', 'declarations' => array('width:100vw'));
+        }
+
+        if ( $isFluidPageWidth ) {
+            return array('reason_code' => 'fluid_page_canvas_width', 'declarations' => $this->rootFillDeclarations());
+        }
+
+        if ( $canvasShell->fluidStretchCanvasChild ) {
+            return array('reason_code' => 'fluid_stretch_canvas_child_auto_width', 'declarations' => array('width:auto'));
+        }
+
+        if ( $canvasShell->responsiveCenteredFlowShell && $canvasShell->responsiveCenteredFlowWidth && null !== $sourceWidth ) {
+            return array(
+                'reason_code'  => 'responsive_centered_flow_source_max_width',
+                'declarations' => array('width:100%', 'max-width:' . $this->formatNumber($sourceWidth) . 'px'),
+            );
+        }
+
+        return array('reason_code' => '', 'declarations' => array());
+    }
+
+    /**
+     * @return array{reason_code: string, declarations: array<int, string>}
+     */
+    public function fullBleedViewportBreakoutDecision(CanvasShellDecision $canvasShell): array
+    {
+        if ( ! $canvasShell->fullBleedCanvasChild ) {
+            return array('reason_code' => '', 'declarations' => array());
+        }
+
+        return array(
+            'reason_code'  => 'full_bleed_canvas_child_viewport_breakout',
+            'declarations' => array('left:50%', 'margin-left:-50vw'),
         );
-
-        if ( 'absolute' === $placement ) {
-            $declarations[] = 'left:' . ($this->number)($gutter) . 'px';
-            $declarations[] = 'right:auto';
-            return $declarations;
-        }
-
-        if ( 'centered' === $placement ) {
-            $declarations[] = 'margin-left:auto';
-            $declarations[] = 'margin-right:auto';
-        }
-
-        return $declarations;
     }
 
     /**
@@ -155,5 +224,14 @@ final class BreakpointDimensionPolicy
         }
 
         return (float) $box['width'];
+    }
+
+    private function formatNumber(float $value): string
+    {
+        if ( is_callable($this->number) ) {
+            return ($this->number)($value);
+        }
+
+        return rtrim(rtrim(sprintf('%.4F', $value), '0'), '.');
     }
 }

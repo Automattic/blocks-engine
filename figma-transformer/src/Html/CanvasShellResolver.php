@@ -21,6 +21,7 @@ final class CanvasShellResolver
         private readonly mixed $freeformContainerShouldUseFlow,
         private readonly mixed $hasAbsoluteChild,
         private readonly mixed $hasDecorativeFlexUnderlayChild,
+        private readonly ?BreakpointDimensionPolicy $breakpointDimensionPolicy = null,
     ) {
     }
 
@@ -86,14 +87,20 @@ final class CanvasShellResolver
      */
     public function fullBleedViewportBreakoutStyles(CanvasShellDecision $decision): array
     {
-        if ( ! $decision->fullBleedCanvasChild ) {
-            return array();
-        }
+        return $this->fullBleedViewportBreakoutDecision($decision)['declarations'];
+    }
 
-        return array(
-            'left:50%',
-            'margin-left:-50vw',
-        );
+    /**
+     * @return array{reason_code: string, declarations: array<int, string>}
+     */
+    public function fullBleedViewportBreakoutDecision(CanvasShellDecision $decision): array
+    {
+        return $this->dimensionPolicy()->fullBleedViewportBreakoutDecision($decision);
+    }
+
+    private function dimensionPolicy(): BreakpointDimensionPolicy
+    {
+        return $this->breakpointDimensionPolicy ?? new BreakpointDimensionPolicy();
     }
 
     /**
