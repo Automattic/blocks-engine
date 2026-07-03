@@ -113,6 +113,45 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-content-centered-content-shell{width:1216px;height:240px;position:absolute;left:calc(50% - 608px);top:80px'), 'quality-diagnostics-fluid-band-absolute-child-centers-in-intrinsic-canvas');
     $assert(str_contains($fullWidthBandCss, '.figma-node-fluid-band-card-narrow-card{width:420px;height:240px;'), 'quality-diagnostics-narrow-band-keeps-intrinsic-width');
 
+    $responsiveShellResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Responsive Centered Shell Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'responsive-shell:root',
+                'type'     => 'FRAME',
+                'name'     => 'Desktop page',
+                'width'    => 1440,
+                'height'   => 900,
+                'layoutMode' => 'VERTICAL',
+                'layoutSizingHorizontal' => 'FILL',
+                'children' => array(
+                    array(
+                        'id'       => 'responsive-shell:band',
+                        'type'     => 'FRAME',
+                        'name'     => 'Full bleed band',
+                        'width'    => 1440,
+                        'height'   => 520,
+                        'layoutSizingHorizontal' => 'FILL',
+                        'layoutMode' => 'VERTICAL',
+                        'paddingLeft' => 135,
+                        'paddingRight' => 135,
+                        'children' => array(
+                            array('id' => 'responsive-shell:centered', 'type' => 'FRAME', 'name' => 'Centered content shell', 'x' => 135, 'y' => 16, 'width' => 1170, 'height' => 48),
+                            array('id' => 'responsive-shell:padded', 'type' => 'FRAME', 'name' => 'Padded content shell', 'x' => 0, 'y' => 88, 'width' => 1170, 'height' => 48),
+                            array('id' => 'responsive-shell:off-center', 'type' => 'FRAME', 'name' => 'Off center card', 'x' => 64, 'y' => 88, 'width' => 420, 'height' => 48),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $responsiveShellCss = $fileContent($responsiveShellResult, 'style.css');
+    $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-root-desktop-page{width:100%;height:900px;'), 'quality-diagnostics-responsive-shell-root-stays-full-bleed');
+    $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-band-full-bleed-band{width:100%;height:520px;'), 'quality-diagnostics-responsive-shell-band-stays-full-bleed');
+    $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-centered-centered-content-shell{width:100%;max-width:1170px;height:48px;'), 'quality-diagnostics-centered-flow-shell-renders-responsive-width');
+    $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-padded-padded-content-shell{width:100%;max-width:1170px;height:48px;'), 'quality-diagnostics-padded-centered-flow-shell-renders-responsive-width');
+    $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-off-center-off-center-card{width:420px;height:48px;'), 'quality-diagnostics-off-center-flow-child-keeps-intrinsic-width');
+
     $fluidManagedStackResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Fluid Managed Stack Fixture',
         'nodes' => array(

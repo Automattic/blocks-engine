@@ -4775,12 +4775,19 @@ final class StaticHtmlEmitter
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        $parentRendersFluidCanvas = null !== $parentNode && $this->nodeRendersFluidCanvas($parentNode, $grandParentNode);
         $parentUsesFluidCanvasCoordinates = null !== $parentNode && $this->nodeUsesFluidCanvasCoordinates($parentNode, $grandParentNode);
         $canvasChildRole = null !== $parentNode
             ? $this->layoutFrameRoleClassifier()->canvasChildRole($box, $layout, $parentNode, $parentUsesFluidCanvasCoordinates, $this->isFreeformContainer($parentNode))
             : LayoutFrameRoleClassifier::ROLE_INTRINSIC;
         $isAbsoluteFullWidthCanvasChild = LayoutFrameRoleClassifier::ROLE_FULL_BLEED_CANVAS_CHILD === $canvasChildRole;
         $centerWithinParentFluidCanvas = LayoutFrameRoleClassifier::ROLE_CENTERED_SHELL === $canvasChildRole;
+        $responsiveCenteredFlowShell = $centerWithinParentFluidCanvas || (
+            $parentRendersFluidCanvas
+            && null !== $parentNode
+            && $this->centeredShellShouldUseResponsiveFlowWidth($layout, $parentNode)
+            && $this->layoutFrameRoleClassifier()->isCenteredCanvasShell($box, $parentNode)
+        );
         $zeroHeightVectorFallbackHeight = $this->zeroHeightVectorFallbackHeight($node, $type);
         foreach ( array('width', 'height') as $dimension ) {
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
@@ -4807,6 +4814,9 @@ final class StaticHtmlEmitter
                 $styles[] = 'width:100%';
             } elseif ( 'width' === $dimension && $isAbsoluteFullWidthCanvasChild ) {
                 $styles[] = 'width:100%';
+            } elseif ( 'width' === $dimension && $responsiveCenteredFlowShell && $this->centeredShellShouldUseResponsiveFlowWidth($layout, $parentNode) && isset($box['width']) && is_numeric($box['width']) ) {
+                $styles[] = 'width:100%';
+                $styles[] = 'max-width:' . $this->number((float) $box['width']) . 'px';
             } elseif ( 'HUG' === $sizing ) {
                 $derivedTextSize = 'TEXT' === $type ? $this->derivedTextLayoutSize($node, $dimension) : null;
                 if ( null !== $derivedTextSize ) {
@@ -5024,6 +5034,19 @@ final class StaticHtmlEmitter
         }
 
         return $this->mergeBoxShadowDeclarations(array_values(array_unique($styles)));
+    }
+
+    /**
+     * @param array<string, mixed> $layout
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function centeredShellShouldUseResponsiveFlowWidth(array $layout, ?array $parentNode): bool
+    {
+        if ( null === $parentNode || 'absolute' === ($layout['positioning'] ?? null) ) {
+            return false;
+        }
+
+        return ! $this->isFreeformContainer($parentNode) || $this->freeformContainerShouldUseFlow($parentNode);
     }
 
     /**

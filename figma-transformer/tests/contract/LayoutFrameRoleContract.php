@@ -40,6 +40,14 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
     $contentShellLayout = array('positioning' => 'absolute');
     $assert(LayoutFrameRoleClassifier::ROLE_CENTERED_SHELL === $classifier->canvasChildRole($contentShellBox, $contentShellLayout, $band, true, true), 'layout-frame-role-centered-shell');
 
+    $paddedBand = $band;
+    $paddedBand['layout'] = array('sizing_horizontal' => 'FILL', 'padding' => array('left' => 135, 'right' => 135));
+    $paddedContentShellBox = array('x' => 0, 'y' => 16, 'width' => 1170, 'height' => 48);
+    $assert(LayoutFrameRoleClassifier::ROLE_CENTERED_SHELL === $classifier->canvasChildRole($paddedContentShellBox, array(), $paddedBand, true, false), 'layout-frame-role-centered-shell-from-symmetric-parent-padding');
+
+    $offCenterShellBox = array('x' => 64, 'y' => 80, 'width' => 1216, 'height' => 240);
+    $assert(LayoutFrameRoleClassifier::ROLE_INTRINSIC === $classifier->canvasChildRole($offCenterShellBox, $contentShellLayout, $band, true, true), 'layout-frame-role-off-center-shell-stays-intrinsic');
+
     $nonFluidParentShell = $classifier->canvasChildRole($contentShellBox, $contentShellLayout, $band, false, true);
     $assert(LayoutFrameRoleClassifier::ROLE_INTRINSIC === $nonFluidParentShell, 'layout-frame-role-centered-shell-requires-fluid-parent');
 }

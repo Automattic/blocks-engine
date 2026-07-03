@@ -50,7 +50,15 @@ final class LayoutFrameRoleClassifier
             return self::ROLE_FULL_BLEED_CANVAS_CHILD;
         }
 
-        return self::ROLE_CENTERED_SHELL;
+        if ( $this->isFluidStretchAbsoluteChild($box, $layout, $parentNode, $parentIsFreeform) ) {
+            return self::ROLE_CENTERED_SHELL;
+        }
+
+        if ( $this->isCenteredCanvasShell($box, $parentNode) ) {
+            return self::ROLE_CENTERED_SHELL;
+        }
+
+        return self::ROLE_INTRINSIC;
     }
 
     /**
@@ -131,5 +139,63 @@ final class LayoutFrameRoleClassifier
 
         $trailing = (float) $parentBox['width'] - (float) $box['x'] - (float) $box['width'];
         return $trailing >= -0.5;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $parentNode
+     */
+    public function isCenteredCanvasShell(array $box, array $parentNode): bool
+    {
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        foreach ( array('x', 'width') as $dimension ) {
+            if ( ! isset($box[$dimension]) || ! is_numeric($box[$dimension]) ) {
+                return false;
+            }
+        }
+        if ( ! isset($parentBox['width']) || ! is_numeric($parentBox['width']) ) {
+            return false;
+        }
+
+        $parentWidth = (float) $parentBox['width'];
+        $width = (float) $box['width'];
+        if ( $parentWidth < self::FLUID_CANVAS_MIN_WIDTH || $width <= 0.0 || $width >= $parentWidth - 1.0 ) {
+            return false;
+        }
+
+        if ( $this->isSymmetricPaddedContentShell($box, $parentNode, $parentWidth, $width) ) {
+            return true;
+        }
+
+        $offset = (float) $box['x'];
+        if ( $offset < -0.5 || $offset + $width > $parentWidth + 0.5 ) {
+            return false;
+        }
+
+        $trailing = $parentWidth - $offset - $width;
+        return abs($offset - $trailing) <= 1.0;
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $parentNode
+     */
+    private function isSymmetricPaddedContentShell(array $box, array $parentNode, float $parentWidth, float $width): bool
+    {
+        $layout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
+        $padding = is_array($layout['padding'] ?? null) ? $layout['padding'] : array();
+        if ( ! isset($padding['left'], $padding['right']) || ! is_numeric($padding['left']) || ! is_numeric($padding['right']) ) {
+            return false;
+        }
+
+        $left = (float) $padding['left'];
+        $right = (float) $padding['right'];
+        if ( $left < 0.0 || $right < 0.0 || abs($left - $right) > 1.0 ) {
+            return false;
+        }
+
+        $offset = (float) $box['x'];
+        $contentWidth = $parentWidth - $left - $right;
+        return abs($offset) <= 1.0 && $contentWidth > 0.0 && abs($width - $contentWidth) <= 1.0;
     }
 }
