@@ -18,6 +18,7 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
 
     $root = array(
         'id'     => 'roles:root',
+        'type'   => 'FRAME',
         'box'    => array('x' => 0, 'y' => 0, 'width' => 1440, 'height' => 1200),
         'layout' => array('display' => 'flex', 'flex_direction' => 'column'),
     );
@@ -49,13 +50,22 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
     $backgroundLayout = array('positioning' => 'absolute');
     $assert(LayoutFrameRoleClassifier::ROLE_FULL_BLEED_CANVAS_CHILD === $classifier->canvasChildRole($backgroundBox, $backgroundLayout, $band, true, true), 'layout-frame-role-full-bleed-canvas-child');
 
+    $overscanBackgroundBox = array('x' => -3, 'y' => 0, 'width' => 1443, 'height' => 520);
+    $assert(LayoutFrameRoleClassifier::ROLE_FULL_BLEED_CANVAS_CHILD === $classifier->canvasChildRole($overscanBackgroundBox, $backgroundLayout, $band, true, true), 'layout-frame-role-full-bleed-canvas-child-with-edge-overscan');
+
     $visualGeometry = new VisualGeometryResolver(new LayoutIntentClassifier());
     $reflectedFullBleedChild = array(
         'id'        => 'roles:reflected-bg',
         'box'       => array('x' => 1440, 'y' => 0, 'width' => 1440, 'height' => 520),
         'figma_box' => array('transform' => array('m00' => -1, 'm01' => 0, 'm02' => 0, 'm10' => 0, 'm11' => 1, 'm12' => 0)),
     );
+    $overscanReflectedFullBleedChild = array(
+        'id'        => 'roles:overscan-reflected-bg',
+        'box'       => array('x' => 1443, 'y' => 0, 'width' => 1443, 'height' => 520),
+        'figma_box' => array('transform' => array('m00' => -1, 'm01' => 0, 'm02' => 0, 'm10' => 0, 'm11' => 1, 'm12' => 0)),
+    );
     $assert($visualGeometry->isVisualFullWidthCanvasChild($reflectedFullBleedChild, $band, true), 'layout-frame-role-reflected-visual-full-bleed-canvas-child');
+    $assert($visualGeometry->isVisualFullWidthCanvasChild($overscanReflectedFullBleedChild, $band, true), 'layout-frame-role-reflected-visual-full-bleed-canvas-child-with-edge-overscan');
     $assert($visualGeometry->isHorizontallyReflected($reflectedFullBleedChild), 'layout-frame-role-reflected-visual-full-bleed-detects-horizontal-reflection');
     $reflectedBreakoutDecision = (new BreakpointDimensionPolicy())->fullBleedViewportBreakoutDecision(new CanvasShellDecision(
         LayoutFrameRoleClassifier::ROLE_INTRINSIC,
@@ -122,6 +132,15 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
     $absoluteChromeDecision = $resolver->resolve($backgroundNode, $absoluteChromeRoot, null);
     $assert($absoluteChromeDecision->parentUsesFluidCanvasCoordinates, 'canvas-shell-decision-root-uses-fluid-coordinates-for-absolute-children');
     $assert($absoluteChromeDecision->fullBleedCanvasChild, 'canvas-shell-decision-root-absolute-child-is-full-bleed');
+
+    $overscanRootBackgroundNode = array('id' => 'roles:root-overscan-bg', 'type' => 'RECTANGLE', 'box' => $overscanBackgroundBox, 'layout' => array('positioning' => 'absolute'));
+    $freeformRoot = $root;
+    $freeformRoot['layout'] = array();
+    $freeformRoot['children'] = array($overscanRootBackgroundNode);
+    $freeformRootDecision = $resolver->resolve($overscanRootBackgroundNode, $freeformRoot, null);
+    $assert(! $freeformRootDecision->parentUsesFluidCanvasCoordinates, 'canvas-shell-decision-freeform-root-keeps-source-coordinates');
+    $assert($freeformRootDecision->fullBleedCanvasChild, 'canvas-shell-decision-freeform-root-overscan-child-is-full-bleed');
+    $assert(array('left:50%', 'margin-left:-50vw') === $resolver->fullBleedViewportBreakoutStyles($freeformRootDecision), 'canvas-shell-decision-freeform-root-overscan-child-breakout-styles');
 
     $standaloneRowRoot = $absoluteChromeRoot;
     $standaloneRowRoot['layout'] = array('display' => 'flex', 'flex_direction' => 'row');

@@ -22,6 +22,12 @@ final class LayoutFrameRoleClassifier
     private const FLUID_CANVAS_MIN_WIDTH = 1024.0;
 
     /**
+     * Figma exports frequently include a few pixels of artboard overscan on
+     * root-width decorative bands so anti-aliased diagonals cover the edge.
+     */
+    private const FULL_BLEED_EDGE_TOLERANCE = 4.0;
+
+    /**
      * @param array<string, mixed> $box
      * @param array<string, mixed> $layout
      * @param array<string, mixed>|null $parentNode
@@ -108,7 +114,7 @@ final class LayoutFrameRoleClassifier
 
         $offset = isset($box['x']) && is_numeric($box['x']) ? abs((float) $box['x']) : 0.0;
         $parentWidth = (float) $parentBox['width'];
-        return $offset <= 1.0 && abs($width - $parentWidth) <= 1.0;
+        return $offset <= self::FULL_BLEED_EDGE_TOLERANCE && abs($width - $parentWidth) <= self::FULL_BLEED_EDGE_TOLERANCE;
     }
 
     /**
@@ -130,7 +136,7 @@ final class LayoutFrameRoleClassifier
         }
 
         $offset = isset($box['x']) && is_numeric($box['x']) ? abs((float) $box['x']) : 0.0;
-        return $offset <= 1.0 && abs((float) $box['width'] - (float) $parentBox['width']) <= 1.0;
+        return $offset <= self::FULL_BLEED_EDGE_TOLERANCE && abs((float) $box['width'] - (float) $parentBox['width']) <= self::FULL_BLEED_EDGE_TOLERANCE;
     }
 
     /**

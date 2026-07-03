@@ -49,6 +49,15 @@ final class CanvasShellResolver
         ) {
             $canvasChildRole = LayoutFrameRoleClassifier::ROLE_FULL_BLEED_CANVAS_CHILD;
         }
+        if (
+            null !== $parentNode
+            && ! $parentUsesFluidCanvasCoordinates
+            && $parentRendersFluidCanvas
+            && LayoutFrameRoleClassifier::ROLE_INTRINSIC === $canvasChildRole
+            && $this->isRootEdgeOverscanCanvasChild($box, $layout, $parentNode)
+        ) {
+            $canvasChildRole = LayoutFrameRoleClassifier::ROLE_FULL_BLEED_CANVAS_CHILD;
+        }
         $fullBleedCanvasChild = LayoutFrameRoleClassifier::ROLE_FULL_BLEED_CANVAS_CHILD === $canvasChildRole;
         $centeredWithinParentFluidCanvas = LayoutFrameRoleClassifier::ROLE_CENTERED_SHELL === $canvasChildRole;
         $responsiveCenteredFlowWidth = $this->centeredShellShouldUseResponsiveFlowWidth($layout, $parentNode);
@@ -111,6 +120,25 @@ final class CanvasShellResolver
     private function dimensionPolicy(): BreakpointDimensionPolicy
     {
         return $this->breakpointDimensionPolicy ?? new BreakpointDimensionPolicy();
+    }
+
+    /**
+     * @param array<string, mixed> $box
+     * @param array<string, mixed> $layout
+     * @param array<string, mixed> $parentNode
+     */
+    private function isRootEdgeOverscanCanvasChild(array $box, array $layout, array $parentNode): bool
+    {
+        if ( ! $this->layoutFrameRoleClassifier->isAbsoluteFullWidthCanvasChild($box, $layout, $parentNode, $this->isFreeformContainer($parentNode)) ) {
+            return false;
+        }
+
+        $parentBox = is_array($parentNode['box'] ?? null) ? $parentNode['box'] : array();
+        if ( ! isset($box['x'], $box['width'], $parentBox['width']) || ! is_numeric($box['x']) || ! is_numeric($box['width']) || ! is_numeric($parentBox['width']) ) {
+            return false;
+        }
+
+        return (float) $box['x'] < -1.0 || (float) $box['width'] > (float) $parentBox['width'] + 1.0;
     }
 
     /**

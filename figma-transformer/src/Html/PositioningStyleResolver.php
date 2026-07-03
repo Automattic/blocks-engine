@@ -58,6 +58,9 @@ final class PositioningStyleResolver
         if ( $isDecorativeFlexUnderlay ) {
             $styles[] = 'position:absolute';
             foreach ( $this->cssPositioningResolver->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
+                if ( $canvasShell->fullBleedCanvasChild && $this->isHorizontalOffsetStyle($style) ) {
+                    continue;
+                }
                 $styles[] = $style;
             }
             foreach ( $this->canvasShellResolver->fullBleedViewportBreakoutDecision($canvasShell)['declarations'] as $style ) {

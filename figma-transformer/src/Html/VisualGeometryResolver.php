@@ -9,6 +9,8 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class VisualGeometryResolver
 {
+    private const FULL_BLEED_EDGE_TOLERANCE = 4.0;
+
     public function __construct(
         private readonly LayoutIntentClassifier $layoutIntentClassifier,
     ) {
@@ -83,7 +85,7 @@ final class VisualGeometryResolver
         }
 
         $parentWidth = (float) $parentBox['width'];
-        return abs((float) $rect['x']) <= 1.0 && abs((float) $rect['width'] - $parentWidth) <= 1.0;
+        return abs((float) $rect['x']) <= self::FULL_BLEED_EDGE_TOLERANCE && abs((float) $rect['width'] - $parentWidth) <= self::FULL_BLEED_EDGE_TOLERANCE;
     }
 
     /**
