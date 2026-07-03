@@ -29,6 +29,14 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
     $bandLayout = is_array($band['layout'] ?? null) ? $band['layout'] : array();
     $assert(LayoutFrameRoleClassifier::ROLE_FULL_BLEED_BAND === $classifier->frameWidthRole($bandBox, $bandLayout, $root), 'layout-frame-role-full-bleed-band');
 
+    $flowBandLayout = array('display' => 'flex', 'flex_direction' => 'column');
+    $assert($classifier->roleUsesFlowHeight(LayoutFrameRoleClassifier::ROLE_FULL_BLEED_ROOT, $flowBandLayout), 'layout-frame-role-full-bleed-root-uses-flow-height');
+    $assert($classifier->roleUsesFlowHeight(LayoutFrameRoleClassifier::ROLE_FULL_BLEED_BAND, $flowBandLayout), 'layout-frame-role-full-bleed-band-uses-flow-height');
+    $assert($classifier->roleUsesFlowHeight(LayoutFrameRoleClassifier::ROLE_CENTERED_SHELL, $flowBandLayout), 'layout-frame-role-centered-shell-uses-flow-height');
+    $assert(! $classifier->roleUsesFlowHeight(LayoutFrameRoleClassifier::ROLE_FULL_BLEED_BAND, array('display' => 'flex', 'flex_direction' => 'row')), 'layout-frame-role-row-band-keeps-fixed-height');
+    $assert(! $classifier->roleUsesFlowHeight(LayoutFrameRoleClassifier::ROLE_FULL_BLEED_BAND, array('display' => 'flex', 'flex_direction' => 'column', 'sizing_vertical' => 'FIXED')), 'layout-frame-role-explicit-fixed-height-preserved');
+    $assert(! $classifier->roleUsesFlowHeight(LayoutFrameRoleClassifier::ROLE_FULL_BLEED_BAND, array('display' => 'flex', 'flex_direction' => 'column', 'clips_content' => true)), 'layout-frame-role-clipped-height-preserved');
+
     $narrowCard = array('x' => 0, 'y' => 0, 'width' => 420, 'height' => 240);
     $assert(LayoutFrameRoleClassifier::ROLE_INTRINSIC === $classifier->frameWidthRole($narrowCard, array(), $root), 'layout-frame-role-narrow-card-intrinsic');
 

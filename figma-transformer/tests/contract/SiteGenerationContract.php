@@ -52,7 +52,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     $qualitySignalCodes = $artifactQualitySignalCodes($qualityDiagnosticsResult);
     $assert(! in_array('fixed_root_width', $qualitySignalCodes, true), 'quality-diagnostics-fixed-root-width-retired');
     $qualityCss = $fileContent($qualityDiagnosticsResult, 'style.css');
-    $assert(str_contains($qualityCss, '.figma-node-quality-root-desktop-fixed-root{width:100%;height:1200px;'), 'quality-diagnostics-root-renders-fluid-full-bleed');
+    $assert(str_contains($qualityCss, '.figma-node-quality-root-desktop-fixed-root{width:100%;min-height:1200px;'), 'quality-diagnostics-root-renders-fluid-full-bleed');
     $assert(! str_contains($qualityCss, '.figma-node-quality-root-desktop-fixed-root{width:100%;max-width:1440px;margin-left:auto;margin-right:auto;'), 'quality-diagnostics-root-avoids-letterbox-max-width');
 
     $explicitMaxWidthResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -146,8 +146,8 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
         ),
     ));
     $responsiveShellCss = $fileContent($responsiveShellResult, 'style.css');
-    $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-root-desktop-page{width:100%;height:900px;'), 'quality-diagnostics-responsive-shell-root-stays-full-bleed');
-    $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-band-full-bleed-band{width:100%;height:520px;'), 'quality-diagnostics-responsive-shell-band-stays-full-bleed');
+    $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-root-desktop-page{width:100%;min-height:900px;'), 'quality-diagnostics-responsive-shell-root-stays-full-bleed');
+    $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-band-full-bleed-band{width:100%;min-height:520px;'), 'quality-diagnostics-responsive-shell-band-stays-full-bleed');
     $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-centered-centered-content-shell{width:100%;max-width:1170px;height:48px;'), 'quality-diagnostics-centered-flow-shell-renders-responsive-width');
     $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-padded-padded-content-shell{width:100%;max-width:1170px;height:48px;'), 'quality-diagnostics-padded-centered-flow-shell-renders-responsive-width');
     $assert(str_contains($responsiveShellCss, '.figma-node-responsive-shell-off-center-off-center-card{width:420px;height:48px;'), 'quality-diagnostics-off-center-flow-child-keeps-intrinsic-width');
@@ -211,7 +211,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     ));
     $fluidInstanceStackCss = $fileContent($fluidInstanceStackResult, 'style.css');
     $assert(str_contains($fluidInstanceStackCss, '.figma-node-fluid-instance-footer-footer-shell{width:100%;height:483px;'), 'quality-diagnostics-fluid-instance-stack-renders-full-width');
-    $assert(str_contains($fluidInstanceStackCss, '.figma-node-fluid-instance-card-newsletter-signup{width:1216px;height:352px;position:absolute;left:calc(50% - 608px);top:0px'), 'quality-diagnostics-fluid-instance-centered-child-uses-canvas-center');
+    $assert(str_contains($fluidInstanceStackCss, '.figma-node-fluid-instance-card-newsletter-signup{width:1216px;min-height:352px;position:absolute;left:calc(50% - 608px);top:0px'), 'quality-diagnostics-fluid-instance-centered-child-uses-canvas-center');
 
     $sharedFooterComponent = array(
         'id'       => 'shared-footer:component',

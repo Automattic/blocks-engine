@@ -5036,6 +5036,7 @@ final class StaticHtmlEmitter
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
         $parentRendersFluidCanvas = null !== $parentNode && $this->nodeRendersFluidCanvas($parentNode, $grandParentNode);
         $parentUsesFluidCanvasCoordinates = null !== $parentNode && $this->nodeUsesFluidCanvasCoordinates($parentNode, $grandParentNode);
+        $frameWidthRole = $this->layoutFrameRoleClassifier()->frameWidthRole($box, $layout, $parentNode);
         $canvasChildRole = null !== $parentNode
             ? $this->layoutFrameRoleClassifier()->canvasChildRole($box, $layout, $parentNode, $parentUsesFluidCanvasCoordinates, $this->isFreeformContainer($parentNode))
             : LayoutFrameRoleClassifier::ROLE_INTRINSIC;
@@ -5051,6 +5052,10 @@ final class StaticHtmlEmitter
         foreach ( array('width', 'height') as $dimension ) {
             $sizingKey = 'width' === $dimension ? 'sizing_horizontal' : 'sizing_vertical';
             $sizing = strtoupper((string) ($layout[$sizingKey] ?? ''));
+            if ( 'height' === $dimension && isset($box['height']) && is_numeric($box['height']) && $this->nodeShouldUseFlowHeight($type, $layout, $frameWidthRole, $canvasChildRole) ) {
+                $styles[] = 'min-height:' . $this->number((float) $box['height']) . 'px';
+                continue;
+            }
             if ( 'width' === $dimension && null !== $parentNode && $this->isFlexiblePaginationControl($node, $parentNode) ) {
                 $styles[] = 'width:auto';
                 continue;
@@ -5451,6 +5456,22 @@ final class StaticHtmlEmitter
     private function isFluidPageWidth(array $box, array $layout, ?array $parentNode): bool
     {
         return $this->layoutFrameRoleClassifier()->isFluidPageWidth($box, $layout, $parentNode);
+    }
+
+    /**
+     * @param array<string, mixed> $layout
+     */
+    private function nodeShouldUseFlowHeight(string $type, array $layout, string $frameWidthRole, string $canvasChildRole): bool
+    {
+        if ( ! in_array($type, array('FRAME', 'COMPONENT', 'INSTANCE', 'SECTION'), true) ) {
+            return false;
+        }
+
+        if ( $this->layoutFrameRoleClassifier()->roleUsesFlowHeight($frameWidthRole, $layout) ) {
+            return true;
+        }
+
+        return $this->layoutFrameRoleClassifier()->roleUsesFlowHeight($canvasChildRole, $layout);
     }
 
     /**

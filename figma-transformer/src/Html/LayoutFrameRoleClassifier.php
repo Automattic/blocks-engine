@@ -62,6 +62,26 @@ final class LayoutFrameRoleClassifier
     }
 
     /**
+     * @param array<string, mixed> $layout
+     */
+    public function roleUsesFlowHeight(string $role, array $layout): bool
+    {
+        if ( ! in_array($role, array(self::ROLE_FULL_BLEED_ROOT, self::ROLE_FULL_BLEED_BAND, self::ROLE_CENTERED_SHELL), true) ) {
+            return false;
+        }
+
+        if ( true === ($layout['clips_content'] ?? false) ) {
+            return false;
+        }
+
+        if ( 'FIXED' === strtoupper((string) ($layout['sizing_vertical'] ?? '')) ) {
+            return false;
+        }
+
+        return 'flex' === ($layout['display'] ?? null) && 'column' === ($layout['flex_direction'] ?? null);
+    }
+
+    /**
      * @param array<string, mixed> $box
      * @param array<string, mixed> $layout
      * @param array<string, mixed>|null $parentNode

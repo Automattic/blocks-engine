@@ -188,7 +188,7 @@ $assert(str_contains($html, '<h2 class="figma-node-1-2-hero-title"'), 'title-emi
 $assert(str_contains($html, '<div class="figma-node-1-3-cards-group"'), 'group-emits-div');
 $assert(! str_contains($html, '<FRAME') && ! str_contains($html, '<GROUP') && ! str_contains($html, '<TEXT') && ! str_contains($html, '<RECTANGLE'), 'html-avoids-custom-tags');
 $assert(! str_contains($html, 'cdn.example.com') && ! str_contains($css, 'cdn.example.com'), 'html-css-avoid-external-cdn');
-$assert(str_contains($css, '.figma-node-1-1-hero-section{width:100%;height:600px;background:#ffffff;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding-top:40px;padding-right:32px;padding-bottom:40px;padding-left:32px;gap:24px}'), 'css-frame-layout-style');
+$assert(str_contains($css, '.figma-node-1-1-hero-section{width:100%;min-height:600px;background:#ffffff;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding-top:40px;padding-right:32px;padding-bottom:40px;padding-left:32px;gap:24px}'), 'css-frame-layout-style');
 $assert(str_contains($css, '.figma-node-1-2-hero-title{font-size:48px;font-weight:700;color:#1a334d;flex-shrink:0}'), 'css-text-style');
 
 blocks_engine_figma_transformer_run_image_paint_contract($assert, $result, $css, $fileContent);
@@ -273,7 +273,7 @@ $assert(str_contains($html, 'd="M0 0L10 0 10 10Z"'), 'html-vector-blob-path');
 $assert(str_contains($css, 'body{margin:0}'), 'css-static-page-body-shell');
 $assert(str_contains($css, '.figma-root{position:relative;width:100%;display:flex;flex-direction:column;align-items:center}'), 'css-static-page-root-shell');
 $assert(! str_contains($css, 'width:max-content'), 'css-static-page-root-shell-not-fixed-canvas');
-$assert(str_contains($css, '.figma-node-1-1-hero-section{width:100%;height:600px;'), 'css-page-root-frame-is-fluid-full-bleed');
+$assert(str_contains($css, '.figma-node-1-1-hero-section{width:100%;min-height:600px;'), 'css-page-root-frame-is-fluid-full-bleed');
 $assert(! str_contains($css, 'overflow-x:hidden'), 'css-preserves-horizontal-scroll');
 $assert(! str_contains($css, 'order:'), 'css-avoids-source-order');
 $assert(! str_contains($css, 'font-family:Inter') && ! str_contains($css, 'body{margin:0;background') && ! str_contains($css, 'body{margin:0;color'), 'css-avoids-hardcoded-theme-style');
