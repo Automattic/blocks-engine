@@ -68,6 +68,8 @@ final class StaticHtmlEmitter
 
     private ?CanvasShellResolver $canvasShellResolver = null;
 
+    private ?PositioningStyleResolver $positioningStyleResolver = null;
+
     private ?StickyLayoutCoordinator $stickyLayoutCoordinator = null;
 
     private ?HtmlArtifactAssembler $htmlArtifactAssembler = null;
@@ -133,6 +135,19 @@ final class StaticHtmlEmitter
             fn (array $node): bool => $this->isFreeformContainer($node),
             fn (array $node): bool => $this->freeformContainerShouldUseFlow($node),
             fn (array $node): bool => $this->hasAbsoluteChild($node),
+            fn (array $node): bool => $this->hasDecorativeFlexUnderlayChild($node),
+        );
+    }
+
+    private function positioningStyleResolver(): PositioningStyleResolver
+    {
+        return $this->positioningStyleResolver ??= new PositioningStyleResolver(
+            $this->layoutIntentClassifier(),
+            $this->cssPositioningResolver(),
+            $this->canvasShellResolver(),
+            fn (array $node): bool => $this->isFreeformContainer($node),
+            fn (array $node): bool => $this->freeformContainerShouldUseFlow($node),
+            fn (array $node, array $parentNode): bool => $this->isDecorativeFlexUnderlay($node, $parentNode),
             fn (array $node): bool => $this->hasDecorativeFlexUnderlayChild($node),
         );
     }
@@ -5415,65 +5430,9 @@ final class StaticHtmlEmitter
             $styles[] = 'clip-path:' . (string) $node['_figma_css_clip_path'];
         }
 
-        $isDecorativeFlexUnderlay = null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode);
-        $parentFreeformUsesFlow = null !== $parentNode && $this->freeformContainerShouldUseFlow($parentNode);
-        $willPositionAbsolute = (null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow) || 'absolute' === ($layout['positioning'] ?? null) || $isDecorativeFlexUnderlay;
-        $layerStackPlan = null !== $parentNode ? $this->layoutIntentClassifier()->siblingLayerStackPlan($node, $parentNode) : array('z_index' => null);
-        $overlapZIndex = isset($layerStackPlan['z_index']) && is_int($layerStackPlan['z_index']) ? $layerStackPlan['z_index'] : null;
-        $managesLocalStacking = $this->layoutIntentClassifier()->managesLocalStacking($node);
-        $needsLocalStackIsolation = $this->layoutIntentClassifier()->needsLocalStackIsolation($node);
-        if ( $canvasShell->responsiveCenteredFlowShell && ! $willPositionAbsolute ) {
-            $styles[] = 'margin-left:auto';
-            $styles[] = 'margin-right:auto';
-        }
-        if ( ! $willPositionAbsolute && ($managesLocalStacking || ($parentFreeformUsesFlow && 'FRAME' === $type)) ) {
-            $styles[] = 'position:relative';
-        }
-
-        if ( $needsLocalStackIsolation ) {
-            $styles[] = 'isolation:isolate';
-        }
-
-        if ( $isDecorativeFlexUnderlay ) {
-            $styles[] = 'position:absolute';
-            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
-                $styles[] = $style;
-            }
-            $styles[] = 'z-index:0';
-            $styles[] = 'pointer-events:none';
-        } elseif ( null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow ) {
-            $styles[] = 'position:absolute';
-            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
-                $styles[] = $style;
-            }
-            foreach ( $this->canvasShellResolver()->fullBleedViewportBreakoutStyles($canvasShell) as $style ) {
-                $styles[] = $style;
-            }
-        } elseif ( 'absolute' === ($layout['positioning'] ?? null) ) {
-            $styles[] = 'position:absolute';
-            foreach ( $this->cssPositioningResolver()->styles($box, $layout, $parentNode, $node, $canvasShell->centeredWithinParentFluidCanvas) as $style ) {
-                $styles[] = $style;
-            }
-            foreach ( $this->canvasShellResolver()->fullBleedViewportBreakoutStyles($canvasShell) as $style ) {
-                $styles[] = $style;
-            }
-        }
-
-        if ( null !== $parentNode && ! $willPositionAbsolute && $this->hasDecorativeFlexUnderlayChild($parentNode) ) {
-            $styles[] = 'position:relative';
-            $styles[] = 'z-index:1';
-        }
-
-        if ( null !== $overlapZIndex && ! $willPositionAbsolute && ! $this->stylesDeclareProperty($styles, 'position') ) {
-            $styles[] = 'position:relative';
-        }
-
-        if ( $this->isFiniteNumeric($layout['z_index'] ?? null) && ! $this->stylesDeclareProperty($styles, 'z-index') ) {
-            $styles[] = 'z-index:' . (string) (int) $layout['z_index'];
-        } elseif ( null !== $parentNode && ! $this->stylesDeclareProperty($styles, 'z-index') ) {
-            if ( null !== $overlapZIndex ) {
-                $styles[] = 'z-index:' . (string) $overlapZIndex;
-            }
+        $positioningStyleDecision = $this->positioningStyleResolver()->resolve($node, $type, $parentNode, $box, $layout, $canvasShell, $styles);
+        foreach ( $positioningStyleDecision->styles as $style ) {
+            $styles[] = $style;
         }
 
         if ( 'TEXT' !== $type && ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE'), true) ) {
@@ -5598,7 +5557,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        if ( ! $isDecorativeFlexUnderlay ) {
+        if ( ! $positioningStyleDecision->isDecorativeFlexUnderlay ) {
             foreach ( $this->flexItemStyles($node, $layout, $parentNode) as $style ) {
                 $styles[] = $style;
             }
