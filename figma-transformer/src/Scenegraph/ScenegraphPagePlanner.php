@@ -1163,6 +1163,43 @@ final class ScenegraphPagePlanner
      */
     private function responsiveGroups(array $candidates, array $detectionById): array
     {
+        $groups = array();
+        $diagnostics = array();
+        foreach ( $this->responsiveComponents($candidates, $detectionById) as $members ) {
+            if ( count($members) < 2 ) {
+                continue;
+            }
+
+            $ordered = $this->orderVariantIds($members, $candidates, $detectionById);
+            $assessment = $this->assessResponsiveGroup($ordered, $candidates, $detectionById);
+
+            if ( $assessment['is_responsive'] ) {
+                foreach ( $ordered as $memberId ) {
+                    $groups[$memberId] = $ordered;
+                }
+                $diagnostics[] = $this->responsiveGroupFormedDiagnostic($ordered, $assessment);
+                continue;
+            }
+
+            // Duplicate/iteration drafts: keep them as separate pages (omitted
+            // from the group map so the page loop falls back to one-per-frame).
+            $diagnostics[] = $this->duplicateDraftFramesDiagnostic($ordered, $candidates, $assessment);
+        }
+
+        return array('groups' => $groups, 'diagnostics' => $diagnostics);
+    }
+
+    /**
+     * Build connected components from responsive sibling edges reported by the
+     * frame inspector. Edges to frames outside the planner's candidate set are
+     * ignored so downstream grouping cannot pull filtered/noisy frames back in.
+     *
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array<string, array<string, mixed>> $detectionById
+     * @return array<string, array<int, string>>
+     */
+    private function responsiveComponents(array $candidates, array $detectionById): array
+    {
         $parent = array();
         foreach ( array_keys($candidates) as $id ) {
             $parent[(string) $id] = (string) $id;
@@ -1193,50 +1230,49 @@ final class ScenegraphPagePlanner
             $components[$find((string) $id)][] = (string) $id;
         }
 
-        $groups = array();
-        $diagnostics = array();
-        foreach ( $components as $members ) {
-            if ( count($members) < 2 ) {
-                continue;
-            }
+        return $components;
+    }
 
-            $ordered = $this->orderVariantIds($members, $candidates, $detectionById);
-            $assessment = $this->assessResponsiveGroup($ordered, $candidates, $detectionById);
+    /**
+     * @param array<int, string> $ordered
+     * @param array{reasons: array<int, string>, device_hints: array<int, string>, distinct_hint_count: int, width_spread_px: float} $assessment
+     * @return array<string, mixed>
+     */
+    private function responsiveGroupFormedDiagnostic(array $ordered, array $assessment): array
+    {
+        return array(
+            'severity'              => 'info',
+            'code'                  => 'responsive_group_formed',
+            'message'               => 'Collapsed frames into one responsive page.',
+            'primary_frame_id'      => $ordered[0],
+            'frame_ids'             => $ordered,
+            'reasons'               => $assessment['reasons'],
+            'device_hints'          => $assessment['device_hints'],
+            'distinct_device_hints' => $assessment['distinct_hint_count'],
+            'width_spread_px'       => $assessment['width_spread_px'],
+        );
+    }
 
-            if ( $assessment['is_responsive'] ) {
-                foreach ( $ordered as $memberId ) {
-                    $groups[$memberId] = $ordered;
-                }
-                $diagnostics[] = array(
-                    'severity'              => 'info',
-                    'code'                  => 'responsive_group_formed',
-                    'message'               => 'Collapsed frames into one responsive page.',
-                    'primary_frame_id'      => $ordered[0],
-                    'frame_ids'             => $ordered,
-                    'reasons'               => $assessment['reasons'],
-                    'device_hints'          => $assessment['device_hints'],
-                    'distinct_device_hints' => $assessment['distinct_hint_count'],
-                    'width_spread_px'       => $assessment['width_spread_px'],
-                );
-                continue;
-            }
+    /**
+     * @param array<int, string>                  $ordered
+     * @param array<string, array<string, mixed>> $candidates
+     * @param array{device_hints: array<int, string>} $assessment
+     * @return array<string, mixed>
+     */
+    private function duplicateDraftFramesDiagnostic(array $ordered, array $candidates, array $assessment): array
+    {
+        $canonicalId = $this->canonicalDraftId($ordered, $candidates);
 
-            // Duplicate/iteration drafts: keep them as separate pages (omitted
-            // from the group map so the page loop falls back to one-per-frame).
-            $canonicalId = $this->canonicalDraftId($ordered, $candidates);
-            $diagnostics[] = array(
-                'severity'           => 'warning',
-                'code'               => 'duplicate_draft_frames',
-                'message'            => 'Frames share a name, device hint, and width; treated as duplicate drafts rather than responsive breakpoints.',
-                'canonical_frame_id' => $canonicalId,
-                'draft_frame_ids'    => array_values(array_filter($ordered, static fn (string $id): bool => $id !== $canonicalId)),
-                'frame_ids'          => $ordered,
-                'device_hint'        => $assessment['device_hints'][0] ?? 'unknown',
-                'width'              => (float) ($candidates[$canonicalId]['dimensions']['width'] ?? 0),
-            );
-        }
-
-        return array('groups' => $groups, 'diagnostics' => $diagnostics);
+        return array(
+            'severity'           => 'warning',
+            'code'               => 'duplicate_draft_frames',
+            'message'            => 'Frames share a name, device hint, and width; treated as duplicate drafts rather than responsive breakpoints.',
+            'canonical_frame_id' => $canonicalId,
+            'draft_frame_ids'    => array_values(array_filter($ordered, static fn (string $id): bool => $id !== $canonicalId)),
+            'frame_ids'          => $ordered,
+            'device_hint'        => $assessment['device_hints'][0] ?? 'unknown',
+            'width'              => (float) ($candidates[$canonicalId]['dimensions']['width'] ?? 0),
+        );
     }
 
     /**
@@ -1273,12 +1309,7 @@ final class ScenegraphPagePlanner
             if ( ! isset($pageCandidates[$id]) ) {
                 continue;
             }
-            $candidate = $pageCandidates[$id];
-            $name = (string) ($candidate['node']['name'] ?? '');
-            $identity = $this->routeIdentity($name);
-            $width = (int) round((float) ($candidate['dimensions']['width'] ?? 0));
-            $height = (int) round((float) ($candidate['dimensions']['height'] ?? 0));
-            $buckets[$identity . ':' . $width . 'x' . $height][] = $id;
+            $buckets[$this->routeDraftBucketKey($pageCandidates[$id])][] = $id;
         }
 
         $rejectIds = array();
@@ -1301,7 +1332,7 @@ final class ScenegraphPagePlanner
                 'canonical_frame_id' => $canonicalId,
                 'draft_frame_ids'    => $draftIds,
                 'frame_ids'          => $members,
-                'route_identity'     => $this->routeIdentity((string) ($pageCandidates[$canonicalId]['node']['name'] ?? '')),
+                'route_identity'     => $this->candidateRouteIdentity($pageCandidates[$canonicalId]),
                 'width'              => (float) ($pageCandidates[$canonicalId]['dimensions']['width'] ?? 0),
                 'height'             => (float) ($pageCandidates[$canonicalId]['dimensions']['height'] ?? 0),
             );
@@ -1318,6 +1349,25 @@ final class ScenegraphPagePlanner
             )),
             'diagnostics' => $diagnostics,
         );
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     */
+    private function routeDraftBucketKey(array $candidate): string
+    {
+        $width = (int) round((float) ($candidate['dimensions']['width'] ?? 0));
+        $height = (int) round((float) ($candidate['dimensions']['height'] ?? 0));
+
+        return $this->candidateRouteIdentity($candidate) . ':' . $width . 'x' . $height;
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     */
+    private function candidateRouteIdentity(array $candidate): string
+    {
+        return $this->routeIdentity((string) ($candidate['node']['name'] ?? ''));
     }
 
     /**
