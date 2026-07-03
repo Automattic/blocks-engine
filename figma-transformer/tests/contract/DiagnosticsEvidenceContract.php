@@ -270,6 +270,34 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('empty_visible_container' === ($largeOffsetNodes[0]['classification'] ?? null), 'diagnostics-evidence-large-css-offset-classification');
     $assert('empty_visible_container' === ($largeOffsetNodes[0]['reason_code'] ?? null), 'diagnostics-evidence-large-css-offset-reason-code');
 
+    $decorativeHairlineResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Decorative Hairline Offset Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'diag:hairline-page',
+                'type'     => 'FRAME',
+                'name'     => 'Hairline Page',
+                'width'    => 320,
+                'height'   => 1300,
+                'children' => array(
+                    array(
+                        'id'         => 'diag:hairline',
+                        'type'       => 'RECTANGLE',
+                        'name'       => 'Decorative Divider',
+                        'x'          => 0,
+                        'y'          => 1200,
+                        'width'      => 320,
+                        'height'     => 1,
+                        'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.9, 'g' => 0.9, 'b' => 0.9, 'a' => 1))),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $decorativeHairlineDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($decorativeHairlineResult);
+    $assert(0 === ($decorativeHairlineDiagnostics['layout']['large_css_offset_count'] ?? null), 'diagnostics-evidence-decorative-hairline-no-large-css-offset');
+    blocks_engine_figma_transformer_contract_assert_no_quality_signal($assert, $decorativeHairlineResult, 'large_css_offsets', 'diagnostics-evidence-decorative-hairline-no-quality-signal');
+
     $emptyTextResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Empty Text Fixture',
         'nodes' => array(

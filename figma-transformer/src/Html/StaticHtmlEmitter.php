@@ -4958,6 +4958,9 @@ final class StaticHtmlEmitter
         foreach ( $rules as $rule ) {
             $className = (string) ($rule[1] ?? '');
             $body = (string) ($rule[2] ?? '');
+            if ( $this->isDecorativeHairlineOffsetRule($body) ) {
+                continue;
+            }
             $left = $this->cssPixelDeclarationValue($body, 'left');
             $top = $this->cssPixelDeclarationValue($body, 'top');
             if ( (null === $left || abs($left) < 1000.0) && (null === $top || abs($top) < 1000.0) ) {
@@ -4978,6 +4981,17 @@ final class StaticHtmlEmitter
         }
 
         return array_values($samples);
+    }
+
+    private function isDecorativeHairlineOffsetRule(string $body): bool
+    {
+        $height = $this->cssPixelDeclarationValue($body, 'height');
+        $left = $this->cssPixelDeclarationValue($body, 'left');
+        if ( null === $height || abs($height) > 1.0 || null === $left || abs($left) > 0.5 ) {
+            return false;
+        }
+
+        return $this->cssDeclarationValue($body, 'position') === 'absolute';
     }
 
     /**
@@ -5013,6 +5027,13 @@ final class StaticHtmlEmitter
     {
         return preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . ':\s*(-?\d+(?:\.\d+)?)px(?:;|$)/', $body, $match)
             ? (float) $match[1]
+            : null;
+    }
+
+    private function cssDeclarationValue(string $body, string $property): ?string
+    {
+        return preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . ':\s*([^;]+)(?:;|$)/', $body, $match)
+            ? trim((string) $match[1])
             : null;
     }
 
