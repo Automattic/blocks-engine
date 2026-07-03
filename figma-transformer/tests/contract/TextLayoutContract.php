@@ -322,6 +322,72 @@ function blocks_engine_figma_transformer_run_text_layout_contract(callable $asse
     blocks_engine_figma_transformer_contract_assert_tag_count($assert, $nestedRichTextListHtml, 'li', 3, 'source-text-nested-list-li-count');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $nestedRichTextListCss, '.figma-node-text-nested-rich-list-nested-rich-coverage-list', array('list-style:decimal', 'padding-left:1.5em'), 'source-text-nested-list-root-marker-css');
 
+    $nestedContinuationListResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Nested Source Text List Continuation Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'text:nested-continuation-list',
+                'type'     => 'TEXT',
+                'name'     => 'Nested Continuation List',
+                'fontSize' => 16,
+                'textData' => array(
+                    'characters' => 'Parent item continuationNested childFinal item',
+                    'lines'      => array(
+                        array('lineType' => 'ORDERED', 'indentationLevel' => 0, 'listStartOffset' => 1, 'isFirstLineOfList' => true),
+                        array('lineType' => 'ORDERED', 'indentationLevel' => 0, 'listStartOffset' => 1, 'isFirstLineOfList' => false),
+                        array('lineType' => 'BULLET', 'indentationLevel' => 1, 'isFirstLineOfList' => true),
+                        array('lineType' => 'ORDERED', 'indentationLevel' => 0, 'listStartOffset' => 2, 'isFirstLineOfList' => true),
+                    ),
+                ),
+                'derivedTextData' => array(
+                    'baselines' => array(
+                        array('firstCharacter' => 0, 'endCharacter' => 11, 'position' => array('x' => 0, 'y' => 16), 'lineHeight' => 20),
+                        array('firstCharacter' => 11, 'endCharacter' => 24, 'position' => array('x' => 24, 'y' => 36), 'lineHeight' => 20),
+                        array('firstCharacter' => 24, 'endCharacter' => 36, 'position' => array('x' => 18, 'y' => 56), 'lineHeight' => 20),
+                        array('firstCharacter' => 36, 'endCharacter' => 46, 'position' => array('x' => 0, 'y' => 76), 'lineHeight' => 20),
+                    ),
+                    'characterStyleIDs' => array_fill(0, 46, 0),
+                ),
+            ),
+        ),
+    ));
+    $nestedContinuationListHtml = $fileContent($nestedContinuationListResult, 'index.html');
+    $assert(str_contains($nestedContinuationListHtml, '<li>Parent item<br>continuation<ul style="list-style:disc;padding-left:1.5em"><li>Nested child</li></ul></li><li>Final item</li>'), 'source-text-nested-list-continuation-stays-in-parent-li');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $nestedContinuationListHtml, 'ol', 1, 'source-text-nested-continuation-root-ol-count');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $nestedContinuationListHtml, 'ul', 1, 'source-text-nested-continuation-child-ul-count');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $nestedContinuationListHtml, 'li', 3, 'source-text-nested-continuation-li-count');
+
+    $explicitNewlineFalseListResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Explicit Newline False List Fixture',
+        'nodes' => array(
+            array(
+                'id'         => 'text:explicit-newline-false-list',
+                'type'       => 'TEXT',
+                'name'       => 'Explicit Newline False List',
+                'characters' => "One\nTwo\nThree",
+                'fontSize'   => 16,
+                'textData'   => array(
+                    'lines' => array(
+                        array('lineType' => 'BULLET', 'indentationLevel' => 1, 'isFirstLineOfList' => false),
+                        array('lineType' => 'BULLET', 'indentationLevel' => 1, 'isFirstLineOfList' => false),
+                        array('lineType' => 'BULLET', 'indentationLevel' => 1, 'isFirstLineOfList' => false),
+                    ),
+                ),
+                'derivedTextData' => array(
+                    'baselines' => array(
+                        array('firstCharacter' => 0, 'endCharacter' => 3, 'position' => array('x' => 0, 'y' => 16), 'lineHeight' => 20),
+                        array('firstCharacter' => 4, 'endCharacter' => 7, 'position' => array('x' => 0, 'y' => 36), 'lineHeight' => 20),
+                        array('firstCharacter' => 8, 'endCharacter' => 13, 'position' => array('x' => 0, 'y' => 56), 'lineHeight' => 20),
+                    ),
+                    'characterStyleIDs' => array_fill(0, 13, 0),
+                ),
+            ),
+        ),
+    ));
+    $explicitNewlineFalseListHtml = $fileContent($explicitNewlineFalseListResult, 'index.html');
+    $assert(str_contains($explicitNewlineFalseListHtml, '<ul class="figma-node-text-explicit-newline-false-list-explicit-newline-false-list" data-figma-node-id="text:explicit-newline-false-list" data-figma-node-name="Explicit Newline False List"><li>One</li><li>Two</li><li>Three</li></ul>'), 'source-text-explicit-newlines-keep-false-list-lines-separate');
+    blocks_engine_figma_transformer_contract_assert_tag_count($assert, $explicitNewlineFalseListHtml, 'li', 3, 'source-text-explicit-newlines-false-li-count');
+
     $derivedSoftWrapResult = blocks_engine_figma_transformer_transform_scenegraph(array(
         'name'  => 'Derived Soft Wrap Fixture',
         'nodes' => array(

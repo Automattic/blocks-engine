@@ -6391,8 +6391,8 @@ final class StaticHtmlEmitter
             return null;
         }
 
-        $lineHtml = $this->sourceTextListLineHtml($node, $text, $characters, count($lines));
-        if ( count($lineHtml) !== count($lines) ) {
+        $lineItems = $this->sourceTextListLineItems($node, $text, $characters, $lines);
+        if ( count($lineItems) !== count($lines) ) {
             return null;
         }
 
@@ -6400,12 +6400,21 @@ final class StaticHtmlEmitter
         $rootIndent = $this->sourceTextListIndent($lines[0]);
         $stack = array();
         $content = '';
-        foreach ( $lines as $index => $line ) {
+        foreach ( $lineItems as $index => $lineItem ) {
+            $line = $lineItem['line'];
             $kind = $listKinds[$index];
             $indent = $this->sourceTextListIndent($line);
-            $item = $this->sourceTextListItemHtml($lineHtml[$index]);
+            $item = $this->sourceTextListItemHtml($lineItem['html']);
             if ( '' === $item || $indent < $rootIndent ) {
                 return null;
+            }
+
+            if ( $lineItem['continues_previous'] && ! empty($stack) ) {
+                $current = $stack[count($stack) - 1];
+                if ( $indent === $current['indent'] && $kind === $this->sourceTextListKindForTag($current['tag']) ) {
+                    $content .= '<br>' . $item;
+                    continue;
+                }
             }
 
             while ( ! empty($stack) && $indent < $stack[count($stack) - 1]['indent'] ) {
@@ -6496,6 +6505,60 @@ final class StaticHtmlEmitter
         }
 
         return $attributes;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $text
+     * @param array<int, array<string, mixed>> $lines
+     * @return array<int, array{line: array<string, mixed>, html: string, continues_previous: bool}>
+     */
+    private function sourceTextListLineItems(array $node, array $text, string $characters, array $lines): array
+    {
+        $lineHtml = $this->sourceTextListLineHtml($node, $text, $characters, count($lines));
+        if ( count($lineHtml) !== count($lines) ) {
+            return array();
+        }
+
+        $hardBreakBefore = $this->sourceTextListHardBreakBeforeMap($text, $characters, count($lines));
+        $items = array();
+        foreach ( $lines as $index => $line ) {
+            $continuesPrevious = $index > 0
+                && false === ($line['is_first_line_of_list'] ?? null)
+                && false === ($hardBreakBefore[$index] ?? true);
+            $items[] = array(
+                'line'               => $line,
+                'html'               => $lineHtml[$index],
+                'continues_previous' => $continuesPrevious,
+            );
+        }
+
+        return $items;
+    }
+
+    /**
+     * @param array<string, mixed> $text
+     * @return array<int, bool>
+     */
+    private function sourceTextListHardBreakBeforeMap(array $text, string $characters, int $lineCount): array
+    {
+        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
+        $baselines = is_array($derivedLayout['baselines'] ?? null) ? $derivedLayout['baselines'] : array();
+        if ( count($baselines) !== $lineCount ) {
+            return array_fill(0, $lineCount, true);
+        }
+
+        $hardBreakBefore = array_fill(0, $lineCount, true);
+        for ( $index = 1; $index < $lineCount; $index++ ) {
+            $previous = is_array($baselines[$index - 1] ?? null) ? $baselines[$index - 1] : array();
+            if ( ! isset($previous['endCharacter']) || ! is_numeric($previous['endCharacter']) ) {
+                continue;
+            }
+            $offset = (int) $previous['endCharacter'];
+            $hardBreakBefore[$index] = "\n" === mb_substr($characters, $offset, 1);
+        }
+
+        return $hardBreakBefore;
     }
 
     /**
