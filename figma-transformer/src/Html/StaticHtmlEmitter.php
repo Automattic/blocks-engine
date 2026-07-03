@@ -789,10 +789,14 @@ final class StaticHtmlEmitter
         $assetComposition = $this->nodeAssetComposition($node, $type, $parentNode);
         $vectorSvg = $assetComposition['vector_svg'];
         $hasVectorAssetFallback = $assetComposition['has_vector_asset_fallback'];
+        $buttonLayerComposition = 'button' === $tag ? $this->buttonLayerComposition($node, $children) : array('styles' => array(), 'suppressed_child_ids' => array());
 
         if ( ! in_array($tag, array('input', 'textarea'), true) && ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) && ! $this->vectorSvgComposesChildren($vectorSvg) ) {
             $insertedAccessoryInput = false;
             $childCompositionMaps = $this->childAssetCompositionMaps($children);
+            if ( ! empty($buttonLayerComposition['suppressed_child_ids']) ) {
+                $childCompositionMaps['suppressed_child_ids'] = array_merge($childCompositionMaps['suppressed_child_ids'], $buttonLayerComposition['suppressed_child_ids']);
+            }
             $suppressRootOffCanvasChildren = 0 === $depth && $this->hasRootOffCanvasChildCluster($children, $node);
             foreach ( $children as $child ) {
                 if ( is_array($child) ) {
@@ -867,6 +871,9 @@ final class StaticHtmlEmitter
         }
 
         $styles = $this->styleDeclarations($node, $type, $parentNode, $grandParentNode);
+        if ( ! empty($buttonLayerComposition['styles']) ) {
+            array_push($styles, ...$buttonLayerComposition['styles']);
+        }
         $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $styles);
         if ( ! empty($styles) ) {
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
@@ -960,6 +967,134 @@ final class StaticHtmlEmitter
     private function applyChildAssetComposition(array $child, string $childId, array $compositionMaps): array
     {
         return $this->childLayerCompositionResolver()->applyToChild($child, $childId, $compositionMaps);
+    }
+
+    /**
+     * @param array<string, mixed> $button
+     * @param array<int, mixed> $children
+     * @return array{styles: array<int, string>, suppressed_child_ids: array<string, string>}
+     */
+    private function buttonLayerComposition(array $button, array $children): array
+    {
+        $backgroundChild = $this->buttonBackgroundLayerChild($button, $children);
+        if ( null === $backgroundChild ) {
+            return array('styles' => array(), 'suppressed_child_ids' => array());
+        }
+
+        $childId = isset($backgroundChild['id']) && is_scalar($backgroundChild['id']) ? (string) $backgroundChild['id'] : '';
+        if ( '' === $childId ) {
+            return array('styles' => array(), 'suppressed_child_ids' => array());
+        }
+
+        $styles = $this->buttonBackgroundLayerStyles($backgroundChild);
+        if ( empty($styles) ) {
+            return array('styles' => array(), 'suppressed_child_ids' => array());
+        }
+
+        return array(
+            'styles' => $styles,
+            'suppressed_child_ids' => array($childId => 'button_background_layer_composed_into_control'),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $button
+     * @param array<int, mixed> $children
+     * @return array<string, mixed>|null
+     */
+    private function buttonBackgroundLayerChild(array $button, array $children): ?array
+    {
+        $matches = array();
+        foreach ( $children as $child ) {
+            if ( ! is_array($child) || ! $this->isSimpleButtonBackgroundLayer($child, $button) ) {
+                continue;
+            }
+
+            $matches[] = $child;
+        }
+
+        return 1 === count($matches) ? $matches[0] : null;
+    }
+
+    /**
+     * @param array<string, mixed> $child
+     * @param array<string, mixed> $button
+     */
+    private function isSimpleButtonBackgroundLayer(array $child, array $button): bool
+    {
+        if ( false === ($child['visible'] ?? true) || $this->isMaskOperatorNode($child) || '' !== trim($this->subtreePlainText($child)) ) {
+            return false;
+        }
+        if ( null !== $this->nodeAssetPath($child) || ! empty($this->nodeImagePaints($child)) ) {
+            return false;
+        }
+
+        $type = strtoupper((string) ($child['type'] ?? ''));
+        if ( ! in_array($type, array('RECTANGLE', 'ROUNDED_RECTANGLE', 'VECTOR', 'BOOLEAN_OPERATION'), true) ) {
+            return false;
+        }
+        if ( null === $this->backgroundColor($child) && empty($this->strokeStyles($child)) ) {
+            return false;
+        }
+        if ( 'BOOLEAN_OPERATION' === $type && count(array_filter($this->nodeList($child), 'is_array')) > 1 ) {
+            return false;
+        }
+
+        return $this->buttonBackgroundLayerCoversButton($child, $button);
+    }
+
+    /**
+     * @param array<string, mixed> $child
+     * @param array<string, mixed> $button
+     */
+    private function buttonBackgroundLayerCoversButton(array $child, array $button): bool
+    {
+        $buttonWidth = $this->boxValue($button, 'width');
+        $buttonHeight = $this->boxValue($button, 'height');
+        $childWidth = $this->boxValue($child, 'width');
+        $childHeight = $this->boxValue($child, 'height');
+        if ( null === $buttonWidth || null === $buttonHeight || null === $childWidth || null === $childHeight ) {
+            return false;
+        }
+        if ( abs($buttonWidth - $childWidth) > 1.5 || abs($buttonHeight - $childHeight) > 1.5 ) {
+            return false;
+        }
+
+        $buttonBox = is_array($button['box'] ?? null) ? $button['box'] : array();
+        $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
+        $x = $this->positionOffset($childBox, $buttonBox, 'x', $button);
+        $y = $this->positionOffset($childBox, $buttonBox, 'y', $button);
+        if ( null === $x && $this->isFiniteNumeric($child['x'] ?? null) ) {
+            $x = (float) $child['x'];
+        }
+        if ( null === $y && $this->isFiniteNumeric($child['y'] ?? null) ) {
+            $y = (float) $child['y'];
+        }
+
+        return abs((float) ($x ?? 0.0)) <= 1.5 && abs((float) ($y ?? 0.0)) <= 1.5;
+    }
+
+    /**
+     * @param array<string, mixed> $child
+     * @return array<int, string>
+     */
+    private function buttonBackgroundLayerStyles(array $child): array
+    {
+        $styles = array();
+        $background = $this->backgroundColor($child);
+        if ( null !== $background ) {
+            $styles[] = 'background:' . $background;
+        }
+
+        $box = is_array($child['figma_box'] ?? null) ? $child['figma_box'] : (is_array($child['box'] ?? null) ? $child['box'] : array());
+        foreach ( $this->radiusStyles($box) as $style ) {
+            $styles[] = $style;
+        }
+        foreach ( $this->strokeStyles($child) as $style ) {
+            $styles[] = $style;
+        }
+
+        return $styles;
     }
 
     /** @param array<string, mixed> $node */

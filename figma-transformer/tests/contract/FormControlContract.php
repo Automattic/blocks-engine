@@ -265,4 +265,84 @@ function blocks_engine_figma_transformer_run_form_control_contract(callable $ass
     $assert(str_contains($labeledHtml, 'data-figma-node-id="labeled:name-input"') && str_contains($labeledHtml, 'aria-label="Name *"'), 'form-control-nearby-label-names-text-input');
     $assert(str_contains($labeledHtml, 'data-figma-node-id="labeled:email-input"') && str_contains($labeledHtml, 'type="email" name="email"') && str_contains($labeledHtml, 'aria-label="Email *"'), 'form-control-nearby-label-infers-email-input');
     $assert(str_contains($labeledHtml, '<textarea class="figma-node-labeled-comment-input-input"') && str_contains($labeledHtml, 'aria-label="Comment"'), 'form-control-nearby-label-infers-comment-textarea');
+
+    $layeredButtonResult = blocks_engine_figma_transformer_transform_scenegraph(array(
+        'name'  => 'Layered Button Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'layered:root',
+                'type'     => 'FRAME',
+                'name'     => 'Buttons',
+                'width'    => 520,
+                'height'   => 140,
+                'children' => array(
+                    array(
+                        'id'       => 'layered:button',
+                        'type'     => 'FRAME',
+                        'name'     => 'Book now button',
+                        'width'    => 180,
+                        'height'   => 48,
+                        'children' => array(
+                            array(
+                                'id'           => 'layered:button:bg',
+                                'type'         => 'RECTANGLE',
+                                'name'         => 'Button background rectangle',
+                                'width'        => 180,
+                                'height'       => 48,
+                                'x'            => 0,
+                                'y'            => 0,
+                                'cornerRadius' => 12,
+                                'fillPaints'   => array(
+                                    array('type' => 'SOLID', 'color' => array('r' => 0.05, 'g' => 0.32, 'b' => 0.48, 'a' => 1)),
+                                    array('type' => 'SOLID', 'color' => array('r' => 0.05, 'g' => 0.32, 'b' => 0.48, 'a' => 0.4)),
+                                ),
+                                'strokePaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                                'strokeWeight' => 2,
+                                'strokeAlign'  => 'INSIDE',
+                            ),
+                            array(
+                                'id'           => 'layered:button:icon',
+                                'type'         => 'ELLIPSE',
+                                'name'         => 'Calendar icon',
+                                'width'        => 14,
+                                'height'       => 14,
+                                'x'            => 16,
+                                'y'            => 17,
+                                'strokePaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                            ),
+                            array(
+                                'id'         => 'layered:button:text',
+                                'type'       => 'TEXT',
+                                'name'       => 'Button label',
+                                'characters' => 'Book now',
+                                'fontSize'   => 16,
+                                'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1))),
+                            ),
+                        ),
+                    ),
+                    array(
+                        'id'       => 'layered:submit',
+                        'type'     => 'FRAME',
+                        'name'     => 'Subscribe button',
+                        'width'    => 140,
+                        'height'   => 44,
+                        'children' => array(
+                            array('id' => 'layered:submit:bg', 'type' => 'RECTANGLE', 'name' => 'Rectangle', 'width' => 140, 'height' => 44, 'x' => 0, 'y' => 0, 'cornerRadius' => 999, 'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 1, 'g' => 1, 'b' => 1, 'a' => 1)))),
+                            array('id' => 'layered:submit:text', 'type' => 'TEXT', 'name' => 'button one', 'characters' => 'Subscribe', 'fontSize' => 16),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $layeredButtonHtml = $fileContent($layeredButtonResult, 'index.html');
+    $layeredButtonCss = $fileContent($layeredButtonResult, 'style.css');
+    $assert(str_contains($layeredButtonHtml, '<button class="figma-node-layered-button-book-now-button"') && str_contains($layeredButtonHtml, 'type="button"'), 'layered-button-emits-legitimate-button');
+    $assert(str_contains($layeredButtonHtml, 'data-figma-node-id="layered:button:text"') && str_contains($layeredButtonHtml, '>Book now</span>'), 'layered-button-keeps-text-label');
+    $assert(str_contains($layeredButtonHtml, 'data-figma-node-id="layered:button:icon"'), 'layered-button-preserves-meaningful-icon-layer');
+    $assert(! str_contains($layeredButtonHtml, 'data-figma-node-id="layered:button:bg"'), 'layered-button-suppresses-decorative-background-child');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $layeredButtonCss, '.figma-node-layered-button-book-now-button', array('background:#0d527a', 'border-radius:12px', 'border:2px solid #ffffff', 'box-sizing:border-box'), 'layered-button-composes-background-child-styles');
+    $assert(str_contains($layeredButtonHtml, '<button class="figma-node-layered-submit-subscribe-button"') && str_contains($layeredButtonHtml, 'type="submit"'), 'layered-button-preserves-submit-behavior');
+    $assert(! str_contains($layeredButtonHtml, 'data-figma-node-id="layered:submit:bg"'), 'layered-submit-suppresses-decorative-background-child');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $layeredButtonCss, '.figma-node-layered-submit-subscribe-button', array('background:#ffffff', 'border-radius:999px'), 'layered-submit-composes-background-child-styles');
 }
