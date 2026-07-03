@@ -394,7 +394,7 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
         'page_name' => 'Landing Page',
     ));
     $responsiveHeaderChromeCss = $fileContent($responsiveHeaderChromeResult, 'style.css');
-    $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-header-site-header{max-width:100%;height:auto;min-height:127px}'), 'responsive-header-shell-safety-matches-semantic-header-name');
+    $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-header-site-header{max-width:100%;height:auto;min-height:160px}'), 'responsive-header-shell-safety-matches-semantic-header-name');
     $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-row-header-row{width:100%;max-width:100%;height:auto;position:relative;left:auto;right:auto;top:auto;justify-content:flex-start;align-items:center;flex-wrap:wrap;gap:16px;padding-top:24px;padding-right:24px;padding-bottom:24px;padding-left:24px'), 'responsive-header-inner-safety-is-generic-not-frame-name');
     $assert(str_contains($responsiveHeaderChromeCss, '.figma-node-chrome-header-desktop-nav-primary-nav{width:100%;max-width:100%;height:auto;justify-content:flex-start;flex-wrap:wrap;gap:16px'), 'responsive-navigation-shell-safety-matches-nav-name');
 
@@ -1553,7 +1553,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
         }
     }
     $responsiveChromeMobileBlock = substr($responsiveChromeCss, strpos($responsiveChromeCss, '@media'));
-    $assert(str_contains($responsiveChromeMobileBlock, '.figma-node-chrome-desktop-header-header{max-width:100%;height:auto;min-height:96px}'), 'responsive-emit-mobile-top-chrome-header-keeps-source-height-floor');
+    $assert(str_contains($responsiveChromeMobileBlock, '.figma-node-chrome-desktop-header-header{max-width:100%;height:auto;min-height:156px}'), 'responsive-emit-mobile-top-chrome-header-keeps-source-height-floor');
     $assert(preg_match('/\.figma-node-chrome-desktop-header-row-primary-chrome-row\{[^}]*height:auto[^}]*position:relative[^}]*left:auto[^}]*right:auto[^}]*top:auto[^}]*justify-content:flex-start[^}]*flex-wrap:wrap[^}]*gap:16px[^}]*padding-top:24px[^}]*padding-right:24px[^}]*padding-bottom:24px[^}]*padding-left:24px/s', $responsiveChromeMobileBlock) === 1, 'responsive-emit-mobile-top-chrome-inner-row-wraps-with-normal-gutters');
     $assert(str_contains($responsiveChromeMobileBlock, '.figma-node-chrome-desktop-navigation-primary-navigation{width:100%;max-width:100%;height:auto;justify-content:flex-start;flex-wrap:wrap;gap:16px}'), 'responsive-emit-mobile-top-chrome-navigation-wraps');
     $assert(! str_contains($responsiveChromeMobileBlock, 'padding-top:72px'), 'responsive-emit-mobile-top-chrome-no-instance-specific-header-offset');

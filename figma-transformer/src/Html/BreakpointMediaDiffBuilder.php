@@ -102,7 +102,7 @@ final class BreakpointMediaDiffBuilder
 
             $rules = array_merge(
                 $this->diffRules($baseStyles, $variantStyles),
-                $this->responsiveSafetyRules($baseStyles, (float) $viewportWidth)
+                $this->responsiveSafetyRules($baseStyles, $variantStyles, (float) $viewportWidth)
             );
             if ( empty($rules) ) {
                 $prevViewportWidth = (float) $viewportWidth;
@@ -146,6 +146,7 @@ final class BreakpointMediaDiffBuilder
             'parent_node'     => $parentNode,
             'grand_parent_node' => $grandParentNode,
             'depth'           => $depth,
+            'path_key'        => $pathKey,
         );
 
         $vectorSvg = ($this->supportedVectorSvg)($node, $type, $parentNode);
@@ -263,9 +264,10 @@ final class BreakpointMediaDiffBuilder
      * those responsive shells.
      *
      * @param array<string, array<string, mixed>> $baseStyles
+     * @param array<string, array<string, mixed>> $variantStyles
      * @return array<int, string>
      */
-    private function responsiveSafetyRules(array $baseStyles, float $viewportWidth): array
+    private function responsiveSafetyRules(array $baseStyles, array $variantStyles, float $viewportWidth): array
     {
         $rules = array();
         foreach ( $baseStyles as $base ) {
@@ -279,7 +281,9 @@ final class BreakpointMediaDiffBuilder
             }
 
             $depth = isset($base['depth']) && is_numeric($base['depth']) ? (int) $base['depth'] : 0;
-            $decision = $this->responsiveSafetyDecision($node, $parentNode, $baseMap, $viewportWidth, $depth, $grandParentNode);
+            $pathKey = is_string($base['path_key'] ?? null) ? (string) $base['path_key'] : '';
+            $variantNode = '' !== $pathKey && is_array($variantStyles[$pathKey]['node'] ?? null) ? $variantStyles[$pathKey]['node'] : null;
+            $decision = $this->responsiveSafetyDecision($node, $parentNode, $baseMap, $viewportWidth, $depth, $grandParentNode, $variantNode);
             $declarations = is_array($decision['declarations'] ?? null) ? $decision['declarations'] : array();
             if ( empty($declarations) ) {
                 continue;
@@ -324,7 +328,7 @@ final class BreakpointMediaDiffBuilder
      * @param array<string, string> $baseMap
      * @return array{reason_code: string, declarations: array<int, string>}
      */
-    private function responsiveSafetyDecision(array $node, ?array $parentNode, array $baseMap, float $viewportWidth, int $depth = 0, ?array $grandParentNode = null): array
+    private function responsiveSafetyDecision(array $node, ?array $parentNode, array $baseMap, float $viewportWidth, int $depth = 0, ?array $grandParentNode = null, ?array $variantNode = null): array
     {
         $name = strtolower(trim((string) ($node['name'] ?? '')));
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
@@ -341,7 +345,7 @@ final class BreakpointMediaDiffBuilder
         $parentChromeRole = null === $parentNode ? null : $this->layoutIntentClassifier->chromeGroupRole($parentNode, $grandParentNode, max(1, $depth - 1));
 
         if ( (LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $chromeRole || $this->isHeaderChromeShellName($name)) && $isContainer ) {
-            $minHeight = $this->cssPixelValue($baseMap['height'] ?? '') ?? $this->nodeBoxHeight($node);
+            $minHeight = $this->responsiveHeaderMinHeight($node, $baseMap, $variantNode);
             return array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $this->breakpointDimensionPolicy->headerChromeDeclarations($minHeight));
         }
 
@@ -597,6 +601,27 @@ final class BreakpointMediaDiffBuilder
         }
 
         return max($baseHeight, $newsletterHeight + $bottomRowHeight);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, string> $baseMap
+     * @param array<string, mixed>|null $variantNode
+     */
+    private function responsiveHeaderMinHeight(array $node, array $baseMap, ?array $variantNode): ?float
+    {
+        $baseHeight = $this->cssPixelValue($baseMap['height'] ?? '') ?? $this->nodeBoxHeight($node);
+        $variantHeight = null === $variantNode ? null : $this->nodeBoxHeight($variantNode);
+
+        if ( null === $baseHeight ) {
+            return $variantHeight;
+        }
+
+        if ( null === $variantHeight ) {
+            return $baseHeight;
+        }
+
+        return max($baseHeight, $variantHeight);
     }
 
     private function cssPixelValue(string $value): ?float
