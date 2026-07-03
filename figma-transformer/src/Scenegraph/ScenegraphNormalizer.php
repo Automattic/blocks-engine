@@ -2880,7 +2880,7 @@ final class ScenegraphNormalizer
 			$child['figma_text']['style'] = array_merge($inheritedTextStyle, $style);
 		}
 		if ( $hasTransformGeometryOverride && is_array($sourceChildBox) ) {
-			$child = $this->preserveLocalSourceBoxForFarAbsoluteOverride($child, $sourceChildBox, $diagnostics);
+			$child = $this->preserveLocalSourceBoxForFarAbsoluteOverride($child, $sourceChildBox, $overrideFields, $diagnostics);
 		}
         unset($child[GeometryBox::PROVENANCE_KEY]);
         if ( $hasVectorGeometryOverride && ! $hasExplicitSizeOverride ) {
@@ -2927,7 +2927,7 @@ final class ScenegraphNormalizer
 	 * @param array<string, mixed> $sourceChildBox
 	 * @return array<string, mixed>
 	 */
-	private function preserveLocalSourceBoxForFarAbsoluteOverride(array $child, array $sourceChildBox, array &$diagnostics): array
+	private function preserveLocalSourceBoxForFarAbsoluteOverride(array $child, array $sourceChildBox, array $overrideFields, array &$diagnostics): array
 	{
 		if ( GeometryBox::COORDINATE_SPACE_PARENT_LOCAL !== GeometryBox::coordinateSpace($sourceChildBox) || ! is_array($child['box'] ?? null) ) {
 			return $child;
@@ -2956,6 +2956,7 @@ final class ScenegraphNormalizer
 					'node_id'              => isset($child['id']) && is_scalar($child['id']) ? (string) $child['id'] : null,
 					'source_node_id'       => isset($child['figma_component_source_id']) && is_scalar($child['figma_component_source_id']) ? (string) $child['figma_component_source_id'] : null,
 					'preserved_dimensions' => $preservedDimensions,
+					'raw_override_fields'  => $this->diagnosticRawOverrideGeometryFields($overrideFields),
 					'source_box'           => $this->diagnosticGeometryBox($sourceChildBox),
 					'override_box'         => $this->diagnosticGeometryBox($box),
 				),
@@ -2979,6 +2980,49 @@ final class ScenegraphNormalizer
 		}
 
 		return $child;
+	}
+
+	/**
+	 * @param array<string, mixed> $overrideFields
+	 * @return array<string, mixed>
+	 */
+	private function diagnosticRawOverrideGeometryFields(array $overrideFields): array
+	{
+		$fields = array();
+		foreach ( array('transform', 'relativeTransform', 'absoluteTransform', 'absoluteBoundingBox', 'size') as $field ) {
+			if ( ! array_key_exists($field, $overrideFields) ) {
+				continue;
+			}
+
+			$value = $overrideFields[$field];
+			if ( is_array($value) ) {
+				$fields[$field] = $this->diagnosticNumericArray($value);
+			} elseif ( is_scalar($value) || null === $value ) {
+				$fields[$field] = $value;
+			}
+		}
+
+		return $fields;
+	}
+
+	/**
+	 * @param array<mixed> $value
+	 * @return array<mixed>
+	 */
+	private function diagnosticNumericArray(array $value): array
+	{
+		$summary = array();
+		foreach ( $value as $key => $item ) {
+			if ( is_array($item) ) {
+				$summary[$key] = $this->diagnosticNumericArray($item);
+			} elseif ( is_numeric($item) ) {
+				$summary[$key] = (float) $item;
+			} elseif ( is_scalar($item) || null === $item ) {
+				$summary[$key] = $item;
+			}
+		}
+
+		return $summary;
 	}
 
 	/**
