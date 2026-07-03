@@ -71,6 +71,40 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert('freeform_parent_absolute_child' === ($positioningTraceSample['reason_code'] ?? null), 'diagnostics-evidence-positioning-context-reason');
     $assert(in_array('position:absolute', $positioningTraceSample['evidence']['positioning_declarations'] ?? array(), true), 'diagnostics-evidence-positioning-context-declarations');
 
+    $localCardResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Local Card Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'diag:card-page',
+                'type'     => 'FRAME',
+                'name'     => 'Card Page',
+                'width'    => 800,
+                'height'   => 520,
+                'children' => array(
+                    array('id' => 'diag:card-date', 'type' => 'TEXT', 'name' => 'Card Date', 'text' => 'July 27, 2021', 'x' => 360, 'y' => 148, 'width' => 120, 'height' => 24),
+                    array('id' => 'diag:card-title', 'type' => 'TEXT', 'name' => 'Card Title', 'text' => 'Fever in Newborns', 'x' => 360, 'y' => 184, 'width' => 260, 'height' => 56),
+                    array('id' => 'diag:card-image', 'type' => 'RECTANGLE', 'name' => 'Card Image', 'x' => 100, 'y' => 120, 'width' => 220, 'height' => 160, 'fillPaints' => array(array('type' => 'IMAGE', 'imageHash' => 'fixture-photo'))),
+                    array('id' => 'diag:card-shell', 'type' => 'RECTANGLE', 'name' => 'Card Shell', 'x' => 80, 'y' => 100, 'width' => 620, 'height' => 220, 'strokeWeight' => 1, 'strokeAlign' => 'INSIDE', 'strokePaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0.5, 'b' => 0.6, 'a' => 1)))),
+                    array('id' => 'diag:card-arrow', 'type' => 'VECTOR', 'name' => 'Card Arrow', 'x' => 620, 'y' => 244, 'width' => 32, 'height' => 24, 'fillPaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0, 'g' => 0.5, 'b' => 0.6, 'a' => 1)))),
+                ),
+            ),
+        ),
+        'assets' => array(
+            'fixture-photo' => array('name' => 'Fixture Photo', 'mime_type' => 'image/jpeg', 'content' => 'fixture image'),
+        ),
+    ));
+    $localCardHtml = blocks_engine_figma_transformer_contract_file_content($localCardResult, 'index.html');
+    $localCardCss = blocks_engine_figma_transformer_contract_file_content($localCardResult, 'style.css');
+    $localCardDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($localCardResult);
+    $localClusterRule = blocks_engine_figma_transformer_contract_css_rule($localCardCss, '.figma-node-diag-card-page-local-cluster-diag-card-shell-local-border-shell-cluster');
+    $localImageRule = blocks_engine_figma_transformer_contract_css_rule($localCardCss, '.figma-node-diag-card-image-card-image');
+    $localTitleRule = blocks_engine_figma_transformer_contract_css_rule($localCardCss, '.figma-node-diag-card-title-card-title');
+    $assert(strpos($localCardHtml, 'data-figma-node-id="diag:card-page/local-cluster-diag:card-shell"') < strpos($localCardHtml, 'data-figma-node-id="diag:card-date"'), 'diagnostics-evidence-local-card-cluster-wraps-first-member');
+    $assert(str_contains($localClusterRule, 'left:80px') && str_contains($localClusterRule, 'top:100px') && str_contains($localClusterRule, 'isolation:isolate'), 'diagnostics-evidence-local-card-cluster-shell-position');
+    $assert(str_contains($localImageRule, 'left:20px') && str_contains($localImageRule, 'top:20px'), 'diagnostics-evidence-local-card-image-local-offset');
+    $assert(str_contains($localTitleRule, 'left:280px') && str_contains($localTitleRule, 'top:84px'), 'diagnostics-evidence-local-card-title-local-offset');
+    $assert(1 === ($localCardDiagnostics['decision_traces']['domain_counts']['local_coordinate_grouping'] ?? null), 'diagnostics-evidence-local-card-grouping-trace-count');
+
     $styleReferenceFallbackResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Style Reference Fallback Fixture',
         'nodes' => array(

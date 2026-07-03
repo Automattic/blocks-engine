@@ -84,6 +84,8 @@ final class StaticHtmlEmitter
 
     private ?ChildLayerCompositionResolver $childLayerCompositionResolver = null;
 
+    private ?LocalBorderShellClusterResolver $localBorderShellClusterResolver = null;
+
     public function __construct(?LayoutGapResolver $layoutGapResolver = null)
     {
         $this->layoutGapResolver = $layoutGapResolver ?? new LayoutGapResolver();
@@ -229,6 +231,11 @@ final class StaticHtmlEmitter
             fn (array $node): ?string => $this->nodeAssetPath($node),
             fn (float $value): string => $this->number($value),
         );
+    }
+
+    private function localBorderShellClusterResolver(): LocalBorderShellClusterResolver
+    {
+        return $this->localBorderShellClusterResolver ??= new LocalBorderShellClusterResolver();
     }
 
     private function layoutIntentClassifier(): LayoutIntentClassifier
@@ -798,6 +805,9 @@ final class StaticHtmlEmitter
                 $childCompositionMaps['suppressed_child_ids'] = array_merge($childCompositionMaps['suppressed_child_ids'], $buttonLayerComposition['suppressed_child_ids']);
             }
             $suppressRootOffCanvasChildren = 0 === $depth && $this->hasRootOffCanvasChildCluster($children, $node);
+            $localClusters = $this->localBorderShellClusters($node, $children);
+            $localClusterByFirstChildId = $localClusters['by_first_child_id'];
+            $localClusterMemberIds = $localClusters['member_ids'];
             foreach ( $children as $child ) {
                 if ( is_array($child) ) {
                     if ( $this->isMaskOperatorNode($child) ) {
@@ -809,6 +819,13 @@ final class StaticHtmlEmitter
                         $reason = $childCompositionMaps['suppressed_child_ids'][$childId];
                         $this->suppressedVisualNodeIds[$childId] = $reason;
                         $this->recordDecisionTrace('layout_suppression', $reason, $child, 'skip_child', $node, array('depth' => $depth + 1));
+                        continue;
+                    }
+                    if ( '' !== $childId && isset($localClusterByFirstChildId[$childId]) ) {
+                        $content .= $this->emitNode($localClusterByFirstChildId[$childId], $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node, $parentNode, $insideForm || 'form' === $tag, $insideLink || $nodeIntroducesLink);
+                        continue;
+                    }
+                    if ( '' !== $childId && isset($localClusterMemberIds[$childId]) ) {
                         continue;
                     }
                     $child = $this->applyChildAssetComposition($child, $childId, $childCompositionMaps);
@@ -976,6 +993,16 @@ final class StaticHtmlEmitter
     private function applyChildAssetComposition(array $child, string $childId, array $compositionMaps): array
     {
         return $this->childLayerCompositionResolver()->applyToChild($child, $childId, $compositionMaps);
+    }
+
+    /**
+     * @param array<string, mixed> $parent
+     * @param array<int, mixed> $children
+     * @return array{by_first_child_id: array<string, array<string, mixed>>, member_ids: array<string, string>}
+     */
+    private function localBorderShellClusters(array $parent, array $children): array
+    {
+        return $this->localBorderShellClusterResolver()->resolve($parent, $children);
     }
 
     /**
@@ -6012,6 +6039,21 @@ final class StaticHtmlEmitter
                     'suppressed_full_bleed_horizontal_offsets' => $absoluteDecision->suppressedFullBleedHorizontalOffsets,
                     'centered_within_parent_fluid_canvas' => $canvasShell->centeredWithinParentFluidCanvas,
                     'full_bleed_canvas_child' => $canvasShell->fullBleedCanvasChild,
+                ))
+            );
+        }
+
+        $syntheticCluster = is_array($node['_figma_synthetic_local_cluster'] ?? null) ? $node['_figma_synthetic_local_cluster'] : array();
+        if ( ! empty($syntheticCluster) ) {
+            $this->recordDecisionTrace(
+                'local_coordinate_grouping',
+                (string) ($syntheticCluster['reason_code'] ?? 'local_border_shell_cluster'),
+                $node,
+                'emit_synthetic_local_cluster',
+                $parentNode,
+                array_merge($baseEvidence, array(
+                    'shell_id' => $syntheticCluster['shell_id'] ?? null,
+                    'member_ids' => is_array($syntheticCluster['member_ids'] ?? null) ? $syntheticCluster['member_ids'] : array(),
                 ))
             );
         }
