@@ -112,6 +112,53 @@ function blocks_engine_figma_transformer_contract_assert_diagnostic_summary_enve
 }
 
 /**
+ * @param array<string, mixed> $diagnostics
+ * @param array<int, string|int> $path
+ * @return mixed|null
+ */
+function blocks_engine_figma_transformer_contract_diagnostic_value(array $diagnostics, array $path)
+{
+    $value = $diagnostics;
+    foreach ( $path as $segment ) {
+        if ( ! is_array($value) || ! array_key_exists($segment, $value) ) {
+            return null;
+        }
+        $value = $value[$segment];
+    }
+
+    return $value;
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ * @param array<string, mixed> $diagnostics
+ * @param array<int, string|int> $path
+ * @param mixed $expected
+ */
+function blocks_engine_figma_transformer_contract_assert_diagnostic_value(callable $assert, array $diagnostics, array $path, $expected, string $message): void
+{
+    $assert($expected === blocks_engine_figma_transformer_contract_diagnostic_value($diagnostics, $path), $message);
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ * @param array<string, mixed> $result
+ */
+function blocks_engine_figma_transformer_contract_assert_quality_signal(callable $assert, array $result, string $code, string $message): void
+{
+    $assert(in_array($code, blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($result), true), $message);
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ * @param array<string, mixed> $result
+ */
+function blocks_engine_figma_transformer_contract_assert_no_quality_signal(callable $assert, array $result, string $code, string $message): void
+{
+    $assert(! in_array($code, blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($result), true), $message);
+}
+
+/**
  * @param array<string, mixed> $payload
  */
 function blocks_engine_figma_transformer_contract_json_fixture(string $prefix, array $payload): string
@@ -204,6 +251,22 @@ function blocks_engine_figma_transformer_contract_css_rule(string $css, string $
     }
 
     return implode(';', array_map('strval', $matches[1]));
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ */
+function blocks_engine_figma_transformer_contract_assert_css_rule_exists(callable $assert, string $css, string $selector, string $message): void
+{
+    $assert('' !== blocks_engine_figma_transformer_contract_css_rule($css, $selector), $message);
+}
+
+/**
+ * @param callable(bool, string): void $assert
+ */
+function blocks_engine_figma_transformer_contract_assert_css_rule_absent(callable $assert, string $css, string $selector, string $message): void
+{
+    $assert('' === blocks_engine_figma_transformer_contract_css_rule($css, $selector), $message);
 }
 
 /**

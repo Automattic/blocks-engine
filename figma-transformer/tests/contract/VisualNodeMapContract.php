@@ -154,11 +154,11 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
         ),
     ));
     $reverseZIndexCss = blocks_engine_figma_transformer_contract_file_content($reverseZIndexResult, 'style.css');
-    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-row-overlapping-reverse-z-row{width:180px;height:80px;isolation:isolate;display:flex;flex-direction:row;gap:0px}'), 'visual-map-reverse-z-parent-gap-clamped');
-    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-row-overlapping-reverse-z-row>*+*{margin-left:-20px}'), 'visual-map-reverse-z-negative-spacing-overlap-margin');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $reverseZIndexCss, '.figma-node-reverse-z-row-overlapping-reverse-z-row', array('width:180px', 'height:80px', 'isolation:isolate', 'display:flex', 'flex-direction:row', 'gap:0px'), 'visual-map-reverse-z-parent-gap-clamped');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $reverseZIndexCss, '.figma-node-reverse-z-row-overlapping-reverse-z-row>*+*', array('margin-left:-20px'), 'visual-map-reverse-z-negative-spacing-overlap-margin');
     $assert(! str_contains($reverseZIndexCss, 'gap:-'), 'visual-map-reverse-z-no-negative-gap-css');
-    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-first-first-top-child{width:80px;height:80px;position:relative;z-index:2;flex-shrink:0}'), 'visual-map-reverse-z-first-child-on-top');
-    $assert(str_contains($reverseZIndexCss, '.figma-node-reverse-z-second-second-lower-child{width:80px;height:80px;position:relative;z-index:1;flex-shrink:0}'), 'visual-map-reverse-z-second-child-lower');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $reverseZIndexCss, '.figma-node-reverse-z-first-first-top-child', array('width:80px', 'height:80px', 'position:relative', 'z-index:2', 'flex-shrink:0'), 'visual-map-reverse-z-first-child-on-top');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $reverseZIndexCss, '.figma-node-reverse-z-second-second-lower-child', array('width:80px', 'height:80px', 'position:relative', 'z-index:1', 'flex-shrink:0'), 'visual-map-reverse-z-second-child-lower');
 
     $isolatedStackResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Isolated Local Stack Fixture',
@@ -192,7 +192,7 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
         ),
     ));
     $isolatedStackCss = blocks_engine_figma_transformer_contract_file_content($isolatedStackResult, 'style.css');
-    $assert(str_contains($isolatedStackCss, '.figma-node-isolated-stack-section-layered-image-section{width:320px;height:180px;isolation:isolate;position:absolute;left:0px;top:0px;display:flex;flex-direction:row;gap:0px}'), 'visual-map-local-stack-clamps-negative-css-gap');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $isolatedStackCss, '.figma-node-isolated-stack-section-layered-image-section', array('width:320px', 'height:180px', 'isolation:isolate', 'position:absolute', 'left:0px', 'top:0px', 'display:flex', 'flex-direction:row', 'gap:0px'), 'visual-map-local-stack-clamps-negative-css-gap');
 
     $invalidGapResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Invalid Auto Layout Gap Fixture',
@@ -231,7 +231,7 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     $assert(! str_contains($invalidGapCss, 'NaNpx'), 'visual-map-gap-css-rejects-nan');
     $assert(! str_contains($invalidGapCss, 'INFpx') && ! str_contains($invalidGapCss, 'Infinity'), 'visual-map-gap-css-rejects-infinity');
     $assert(1 !== preg_match('/gap:[^;}]*-[0-9.]+px/', $invalidGapCss), 'visual-map-gap-css-clamps-negative-values');
-    $assert(str_contains($invalidGapCss, '.figma-node-invalid-gap-wrap-wrapping-row-with-invalid-counter-gap{width:300px;height:120px;display:flex;flex-direction:row;flex-wrap:wrap;align-content:flex-start;gap:0px}'), 'visual-map-gap-css-falls-back-to-clamped-main-gap');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $invalidGapCss, '.figma-node-invalid-gap-wrap-wrapping-row-with-invalid-counter-gap', array('width:300px', 'height:120px', 'display:flex', 'flex-direction:row', 'flex-wrap:wrap', 'align-content:flex-start', 'gap:0px'), 'visual-map-gap-css-falls-back-to-clamped-main-gap');
 
     $mixedLayerStackResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Mixed Layer Stack Fixture',

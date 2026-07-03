@@ -156,5 +156,5 @@ function blocks_engine_figma_transformer_run_render_style_mismatch_contract(call
     $assert('fail' === ($transformDiagnostics['status'] ?? null), 'render-style-transform-status');
     $assert(1 === ($transformDiagnostics['summary']['font_mismatch_count'] ?? null), 'render-style-transform-font-count');
     $assert(1 === ($transformDiagnostics['summary']['color_mismatch_count'] ?? null), 'render-style-transform-color-count');
-    $assert(in_array('render_style_mismatch', blocks_engine_figma_transformer_contract_artifact_quality_signal_codes($transformResult), true), 'render-style-artifact-quality-signal');
+    blocks_engine_figma_transformer_contract_assert_quality_signal($assert, $transformResult, 'render_style_mismatch', 'render-style-artifact-quality-signal');
 }

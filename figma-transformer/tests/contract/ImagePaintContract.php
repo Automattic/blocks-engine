@@ -9,8 +9,8 @@ declare(strict_types=1);
 function blocks_engine_figma_transformer_run_image_paint_contract(callable $assert, array $result, string $css, callable $fileContent): void
 {
     $assert(2 === ($result['metrics']['asset_count'] ?? null), 'asset-count');
-    $assert(str_contains($css, '.figma-node-1-4-hero-image-rectangle{width:320px;height:180px;position:absolute;left:10px;top:20px;background:#ff0000;background-image:url("assets/hero-image.svg")'), 'css-rectangle-asset-style');
-    $assert(str_contains($css, '.figma-node-1-5-nested-image-paint{') && str_contains($css, 'background-image:url("assets/fixture-photo.jpg")'), 'css-nested-image-hash-asset-style');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $css, '.figma-node-1-4-hero-image-rectangle', array('width:320px', 'height:180px', 'position:absolute', 'left:10px', 'top:20px', 'background:#ff0000', 'background-image:url("assets/hero-image.svg")'), 'css-rectangle-asset-style');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $css, '.figma-node-1-5-nested-image-paint', array('background-image:url("assets/fixture-photo.jpg")'), 'css-nested-image-hash-asset-style');
     $assert('fixture image bytes' === $fileContent($result, 'assets/fixture-photo.jpg'), 'asset-content-preserved');
 
     $imageUnderlayGuardResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -46,7 +46,7 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     ));
     $imageUnderlayGuardCss = $fileContent($imageUnderlayGuardResult, 'style.css');
     $imageUnderlayGuardUnderlays = $imageUnderlayGuardResult['source_reports']['figma']['html']['transform_diagnostics']['layout']['decorative_underlays'] ?? array();
-    $assert(str_contains($imageUnderlayGuardCss, '.figma-node-imageguard-photo-large-photo{width:900px;height:520px;background-image:url("assets/guard-image.svg");background-size:cover;background-position:center;flex-shrink:0}'), 'image-backed-child-remains-flex-child');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $imageUnderlayGuardCss, '.figma-node-imageguard-photo-large-photo', array('width:900px', 'height:520px', 'background-image:url("assets/guard-image.svg")', 'background-size:cover', 'background-position:center', 'flex-shrink:0'), 'image-backed-child-remains-flex-child');
     $assert(0 === ($imageUnderlayGuardUnderlays['count'] ?? null), 'image-backed-child-not-decorative-underlay-diagnostic');
 
     $imageBackedVectorResult = blocks_engine_figma_transformer_transform_scenegraph(array(
@@ -70,7 +70,7 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $imageBackedVectorHtml = $fileContent($imageBackedVectorResult, 'index.html');
     $imageBackedVectorCss = $fileContent($imageBackedVectorResult, 'style.css');
     $imageBackedVectorDiagnostics = $imageBackedVectorResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
-    $assert(str_contains($imageBackedVectorCss, '.figma-node-imagevector-photo-photo-vector-layer{width:120px;height:80px;background-image:url("assets/vector-photo.png");background-size:cover;background-position:center}'), 'image-backed-vector-emits-image-background');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $imageBackedVectorCss, '.figma-node-imagevector-photo-photo-vector-layer', array('width:120px', 'height:80px', 'background-image:url("assets/vector-photo.png")', 'background-size:cover', 'background-position:center'), 'image-backed-vector-emits-image-background');
     $assert(str_contains($imageBackedVectorHtml, 'data-figma-node-id="imagevector:photo"') && ! str_contains($imageBackedVectorHtml, 'data-figma-vector="true"'), 'image-backed-vector-does-not-emit-vector-svg');
     $assert(0 === ($imageBackedVectorDiagnostics['vectors']['placeholders'] ?? null), 'image-backed-vector-not-counted-as-placeholder');
     $assert(1 === ($imageBackedVectorDiagnostics['images']['paint_refs'] ?? null), 'image-backed-vector-image-paint-evidence-counted');
@@ -98,8 +98,8 @@ function blocks_engine_figma_transformer_run_image_paint_contract(callable $asse
     $imageMaskOverlayCss = $fileContent($imageMaskOverlayResult, 'style.css');
     $imageMaskOverlayDiagnostics = $imageMaskOverlayResult['source_reports']['figma']['html']['transform_diagnostics'] ?? array();
     $assert(! str_contains($imageMaskOverlayHtml, 'data-figma-node-id="imagemask:asset"'), 'image-mask-social-alpha-source-not-emitted-as-visible-underlay');
-    $assert(! str_contains($imageMaskOverlayCss, '.figma-node-imagemask-asset-instagram-asset-layer{'), 'image-mask-social-alpha-source-has-no-visible-css-underlay');
-    $assert(str_contains($imageMaskOverlayCss, '.figma-node-imagemask-overlay-instagram-overlay{width:24px;height:24px;-webkit-mask-image:url("assets/social-mask.svg");mask-image:url("assets/social-mask.svg")'), 'image-mask-social-overlay-emits-css-mask');
+    blocks_engine_figma_transformer_contract_assert_css_rule_absent($assert, $imageMaskOverlayCss, '.figma-node-imagemask-asset-instagram-asset-layer', 'image-mask-social-alpha-source-has-no-visible-css-underlay');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $imageMaskOverlayCss, '.figma-node-imagemask-overlay-instagram-overlay', array('width:24px', 'height:24px', '-webkit-mask-image:url("assets/social-mask.svg")', 'mask-image:url("assets/social-mask.svg")'), 'image-mask-social-overlay-emits-css-mask');
     $assert(! str_contains($imageMaskOverlayHtml, 'data-figma-node-id="imagemask:asset" data-figma-node-name="Instagram asset layer"><svg') && ! str_contains($imageMaskOverlayHtml, 'data-figma-node-id="imagemask:overlay" data-figma-node-name="Instagram overlay"><svg'), 'image-mask-social-composition-does-not-emit-duplicate-svg-children');
     $assert(! str_contains($imageMaskOverlayHtml, 'data-figma-unsupported-vector="true"'), 'image-mask-social-composition-has-no-placeholder-svg');
     $assert(0 === ($imageMaskOverlayDiagnostics['vectors']['placeholders'] ?? null), 'image-mask-social-composition-not-counted-as-vector-placeholder');
