@@ -7148,6 +7148,48 @@ $assert(
     'responsive-breakpoint-safety-policy-header-child-preserves-matched-variant-geometry'
 );
 $assert(
+    array('reason_code' => 'responsive_footer_chrome_safety', 'declarations' => array('width:100%', 'max-width:100%', 'height:auto', 'display:flex', 'flex-direction:column', 'align-items:stretch', 'justify-content:flex-start', 'min-height:469px')) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
+        array('id' => 'policy:footer', 'type' => 'FRAME', 'name' => 'Footer', 'box' => array('height' => 251)),
+        null,
+        array('height' => '251px'),
+        array('id' => 'policy:footer-mobile', 'type' => 'FRAME', 'name' => 'Footer', 'box' => array('height' => 469)),
+        'footer',
+        '',
+        true,
+        Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER,
+        null
+    ),
+    'responsive-breakpoint-safety-policy-footer-chrome-decision-seam'
+);
+$assert(
+    array('reason_code' => 'responsive_footer_child_chrome_safety', 'declarations' => array('position:relative', 'left:auto', 'right:auto', 'top:auto', 'max-width:100%', 'margin-left:0')) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
+        array('id' => 'policy:footer-link', 'type' => 'TEXT', 'name' => 'Footer Link'),
+        array('id' => 'policy:footer', 'type' => 'FRAME', 'name' => 'Footer'),
+        array('position' => 'absolute', 'left' => '435px', 'top' => '91px'),
+        null,
+        'footer link',
+        'footer',
+        false,
+        null,
+        Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER
+    ),
+    'responsive-breakpoint-safety-policy-footer-child-chrome-decision-seam'
+);
+$assert(
+    array('reason_code' => '', 'declarations' => array()) === $responsiveBreakpointSafetyPolicy->responsiveChromeFlowDecision(
+        array('id' => 'policy:footer-underlay', 'type' => 'RECTANGLE', 'name' => 'Rectangle'),
+        array('id' => 'policy:footer', 'type' => 'FRAME', 'name' => 'Footer'),
+        array('position' => 'absolute', 'pointer-events' => 'none', 'background' => '#198097'),
+        null,
+        'rectangle',
+        'footer',
+        false,
+        null,
+        Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER
+    ),
+    'responsive-breakpoint-safety-policy-footer-underlay-preserved-seam'
+);
+$assert(
     array('width:calc(100% - 48px)', 'max-width:342px', 'left:24px', 'right:auto') === $responsiveBreakpointSafetyPolicy->mobileCenteredTextFallbackDecision(
         array('id' => 'policy:text', 'type' => 'TEXT', 'name' => 'Hero Title'),
         array('id' => 'policy:parent', 'type' => 'FRAME'),

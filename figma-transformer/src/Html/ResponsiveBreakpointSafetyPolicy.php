@@ -80,6 +80,12 @@ final class ResponsiveBreakpointSafetyPolicy
             return array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $this->breakpointDimensionPolicy->headerChromeDeclarations($this->responsiveHeaderMinHeight($node, $baseMap, $variantNode)));
         }
 
+        if ( LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER === $chromeRole || 'footer' === $name ) {
+            if ( $isContainer && ! $this->hasFooterResponsiveShell($node) ) {
+                return array('reason_code' => 'responsive_footer_chrome_safety', 'declarations' => $this->footerChromeDeclarations($node, $baseMap, $variantNode));
+            }
+        }
+
         if ( null === $variantNode && (LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $parentChromeRole || $this->isHeaderChromeShellName($parentName)) ) {
             $headerChildDeclarations = array('position:relative', 'left:auto', 'right:auto', 'top:auto', 'max-width:100%');
             if ( $isContainer ) {
@@ -88,6 +94,20 @@ final class ResponsiveBreakpointSafetyPolicy
             }
 
             return array('reason_code' => 'responsive_header_child_chrome_safety', 'declarations' => array_values(array_unique($headerChildDeclarations)));
+        }
+
+        if ( LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER === $parentChromeRole || 'footer' === $parentName ) {
+            if ( str_contains($name, 'newsletter signup') || 'frame 19' === $name || $this->isDecorativeFooterUnderlay($node, $baseMap) ) {
+                return array('reason_code' => '', 'declarations' => array());
+            }
+
+            $footerChildDeclarations = array('position:relative', 'left:auto', 'right:auto', 'top:auto', 'max-width:100%', 'margin-left:0');
+            if ( $isContainer ) {
+                array_unshift($footerChildDeclarations, 'width:100%', 'max-width:100%', 'height:auto');
+                array_push($footerChildDeclarations, 'justify-content:flex-start', 'align-items:center', 'flex-wrap:wrap', 'gap:16px');
+            }
+
+            return array('reason_code' => 'responsive_footer_child_chrome_safety', 'declarations' => array_values(array_unique($footerChildDeclarations)));
         }
 
         if ( $this->isNavigationShellName($name) && $isContainer ) {
@@ -406,6 +426,37 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         return max($baseHeight, $variantHeight);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, string> $baseMap
+     * @param array<string, mixed>|null $variantNode
+     * @return array<int, string>
+     */
+    private function footerChromeDeclarations(array $node, array $baseMap, ?array $variantNode): array
+    {
+        $declarations = array('width:100%', 'max-width:100%', 'height:auto', 'display:flex', 'flex-direction:column', 'align-items:stretch', 'justify-content:flex-start');
+        $minHeight = $this->responsiveHeaderMinHeight($node, $baseMap, $variantNode);
+        if ( null !== $minHeight && $minHeight > 0.0 ) {
+            $declarations[] = 'min-height:' . ($this->number)($minHeight) . 'px';
+        }
+
+        return $declarations;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, string> $baseMap
+     */
+    private function isDecorativeFooterUnderlay(array $node, array $baseMap): bool
+    {
+        $type = strtoupper((string) ($node['type'] ?? ''));
+        if ( ! in_array($type, array('RECTANGLE', 'VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON', 'ROUNDED_RECTANGLE'), true) ) {
+            return false;
+        }
+
+        return 'none' === ($baseMap['pointer-events'] ?? null) || isset($baseMap['background']) || isset($baseMap['background-color']) || isset($baseMap['transform']);
     }
 
     private function cssPixelValue(string $value): ?float
