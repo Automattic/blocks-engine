@@ -45,6 +45,8 @@ Required parity fields:
 
 `source_reports.figma.html.transform_diagnostics` uses schema `blocks-engine/figma-transformer/transform-diagnostics/v1`. It is a development/parity diagnostics envelope, not a rendering contract. It explains source nodes that were decoded but not materially emitted so visual gaps can be triaged without papering over output.
 
+`source_reports.figma.html.visual_node_map` is the aggregate source-to-artifact evidence map. Each emitted visual node entry includes `id`, `rect`, `page_path`, optional `emitted_class`/`emitted_tag`, and multi-page provenance fields `source_page_index` and `source_page_frame_id`. The same traced entries are preserved in each `source_reports.figma.html.pages[].visual_node_map` page report so arbitrary `.fig` scale output can be traced from aggregate JSON to the generated page HTML and shared CSS selector.
+
 Text coverage lives at `transform_diagnostics.text` with schema `blocks-engine/figma-transformer/text-coverage/v1`:
 
 - `decoded_text_node_count`: non-empty decoded text nodes considered for emission.

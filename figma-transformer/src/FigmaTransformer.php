@@ -633,7 +633,13 @@ final class FigmaTransformer
             $pageFontFamilies = is_array($pageHtmlReport['font_families'] ?? null) ? $pageHtmlReport['font_families'] : array();
             $pageFontUsage = is_array($pageHtmlReport['font_usage'] ?? null) ? $pageHtmlReport['font_usage'] : array();
             $pageTransformDiagnostics = is_array($pageHtmlReport['transform_diagnostics'] ?? null) ? $pageHtmlReport['transform_diagnostics'] : array();
-            $pageVisualNodeMap = is_array($pageHtmlReport['visual_node_map'] ?? null) ? array_values($pageHtmlReport['visual_node_map']) : array();
+            $pageIndex = count($pageReports);
+            $pageVisualNodeMap = $this->visualNodeMapWithPageTrace(
+                is_array($pageHtmlReport['visual_node_map'] ?? null) ? array_values($pageHtmlReport['visual_node_map']) : array(),
+                $pageIndex,
+                $frameId,
+                $path
+            );
             foreach ( $pageVisualNodeMap as $visualNode ) {
                 if ( is_array($visualNode) ) {
                     $visualNodeMap[] = $visualNode;
@@ -759,6 +765,29 @@ final class FigmaTransformer
                 'transform_duration_ms'  => (int) round((microtime(true) - $startedAt) * 1000),
             )
         );
+    }
+
+    /**
+     * @param array<int, mixed> $visualNodeMap
+     * @return array<int, array<string, mixed>>
+     */
+    private function visualNodeMapWithPageTrace(array $visualNodeMap, int $pageIndex, string $frameId, string $path): array
+    {
+        $traced = array();
+        foreach ( $visualNodeMap as $visualNode ) {
+            if ( ! is_array($visualNode) ) {
+                continue;
+            }
+
+            $visualNode['source_page_index'] = $pageIndex;
+            $visualNode['source_page_frame_id'] = $frameId;
+            $visualNode['page_path'] = isset($visualNode['page_path']) && is_scalar($visualNode['page_path']) && '' !== (string) $visualNode['page_path']
+                ? (string) $visualNode['page_path']
+                : $path;
+            $traced[] = $visualNode;
+        }
+
+        return $traced;
     }
 
     /**

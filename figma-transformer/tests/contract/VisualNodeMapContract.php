@@ -119,9 +119,20 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     ), array('multi_page' => true, 'frame_ids' => array('visual-emitted:home', 'visual-emitted:about'), 'entry_frame_id' => 'visual-emitted:home'));
     $multiPageAboutNode = blocks_engine_figma_transformer_contract_find_visual_node($multiPageEmittedClassResult, 'visual-emitted:about-title');
     $multiPageAboutHtml = blocks_engine_figma_transformer_contract_file_content($multiPageEmittedClassResult, 'about-page.html');
+    $multiPageCss = blocks_engine_figma_transformer_contract_file_content($multiPageEmittedClassResult, 'style.css');
+    $multiPageSourceReport = $multiPageEmittedClassResult['source_reports']['figma']['html'] ?? array();
+    $multiPagePages = is_array($multiPageSourceReport['pages'] ?? null) ? $multiPageSourceReport['pages'] : array();
+    $multiPageAggregateMap = is_array($multiPageSourceReport['visual_node_map'] ?? null) ? $multiPageSourceReport['visual_node_map'] : array();
     $assert('about-page.html' === ($multiPageAboutNode['page_path'] ?? null), 'visual-map-emitted-class-multi-page-path');
+    $assert(1 === ($multiPageAboutNode['source_page_index'] ?? null), 'visual-map-aggregate-source-page-index');
+    $assert('visual-emitted:about' === ($multiPageAboutNode['source_page_frame_id'] ?? null), 'visual-map-aggregate-source-page-frame-id');
+    $assert(2 === count($multiPagePages), 'visual-map-aggregate-page-report-count');
+    $assert(4 === count($multiPageAggregateMap), 'visual-map-aggregate-node-count');
+    $assert('visual-emitted:about-title' === ($multiPagePages[1]['visual_node_map'][1]['id'] ?? null), 'visual-map-page-report-preserves-node');
+    $assert(1 === ($multiPagePages[1]['visual_node_map'][1]['source_page_index'] ?? null), 'visual-map-page-report-preserves-source-page-index');
     $assert('figma-node-visual-emitted-about-title-about-title' === ($multiPageAboutNode['emitted_class'] ?? null), 'visual-map-emitted-class-multi-page-class');
     $assert(str_contains($multiPageAboutHtml, 'class="figma-node-visual-emitted-about-title-about-title" data-figma-node-id="visual-emitted:about-title"'), 'visual-map-emitted-class-multi-page-html-hook');
+    $assert(str_contains($multiPageCss, '.figma-node-visual-emitted-about-title-about-title{'), 'visual-map-emitted-class-multi-page-css-hook');
 
     $reverseZIndexResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Reverse Z Index Auto Layout Fixture',
