@@ -776,7 +776,7 @@ final class StaticHtmlEmitter
                 // Multi-paragraph text splits into per-paragraph boxes so
                 // `paragraphSpacing` lands as a margin; otherwise render the node
                 // as a single element.
-                $text = $this->multiParagraphTextContent($node) ?? $this->textContent($node, $parentNode);
+                $text = $this->multiParagraphTextContent($node) ?? $this->packedNavigationTextContent($node, $parentNode) ?? $this->textContent($node, $parentNode);
             }
         } else {
             $text = $this->textContent($node, $parentNode);
@@ -6914,6 +6914,110 @@ final class StaticHtmlEmitter
         }
 
         return $this->sanitizeText($characters);
+    }
+
+    /**
+     * Packed navigation text is a single visual text layer containing labels
+     * separated by designer-authored spacing. Preserve the layer and spacing,
+     * but restore links for labels that resolve to planned routes or anchors.
+     *
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function packedNavigationTextContent(array $node, ?array $parentNode): ?string
+    {
+        $characters = $this->rawTextCharacters($node);
+        if ( ! $this->isPackedNavigationRouteText($node, $parentNode, $characters) ) {
+            return null;
+        }
+
+        $parts = preg_split('/(\s{2,})/', $characters, -1, PREG_SPLIT_DELIM_CAPTURE);
+        if ( ! is_array($parts) ) {
+            return null;
+        }
+
+        $content = '';
+        foreach ( $parts as $part ) {
+            if ( '' === $part ) {
+                continue;
+            }
+
+            if ( 1 === preg_match('/^\s+$/', $part) ) {
+                $content .= $this->sanitizeText($part);
+                continue;
+            }
+
+            $label = trim($part);
+            $href = $this->routePathForLabel($label, $node, $parentNode, true)
+                ?? $this->currentPageAnchorHrefForLabel($label);
+            if ( null === $href ) {
+                $content .= $this->sanitizeText($part);
+                continue;
+            }
+
+            $this->linkCoverage['implicit_route_links']++;
+            $this->linkCoverage['anchors_emitted']++;
+            $content .= sprintf(
+                '<a class="figma-link" href="%1$s" data-figma-link-type="implicit-route">%2$s</a>',
+                $this->sanitizeAttribute($href),
+                $this->sanitizeText($part)
+            );
+        }
+
+        return '' !== $content ? $content : null;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function rawTextCharacters(array $node): string
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        if ( isset($text['characters']) && is_scalar($text['characters']) ) {
+            return (string) $text['characters'];
+        }
+
+        return (string) ($node['characters'] ?? $node['text'] ?? '');
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     */
+    private function isPackedNavigationRouteText(array $node, ?array $parentNode, string $characters): bool
+    {
+        $trimmed = trim($characters);
+        if ( '' === $trimmed || ! preg_match('/\s{2,}/', $characters) ) {
+            return false;
+        }
+
+        if ( str_word_count($trimmed) > 24 || strlen($trimmed) > 240 ) {
+            return false;
+        }
+
+        $context = strtolower((string) ($node['name'] ?? ''));
+        if ( null !== $parentNode ) {
+            $context .= ' ' . strtolower((string) ($parentNode['name'] ?? ''));
+        }
+        if ( ! preg_match('/\b(nav|navigation|menu|header|footer|link|links)\b/', $context) ) {
+            return false;
+        }
+
+        $labels = preg_split('/\s{2,}/', $trimmed);
+        if ( ! is_array($labels) || count($labels) < 2 ) {
+            return false;
+        }
+
+        $linkable = 0;
+        foreach ( $labels as $label ) {
+            $label = trim((string) $label);
+            if ( '' === $label ) {
+                continue;
+            }
+            if ( $this->hasImplicitRouteForLabel($label) || null !== $this->currentPageAnchorHrefForLabel($label) ) {
+                $linkable++;
+            }
+        }
+
+        return $linkable >= 2 && $linkable >= (int) ceil(count($labels) / 2);
     }
 
     /**
