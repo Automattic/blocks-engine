@@ -3493,11 +3493,13 @@ final class StaticHtmlEmitter
                 'sample_nodes' => array(),
             ),
         );
-        $nodeDiagnosticIndex = $this->nodeDiagnosticIndex($nodes);
-        $cssGeometryIndex = $this->cssBaseGeometryIndex($css);
+        $geometryDiagnostics = $this->diagnosticGeometryIndexes($nodes, $visualNodeMap, $css);
+        $nodeDiagnosticIndex = $geometryDiagnostics['nodes'];
+        $cssGeometryIndex = $geometryDiagnostics['emitted_css'];
+        $visualNodeMapById = $geometryDiagnostics['visual_by_id'];
         $cssOffsetDiagnostics = $this->cssAbsoluteOffsetDiagnostics($css, $nodeDiagnosticIndex);
         $invalidCssDiagnostics = $this->invalidCssNumericTokenDiagnostics($css);
-        $visualOffsetDiagnostics = $this->visualOffCanvasDiagnostics($visualNodeMap, $nodeDiagnosticIndex, $cssGeometryIndex);
+        $visualOffsetDiagnostics = $this->visualOffCanvasDiagnostics($visualNodeMap, $visualNodeMapById, $nodeDiagnosticIndex, $cssGeometryIndex);
         $visualClipDiagnostics = $this->visualClipDiagnostics($visualNodeMap, $nodeDiagnosticIndex);
         $layout = array(
             'large_negative_left_count' => preg_match_all('/left:-[0-9]{3,}/', $css),
@@ -4538,12 +4540,7 @@ final class StaticHtmlEmitter
      */
     private function nodeCoverageSample(array $node): array
     {
-        return array_filter(array(
-            'node_id' => (string) ($node['id'] ?? ''),
-            'name' => (string) ($node['name'] ?? ''),
-            'type' => strtoupper((string) ($node['type'] ?? '')),
-            'class' => $this->nodeDiagnosticClass($node),
-        ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+        return $this->diagnosticNodeSample($node);
     }
 
     /**
@@ -4674,18 +4671,24 @@ final class StaticHtmlEmitter
             return null;
         }
 
+        return $this->diagnosticGeometrySample(
+            $this->diagnosticNodeSample($node) + array('parent_id' => (string) ($parentNode['id'] ?? '')),
+            array('x' => $left, 'y' => $top, 'width' => $width, 'height' => $height),
+            array('x' => 0.0, 'y' => 0.0, 'width' => $parentWidth, 'height' => $parentHeight)
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $nodes
+     * @param array<int, array<string, mixed>> $visualNodeMap
+     * @return array{nodes: array{by_id: array<string, array<string, mixed>>, by_class: array<string, array<string, mixed>>}, emitted_css: array<string, array<string, float>>, visual_by_id: array<string, array<string, mixed>>}
+     */
+    private function diagnosticGeometryIndexes(array $nodes, array $visualNodeMap, string $css): array
+    {
         return array(
-            'node_id' => (string) ($node['id'] ?? ''),
-            'name' => (string) ($node['name'] ?? ''),
-            'type' => strtoupper((string) ($node['type'] ?? '')),
-            'class' => $this->nodeDiagnosticClass($node),
-            'parent_id' => (string) ($parentNode['id'] ?? ''),
-            'left' => null === $left ? null : $this->reportNumericValue($left),
-            'top' => null === $top ? null : $this->reportNumericValue($top),
-            'width' => $this->reportNumericValue($width),
-            'height' => $this->reportNumericValue($height),
-            'parent_width' => null === $parentWidth ? null : $this->reportNumericValue($parentWidth),
-            'parent_height' => null === $parentHeight ? null : $this->reportNumericValue($parentHeight),
+            'nodes' => $this->nodeDiagnosticIndex($nodes),
+            'emitted_css' => $this->cssBaseGeometryIndex($css),
+            'visual_by_id' => $this->visualNodeMapIndex($visualNodeMap),
         );
     }
 
@@ -4711,11 +4714,7 @@ final class StaticHtmlEmitter
      */
     private function appendNodeDiagnosticIndex(array $node, array &$index): void
     {
-        $entry = array(
-            'node_id' => (string) ($node['id'] ?? ''),
-            'name' => (string) ($node['name'] ?? ''),
-            'type' => strtoupper((string) ($node['type'] ?? '')),
-            'class' => $this->nodeDiagnosticClass($node),
+        $entry = $this->diagnosticNodeSample($node) + array(
             'empty_visible_container' => null !== $this->emptyVisibleContainerDiagnostic($node),
             'component_clone_geometry' => $this->hasComponentCloneGeometry($node),
         );
@@ -4739,6 +4738,88 @@ final class StaticHtmlEmitter
     private function nodeDiagnosticClass(array $node): string
     {
         return 'figma-node-' . $this->slug((string) ($node['id'] ?? '') . '-' . (string) ($node['name'] ?? ''));
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<string, mixed>
+     */
+    private function diagnosticNodeSample(array $node): array
+    {
+        return array_filter(array(
+            'node_id' => (string) ($node['id'] ?? ''),
+            'name' => (string) ($node['name'] ?? ''),
+            'type' => strtoupper((string) ($node['type'] ?? '')),
+            'class' => $this->nodeDiagnosticClass($node),
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $visualNodeMap
+     * @return array<string, array<string, mixed>>
+     */
+    private function visualNodeMapIndex(array $visualNodeMap): array
+    {
+        $byId = array();
+        foreach ( $visualNodeMap as $entry ) {
+            if ( is_array($entry) && isset($entry['id']) && is_scalar($entry['id']) ) {
+                $byId[(string) $entry['id']] = $entry;
+            }
+        }
+
+        return $byId;
+    }
+
+    /**
+     * @param array<string, mixed> $base
+     * @param array<string, mixed> $rect
+     * @param array<string, mixed> $parentRect
+     * @param array<string, mixed>|null $sourceRect
+     * @return array<string, mixed>
+     */
+    private function diagnosticGeometrySample(array $base, array $rect, array $parentRect, ?array $sourceRect = null, string $geometrySource = ''): array
+    {
+        $sample = array_filter($base + array(
+            'left' => $this->diagnosticRectDelta($rect, $parentRect, 'x'),
+            'top' => $this->diagnosticRectDelta($rect, $parentRect, 'y'),
+            'x' => $this->diagnosticRectValue($rect, 'x'),
+            'y' => $this->diagnosticRectValue($rect, 'y'),
+            'width' => $this->diagnosticRectValue($rect, 'width'),
+            'height' => $this->diagnosticRectValue($rect, 'height'),
+            'parent_width' => $this->diagnosticRectValue($parentRect, 'width'),
+            'parent_height' => $this->diagnosticRectValue($parentRect, 'height'),
+        ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+
+        if ( '' !== $geometrySource ) {
+            $sample['geometry_source'] = $geometrySource;
+        }
+        if ( null !== $sourceRect ) {
+            $sample['source_left'] = $this->diagnosticRectDelta($sourceRect, $parentRect, 'x');
+            $sample['source_top'] = $this->diagnosticRectDelta($sourceRect, $parentRect, 'y');
+        }
+
+        return array_filter($sample, static fn (mixed $value): bool => null !== $value && '' !== $value);
+    }
+
+    /**
+     * @param array<string, mixed> $rect
+     */
+    private function diagnosticRectValue(array $rect, string $key): mixed
+    {
+        return isset($rect[$key]) && is_numeric($rect[$key]) ? $this->reportNumericValue((float) $rect[$key]) : null;
+    }
+
+    /**
+     * @param array<string, mixed> $rect
+     * @param array<string, mixed> $parentRect
+     */
+    private function diagnosticRectDelta(array $rect, array $parentRect, string $key): mixed
+    {
+        if ( ! isset($rect[$key], $parentRect[$key]) || ! is_numeric($rect[$key]) || ! is_numeric($parentRect[$key]) ) {
+            return null;
+        }
+
+        return $this->reportNumericValue((float) $rect[$key] - (float) $parentRect[$key]);
     }
 
     /**
@@ -4770,11 +4851,7 @@ final class StaticHtmlEmitter
                 'left' => null === $left ? null : $this->reportNumericValue($left),
                 'top' => null === $top ? null : $this->reportNumericValue($top),
             ), static fn (mixed $value): bool => null !== $value && '' !== $value);
-            $classification = $this->largeCssOffsetClassification($node);
-            if ( '' !== $classification ) {
-                $sample['classification'] = $classification;
-            }
-            $sample['reason_code'] = '' !== $classification ? $classification : 'large_css_offset';
+            $this->applyDiagnosticReason($sample, $this->largeCssOffsetClassification($node), 'large_css_offset');
             $samples[] = $sample;
         }
 
@@ -4823,21 +4900,14 @@ final class StaticHtmlEmitter
      * @param array<string, array<string, float>> $cssGeometryIndex
      * @return array<int, array<string, mixed>>
      */
-    private function visualOffCanvasDiagnostics(array $visualNodeMap, array $nodeIndex, array $cssGeometryIndex): array
+    private function visualOffCanvasDiagnostics(array $visualNodeMap, array $visualNodeMapById, array $nodeIndex, array $cssGeometryIndex): array
     {
-        $byId = array();
-        foreach ( $visualNodeMap as $entry ) {
-            if ( is_array($entry) && isset($entry['id']) && is_scalar($entry['id']) ) {
-                $byId[(string) $entry['id']] = $entry;
-            }
-        }
-
         $samples = array();
         foreach ( $visualNodeMap as $entry ) {
             if ( ! is_array($entry) || ! isset($entry['parent_id']) || '' === (string) $entry['parent_id'] || ! is_array($entry['rect'] ?? null) ) {
                 continue;
             }
-            $parent = $byId[(string) $entry['parent_id']] ?? null;
+            $parent = $visualNodeMapById[(string) $entry['parent_id']] ?? null;
             if ( ! is_array($parent) || ! is_array($parent['rect'] ?? null) ) {
                 continue;
             }
@@ -4878,31 +4948,20 @@ final class StaticHtmlEmitter
                 continue;
             }
 
-            $sample = array_filter(array(
-                'node_id' => (string) ($entry['id'] ?? ''),
-                'name' => (string) ($entry['name'] ?? ($node['name'] ?? '')),
-                'type' => (string) ($entry['type'] ?? ($node['type'] ?? '')),
-                'class' => $className,
-                'parent_id' => (string) ($entry['parent_id'] ?? ''),
-                'left' => $this->reportNumericValue((float) $rect['x'] - (float) $parentRect['x']),
-                'top' => $this->reportNumericValue((float) $rect['y'] - (float) $parentRect['y']),
-                'x' => $this->reportNumericValue((float) $rect['x']),
-                'y' => $this->reportNumericValue((float) $rect['y']),
-                'width' => $this->reportNumericValue((float) $rect['width']),
-                'height' => $this->reportNumericValue((float) $rect['height']),
-                'parent_width' => $this->reportNumericValue((float) $parentRect['width']),
-                'parent_height' => $this->reportNumericValue((float) $parentRect['height']),
-            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
-            if ( array() !== $cssGeometry ) {
-                $sample['geometry_source'] = 'emitted_css';
-                $sample['source_left'] = $this->reportNumericValue((float) $sourceRect['x'] - (float) $parentRect['x']);
-                $sample['source_top'] = $this->reportNumericValue((float) $sourceRect['y'] - (float) $parentRect['y']);
-            }
-            $classification = $this->visualOffCanvasClassification($entry, $parent);
-            if ( '' !== $classification ) {
-                $sample['classification'] = $classification;
-            }
-            $sample['reason_code'] = '' !== $classification ? $classification : 'off_canvas_visual_node';
+            $sample = $this->diagnosticGeometrySample(
+                array(
+                    'node_id' => (string) ($entry['id'] ?? ''),
+                    'name' => (string) ($entry['name'] ?? ($node['name'] ?? '')),
+                    'type' => (string) ($entry['type'] ?? ($node['type'] ?? '')),
+                    'class' => $className,
+                    'parent_id' => (string) ($entry['parent_id'] ?? ''),
+                ),
+                $rect,
+                $parentRect,
+                array() !== $cssGeometry ? $sourceRect : null,
+                array() !== $cssGeometry ? 'emitted_css' : ''
+            );
+            $this->applyDiagnosticReason($sample, $this->visualOffCanvasClassification($entry, $parent), 'off_canvas_visual_node');
             $samples[] = $sample;
         }
 
@@ -4923,6 +4982,17 @@ final class StaticHtmlEmitter
         }
 
         return '';
+    }
+
+    /**
+     * @param array<string, mixed> $sample
+     */
+    private function applyDiagnosticReason(array &$sample, string $classification, string $fallbackReason): void
+    {
+        if ( '' !== $classification ) {
+            $sample['classification'] = $classification;
+        }
+        $sample['reason_code'] = '' !== $classification ? $classification : $fallbackReason;
     }
 
     /**
