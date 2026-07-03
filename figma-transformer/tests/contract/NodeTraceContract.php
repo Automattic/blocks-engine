@@ -57,6 +57,9 @@ function blocks_engine_figma_transformer_run_node_trace_contract(callable $asser
     $assert(str_contains((string) ($titleTrace['emitted']['html'] ?? ''), 'data-figma-node-id="trace:title"'), 'node-trace-emitted-html-snippet');
     $assert(str_contains((string) ($titleTrace['emitted']['css'] ?? ''), '.figma-node-trace-title-trace-title{'), 'node-trace-emitted-css-rule');
     $assert(is_array($titleTrace['visual']['rect'] ?? null), 'node-trace-visual-rect');
+    $assert(is_array($titleTrace['geometry_trace']['normalized_box'] ?? null), 'node-trace-geometry-context-normalized-box');
+    $assert(is_array($titleTrace['geometry_trace']['visual_rect'] ?? null), 'node-trace-geometry-context-visual-rect');
+    $assert(is_array($titleTrace['geometry_trace']['parent_visual_rect'] ?? null), 'node-trace-geometry-context-parent-visual-rect');
     $assert(is_array($trace['diagnostics_sample']['transform'] ?? null), 'node-trace-transform-diagnostics-sample');
 
     $cloneTrace = blocks_engine_figma_transformer_contract_run_json_fixture_script(
