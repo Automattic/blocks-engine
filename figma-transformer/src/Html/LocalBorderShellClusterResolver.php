@@ -17,7 +17,7 @@ final class LocalBorderShellClusterResolver
     public function resolve(array $parent, array $children): array
     {
         $nodes = array_values(array_filter($children, 'is_array'));
-        if ( count($nodes) < 3 || ! $this->parentCanHostLocalClusters($parent) ) {
+        if ( count($nodes) < 2 || ! $this->parentCanHostLocalClusters($parent) ) {
             return array('by_first_child_id' => array(), 'member_ids' => array());
         }
 
@@ -52,11 +52,12 @@ final class LocalBorderShellClusterResolver
                 $hasVisual = $hasVisual || null !== $this->nodeAssetPath($candidate) || $this->hasRenderableVector($candidate);
             }
 
-            if ( count($members) < 3 || ! $hasText ) {
+            $memberNodes = array_map(static fn (array $member): array => $member['node'], $members);
+            $compactTextCard = $this->shellLooksLikeCompactTextCard($shellBox, $memberNodes);
+            if ( ! $hasText || (count($members) < 3 && ! $compactTextCard) ) {
                 continue;
             }
-            $memberNodes = array_map(static fn (array $member): array => $member['node'], $members);
-            if ( ! $hasVisual && ! $this->shellLooksLikeCompactTextCard($shellBox, $memberNodes) ) {
+            if ( ! $hasVisual && ! $compactTextCard ) {
                 continue;
             }
 

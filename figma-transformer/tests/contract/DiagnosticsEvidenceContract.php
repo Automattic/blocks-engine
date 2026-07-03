@@ -105,6 +105,32 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(str_contains($localTitleRule, 'left:280px') && str_contains($localTitleRule, 'top:84px'), 'diagnostics-evidence-local-card-title-local-offset');
     $assert(1 === ($localCardDiagnostics['decision_traces']['domain_counts']['local_coordinate_grouping'] ?? null), 'diagnostics-evidence-local-card-grouping-trace-count');
 
+    $compactTextCardResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Diagnostics Compact Text Card Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'diag:compact-card-page',
+                'type'     => 'FRAME',
+                'name'     => 'Compact Card Page',
+                'width'    => 800,
+                'height'   => 420,
+                'children' => array(
+                    array('id' => 'diag:compact-card-title', 'type' => 'TEXT', 'name' => 'Compact Card Title', 'text' => 'Probiotics: Your Gut Friend', 'x' => 120, 'y' => 132, 'width' => 300, 'height' => 64),
+                    array('id' => 'diag:compact-card-shell', 'type' => 'RECTANGLE', 'name' => 'Compact Card Shell', 'x' => 100, 'y' => 100, 'width' => 350, 'height' => 165, 'strokeWeight' => 1, 'strokeAlign' => 'INSIDE', 'strokePaints' => array(array('type' => 'SOLID', 'color' => array('r' => 0.8, 'g' => 0.88, 'b' => 0.53, 'a' => 1)))),
+                ),
+            ),
+        ),
+    ));
+    $compactTextCardHtml = blocks_engine_figma_transformer_contract_file_content($compactTextCardResult, 'index.html');
+    $compactTextCardCss = blocks_engine_figma_transformer_contract_file_content($compactTextCardResult, 'style.css');
+    $compactTextCardDiagnostics = blocks_engine_figma_transformer_contract_transform_diagnostics($compactTextCardResult);
+    $compactClusterRule = blocks_engine_figma_transformer_contract_css_rule($compactTextCardCss, '.figma-node-diag-compact-card-page-local-cluster-diag-compact-card-shell-local-border-shell-cluster');
+    $compactTitleRule = blocks_engine_figma_transformer_contract_css_rule($compactTextCardCss, '.figma-node-diag-compact-card-title-compact-card-title');
+    $assert(strpos($compactTextCardHtml, 'data-figma-node-id="diag:compact-card-page/local-cluster-diag:compact-card-shell"') < strpos($compactTextCardHtml, 'data-figma-node-id="diag:compact-card-title"'), 'diagnostics-evidence-compact-text-card-cluster-wraps-title');
+    $assert(str_contains($compactClusterRule, 'left:100px') && str_contains($compactClusterRule, 'top:100px'), 'diagnostics-evidence-compact-text-card-shell-position');
+    $assert(str_contains($compactTitleRule, 'left:20px') && str_contains($compactTitleRule, 'top:32px'), 'diagnostics-evidence-compact-text-card-title-local-offset');
+    $assert(1 === ($compactTextCardDiagnostics['decision_traces']['domain_counts']['local_coordinate_grouping'] ?? null), 'diagnostics-evidence-compact-text-card-grouping-trace-count');
+
     $styleReferenceFallbackResult = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Diagnostics Style Reference Fallback Fixture',
         'nodes' => array(
