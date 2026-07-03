@@ -912,6 +912,9 @@ final class StaticHtmlEmitter
             array_push($styles, ...$buttonLayerComposition['styles']);
         }
         $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $styles);
+        if ( 'p' === $tag && $this->hasBodyTextNameIntent(strtolower($name)) && ! $this->hasExplicitUppercaseTextCase($node) ) {
+            $styles = array_values(array_filter($styles, static fn (string $style): bool => 'text-transform:uppercase' !== $style));
+        }
         if ( ! empty($styles) ) {
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
             foreach ( $this->negativeAutoLayoutSpacingRules($className, $node) as $rule ) {
