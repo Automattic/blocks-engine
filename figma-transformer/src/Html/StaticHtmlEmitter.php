@@ -64,6 +64,8 @@ final class StaticHtmlEmitter
 
     private ?EffectOverflowPolicy $effectOverflowPolicy = null;
 
+    private ?ClipMaskStyleResolver $clipMaskStyleResolver = null;
+
     private ?CssPositioningResolver $cssPositioningResolver = null;
 
     private ?CanvasShellResolver $canvasShellResolver = null;
@@ -125,6 +127,14 @@ final class StaticHtmlEmitter
     private function effectOverflowPolicy(): EffectOverflowPolicy
     {
         return $this->effectOverflowPolicy ??= new EffectOverflowPolicy();
+    }
+
+    private function clipMaskStyleResolver(): ClipMaskStyleResolver
+    {
+        return $this->clipMaskStyleResolver ??= new ClipMaskStyleResolver(
+            $this->effectOverflowPolicy(),
+            fn (array $node): bool => $this->stickyLayoutCoordinator()->containsStickyPrimary($node),
+        );
     }
 
     private function cssPositioningResolver(): CssPositioningResolver
@@ -5754,22 +5764,8 @@ final class StaticHtmlEmitter
             }
         }
 
-        if ( $this->effectOverflowPolicy()->shouldHideOverflow($node, $this->stickyLayoutCoordinator()->containsStickyPrimary($node)) ) {
-            $styles[] = 'overflow:hidden';
-        }
-
-        if ( isset($node['_figma_css_clip_path']) && is_scalar($node['_figma_css_clip_path']) && '' !== (string) $node['_figma_css_clip_path'] ) {
-            $styles[] = 'clip-path:' . (string) $node['_figma_css_clip_path'];
-        }
-
-        if ( isset($node['_figma_css_mask_image_path']) && is_scalar($node['_figma_css_mask_image_path']) && '' !== (string) $node['_figma_css_mask_image_path'] ) {
-            $maskPath = (string) $node['_figma_css_mask_image_path'];
-            $styles[] = '-webkit-mask-image:url("' . $maskPath . '")';
-            $styles[] = 'mask-image:url("' . $maskPath . '")';
-            $styles[] = '-webkit-mask-size:100% 100%';
-            $styles[] = 'mask-size:100% 100%';
-            $styles[] = '-webkit-mask-repeat:no-repeat';
-            $styles[] = 'mask-repeat:no-repeat';
+        foreach ( $this->clipMaskStyleResolver()->resolve($node) as $style ) {
+            $styles[] = $style;
         }
 
         $positioningStyleDecision = $this->positioningStyleResolver()->resolve($node, $type, $parentNode, $box, $layout, $canvasShell, $styles);
